@@ -11,6 +11,7 @@
 
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 XDEF_STRUCT(Header) {
   const char *name; /* for debug */
@@ -33,7 +34,7 @@ void *xAlloc(const char *name, const size_t size, const size_t count,
   hdr->name = name;
   hdr->size = size;
   hdr->len  = count;
-  hdr->cap  = count;
+  hdr->cap  = size * count;
   hdr->refs = 1;
   hdr->vtab = vtab;
 
@@ -77,10 +78,10 @@ void xRelease(void *ptr) {
   hdr  = (Header *)ptr - 1;
   vtab = hdr->vtab;
 
-  if (vtab->release) {
-    vtab->release(ptr);
-  }
   if (xAtomicSub(&hdr->refs, 1, __ATOMIC_SEQ_CST) == 0) {
+    if (vtab->release) {
+      vtab->release(ptr);
+    }
     xFree(ptr);
   }
 }
@@ -111,8 +112,30 @@ void xMove(void *ptr, void *other) {
 
 void *xAppend(void *ptr, void *src, size_t size) {
   Header *hdr;
+  size_t  need, newcap;
 
-  hdr = (Header *)ptr - 1;
-  hdr->size += size;
+  hdr  = (Header *)ptr - 1;
+  need = hdr->size + size;
+
+  if (need > hdr->cap) {
+    Header *newhdr;
+    newcap = hdr->cap;
+
+    /* 2 倍扩容，直到满足需求 */
+    while (newcap < need) {
+      newcap *= 2;
+    }
+
+    newhdr = (Header *)realloc(hdr, sizeof(Header) + newcap);
+    if (!newhdr)
+      return NULL;
+
+    newhdr->cap = newcap;
+    hdr = newhdr;
+    ptr = hdr + 1;
+  }
+
+  memcpy((char *)ptr + hdr->size, src, size);
+  hdr->size = need;
   return ptr;
 }

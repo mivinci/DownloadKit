@@ -6,8 +6,8 @@
  * base.h - Base definitions and macros
  */
 
-#ifndef XTHREAD_BASE_H
-#define XTHREAD_BASE_H
+#ifndef XBASE_BASE_H
+#define XBASE_BASE_H
 
 #ifdef __cplusplus
 #define XCAPI(T) extern "C" T
@@ -34,4 +34,4 @@
 #define false 0
 #endif
 
-#endif // XTHREAD_BASE_H
+#endif // XBASE_BASE_H

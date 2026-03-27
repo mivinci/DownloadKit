@@ -6,8 +6,8 @@
  * memory.c - Memory allocation and reference counting
  */
 
-#include <xthread/atomic.h>
-#include <xthread/memory.h>
+#include <xbase/atomic.h>
+#include <xbase/malloc.h>
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -15,20 +15,25 @@
 XDEF_STRUCT(Header) {
   const char *name; /* for debug */
   size_t      size;
+  size_t      len;
+  size_t      cap;
   size_t      refs;
   xVTable    *vtab;
 };
 
-void *xAlloc(const char *name, const size_t size, xVTable *vtab) {
+void *xAlloc(const char *name, const size_t size, const size_t count,
+             xVTable *vtab) {
   Header *hdr;
   void   *ptr;
 
-  hdr = (Header *)malloc(sizeof(Header) + size);
+  hdr = (Header *)malloc(sizeof(Header) + size * count);
   if (!hdr)
     return NULL;
 
   hdr->name = name;
   hdr->size = size;
+  hdr->len  = count;
+  hdr->cap  = count;
   hdr->refs = 1;
   hdr->vtab = vtab;
 
@@ -102,4 +107,12 @@ void xMove(void *ptr, void *other) {
   if (vtab->move) {
     vtab->move(ptr, other);
   }
+}
+
+void *xAppend(void *ptr, void *src, size_t size) {
+  Header *hdr;
+
+  hdr = (Header *)ptr - 1;
+  hdr->size += size;
+  return ptr;
 }

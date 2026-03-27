@@ -6,11 +6,11 @@
  * memory.h - Memory allocation and management
  */
 
-#ifndef XTHREAD_MEMORY_H
-#define XTHREAD_MEMORY_H
+#ifndef XBASE_MEMORY_H
+#define XBASE_MEMORY_H
 
 #include <stddef.h>
-#include <xthread/base.h>
+#include <xbase/base.h>
 
 #define XSYM_VTABLE(T) T##VTable
 #define XSYM_CTOR(T)   T##Ctor
@@ -20,9 +20,9 @@
 #define XDEF_CTOR(T)   static void XSYM_CTOR(T)(T * self)
 #define XDEF_DTOR(T)   static void XSYM_DTOR(T)(T * self)
 
-#define XMALLOC(T)         (T *)xAlloc(#T, sizeof(T), &XSYM_VTABLE(T))
-#define XMALLOCEX(T, ex)   (T *)xAlloc(#T, sizeof(T) + (ex), &XSYM_VTABLE(T))
-#define XMALLOCARRAY(T, n) (T *)xAlloc(#T, sizeof(T) * (n), &XSYM_VTABLE(T))
+#define XMALLOC(T)         (T *)xAlloc(#T, sizeof(T), 1, &XSYM_VTABLE(T))
+#define XMALLOCEX(T, sz)   (T *)xAlloc(#T, sizeof(T) + (sz), 1, &XSYM_VTABLE(T))
+#define XMALLOCARRAY(T, n) (T *)xAlloc(#T, sizeof(T), n, &XSYM_VTABLE(T))
 
 /**
  * @brief Virtual table for object lifecycle management.
@@ -42,10 +42,12 @@ XDEF_STRUCT(xVTable) {
  * @ingroup xMemory
  * @param name The name of the object type.
  * @param size The size of the object to allocate.
+ * @param count The number of objects to allocate.
  * @param vtab The virtual table for the object.
  * @return A pointer to the allocated object.
  */
-XCAPI(void *) xAlloc(const char *name, size_t size, xVTable *vtab);
+XCAPI(void *)
+xAlloc(const char *name, size_t size, size_t count, xVTable *vtab);
 
 /**
  * @brief Free an allocated object.
@@ -84,4 +86,13 @@ XCAPI(void) xCopy(void *ptr, void *other);
  */
 XCAPI(void) xMove(void *ptr, void *other);
 
-#endif // XTHREAD_MEMORY_H
+/**
+ * @brief Copy `size` bytes of data from `src` to `ptr`.
+ * @ingroup xMemory
+ * @param ptr The pointer to the address to copy to.
+ * @param src The pointer to the address to copy from.
+ * @param size The number of bytes to copy.
+ */
+XCAPI(void *) xAppend(void *ptr, void *src, size_t size);
+
+#endif // XBASE_MEMORY_H

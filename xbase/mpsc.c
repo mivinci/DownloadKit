@@ -6,8 +6,8 @@
  * mpsc.c - Multi-Producer Single-Consumer queue implementation
  */
 
-#include <xthread/atomic.h>
-#include <xthread/mpsc.h>
+#include <xbase/atomic.h>
+#include <xbase/mpsc.h>
 
 #include <stddef.h>
 

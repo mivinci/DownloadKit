@@ -6,10 +6,10 @@
  * error.h - Error handling
  */
 
-#ifndef XTHREAD_ERROR_H
-#define XTHREAD_ERROR_H
+#ifndef XBASE_ERROR_H
+#define XBASE_ERROR_H
 
-#include <xthread/base.h>
+#include <xbase/base.h>
 
 XDEF_ENUM(xResult){
   xResult_Ok  = 0,
@@ -28,4 +28,4 @@ XDEF_ENUM(xErrno){
  */
 void xThrow(xErrno err, const char *fmt, ...);
 
-#endif // XTHREAD_ERROR_H
+#endif // XBASE_ERROR_H

@@ -14,7 +14,7 @@ if(UNIX)
 endif()
 
 include_directories(${CMAKE_SOURCE_DIR})
-add_subdirectory(xthread)
+add_subdirectory(xbase)
 
 if(XK_BUILD_EXAMPLES)
   add_subdirectory(examples)

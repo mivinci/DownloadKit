@@ -6,8 +6,8 @@
  * atomic.h - Atomic operations
  */
 
-#ifndef XTHREAD_ATOMIC_H
-#define XTHREAD_ATOMIC_H
+#ifndef XBASE_ATOMIC_H
+#define XBASE_ATOMIC_H
 
 #define xAtomicAcquire __ATOMIC_ACQUIRE
 #define xAtomicRelease __ATOMIC_RELEASE
@@ -36,4 +36,4 @@
 #define xAtomicFetchOr(p, v, o)     __atomic_fetch_or(p, v, o)
 #define xAtomicFetchXor(p, v, o)    __atomic_fetch_xor(p, v, o)
 
-#endif // XTHREAD_ATOMIC_H
+#endif // XBASE_ATOMIC_H

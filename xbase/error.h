@@ -11,21 +11,16 @@
 
 #include <xbase/base.h>
 
-XDEF_ENUM(xResult){
-  xResult_Ok  = 0,
-  xResult_Err = -1,
-};
-
 XDEF_ENUM(xErrno){
-  xErrno_Unknown = 0,
+  xErrno_Ok             = 0,
+  xErrno_Unknown
 };
 
 /**
- * @brief Throw an error.
+ * @brief Return a human-readable error message.
  * @param err error code
- * @param fmt format string.
- * @param ... arguments to the format string.
+ * @return error message string (never NULL)
  */
-void xThrow(xErrno err, const char *fmt, ...);
+const char *xstrerror(xErrno err);
 
 #endif // XBASE_ERROR_H

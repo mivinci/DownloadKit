@@ -37,19 +37,28 @@ xMpsc *xMpscPop(xMpsc **head, xMpsc **tail) {
   _head_next = xAtomicLoad(&_head->next, xAtomicAcquire);
 
   if (!_head_next) {
-    /* queue is empty,
+    /* queue has only one node,
      * try to update tail to NULL */
-    if (!xAtomicCasStrong(tail, &_head, NULL, xAtomicRelease)) {
-      /* other thread is enqueueing new node，spin until it is done.
-       * since only thread at a time can pop nodes, it is safe to spin */
+    xMpsc *expected = _head;
+    if (!xAtomicCasStrong(tail, &expected, NULL, xAtomicRelease)) {
+      /* other thread is enqueueing new node, spin until it is done.
+       * since only one thread at a time can pop nodes, it is safe to spin. */
       while (!_head_next) {
         _head_next = xAtomicLoad(&_head->next, xAtomicAcquire);
       }
+      /* update head to the next node */
+      xAtomicStore(head, _head_next, xAtomicRelease);
+    } else {
+      /* CAS succeeded: tail is now NULL.
+       * Use CAS to set head to NULL only if head is still _head,
+       * because a concurrent push may have already updated head. */
+      expected = _head;
+      xAtomicCasStrong(head, &expected, NULL, xAtomicRelease);
     }
+  } else {
+    /* queue has more than one node, just advance head */
+    xAtomicStore(head, _head_next, xAtomicRelease);
   }
-
-  /* update head */
-  xAtomicStore(head, _head_next, xAtomicRelaxed);
   return _head;
 }
 

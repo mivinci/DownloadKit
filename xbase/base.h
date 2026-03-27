@@ -26,12 +26,14 @@
 
 #define XDEF_HANDLE(T) typedef void *T
 
+#ifndef __cplusplus
 #ifdef __STDC_VERSION__ /* C99 and later */
 #include <stdbool.h>
 #elif !defined(bool)
 #define bool  _Bool
 #define true  1
 #define false 0
+#endif
 #endif
 
 #endif // XBASE_BASE_H

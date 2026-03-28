@@ -212,7 +212,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   /* Join all workers. Note: some may have already exited due to idle timeout
    * and detached themselves. pthread_join on a detached thread returns ESRCH,
    * which we ignore. */
-  n = xAppendLength(g->workers) / sizeof(pthread_t);
+  n = xLen(g->workers) / sizeof(pthread_t);
   for (i = 0; i < n; i++) {
     pthread_join(((pthread_t *)g->workers)[i], NULL);
   }

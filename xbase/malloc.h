@@ -111,6 +111,6 @@ XCAPI(void) xClear(void *ptr);
  * @param ptr Pointer to the array allocated by xAppend.
  * @return Number of bytes appended, or 0 if ptr is NULL.
  */
-XCAPI(size_t) xAppendLength(const void *ptr);
+XCAPI(size_t) xLen(const void *ptr);
 
 #endif // XBASE_MEMORY_H

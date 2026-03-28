@@ -65,7 +65,7 @@ void xClear(void *ptr) {
   free(((Header *)ptr) - 1);
 }
 
-size_t xAppendLength(const void *ptr) {
+size_t xLen(const void *ptr) {
   const Header *hdr;
   if (!ptr) return 0;
   hdr = ((const Header *)ptr) - 1;

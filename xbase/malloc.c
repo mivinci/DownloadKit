@@ -49,13 +49,20 @@ void xFree(void *ptr) {
   Header  *hdr;
   xVTable *vtab;
 
+  if (!ptr) return;
+
   hdr  = (Header *)ptr - 1;
   vtab = hdr->vtab;
 
-  if (vtab->dtor) {
+  if (vtab && vtab->dtor) {
     vtab->dtor(ptr);
   }
   free(hdr);
+}
+
+void xClear(void *ptr) {
+  if (!ptr) return;
+  free(((Header *)ptr) - 1);
 }
 
 void xRetain(void *ptr) {
@@ -114,14 +121,30 @@ void *xAppend(void *ptr, void *src, size_t size) {
   Header *hdr;
   size_t  need, newcap;
 
-  hdr  = (Header *)ptr - 1;
+  /* NULL ptr means new allocation */
+  if (!ptr) {
+    hdr = (Header *)malloc(sizeof(Header) + size);
+    if (!hdr) return NULL;
+
+    hdr->name = NULL;
+    hdr->size = 0;
+    hdr->len  = 0;
+    hdr->cap  = size;
+    hdr->refs = 1;
+    hdr->vtab = NULL;
+
+    ptr = hdr + 1;
+  } else {
+    hdr = (Header *)ptr - 1;
+  }
+
   need = hdr->size + size;
 
   if (need > hdr->cap) {
     Header *newhdr;
     newcap = hdr->cap;
 
-    /* 2 倍扩容，直到满足需求 */
+    /* Double until we have enough room */
     while (newcap < need) {
       newcap *= 2;
     }

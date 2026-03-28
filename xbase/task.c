@@ -126,15 +126,12 @@ static bool spawn_one_worker(struct xTaskGroup_ *g) {
     return false;
   }
 
-  pthread_t *new_workers = (pthread_t *)realloc(
-      g->workers, (g->nthreads + 1) * sizeof(pthread_t));
-  if (!new_workers) {
+  g->workers = xAppend(g->workers, &new_worker, sizeof(pthread_t));
+  if (!g->workers) {
     pthread_detach(new_worker);
     return false;
   }
 
-  new_workers[g->nthreads] = new_worker;
-  g->workers = new_workers;
   g->nthreads++;
   return true;
 }
@@ -188,7 +185,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
     free(t);
   }
 
-  free(g->workers);
+  xClear(g->workers);
   pthread_mutex_destroy(&g->qlock);
   pthread_cond_destroy(&g->qcond);
   free(g);

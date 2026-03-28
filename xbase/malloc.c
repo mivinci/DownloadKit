@@ -62,7 +62,7 @@ void xFree(void *ptr) {
 
 void xClear(void *ptr) {
   if (!ptr) return;
-  free((Header *)ptr - 1);
+  free(((Header *)ptr) - 1);
 }
 
 void xRetain(void *ptr) {

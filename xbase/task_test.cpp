@@ -55,7 +55,16 @@ TEST_F(TaskTest, CreateAndDestroy) {
 }
 
 TEST_F(TaskTest, ThreadsCount) {
-  EXPECT_EQ(xTaskGroupThreads(g), 4);
+  /* Lazy-loading: no thread created until first task */
+  EXPECT_EQ(xTaskGroupThreads(g), 0);
+
+  /* Submit one task — thread should be spawned */
+  xTask t = xTaskSubmit(g, noop, nullptr);
+  ASSERT_NE(t, nullptr);
+  xTaskWait(t);
+
+  /* At least one thread should have been created */
+  EXPECT_GE(xTaskGroupThreads(g), 1);
 }
 
 TEST_F(TaskTest, PendingInitiallyZero) {
@@ -231,7 +240,13 @@ TEST_F(TaskTest, QueueCapRejectsWhenFull) {
 TEST(TaskGroupAuto, ZeroThreadsAutoDetect) {
   xTaskGroup g = xTaskGroupCreate(nullptr);
   ASSERT_NE(g, nullptr);
-  EXPECT_GT(xTaskGroupThreads(g), 0);
+  /* Lazy-loading: threads are created on demand */
+  EXPECT_EQ(xTaskGroupThreads(g), 0);
+
+  xTask t = xTaskSubmit(g, noop, nullptr);
+  ASSERT_NE(t, nullptr);
+  xTaskWait(t);
+  EXPECT_GE(xTaskGroupThreads(g), 1);
   xTaskGroupDestroy(g);
 }
 

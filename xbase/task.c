@@ -4,6 +4,10 @@
  * found in the LICENSE file.
  *
  * task.c - N:M concurrent task model implementation
+ *
+ * Thread pool with lazy thread creation: threads are spawned on-demand
+ * when tasks are submitted and no idle thread is available, up to the
+ * configured max. Beyond that, tasks are queued.
  */
 
 #include <xbase/task.h>
@@ -31,10 +35,11 @@ struct xTask_ {
 };
 
 struct xTaskGroup_ {
-  pthread_t      *workers;
-  size_t          nthreads;
+  pthread_t      *workers;       /* dynamic array, grows as needed */
+  size_t          max_threads;   /* upper bound from config */
+  size_t          nthreads;      /* current number of live workers */
 
-  /* Task queue (MPMC via mutex + cond) */
+  /* Task queue (protected by qlock) */
   pthread_mutex_t qlock;
   pthread_cond_t  qcond;
   struct xTask_  *qhead;
@@ -42,8 +47,13 @@ struct xTaskGroup_ {
   size_t          qsize;
   size_t          qcap;
 
-  /* Number of tasks not yet completed (submitted but not finished) */
-  atomic_size_t   pending;
+  /* Idle worker count: workers that have popped a task and finished
+   * their work, waiting for more. When a new task arrives and
+   * idle > 0, we signal qcond to wake one instead of spawning. */
+  size_t          idle;
+
+  atomic_size_t   pending;       /* submitted - finished */
+  atomic_size_t   done_count;   /* tasks that have completed */
 
   bool            shutdown;
 };
@@ -60,30 +70,31 @@ static inline struct xTask_ *tsk(xTask t) {
 
 static void *worker_loop(void *arg) {
   struct xTaskGroup_ *g = grp(arg);
-  struct xTask_      *task;
 
   for (;;) {
     pthread_mutex_lock(&g->qlock);
 
+    /* Mark this thread as idle — waiting for work */
+    g->idle++;
     while (!g->qhead && !g->shutdown) {
       pthread_cond_wait(&g->qcond, &g->qlock);
     }
+    g->idle--;
 
     if (g->shutdown && !g->qhead) {
       pthread_mutex_unlock(&g->qlock);
       return NULL;
     }
 
-    /* Dequeue */
-    task     = g->qhead;
+    /* Dequeue one task */
+    struct xTask_ *task = g->qhead;
     g->qhead = task->next;
-    if (!g->qhead) {
-      g->qtail = NULL;
-    }
+    if (!g->qhead) g->qtail = NULL;
     g->qsize--;
+
     pthread_mutex_unlock(&g->qlock);
 
-    /* Execute */
+    /* Execute the task */
     task->fn(task->arg);
 
     /* Mark done and wake waiters */
@@ -93,7 +104,8 @@ static void *worker_loop(void *arg) {
     pthread_cond_broadcast(&task->cond);
     pthread_mutex_unlock(&task->lock);
 
-    /* Decrement pending; wake GroupWait if all done */
+    /* Update counters and wake GroupWait if all done */
+    atomic_fetch_add(&g->done_count, 1);
     if (atomic_fetch_sub(&g->pending, 1) == 1) {
       pthread_mutex_lock(&g->qlock);
       pthread_cond_signal(&g->qcond);
@@ -102,90 +114,85 @@ static void *worker_loop(void *arg) {
   }
 }
 
+/* ───────────────────── Helpers ───────────────────── */
+
+static bool spawn_one_worker(struct xTaskGroup_ *g) {
+  if (g->nthreads >= g->max_threads) return false;
+
+  pthread_t *new_workers = (pthread_t *)realloc(
+      g->workers, (g->nthreads + 1) * sizeof(pthread_t));
+  if (!new_workers) return false;
+
+  g->workers = new_workers;
+
+  if (pthread_create(&g->workers[g->nthreads], NULL, worker_loop, g) != 0) {
+    return false;
+  }
+
+  g->nthreads++;
+  return true;
+}
+
 /* ───────────────────── xTaskGroup API ───────────────────── */
 
 xTaskGroup xTaskGroupCreate(const xTaskGroupConf *conf) {
   struct xTaskGroup_ *g;
-  size_t              nthreads;
 
-  g = (struct xTaskGroup_ *)malloc(sizeof(struct xTaskGroup_));
+  g = (struct xTaskGroup_ *)calloc(1, sizeof(struct xTaskGroup_));
   if (!g) return NULL;
 
-  memset(g, 0, sizeof(*g));
-
-  nthreads = (conf && conf->nthreads) ? conf->nthreads : 0;
-  if (nthreads == 0) {
-    long ncpus = sysconf(_SC_NPROCESSORS_ONLN);
-    nthreads   = (ncpus > 0) ? (size_t)ncpus : 4;
-  }
-
-  g->nthreads = nthreads;
-  g->qcap     = (conf && conf->queue_cap) ? conf->queue_cap : 0;
+  /* max_threads: 0 means unlimited (no cap) — use a large default cap */
+  g->max_threads = (conf && conf->nthreads) ? conf->nthreads : (size_t)-1;
+  g->nthreads    = 0;
+  g->workers     = NULL;
+  g->qcap        = (conf && conf->queue_cap) ? conf->queue_cap : 0;
 
   pthread_mutex_init(&g->qlock, NULL);
   pthread_cond_init(&g->qcond, NULL);
+
   atomic_store(&g->pending, 0);
+  atomic_store(&g->done_count, 0);
+  g->idle     = 0;
   g->shutdown = false;
-
-  /* Create workers */
-  g->workers = (pthread_t *)calloc(nthreads, sizeof(pthread_t));
-  if (!g->workers) {
-    pthread_mutex_destroy(&g->qlock);
-    pthread_cond_destroy(&g->qcond);
-    free(g);
-    return NULL;
-  }
-
-  for (size_t i = 0; i < nthreads; i++) {
-    if (pthread_create(&g->workers[i], NULL, worker_loop, g) != 0) {
-      /* Cleanup on partial failure */
-      g->shutdown = true;
-      pthread_cond_broadcast(&g->qcond);
-      for (size_t j = 0; j < i; j++) {
-        pthread_join(g->workers[j], NULL);
-      }
-      free(g->workers);
-      pthread_mutex_destroy(&g->qlock);
-      pthread_cond_destroy(&g->qcond);
-      free(g);
-      return NULL;
-    }
-  }
 
   return g;
 }
 
-void xTaskGroupDestroy(xTaskGroup g) {
-  struct xTaskGroup_ *ig;
+void xTaskGroupDestroy(xTaskGroup g_) {
+  struct xTaskGroup_ *g = grp(g_);
+  size_t              i;
 
   if (!g) return;
 
-  ig = grp(g);
+  pthread_mutex_lock(&g->qlock);
+  g->shutdown = true;
+  pthread_cond_broadcast(&g->qcond);  /* wake all idle workers */
+  pthread_mutex_unlock(&g->qlock);
 
-  xTaskGroupWait(g);
-
-  pthread_mutex_lock(&ig->qlock);
-  ig->shutdown = true;
-  pthread_cond_broadcast(&ig->qcond);
-  pthread_mutex_unlock(&ig->qlock);
-
-  for (size_t i = 0; i < ig->nthreads; i++) {
-    pthread_join(ig->workers[i], NULL);
+  for (i = 0; i < g->nthreads; i++) {
+    pthread_join(g->workers[i], NULL);
   }
 
-  free(ig->workers);
-  pthread_mutex_destroy(&ig->qlock);
-  pthread_cond_destroy(&ig->qcond);
-  free(ig);
+  /* Drain and free any remaining queued tasks */
+  while (g->qhead) {
+    struct xTask_ *t = g->qhead;
+    g->qhead = t->next;
+    pthread_mutex_destroy(&t->lock);
+    pthread_cond_destroy(&t->cond);
+    free(t);
+  }
+
+  free(g->workers);
+  pthread_mutex_destroy(&g->qlock);
+  pthread_cond_destroy(&g->qcond);
+  free(g);
 }
 
-xTask xTaskSubmit(xTaskGroup g, xTaskFunc fn, void *arg) {
-  struct xTaskGroup_ *ig;
+xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
+  struct xTaskGroup_ *g = grp(g_);
   struct xTask_      *task;
 
-  if (!g || !fn) return NULL;
-
-  ig = grp(g);
+  if (!g_ || !fn) return NULL;
 
   task = (struct xTask_ *)calloc(1, sizeof(struct xTask_));
   if (!task) return NULL;
@@ -199,78 +206,86 @@ xTask xTaskSubmit(xTaskGroup g, xTaskFunc fn, void *arg) {
   pthread_mutex_init(&task->lock, NULL);
   pthread_cond_init(&task->cond, NULL);
 
-  pthread_mutex_lock(&ig->qlock);
+  pthread_mutex_lock(&g->qlock);
 
   /* Check queue capacity */
-  if (ig->qcap > 0 && ig->qsize >= ig->qcap) {
-    pthread_mutex_unlock(&ig->qlock);
+  if (g->qcap > 0 && g->qsize >= g->qcap) {
+    pthread_mutex_unlock(&g->qlock);
     pthread_mutex_destroy(&task->lock);
     pthread_cond_destroy(&task->cond);
     free(task);
     return NULL;
   }
 
-  /* Enqueue */
-  if (ig->qtail) {
-    ig->qtail->next = task;
+  /* Enqueue the task first */
+  if (g->qtail) {
+    g->qtail->next = task;
   } else {
-    ig->qhead = task;
+    g->qhead = task;
   }
-  ig->qtail = task;
-  ig->qsize++;
+  g->qtail = task;
+  g->qsize++;
 
-  atomic_fetch_add(&ig->pending, 1);
-  pthread_cond_signal(&ig->qcond);
+  atomic_fetch_add(&g->pending, 1);
 
-  pthread_mutex_unlock(&ig->qlock);
+  /* Try to dispatch to an idle worker first */
+  if (g->idle > 0) {
+    pthread_cond_signal(&g->qcond);
+    pthread_mutex_unlock(&g->qlock);
+    return task;
+  }
 
+  /* No idle worker — try to spawn a new one if under the cap */
+  if (spawn_one_worker(g)) {
+    pthread_cond_signal(&g->qcond);
+  }
+  /* If at cap, just leave the task in the queue; existing workers
+   * or future spawns will pick it up. */
+
+  pthread_mutex_unlock(&g->qlock);
   return task;
 }
 
-xErrno xTaskWait(xTask t) {
-  struct xTask_ *it;
+xErrno xTaskWait(xTask t_) {
+  struct xTask_ *t = tsk(t_);
   xErrno         err;
 
   if (!t) return xErrno_Unknown;
 
-  it = tsk(t);
-
-  pthread_mutex_lock(&it->lock);
-  while (!it->done) {
-    pthread_cond_wait(&it->cond, &it->lock);
+  pthread_mutex_lock(&t->lock);
+  while (!t->done) {
+    pthread_cond_wait(&t->cond, &t->lock);
   }
-  err = it->err;
-  pthread_mutex_unlock(&it->lock);
+  err = t->err;
+  pthread_mutex_unlock(&t->lock);
 
-  pthread_mutex_destroy(&it->lock);
-  pthread_cond_destroy(&it->cond);
-  free(it);
+  pthread_mutex_destroy(&t->lock);
+  pthread_cond_destroy(&t->cond);
+  free(t);
 
   return err;
 }
 
-xErrno xTaskGroupWait(xTaskGroup g) {
-  struct xTaskGroup_ *ig;
+xErrno xTaskGroupWait(xTaskGroup g_) {
+  struct xTaskGroup_ *g = grp(g_);
 
-  if (!g) return xErrno_Unknown;
+  if (!g_) return xErrno_Unknown;
 
-  ig = grp(g);
-
-  pthread_mutex_lock(&ig->qlock);
-  while (atomic_load(&ig->pending) > 0) {
-    pthread_cond_wait(&ig->qcond, &ig->qlock);
+  pthread_mutex_lock(&g->qlock);
+  while (atomic_load(&g->pending) > 0) {
+    pthread_cond_wait(&g->qcond, &g->qlock);
   }
-  pthread_mutex_unlock(&ig->qlock);
+  pthread_mutex_unlock(&g->qlock);
 
   return xErrno_Ok;
 }
 
-size_t xTaskGroupThreads(xTaskGroup g) {
-  if (!g) return 0;
-  return grp(g)->nthreads;
+size_t xTaskGroupThreads(xTaskGroup g_) {
+  if (!g_) return 0;
+  return grp(g_)->nthreads;
 }
 
-size_t xTaskGroupPending(xTaskGroup g) {
-  if (!g) return 0;
-  return atomic_load(&grp(g)->pending);
+size_t xTaskGroupPending(xTaskGroup g_) {
+  if (!g_) return 0;
+  return atomic_load(&grp(g_)->pending);
 }

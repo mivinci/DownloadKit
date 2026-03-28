@@ -22,7 +22,6 @@
 
 #define XMALLOC(T)         (T *)xAlloc(#T, sizeof(T), 1, &XSYM_VTABLE(T))
 #define XMALLOCEX(T, sz)   (T *)xAlloc(#T, sizeof(T) + (sz), 1, &XSYM_VTABLE(T))
-#define XMALLOCARRAY(T, n) (T *)xAlloc(#T, sizeof(T), n, &XSYM_VTABLE(T))
 
 /**
  * @brief Virtual table for object lifecycle management.

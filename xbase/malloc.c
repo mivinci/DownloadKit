@@ -16,8 +16,6 @@
 XDEF_STRUCT(Header) {
   const char *name; /* for debug */
   size_t      size;
-  size_t      len;
-  size_t      cap;
   size_t      refs;
   xVTable    *vtab;
 };
@@ -33,12 +31,10 @@ void *xAlloc(const char *name, const size_t size, const size_t count,
 
   hdr->name = name;
   hdr->size = size;
-  hdr->len  = count;
-  hdr->cap  = size * count;
   hdr->refs = 1;
   hdr->vtab = vtab;
 
-  ptr = hdr + 1;
+  ptr = (void *)(hdr + 1);
   if (vtab->ctor) {
     vtab->ctor(ptr);
   }

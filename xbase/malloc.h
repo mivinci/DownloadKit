@@ -86,31 +86,4 @@ XCAPI(void) xCopy(void *ptr, void *other);
  */
 XCAPI(void) xMove(void *ptr, void *other);
 
-/**
- * @brief Append elements to a dynamic array.
- * If ptr is NULL, allocates a new array.
- * If ptr is not NULL, appends to the existing array, growing as needed (2x).
- * @ingroup xMemory
- * @param ptr Pointer to the array (NULL to create new).
- * @param src Pointer to the data to append.
- * @param size Number of bytes to append.
- * @return Pointer to the (possibly relocated) array, or NULL on error.
- */
-XCAPI(void *) xAppend(void *ptr, void *src, size_t size);
-
-/**
- * @brief Free a dynamic array allocated by xAppend.
- * @ingroup xMemory
- * @param ptr Pointer to the array allocated by xAppend.
- */
-XCAPI(void) xClear(void *ptr);
-
-/**
- * @brief Get the number of elements in a dynamic array.
- * @ingroup xMemory
- * @param ptr Pointer to the array allocated by xAppend.
- * @return Number of elements, or 0 if ptr is NULL.
- */
-XCAPI(size_t) xLen(const void *ptr);
-
 #endif // XBASE_MEMORY_H

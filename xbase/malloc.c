@@ -60,18 +60,6 @@ void xFree(void *ptr) {
   free(hdr);
 }
 
-void xClear(void *ptr) {
-  if (!ptr) return;
-  free(((Header *)ptr) - 1);
-}
-
-size_t xLen(const void *ptr) {
-  const Header *hdr;
-  if (!ptr) return 0;
-  hdr = ((const Header *)ptr) - 1;
-  return hdr->len;
-}
-
 void xRetain(void *ptr) {
   Header  *hdr;
   xVTable *vtab;
@@ -122,48 +110,4 @@ void xMove(void *ptr, void *other) {
   if (vtab->move) {
     vtab->move(ptr, other);
   }
-}
-
-void *xAppend(void *ptr, void *src, size_t size) {
-  Header *hdr;
-  size_t  need, newcap;
-
-  /* NULL ptr means new allocation */
-  if (!ptr) {
-    hdr = (Header *)malloc(sizeof(Header) + size);
-    if (!hdr) return NULL;
-
-    hdr->name = NULL;
-    hdr->size = size;   /* element size (bytes per element) */
-    hdr->len  = 1;       /* one element appended */
-    hdr->cap  = size;
-    hdr->refs = 1;
-    hdr->vtab = NULL;
-
-    ptr = hdr + 1;
-    memcpy(ptr, src, size);
-    return ptr;
-  }
-
-  hdr = (Header *)ptr - 1;
-  need = hdr->size * (hdr->len + 1);
-
-  if (need > hdr->cap) {
-    newcap = hdr->cap;
-
-    /* Double until we have enough room */
-    while (newcap < need) {
-      newcap *= 2;
-    }
-
-    hdr = (Header *)realloc(hdr, sizeof(Header) + newcap);
-    if (!hdr) return NULL;
-
-    hdr->cap = newcap;
-    ptr = hdr + 1;
-  }
-
-  hdr->len++;
-  memcpy((char *)ptr + hdr->size * (hdr->len - 1), src, hdr->size);
-  return ptr;
 }

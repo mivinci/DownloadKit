@@ -17,7 +17,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <xbase/malloc.h>
 
 /* ───────────────────── Internal types ───────────────────── */
 
@@ -36,9 +35,9 @@ struct xTask_ {
 };
 
 struct xTaskGroup_ {
-  void           *workers;       /* dynamic array via xAppend, stores pthread_t */
-  size_t          max_threads;   /* upper bound from config */
-  size_t          nthreads;      /* current number of live workers */
+  pthread_t      *workers;
+  size_t          max_threads;
+  size_t          nthreads;
 
   /* Task queue (protected by qlock) */
   pthread_mutex_t qlock;
@@ -118,20 +117,19 @@ static void *worker_loop(void *arg) {
 /* ───────────────────── Helpers ───────────────────── */
 
 static bool spawn_one_worker(struct xTaskGroup_ *g) {
-  pthread_t new_worker;
+  pthread_t *new_workers;
 
   if (g->nthreads >= g->max_threads) return false;
 
-  if (pthread_create(&new_worker, NULL, worker_loop, g) != 0) {
+  new_workers = (pthread_t *)realloc(
+      g->workers, (g->nthreads + 1) * sizeof(pthread_t));
+  if (!new_workers) return false;
+
+  if (pthread_create(&new_workers[g->nthreads], NULL, worker_loop, g) != 0) {
     return false;
   }
 
-  g->workers = xAppend(g->workers, &new_worker, sizeof(pthread_t));
-  if (!g->workers) {
-    pthread_detach(new_worker);
-    return false;
-  }
-
+  g->workers  = new_workers;
   g->nthreads++;
   return true;
 }
@@ -146,8 +144,8 @@ xTaskGroup xTaskGroupCreate(const xTaskGroupConf *conf) {
 
   /* max_threads: 0 means unlimited (no cap) — use a large default cap */
   g->max_threads = (conf && conf->nthreads) ? conf->nthreads : (size_t)-1;
-  g->nthreads    = 0;
-  g->workers     = NULL;
+  g->nthreads = 0;
+  g->workers  = NULL;
   g->qcap        = (conf && conf->queue_cap) ? conf->queue_cap : 0;
 
   pthread_mutex_init(&g->qlock, NULL);
@@ -173,7 +171,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   pthread_mutex_unlock(&g->qlock);
 
   for (i = 0; i < g->nthreads; i++) {
-    pthread_join(((pthread_t *)g->workers)[i], NULL);
+    pthread_join(g->workers[i], NULL);
   }
 
   /* Drain and free any remaining queued tasks */
@@ -185,7 +183,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
     free(t);
   }
 
-  xClear(g->workers);
+  free(g->workers);
   pthread_mutex_destroy(&g->qlock);
   pthread_cond_destroy(&g->qcond);
   free(g);

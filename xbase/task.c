@@ -38,7 +38,6 @@ struct xTask_ {
 struct xTaskGroup_ {
   void           *workers;       /* dynamic array via xAppend, stores pthread_t */
   size_t          max_threads;   /* upper bound from config */
-  size_t          nthreads;      /* current number of live workers */
 
   /* Task queue (protected by qlock) */
   pthread_mutex_t qlock;
@@ -120,7 +119,7 @@ static void *worker_loop(void *arg) {
 static bool spawn_one_worker(struct xTaskGroup_ *g) {
   pthread_t new_worker;
 
-  if (g->nthreads >= g->max_threads) return false;
+  if (xLen(g->workers) >= g->max_threads) return false;
 
   if (pthread_create(&new_worker, NULL, worker_loop, g) != 0) {
     return false;
@@ -132,7 +131,6 @@ static bool spawn_one_worker(struct xTaskGroup_ *g) {
     return false;
   }
 
-  g->nthreads++;
   return true;
 }
 
@@ -146,7 +144,6 @@ xTaskGroup xTaskGroupCreate(const xTaskGroupConf *conf) {
 
   /* max_threads: 0 means unlimited (no cap) — use a large default cap */
   g->max_threads = (conf && conf->nthreads) ? conf->nthreads : (size_t)-1;
-  g->nthreads    = 0;
   g->workers     = NULL;
   g->qcap        = (conf && conf->queue_cap) ? conf->queue_cap : 0;
 
@@ -172,7 +169,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   pthread_cond_broadcast(&g->qcond);  /* wake all idle workers */
   pthread_mutex_unlock(&g->qlock);
 
-  for (i = 0; i < g->nthreads; i++) {
+  for (i = 0; i < xLen(g->workers); i++) {
     pthread_join(((pthread_t *)g->workers)[i], NULL);
   }
 
@@ -285,7 +282,7 @@ xErrno xTaskGroupWait(xTaskGroup g_) {
 
 size_t xTaskGroupThreads(xTaskGroup g_) {
   if (!g_) return 0;
-  return grp(g_)->nthreads;
+  return xLen(grp(g_)->workers);
 }
 
 size_t xTaskGroupPending(xTaskGroup g_) {

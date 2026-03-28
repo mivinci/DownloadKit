@@ -17,6 +17,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
+#include <errno.h>
 #include <xbase/malloc.h>
 
 /* ───────────────────── Internal types ───────────────────── */
@@ -38,7 +40,8 @@ struct xTask_ {
 struct xTaskGroup_ {
   void           *workers;       /* dynamic array via xAppend, stores pthread_t */
   size_t          max_threads;   /* upper bound from config */
-  size_t          nthreads;      /* current number of live workers */
+  atomic_size_t   nthreads;      /* current number of live workers */
+  unsigned int    idle_timeout_ms; /* idle timeout before worker exits */
 
   /* Task queue (protected by qlock) */
   pthread_mutex_t qlock;
@@ -71,16 +74,45 @@ static inline struct xTask_ *tsk(xTask t) {
 
 static void *worker_loop(void *arg) {
   struct xTaskGroup_ *g = grp(arg);
+  struct timespec     ts;
+  bool                timed_out;
 
   for (;;) {
     pthread_mutex_lock(&g->qlock);
 
     /* Mark this thread as idle — waiting for work */
     g->idle++;
+    timed_out = false;
+
     while (!g->qhead && !g->shutdown) {
-      pthread_cond_wait(&g->qcond, &g->qlock);
+      if (g->idle_timeout_ms > 0) {
+        /* Use timed wait with idle timeout */
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec  += g->idle_timeout_ms / 1000;
+        ts.tv_nsec += (g->idle_timeout_ms % 1000) * 1000000;
+        if (ts.tv_nsec >= 1000000000) {
+          ts.tv_sec  += 1;
+          ts.tv_nsec -= 1000000000;
+        }
+
+        int rc = pthread_cond_timedwait(&g->qcond, &g->qlock, &ts);
+        if (rc == ETIMEDOUT && !g->qhead && !g->shutdown) {
+          timed_out = true;
+          break;
+        }
+      } else {
+        pthread_cond_wait(&g->qcond, &g->qlock);
+      }
     }
     g->idle--;
+
+    /* Idle timeout: exit this worker thread */
+    if (timed_out) {
+      pthread_mutex_unlock(&g->qlock);
+      atomic_fetch_sub(&g->nthreads, 1);
+      pthread_detach(pthread_self());
+      return NULL;
+    }
 
     if (g->shutdown && !g->qhead) {
       pthread_mutex_unlock(&g->qlock);
@@ -120,19 +152,23 @@ static void *worker_loop(void *arg) {
 static bool spawn_one_worker(struct xTaskGroup_ *g) {
   pthread_t new_worker;
 
-  if (g->nthreads >= g->max_threads) return false;
+  if (atomic_load(&g->nthreads) >= g->max_threads) return false;
 
   if (pthread_create(&new_worker, NULL, worker_loop, g) != 0) {
     return false;
   }
 
+  /* Store the pthread_t in workers array. The array is never shrunk,
+   * but that's fine — exited threads are detached and we only join
+   * during Destroy. The array may contain stale pthread_t values,
+   * but pthread_join on a detached/joined thread safely returns ESRCH. */
   g->workers = xAppend(g->workers, &new_worker, sizeof(pthread_t));
   if (!g->workers) {
     pthread_detach(new_worker);
     return false;
   }
 
-  g->nthreads++;
+  atomic_fetch_add(&g->nthreads, 1);
   return true;
 }
 
@@ -145,10 +181,11 @@ xTaskGroup xTaskGroupCreate(const xTaskGroupConf *conf) {
   if (!g) return NULL;
 
   /* max_threads: 0 means unlimited (no cap) — use a large default cap */
-  g->max_threads = (conf && conf->nthreads) ? conf->nthreads : (size_t)-1;
-  g->nthreads    = 0;
-  g->workers     = NULL;
-  g->qcap        = (conf && conf->queue_cap) ? conf->queue_cap : 0;
+  g->max_threads     = (conf && conf->nthreads) ? conf->nthreads : (size_t)-1;
+  g->idle_timeout_ms = (conf && conf->idle_timeout_ms) ? conf->idle_timeout_ms : 0;
+  atomic_store(&g->nthreads, 0);
+  g->workers = NULL;
+  g->qcap    = (conf && conf->queue_cap) ? conf->queue_cap : 0;
 
   pthread_mutex_init(&g->qlock, NULL);
   pthread_cond_init(&g->qcond, NULL);
@@ -163,7 +200,7 @@ xTaskGroup xTaskGroupCreate(const xTaskGroupConf *conf) {
 
 void xTaskGroupDestroy(xTaskGroup g_) {
   struct xTaskGroup_ *g = grp(g_);
-  size_t              i;
+  size_t              i, n;
 
   if (!g) return;
 
@@ -172,7 +209,11 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   pthread_cond_broadcast(&g->qcond);  /* wake all idle workers */
   pthread_mutex_unlock(&g->qlock);
 
-  for (i = 0; i < g->nthreads; i++) {
+  /* Join all workers. Note: some may have already exited due to idle timeout
+   * and detached themselves. pthread_join on a detached thread returns ESRCH,
+   * which we ignore. */
+  n = xAppendLength(g->workers) / sizeof(pthread_t);
+  for (i = 0; i < n; i++) {
     pthread_join(((pthread_t *)g->workers)[i], NULL);
   }
 
@@ -285,7 +326,7 @@ xErrno xTaskGroupWait(xTaskGroup g_) {
 
 size_t xTaskGroupThreads(xTaskGroup g_) {
   if (!g_) return 0;
-  return grp(g_)->nthreads;
+  return atomic_load(&grp(g_)->nthreads);
 }
 
 size_t xTaskGroupPending(xTaskGroup g_) {

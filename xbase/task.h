@@ -32,8 +32,9 @@ XDEF_HANDLE(xTask);
  * @ingroup xTask
  */
 XDEF_STRUCT(xTaskGroupConf) {
-  size_t nthreads;    /**< Number of worker threads (M). 0 = auto-detect. */
-  size_t queue_cap;   /**< Task queue capacity. 0 = unbounded. */
+  size_t nthreads;       /**< Max worker threads. 0 = unlimited. */
+  size_t queue_cap;      /**< Task queue capacity. 0 = unbounded. */
+  unsigned int idle_timeout_ms; /**< Idle timeout in ms before worker exits. 0 = never. */
 };
 
 /**

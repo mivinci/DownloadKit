@@ -105,4 +105,12 @@ XCAPI(void *) xAppend(void *ptr, void *src, size_t size);
  */
 XCAPI(void) xClear(void *ptr);
 
+/**
+ * @brief Get the length (in bytes) of a dynamic array.
+ * @ingroup xMemory
+ * @param ptr Pointer to the array allocated by xAppend.
+ * @return Number of bytes appended, or 0 if ptr is NULL.
+ */
+XCAPI(size_t) xAppendLength(const void *ptr);
+
 #endif // XBASE_MEMORY_H

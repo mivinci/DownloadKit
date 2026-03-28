@@ -65,6 +65,13 @@ void xClear(void *ptr) {
   free(((Header *)ptr) - 1);
 }
 
+size_t xAppendLength(const void *ptr) {
+  const Header *hdr;
+  if (!ptr) return 0;
+  hdr = ((const Header *)ptr) - 1;
+  return hdr->size;
+}
+
 void xRetain(void *ptr) {
   Header  *hdr;
   xVTable *vtab;

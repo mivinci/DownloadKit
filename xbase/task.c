@@ -110,7 +110,6 @@ static void *worker_loop(void *arg) {
     if (timed_out) {
       pthread_mutex_unlock(&g->qlock);
       atomic_fetch_sub(&g->nthreads, 1);
-      pthread_detach(pthread_self());
       return NULL;
     }
 
@@ -209,9 +208,8 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   pthread_cond_broadcast(&g->qcond);  /* wake all idle workers */
   pthread_mutex_unlock(&g->qlock);
 
-  /* Join all workers. Note: some may have already exited due to idle timeout
-   * and detached themselves. pthread_join on a detached thread returns ESRCH,
-   * which we ignore. */
+  /* Join all workers. Note: some may have already exited due to idle timeout.
+   * pthread_join on an already-exited thread returns ESRCH, which we ignore. */
   n = xLen(g->workers) / sizeof(pthread_t);
   for (i = 0; i < n; i++) {
     pthread_join(((pthread_t *)g->workers)[i], NULL);

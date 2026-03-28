@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <xbase/malloc.h>
 
 /* ───────────────────── Internal types ───────────────────── */
 
@@ -35,7 +36,7 @@ struct xTask_ {
 };
 
 struct xTaskGroup_ {
-  pthread_t      *workers;       /* dynamic array, grows as needed */
+  void           *workers;       /* dynamic array via xAppend, stores pthread_t */
   size_t          max_threads;   /* upper bound from config */
   size_t          nthreads;      /* current number of live workers */
 
@@ -117,18 +118,23 @@ static void *worker_loop(void *arg) {
 /* ───────────────────── Helpers ───────────────────── */
 
 static bool spawn_one_worker(struct xTaskGroup_ *g) {
+  pthread_t new_worker;
+
   if (g->nthreads >= g->max_threads) return false;
 
-  pthread_t *new_workers = (pthread_t *)realloc(
-      g->workers, (g->nthreads + 1) * sizeof(pthread_t));
-  if (!new_workers) return false;
-
-  g->workers = new_workers;
-
-  if (pthread_create(&g->workers[g->nthreads], NULL, worker_loop, g) != 0) {
+  if (pthread_create(&new_worker, NULL, worker_loop, g) != 0) {
     return false;
   }
 
+  pthread_t *new_workers = (pthread_t *)realloc(
+      g->workers, (g->nthreads + 1) * sizeof(pthread_t));
+  if (!new_workers) {
+    pthread_detach(new_worker);
+    return false;
+  }
+
+  new_workers[g->nthreads] = new_worker;
+  g->workers = new_workers;
   g->nthreads++;
   return true;
 }
@@ -170,7 +176,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   pthread_mutex_unlock(&g->qlock);
 
   for (i = 0; i < g->nthreads; i++) {
-    pthread_join(g->workers[i], NULL);
+    pthread_join(((pthread_t *)g->workers)[i], NULL);
   }
 
   /* Drain and free any remaining queued tasks */

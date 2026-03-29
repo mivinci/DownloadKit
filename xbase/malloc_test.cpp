@@ -10,6 +10,8 @@
 
 #include <atomic>
 #include <cstring>
+#include <thread>
+#include <vector>
 
 extern "C" {
 #include <xbase/malloc.h>
@@ -225,6 +227,85 @@ TEST_F(MallocTest, MoveNullVtableNoCrash) {
   EXPECT_EQ(g_calls.move.load(), 0);
   xFree(a);
   xFree(b);
+}
+
+/* ========== Thread Safety ========== */
+
+TEST_F(MallocTest, ConcurrentRetainRelease) {
+  constexpr int NTHREADS  = 8;
+  constexpr int NRETAINS  = 10000;
+
+  Obj *o = XMALLOC(Obj);
+  g_calls.reset();
+
+  std::vector<std::thread> threads;
+  for (int t = 0; t < NTHREADS; t++) {
+    threads.emplace_back([o]() {
+      for (int i = 0; i < NRETAINS; i++) {
+        xRetain(o);
+      }
+      for (int i = 0; i < NRETAINS; i++) {
+        xRelease(o);
+      }
+    });
+  }
+
+  for (auto &th : threads) th.join();
+
+  /* All extra retains balanced — one xRelease should free it */
+  g_calls.reset();
+  xRelease(o);
+  EXPECT_EQ(g_calls.dtor.load(), 1);
+}
+
+TEST_F(MallocTest, ConcurrentAllocFree) {
+  constexpr int NTHREADS = 4;
+  constexpr int NALLOCS  = 5000;
+
+  std::atomic<int> alive{0};
+
+  std::vector<std::thread> threads;
+  for (int t = 0; t < NTHREADS; t++) {
+    threads.emplace_back([&alive]() {
+      for (int i = 0; i < NALLOCS; i++) {
+        Obj *o = XMALLOC(Obj);
+        alive.fetch_add(1, std::memory_order_relaxed);
+        o->value = 42;
+        alive.fetch_sub(1, std::memory_order_relaxed);
+        xFree(o);
+      }
+    });
+  }
+
+  for (auto &th : threads) th.join();
+  EXPECT_EQ(alive.load(), 0);
+}
+
+TEST_F(MallocTest, ConcurrentRetainReleaseAcrossThreads) {
+  constexpr int NRETAINERS = 4;
+  constexpr int NRELEASES  = 10000;
+
+  Obj *o = XMALLOC(Obj);
+  /* Bump refs so each thread can release NRELEASES times */
+  for (int i = 0; i < NRETAINERS * NRELEASES; i++) {
+    xRetain(o);
+  }
+
+  std::vector<std::thread> threads;
+  for (int t = 0; t < NRETAINERS; t++) {
+    threads.emplace_back([o, NRELEASES]() {
+      for (int i = 0; i < NRELEASES; i++) {
+        xRelease(o);
+      }
+    });
+  }
+
+  for (auto &th : threads) th.join();
+
+  /* All extra retains balanced — one xRelease should free it */
+  g_calls.reset();
+  xRelease(o);
+  EXPECT_EQ(g_calls.dtor.load(), 1);
 }
 
 /* ========== XMALLOC macro ========== */

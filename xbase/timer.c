@@ -8,6 +8,7 @@
 
 #include <xbase/timer.h>
 #include <xbase/heap.h>
+#include <xbase/mpsc.h>
 
 #include <pthread.h>
 #include <stdlib.h>
@@ -19,20 +20,29 @@
 #define TIMER_INVALID_IDX ((size_t)-1)
 
 struct xTimerTask_ {
-  uint64_t    deadline; /* ms, CLOCK_MONOTONIC */
-  xTimerFunc  fn;
-  void       *arg;
-  size_t      heap_idx;
-  int         cancelled; /* atomic-ish: written under lock */
+  xMpsc        node;      /* intrusive MPSC node; xContainerOf is used to   */
+                          /* recover the enclosing struct, so this field may */
+                          /* appear anywhere in the layout                   */
+  uint64_t     deadline;  /* expiry time in ms, CLOCK_MONOTONIC             */
+  xTimerFunc   fn;
+  void        *arg;
+  size_t       heap_idx;  /* current position in the min-heap;              */
+                          /* TIMER_INVALID_IDX when not in the heap          */
+  int          cancelled; /* set to 1 under mu before removing from heap    */
 };
 
 struct xTimer_ {
-  xHeap           heap;
-  xTaskGroup      group;  /* NULL → run callbacks on timer thread */
-  pthread_t       thread;
-  pthread_mutex_t mu;
-  pthread_cond_t  cond;
-  int             stopped;
+  xHeap            heap;      /* min-heap ordered by deadline               */
+  xTaskGroup       group;     /* non-NULL → push mode; NULL → poll mode     */
+
+  /* Poll-mode queue (lock-free MPSC)                                       */
+  xMpsc           *mq_head;
+  xMpsc           *mq_tail;
+
+  pthread_t        thread;
+  pthread_mutex_t  mu;
+  pthread_cond_t   cond;
+  int              stopped;
 };
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -55,11 +65,11 @@ static void set_idx(void *elem, size_t idx) {
   ((struct xTimerTask_ *)elem)->heap_idx = idx;
 }
 
-/* ───────────────────── Timer thread ───────────────────── */
+/* ───────────────────── Fire ───────────────────── */
 
 /*
- * Wrapper submitted to xTaskGroup so the callback runs on a worker thread.
- * The task_ memory is owned here: freed after fn() returns.
+ * Push-mode wrapper: runs on a worker thread.
+ * Owns task memory; frees it after fn() returns.
  */
 static void *dispatch_wrapper(void *arg) {
   struct xTimerTask_ *task = (struct xTimerTask_ *)arg;
@@ -73,18 +83,31 @@ static void fire(struct xTimer_ *t, struct xTimerTask_ *task) {
     free(task);
     return;
   }
+
   if (t->group) {
-    /* Hand off to worker pool; dispatch_wrapper owns task memory */
-    if (!xTaskSubmit(t->group, dispatch_wrapper, task)) {
-      /* Submit failed — still need to free */
-      free(task);
-    }
+    /* Push mode: hand off to worker pool */
+    if (!xTaskSubmit(t->group, dispatch_wrapper, task))
+      free(task); /* submit failed, must still free */
   } else {
-    /* Run directly on timer thread */
-    task->fn(task->arg);
-    free(task);
+    /* Poll mode: enqueue for caller to drain via xTimerPoll() */
+    xMpscPush(&t->mq_head, &t->mq_tail, &task->node);
   }
 }
+
+/* ───────────────────── Timer thread ───────────────────── */
+
+/*
+ * Background thread that drives all timer expiry for one xTimer instance.
+ *
+ * The thread holds mu for the duration of the loop and releases it only
+ * while calling fire() (to avoid holding the lock during potentially slow
+ * dispatch_wrapper submissions or MPSC enqueues).
+ *
+ * Wakeup sources:
+ *   - xTimerSubmitAfter / xTimerSubmitAt: signals cond after pushing to heap
+ *     so the thread re-evaluates the earliest deadline.
+ *   - xTimerDestroy: sets stopped = 1 and signals cond to break the loop.
+ */
 
 static void *timer_thread(void *arg) {
   struct xTimer_ *t = (struct xTimer_ *)arg;
@@ -93,9 +116,8 @@ static void *timer_thread(void *arg) {
 
   for (;;) {
     /* Wait while heap is empty and not stopped */
-    while (!t->stopped && xHeapSize(t->heap) == 0) {
+    while (!t->stopped && xHeapSize(t->heap) == 0)
       pthread_cond_wait(&t->cond, &t->mu);
-    }
 
     if (t->stopped) break;
 
@@ -103,7 +125,6 @@ static void *timer_thread(void *arg) {
     uint64_t now            = xTimerNowMs();
 
     if (top->deadline <= now) {
-      /* Entry expired: pop and fire */
       xHeapPop(t->heap);
       pthread_mutex_unlock(&t->mu);
       fire(t, top);
@@ -123,7 +144,7 @@ static void *timer_thread(void *arg) {
     }
   }
 
-  /* Drain and discard remaining entries */
+  /* Drain and discard remaining heap entries */
   while (xHeapSize(t->heap) > 0) {
     struct xTimerTask_ *task = (struct xTimerTask_ *)xHeapPop(t->heap);
     free(task);
@@ -142,33 +163,19 @@ xTimer xTimerCreate(xTaskGroup g) {
   t->group = g;
 
   t->heap = xHeapCreate(cmp_task, set_idx, 0);
-  if (!t->heap) {
-    free(t);
-    return NULL;
-  }
+  if (!t->heap) goto fail_heap;
 
-  if (pthread_mutex_init(&t->mu, NULL) != 0) {
-    xHeapDestroy(t->heap);
-    free(t);
-    return NULL;
-  }
-
-  if (pthread_cond_init(&t->cond, NULL) != 0) {
-    pthread_mutex_destroy(&t->mu);
-    xHeapDestroy(t->heap);
-    free(t);
-    return NULL;
-  }
-
-  if (pthread_create(&t->thread, NULL, timer_thread, t) != 0) {
-    pthread_cond_destroy(&t->cond);
-    pthread_mutex_destroy(&t->mu);
-    xHeapDestroy(t->heap);
-    free(t);
-    return NULL;
-  }
+  if (pthread_mutex_init(&t->mu, NULL) != 0) goto fail_mutex;
+  if (pthread_cond_init(&t->cond, NULL) != 0) goto fail_cond;
+  if (pthread_create(&t->thread, NULL, timer_thread, t) != 0) goto fail_thread;
 
   return (xTimer)t;
+
+fail_thread: pthread_cond_destroy(&t->cond);
+fail_cond:   pthread_mutex_destroy(&t->mu);
+fail_mutex:  xHeapDestroy(t->heap);
+fail_heap:   free(t);
+  return NULL;
 }
 
 void xTimerDestroy(xTimer t_) {
@@ -182,14 +189,29 @@ void xTimerDestroy(xTimer t_) {
 
   pthread_join(t->thread, NULL);
 
+  /* Drain poll-mode queue (timer thread is gone, no concurrency) */
+  if (!t->group) {
+    xMpsc *node;
+    while ((node = xMpscPop(&t->mq_head, &t->mq_tail)) != NULL) {
+      struct xTimerTask_ *task =
+          xContainerOf(node, struct xTimerTask_, node);
+      free(task);
+    }
+  }
+
   pthread_cond_destroy(&t->cond);
   pthread_mutex_destroy(&t->mu);
   xHeapDestroy(t->heap);
   free(t);
 }
 
-static xTimerTask submit(xTimer t_, xTimerFunc fn, void *arg,
-                         uint64_t abs_ms) {
+/*
+ * Internal helper shared by xTimerSubmitAfter and xTimerSubmitAt.
+ * Allocates a task, pushes it onto the heap, then signals the timer thread
+ * so it can re-evaluate the earliest deadline (in case this entry is now
+ * the new minimum).
+ */
+static xTimerTask submit(xTimer t_, xTimerFunc fn, void *arg, uint64_t abs_ms) {
   struct xTimer_ *t = (struct xTimer_ *)t_;
   if (!t || !fn) return NULL;
 
@@ -210,7 +232,6 @@ static xTimerTask submit(xTimer t_, xTimerFunc fn, void *arg,
     free(task);
     return NULL;
   }
-  /* Wake timer thread in case this is the new earliest deadline */
   pthread_cond_signal(&t->cond);
   pthread_mutex_unlock(&t->mu);
 
@@ -222,8 +243,7 @@ xTimerTask xTimerSubmitAfter(xTimer t, xTimerFunc fn, void *arg,
   return submit(t, fn, arg, xTimerNowMs() + delay_ms);
 }
 
-xTimerTask xTimerSubmitAt(xTimer t, xTimerFunc fn, void *arg,
-                           uint64_t abs_ms) {
+xTimerTask xTimerSubmitAt(xTimer t, xTimerFunc fn, void *arg, uint64_t abs_ms) {
   return submit(t, fn, arg, abs_ms);
 }
 
@@ -234,18 +254,11 @@ xErrno xTimerCancel(xTimer t_, xTimerTask task_) {
 
   pthread_mutex_lock(&t->mu);
 
-  if (task->cancelled) {
+  if (task->cancelled || task->heap_idx == TIMER_INVALID_IDX) {
     pthread_mutex_unlock(&t->mu);
-    return xErrno_Unknown; /* already cancelled */
+    return xErrno_Unknown; /* already fired or cancelled */
   }
 
-  if (task->heap_idx == TIMER_INVALID_IDX) {
-    /* Already popped (fired or being fired) */
-    pthread_mutex_unlock(&t->mu);
-    return xErrno_Unknown;
-  }
-
-  /* Remove from heap and mark cancelled */
   xHeapRemove(t->heap, task->heap_idx);
   task->heap_idx  = TIMER_INVALID_IDX;
   task->cancelled = 1;
@@ -254,4 +267,20 @@ xErrno xTimerCancel(xTimer t_, xTimerTask task_) {
 
   free(task);
   return xErrno_Ok;
+}
+
+int xTimerPoll(xTimer t_) {
+  struct xTimer_ *t = (struct xTimer_ *)t_;
+  if (!t || t->group) return 0; /* push mode: no-op */
+
+  int count = 0;
+  xMpsc *node;
+  while ((node = xMpscPop(&t->mq_head, &t->mq_tail)) != NULL) {
+    struct xTimerTask_ *task =
+        xContainerOf(node, struct xTimerTask_, node);
+    task->fn(task->arg);
+    free(task);
+    count++;
+  }
+  return count;
 }

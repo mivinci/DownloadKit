@@ -57,10 +57,10 @@ TEST(TimerLifecycle, DestroyWithPendingTasks) {
   xTimerDestroy(t);
 }
 
-/* ───────────────── SubmitAfter (direct execution) ───────────────── */
+/* ───────────────── SubmitAfter (push mode) ───────────────── */
 
 TEST(TimerSubmitAfter, FiresAfterDelay) {
-  xTimer t = xTimerCreate(NULL);
+  xTimer t = xTimerCreate(xTaskGroupGlobal());
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
@@ -84,7 +84,7 @@ TEST(TimerSubmitAfter, FiresAfterDelay) {
 }
 
 TEST(TimerSubmitAfter, ZeroDelayFiresImmediately) {
-  xTimer t = xTimerCreate(NULL);
+  xTimer t = xTimerCreate(xTaskGroupGlobal());
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
@@ -100,7 +100,7 @@ TEST(TimerSubmitAfter, ZeroDelayFiresImmediately) {
 }
 
 TEST(TimerSubmitAfter, MultipleTasksOrdering) {
-  xTimer t = xTimerCreate(NULL);
+  xTimer t = xTimerCreate(xTaskGroupGlobal());
   ASSERT_NE(t, nullptr);
 
   std::vector<int> order;
@@ -133,7 +133,7 @@ TEST(TimerSubmitAfter, MultipleTasksOrdering) {
 /* ───────────────── SubmitAt ───────────────── */
 
 TEST(TimerSubmitAt, FiresAtAbsoluteTime) {
-  xTimer t = xTimerCreate(NULL);
+  xTimer t = xTimerCreate(xTaskGroupGlobal());
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
@@ -153,7 +153,7 @@ TEST(TimerSubmitAt, FiresAtAbsoluteTime) {
 }
 
 TEST(TimerSubmitAt, PastDeadlineFiresImmediately) {
-  xTimer t = xTimerCreate(NULL);
+  xTimer t = xTimerCreate(xTaskGroupGlobal());
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
@@ -173,7 +173,7 @@ TEST(TimerSubmitAt, PastDeadlineFiresImmediately) {
 /* ───────────────── Cancel ───────────────── */
 
 TEST(TimerCancel, CancelBeforeFire) {
-  xTimer t = xTimerCreate(NULL);
+  xTimer t = xTimerCreate(xTaskGroupGlobal());
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
@@ -238,4 +238,89 @@ TEST(TimerWithGroup, ManyTasksWithGroup) {
 
   xTimerDestroy(t);
   xTaskGroupDestroy(g);
+}
+
+/* ───────────────── Poll mode ───────────────── */
+
+TEST(TimerPoll, PollModeFiresOnCallerThread) {
+  xTimer t = xTimerCreate(NULL); /* poll mode */
+  ASSERT_NE(t, nullptr);
+
+  std::atomic<int> fired{0};
+  xTimerSubmitAfter(t, [](void *arg) {
+    static_cast<std::atomic<int>*>(arg)->fetch_add(1);
+  }, &fired, 50);
+
+  /* Before deadline: poll returns 0 */
+  int n = xTimerPoll(t);
+  EXPECT_EQ(n, 0);
+  EXPECT_EQ(fired.load(), 0);
+
+  /* Wait for deadline to pass */
+  sleep_ms(150);
+
+  /* Now poll should execute the callback */
+  n = xTimerPoll(t);
+  EXPECT_EQ(n, 1);
+  EXPECT_EQ(fired.load(), 1);
+
+  /* Second poll: queue is empty */
+  n = xTimerPoll(t);
+  EXPECT_EQ(n, 0);
+
+  xTimerDestroy(t);
+}
+
+TEST(TimerPoll, PollModeMultipleTasks) {
+  xTimer t = xTimerCreate(NULL);
+  ASSERT_NE(t, nullptr);
+
+  const int N = 5;
+  int counter = 0;
+
+  struct Ctx { int *counter; };
+  auto cb = [](void *arg) {
+    static_cast<Ctx*>(arg)->counter[0]++;
+    delete static_cast<Ctx*>(arg);
+  };
+
+  for (int i = 0; i < N; i++)
+    xTimerSubmitAfter(t, cb, new Ctx{&counter}, (uint64_t)(i * 20));
+
+  sleep_ms(200);
+
+  int n = xTimerPoll(t);
+  EXPECT_EQ(n, N);
+  EXPECT_EQ(counter, N);
+
+  xTimerDestroy(t);
+}
+
+TEST(TimerPoll, PushModeIgnoresPoll) {
+  xTaskGroup g = xTaskGroupCreate(NULL);
+  xTimer t = xTimerCreate(g); /* push mode */
+  ASSERT_NE(t, nullptr);
+
+  /* xTimerPoll must be no-op in push mode */
+  EXPECT_EQ(xTimerPoll(t), 0);
+
+  xTimerDestroy(t);
+  xTaskGroupDestroy(g);
+}
+
+TEST(TimerPoll, PollModeDestroyDrainsQueue) {
+  xTimer t = xTimerCreate(NULL);
+  ASSERT_NE(t, nullptr);
+
+  std::atomic<int> fired{0};
+  xTimerSubmitAfter(t, [](void *arg) {
+    static_cast<std::atomic<int>*>(arg)->fetch_add(1);
+  }, &fired, 30);
+
+  sleep_ms(100); /* let it expire into the queue */
+
+  /* Destroy without polling — should not crash or leak */
+  xTimerDestroy(t);
+  /* Callback should NOT have been called (destroy discards queue) */
+  EXPECT_EQ(fired.load(), 0);
 }

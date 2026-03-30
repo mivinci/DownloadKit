@@ -28,7 +28,7 @@ struct xTask_ {
   pthread_mutex_t lock;
   pthread_cond_t  cond;
   bool            done;
-  xErrno          err;
+  void           *result;
 
   /* Intrusive queue linkage */
   struct xTask_  *next;
@@ -95,12 +95,12 @@ static void *worker_loop(void *arg) {
     pthread_mutex_unlock(&g->qlock);
 
     /* Execute the task */
-    task->fn(task->arg);
+    void *result = task->fn(task->arg);
 
     /* Mark done and wake waiters */
     pthread_mutex_lock(&task->lock);
-    task->done = true;
-    task->err  = xErrno_Ok;
+    task->done   = true;
+    task->result = result;
     pthread_cond_broadcast(&task->cond);
     pthread_mutex_unlock(&task->lock);
 
@@ -198,11 +198,11 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
   task = (struct xTask_ *)calloc(1, sizeof(struct xTask_));
   if (!task) return NULL;
 
-  task->fn   = fn;
-  task->arg  = arg;
-  task->done = false;
-  task->err  = xErrno_Ok;
-  task->next = NULL;
+  task->fn     = fn;
+  task->arg    = arg;
+  task->done   = false;
+  task->result = NULL;
+  task->next   = NULL;
 
   pthread_mutex_init(&task->lock, NULL);
   pthread_cond_init(&task->cond, NULL);
@@ -247,9 +247,8 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
   return task;
 }
 
-xErrno xTaskWait(xTask t_) {
+xErrno xTaskWait(xTask t_, void **result) {
   struct xTask_ *t = tsk(t_);
-  xErrno         err;
 
   if (!t) return xErrno_Unknown;
 
@@ -257,14 +256,14 @@ xErrno xTaskWait(xTask t_) {
   while (!t->done) {
     pthread_cond_wait(&t->cond, &t->lock);
   }
-  err = t->err;
+  if (result) *result = t->result;
   pthread_mutex_unlock(&t->lock);
 
   pthread_mutex_destroy(&t->lock);
   pthread_cond_destroy(&t->cond);
   free(t);
 
-  return err;
+  return xErrno_Ok;
 }
 
 xErrno xTaskGroupWait(xTaskGroup g_) {

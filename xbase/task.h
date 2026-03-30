@@ -103,4 +103,17 @@ XCAPI(size_t) xTaskGroupThreads(xTaskGroup g);
  */
 XCAPI(size_t) xTaskGroupPending(xTaskGroup g);
 
+/**
+ * @brief Get the global shared task group.
+ *
+ * Returns a lazily-initialized shared task group with default
+ * configuration (unlimited threads, no queue cap). The returned
+ * group is managed internally and must NOT be passed to
+ * xTaskGroupDestroy().
+ *
+ * @ingroup xTask
+ * @return The global task group, or NULL on initialization failure.
+ */
+XCAPI(xTaskGroup) xTaskGroupGlobal(void);
+
 #endif // XBASE_TASK_H

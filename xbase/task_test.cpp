@@ -287,3 +287,48 @@ TEST_F(TaskTest, StressTest) {
   EXPECT_EQ(xTaskGroupWait(g), xErrno_Ok);
   EXPECT_EQ(counter.value.load(), N);
 }
+
+/* ========== Global Task Group ========== */
+
+TEST(TaskGroupGlobal, ReturnsNonNull) {
+  xTaskGroup g = xTaskGroupGlobal();
+  ASSERT_NE(g, nullptr);
+}
+
+TEST(TaskGroupGlobal, ReturnsSameInstance) {
+  xTaskGroup g1 = xTaskGroupGlobal();
+  xTaskGroup g2 = xTaskGroupGlobal();
+  EXPECT_EQ(g1, g2);
+}
+
+TEST(TaskGroupGlobal, CanSubmitAndWait) {
+  Counter c;
+  xTaskGroup g = xTaskGroupGlobal();
+  ASSERT_NE(g, nullptr);
+
+  xTask t = xTaskSubmit(g, increment, &c);
+  ASSERT_NE(t, nullptr);
+  EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Ok);
+  EXPECT_EQ(c.value.load(), 1);
+}
+
+TEST(TaskGroupGlobal, ConcurrentAccess) {
+  constexpr int THREADS    = 4;
+  constexpr int PER_THREAD = 100;
+  Counter counter;
+
+  std::vector<std::thread> threads;
+  for (int t = 0; t < THREADS; t++) {
+    threads.emplace_back([&]() {
+      xTaskGroup g = xTaskGroupGlobal();
+      for (int i = 0; i < PER_THREAD; i++) {
+        xTaskSubmit(g, increment, &counter);
+      }
+    });
+  }
+
+  for (auto &th : threads) th.join();
+  xTaskGroupWait(xTaskGroupGlobal());
+
+  EXPECT_EQ(counter.value.load(), THREADS * PER_THREAD);
+}

@@ -289,3 +289,27 @@ size_t xTaskGroupPending(xTaskGroup g_) {
   if (!g_) return 0;
   return atomic_load(&grp(g_)->pending);
 }
+
+/* ───────────────────── Global task group ───────────────────── */
+
+static xTaskGroup          g_global_group = NULL;
+static pthread_once_t      g_global_once  = PTHREAD_ONCE_INIT;
+
+static void global_group_destroy(void) {
+  if (g_global_group) {
+    xTaskGroupDestroy(g_global_group);
+    g_global_group = NULL;
+  }
+}
+
+static void global_group_init(void) {
+  g_global_group = xTaskGroupCreate(NULL);
+  if (g_global_group) {
+    atexit(global_group_destroy);
+  }
+}
+
+xTaskGroup xTaskGroupGlobal(void) {
+  pthread_once(&g_global_once, global_group_init);
+  return g_global_group;
+}

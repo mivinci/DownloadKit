@@ -19,8 +19,9 @@
 /**
  * @brief Task function signature.
  * @param arg User-provided argument.
+ * @return A user-defined result pointer, retrievable via xTaskWait.
  */
-typedef void (*xTaskFunc)(void *arg);
+typedef void *(*xTaskFunc)(void *arg);
 
 /**
  * @brief Opaque handle to a submitted task.
@@ -73,9 +74,10 @@ XCAPI(xTask) xTaskSubmit(xTaskGroup g, xTaskFunc fn, void *arg);
  * @brief Wait for a specific task to complete.
  * @ingroup xTask
  * @param t The task handle.
+ * @param result If non-NULL, receives the return value of the task function.
  * @return xErrno_Ok on success.
  */
-XCAPI(xErrno) xTaskWait(xTask t);
+XCAPI(xErrno) xTaskWait(xTask t, void **result);
 
 /**
  * @brief Wait for all pending tasks in the group to complete.

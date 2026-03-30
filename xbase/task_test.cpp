@@ -9,7 +9,6 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
-#include <numeric>
 #include <thread>
 #include <vector>
 
@@ -23,12 +22,13 @@ struct Counter {
   std::atomic<int> value{0};
 };
 
-static void increment(void *arg) {
+static void *increment(void *arg) {
   auto *c = static_cast<Counter *>(arg);
   c->value.fetch_add(1, std::memory_order_relaxed);
+  return nullptr;
 }
 
-static void noop(void *) {}
+static void *noop(void *) { return nullptr; }
 
 /* ── Fixture ── */
 
@@ -61,7 +61,7 @@ TEST_F(TaskTest, ThreadsCount) {
   /* Submit one task — thread should be spawned */
   xTask t = xTaskSubmit(g, noop, nullptr);
   ASSERT_NE(t, nullptr);
-  xTaskWait(t);
+  xTaskWait(t, nullptr);
 
   /* At least one thread should have been created */
   EXPECT_GE(xTaskGroupThreads(g), 1);
@@ -77,12 +77,12 @@ TEST_F(TaskTest, SubmitAndWaitSingle) {
   Counter c;
   xTask t = xTaskSubmit(g, increment, &c);
   ASSERT_NE(t, nullptr);
-  EXPECT_EQ(xTaskWait(t), xErrno_Ok);
+  EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Ok);
   EXPECT_EQ(c.value.load(), 1);
 }
 
 TEST_F(TaskTest, WaitNullReturnsError) {
-  EXPECT_EQ(xTaskWait(nullptr), xErrno_Unknown);
+  EXPECT_EQ(xTaskWait(nullptr, nullptr), xErrno_Unknown);
 }
 
 TEST_F(TaskTest, SubmitNullFnReturnsNull) {
@@ -106,7 +106,7 @@ TEST_F(TaskTest, SubmitManyAndWaitAll) {
   }
 
   for (auto t : tasks) {
-    EXPECT_EQ(xTaskWait(t), xErrno_Ok);
+    EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Ok);
   }
 
   EXPECT_EQ(counter.value.load(), N);
@@ -140,11 +140,12 @@ TEST_F(TaskTest, PendingCount) {
   /* Submit a blocking task first so subsequent submits queue up. */
   std::atomic<bool> unblock{false};
 
-  auto block_fn = [](void *arg) {
+  auto block_fn = [](void *arg) -> void * {
     auto *flag = static_cast<std::atomic<bool> *>(arg);
     while (!flag->load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
+    return nullptr;
   };
 
   xTaskGroupConf conf = {.nthreads = 1};
@@ -201,11 +202,12 @@ TEST_F(TaskTest, QueueCapRejectsWhenFull) {
 
   /* Block the single worker so tasks accumulate in the queue. */
   std::atomic<bool> unblock{false};
-  auto block_fn = [](void *arg) {
+  auto block_fn = [](void *arg) -> void * {
     auto *flag = static_cast<std::atomic<bool> *>(arg);
     while (!flag->load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
+    return nullptr;
   };
 
   /* Submit blocking task to occupy the worker */
@@ -230,8 +232,8 @@ TEST_F(TaskTest, QueueCapRejectsWhenFull) {
   xTaskGroupWait(small);
 
   /* Now safe to wait on individual tasks */
-  xTaskWait(t1);
-  xTaskWait(t2);
+  xTaskWait(t1, nullptr);
+  xTaskWait(t2, nullptr);
   xTaskGroupDestroy(small);
 }
 
@@ -245,9 +247,31 @@ TEST(TaskGroupAuto, ZeroThreadsAutoDetect) {
 
   xTask t = xTaskSubmit(g, noop, nullptr);
   ASSERT_NE(t, nullptr);
-  xTaskWait(t);
+  xTaskWait(t, nullptr);
   EXPECT_GE(xTaskGroupThreads(g), 1);
   xTaskGroupDestroy(g);
+}
+
+/* ========== Return Value ========== */
+
+static void *return_value(void *arg) {
+  return arg;
+}
+
+TEST_F(TaskTest, WaitReturnsTaskResult) {
+  int    val = 42;
+  void  *result = nullptr;
+  xTask  t = xTaskSubmit(g, return_value, &val);
+  ASSERT_NE(t, nullptr);
+  EXPECT_EQ(xTaskWait(t, &result), xErrno_Ok);
+  EXPECT_EQ(result, &val);
+}
+
+TEST_F(TaskTest, WaitResultNullIgnored) {
+  xTask t = xTaskSubmit(g, return_value, nullptr);
+  ASSERT_NE(t, nullptr);
+  /* Passing NULL for result should not crash */
+  EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Ok);
 }
 
 /* ========== Heavy Workload ========== */

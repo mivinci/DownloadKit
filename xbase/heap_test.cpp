@@ -8,7 +8,6 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <cstdlib>
 #include <vector>
 
@@ -45,7 +44,8 @@ protected:
   }
 
   void TearDown() override {
-    if (h) xHeapDestroy(h);
+    if (h)
+      xHeapDestroy(h);
   }
 };
 
@@ -177,7 +177,7 @@ TEST_F(HeapTest, UpdateIncreasePriority) {
 /* ========== Large scale ========== */
 
 TEST_F(HeapTest, LargeScaleSorted) {
-  constexpr int N = 1000;
+  constexpr int     N = 1000;
   std::vector<Elem> elems(N);
 
   /* Insert in random order */

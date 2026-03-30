@@ -7,7 +7,7 @@
  */
 
 #include <xbase/atomic.h>
-#include <xbase/malloc.h>
+#include <xbase/memory.h>
 
 #include <stddef.h>
 #include <stdlib.h>

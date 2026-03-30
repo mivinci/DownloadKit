@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * throw_test.cpp - xThrow unit tests
+ * log_test.cpp - xLog unit tests
  */
 
 #include <gtest/gtest.h>
@@ -14,19 +14,21 @@
 #include <thread>
 
 extern "C" {
-#include <xbase/throw.h>
+#include <xbase/log.h>
 }
 
 /* ── Helpers ── */
 
-struct CapturedThrow {
+struct CapturedLog {
   std::string msg;
   void       *userdata;
   int         count;
 };
 
-static void capture_callback(const char *msg, void *userdata) {
-  auto *cap    = static_cast<CapturedThrow *>(userdata);
+static void capture_callback(const char *msg, const char *backtrace,
+                             void *userdata) {
+  (void)backtrace;
+  auto *cap    = static_cast<CapturedLog *>(userdata);
   cap->msg      = msg;
   cap->userdata = userdata;
   cap->count++;
@@ -34,76 +36,76 @@ static void capture_callback(const char *msg, void *userdata) {
 
 /* ── Fixture ── */
 
-class ThrowTest : public ::testing::Test {
+class LogTest : public ::testing::Test {
 protected:
-  CapturedThrow captured{};
+  CapturedLog captured{};
 
   void SetUp() override {
     captured = {"", nullptr, 0};
-    xThrowSetCallback(capture_callback, &captured);
+    xLogSetCallback(capture_callback, &captured);
   }
 
   void TearDown() override {
     /* Clear callback to avoid dangling pointers */
-    xThrowSetCallback(nullptr, nullptr);
+    xLogSetCallback(nullptr, nullptr);
   }
 };
 
 /* ========== 4.1 Basic callback registration and trigger ========== */
 
-TEST_F(ThrowTest, BasicCallbackTrigger) {
-  xThrow(false, "hello %s", "world");
+TEST_F(LogTest, BasicCallbackTrigger) {
+  xLog(false, "hello %s", "world");
   EXPECT_EQ(captured.msg, "hello world");
   EXPECT_EQ(captured.count, 1);
 }
 
-TEST_F(ThrowTest, FormattedMessage) {
-  xThrow(false, "error code: %d, file: %s", 42, "main.c");
+TEST_F(LogTest, FormattedMessage) {
+  xLog(false, "error code: %d, file: %s", 42, "main.c");
   EXPECT_EQ(captured.msg, "error code: 42, file: main.c");
   EXPECT_EQ(captured.count, 1);
 }
 
 /* ========== 4.2 Userdata passthrough ========== */
 
-TEST_F(ThrowTest, UserdataPassthrough) {
-  xThrow(false, "test");
+TEST_F(LogTest, UserdataPassthrough) {
+  xLog(false, "test");
   EXPECT_EQ(captured.userdata, &captured);
 }
 
-TEST_F(ThrowTest, DifferentUserdata) {
+TEST_F(LogTest, DifferentUserdata) {
   int ctx = 99;
-  CapturedThrow other{};
-  xThrowSetCallback(capture_callback, &other);
-  xThrow(false, "msg");
+  CapturedLog other{};
+  xLogSetCallback(capture_callback, &other);
+  xLog(false, "msg");
   EXPECT_EQ(other.userdata, &other);
   EXPECT_EQ(other.msg, "msg");
 }
 
 /* ========== 4.3 Clear callback (pass NULL) ========== */
 
-TEST_F(ThrowTest, ClearCallback) {
+TEST_F(LogTest, ClearCallback) {
   /* First verify callback works */
-  xThrow(false, "before clear");
+  xLog(false, "before clear");
   EXPECT_EQ(captured.count, 1);
 
   /* Clear callback */
-  xThrowSetCallback(nullptr, nullptr);
+  xLogSetCallback(nullptr, nullptr);
 
   /* This should go to stderr, not our callback */
-  xThrow(false, "after clear");
+  xLog(false, "after clear");
   EXPECT_EQ(captured.count, 1); /* count should NOT increase */
 }
 
 /* ========== 4.4 Multiple callback overrides ========== */
 
-TEST_F(ThrowTest, OverrideCallback) {
-  CapturedThrow first{};
-  CapturedThrow second{};
+TEST_F(LogTest, OverrideCallback) {
+  CapturedLog first{};
+  CapturedLog second{};
 
-  xThrowSetCallback(capture_callback, &first);
-  xThrowSetCallback(capture_callback, &second);
+  xLogSetCallback(capture_callback, &first);
+  xLogSetCallback(capture_callback, &second);
 
-  xThrow(false, "which one?");
+  xLog(false, "which one?");
 
   /* Only the last-set callback should fire */
   EXPECT_EQ(first.count, 0);
@@ -113,21 +115,21 @@ TEST_F(ThrowTest, OverrideCallback) {
 
 /* ========== 4.5 NULL fmt defense ========== */
 
-TEST_F(ThrowTest, NullFmtDoesNotCrash) {
-  xThrow(false, nullptr);
+TEST_F(LogTest, NullFmtDoesNotCrash) {
+  xLog(false, nullptr);
   EXPECT_EQ(captured.msg, "(null)");
   EXPECT_EQ(captured.count, 1);
 }
 
 /* ========== 4.6 Message truncation ========== */
 
-TEST_F(ThrowTest, MessageTruncation) {
-  /* Build a string longer than XTHROW_BUF_SIZE (512) */
+TEST_F(LogTest, MessageTruncation) {
+  /* Build a string longer than XLOG_BUF_SIZE (512) */
   std::string long_msg(1024, 'A');
-  xThrow(false, "%s", long_msg.c_str());
+  xLog(false, "%s", long_msg.c_str());
 
-  /* Message should be truncated to XTHROW_BUF_SIZE - 1 */
-  EXPECT_EQ(captured.msg.size(), XTHROW_BUF_SIZE - 1);
+  /* Message should be truncated to XLOG_BUF_SIZE - 1 */
+  EXPECT_EQ(captured.msg.size(), XLOG_BUF_SIZE - 1);
   EXPECT_EQ(captured.count, 1);
 
   /* All characters should be 'A' */
@@ -138,30 +140,30 @@ TEST_F(ThrowTest, MessageTruncation) {
 
 /* ========== 4.7 Thread isolation ========== */
 
-TEST(ThrowThreadTest, ThreadIsolation) {
+TEST(LogThreadTest, ThreadIsolation) {
   std::atomic<bool> t1_done{false};
   std::atomic<bool> t2_done{false};
-  CapturedThrow cap1{};
-  CapturedThrow cap2{};
+  CapturedLog cap1{};
+  CapturedLog cap2{};
 
   std::thread thread1([&]() {
-    xThrowSetCallback(capture_callback, &cap1);
+    xLogSetCallback(capture_callback, &cap1);
     /* Wait for thread2 to also set its callback */
     while (!t2_done.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
-    xThrow(false, "from thread 1");
+    xLog(false, "from thread 1");
     t1_done.store(true, std::memory_order_release);
   });
 
   std::thread thread2([&]() {
-    xThrowSetCallback(capture_callback, &cap2);
+    xLogSetCallback(capture_callback, &cap2);
     t2_done.store(true, std::memory_order_release);
     /* Wait for thread1 to finish throwing */
     while (!t1_done.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
-    xThrow(false, "from thread 2");
+    xLog(false, "from thread 2");
   });
 
   thread1.join();
@@ -177,16 +179,16 @@ TEST(ThrowThreadTest, ThreadIsolation) {
   EXPECT_EQ(cap2.userdata, &cap2);
 }
 
-TEST(ThrowThreadTest, NoCallbackInNewThread) {
+TEST(LogThreadTest, NoCallbackInNewThread) {
   /* Main thread sets a callback */
-  CapturedThrow main_cap{};
-  xThrowSetCallback(capture_callback, &main_cap);
+  CapturedLog main_cap{};
+  xLogSetCallback(capture_callback, &main_cap);
 
   std::atomic<bool> child_threw{false};
 
   std::thread child([&]() {
     /* Child thread has NO callback set — should fallback to stderr */
-    xThrow(false, "child error");
+    xLog(false, "child error");
     child_threw.store(true, std::memory_order_release);
   });
 
@@ -196,13 +198,13 @@ TEST(ThrowThreadTest, NoCallbackInNewThread) {
   /* Main thread's callback should NOT have been triggered by child */
   EXPECT_EQ(main_cap.count, 0);
 
-  xThrowSetCallback(nullptr, nullptr);
+  xLogSetCallback(nullptr, nullptr);
 }
 
 /* ========== Fatal abort ========== */
 
-TEST(ThrowDeathTest, FatalAbortsProcess) {
+TEST(LogDeathTest, FatalAbortsProcess) {
   EXPECT_DEATH({
-    xThrow(true, "fatal error %d", 42);
+    xLog(true, "fatal error %d", 42);
   }, "");
 }

@@ -3,45 +3,47 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * throw.h - Per-thread lightweight error throwing mechanism
+ * log.h - Per-thread lightweight logging mechanism
  *
  * Provides a thread-local callback-based error reporting channel.
- * Each thread may register its own callback via xThrowSetCallback();
- * when xThrow() is called, the formatted message is dispatched to
+ * Each thread may register its own callback via xLogSetCallback();
+ * when xLog() is called, the formatted message is dispatched to
  * that callback (or to stderr as a fallback).
  */
 
-#ifndef XBASE_THROW_H
-#define XBASE_THROW_H
+#ifndef XBASE_LOG_H
+#define XBASE_LOG_H
 
 #include <stdbool.h>
 #include <xbase/base.h>
 
 /**
  * @brief Default format buffer size (bytes). Override at compile time
- *        by defining XTHROW_BUF_SIZE before including this header.
+ *        by defining XLOG_BUF_SIZE before including this header.
  */
-#ifndef XTHROW_BUF_SIZE
-#define XTHROW_BUF_SIZE 512
+#ifndef XLOG_BUF_SIZE
+#define XLOG_BUF_SIZE 512
 #endif
 
 /**
- * @brief Callback type invoked by xThrow().
- * @param msg  Formatted error message (never NULL).
- * @param userdata  User-provided context pointer.
+ * @brief Callback type invoked by xLog().
+ * @param msg        Formatted error message (never NULL).
+ * @param backtrace  Stack trace string when fatal is true; NULL otherwise.
+ * @param userdata   User-provided context pointer.
  */
-typedef void (*xThrowCallback)(const char *msg, void *userdata);
+typedef void (*xLogCallback)(const char *msg, const char *backtrace,
+                              void *userdata);
 
 /**
- * @brief Register (or clear) the current thread's throw callback.
+ * @brief Register (or clear) the current thread's log callback.
  *
  * Pass NULL for both arguments to clear the callback; subsequent
- * xThrow() calls on this thread will fall back to stderr.
+ * xLog() calls on this thread will fall back to stderr.
  *
  * @param cb       The callback function, or NULL to clear.
  * @param userdata Opaque pointer forwarded to cb on each invocation.
  */
-XCAPI(void) xThrowSetCallback(xThrowCallback cb, void *userdata);
+XCAPI(void) xLogSetCallback(xLogCallback cb, void *userdata);
 
 /**
  * @brief Format an error message and dispatch it to the thread's callback.
@@ -54,6 +56,6 @@ XCAPI(void) xThrowSetCallback(xThrowCallback cb, void *userdata);
  * @param fmt   printf-style format string (NULL is handled safely).
  * @param ...   Format arguments.
  */
-XCAPI(void) xThrow(bool fatal, const char *fmt, ...);
+XCAPI(void) xLog(bool fatal, const char *fmt, ...);
 
-#endif // XBASE_THROW_H
+#endif // XBASE_LOG_H

@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * malloc_test.cpp - xAlloc/xFree/xRetain/xRelease/xCopy/xMove unit tests
+ * memory_test.cpp - xAlloc/xFree/xRetain/xRelease/xCopy/xMove unit tests
  */
 
 #include <gtest/gtest.h>
@@ -14,7 +14,7 @@
 #include <vector>
 
 extern "C" {
-#include <xbase/malloc.h>
+#include <xbase/memory.h>
 }
 
 /* ── Test object ── */
@@ -56,46 +56,46 @@ static xVTable NullVTable = {0};
 
 /* ── Fixture ── */
 
-class MallocTest : public ::testing::Test {
+class MemoryTest : public ::testing::Test {
 protected:
   void SetUp() override { g_calls.reset(); }
 };
 
 /* ========== xAlloc / xFree ========== */
 
-TEST_F(MallocTest, AllocReturnsNonNull) {
+TEST_F(MemoryTest, AllocReturnsNonNull) {
   Obj *o = XMALLOC(Obj);
   ASSERT_NE(o, nullptr);
   xFree(o);
 }
 
-TEST_F(MallocTest, AllocCallsCtor) {
+TEST_F(MemoryTest, AllocCallsCtor) {
   Obj *o = XMALLOC(Obj);
   EXPECT_EQ(g_calls.ctor.load(), 1);
   xFree(o);
 }
 
-TEST_F(MallocTest, FreeCallsDtor) {
+TEST_F(MemoryTest, FreeCallsDtor) {
   Obj *o = XMALLOC(Obj);
   g_calls.reset();
   xFree(o);
   EXPECT_EQ(g_calls.dtor.load(), 1);
 }
 
-TEST_F(MallocTest, FreeNullIsNoop) {
+TEST_F(MemoryTest, FreeNullIsNoop) {
   /* Should not crash */
   xFree(nullptr);
   EXPECT_EQ(g_calls.dtor.load(), 0);
 }
 
-TEST_F(MallocTest, AllocNullVtableNoCrash) {
+TEST_F(MemoryTest, AllocNullVtableNoCrash) {
   /* ctor is NULL — should not crash */
   void *p = xAlloc("test", sizeof(Obj), 1, &NullVTable);
   ASSERT_NE(p, nullptr);
   xFree(p);
 }
 
-TEST_F(MallocTest, FreeNullVtableNoCrash) {
+TEST_F(MemoryTest, FreeNullVtableNoCrash) {
   /* dtor is NULL — should not crash */
   void *p = xAlloc("test", sizeof(Obj), 1, &NullVTable);
   ASSERT_NE(p, nullptr);
@@ -103,7 +103,7 @@ TEST_F(MallocTest, FreeNullVtableNoCrash) {
   EXPECT_EQ(g_calls.dtor.load(), 0);
 }
 
-TEST_F(MallocTest, AllocDataIsWritable) {
+TEST_F(MemoryTest, AllocDataIsWritable) {
   Obj *o = XMALLOC(Obj);
   ASSERT_NE(o, nullptr);
   o->value = 42;
@@ -111,7 +111,7 @@ TEST_F(MallocTest, AllocDataIsWritable) {
   xFree(o);
 }
 
-TEST_F(MallocTest, AllocExtraSize) {
+TEST_F(MemoryTest, AllocExtraSize) {
   /* XMALLOCEX allocates sizeof(Obj) + extra bytes */
   Obj *o = XMALLOCEX(Obj, 64);
   ASSERT_NE(o, nullptr);
@@ -122,7 +122,7 @@ TEST_F(MallocTest, AllocExtraSize) {
   xFree(o);
 }
 
-TEST_F(MallocTest, AllocCountMultiple) {
+TEST_F(MemoryTest, AllocCountMultiple) {
   /* xAlloc with count=4 should give contiguous memory for 4 Objs */
   Obj *arr = static_cast<Obj *>(
       xAlloc("Obj", sizeof(Obj), 4, &ObjVTable));
@@ -135,7 +135,7 @@ TEST_F(MallocTest, AllocCountMultiple) {
 
 /* ========== xRetain / xRelease ========== */
 
-TEST_F(MallocTest, RetainCallsHook) {
+TEST_F(MemoryTest, RetainCallsHook) {
   Obj *o = XMALLOC(Obj);
   g_calls.reset();
   xRetain(o);
@@ -144,7 +144,7 @@ TEST_F(MallocTest, RetainCallsHook) {
   xFree(o);
 }
 
-TEST_F(MallocTest, ReleaseCallsHook) {
+TEST_F(MemoryTest, ReleaseCallsHook) {
   Obj *o = XMALLOC(Obj);
   xRetain(o);
   g_calls.reset();
@@ -153,7 +153,7 @@ TEST_F(MallocTest, ReleaseCallsHook) {
   xFree(o);
 }
 
-TEST_F(MallocTest, ReleaseToZeroCallsHookAndFrees) {
+TEST_F(MemoryTest, ReleaseToZeroCallsHookAndFrees) {
   Obj *o = XMALLOC(Obj);
   g_calls.reset();
   /* Initial refs = 1; Release to 0 should call release hook then xFree */
@@ -162,7 +162,7 @@ TEST_F(MallocTest, ReleaseToZeroCallsHookAndFrees) {
   EXPECT_EQ(g_calls.dtor.load(), 1);
 }
 
-TEST_F(MallocTest, RetainReleasePaired) {
+TEST_F(MemoryTest, RetainReleasePaired) {
   Obj *o = XMALLOC(Obj);
   g_calls.reset();
 
@@ -177,7 +177,7 @@ TEST_F(MallocTest, RetainReleasePaired) {
   EXPECT_EQ(g_calls.dtor.load(), 1);
 }
 
-TEST_F(MallocTest, RetainNullVtableNoCrash) {
+TEST_F(MemoryTest, RetainNullVtableNoCrash) {
   void *p = xAlloc("test", sizeof(Obj), 1, &NullVTable);
   ASSERT_NE(p, nullptr);
   xRetain(p);
@@ -187,7 +187,7 @@ TEST_F(MallocTest, RetainNullVtableNoCrash) {
 
 /* ========== xCopy / xMove ========== */
 
-TEST_F(MallocTest, CopyCallsHook) {
+TEST_F(MemoryTest, CopyCallsHook) {
   Obj *a = XMALLOC(Obj);
   Obj *b = XMALLOC(Obj);
   g_calls.reset();
@@ -197,7 +197,7 @@ TEST_F(MallocTest, CopyCallsHook) {
   xFree(b);
 }
 
-TEST_F(MallocTest, MoveCallsHook) {
+TEST_F(MemoryTest, MoveCallsHook) {
   Obj *a = XMALLOC(Obj);
   Obj *b = XMALLOC(Obj);
   g_calls.reset();
@@ -207,7 +207,7 @@ TEST_F(MallocTest, MoveCallsHook) {
   xFree(b);
 }
 
-TEST_F(MallocTest, CopyNullVtableNoCrash) {
+TEST_F(MemoryTest, CopyNullVtableNoCrash) {
   void *a = xAlloc("test", sizeof(Obj), 1, &NullVTable);
   void *b = xAlloc("test", sizeof(Obj), 1, &NullVTable);
   ASSERT_NE(a, nullptr);
@@ -218,7 +218,7 @@ TEST_F(MallocTest, CopyNullVtableNoCrash) {
   xFree(b);
 }
 
-TEST_F(MallocTest, MoveNullVtableNoCrash) {
+TEST_F(MemoryTest, MoveNullVtableNoCrash) {
   void *a = xAlloc("test", sizeof(Obj), 1, &NullVTable);
   void *b = xAlloc("test", sizeof(Obj), 1, &NullVTable);
   ASSERT_NE(a, nullptr);
@@ -231,7 +231,7 @@ TEST_F(MallocTest, MoveNullVtableNoCrash) {
 
 /* ========== Thread Safety ========== */
 
-TEST_F(MallocTest, ConcurrentRetainRelease) {
+TEST_F(MemoryTest, ConcurrentRetainRelease) {
   constexpr int NTHREADS  = 8;
   constexpr int NRETAINS  = 10000;
 
@@ -258,7 +258,7 @@ TEST_F(MallocTest, ConcurrentRetainRelease) {
   EXPECT_EQ(g_calls.dtor.load(), 1);
 }
 
-TEST_F(MallocTest, ConcurrentAllocFree) {
+TEST_F(MemoryTest, ConcurrentAllocFree) {
   constexpr int NTHREADS = 4;
   constexpr int NALLOCS  = 5000;
 
@@ -281,7 +281,7 @@ TEST_F(MallocTest, ConcurrentAllocFree) {
   EXPECT_EQ(alive.load(), 0);
 }
 
-TEST_F(MallocTest, ConcurrentRetainReleaseAcrossThreads) {
+TEST_F(MemoryTest, ConcurrentRetainReleaseAcrossThreads) {
   constexpr int NRETAINERS = 4;
   constexpr int NRELEASES  = 10000;
 
@@ -310,14 +310,14 @@ TEST_F(MallocTest, ConcurrentRetainReleaseAcrossThreads) {
 
 /* ========== XMALLOC macro ========== */
 
-TEST_F(MallocTest, XMallocMacroCallsCtor) {
+TEST_F(MemoryTest, XMallocMacroCallsCtor) {
   Obj *o = XMALLOC(Obj);
   ASSERT_NE(o, nullptr);
   EXPECT_EQ(g_calls.ctor.load(), 1);
   xFree(o);
 }
 
-TEST_F(MallocTest, XMallocExMacroCallsCtor) {
+TEST_F(MemoryTest, XMallocExMacroCallsCtor) {
   Obj *o = XMALLOCEX(Obj, 32);
   ASSERT_NE(o, nullptr);
   EXPECT_EQ(g_calls.ctor.load(), 1);

@@ -24,7 +24,14 @@ static void *offload_worker(void *arg) {
             &((struct xEventLoop_ *)w->loop)->done_tail,
             &w->mpsc);
 
-  /* Wake the event loop so it drains the done queue promptly. */
+  /*
+   * Wake the event loop so it drains the done queue promptly.
+   *
+   * Return value intentionally ignored: EAGAIN means the pipe already
+   * has data so the loop will wake anyway; a real failure (closed fd)
+   * is a bug in the caller.  Either way the done-queue item is not
+   * lost — it will be picked up on the next loop iteration.
+   */
   xEventWake(w->loop);
 
   return NULL;

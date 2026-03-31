@@ -66,7 +66,7 @@ xEventLoop xEventLoopCreate(void) {
 
   /* Register wake pipe read end */
   struct epoll_event ev;
-  ev.events  = EPOLLIN;  /* level-triggered: wake pipe stays readable until drained */
+  ev.events  = EPOLLIN | EPOLLET;
   ev.data.ptr = NULL; /* sentinel: wake pipe */
   if (epoll_ctl(loop->epfd, EPOLL_CTL_ADD, loop->base.wake_rfd, &ev) != 0)
     goto fail;

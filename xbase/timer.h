@@ -5,12 +5,16 @@
  *
  * timer.h - Monotonic timer with delayed task dispatch
  *
- * A single background thread manages a min-heap of pending timer entries
- * ordered by deadline. On expiry the callback is either:
- *   - dispatched to a user-supplied xTaskGroup (non-blocking for the timer
- *     thread), or
- *   - called directly on the timer thread when no group is provided (the
- *     callback must be short and non-blocking in that case).
+ * Supports two fire modes selected at creation time:
+ *
+ *   Push mode  (g != NULL): expired callbacks are submitted to the supplied
+ *              xTaskGroup for execution on a worker thread.
+ *
+ *   Poll mode  (g == NULL): expired callbacks are pushed onto an internal
+ *              lock-free MPSC queue. The caller drains the queue by calling
+ *              xTimerPoll(), which executes all due callbacks on the calling
+ *              thread. This avoids any thread-switch overhead and is suitable
+ *              for latency-sensitive code that already has an event loop.
  */
 
 #ifndef XBASE_TIMER_H
@@ -23,7 +27,7 @@
 
 /**
  * @brief Callback invoked when a timer entry fires.
- * @param arg User-provided argument passed to xTimerSubmitAfter / xTimerSubmitAt.
+ * @param arg User-provided argument.
  */
 typedef void (*xTimerFunc)(void *arg);
 
@@ -46,10 +50,10 @@ XDEF_HANDLE(xTimerTask);
  * Spawns one background thread that manages the internal heap and drives
  * all timers created from this instance.
  *
- * @param g  Optional task group. When non-NULL, expired callbacks are
- *           submitted to @p g for execution on a worker thread.
- *           When NULL, callbacks run directly on the timer thread — they
- *           must be short and must not block.
+ * @param g  Optional task group (selects fire mode):
+ *           - Non-NULL → Push mode: expired callbacks are submitted to @p g.
+ *           - NULL     → Poll mode: expired callbacks are enqueued internally;
+ *             call xTimerPoll() to execute them on the calling thread.
  * @return   A new timer, or NULL on failure.
  */
 XCAPI(xTimer) xTimerCreate(xTaskGroup g);
@@ -57,9 +61,9 @@ XCAPI(xTimer) xTimerCreate(xTaskGroup g);
 /**
  * @brief Destroy a timer.
  *
- * Signals the background thread to stop, waits for it to exit, then
- * releases all resources. Pending entries that have not yet fired are
- * discarded (their callbacks will NOT be called).
+ * Signals the background thread to stop and waits for it to exit.
+ * Pending entries that have not yet fired are discarded (callbacks NOT called).
+ * In poll mode, any entries already in the internal queue are also discarded.
  *
  * @param t The timer to destroy.
  */
@@ -83,9 +87,8 @@ XCAPI(xTimerTask) xTimerSubmitAfter(xTimer t, xTimerFunc fn, void *arg,
  * @param t       The timer.
  * @param fn      Callback to invoke on expiry (must not be NULL).
  * @param arg     Argument forwarded to @p fn.
- * @param abs_ms  Absolute deadline in milliseconds (CLOCK_MONOTONIC epoch).
- *                Use xTimerNowMs() to obtain the current time in the same
- *                reference frame.
+ * @param abs_ms  Absolute deadline in milliseconds (CLOCK_MONOTONIC).
+ *                Use xTimerNowMs() to obtain the current time.
  * @return        A task handle, or NULL on failure.
  */
 XCAPI(xTimerTask) xTimerSubmitAt(xTimer t, xTimerFunc fn, void *arg,
@@ -95,23 +98,30 @@ XCAPI(xTimerTask) xTimerSubmitAt(xTimer t, xTimerFunc fn, void *arg,
  * @brief Cancel a pending timer entry.
  *
  * Safe to call concurrently with the timer thread. If the entry has already
- * fired (or is in the process of firing) the cancel is a no-op and
- * xErrno_Unknown is returned.
- *
+ * fired the cancel is a no-op and xErrno_Unknown is returned.
  * After a successful cancel the handle must not be used again.
  *
  * @param t     The timer.
- * @param task  The task handle returned by xTimerSubmitAfter / xTimerSubmitAt.
+ * @param task  Handle returned by xTimerSubmitAfter / xTimerSubmitAt.
  * @return      xErrno_Ok if cancelled before firing, xErrno_Unknown otherwise.
  */
 XCAPI(xErrno) xTimerCancel(xTimer t, xTimerTask task);
 
 /**
- * @brief Return the current monotonic time in milliseconds.
+ * @brief Execute all currently due callbacks (poll mode only).
  *
- * Uses CLOCK_MONOTONIC so the value is unaffected by wall-clock adjustments.
- * Suitable as the @p abs_ms argument to xTimerSubmitAt.
+ * Drains the internal MPSC queue and invokes each expired callback on the
+ * calling thread. Returns immediately if the queue is empty.
  *
+ * In push mode this function is a no-op and returns 0.
+ *
+ * @param t The timer.
+ * @return  Number of callbacks executed.
+ */
+XCAPI(int) xTimerPoll(xTimer t);
+
+/**
+ * @brief Return the current monotonic time in milliseconds (CLOCK_MONOTONIC).
  * @return Current time in milliseconds.
  */
 XCAPI(uint64_t) xTimerNowMs(void);

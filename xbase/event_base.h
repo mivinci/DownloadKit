@@ -173,11 +173,9 @@ static inline void loop_close_wake(struct xEventLoop_ *loop) {
 }
 
 static inline void loop_drain_wake(struct xEventLoop_ *loop) {
-  char buf[1];
-  /* Read exactly one byte per wake signal so each xEventWake() call
-   * produces one EPOLLET edge.  The fd is O_NONBLOCK so this never
-   * blocks even if called spuriously. */
-  read(loop->wake_rfd, buf, 1);
+  char buf[64];
+  while (read(loop->wake_rfd, buf, sizeof(buf)) > 0)
+    ;
 }
 
 /* Dispatch all completed offload work items (call done_fn, then free). */

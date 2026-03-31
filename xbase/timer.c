@@ -284,3 +284,21 @@ int xTimerPoll(xTimer t_) {
   }
   return count;
 }
+
+uint64_t xTimerNextDeadline(xTimer t_) {
+  struct xTimer_ *t = (struct xTimer_ *)t_;
+  if (!t) return UINT64_MAX;
+
+  pthread_mutex_lock(&t->mu);
+  struct xTimerTask_ *top = (struct xTimerTask_ *)xHeapPeek(t->heap);
+  uint64_t deadline = top ? top->deadline : UINT64_MAX;
+  pthread_mutex_unlock(&t->mu);
+
+  return deadline;
+}
+
+int xTimerIsPollMode(xTimer t_) {
+  struct xTimer_ *t = (struct xTimer_ *)t_;
+  if (!t) return 0;
+  return t->group == NULL ? 1 : 0;
+}

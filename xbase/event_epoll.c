@@ -38,7 +38,10 @@ struct xEventLoopEpoll_ {
 
 /* ───────────────────── Public API ───────────────────── */
 
-xEventLoop xEventLoopCreate(void) {
+xEventLoop xEventLoopCreate(xTimer timer) {
+  /* If a timer is provided it must be in poll mode */
+  if (timer && !xTimerIsPollMode(timer)) return NULL;
+
   struct xEventLoopEpoll_ *loop =
       (struct xEventLoopEpoll_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
@@ -46,6 +49,8 @@ xEventLoop xEventLoopCreate(void) {
   loop->epfd = -1;
   loop->base.wake_rfd = -1;
   loop->base.wake_wfd = -1;
+  loop->base.timer    = timer;
+  loop->base.stopped  = 0;
   sources_init(&loop->base.sources);
 
   loop->epfd = epoll_create1(EPOLL_CLOEXEC);

@@ -20,6 +20,7 @@
 
 #include <xbase/base.h>
 #include <xbase/error.h>
+#include <xbase/timer.h>
 
 /**
  * @brief Bitmask of I/O events.
@@ -51,9 +52,13 @@ XDEF_HANDLE(xEventSource);
 
 /**
  * @brief Create an event loop.
+ *
+ * @param timer  Optional poll-mode timer to attach. Pass NULL for a plain
+ *               I/O-only loop. If non-NULL the timer MUST have been created
+ *               in poll mode (xTimerCreate(NULL)); otherwise creation fails.
  * @return A new event loop, or NULL on failure.
  */
-XCAPI(xEventLoop) xEventLoopCreate(void);
+XCAPI(xEventLoop) xEventLoopCreate(xTimer timer);
 
 /**
  * @brief Destroy an event loop.
@@ -123,5 +128,26 @@ XCAPI(int) xEventWait(xEventLoop loop, int timeout_ms);
  * @return     xErrno_Ok on success.
  */
 XCAPI(xErrno) xEventWake(xEventLoop loop);
+
+/**
+ * @brief Run the event loop.
+ *
+ * Enters a blocking main loop that repeatedly waits for I/O events and,
+ * if a timer was attached at creation time, drives timer callbacks via
+ * xTimerPoll(). The loop runs until xEventLoopStop() is called.
+ *
+ * @param loop The event loop.
+ */
+XCAPI(void) xEventLoopRun(xEventLoop loop);
+
+/**
+ * @brief Stop a running event loop.
+ *
+ * Sets an internal stop flag and wakes the loop so that xEventLoopRun()
+ * returns promptly. Safe to call from any thread.
+ *
+ * @param loop The event loop.
+ */
+XCAPI(void) xEventLoopStop(xEventLoop loop);
 
 #endif /* XBASE_EVENT_H */

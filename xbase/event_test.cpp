@@ -45,7 +45,7 @@ static void drain_fd(int fd) {
 /* ───────────────────── Create / Destroy ───────────────────── */
 
 TEST(EventLifecycle, CreateAndDestroy) {
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
   xEventLoopDestroy(loop);
 }
@@ -58,7 +58,7 @@ TEST(EventLifecycle, DestroyWithRegisteredSources) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   xEventSource src = xEventAdd(loop, fds[0], xEvent_Read,
@@ -77,7 +77,7 @@ TEST(EventAddDel, AddAndDel) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   xEventSource src = xEventAdd(loop, fds[0], xEvent_Read,
@@ -95,7 +95,7 @@ TEST(EventAddDel, AddNullCallback) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   xEventSource src = xEventAdd(loop, fds[0], xEvent_Read, NULL, nullptr);
@@ -115,7 +115,7 @@ TEST(EventAddDel, AddMultipleSources) {
   int pipes[N][2];
   xEventSource srcs[N];
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   for (int i = 0; i < N; i++) {
@@ -141,7 +141,7 @@ TEST(EventRead, SingleReadEvent) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   struct Ctx {
@@ -180,7 +180,7 @@ TEST(EventRead, MultipleReadEvents) {
   int pipes[N][2];
   int counts[N] = {};
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   struct Ctx { int *count; int rfd; };
@@ -222,7 +222,7 @@ TEST(EventWrite, WriteReady) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   std::atomic<int> fired{0};
@@ -252,7 +252,7 @@ TEST(EventMod, SwitchReadToWrite) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   xEventMask last_mask = 0;
@@ -287,7 +287,7 @@ TEST(EventMod, NullArgs) {
 /* ───────────────────── Timeout ───────────────────── */
 
 TEST(EventTimeout, ZeroTimeoutReturnsImmediately) {
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   auto start = std::chrono::steady_clock::now();
@@ -301,7 +301,7 @@ TEST(EventTimeout, ZeroTimeoutReturnsImmediately) {
 }
 
 TEST(EventTimeout, TimesOutWhenNoEvents) {
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   auto start = std::chrono::steady_clock::now();
@@ -318,7 +318,7 @@ TEST(EventTimeout, TimesOutWhenNoEvents) {
 /* ───────────────────── Wake ───────────────────── */
 
 TEST(EventWake, WakeFromAnotherThread) {
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   std::atomic<bool> woke{false};
@@ -342,7 +342,7 @@ TEST(EventWake, WakeFromAnotherThread) {
 }
 
 TEST(EventWake, MultipleWakesCoalesce) {
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   /* Send multiple wakes before waiting */
@@ -366,7 +366,7 @@ TEST(EventEdgeTriggered, NoRenotifyWithoutDrain) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   int count = 0;
@@ -401,7 +401,7 @@ TEST(EventEdgeTriggered, RefiresOnNewData) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   int count = 0;
@@ -437,7 +437,7 @@ TEST(EventConcurrent, WakeWhileWaiting) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   std::atomic<int> read_count{0};
@@ -474,7 +474,7 @@ TEST(EventStress, ManySourcesManyEvents) {
   int pipes[N][2];
   int counts[N] = {};
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   struct Ctx { int *count; };
@@ -524,7 +524,7 @@ TEST(EventDynamic, AddSourceBetweenWaits) {
   ASSERT_EQ(make_pipe(fds1), 0);
   ASSERT_EQ(make_pipe(fds2), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   int count1 = 0, count2 = 0;
@@ -573,7 +573,7 @@ TEST(EventDynamic, DelSourceBetweenWaits) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   int count = 0;
@@ -610,7 +610,7 @@ TEST(EventReadWrite, BothReadAndWrite) {
   int fds[2];
   ASSERT_EQ(make_pipe(fds), 0);
 
-  xEventLoop loop = xEventLoopCreate();
+  xEventLoop loop = xEventLoopCreate(NULL);
   ASSERT_NE(loop, nullptr);
 
   xEventMask got_mask = 0;

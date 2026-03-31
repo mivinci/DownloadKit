@@ -10,6 +10,7 @@
 #define XBASE_EVENT_BASE_H
 
 #include <xbase/event.h>
+#include <xbase/timer.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -96,6 +97,8 @@ struct xEventLoop_ {
   struct xEventSources_ sources;
   int                   wake_rfd; /* read end of wake pipe  */
   int                   wake_wfd; /* write end of wake pipe */
+  xTimer                timer;    /* attached poll-mode timer, or NULL */
+  int                   stopped;  /* set by xEventLoopStop()           */
 };
 
 static inline int loop_init_wake(struct xEventLoop_ *loop) {

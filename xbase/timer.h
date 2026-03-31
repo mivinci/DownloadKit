@@ -126,4 +126,26 @@ XCAPI(int) xTimerPoll(xTimer t);
  */
 XCAPI(uint64_t) xTimerNowMs(void);
 
+/**
+ * @brief Return the deadline of the earliest pending timer entry.
+ *
+ * Returns the absolute monotonic time (in milliseconds) of the heap-top
+ * entry. If the heap is empty or @p t is NULL, returns UINT64_MAX.
+ *
+ * Thread-safe: acquires the internal mutex.
+ *
+ * @param t The timer.
+ * @return  Earliest deadline in ms, or UINT64_MAX if none.
+ */
+XCAPI(uint64_t) xTimerNextDeadline(xTimer t);
+
+/**
+ * @brief Check whether a timer is in poll mode.
+ *
+ * @param t The timer.
+ * @return  1 if poll mode (created with g == NULL), 0 otherwise.
+ *          Returns 0 if @p t is NULL.
+ */
+XCAPI(int) xTimerIsPollMode(xTimer t);
+
 #endif /* XBASE_TIMER_H */

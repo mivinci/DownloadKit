@@ -78,13 +78,18 @@ static void pfd_rebuild(struct xEventLoopPoll_ *loop) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-xEventLoop xEventLoopCreate(void) {
+xEventLoop xEventLoopCreate(xTimer timer) {
+  /* If a timer is provided it must be in poll mode */
+  if (timer && !xTimerIsPollMode(timer)) return NULL;
+
   struct xEventLoopPoll_ *loop =
       (struct xEventLoopPoll_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
   loop->base.wake_rfd = -1;
   loop->base.wake_wfd = -1;
+  loop->base.timer    = timer;
+  loop->base.stopped  = 0;
   sources_init(&loop->base.sources);
 
   if (loop_init_wake(&loop->base) != 0) goto fail;

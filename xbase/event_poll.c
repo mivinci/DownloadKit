@@ -85,7 +85,13 @@ xEventLoop xEventLoopCreate(void) {
 
   loop->base.wake_rfd = -1;
   loop->base.wake_wfd = -1;
+  loop->base.stopped  = 0;
+  loop->base.timer_heap = NULL;
   sources_init(&loop->base.sources);
+
+  loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
+  if (!loop->base.timer_heap) goto fail;
+  if (pthread_mutex_init(&loop->base.timer_mu, NULL) != 0) goto fail;
 
   if (loop_init_wake(&loop->base) != 0) goto fail;
   if (set_nonblock(loop->base.wake_rfd) != 0) goto fail;
@@ -96,6 +102,10 @@ xEventLoop xEventLoopCreate(void) {
 fail:
   loop_close_wake(&loop->base);
   sources_free(&loop->base.sources);
+  if (loop->base.timer_heap) {
+    xHeapDestroy(loop->base.timer_heap);
+    pthread_mutex_destroy(&loop->base.timer_mu);
+  }
   free(loop);
   return NULL;
 }
@@ -103,6 +113,16 @@ fail:
 void xEventLoopDestroy(xEventLoop loop_) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
   if (!loop) return;
+
+  /* Discard all pending timers without firing */
+  pthread_mutex_lock(&loop->base.timer_mu);
+  while (xHeapSize(loop->base.timer_heap) > 0) {
+    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
+    free(t);
+  }
+  pthread_mutex_unlock(&loop->base.timer_mu);
+  xHeapDestroy(loop->base.timer_heap);
+  pthread_mutex_destroy(&loop->base.timer_mu);
 
   loop_close_wake(&loop->base);
   sources_free(&loop->base.sources);
@@ -149,10 +169,23 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
   if (!loop) return -1;
 
+  /* Adjust timeout based on timer heap */
+  int effective_timeout = timeout_ms;
+  pthread_mutex_lock(&loop->base.timer_mu);
+  struct xEventTimer_ *top = (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
+  if (top) {
+    uint64_t now = xEventLoopNowMs();
+    int64_t wait = (int64_t)(top->deadline - now);
+    int timer_timeout = (wait <= 0) ? 0 : (int)wait;
+    if (effective_timeout < 0 || timer_timeout < effective_timeout)
+      effective_timeout = timer_timeout;
+  }
+  pthread_mutex_unlock(&loop->base.timer_mu);
+
   pfd_rebuild(loop);
 
-  int n = poll(loop->pollfds, (nfds_t)loop->pfd_len, timeout_ms);
-  if (n < 0) return -1;
+  int n = poll(loop->pollfds, (nfds_t)loop->pfd_len, effective_timeout);
+  if (n < 0) n = 0;
 
   int dispatched = 0;
 
@@ -171,15 +204,26 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     if (pfd->revents & POLLOUT) ready |= xEvent_Write;
 
     if (ready) {
-      /*
-       * Emulate edge-triggered: disable events after notification.
-       * The caller must call xEventMod() to re-arm.
-       */
       src->mask = 0;
       src->fn(src->fd, ready, src->arg);
       dispatched++;
     }
   }
+
+  /* Fire expired timers */
+  pthread_mutex_lock(&loop->base.timer_mu);
+  uint64_t now = xEventLoopNowMs();
+  while (xHeapSize(loop->base.timer_heap) > 0) {
+    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
+    if (t->deadline > now) break;
+    xHeapPop(loop->base.timer_heap);
+    t->fired = 1;
+    pthread_mutex_unlock(&loop->base.timer_mu);
+    t->fn(t->arg);
+    free(t);
+    pthread_mutex_lock(&loop->base.timer_mu);
+  }
+  pthread_mutex_unlock(&loop->base.timer_mu);
 
   return dispatched;
 }

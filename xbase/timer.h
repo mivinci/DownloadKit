@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
+#include <xbase/event.h>
 #include <xbase/task.h>
 
 /**
@@ -125,5 +126,30 @@ XCAPI(int) xTimerPoll(xTimer t);
  * @return Current time in milliseconds.
  */
 XCAPI(uint64_t) xTimerNowMs(void);
+
+/**
+ * @brief Attach an event loop to the timer's background thread.
+ *
+ * After attaching, the timer thread replaces its internal
+ * pthread_cond_timedwait with xEventWait(), simultaneously driving
+ * I/O events and timer expiry on the same thread.
+ *
+ * @param t    The timer.
+ * @param loop The event loop to bind.
+ * @return     xErrno_Ok on success, xErrno_Unknown if either argument is
+ *             NULL or if a loop is already attached.
+ */
+XCAPI(xErrno) xTimerAttachEventLoop(xTimer t, xEventLoop loop);
+
+/**
+ * @brief Detach a previously attached event loop.
+ *
+ * The timer thread reverts to pthread_cond_timedwait mode.
+ *
+ * @param t The timer.
+ * @return  xErrno_Ok on success, xErrno_Unknown if no loop is attached
+ *          or if @p t is NULL.
+ */
+XCAPI(xErrno) xTimerDetachEventLoop(xTimer t);
 
 #endif /* XBASE_TIMER_H */

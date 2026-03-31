@@ -7,10 +7,12 @@
  */
 
 #include <xbase/timer.h>
+#include <xbase/event.h>
 #include <xbase/heap.h>
 #include <xbase/mpsc.h>
 
 #include <pthread.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -38,6 +40,8 @@ struct xTimer_ {
   /* Poll-mode queue (lock-free MPSC)                                       */
   xMpsc           *mq_head;
   xMpsc           *mq_tail;
+
+  xEventLoop       loop;      /* attached event loop, or NULL               */
 
   pthread_t        thread;
   pthread_mutex_t  mu;
@@ -115,32 +119,66 @@ static void *timer_thread(void *arg) {
   pthread_mutex_lock(&t->mu);
 
   for (;;) {
-    /* Wait while heap is empty and not stopped */
-    while (!t->stopped && xHeapSize(t->heap) == 0)
-      pthread_cond_wait(&t->cond, &t->mu);
-
-    if (t->stopped) break;
-
-    struct xTimerTask_ *top = (struct xTimerTask_ *)xHeapPeek(t->heap);
-    uint64_t now            = xTimerNowMs();
-
-    if (top->deadline <= now) {
-      xHeapPop(t->heap);
-      pthread_mutex_unlock(&t->mu);
-      fire(t, top);
-      pthread_mutex_lock(&t->mu);
-    } else {
-      /* Sleep until next deadline (or until signalled) */
-      uint64_t wait_ms = top->deadline - now;
-      struct timespec abs_ts;
-      clock_gettime(CLOCK_REALTIME, &abs_ts);
-      abs_ts.tv_sec  += (time_t)(wait_ms / 1000);
-      abs_ts.tv_nsec += (long)((wait_ms % 1000) * 1000000L);
-      if (abs_ts.tv_nsec >= 1000000000L) {
-        abs_ts.tv_sec++;
-        abs_ts.tv_nsec -= 1000000000L;
+    if (t->loop) {
+      /* ── Event-loop-driven mode ── */
+      int timeout_ms = -1;
+      if (xHeapSize(t->heap) > 0) {
+        struct xTimerTask_ *top = (struct xTimerTask_ *)xHeapPeek(t->heap);
+        uint64_t now = xTimerNowMs();
+        if (top->deadline <= now)
+          timeout_ms = 0;
+        else {
+          uint64_t diff = top->deadline - now;
+          timeout_ms = (diff > (uint64_t)INT32_MAX) ? INT32_MAX : (int)diff;
+        }
       }
-      pthread_cond_timedwait(&t->cond, &t->mu, &abs_ts);
+
+      xEventLoop loop = t->loop; /* snapshot under lock */
+      pthread_mutex_unlock(&t->mu);
+      xEventWait(loop, timeout_ms);
+      pthread_mutex_lock(&t->mu);
+
+      if (t->stopped) break;
+
+      /* Fire all expired timers */
+      uint64_t now = xTimerNowMs();
+      while (xHeapSize(t->heap) > 0) {
+        struct xTimerTask_ *top = (struct xTimerTask_ *)xHeapPeek(t->heap);
+        if (top->deadline > now) break;
+        xHeapPop(t->heap);
+        pthread_mutex_unlock(&t->mu);
+        fire(t, top);
+        pthread_mutex_lock(&t->mu);
+      }
+    } else {
+      /* ── Original cond-wait mode ── */
+      while (!t->stopped && !t->loop && xHeapSize(t->heap) == 0)
+        pthread_cond_wait(&t->cond, &t->mu);
+
+      if (t->stopped) break;
+      if (t->loop) continue; /* mode switched, re-enter loop */
+
+      struct xTimerTask_ *top = (struct xTimerTask_ *)xHeapPeek(t->heap);
+      uint64_t now            = xTimerNowMs();
+
+      if (top->deadline <= now) {
+        xHeapPop(t->heap);
+        pthread_mutex_unlock(&t->mu);
+        fire(t, top);
+        pthread_mutex_lock(&t->mu);
+      } else {
+        /* Sleep until next deadline (or until signalled) */
+        uint64_t wait_ms = top->deadline - now;
+        struct timespec abs_ts;
+        clock_gettime(CLOCK_REALTIME, &abs_ts);
+        abs_ts.tv_sec  += (time_t)(wait_ms / 1000);
+        abs_ts.tv_nsec += (long)((wait_ms % 1000) * 1000000L);
+        if (abs_ts.tv_nsec >= 1000000000L) {
+          abs_ts.tv_sec++;
+          abs_ts.tv_nsec -= 1000000000L;
+        }
+        pthread_cond_timedwait(&t->cond, &t->mu, &abs_ts);
+      }
     }
   }
 
@@ -181,6 +219,10 @@ fail_heap:   free(t);
 void xTimerDestroy(xTimer t_) {
   struct xTimer_ *t = (struct xTimer_ *)t_;
   if (!t) return;
+
+  /* Auto-detach if an event loop is bound */
+  if (t->loop)
+    xTimerDetachEventLoop(t_);
 
   pthread_mutex_lock(&t->mu);
   t->stopped = 1;
@@ -232,7 +274,10 @@ static xTimerTask submit(xTimer t_, xTimerFunc fn, void *arg, uint64_t abs_ms) {
     free(task);
     return NULL;
   }
-  pthread_cond_signal(&t->cond);
+  if (t->loop)
+    xEventWake(t->loop);
+  else
+    pthread_cond_signal(&t->cond);
   pthread_mutex_unlock(&t->mu);
 
   return (xTimerTask)task;
@@ -263,6 +308,9 @@ xErrno xTimerCancel(xTimer t_, xTimerTask task_) {
   task->heap_idx  = TIMER_INVALID_IDX;
   task->cancelled = 1;
 
+  if (t->loop)
+    xEventWake(t->loop);
+
   pthread_mutex_unlock(&t->mu);
 
   free(task);
@@ -283,4 +331,40 @@ int xTimerPoll(xTimer t_) {
     count++;
   }
   return count;
+}
+
+/* ───────────────────── Attach / Detach ───────────────────── */
+
+xErrno xTimerAttachEventLoop(xTimer t_, xEventLoop loop) {
+  struct xTimer_ *t = (struct xTimer_ *)t_;
+  if (!t || !loop) return xErrno_Unknown;
+
+  pthread_mutex_lock(&t->mu);
+  if (t->loop) {
+    pthread_mutex_unlock(&t->mu);
+    return xErrno_Unknown; /* already attached */
+  }
+  t->loop = loop;
+  pthread_cond_signal(&t->cond); /* wake thread to switch mode */
+  pthread_mutex_unlock(&t->mu);
+
+  return xErrno_Ok;
+}
+
+xErrno xTimerDetachEventLoop(xTimer t_) {
+  struct xTimer_ *t = (struct xTimer_ *)t_;
+  if (!t) return xErrno_Unknown;
+
+  pthread_mutex_lock(&t->mu);
+  if (!t->loop) {
+    pthread_mutex_unlock(&t->mu);
+    return xErrno_Unknown; /* not attached */
+  }
+  xEventLoop loop = t->loop;
+  t->loop = NULL;
+  xEventWake(loop);              /* wake xEventWait so thread re-enters loop */
+  pthread_cond_signal(&t->cond); /* in case thread is between modes */
+  pthread_mutex_unlock(&t->mu);
+
+  return xErrno_Ok;
 }

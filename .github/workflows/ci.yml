@@ -1,0 +1,98 @@
+name: CI
+
+# Cancel in-progress runs for the same PR / branch on new pushes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build & Test (${{ matrix.os }} / ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+          - os: ubuntu-latest
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Dependencies ──────────────────────────────────────────────────────
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y libgtest-dev libgmock-dev cmake
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install googletest
+
+      # ── Cache ─────────────────────────────────────────────────────────────
+
+      - name: Cache build directory
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: build-${{ matrix.os }}-${{ matrix.compiler }}-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: |
+            build-${{ matrix.os }}-${{ matrix.compiler }}-
+
+      # ── Build ─────────────────────────────────────────────────────────────
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror" \
+            -DCMAKE_CXX_FLAGS="-Wall -Wextra -Werror"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      # ── Test ──────────────────────────────────────────────────────────────
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --parallel 4
+
+  # ── Branch naming lint ────────────────────────────────────────────────────
+
+  lint-branch:
+    name: Lint branch name
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Check branch naming convention
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          echo "Branch: $BRANCH"
+          if echo "$BRANCH" | grep -qE '^(main|qclaw/|codebuddy/|renovate/)'; then
+            echo "✅ Branch name OK"
+          else
+            echo "❌ Branch name '$BRANCH' does not follow convention."
+            echo "   Expected prefix: qclaw/ or codebuddy/"
+            exit 1
+          fi

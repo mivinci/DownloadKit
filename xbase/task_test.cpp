@@ -82,7 +82,7 @@ TEST_F(TaskTest, SubmitAndWaitSingle) {
 }
 
 TEST_F(TaskTest, WaitNullReturnsError) {
-  EXPECT_EQ(xTaskWait(nullptr, nullptr), xErrno_Unknown);
+  EXPECT_EQ(xTaskWait(nullptr, nullptr), xErrno_InvalidArg);
 }
 
 TEST_F(TaskTest, SubmitNullFnReturnsNull) {

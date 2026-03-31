@@ -158,8 +158,8 @@ TEST(BuiltinTimerCancel, NullArgs) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  EXPECT_EQ(xEventLoopTimerCancel(NULL, NULL), xErrno_Unknown);
-  EXPECT_EQ(xEventLoopTimerCancel(loop, NULL), xErrno_Unknown);
+  EXPECT_EQ(xEventLoopTimerCancel(NULL, NULL), xErrno_InvalidArg);
+  EXPECT_EQ(xEventLoopTimerCancel(loop, NULL), xErrno_InvalidArg);
 
   xEventLoopDestroy(loop);
 }

@@ -107,7 +107,7 @@ TEST(EventAddDel, AddNullCallback) {
 }
 
 TEST(EventAddDel, DelNullArgs) {
-  EXPECT_EQ(xEventDel(NULL, NULL), xErrno_Unknown);
+  EXPECT_EQ(xEventDel(NULL, NULL), xErrno_InvalidArg);
 }
 
 TEST(EventAddDel, AddMultipleSources) {
@@ -281,7 +281,7 @@ TEST(EventMod, SwitchReadToWrite) {
 }
 
 TEST(EventMod, NullArgs) {
-  EXPECT_EQ(xEventMod(NULL, NULL, xEvent_Read), xErrno_Unknown);
+  EXPECT_EQ(xEventMod(NULL, NULL, xEvent_Read), xErrno_InvalidArg);
 }
 
 /* ───────────────────── Timeout ───────────────────── */
@@ -357,7 +357,7 @@ TEST(EventWake, MultipleWakesCoalesce) {
 }
 
 TEST(EventWake, NullArg) {
-  EXPECT_EQ(xEventWake(NULL), xErrno_Unknown);
+  EXPECT_EQ(xEventWake(NULL), xErrno_InvalidArg);
 }
 
 /* ───────────────────── Edge-triggered semantics ───────────────────── */

@@ -203,7 +203,7 @@ TEST_F(HeapTest, LargeScaleSorted) {
 TEST_F(HeapTest, NullArgs) {
   EXPECT_EQ(xHeapCreate(nullptr, elem_setidx, 0), nullptr);
   EXPECT_EQ(xHeapCreate(elem_cmp, nullptr, 0), nullptr);
-  EXPECT_EQ(xHeapPush(nullptr, nullptr), xErrno_Unknown);
+  EXPECT_EQ(xHeapPush(nullptr, nullptr), xErrno_InvalidArg);
   EXPECT_EQ(xHeapPeek(nullptr), nullptr);
   EXPECT_EQ(xHeapPop(nullptr), nullptr);
   EXPECT_EQ(xHeapRemove(nullptr, 0), nullptr);

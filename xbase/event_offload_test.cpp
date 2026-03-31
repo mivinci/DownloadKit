@@ -118,12 +118,12 @@ TEST_F(EventOffloadTest, FireAndForget) {
 
 TEST_F(EventOffloadTest, NullLoopReturnsError) {
   EXPECT_EQ(xEventLoopSubmit(nullptr, group, basic_work, basic_done, nullptr),
-            xErrno_Unknown);
+            xErrno_InvalidArg);
 }
 
 TEST_F(EventOffloadTest, NullWorkFnReturnsError) {
   EXPECT_EQ(xEventLoopSubmit(loop, group, nullptr, basic_done, nullptr),
-            xErrno_Unknown);
+            xErrno_InvalidArg);
 }
 
 /* ───────────────────── Concurrent submits ───────────────────── */

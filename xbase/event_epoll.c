@@ -51,6 +51,7 @@ xEventLoop xEventLoopCreate(void) {
   sources_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;
+  atomic_init(&loop->base.inflight, 0);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
   if (!loop->base.timer_heap) goto fail;
@@ -98,6 +99,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
   xHeapDestroy(loop->base.timer_heap);
   pthread_mutex_destroy(&loop->base.timer_mu);
 
+  loop_wait_inflight(&loop->base);
   loop_cleanup_done(&loop->base);
 
   close(loop->epfd);

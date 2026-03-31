@@ -65,5 +65,8 @@ xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
     return xErrno_Unknown;
   }
 
+  w->task = t;
+  atomic_fetch_add(&((struct xEventLoop_ *)loop)->inflight, 1);
+
   return xErrno_Ok;
 }

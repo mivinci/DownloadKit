@@ -14,7 +14,9 @@
 #include <xbase/mpsc.h>
 #include <xbase/task.h>
 
+#include <fcntl.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -123,12 +125,13 @@ static inline void event_timer_set_idx(void *elem, size_t idx) {
 /* ───────────────────── Offload work item ───────────────────── */
 
 struct xEventWork_ {
-  xMpsc             mpsc;     /* intrusive MPSC queue node (must be first) */
+  xMpsc             mpsc;     /* intrusive MPSC queue node                */
   xTaskFunc         work_fn;  /* executed on worker thread                */
   void            (*done_fn)(void *arg, void *result); /* executed on loop thread */
   void             *arg;
   void             *result;
   xEventLoop        loop;     /* back-pointer to the owning event loop    */
+  xTask             task;     /* handle returned by xTaskSubmit           */
 };
 
 /* ───────────────────── Loop base ───────────────────── */
@@ -141,6 +144,7 @@ struct xEventLoop_ {
   /* Offload done queue (lock-free MPSC) */
   xMpsc                *done_head;
   xMpsc                *done_tail;
+  atomic_int            inflight; /* number of in-flight offload workers */
 
   /* Builtin timer heap */
   xHeap                 timer_heap;
@@ -151,6 +155,12 @@ struct xEventLoop_ {
 static inline int loop_init_wake(struct xEventLoop_ *loop) {
   int fds[2];
   if (pipe(fds) != 0) return -1;
+  /* Set read end to non-blocking so loop_drain_wake never blocks. */
+  if (fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL, 0) | O_NONBLOCK) < 0) {
+    close(fds[0]);
+    close(fds[1]);
+    return -1;
+  }
   loop->wake_rfd = fds[0];
   loop->wake_wfd = fds[1];
   return 0;
@@ -171,9 +181,12 @@ static inline void loop_drain_wake(struct xEventLoop_ *loop) {
 static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
   xMpsc *node;
   while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
-    struct xEventWork_ *w = (struct xEventWork_ *)node;
+    struct xEventWork_ *w = xContainerOf(node, struct xEventWork_, mpsc);
+    /* Release the xTask handle allocated by xTaskSubmit. */
+    xTaskWait(w->task, NULL);
     if (w->done_fn)
       w->done_fn(w->arg, w->result);
+    atomic_fetch_sub(&loop->inflight, 1);
     free(w);
   }
 }
@@ -182,7 +195,21 @@ static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
 static inline void loop_cleanup_done(struct xEventLoop_ *loop) {
   xMpsc *node;
   while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
-    free(node);
+    struct xEventWork_ *w = xContainerOf(node, struct xEventWork_, mpsc);
+    xTaskWait(w->task, NULL);
+    free(w);
+  }
+}
+
+/*
+ * Spin-wait until all in-flight offload workers have finished and
+ * pushed their results into the done queue.  Must be called before
+ * loop_cleanup_done() during destroy to avoid use-after-free.
+ */
+static inline void loop_wait_inflight(struct xEventLoop_ *loop) {
+  while (atomic_load(&loop->inflight) > 0) {
+    /* Brief yield to let worker threads finish. */
+    usleep(100);
   }
 }
 

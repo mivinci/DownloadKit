@@ -2,6 +2,21 @@ file(GLOB_RECURSE XBASE_HEADERS "*.h")
 file(GLOB_RECURSE XBASE_SOURCES "*.c")
 add_library(xbase SHARED ${XBASE_SOURCES} ${XBASE_HEADERS})
 
+# ── Event backend detection (kqueue → epoll → poll fallback) ──
+include(CheckIncludeFile)
+check_include_file(sys/event.h HAS_SYS_EVENT_H)
+check_include_file(sys/epoll.h HAS_SYS_EPOLL_H)
+
+if(HAS_SYS_EVENT_H)
+  target_compile_definitions(xbase PRIVATE XK_HAS_KQUEUE)
+  message(STATUS "xbase: event backend = kqueue")
+elseif(HAS_SYS_EPOLL_H)
+  target_compile_definitions(xbase PRIVATE XK_HAS_EPOLL)
+  message(STATUS "xbase: event backend = epoll")
+else()
+  message(STATUS "xbase: event backend = poll (POSIX fallback)")
+endif()
+
 # ── Backtrace backend detection (libunwind → execinfo → stub) ──
 find_package(Libunwind QUIET)
 

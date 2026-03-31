@@ -12,9 +12,9 @@ void xEventLoopRun(xEventLoop loop_) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
   if (!loop) return;
 
-  loop->stopped = 0;
+  xAtomicStore(&loop->stopped, 0, xAtomicRelaxed);
 
-  while (!loop->stopped) {
+  while (!xAtomicLoad(&loop->stopped, xAtomicAcquire)) {
     xEventWait(loop_, -1);
   }
 }
@@ -23,6 +23,6 @@ void xEventLoopStop(xEventLoop loop_) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
   if (!loop) return;
 
-  loop->stopped = 1;
+  xAtomicStore(&loop->stopped, 1, xAtomicRelease);
   xEventWake(loop_);
 }

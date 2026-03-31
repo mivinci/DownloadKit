@@ -11,6 +11,8 @@
 
 #include <xbase/event.h>
 #include <xbase/heap.h>
+#include <xbase/mpsc.h>
+#include <xbase/task.h>
 
 #include <pthread.h>
 #include <stdint.h>
@@ -118,12 +120,27 @@ static inline void event_timer_set_idx(void *elem, size_t idx) {
   ((struct xEventTimer_ *)elem)->heap_idx = idx;
 }
 
+/* ───────────────────── Offload work item ───────────────────── */
+
+struct xEventWork_ {
+  xMpsc             mpsc;     /* intrusive MPSC queue node (must be first) */
+  xTaskFunc         work_fn;  /* executed on worker thread                */
+  void            (*done_fn)(void *arg, void *result); /* executed on loop thread */
+  void             *arg;
+  void             *result;
+  xEventLoop        loop;     /* back-pointer to the owning event loop    */
+};
+
 /* ───────────────────── Loop base ───────────────────── */
 
 struct xEventLoop_ {
   struct xEventSources_ sources;
   int                   wake_rfd; /* read end of wake pipe  */
   int                   wake_wfd; /* write end of wake pipe */
+
+  /* Offload done queue (lock-free MPSC) */
+  xMpsc                *done_head;
+  xMpsc                *done_tail;
 
   /* Builtin timer heap */
   xHeap                 timer_heap;
@@ -148,6 +165,25 @@ static inline void loop_drain_wake(struct xEventLoop_ *loop) {
   char buf[64];
   while (read(loop->wake_rfd, buf, sizeof(buf)) > 0)
     ;
+}
+
+/* Dispatch all completed offload work items (call done_fn, then free). */
+static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
+  xMpsc *node;
+  while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
+    struct xEventWork_ *w = (struct xEventWork_ *)node;
+    if (w->done_fn)
+      w->done_fn(w->arg, w->result);
+    free(w);
+  }
+}
+
+/* Drain remaining offload work items without executing done_fn (for destroy). */
+static inline void loop_cleanup_done(struct xEventLoop_ *loop) {
+  xMpsc *node;
+  while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
+    free(node);
+  }
 }
 
 #endif /* XBASE_EVENT_BASE_H */

@@ -88,6 +88,8 @@ xEventLoop xEventLoopCreate(void) {
   loop->base.stopped  = 0;
   loop->base.timer_heap = NULL;
   sources_init(&loop->base.sources);
+  loop->base.done_head = NULL;
+  loop->base.done_tail = NULL;
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
   if (!loop->base.timer_heap) goto fail;
@@ -123,6 +125,8 @@ void xEventLoopDestroy(xEventLoop loop_) {
   pthread_mutex_unlock(&loop->base.timer_mu);
   xHeapDestroy(loop->base.timer_heap);
   pthread_mutex_destroy(&loop->base.timer_mu);
+
+  loop_cleanup_done(&loop->base);
 
   loop_close_wake(&loop->base);
   sources_free(&loop->base.sources);
@@ -190,8 +194,10 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   int dispatched = 0;
 
   /* Check wake pipe (slot 0) */
-  if (loop->pollfds[0].revents & POLLIN)
+  if (loop->pollfds[0].revents & POLLIN) {
     loop_drain_wake(&loop->base);
+    loop_dispatch_done(&loop->base);
+  }
 
   /* Check sources (slots 1..pfd_len-1) */
   for (size_t i = 0; i < loop->base.sources.len; i++) {

@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
+#include <xbase/task.h>
 
 /**
  * @brief Bitmask of I/O events.
@@ -178,6 +179,34 @@ XCAPI(xEventTimer) xEventLoopTimerAt(xEventLoop loop, xEventTimerFunc fn,
  * @return      xErrno_Ok if cancelled before firing, xErrno_Unknown otherwise.
  */
 XCAPI(xErrno) xEventLoopTimerCancel(xEventLoop loop, xEventTimer timer);
+
+/**
+ * @brief Callback invoked on the event loop thread when offloaded work
+ *        completes.
+ * @param arg     User-provided argument (same as passed to xEventLoopSubmit).
+ * @param result  Return value of the work function.
+ */
+typedef void (*xEventDoneFunc)(void *arg, void *result);
+
+/**
+ * @brief Submit work to a thread pool; run @p done_fn on the loop thread
+ *        when finished.
+ *
+ * The @p work_fn is executed on a worker thread from @p group. Once it
+ * returns, @p done_fn is queued to the event loop and will be dispatched
+ * during the next xEventWait(), serialised with I/O and timer callbacks.
+ *
+ * @param loop     The event loop (must not be NULL).
+ * @param group    Task group (thread pool). NULL = use xTaskGroupGlobal().
+ * @param work_fn  Function executed on a worker thread (must not be NULL).
+ * @param done_fn  Completion callback on the loop thread, or NULL for
+ *                 fire-and-forget.
+ * @param arg      Argument forwarded to both @p work_fn and @p done_fn.
+ * @return         xErrno_Ok on success, or an error code.
+ */
+XCAPI(xErrno) xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
+                                xTaskFunc work_fn, xEventDoneFunc done_fn,
+                                void *arg);
 
 /**
  * @brief Run the event loop.

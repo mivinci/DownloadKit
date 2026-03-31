@@ -44,6 +44,5 @@
 .DS_Store
 .cache
 .idea
-.codebuddy
 build
 cmake-build-*

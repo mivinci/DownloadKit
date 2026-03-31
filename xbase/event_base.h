@@ -10,9 +10,13 @@
 #define XBASE_EVENT_BASE_H
 
 #include <xbase/event.h>
+#include <xbase/heap.h>
 
+#include <pthread.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 /* ───────────────────── Source ───────────────────── */
@@ -90,12 +94,41 @@ static inline struct xEventSource_ *sources_find_fd(struct xEventSources_ *s,
   return NULL;
 }
 
+/* ───────────────────── Builtin timer entry ───────────────────── */
+
+#define EVENT_TIMER_INVALID_IDX ((size_t)-1)
+
+struct xEventTimer_ {
+  uint64_t         deadline;  /* absolute ms, CLOCK_MONOTONIC */
+  xEventTimerFunc  fn;
+  void            *arg;
+  size_t           heap_idx;  /* position in the min-heap     */
+  int              fired;     /* 1 after callback has run     */
+};
+
+static inline int event_timer_cmp(const void *a, const void *b) {
+  const struct xEventTimer_ *ta = (const struct xEventTimer_ *)a;
+  const struct xEventTimer_ *tb = (const struct xEventTimer_ *)b;
+  if (ta->deadline < tb->deadline) return -1;
+  if (ta->deadline > tb->deadline) return  1;
+  return 0;
+}
+
+static inline void event_timer_set_idx(void *elem, size_t idx) {
+  ((struct xEventTimer_ *)elem)->heap_idx = idx;
+}
+
 /* ───────────────────── Loop base ───────────────────── */
 
 struct xEventLoop_ {
   struct xEventSources_ sources;
   int                   wake_rfd; /* read end of wake pipe  */
   int                   wake_wfd; /* write end of wake pipe */
+
+  /* Builtin timer heap */
+  xHeap                 timer_heap;
+  pthread_mutex_t       timer_mu;
+  int                   stopped;
 };
 
 static inline int loop_init_wake(struct xEventLoop_ *loop) {

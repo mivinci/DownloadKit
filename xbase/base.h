@@ -26,6 +26,17 @@
 
 #define XDEF_HANDLE(T) typedef void *T
 
+#include <stddef.h>
+
+/**
+ * @brief Obtain a pointer to the enclosing struct from a pointer to a member.
+ * @param ptr    Pointer to the member field.
+ * @param type   Type of the enclosing struct.
+ * @param member Name of the member field inside @p type.
+ */
+#define xContainerOf(ptr, type, member) \
+  ((type *)((char *)(ptr) - offsetof(type, member)))
+
 #ifndef __cplusplus
 #ifdef __STDC_VERSION__ /* C99 and later */
 #include <stdbool.h>

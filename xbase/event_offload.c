@@ -42,16 +42,16 @@ static void *offload_worker(void *arg) {
 xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
                         xTaskFunc work_fn, xEventDoneFunc done_fn,
                         void *arg) {
-  if (!loop || !work_fn) return xErrno_Unknown;
+  if (!loop || !work_fn) return xErrno_InvalidArg;
 
   if (!group) {
     group = xTaskGroupGlobal();
-    if (!group) return xErrno_Unknown;
+    if (!group) return xErrno_InvalidState;
   }
 
   struct xEventWork_ *w =
       (struct xEventWork_ *)calloc(1, sizeof(struct xEventWork_));
-  if (!w) return xErrno_Unknown;
+  if (!w) return xErrno_NoMemory;
 
   w->work_fn = work_fn;
   w->done_fn = done_fn;
@@ -62,7 +62,7 @@ xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
   xTask t = xTaskSubmit(group, offload_worker, w);
   if (!t) {
     free(w);
-    return xErrno_Unknown;
+    return xErrno_SysError;
   }
 
   w->task = t;

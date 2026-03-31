@@ -250,9 +250,7 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
 xErrno xTaskWait(xTask t_, void **result) {
   struct xTask_ *t = tsk(t_);
 
-  if (!t) return xErrno_Unknown;
-
-  pthread_mutex_lock(&t->lock);
+  if (!t) return xErrno_InvalidArg;
   while (!t->done) {
     pthread_cond_wait(&t->cond, &t->lock);
   }
@@ -269,7 +267,7 @@ xErrno xTaskWait(xTask t_, void **result) {
 xErrno xTaskGroupWait(xTaskGroup g_) {
   struct xTaskGroup_ *g = grp(g_);
 
-  if (!g_) return xErrno_Unknown;
+  if (!g_) return xErrno_InvalidArg;
 
   pthread_mutex_lock(&g->qlock);
   while (atomic_load(&g->pending) > 0) {

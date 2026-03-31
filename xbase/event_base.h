@@ -14,9 +14,10 @@
 #include <xbase/mpsc.h>
 #include <xbase/task.h>
 
+#include <xbase/atomic.h>
+
 #include <fcntl.h>
 #include <pthread.h>
-#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -144,7 +145,7 @@ struct xEventLoop_ {
   /* Offload done queue (lock-free MPSC) */
   xMpsc                *done_head;
   xMpsc                *done_tail;
-  atomic_int            inflight; /* number of in-flight offload workers */
+  int                   inflight; /* number of in-flight offload workers */
 
   /* Builtin timer heap */
   xHeap                 timer_heap;
@@ -186,7 +187,7 @@ static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
     xTaskWait(w->task, NULL);
     if (w->done_fn)
       w->done_fn(w->arg, w->result);
-    atomic_fetch_sub(&loop->inflight, 1);
+    xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
     free(w);
   }
 }
@@ -207,7 +208,7 @@ static inline void loop_cleanup_done(struct xEventLoop_ *loop) {
  * loop_cleanup_done() during destroy to avoid use-after-free.
  */
 static inline void loop_wait_inflight(struct xEventLoop_ *loop) {
-  while (atomic_load(&loop->inflight) > 0) {
+  while (xAtomicLoad(&loop->inflight, xAtomicAcquire) > 0) {
     /* Brief yield to let worker threads finish. */
     usleep(100);
   }

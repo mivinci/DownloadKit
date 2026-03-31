@@ -90,7 +90,7 @@ xEventLoop xEventLoopCreate(void) {
   sources_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;
-  atomic_init(&loop->base.inflight, 0);
+  xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
   if (!loop->base.timer_heap) goto fail;

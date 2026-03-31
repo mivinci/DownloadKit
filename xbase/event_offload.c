@@ -66,7 +66,7 @@ xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
   }
 
   w->task = t;
-  atomic_fetch_add(&((struct xEventLoop_ *)loop)->inflight, 1);
+  xAtomicFetchAdd(&((struct xEventLoop_ *)loop)->inflight, 1, xAtomicRelaxed);
 
   return xErrno_Ok;
 }

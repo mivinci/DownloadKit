@@ -15,6 +15,14 @@ if(XK_BUILD_TESTS)
   find_package(GTest REQUIRED)
 endif()
 
+find_package(Libcurl QUIET)
+
+if(Libcurl_FOUND)
+  xk_message(STATUS "curl: found, XK_HAS_CURL enabled")
+else()
+  xk_message(STATUS "curl: not found, XK_HAS_CURL disabled")
+endif()
+
 include_directories(${CMAKE_SOURCE_DIR})
 
 add_subdirectory(xbase)

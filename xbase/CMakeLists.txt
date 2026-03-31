@@ -1,6 +1,14 @@
 file(GLOB_RECURSE XBASE_HEADERS "*.h")
 file(GLOB_RECURSE XBASE_SOURCES "*.c")
+# Exclude xcurl.c from the default glob; it is added only when libcurl is available.
+list(FILTER XBASE_SOURCES EXCLUDE REGEX ".*/xcurl\\.c$")
 add_library(xbase SHARED ${XBASE_SOURCES} ${XBASE_HEADERS})
+
+if(Libcurl_FOUND)
+  target_sources(xbase PRIVATE ${CMAKE_SOURCE_DIR}/xbase/xcurl.c)
+  target_compile_definitions(xbase PRIVATE XK_HAS_CURL)
+  target_link_libraries(xbase PRIVATE Libcurl::Libcurl)
+endif()
 
 # ── Event backend detection (kqueue → epoll → poll fallback) ──
 include(CheckIncludeFile)

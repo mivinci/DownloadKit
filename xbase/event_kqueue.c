@@ -79,6 +79,9 @@ xEventLoop xEventLoopCreate(void) {
   loop->base.stopped  = 0;
   loop->base.timer_heap = NULL;
   sources_init(&loop->base.sources);
+  loop->base.done_head = NULL;
+  loop->base.done_tail = NULL;
+  xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
   if (!loop->base.timer_heap) goto fail;
@@ -124,6 +127,9 @@ void xEventLoopDestroy(xEventLoop loop_) {
   pthread_mutex_unlock(&loop->base.timer_mu);
   xHeapDestroy(loop->base.timer_heap);
   pthread_mutex_destroy(&loop->base.timer_mu);
+
+  loop_wait_inflight(&loop->base);
+  loop_cleanup_done(&loop->base);
 
   close(loop->kqfd);
   loop_close_wake(&loop->base);
@@ -212,6 +218,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     /* Skip wake pipe */
     if ((int)events[i].ident == loop->base.wake_rfd) {
       loop_drain_wake(&loop->base);
+      loop_dispatch_done(&loop->base);
       continue;
     }
 

@@ -102,8 +102,8 @@ void xHeapDestroy(xHeap h_) {
 
 xErrno xHeapPush(xHeap h_, void *elem) {
   struct xHeap_ *h = hp(h_);
-  if (!h || !elem) return xErrno_Unknown;
-  if (!ensure_cap(h)) return xErrno_Unknown;
+  if (!h || !elem) return xErrno_InvalidArg;
+  if (!ensure_cap(h)) return xErrno_NoMemory;
 
   size_t idx = h->size;
   h->data[idx] = elem;
@@ -160,7 +160,7 @@ void *xHeapRemove(xHeap h_, size_t idx) {
 
 xErrno xHeapUpdate(xHeap h_, size_t idx) {
   struct xHeap_ *h = hp(h_);
-  if (!h || idx >= h->size) return xErrno_Unknown;
+  if (!h || idx >= h->size) return xErrno_InvalidArg;
 
   sift_up(h, idx);
   sift_down(h, idx);

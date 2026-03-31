@@ -250,13 +250,13 @@ xTimerTask xTimerSubmitAt(xTimer t, xTimerFunc fn, void *arg, uint64_t abs_ms) {
 xErrno xTimerCancel(xTimer t_, xTimerTask task_) {
   struct xTimer_     *t    = (struct xTimer_ *)t_;
   struct xTimerTask_ *task = (struct xTimerTask_ *)task_;
-  if (!t || !task) return xErrno_Unknown;
+  if (!t || !task) return xErrno_InvalidArg;
 
   pthread_mutex_lock(&t->mu);
 
   if (task->cancelled || task->heap_idx == TIMER_INVALID_IDX) {
     pthread_mutex_unlock(&t->mu);
-    return xErrno_Unknown; /* already fired or cancelled */
+    return xErrno_Cancelled; /* already fired or cancelled */
   }
 
   xHeapRemove(t->heap, task->heap_idx);

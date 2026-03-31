@@ -192,7 +192,7 @@ TEST(TimerCancel, CancelBeforeFire) {
 }
 
 TEST(TimerCancel, NullArguments) {
-  EXPECT_EQ(xTimerCancel(NULL, NULL), xErrno_Unknown);
+  EXPECT_EQ(xTimerCancel(NULL, NULL), xErrno_InvalidArg);
 }
 
 /* ───────────────── With TaskGroup ───────────────── */

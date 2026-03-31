@@ -156,7 +156,7 @@ xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask,
 xErrno xEventMod(xEventLoop loop_, xEventSource src_, xEventMask mask) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
   struct xEventSource_ *src    = (struct xEventSource_ *)src_;
-  if (!loop || !src) return xErrno_Unknown;
+  if (!loop || !src) return xErrno_InvalidArg;
 
   src->mask = mask;
   return xErrno_Ok;
@@ -165,7 +165,7 @@ xErrno xEventMod(xEventLoop loop_, xEventSource src_, xEventMask mask) {
 xErrno xEventDel(xEventLoop loop_, xEventSource src_) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
   struct xEventSource_ *src    = (struct xEventSource_ *)src_;
-  if (!loop || !src) return xErrno_Unknown;
+  if (!loop || !src) return xErrno_InvalidArg;
 
   sources_remove(&loop->base.sources, src);
   return xErrno_Ok;
@@ -238,7 +238,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 
 xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
-  if (!loop) return xErrno_Unknown;
+  if (!loop) return xErrno_InvalidArg;
 
   char c = 1;
   ssize_t r;
@@ -246,7 +246,7 @@ xErrno xEventWake(xEventLoop loop_) {
     r = write(loop->base.wake_wfd, &c, 1);
   } while (r < 0 && errno == EINTR);
 
-  return (r == 1 || (r < 0 && errno == EAGAIN)) ? xErrno_Ok : xErrno_Unknown;
+  return (r == 1 || (r < 0 && errno == EAGAIN)) ? xErrno_Ok : xErrno_SysError;
 }
 
 #endif /* !XK_HAS_KQUEUE && !XK_HAS_EPOLL */

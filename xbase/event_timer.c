@@ -61,13 +61,13 @@ xEventTimer xEventLoopTimerAt(xEventLoop loop, xEventTimerFunc fn,
 xErrno xEventLoopTimerCancel(xEventLoop loop_, xEventTimer timer_) {
   struct xEventLoop_   *loop  = (struct xEventLoop_ *)loop_;
   struct xEventTimer_  *timer = (struct xEventTimer_ *)timer_;
-  if (!loop || !timer) return xErrno_Unknown;
+  if (!loop || !timer) return xErrno_InvalidArg;
 
   pthread_mutex_lock(&loop->timer_mu);
 
   if (timer->fired || timer->heap_idx == EVENT_TIMER_INVALID_IDX) {
     pthread_mutex_unlock(&loop->timer_mu);
-    return xErrno_Unknown;
+    return xErrno_InvalidState;
   }
 
   xHeapRemove(loop->timer_heap, timer->heap_idx);

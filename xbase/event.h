@@ -18,6 +18,7 @@
 #ifndef XBASE_EVENT_H
 #define XBASE_EVENT_H
 
+#include <stdint.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
 
@@ -48,6 +49,20 @@ XDEF_HANDLE(xEventLoop);
  * Valid until the source is removed via xEventDel().
  */
 XDEF_HANDLE(xEventSource);
+
+/**
+ * @brief Opaque handle to a builtin event timer.
+ *
+ * Returned by xEventLoopTimerAfter / xEventLoopTimerAt.
+ * Valid until the timer fires or is cancelled.
+ */
+XDEF_HANDLE(xEventTimer);
+
+/**
+ * @brief Callback invoked when a builtin event timer fires.
+ * @param arg User-provided argument.
+ */
+typedef void (*xEventTimerFunc)(void *arg);
 
 /**
  * @brief Create an event loop.
@@ -123,5 +138,74 @@ XCAPI(int) xEventWait(xEventLoop loop, int timeout_ms);
  * @return     xErrno_Ok on success.
  */
 XCAPI(xErrno) xEventWake(xEventLoop loop);
+
+/**
+ * @brief Schedule a callback to fire after a relative delay.
+ *
+ * Thread-safe: may be called from any thread. If the loop is blocked in
+ * xEventWait(), it will be woken to re-evaluate the timeout.
+ *
+ * @param loop      The event loop.
+ * @param fn        Callback to invoke on expiry (must not be NULL).
+ * @param arg       Argument forwarded to @p fn.
+ * @param delay_ms  Delay in milliseconds from now.
+ * @return          A timer handle, or NULL on failure.
+ */
+XCAPI(xEventTimer) xEventLoopTimerAfter(xEventLoop loop, xEventTimerFunc fn,
+                                        void *arg, uint64_t delay_ms);
+
+/**
+ * @brief Schedule a callback to fire at an absolute monotonic time.
+ *
+ * Thread-safe.
+ *
+ * @param loop    The event loop.
+ * @param fn      Callback to invoke on expiry (must not be NULL).
+ * @param arg     Argument forwarded to @p fn.
+ * @param abs_ms  Absolute deadline in milliseconds (CLOCK_MONOTONIC).
+ * @return        A timer handle, or NULL on failure.
+ */
+XCAPI(xEventTimer) xEventLoopTimerAt(xEventLoop loop, xEventTimerFunc fn,
+                                     void *arg, uint64_t abs_ms);
+
+/**
+ * @brief Cancel a pending builtin event timer.
+ *
+ * Thread-safe.
+ *
+ * @param loop  The event loop.
+ * @param timer Timer handle to cancel.
+ * @return      xErrno_Ok if cancelled before firing, xErrno_Unknown otherwise.
+ */
+XCAPI(xErrno) xEventLoopTimerCancel(xEventLoop loop, xEventTimer timer);
+
+/**
+ * @brief Run the event loop.
+ *
+ * Enters a blocking main loop that repeatedly calls xEventWait() until
+ * xEventLoopStop() is called. Builtin timers are automatically dispatched.
+ *
+ * @param loop The event loop.
+ */
+XCAPI(void) xEventLoopRun(xEventLoop loop);
+
+/**
+ * @brief Stop a running event loop.
+ *
+ * Sets an internal stop flag and wakes the loop so that xEventLoopRun()
+ * returns promptly. Safe to call from any thread.
+ *
+ * @param loop The event loop.
+ */
+XCAPI(void) xEventLoopStop(xEventLoop loop);
+
+/**
+ * @brief Return the current monotonic time in milliseconds.
+ *
+ * Convenience wrapper around CLOCK_MONOTONIC.
+ *
+ * @return Current time in milliseconds.
+ */
+XCAPI(uint64_t) xEventLoopNowMs(void);
 
 #endif /* XBASE_EVENT_H */

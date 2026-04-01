@@ -51,16 +51,13 @@ endif()
 
 if(XK_BUILD_TESTS)
   file(GLOB_RECURSE XBASE_TEST_SOURCES "*_test.cpp")
-  # curl_test.cpp has its own main() and requires libcurl — handle separately.
-  list(FILTER XBASE_TEST_SOURCES EXCLUDE REGEX ".*/curl_test\\.cpp$")
 
   add_executable(xbase_test ${XBASE_TEST_SOURCES})
   target_link_libraries(xbase_test PRIVATE xbase GTest::gtest GTest::gtest_main)
-  add_test(NAME xbase_test COMMAND xbase_test)
 
   if(Libcurl_FOUND)
-    add_executable(xbase_curl_test ${CMAKE_SOURCE_DIR}/xbase/curl_test.cpp)
-    target_link_libraries(xbase_curl_test PRIVATE xbase GTest::gtest GTest::gtest_main Libcurl::Libcurl)
-    add_test(NAME xbase_curl_test COMMAND xbase_curl_test)
+    target_link_libraries(xbase_test PRIVATE Libcurl::Libcurl)
   endif()
+
+  add_test(NAME xbase_test COMMAND xbase_test)
 endif()

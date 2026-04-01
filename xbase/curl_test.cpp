@@ -22,10 +22,10 @@
 #include <chrono>
 #include <string>
 
+#include <curl/curl.h>
 extern "C" {
 #include "curl.h"
 #include <xbase/event.h>
-#include <xbase/task.h>
 }
 
 /* ───────────────────── Network probe ───────────────────── */
@@ -91,7 +91,7 @@ class CurlTest : public ::testing::Test {
   void SetUp() override {
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
-    multi = xCurlMultiNew(loop, nullptr);
+    multi = xCurlMultiNew(loop);
     ASSERT_NE(multi, nullptr);
   }
 
@@ -107,7 +107,7 @@ TEST(CurlLifecycle, CreateDestroy) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xCurlMulti m = xCurlMultiNew(loop, nullptr);
+  xCurlMulti m = xCurlMultiNew(loop);
   EXPECT_NE(m, nullptr);
 
   xCurlMultiDestroy(m);
@@ -118,25 +118,10 @@ TEST(CurlLifecycle, DestroyNullIsNoop) {
   xCurlMultiDestroy(nullptr); /* must not crash */
 }
 
-TEST(CurlLifecycle, CreateWithExplicitGroup) {
-  xEventLoop loop = xEventLoopCreate();
-  ASSERT_NE(loop, nullptr);
-
-  xTaskGroup group = xTaskGroupCreate(nullptr);
-  ASSERT_NE(group, nullptr);
-
-  xCurlMulti m = xCurlMultiNew(loop, group);
-  EXPECT_NE(m, nullptr);
-
-  xCurlMultiDestroy(m);
-  xTaskGroupDestroy(group);
-  xEventLoopDestroy(loop);
-}
-
 /* ───────────────────── 2. Argument validation ───────────────────── */
 
 TEST(CurlArgs, NewNullLoopReturnsNull) {
-  EXPECT_EQ(xCurlMultiNew(nullptr, nullptr), nullptr);
+  EXPECT_EQ(xCurlMultiNew(nullptr), nullptr);
 }
 
 TEST(CurlArgs, GetNullMultiReturnsError) {
@@ -146,7 +131,7 @@ TEST(CurlArgs, GetNullMultiReturnsError) {
 
 TEST(CurlArgs, GetNullUrlReturnsError) {
   xEventLoop loop = xEventLoopCreate();
-  xCurlMulti m    = xCurlMultiNew(loop, nullptr);
+  xCurlMulti m    = xCurlMultiNew(loop);
 
   EXPECT_EQ(xCurlMultiGet(m, nullptr, done_cb, nullptr), xErrno_InvalidArg);
 
@@ -156,7 +141,7 @@ TEST(CurlArgs, GetNullUrlReturnsError) {
 
 TEST(CurlArgs, GetNullCallbackReturnsError) {
   xEventLoop loop = xEventLoopCreate();
-  xCurlMulti m    = xCurlMultiNew(loop, nullptr);
+  xCurlMulti m    = xCurlMultiNew(loop);
 
   EXPECT_EQ(xCurlMultiGet(m, "https://example.com", nullptr, nullptr),
             xErrno_InvalidArg);
@@ -173,7 +158,7 @@ TEST(CurlArgs, PostNullMultiReturnsError) {
 
 TEST(CurlArgs, PostNullUrlReturnsError) {
   xEventLoop loop = xEventLoopCreate();
-  xCurlMulti m    = xCurlMultiNew(loop, nullptr);
+  xCurlMulti m    = xCurlMultiNew(loop);
 
   EXPECT_EQ(xCurlMultiPost(m, nullptr, nullptr, 0, done_cb, nullptr),
             xErrno_InvalidArg);
@@ -184,7 +169,7 @@ TEST(CurlArgs, PostNullUrlReturnsError) {
 
 TEST(CurlArgs, PostNullCallbackReturnsError) {
   xEventLoop loop = xEventLoopCreate();
-  xCurlMulti m    = xCurlMultiNew(loop, nullptr);
+  xCurlMulti m    = xCurlMultiNew(loop);
 
   EXPECT_EQ(xCurlMultiPost(m, "https://example.com", nullptr, 0, nullptr,
                             nullptr),

@@ -33,6 +33,7 @@
 
 #include "curl.h"
 
+#include <curl/curl.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -49,7 +50,6 @@ static int set_nonblock(int fd) {
 
 struct xCurlMulti_ {
     xEventLoop    loop;
-    xTaskGroup    group;
     CURLM        *multi;
     xEventSource *wake_src;   /* event source for the wake pipe read-end */
     int           wake_rfd;
@@ -213,7 +213,7 @@ static void on_socket(int fd, xEventMask mask, void *arg) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-xCurlMulti xCurlMultiNew(xEventLoop loop, xTaskGroup group) {
+xCurlMulti xCurlMultiNew(xEventLoop loop) {
     if (!loop) return NULL;
 
     CURLM *multi = curl_multi_init();
@@ -223,7 +223,6 @@ xCurlMulti xCurlMultiNew(xEventLoop loop, xTaskGroup group) {
     if (!m) { curl_multi_cleanup(multi); return NULL; }
 
     m->loop  = loop;
-    m->group = group ? group : xTaskGroupGlobal();
     m->multi = multi;
 
     curl_multi_setopt(multi, CURLMOPT_SOCKETFUNCTION, curl_socket_cb);

@@ -10,10 +10,10 @@
  *   2. Args       - NULL / invalid argument validation
  *   3. HTTP       - real GET / POST against httpbin.org (network required)
  *   4. Concurrent - multiple in-flight requests
- *   5. Timeout    - request timeout fires correctly
+ *   5. Error      - DNS failure / invalid host
  *
  * Network tests are skipped automatically when the host has no connectivity
- * (detected by a pre-test DNS probe).
+ * (detected by a pre-test DNS probe via testing::Environment).
  */
 
 #include <gtest/gtest.h>
@@ -21,7 +21,6 @@
 #include <atomic>
 #include <chrono>
 #include <string>
-#include <thread>
 
 extern "C" {
 #include "curl.h"
@@ -29,13 +28,34 @@ extern "C" {
 #include <xbase/task.h>
 }
 
-/* ───────────────────── Helpers ───────────────────── */
+/* ───────────────────── Network probe ───────────────────── */
 
 static bool g_has_network = false;
 
+class CurlGlobalEnv : public ::testing::Environment {
+ public:
+  void SetUp() override {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    CURL *probe = curl_easy_init();
+    if (probe) {
+      curl_easy_setopt(probe, CURLOPT_URL, "https://httpbin.org/get");
+      curl_easy_setopt(probe, CURLOPT_NOBODY, 1L);
+      curl_easy_setopt(probe, CURLOPT_TIMEOUT_MS, 3000L);
+      curl_easy_setopt(probe, CURLOPT_CONNECTTIMEOUT_MS, 2000L);
+      g_has_network = (curl_easy_perform(probe) == CURLE_OK);
+      curl_easy_cleanup(probe);
+    }
+  }
+
+  void TearDown() override { curl_global_cleanup(); }
+};
+
+/* ───────────────────── Helpers ───────────────────── */
+
 /* Pump the event loop for up to max_ms milliseconds or until pred() is true. */
 static bool pump_until(xEventLoop loop, std::function<bool()> pred,
-                        int max_ms = 10000) {
+                       int max_ms = 10000) {
   auto deadline = std::chrono::steady_clock::now() +
                   std::chrono::milliseconds(max_ms);
   while (!pred()) {
@@ -54,7 +74,7 @@ struct DoneCtx {
 
 static void done_cb(void *arg, long http_code, int err_code,
                     const char *err_msg) {
-  auto *ctx = static_cast<DoneCtx *>(arg);
+  auto *ctx      = static_cast<DoneCtx *>(arg);
   ctx->http_code = http_code;
   ctx->err_code  = err_code;
   ctx->err_msg   = err_msg ? err_msg : "";
@@ -69,7 +89,7 @@ class CurlTest : public ::testing::Test {
   xCurlMulti multi{nullptr};
 
   void SetUp() override {
-    loop  = xEventLoopCreate();
+    loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
     multi = xCurlMultiNew(loop, nullptr);
     ASSERT_NE(multi, nullptr);
@@ -95,7 +115,7 @@ TEST(CurlLifecycle, CreateDestroy) {
 }
 
 TEST(CurlLifecycle, DestroyNullIsNoop) {
-  xCurlMultiDestroy(nullptr);  /* must not crash */
+  xCurlMultiDestroy(nullptr); /* must not crash */
 }
 
 TEST(CurlLifecycle, CreateWithExplicitGroup) {
@@ -146,8 +166,8 @@ TEST(CurlArgs, GetNullCallbackReturnsError) {
 }
 
 TEST(CurlArgs, PostNullMultiReturnsError) {
-  EXPECT_EQ(xCurlMultiPost(nullptr, "https://example.com",
-                             nullptr, 0, done_cb, nullptr),
+  EXPECT_EQ(xCurlMultiPost(nullptr, "https://example.com", nullptr, 0,
+                            done_cb, nullptr),
             xErrno_InvalidArg);
 }
 
@@ -166,8 +186,8 @@ TEST(CurlArgs, PostNullCallbackReturnsError) {
   xEventLoop loop = xEventLoopCreate();
   xCurlMulti m    = xCurlMultiNew(loop, nullptr);
 
-  EXPECT_EQ(xCurlMultiPost(m, "https://example.com",
-                             nullptr, 0, nullptr, nullptr),
+  EXPECT_EQ(xCurlMultiPost(m, "https://example.com", nullptr, 0, nullptr,
+                            nullptr),
             xErrno_InvalidArg);
 
   xCurlMultiDestroy(m);
@@ -200,8 +220,8 @@ TEST_F(CurlNetworkTest, GetReturns200) {
 TEST_F(CurlNetworkTest, PostReturns200) {
   DoneCtx ctx;
   const char *body = "{\"key\":\"value\"}";
-  ASSERT_EQ(xCurlMultiPost(multi, "https://httpbin.org/post",
-                             body, strlen(body), done_cb, &ctx),
+  ASSERT_EQ(xCurlMultiPost(multi, "https://httpbin.org/post", body,
+                            strlen(body), done_cb, &ctx),
             xErrno_Ok);
 
   ASSERT_TRUE(pump_until(loop, [&] {
@@ -214,8 +234,8 @@ TEST_F(CurlNetworkTest, PostReturns200) {
 
 TEST_F(CurlNetworkTest, Get404ReturnsHttpCode) {
   DoneCtx ctx;
-  ASSERT_EQ(xCurlMultiGet(multi, "https://httpbin.org/status/404",
-                            done_cb, &ctx),
+  ASSERT_EQ(xCurlMultiGet(multi, "https://httpbin.org/status/404", done_cb,
+                           &ctx),
             xErrno_Ok);
 
   ASSERT_TRUE(pump_until(loop, [&] {
@@ -227,84 +247,70 @@ TEST_F(CurlNetworkTest, Get404ReturnsHttpCode) {
 }
 
 TEST_F(CurlNetworkTest, GetCallbackReceivesUserArg) {
-  int sentinel = 42;
-  std::atomic<int *> received{nullptr};
+  std::atomic<void *> received{nullptr};
 
   auto cb = [](void *arg, long, int, const char *) {
-    auto *p = static_cast<std::atomic<int *> *>(arg);
-    p->store(static_cast<int *>(arg), std::memory_order_release);
+    static_cast<std::atomic<void *> *>(arg)->store(arg,
+                                                    std::memory_order_release);
   };
 
-  /* Use sentinel's address as arg so we can verify it arrives intact. */
   ASSERT_EQ(xCurlMultiGet(multi, "https://httpbin.org/get",
-                            (xCurlDoneFunc)cb, &received),
+                           (xCurlDoneFunc)cb, &received),
             xErrno_Ok);
 
   ASSERT_TRUE(pump_until(loop, [&] {
     return received.load(std::memory_order_acquire) != nullptr;
   }));
+
+  EXPECT_EQ(received.load(), static_cast<void *>(&received));
 }
 
 /* ───────────────────── 4. Concurrent requests ───────────────────── */
 
 TEST_F(CurlNetworkTest, MultipleConcurrentGets) {
   constexpr int N = 5;
-  DoneCtx ctxs[N];
+  DoneCtx       ctxs[N];
 
   for (int i = 0; i < N; i++) {
-    ASSERT_EQ(xCurlMultiGet(multi, "https://httpbin.org/get",
-                              done_cb, &ctxs[i]),
-              xErrno_Ok);
+    ASSERT_EQ(
+        xCurlMultiGet(multi, "https://httpbin.org/get", done_cb, &ctxs[i]),
+        xErrno_Ok);
   }
 
-  ASSERT_TRUE(pump_until(loop, [&] {
-    for (int i = 0; i < N; i++)
-      if (!ctxs[i].called.load(std::memory_order_acquire)) return false;
-    return true;
-  }, 30000));
+  ASSERT_TRUE(pump_until(
+      loop,
+      [&] {
+        for (int i = 0; i < N; i++)
+          if (!ctxs[i].called.load(std::memory_order_acquire)) return false;
+        return true;
+      },
+      30000));
 
   for (int i = 0; i < N; i++) {
     EXPECT_EQ(ctxs[i].err_code, CURLE_OK) << "request " << i;
-    EXPECT_EQ(ctxs[i].http_code, 200L)    << "request " << i;
+    EXPECT_EQ(ctxs[i].http_code, 200L) << "request " << i;
   }
 }
 
-/* ───────────────────── 5. Timeout ───────────────────── */
+/* ───────────────────── 5. Error handling ───────────────────── */
 
 TEST_F(CurlNetworkTest, InvalidHostReturnsError) {
   DoneCtx ctx;
-  /* An invalid hostname that cannot be resolved. */
   ASSERT_EQ(xCurlMultiGet(multi, "http://this-host-does-not-exist.invalid/",
-                            done_cb, &ctx),
+                           done_cb, &ctx),
             xErrno_Ok);
 
   ASSERT_TRUE(pump_until(loop, [&] {
     return ctx.called.load(std::memory_order_acquire);
   }, 10000));
 
-  /* DNS resolution should fail */
   EXPECT_NE(ctx.err_code, CURLE_OK);
 }
 
-/* ───────────────────── Main ───────────────────── */
+/* ───────────────────── Environment registration ───────────────────── */
 
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-
-  /* Quick connectivity probe: try to resolve httpbin.org */
-  curl_global_init(CURL_GLOBAL_DEFAULT);
-  CURL *probe = curl_easy_init();
-  if (probe) {
-    curl_easy_setopt(probe, CURLOPT_URL, "https://httpbin.org/get");
-    curl_easy_setopt(probe, CURLOPT_NOBODY, 1L);
-    curl_easy_setopt(probe, CURLOPT_TIMEOUT_MS, 3000L);
-    curl_easy_setopt(probe, CURLOPT_CONNECTTIMEOUT_MS, 2000L);
-    CURLcode rc = curl_easy_perform(probe);
-    g_has_network = (rc == CURLE_OK);
-    curl_easy_cleanup(probe);
-  }
-
-  int result = RUN_ALL_TESTS();
-  curl_global_cleanup();
-  return result;
+/* Called before RUN_ALL_TESTS() by gtest_main. */
+static void register_env() __attribute__((constructor));
+static void register_env() {
+  ::testing::AddGlobalTestEnvironment(new CurlGlobalEnv());
 }

@@ -60,7 +60,7 @@ if(XK_BUILD_TESTS)
 
   if(Libcurl_FOUND)
     add_executable(xbase_curl_test ${CMAKE_SOURCE_DIR}/xbase/curl_test.cpp)
-    target_link_libraries(xbase_curl_test PRIVATE xbase GTest::gtest Libcurl::Libcurl)
+    target_link_libraries(xbase_curl_test PRIVATE xbase GTest::gtest GTest::gtest_main Libcurl::Libcurl)
     add_test(NAME xbase_curl_test COMMAND xbase_curl_test)
   endif()
 endif()

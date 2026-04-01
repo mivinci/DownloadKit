@@ -66,7 +66,7 @@ XDEF_ENUM(xHttpMethod){
  * Used with xHttpClientDo() for full control over the request.
  * Zero-initialize for defaults (GET, no headers, no timeout).
  */
-XDEF_STRUCT(xHttpRequestConfig) {
+XDEF_STRUCT(xHttpRequestConf) {
   const char  *url;           /**< Request URL (must not be NULL)             */
   xHttpMethod  method;        /**< HTTP method (default: GET)                 */
   const char  *body;          /**< Request body, or NULL                      */
@@ -139,7 +139,7 @@ XCAPI(xErrno) xHttpClientPost(xHttpClient client, const char *url,
  * @return             xErrno_Ok on success, or an error code.
  */
 XCAPI(xErrno) xHttpClientDo(xHttpClient client,
-                             const xHttpRequestConfig *config,
+                             const xHttpRequestConf *config,
                              xHttpResponseFunc on_response, void *arg);
 
 #endif /* XHTTP_CLIENT_H */

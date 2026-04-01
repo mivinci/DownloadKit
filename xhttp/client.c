@@ -393,7 +393,7 @@ xErrno xHttpClientPost(xHttpClient client, const char *url,
 
 /* ── Public API: Do (generic request) ──────────────────────────────────── */
 
-xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConfig *config,
+xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *config,
                       xHttpResponseFunc on_response, void *arg) {
   if (!client || !config || !config->url) return xErrno_Unknown;
   struct xHttpClient_ *c = (struct xHttpClient_ *)client;

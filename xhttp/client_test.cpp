@@ -256,7 +256,7 @@ TEST_F(HttpClientTest, PostNullUrlReturnsError) {
 TEST_F(HttpClientTest, DoGetRequest) {
   ResponseCtx ctx;
 
-  xHttpRequestConfig config;
+  xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
   config.url    = "https://httpbin.org/get";
   config.method = xHttpMethod_GET;
@@ -276,7 +276,7 @@ TEST_F(HttpClientTest, DoWithCustomHeaders) {
 
   const char *hdrs[] = {"X-Custom-Header: test-value", NULL};
 
-  xHttpRequestConfig config;
+  xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
   config.url     = "https://httpbin.org/headers";
   config.method  = xHttpMethod_GET;
@@ -296,7 +296,7 @@ TEST_F(HttpClientTest, DoWithCustomHeaders) {
 TEST_F(HttpClientTest, DoWithTimeout) {
   ResponseCtx ctx;
 
-  xHttpRequestConfig config;
+  xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
   config.url        = "https://httpbin.org/delay/10";
   config.method     = xHttpMethod_GET;

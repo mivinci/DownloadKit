@@ -6,7 +6,7 @@
  * xcurl.c - libcurl integration for xEventLoop
  */
 
-#include "xcurl.h"
+#include "curl.h"
 
 #include <stdlib.h>
 #include <unistd.h>
@@ -57,6 +57,7 @@ static int curl_socket_cb(CURL *easy, curl_socket_t fd, int what, void *userp);
 static int curl_timer_cb(CURLM *multi, long timeout_ms, void *userp);
 static void on_socket(int fd, xEventMask mask, void *arg);
 static void on_done_wrapper(void *arg, void *result);
+static void drive_multi(struct xCurlMulti_ *m, curl_socket_t s, int action);
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -67,15 +68,20 @@ static struct xCurlRequest_ *req_from_easy(CURL *easy) {
 }
 
 /* ───────────────────── Drive multi ───────────────────── */
+static void drive_multi_timeout(void *arg) {
+    struct xCurlMulti_ *m = (struct xCurlMulti_ *)arg;
+    drive_multi(m, CURL_SOCKET_TIMEOUT, 0);
+}
 
-static void drive_multi(struct xCurlMulti_ *m, int socket_action) {
+
+static void drive_multi(struct xCurlMulti_ *m, curl_socket_t s, int action) {
     int running = 0;
-    curl_multi_socket_action(m->multi, CURL_SOCKET_TIMEOUT, 0, &running);
+    curl_multi_socket_action(m->multi, s, action, &running);
 
     CURLMsg *msg = NULL;
     int nmsg = 0;
     while ((msg = curl_multi_info_read(m->multi, &nmsg)) != NULL) {
-        if (msg->msg != CURLMSG_DONE) continue;
+            if (msg->msg != CURLMSG_DONE) continue;
 
         CURL *easy = msg->easy_handle;
         long http_code = 0;
@@ -83,18 +89,9 @@ static void drive_multi(struct xCurlMulti_ *m, int socket_action) {
 
         struct xCurlRequest_ *req = req_from_easy(easy);
         if (req && req->done_fn) {
-            struct xCurlDoneCtx_ *ctx = calloc(1, sizeof(*ctx));
-            if (ctx) {
-                ctx->fn       = req->done_fn;
-                ctx->arg       = req->done_arg;
-                ctx->http_code = http_code;
-                ctx->curl_code = msg->data.result;
-                snprintf(ctx->errbuf, sizeof(ctx->errbuf), "%s",
+            /* We are already on the event loop thread — invoke directly. */
+            req->done_fn(req->done_arg, http_code, msg->data.result,
                          curl_easy_strerror(msg->data.result));
-
-                xEventLoopSubmit(m->loop, m->group,
-                                 (xTaskFunc)ctx->fn, on_done_wrapper, ctx);
-            }
         }
 
         curl_multi_remove_handle(m->multi, easy);
@@ -120,16 +117,16 @@ static int curl_socket_cb(CURL *easy, curl_socket_t s, int what, void *userp) {
     switch (what) {
         case CURL_POLL_IN:
             req->src = xEventAdd(m->loop, (int)s, xEvent_Read,  on_socket, req);
-            break;
+                    break;
         case CURL_POLL_OUT:
             req->src = xEventAdd(m->loop, (int)s, xEvent_Write, on_socket, req);
-            break;
+                    break;
         case CURL_POLL_INOUT:
             req->src = xEventAdd(m->loop, (int)s, xEvent_Read|xEvent_Write, on_socket, req);
             break;
         case CURL_POLL_REMOVE:
         default:
-            if (req->src) { xEventDel(m->loop, req->src); req->src = NULL; }
+                    if (req->src) { xEventDel(m->loop, req->src); req->src = NULL; }
             break;
     }
     return 0;
@@ -142,13 +139,12 @@ static int curl_timer_cb(CURLM *multi, long timeout_ms, void *userp) {
 
     if (timeout_ms < 0) return 0;          /* no timeout */
     if (timeout_ms == 0) {
-        drive_multi(m, 0);                 /* process now */
+        drive_multi(m, CURL_SOCKET_TIMEOUT, 0);  /* process now */
         return 0;
     }
 
     /* Schedule a timer to call drive_multi */
-    xEventLoopTimerAfter(m->loop, (xEventTimerFunc)drive_multi,
-                         m, (uint64_t)timeout_ms);
+    xEventLoopTimerAfter(m->loop, drive_multi_timeout, m, (uint64_t)timeout_ms);
     return 0;
 }
 
@@ -164,7 +160,7 @@ static void on_socket(int fd, xEventMask mask, void *arg) {
     if (mask & xEvent_Write) action |= CURL_CSELECT_OUT;
     (void)fd;
 
-    drive_multi(m, action);
+    drive_multi(m, (curl_socket_t)fd, action);
 }
 
 /* ───────────────────── Public API ───────────────────── */
@@ -257,7 +253,10 @@ xErrno xCurlMultiPost(xCurlMulti m_, const char *url,
     CURLMcode mc = curl_multi_add_handle(m->multi, easy);
     if (mc != CURLM_OK) { free(req); curl_easy_cleanup(easy); return xErrno_SysError; }
 
-    curl_multi_wakeup(m->multi);
+    /* Kick libcurl to start the connection and trigger SOCKETFUNCTION/TIMERFUNCTION. */
+    int running = 0;
+    curl_multi_socket_action(m->multi, CURL_SOCKET_TIMEOUT, 0, &running);
+
     return xErrno_Ok;
 }
 

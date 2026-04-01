@@ -1,11 +1,11 @@
 file(GLOB_RECURSE XBASE_HEADERS "*.h")
 file(GLOB_RECURSE XBASE_SOURCES "*.c")
-# Exclude xcurl.c from the default glob; it is added only when libcurl is available.
-list(FILTER XBASE_SOURCES EXCLUDE REGEX ".*/xcurl\\.c$")
+# Exclude curl.c from the default glob; it is added only when libcurl is available.
+list(FILTER XBASE_SOURCES EXCLUDE REGEX ".*/curl\\.c$")
 add_library(xbase SHARED ${XBASE_SOURCES} ${XBASE_HEADERS})
 
 if(Libcurl_FOUND)
-  target_sources(xbase PRIVATE ${CMAKE_SOURCE_DIR}/xbase/xcurl.c)
+  target_sources(xbase PRIVATE ${CMAKE_SOURCE_DIR}/xbase/curl.c)
   target_compile_definitions(xbase PRIVATE XK_HAS_CURL)
   target_link_libraries(xbase PRIVATE Libcurl::Libcurl)
 endif()
@@ -51,7 +51,16 @@ endif()
 
 if(XK_BUILD_TESTS)
   file(GLOB_RECURSE XBASE_TEST_SOURCES "*_test.cpp")
+  # curl_test.cpp has its own main() and requires libcurl — handle separately.
+  list(FILTER XBASE_TEST_SOURCES EXCLUDE REGEX ".*/curl_test\\.cpp$")
+
   add_executable(xbase_test ${XBASE_TEST_SOURCES})
   target_link_libraries(xbase_test PRIVATE xbase GTest::gtest GTest::gtest_main)
   add_test(NAME xbase_test COMMAND xbase_test)
+
+  if(Libcurl_FOUND)
+    add_executable(xbase_curl_test ${CMAKE_SOURCE_DIR}/xbase/curl_test.cpp)
+    target_link_libraries(xbase_curl_test PRIVATE xbase GTest::gtest Libcurl::Libcurl)
+    add_test(NAME xbase_curl_test COMMAND xbase_curl_test)
+  endif()
 endif()

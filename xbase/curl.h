@@ -3,11 +3,11 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * xcurl.h - libcurl integration for xEventLoop
+ * curl.h - libcurl integration for xEventLoop
  */
 
-#ifndef XBASE_XCURL_H
-#define XBASE_XCURL_H
+#ifndef XBASE_CURL_H
+#define XBASE_CURL_H
 
 #include <curl/curl.h>
 #include <xbase/base.h>

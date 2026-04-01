@@ -27,8 +27,9 @@
  * @brief Bitmask of I/O events.
  */
 XDEF_ENUM(xEventMask){
-  xEvent_Read  = 1 << 0,
-  xEvent_Write = 1 << 1,
+  xEvent_Read    = 1 << 0,
+  xEvent_Write   = 1 << 1,
+  xEvent_Timeout = 1 << 2,  /* Used by higher-level modules (e.g., xSocket) */
 };
 
 /**

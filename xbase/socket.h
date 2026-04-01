@@ -13,16 +13,6 @@
 #include <xbase/error.h>
 #include <xbase/event.h>
 
-/* ───────────────────── Event mask extension ───────────────────── */
-
-/**
- * @brief Timeout event bit.
- *
- * Delivered to xSocketFunc when a read or write idle timer fires.
- * Does not conflict with xEvent_Read (1 << 0) or xEvent_Write (1 << 1).
- */
-#define xEvent_Timeout (1 << 2)
-
 /* ───────────────────── Types ───────────────────── */
 
 /**

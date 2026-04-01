@@ -58,13 +58,15 @@ static void trampoline(int fd, xEventMask mask, void *arg) {
 static void read_timeout_cb(void *arg) {
   struct xSocket_ *s = (struct xSocket_ *)arg;
   s->read_timer = NULL;
-  s->callback((xSocket)s, (xEventMask)xEvent_Timeout, s->userp);
+  /* Or xEvent_Read so user knows which direction timed out */
+  s->callback((xSocket)s, xEvent_Timeout | xEvent_Read, s->userp);
 }
 
 static void write_timeout_cb(void *arg) {
   struct xSocket_ *s = (struct xSocket_ *)arg;
   s->write_timer = NULL;
-  s->callback((xSocket)s, (xEventMask)xEvent_Timeout, s->userp);
+  /* Or xEvent_Write so user knows which direction timed out */
+  s->callback((xSocket)s, xEvent_Timeout | xEvent_Write, s->userp);
 }
 
 /* ───────────────────── Timer helpers ───────────────────── */
@@ -109,7 +111,32 @@ xSocket xSocketCreate(xEventLoop loop,
       (struct xSocket_ *)calloc(1, sizeof(struct xSocket_));
   if (!s) return NULL;
 
-  int fd = socket(family, type, protocol);
+  int fd = -1;
+
+#ifdef SOCK_CLOEXEC
+  /* Linux/BSD: use socket() with SOCK_CLOEXEC | SOCK_NONBLOCK if available */
+  int sock_type = type;
+#ifdef SOCK_NONBLOCK
+  sock_type |= SOCK_NONBLOCK;
+#endif
+  sock_type |= SOCK_CLOEXEC;
+  fd = socket(family, sock_type, protocol);
+  if (fd < 0) {
+    free(s);
+    return NULL;
+  }
+#ifndef SOCK_NONBLOCK
+  /* SOCK_NONBLOCK not available, need fcntl */
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    close(fd);
+    free(s);
+    return NULL;
+  }
+#endif
+#else
+  /* Fallback: separate socket() + fcntl() calls */
+  fd = socket(family, type, protocol);
   if (fd < 0) {
     free(s);
     return NULL;
@@ -118,18 +145,15 @@ xSocket xSocketCreate(xEventLoop loop,
   /* Set non-blocking */
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-    close(fd);
-    free(s);
-    return NULL;
+    goto fail;
   }
 
   /* Set close-on-exec */
   int fdflags = fcntl(fd, F_GETFD, 0);
   if (fdflags < 0 || fcntl(fd, F_SETFD, fdflags | FD_CLOEXEC) < 0) {
-    close(fd);
-    free(s);
-    return NULL;
+    goto fail;
   }
+#endif
 
   s->fd               = fd;
   s->loop             = loop;
@@ -143,13 +167,24 @@ xSocket xSocketCreate(xEventLoop loop,
 
   xEventSource src = xEventAdd(loop, fd, mask, trampoline, s);
   if (!src) {
+#ifdef SOCK_CLOEXEC
     close(fd);
     free(s);
     return NULL;
+#else
+    goto fail;
+#endif
   }
   s->source = src;
 
   return (xSocket)s;
+
+#ifndef SOCK_CLOEXEC
+fail:
+  close(fd);
+  free(s);
+  return NULL;
+#endif
 }
 
 void xSocketDestroy(xEventLoop loop, xSocket sock) {

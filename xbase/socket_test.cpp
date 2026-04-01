@@ -477,26 +477,45 @@ TEST(SocketCallback, MaskReflectsEvent) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  /* Test 1: Timeout event mask */
-  xEventMask timeout_mask = 0;
+  /* Test 1: Read timeout — mask includes xEvent_Read */
+  xEventMask read_timeout_mask = 0;
 
-  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0,
-                                xEvent_Read,
-                                [](xSocket, xEventMask m, void *arg) {
-                                  *static_cast<xEventMask *>(arg) = m;
-                                }, &timeout_mask);
-  ASSERT_NE(sock, nullptr);
+  xSocket sock_read = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0,
+                                     xEvent_Read,
+                                     [](xSocket, xEventMask m, void *arg) {
+                                       *static_cast<xEventMask *>(arg) = m;
+                                     }, &read_timeout_mask);
+  ASSERT_NE(sock_read, nullptr);
 
-  xSocketSetTimeout(sock, 50, 0);
+  xSocketSetTimeout(sock_read, 50, 0);
   pump_loop(loop, 200);
 
-  EXPECT_TRUE(timeout_mask & xEvent_Timeout);
-  EXPECT_FALSE(timeout_mask & xEvent_Read);
-  EXPECT_FALSE(timeout_mask & xEvent_Write);
+  EXPECT_TRUE(read_timeout_mask & xEvent_Timeout);
+  EXPECT_TRUE(read_timeout_mask & xEvent_Read);   /* Read timeout => includes Read bit */
+  EXPECT_FALSE(read_timeout_mask & xEvent_Write);
 
-  xSocketDestroy(loop, sock);
+  xSocketDestroy(loop, sock_read);
 
-  /* Test 2: Write event mask — use a socketpair where write end is writable */
+  /* Test 2: Write timeout — mask includes xEvent_Write */
+  xEventMask write_timeout_mask = 0;
+
+  xSocket sock_write = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0,
+                                      xEvent_Write,
+                                      [](xSocket, xEventMask m, void *arg) {
+                                        *static_cast<xEventMask *>(arg) = m;
+                                      }, &write_timeout_mask);
+  ASSERT_NE(sock_write, nullptr);
+
+  xSocketSetTimeout(sock_write, 0, 50);
+  pump_loop(loop, 200);
+
+  EXPECT_TRUE(write_timeout_mask & xEvent_Timeout);
+  EXPECT_FALSE(write_timeout_mask & xEvent_Read);
+  EXPECT_TRUE(write_timeout_mask & xEvent_Write); /* Write timeout => includes Write bit */
+
+  xSocketDestroy(loop, sock_write);
+
+  /* Test 3: Write event mask — use a socketpair where write end is writable */
   int fds[2];
   ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
   fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL, 0) | O_NONBLOCK);
@@ -516,7 +535,7 @@ TEST(SocketCallback, MaskReflectsEvent) {
 
   xEventDel(loop, src);
 
-  /* Test 3: Read event mask — write data to trigger read */
+  /* Test 4: Read event mask — write data to trigger read */
   xEventMask read_mask = 0;
 
   xEventSource src2 = xEventAdd(loop, fds[0], xEvent_Read,

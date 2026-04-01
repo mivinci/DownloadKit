@@ -74,7 +74,8 @@ jobs:
       # ── Test ──────────────────────────────────────────────────────────────
 
       - name: Run tests
-        run: ctest --test-dir build --output-on-failure --parallel 4
+        timeout-minutes: 5
+        run: ctest --test-dir build --output-on-failure --parallel 4 --timeout 60
 
   # ── Branch naming lint ────────────────────────────────────────────────────
 

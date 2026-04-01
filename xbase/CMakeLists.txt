@@ -52,6 +52,11 @@ endif()
 if(XK_BUILD_TESTS)
   file(GLOB_RECURSE XBASE_TEST_SOURCES "*_test.cpp")
 
+  if(NOT Libcurl_FOUND)
+    # curl_test.cpp includes <curl/curl.h>; exclude it when libcurl is absent.
+    list(FILTER XBASE_TEST_SOURCES EXCLUDE REGEX ".*/curl_test\\.cpp$")
+  endif()
+
   add_executable(xbase_test ${XBASE_TEST_SOURCES})
   target_link_libraries(xbase_test PRIVATE xbase GTest::gtest GTest::gtest_main)
 

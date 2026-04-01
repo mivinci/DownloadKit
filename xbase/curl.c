@@ -35,16 +35,8 @@
 
 #include <curl/curl.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-
-static int set_nonblock(int fd) {
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0) return -1;
-    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-}
 
 /* ───────────────────── Concrete struct definitions ───────────────────── */
 

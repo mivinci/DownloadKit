@@ -97,6 +97,7 @@ static void check_multi_info(struct xHttpClient_ *c) {
 
 static int socket_callback(CURL *easy, curl_socket_t fd, int what,
                            void *userp, void *socketp) {
+  (void)easy;
   struct xHttpClient_ *c = (struct xHttpClient_ *)userp;
   struct xHttpSocketCtx_ *ctx = (struct xHttpSocketCtx_ *)socketp;
 
@@ -153,6 +154,7 @@ static void fd_ready_callback(int fd, xEventMask mask, void *arg) {
 /* ── Timer callback (CURLMOPT_TIMERFUNCTION) ───────────────────────────── */
 
 static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
+  (void)multi;
   struct xHttpClient_ *c = (struct xHttpClient_ *)userp;
 
   /* Cancel any existing timer */

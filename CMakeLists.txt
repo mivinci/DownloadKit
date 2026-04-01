@@ -18,3 +18,11 @@ endif()
 include_directories(${CMAKE_SOURCE_DIR})
 
 add_subdirectory(xbase)
+
+find_package(Libcurl QUIET)
+if(Libcurl_FOUND)
+  xk_message(STATUS "Found libcurl, building xhttp module")
+  add_subdirectory(xhttp)
+else()
+  xk_message(STATUS "libcurl not found, skipping xhttp module")
+endif()

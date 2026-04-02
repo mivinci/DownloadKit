@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -18,6 +19,15 @@
 extern "C" {
 #include <xhttp/client.h>
 }
+
+/* Skip network-dependent tests when XKIT_SKIP_NETWORK_TESTS=1 */
+static bool skip_network_tests() {
+  const char *v = std::getenv("XKIT_SKIP_NETWORK_TESTS");
+  return v && std::string(v) == "1";
+}
+
+#define SKIP_IF_NO_NETWORK() \
+  if (skip_network_tests()) GTEST_SKIP() << "Network tests disabled"
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -108,6 +118,7 @@ static void on_response(const xHttpResponse *resp, void *arg) {
 }
 
 TEST_F(HttpClientTest, GetRequest) {
+  SKIP_IF_NO_NETWORK();
   ResponseCtx ctx;
 
   xErrno err = xHttpClientGet(client,
@@ -127,8 +138,9 @@ TEST_F(HttpClientTest, GetRequest) {
 /* ───────────────────── POST request ───────────────────── */
 
 TEST_F(HttpClientTest, PostRequest) {
+  SKIP_IF_NO_NETWORK();
   ResponseCtx ctx;
-  const char *body = "{\"hello\":\"world\"}";
+  const char *body = "{\"hello\":\"world\"}";  
 
   xErrno err = xHttpClientPost(client,
                                 "https://httpbin.org/post",
@@ -148,6 +160,7 @@ TEST_F(HttpClientTest, PostRequest) {
 /* ───────────────────── Multiple concurrent requests ───────────────────── */
 
 TEST_F(HttpClientTest, ConcurrentRequests) {
+  SKIP_IF_NO_NETWORK();
   constexpr int N = 3;
   std::atomic<int> done_count{0};
 
@@ -183,6 +196,7 @@ TEST_F(HttpClientTest, ConcurrentRequests) {
 /* ───────────────────── Request failure (invalid URL) ───────────────────── */
 
 TEST_F(HttpClientTest, InvalidUrlFails) {
+  SKIP_IF_NO_NETWORK();
   ResponseCtx ctx;
 
   xErrno err = xHttpClientGet(client,
@@ -200,6 +214,7 @@ TEST_F(HttpClientTest, InvalidUrlFails) {
 /* ───────────────────── Destroy with in-flight requests ───────────────────── */
 
 TEST(HttpClientLifecycle, DestroyWithInflightRequests) {
+  SKIP_IF_NO_NETWORK();
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
@@ -208,7 +223,7 @@ TEST(HttpClientLifecycle, DestroyWithInflightRequests) {
 
   std::atomic<bool> cb_called{false};
 
-  auto cb = [](const xHttpResponse *resp, void *arg) {
+  auto cb = [](const xHttpResponse * /* resp */, void *arg) {
     auto *flag = static_cast<std::atomic<bool> *>(arg);
     flag->store(true, std::memory_order_release);
   };
@@ -254,6 +269,7 @@ TEST_F(HttpClientTest, PostNullUrlReturnsError) {
 /* ───────────────────── Generic Do request ───────────────────── */
 
 TEST_F(HttpClientTest, DoGetRequest) {
+  SKIP_IF_NO_NETWORK();
   ResponseCtx ctx;
 
   xHttpRequestConf config;
@@ -272,6 +288,7 @@ TEST_F(HttpClientTest, DoGetRequest) {
 }
 
 TEST_F(HttpClientTest, DoWithCustomHeaders) {
+  SKIP_IF_NO_NETWORK();
   ResponseCtx ctx;
 
   const char *hdrs[] = {"X-Custom-Header: test-value", NULL};
@@ -294,6 +311,7 @@ TEST_F(HttpClientTest, DoWithCustomHeaders) {
 }
 
 TEST_F(HttpClientTest, DoWithTimeout) {
+  SKIP_IF_NO_NETWORK();
   ResponseCtx ctx;
 
   xHttpRequestConf config;

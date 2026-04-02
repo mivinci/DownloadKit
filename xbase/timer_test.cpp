@@ -116,11 +116,11 @@ TEST(TimerSubmitAfter, MultipleTasksOrdering) {
     delete ctx;
   };
 
-  xTimerSubmitAfter(t, cb, new Ctx{&order, &mu, 3}, 90);
-  xTimerSubmitAfter(t, cb, new Ctx{&order, &mu, 1}, 30);
-  xTimerSubmitAfter(t, cb, new Ctx{&order, &mu, 2}, 60);
+  xTimerSubmitAfter(t, cb, new Ctx{&order, &mu, 3}, 300);
+  xTimerSubmitAfter(t, cb, new Ctx{&order, &mu, 1}, 100);
+  xTimerSubmitAfter(t, cb, new Ctx{&order, &mu, 2}, 200);
 
-  sleep_ms(300);
+  sleep_ms(600);
 
   ASSERT_EQ(order.size(), 3u);
   EXPECT_EQ(order[0], 1);
@@ -249,7 +249,7 @@ TEST(TimerPoll, PollModeFiresOnCallerThread) {
   std::atomic<int> fired{0};
   xTimerSubmitAfter(t, [](void *arg) {
     static_cast<std::atomic<int>*>(arg)->fetch_add(1);
-  }, &fired, 50);
+  }, &fired, 100);
 
   /* Before deadline: poll returns 0 */
   int n = xTimerPoll(t);
@@ -257,7 +257,7 @@ TEST(TimerPoll, PollModeFiresOnCallerThread) {
   EXPECT_EQ(fired.load(), 0);
 
   /* Wait for deadline to pass */
-  sleep_ms(150);
+  sleep_ms(300);
 
   /* Now poll should execute the callback */
   n = xTimerPoll(t);

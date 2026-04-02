@@ -55,6 +55,12 @@ struct xTaskGroup_ {
   atomic_size_t   pending;       /* submitted - finished */
   atomic_size_t   done_count;   /* tasks that have completed */
 
+  /* Dedicated condition for xTaskGroupWait(), separate from qcond
+   * which is shared with idle workers.  Using a single cond caused
+   * lost wake-ups: pthread_cond_signal() could wake an idle worker
+   * instead of the GroupWait caller, leaving it blocked forever. */
+  pthread_cond_t  wcond;
+
   bool            shutdown;
 };
 
@@ -108,7 +114,7 @@ static void *worker_loop(void *arg) {
     atomic_fetch_add(&g->done_count, 1);
     if (atomic_fetch_sub(&g->pending, 1) == 1) {
       pthread_mutex_lock(&g->qlock);
-      pthread_cond_signal(&g->qcond);
+      pthread_cond_signal(&g->wcond);
       pthread_mutex_unlock(&g->qlock);
     }
   }
@@ -150,6 +156,7 @@ xTaskGroup xTaskGroupCreate(const xTaskGroupConf *conf) {
 
   pthread_mutex_init(&g->qlock, NULL);
   pthread_cond_init(&g->qcond, NULL);
+  pthread_cond_init(&g->wcond, NULL);
 
   atomic_store(&g->pending, 0);
   atomic_store(&g->done_count, 0);
@@ -186,6 +193,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   free(g->workers);
   pthread_mutex_destroy(&g->qlock);
   pthread_cond_destroy(&g->qcond);
+  pthread_cond_destroy(&g->wcond);
   free(g);
 }
 
@@ -280,7 +288,7 @@ xErrno xTaskGroupWait(xTaskGroup g_) {
 
   pthread_mutex_lock(&g->qlock);
   while (atomic_load(&g->pending) > 0) {
-    pthread_cond_wait(&g->qcond, &g->qlock);
+    pthread_cond_wait(&g->wcond, &g->qlock);
   }
   pthread_mutex_unlock(&g->qlock);
 

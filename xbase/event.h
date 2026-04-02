@@ -67,6 +67,13 @@ XDEF_HANDLE(xEventTimer);
 typedef void (*xEventTimerFunc)(void *arg);
 
 /**
+ * @brief Callback invoked when a watched signal is delivered.
+ * @param signo The signal number that was caught.
+ * @param arg   User-provided argument.
+ */
+typedef void (*xEventSignalFunc)(int signo, void *arg);
+
+/**
  * @brief Create an event loop.
  * @return A new event loop, or NULL on failure.
  */
@@ -228,6 +235,29 @@ XCAPI(void) xEventLoopRun(xEventLoop loop);
  * @param loop The event loop.
  */
 XCAPI(void) xEventLoopStop(xEventLoop loop);
+
+/**
+ * @brief Watch for a POSIX signal on the event loop.
+ *
+ * Registers a callback to be invoked on the event loop thread when the
+ * specified signal is delivered. The callback runs outside of signal
+ * context, so it may safely call any function (including xEventLoopStop).
+ *
+ * - Register:  pass a non-NULL @p fn.
+ * - Replace:   call again with the same @p signo and a new @p fn / @p arg.
+ * - Cancel:    pass NULL for @p fn (and NULL for @p arg); the signal
+ *              disposition is restored to SIG_DFL.
+ *
+ * @param loop  The event loop (must not be NULL).
+ * @param signo Signal number to watch (e.g. SIGUSR1). SIGKILL and SIGSTOP
+ *              are rejected.
+ * @param fn    Callback, or NULL to cancel.
+ * @param arg   Argument forwarded to @p fn.
+ * @return      xErrno_Ok on success, xErrno_InvalidArg for bad arguments,
+ *              xErrno_SysError if the underlying OS call fails.
+ */
+XCAPI(xErrno) xEventLoopSignalWatch(xEventLoop loop, int signo,
+                                     xEventSignalFunc fn, void *arg);
 
 /**
  * @brief Return the current monotonic time in milliseconds.

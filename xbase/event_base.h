@@ -9,12 +9,11 @@
 #ifndef XBASE_EVENT_BASE_H
 #define XBASE_EVENT_BASE_H
 
+#include <xbase/atomic.h>
 #include <xbase/event.h>
 #include <xbase/heap.h>
 #include <xbase/mpsc.h>
 #include <xbase/task.h>
-
-#include <xbase/atomic.h>
 
 #include <fcntl.h>
 #include <pthread.h>
@@ -23,6 +22,17 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+
+/* ───────────────────── Signal watch ───────────────────── */
+
+#ifndef XK_SIGNAL_MAX
+#define XK_SIGNAL_MAX 64
+#endif
+
+struct xSignalWatch_ {
+  xEventSignalFunc fn;
+  void            *arg;
+};
 
 /* ───────────────────── Source ───────────────────── */
 
@@ -151,6 +161,9 @@ struct xEventLoop_ {
   xHeap                 timer_heap;
   pthread_mutex_t       timer_mu;
   int                   stopped;
+
+  /* Signal watches (indexed by signal number) */
+  struct xSignalWatch_  signal_watches[XK_SIGNAL_MAX];
 };
 
 static inline int loop_init_wake(struct xEventLoop_ *loop) {

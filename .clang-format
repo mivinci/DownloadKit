@@ -1,8 +1,63 @@
 ---
 Language: Cpp
 BasedOnStyle: LLVM
+
+# ── Layout ────────────────────────────────────────────────────────────────
 ColumnLimit: 80
+IndentWidth: 2
 ContinuationIndentWidth: 2
+TabWidth: 2
+UseTab: Never
+
+# ── Alignment ─────────────────────────────────────────────────────────────
 AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: true
 AlignConsecutiveMacros: true
+AlignEscapedNewlines: Left
+AlignTrailingComments: true
+AlignOperands: Align
+
+# ── Pointer / Reference ──────────────────────────────────────────────────
+PointerAlignment: Right
+DerivePointerAlignment: false
+
+# ── Braces ────────────────────────────────────────────────────────────────
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+AllowShortEnumsOnASingleLine: false
+
+# ── Switch / Case ─────────────────────────────────────────────────────────
+IndentCaseLabels: true
+
+# ── Function declarations / calls ─────────────────────────────────────────
+AlignAfterOpenBracket: Align
+BinPackArguments: true
+BinPackParameters: true
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowAllArgumentsOnNextLine: true
+
+# ── Includes ──────────────────────────────────────────────────────────────
+SortIncludes: true
+IncludeBlocks: Preserve
+
+# ── Spaces ────────────────────────────────────────────────────────────────
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: false
+SpacesInParentheses: false
+
+# ── Breaking ──────────────────────────────────────────────────────────────
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+AlwaysBreakAfterReturnType: None
+
+# ── Macros ────────────────────────────────────────────────────────────────
+TypenameMacros:
+  - XCAPI
+
+# ── Misc ──────────────────────────────────────────────────────────────────
+ReflowComments: true
+SpacesBeforeTrailingComments: 1
+MaxEmptyLinesToKeep: 1

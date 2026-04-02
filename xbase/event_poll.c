@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <signal.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -44,6 +45,10 @@ struct xEventLoopPoll_ {
   struct pollfd *pollfds;
   size_t         pfd_len;
   size_t         pfd_cap;
+
+  /* Self-pipe trick for signal delivery */
+  int signal_pipe_r[XK_SIGNAL_MAX]; /* read end, -1 = unused */
+  int signal_pipe_w[XK_SIGNAL_MAX]; /* write end, -1 = unused */
 };
 
 static int pfd_grow(struct xEventLoopPoll_ *loop) {
@@ -56,9 +61,16 @@ static int pfd_grow(struct xEventLoopPoll_ *loop) {
   return 0;
 }
 
-/* Rebuild pollfds array from sources list + wake pipe */
+/* Rebuild pollfds array from sources list + wake pipe + signal pipes */
 static void pfd_rebuild(struct xEventLoopPoll_ *loop) {
-  size_t needed = 1 + loop->base.sources.len; /* wake + sources */
+  /* Count active signal pipes */
+  size_t nsig = 0;
+  for (int i = 1; i < XK_SIGNAL_MAX; i++) {
+    if (loop->signal_pipe_r[i] >= 0)
+      nsig++;
+  }
+
+  size_t needed = 1 + loop->base.sources.len + nsig; /* wake + sources + signals */
   while (loop->pfd_cap < needed)
     pfd_grow(loop);
 
@@ -72,6 +84,17 @@ static void pfd_rebuild(struct xEventLoopPoll_ *loop) {
     loop->pollfds[1 + i].fd      = src->fd;
     loop->pollfds[1 + i].events  = mask_to_poll(src->mask);
     loop->pollfds[1 + i].revents = 0;
+  }
+
+  /* Append signal pipe read ends */
+  size_t idx = 1 + loop->base.sources.len;
+  for (int i = 1; i < XK_SIGNAL_MAX; i++) {
+    if (loop->signal_pipe_r[i] >= 0) {
+      loop->pollfds[idx].fd      = loop->signal_pipe_r[i];
+      loop->pollfds[idx].events  = POLLIN;
+      loop->pollfds[idx].revents = 0;
+      idx++;
+    }
   }
   loop->pfd_len = needed;
 }
@@ -99,6 +122,11 @@ xEventLoop xEventLoopCreate(void) {
   if (loop_init_wake(&loop->base) != 0) goto fail;
   if (set_nonblock(loop->base.wake_rfd) != 0) goto fail;
   if (set_nonblock(loop->base.wake_wfd) != 0) goto fail;
+
+  for (int i = 0; i < XK_SIGNAL_MAX; i++) {
+    loop->signal_pipe_r[i] = -1;
+    loop->signal_pipe_w[i] = -1;
+  }
 
   return (xEventLoop)loop;
 
@@ -129,6 +157,12 @@ void xEventLoopDestroy(xEventLoop loop_) {
 
   loop_wait_inflight(&loop->base);
   loop_cleanup_done(&loop->base);
+
+  /* Close signal pipes */
+  for (int i = 0; i < XK_SIGNAL_MAX; i++) {
+    if (loop->signal_pipe_r[i] >= 0) close(loop->signal_pipe_r[i]);
+    if (loop->signal_pipe_w[i] >= 0) close(loop->signal_pipe_w[i]);
+  }
 
   loop_close_wake(&loop->base);
   sources_free(&loop->base.sources);
@@ -218,6 +252,27 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     }
   }
 
+  /* Check signal pipes */
+  size_t sig_base = 1 + loop->base.sources.len;
+  size_t sig_idx = 0;
+  for (int s = 1; s < XK_SIGNAL_MAX; s++) {
+    if (loop->signal_pipe_r[s] < 0) continue;
+    struct pollfd *pfd = &loop->pollfds[sig_base + sig_idx];
+    sig_idx++;
+    if (!(pfd->revents & POLLIN)) continue;
+
+    /* Drain the pipe */
+    char buf[64];
+    while (read(loop->signal_pipe_r[s], buf, sizeof(buf)) > 0)
+      ;
+
+    if (loop->base.signal_watches[s].fn) {
+      loop->base.signal_watches[s].fn(
+          s, loop->base.signal_watches[s].arg);
+      dispatched++;
+    }
+  }
+
   /* Fire expired timers */
   pthread_mutex_lock(&loop->base.timer_mu);
   uint64_t now = xEventLoopNowMs();
@@ -247,6 +302,90 @@ xErrno xEventWake(xEventLoop loop_) {
   } while (r < 0 && errno == EINTR);
 
   return (r == 1 || (r < 0 && errno == EAGAIN)) ? xErrno_Ok : xErrno_SysError;
+}
+
+/* ───────────────────── Signal watch (self-pipe trick) ───────────────────── */
+
+/* Global write-end array for the signal handler (async-signal-safe). */
+static volatile int g_signal_pipe_w[XK_SIGNAL_MAX];
+
+static void signal_handler(int signo) {
+  if (signo > 0 && signo < XK_SIGNAL_MAX) {
+    int wfd = g_signal_pipe_w[signo];
+    if (wfd >= 0) {
+      char c = (char)signo;
+      (void)write(wfd, &c, 1); /* async-signal-safe */
+    }
+  }
+}
+
+static int signo_valid(int signo) {
+  return signo > 0 && signo < XK_SIGNAL_MAX &&
+         signo != SIGKILL && signo != SIGSTOP;
+}
+
+xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo,
+                              xEventSignalFunc fn, void *arg) {
+  struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
+  if (!loop || !signo_valid(signo)) return xErrno_InvalidArg;
+
+  if (fn) {
+    /* Register or replace */
+    if (loop->signal_pipe_r[signo] >= 0) {
+      /* Already have a pipe — just replace the callback */
+      loop->base.signal_watches[signo].fn  = fn;
+      loop->base.signal_watches[signo].arg = arg;
+      return xErrno_Ok;
+    }
+
+    int fds[2];
+    if (pipe(fds) != 0) return xErrno_SysError;
+    if (set_nonblock(fds[0]) != 0 || set_nonblock(fds[1]) != 0) {
+      close(fds[0]);
+      close(fds[1]);
+      return xErrno_SysError;
+    }
+
+    loop->signal_pipe_r[signo] = fds[0];
+    loop->signal_pipe_w[signo] = fds[1];
+    g_signal_pipe_w[signo]     = fds[1];
+
+    loop->base.signal_watches[signo].fn  = fn;
+    loop->base.signal_watches[signo].arg = arg;
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = signal_handler;
+    sa.sa_flags   = SA_RESTART;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(signo, &sa, NULL) < 0) {
+      close(fds[0]);
+      close(fds[1]);
+      loop->signal_pipe_r[signo] = -1;
+      loop->signal_pipe_w[signo] = -1;
+      g_signal_pipe_w[signo]     = -1;
+      loop->base.signal_watches[signo].fn  = NULL;
+      loop->base.signal_watches[signo].arg = NULL;
+      return xErrno_SysError;
+    }
+  } else {
+    /* Cancel */
+    if (loop->signal_pipe_r[signo] < 0)
+      return xErrno_Ok; /* nothing to cancel */
+
+    signal(signo, SIG_DFL);
+    g_signal_pipe_w[signo] = -1;
+
+    close(loop->signal_pipe_r[signo]);
+    close(loop->signal_pipe_w[signo]);
+    loop->signal_pipe_r[signo] = -1;
+    loop->signal_pipe_w[signo] = -1;
+
+    loop->base.signal_watches[signo].fn  = NULL;
+    loop->base.signal_watches[signo].arg = NULL;
+  }
+
+  return xErrno_Ok;
 }
 
 #endif /* !XK_HAS_KQUEUE && !XK_HAS_EPOLL */

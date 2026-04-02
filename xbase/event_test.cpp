@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstring>
 #include <thread>
 #include <vector>
@@ -640,4 +641,185 @@ TEST(EventReadWrite, BothReadAndWrite) {
   xEventLoopDestroy(loop);
   close(fds[0]);
   close(fds[1]);
+}
+
+/* ───────────────────── Signal watch ───────────────────── */
+
+#include <csignal>
+#include <sys/types.h>
+
+TEST(EventSignal, BasicRegisterAndTrigger) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  struct Ctx {
+    int signo;
+    int count;
+  } ctx = {0, 0};
+
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGUSR1,
+      [](int signo, void *arg) {
+        auto *c = static_cast<Ctx *>(arg);
+        c->signo = signo;
+        c->count++;
+      }, &ctx), xErrno_Ok);
+
+  kill(getpid(), SIGUSR1);
+
+  int n = 0;
+  for (int i = 0; i < 10 && ctx.count == 0; i++)
+    n += xEventWait(loop, 100);
+
+  EXPECT_GE(ctx.count, 1);
+  EXPECT_EQ(ctx.signo, SIGUSR1);
+
+  /* Cleanup */
+  xEventLoopSignalWatch(loop, SIGUSR1, NULL, NULL);
+  xEventLoopDestroy(loop);
+}
+
+TEST(EventSignal, CancelStopsCallback) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  int count = 0;
+
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGUSR1,
+      [](int, void *arg) {
+        (*static_cast<int *>(arg))++;
+      }, &count), xErrno_Ok);
+
+  /* Trigger once to confirm it works */
+  kill(getpid(), SIGUSR1);
+  for (int i = 0; i < 10 && count == 0; i++)
+    xEventWait(loop, 100);
+  EXPECT_GE(count, 1);
+
+  /* Cancel */
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGUSR1, NULL, NULL), xErrno_Ok);
+
+  /* After cancel, SIG_DFL for SIGUSR1 terminates the process.
+   * Temporarily ignore it so we can safely test that the callback
+   * is no longer invoked. */
+  signal(SIGUSR1, SIG_IGN);
+  int saved = count;
+  kill(getpid(), SIGUSR1);
+  xEventWait(loop, 100);
+  signal(SIGUSR1, SIG_DFL);
+
+  EXPECT_EQ(count, saved); /* callback should NOT have fired again */
+
+  xEventLoopDestroy(loop);
+}
+
+TEST(EventSignal, ReplaceCallback) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  int count1 = 0, count2 = 0;
+
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGUSR1,
+      [](int, void *arg) { (*static_cast<int *>(arg))++; },
+      &count1), xErrno_Ok);
+
+  /* Replace with a different callback */
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGUSR1,
+      [](int, void *arg) { (*static_cast<int *>(arg))++; },
+      &count2), xErrno_Ok);
+
+  kill(getpid(), SIGUSR1);
+
+  for (int i = 0; i < 10 && count2 == 0; i++)
+    xEventWait(loop, 100);
+
+  EXPECT_EQ(count1, 0); /* old callback should not fire */
+  EXPECT_GE(count2, 1); /* new callback should fire */
+
+  xEventLoopSignalWatch(loop, SIGUSR1, NULL, NULL);
+  xEventLoopDestroy(loop);
+}
+
+TEST(EventSignal, InvalidArgs) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  auto dummy = [](int, void *) {};
+
+  /* NULL loop */
+  EXPECT_EQ(xEventLoopSignalWatch(NULL, SIGUSR1, dummy, NULL),
+            xErrno_InvalidArg);
+
+  /* SIGKILL */
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGKILL, dummy, NULL),
+            xErrno_InvalidArg);
+
+  /* SIGSTOP */
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGSTOP, dummy, NULL),
+            xErrno_InvalidArg);
+
+  /* Negative signo */
+  EXPECT_EQ(xEventLoopSignalWatch(loop, -1, dummy, NULL),
+            xErrno_InvalidArg);
+
+  /* Zero signo */
+  EXPECT_EQ(xEventLoopSignalWatch(loop, 0, dummy, NULL),
+            xErrno_InvalidArg);
+
+  xEventLoopDestroy(loop);
+}
+
+TEST(EventSignal, MultipleSignals) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  int count1 = 0, count2 = 0;
+
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGUSR1,
+      [](int, void *arg) { (*static_cast<int *>(arg))++; },
+      &count1), xErrno_Ok);
+
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGUSR2,
+      [](int, void *arg) { (*static_cast<int *>(arg))++; },
+      &count2), xErrno_Ok);
+
+  kill(getpid(), SIGUSR1);
+  kill(getpid(), SIGUSR2);
+
+  for (int i = 0; i < 10 && (count1 == 0 || count2 == 0); i++)
+    xEventWait(loop, 100);
+
+  EXPECT_GE(count1, 1);
+  EXPECT_GE(count2, 1);
+
+  xEventLoopSignalWatch(loop, SIGUSR1, NULL, NULL);
+  xEventLoopSignalWatch(loop, SIGUSR2, NULL, NULL);
+  xEventLoopDestroy(loop);
+}
+
+TEST(EventSignal, StopLoopFromCallback) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGUSR1,
+      [](int, void *arg) {
+        xEventLoopStop(static_cast<xEventLoop>(arg));
+      }, loop), xErrno_Ok);
+
+  /* Send signal after a short delay from another thread */
+  std::thread sender([&]() {
+    sleep_ms(50);
+    kill(getpid(), SIGUSR1);
+  });
+
+  auto start = std::chrono::steady_clock::now();
+  xEventLoopRun(loop); /* should return when SIGUSR1 stops the loop */
+  auto elapsed = std::chrono::duration_cast<ms>(
+      std::chrono::steady_clock::now() - start).count();
+
+  /* Should have returned well before a long timeout */
+  EXPECT_LT(elapsed, 3000);
+
+  sender.join();
+  xEventLoopSignalWatch(loop, SIGUSR1, NULL, NULL);
+  xEventLoopDestroy(loop);
 }

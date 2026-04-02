@@ -101,90 +101,64 @@ static void reset_write_timer(struct xSocket_ *s) {
 
 /* ───────────────────── Lifecycle ───────────────────── */
 
+/*
+ * socket_open - create a non-blocking, close-on-exec socket fd.
+ *
+ * On Linux/BSD with SOCK_CLOEXEC/SOCK_NONBLOCK support, both flags are
+ * set atomically in the socket() call.  On other platforms we fall back
+ * to two separate fcntl() calls.
+ *
+ * Returns the fd on success, -1 on failure.
+ */
+static int socket_open(int family, int type, int protocol) {
+#if defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK)
+  return socket(family, type | SOCK_CLOEXEC | SOCK_NONBLOCK, protocol);
+#else
+  int fd = socket(family, type, protocol);
+  if (fd < 0) return -1;
+
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) goto fail;
+
+  int fdflags = fcntl(fd, F_GETFD, 0);
+  if (fdflags < 0 || fcntl(fd, F_SETFD, fdflags | FD_CLOEXEC) < 0) goto fail;
+
+  return fd;
+fail:
+  close(fd);
+  return -1;
+#endif
+}
+
 xSocket xSocketCreate(xEventLoop loop,
                        int family, int type, int protocol,
                        xEventMask mask,
                        xSocketFunc callback, void *userp) {
   if (!loop || !callback) return NULL;
 
-  struct xSocket_ *s =
-      (struct xSocket_ *)calloc(1, sizeof(struct xSocket_));
+  struct xSocket_ *s = (struct xSocket_ *)calloc(1, sizeof(*s));
   if (!s) return NULL;
 
-  int fd = -1;
+  int fd = socket_open(family, type, protocol);
+  if (fd < 0) goto fail;
 
-#ifdef SOCK_CLOEXEC
-  /* Linux/BSD: use socket() with SOCK_CLOEXEC | SOCK_NONBLOCK if available */
-  int sock_type = type;
-#ifdef SOCK_NONBLOCK
-  sock_type |= SOCK_NONBLOCK;
-#endif
-  sock_type |= SOCK_CLOEXEC;
-  fd = socket(family, sock_type, protocol);
-  if (fd < 0) {
-    free(s);
-    return NULL;
-  }
-#ifndef SOCK_NONBLOCK
-  /* SOCK_NONBLOCK not available, need fcntl */
-  int flags = fcntl(fd, F_GETFL, 0);
-  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-    close(fd);
-    free(s);
-    return NULL;
-  }
-#endif
-#else
-  /* Fallback: separate socket() + fcntl() calls */
-  fd = socket(family, type, protocol);
-  if (fd < 0) {
-    free(s);
-    return NULL;
-  }
-
-  /* Set non-blocking */
-  int flags = fcntl(fd, F_GETFL, 0);
-  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-    goto fail;
-  }
-
-  /* Set close-on-exec */
-  int fdflags = fcntl(fd, F_GETFD, 0);
-  if (fdflags < 0 || fcntl(fd, F_SETFD, fdflags | FD_CLOEXEC) < 0) {
-    goto fail;
-  }
-#endif
+  xEventSource src = xEventAdd(loop, fd, mask, trampoline, s);
+  if (!src) goto fail_fd;
 
   s->fd               = fd;
   s->loop             = loop;
+  s->source           = src;
   s->mask             = mask;
   s->callback         = callback;
   s->userp            = userp;
-  s->read_timer       = NULL;
-  s->write_timer      = NULL;
-  s->read_timeout_ms  = 0;
-  s->write_timeout_ms = 0;
-
-  xEventSource src = xEventAdd(loop, fd, mask, trampoline, s);
-  if (!src) {
-#ifdef SOCK_CLOEXEC
-    close(fd);
-    free(s);
-    return NULL;
-#else
-    goto fail;
-#endif
-  }
-  s->source = src;
 
   return (xSocket)s;
 
-#ifndef SOCK_CLOEXEC
-fail:
+fail_fd:
   close(fd);
+fail:
   free(s);
   return NULL;
-#endif
 }
 
 void xSocketDestroy(xEventLoop loop, xSocket sock) {

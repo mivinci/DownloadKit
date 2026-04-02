@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/event.h>
 #include <sys/types.h>
 
@@ -222,6 +223,18 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
       continue;
     }
 
+    /* Signal event */
+    if (events[i].filter == EVFILT_SIGNAL) {
+      int signo = (int)events[i].ident;
+      if (signo > 0 && signo < XK_SIGNAL_MAX &&
+          loop->base.signal_watches[signo].fn) {
+        loop->base.signal_watches[signo].fn(
+            signo, loop->base.signal_watches[signo].arg);
+        dispatched++;
+      }
+      continue;
+    }
+
     struct xEventSource_ *src = (struct xEventSource_ *)events[i].udata;
     if (!src) continue;
 
@@ -250,6 +263,54 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 
   return dispatched;
 }
+
+/* ───────────────────── Signal watch ───────────────────── */
+
+static int signo_valid(int signo) {
+  return signo > 0 && signo < XK_SIGNAL_MAX &&
+         signo != SIGKILL && signo != SIGSTOP;
+}
+
+xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo,
+                              xEventSignalFunc fn, void *arg) {
+  struct xEventLoopKqueue_ *loop = (struct xEventLoopKqueue_ *)loop_;
+  if (!loop || !signo_valid(signo)) return xErrno_InvalidArg;
+
+  struct kevent ev;
+
+  if (fn) {
+    /* Register or replace */
+    int is_new = (loop->base.signal_watches[signo].fn == NULL);
+    loop->base.signal_watches[signo].fn  = fn;
+    loop->base.signal_watches[signo].arg = arg;
+
+    if (is_new) {
+      /* Ignore the default disposition so the signal is delivered to kqueue */
+      signal(signo, SIG_IGN);
+      EV_SET(&ev, signo, EVFILT_SIGNAL, EV_ADD | EV_CLEAR, 0, 0, NULL);
+      if (kevent(loop->kqfd, &ev, 1, NULL, 0, NULL) < 0) {
+        signal(signo, SIG_DFL);
+        loop->base.signal_watches[signo].fn  = NULL;
+        loop->base.signal_watches[signo].arg = NULL;
+        return xErrno_SysError;
+      }
+    }
+  } else {
+    /* Cancel */
+    if (loop->base.signal_watches[signo].fn == NULL)
+      return xErrno_Ok; /* nothing to cancel */
+
+    EV_SET(&ev, signo, EVFILT_SIGNAL, EV_DELETE, 0, 0, NULL);
+    kevent(loop->kqfd, &ev, 1, NULL, 0, NULL); /* ignore ENOENT */
+    signal(signo, SIG_DFL);
+    loop->base.signal_watches[signo].fn  = NULL;
+    loop->base.signal_watches[signo].arg = NULL;
+  }
+
+  return xErrno_Ok;
+}
+
+/* ───────────────────── Wake ───────────────────── */
 
 xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopKqueue_ *loop = (struct xEventLoopKqueue_ *)loop_;

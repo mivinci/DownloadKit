@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/epoll.h>
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -29,12 +30,60 @@ static uint32_t mask_to_epoll(xEventMask mask) {
   return ev;
 }
 
+/* ───────────────────── Signal self-pipe (async-signal-safe) ─────────── */
+
+/*
+ * Why self-pipe instead of signalfd(2)?
+ *
+ * signalfd requires the target signal to be blocked (via sigprocmask /
+ * pthread_sigmask) in *every* thread of the process.  pthread_sigmask only
+ * affects the calling thread; any thread that has not blocked the signal
+ * will receive it with the default disposition — typically process
+ * termination.  In practice this is fragile: third-party libraries, test
+ * frameworks (e.g. gtest death-tests), or thread-pools may spawn threads
+ * that never call pthread_sigmask, so the signal races to an unblocked
+ * thread and kills the process.
+ *
+ * The self-pipe trick avoids the problem entirely: we install a normal
+ * signal handler via sigaction(2) which writes a byte into a pipe.  The
+ * handler runs on whichever thread receives the signal (safe — write(2) to
+ * a pipe is async-signal-safe), and the event loop picks it up through the
+ * pipe's read end registered with epoll.  No thread-wide signal mask
+ * manipulation is needed.
+ */
+
+/* Global write-end array for the signal handler. */
+static volatile int g_signal_pipe_w[XK_SIGNAL_MAX];
+
+static void signal_handler(int signo) {
+  if (signo > 0 && signo < XK_SIGNAL_MAX) {
+    int wfd = g_signal_pipe_w[signo];
+    if (wfd >= 0) {
+      char c = (char)signo;
+      (void)write(wfd, &c, 1); /* async-signal-safe */
+    }
+  }
+}
+
 /* ───────────────────── Epoll-specific loop data ───────────────────── */
 
 struct xEventLoopEpoll_ {
   struct xEventLoop_ base;
   int                epfd;
+  /* Self-pipe trick for signal delivery */
+  int signal_pipe_r[XK_SIGNAL_MAX]; /* read end, -1 = unused */
+  int signal_pipe_w[XK_SIGNAL_MAX]; /* write end, -1 = unused */
 };
+
+/* Check whether an epoll fd belongs to a signal pipe read end.
+ * Returns the signal number, or 0 if not found. */
+static int find_signal_by_fd(struct xEventLoopEpoll_ *loop, int fd) {
+  for (int i = 1; i < XK_SIGNAL_MAX; i++) {
+    if (loop->signal_pipe_r[i] >= 0 && loop->signal_pipe_r[i] == fd)
+      return i;
+  }
+  return 0;
+}
 
 /* ───────────────────── Public API ───────────────────── */
 
@@ -57,6 +106,11 @@ xEventLoop xEventLoopCreate(void) {
   if (!loop->base.timer_heap) goto fail;
   if (pthread_mutex_init(&loop->base.timer_mu, NULL) != 0) goto fail;
 
+  for (int i = 0; i < XK_SIGNAL_MAX; i++) {
+    loop->signal_pipe_r[i] = -1;
+    loop->signal_pipe_w[i] = -1;
+  }
+
   loop->epfd = epoll_create1(EPOLL_CLOEXEC);
   if (loop->epfd < 0) goto fail;
 
@@ -67,7 +121,7 @@ xEventLoop xEventLoopCreate(void) {
   /* Register wake pipe read end */
   struct epoll_event ev;
   ev.events  = EPOLLIN | EPOLLET;
-  ev.data.ptr = NULL; /* sentinel: wake pipe */
+  ev.data.fd = loop->base.wake_rfd; /* use fd for identification */
   if (epoll_ctl(loop->epfd, EPOLL_CTL_ADD, loop->base.wake_rfd, &ev) != 0)
     goto fail;
 
@@ -101,6 +155,16 @@ void xEventLoopDestroy(xEventLoop loop_) {
 
   loop_wait_inflight(&loop->base);
   loop_cleanup_done(&loop->base);
+
+  /* Close any open signal pipes */
+  for (int i = 0; i < XK_SIGNAL_MAX; i++) {
+    if (loop->signal_pipe_r[i] >= 0) {
+      epoll_ctl(loop->epfd, EPOLL_CTL_DEL, loop->signal_pipe_r[i], NULL);
+      close(loop->signal_pipe_r[i]);
+    }
+    if (loop->signal_pipe_w[i] >= 0)
+      close(loop->signal_pipe_w[i]);
+  }
 
   close(loop->epfd);
   loop_close_wake(&loop->base);
@@ -181,14 +245,40 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 
   int dispatched = 0;
   for (int i = 0; i < n; i++) {
-    struct xEventSource_ *src = (struct xEventSource_ *)events[i].data.ptr;
+    /*
+     * epoll_data is a union — we use data.fd for internal fds
+     * (wake pipe, signal pipes) and data.ptr for user event sources.
+     * Identify internal fds first by comparing data.fd against
+     * known descriptors.
+     */
+    int efd = events[i].data.fd;
 
-    /* Wake pipe sentinel */
-    if (!src) {
+    /* Wake pipe — registered with data.fd */
+    if (efd == loop->base.wake_rfd) {
       loop_drain_wake(&loop->base);
       loop_dispatch_done(&loop->base);
       continue;
     }
+
+    /* Check if this is a signal pipe event — registered with data.fd */
+    int signo = find_signal_by_fd(loop, efd);
+    if (signo > 0) {
+      /* Drain the signal pipe */
+      char buf[64];
+      while (read(efd, buf, sizeof(buf)) > 0)
+        ;
+
+      if (loop->base.signal_watches[signo].fn) {
+        loop->base.signal_watches[signo].fn(
+            signo, loop->base.signal_watches[signo].arg);
+        dispatched++;
+      }
+      continue;
+    }
+
+    /* User event source — registered with data.ptr */
+    struct xEventSource_ *src = (struct xEventSource_ *)events[i].data.ptr;
+    if (!src) continue;
 
     xEventMask ready = 0;
     if (events[i].events & EPOLLIN)  ready |= xEvent_Read;
@@ -215,6 +305,91 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 
   return dispatched;
 }
+
+/* ───────────────────── Signal watch (self-pipe trick) ───────────────── */
+
+static int signo_valid(int signo) {
+  return signo > 0 && signo < XK_SIGNAL_MAX &&
+         signo != SIGKILL && signo != SIGSTOP;
+}
+
+xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo,
+                              xEventSignalFunc fn, void *arg) {
+  struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
+  if (!loop || !signo_valid(signo)) return xErrno_InvalidArg;
+
+  if (fn) {
+    /* Register or replace */
+    if (loop->signal_pipe_r[signo] >= 0) {
+      /* Already have a pipe — just replace the callback */
+      loop->base.signal_watches[signo].fn  = fn;
+      loop->base.signal_watches[signo].arg = arg;
+      return xErrno_Ok;
+    }
+
+    int fds[2];
+    if (pipe(fds) != 0) return xErrno_SysError;
+    if (set_nonblock(fds[0]) != 0 || set_nonblock(fds[1]) != 0) {
+      close(fds[0]);
+      close(fds[1]);
+      return xErrno_SysError;
+    }
+
+    /* Register the pipe read end with epoll (edge-triggered) */
+    struct epoll_event ev;
+    ev.events  = EPOLLIN | EPOLLET;
+    ev.data.fd = fds[0];
+    if (epoll_ctl(loop->epfd, EPOLL_CTL_ADD, fds[0], &ev) != 0) {
+      close(fds[0]);
+      close(fds[1]);
+      return xErrno_SysError;
+    }
+
+    loop->signal_pipe_r[signo] = fds[0];
+    loop->signal_pipe_w[signo] = fds[1];
+    g_signal_pipe_w[signo]     = fds[1];
+
+    loop->base.signal_watches[signo].fn  = fn;
+    loop->base.signal_watches[signo].arg = arg;
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = signal_handler;
+    sa.sa_flags   = SA_RESTART;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(signo, &sa, NULL) < 0) {
+      epoll_ctl(loop->epfd, EPOLL_CTL_DEL, fds[0], NULL);
+      close(fds[0]);
+      close(fds[1]);
+      loop->signal_pipe_r[signo] = -1;
+      loop->signal_pipe_w[signo] = -1;
+      g_signal_pipe_w[signo]     = -1;
+      loop->base.signal_watches[signo].fn  = NULL;
+      loop->base.signal_watches[signo].arg = NULL;
+      return xErrno_SysError;
+    }
+  } else {
+    /* Cancel */
+    if (loop->signal_pipe_r[signo] < 0)
+      return xErrno_Ok; /* nothing to cancel */
+
+    signal(signo, SIG_DFL);
+    g_signal_pipe_w[signo] = -1;
+
+    epoll_ctl(loop->epfd, EPOLL_CTL_DEL, loop->signal_pipe_r[signo], NULL);
+    close(loop->signal_pipe_r[signo]);
+    close(loop->signal_pipe_w[signo]);
+    loop->signal_pipe_r[signo] = -1;
+    loop->signal_pipe_w[signo] = -1;
+
+    loop->base.signal_watches[signo].fn  = NULL;
+    loop->base.signal_watches[signo].arg = NULL;
+  }
+
+  return xErrno_Ok;
+}
+
+/* ───────────────────── Wake ───────────────────── */
 
 xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;

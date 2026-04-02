@@ -251,6 +251,15 @@ xErrno xTaskWait(xTask t_, void **result) {
   struct xTask_ *t = tsk(t_);
 
   if (!t) return xErrno_InvalidArg;
+
+  /* The mutex MUST be held before entering pthread_cond_wait().
+   * Without this lock, the wait/signal pair races with the worker's
+   * broadcast in worker_loop(): the worker may set t->done and call
+   * pthread_cond_broadcast() right before we enter pthread_cond_wait(),
+   * causing us to block forever on a signal that has already been sent.
+   * macOS's pthread implementation happens to tolerate the unlocked case,
+   * but glibc (Linux) deadlocks reliably. */
+  pthread_mutex_lock(&t->lock);
   while (!t->done) {
     pthread_cond_wait(&t->cond, &t->lock);
   }

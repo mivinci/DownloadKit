@@ -45,4 +45,5 @@
 .cache
 .idea
 build
+build-*
 cmake-build-*

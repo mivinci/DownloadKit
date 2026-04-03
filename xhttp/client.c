@@ -67,9 +67,21 @@ static void check_multi_info(struct xHttpClient_ *c) {
     curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
     if (!req) continue;
 
-    /* Dispatch via vtable */
+    if (req->cleaned) continue; /* already destroyed via destroy_req */
+
+    /* Dispatch via vtable — on_done calls user callback only.
+     * After it returns, clean up curl handles + req resources. */
     if (req->vt && req->vt->on_done)
       req->vt->on_done(req, result);
+
+    if (!req->cleaned) {
+      req->cleaned = 1;
+      curl_multi_remove_handle(c->multi, easy);
+      curl_easy_cleanup(easy);
+      if (req->vt && req->vt->on_cleanup)
+        req->vt->on_cleanup(req);
+      free(req);
+    }
   }
 }
 
@@ -97,11 +109,9 @@ static void normal_on_done(struct xHttpReq_ *req, CURLcode result) {
   resp.headers     = req->header_buf.data ? req->header_buf.data : "";
   resp.headers_len = req->header_buf.len;
 
-  /* Invoke user callback */
+  /* Invoke user callback — do NOT clean up here, let destroy_req handle it */
   if (req->on_response)
     req->on_response(&resp, req->arg);
-
-  normal_on_cleanup(req);
 }
 
 static void normal_on_cleanup(struct xHttpReq_ *req) {
@@ -243,6 +253,12 @@ xHttpClient xHttpClientCreate(xEventLoop loop) {
 
 /**
  * @brief Helper: clean up a single request context and its easy handle.
+ *
+ * Two cleanup paths exist:
+ * 1. Normal completion: check_multi_info -> vt->on_done -> vt->on_cleanup -> free(req)
+ * 2. Early destroy: destroy_req -> curl cleanup -> vt->on_cleanup -> free(req)
+ *
+ * The cleaned flag ensures they don't interfere with each other.
  */
 static void destroy_req(struct xHttpClient_ *c, CURL *easy,
                         struct xHttpReq_ *req, int notify) {
@@ -256,21 +272,13 @@ static void destroy_req(struct xHttpClient_ *c, CURL *easy,
     req->on_response(&resp, req->arg);
   }
 
-  curl_multi_remove_handle(c->multi, easy);
-  curl_easy_cleanup(easy);
-
   if (req && !req->cleaned) {
     req->cleaned = 1;
-    /* Use vtable cleanup if available */
-    if (req->vt && req->vt->on_cleanup) {
+    curl_multi_remove_handle(c->multi, easy);
+    curl_easy_cleanup(easy);
+    if (req->vt && req->vt->on_cleanup)
       req->vt->on_cleanup(req);
-    } else {
-      http_buf_free(&req->body_buf);
-      http_buf_free(&req->header_buf);
-      if (req->post_data) free(req->post_data);
-      if (req->req_headers) curl_slist_free_all(req->req_headers);
-      free(req);
-    }
+    free(req);
   }
 }
 

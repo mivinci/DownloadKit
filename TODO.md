@@ -62,13 +62,18 @@
 - 路由 + handler 回调模型
 - 接口风格类似：`xHttpServerCreate(loop)` → `xHttpServerRoute(server, "GET", "/path", handler)` → `xHttpServerListen(server, ":8080")`
 
-## 6. xlog 增强 — 异步日志
+## 6. xlog 增强 — 异步日志 ✅
 
-现有的 `log` 模块看起来比较基础。可以增强为：
+基于 MPSC 无锁队列 + 事件循环线程消费的异步日志模块，已实现：
 
-- 异步写入（通过 `xEventLoopSubmit` offload 到线程池，或用 MPSC 队列 + 专用写线程）
-- 支持日志级别过滤、格式化、文件轮转
-- 这个跟事件循环的集成会很自然
+- 异步写入：调用线程格式化日志后入队，事件循环线程负责落盘，无需额外线程池或专用写线程
+- 三种刷新模式：Timer（定时器周期刷新）、Notify（pipe 通知立即刷新）、Mixed（两者结合）
+- 日志级别过滤（Debug/Info/Warn/Error/Fatal）
+- 文件轮转（max_size + max_files）
+- 全局无锁 freelist 复用 entry，减少热路径上的 malloc
+- 线程局部 logger 上下文（xLoggerEnter/xLoggerLeave）+ 便捷宏（XLOG_DEBUG 等）
+- 同步 flush 支持（xLoggerFlush）
+- Fatal 级别同步写入后 abort()
 
 ## 7. xsignal — 信号处理 ✅
 

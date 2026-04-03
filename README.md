@@ -6,6 +6,8 @@
   <a href="diary">Diary</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
   <a href="TODO.md">Todo</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="STYLE.md">Style</a>
   <br />
   <br />
 </div>

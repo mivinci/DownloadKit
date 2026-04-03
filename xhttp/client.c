@@ -6,7 +6,7 @@
  * client.c - Asynchronous HTTP client: libcurl multi-socket + xEventLoop
  */
 
-#include "client_base.h"
+#include "client_private.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +19,16 @@ static int  socket_callback(CURL *easy, curl_socket_t fd, int what,
 static int  timer_callback(CURLM *multi, long timeout_ms, void *userp);
 static void fd_ready_callback(int fd, xEventMask mask, void *arg);
 static void on_timeout(void *arg);
+
+/* ── Vtable for oneshot HTTP requests ──────────────────────────────────── */
+
+static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result);
+static void oneshot_on_cleanup(struct xHttpReq_ *req);
+
+static const struct xHttpReqVtable oneshot_vtable = {
+  .on_done    = oneshot_on_done,
+  .on_cleanup = oneshot_on_cleanup,
+};
 
 /* ── curl data callbacks ───────────────────────────────────────────────── */
 
@@ -57,40 +67,61 @@ static void check_multi_info(struct xHttpClient_ *c) {
     curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
     if (!req) continue;
 
-    /* Build response */
-    xHttpResponse resp;
-    memset(&resp, 0, sizeof(resp));
-    resp.curl_code = (int)result;
+    if (req->cleaned) continue; /* already destroyed via destroy_req */
 
-    if (result == CURLE_OK) {
-      long code = 0;
-      curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
-      resp.status_code = code;
-      resp.curl_error  = NULL;
-    } else {
-      resp.status_code = 0;
-      resp.curl_error  = req->errbuf[0] ? req->errbuf
-                                         : curl_easy_strerror(result);
+    /* Dispatch via vtable — on_done calls user callback only.
+     * After it returns, clean up curl handles + req resources. */
+    if (req->vt && req->vt->on_done)
+      req->vt->on_done(req, result);
+
+    if (!req->cleaned) {
+      req->cleaned = 1;
+      curl_multi_remove_handle(c->multi, easy);
+      curl_easy_cleanup(easy);
+      if (req->vt && req->vt->on_cleanup)
+        req->vt->on_cleanup(req);
+      free(req);
     }
-
-    resp.body        = req->body_buf.data   ? req->body_buf.data   : "";
-    resp.body_len    = req->body_buf.len;
-    resp.headers     = req->header_buf.data ? req->header_buf.data : "";
-    resp.headers_len = req->header_buf.len;
-
-    /* Invoke user callback */
-    if (req->on_response)
-      req->on_response(&resp, req->arg);
-
-    /* Cleanup */
-    curl_multi_remove_handle(c->multi, easy);
-    curl_easy_cleanup(easy);
-    http_buf_free(&req->body_buf);
-    http_buf_free(&req->header_buf);
-    if (req->post_data) free(req->post_data);
-    if (req->req_headers) curl_slist_free_all(req->req_headers);
-    free(req);
   }
+}
+
+/* ── Oneshot HTTP request handlers ─────────────────────────────────────── */
+
+static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result) {
+  /* Build response */
+  xHttpResponse resp;
+  memset(&resp, 0, sizeof(resp));
+  resp.curl_code = (int)result;
+
+  if (result == CURLE_OK) {
+    long code = 0;
+    curl_easy_getinfo(req->easy, CURLINFO_RESPONSE_CODE, &code);
+    resp.status_code = code;
+    resp.curl_error  = NULL;
+  } else {
+    resp.status_code = 0;
+    resp.curl_error  = req->errbuf[0] ? req->errbuf
+                                       : curl_easy_strerror(result);
+  }
+
+  resp.body        = req->body_buf.data   ? req->body_buf.data   : "";
+  resp.body_len    = req->body_buf.len;
+  resp.headers     = req->header_buf.data ? req->header_buf.data : "";
+  resp.headers_len = req->header_buf.len;
+
+  /* Invoke user callback — do NOT clean up here, let destroy_req handle it */
+  if (req->on_response)
+    req->on_response(&resp, req->arg);
+}
+
+static void oneshot_on_cleanup(struct xHttpReq_ *req) {
+  /* Only clean up request-specific resources here.
+   * curl_multi_remove + curl_easy_cleanup + free(req) are handled
+   * by destroy_req() which calls this. */
+  http_buf_free(&req->body_buf);
+  http_buf_free(&req->header_buf);
+  if (req->post_data) free(req->post_data);
+  if (req->req_headers) curl_slist_free_all(req->req_headers);
 }
 
 /* ── Socket callback (CURLMOPT_SOCKETFUNCTION) ─────────────────────────── */
@@ -222,6 +253,12 @@ xHttpClient xHttpClientCreate(xEventLoop loop) {
 
 /**
  * @brief Helper: clean up a single request context and its easy handle.
+ *
+ * Two cleanup paths exist:
+ * 1. Oneshot completion: check_multi_info -> vt->on_done -> vt->on_cleanup -> free(req)
+ * 2. Early destroy: destroy_req -> curl cleanup -> vt->on_cleanup -> free(req)
+ *
+ * The cleaned flag ensures they don't interfere with each other.
  */
 static void destroy_req(struct xHttpClient_ *c, CURL *easy,
                         struct xHttpReq_ *req, int notify) {
@@ -235,14 +272,12 @@ static void destroy_req(struct xHttpClient_ *c, CURL *easy,
     req->on_response(&resp, req->arg);
   }
 
-  curl_multi_remove_handle(c->multi, easy);
-  curl_easy_cleanup(easy);
-
-  if (req) {
-    http_buf_free(&req->body_buf);
-    http_buf_free(&req->header_buf);
-    if (req->post_data) free(req->post_data);
-    if (req->req_headers) curl_slist_free_all(req->req_headers);
+  if (req && !req->cleaned) {
+    req->cleaned = 1;
+    curl_multi_remove_handle(c->multi, easy);
+    curl_easy_cleanup(easy);
+    if (req->vt && req->vt->on_cleanup)
+      req->vt->on_cleanup(req);
     free(req);
   }
 }
@@ -331,6 +366,7 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const char *url,
     return NULL;
   }
 
+  req->vt          = &oneshot_vtable;  /* set vtable for oneshot requests */
   req->client      = c;
   req->on_response = on_response;
   req->arg         = arg;

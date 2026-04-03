@@ -234,10 +234,10 @@ static size_t sse_write_callback(char *ptr, size_t size, size_t nmemb,
 static void sse_on_done(struct xHttpReq_ *req_, CURLcode result) {
   struct xSseReq_ *req = (struct xSseReq_ *)req_;
 
+  /* Invoke user callback only — cleanup is handled by
+   * check_multi_info / destroy_req after on_done returns. */
   if (req->on_done)
     req->on_done((int)result, req->base.arg);
-
-  sse_on_cleanup(req_);
 }
 
 static void sse_on_cleanup(struct xHttpReq_ *req_) {

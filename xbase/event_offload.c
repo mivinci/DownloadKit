@@ -7,7 +7,7 @@
  *                   deliver completion callback on the event loop thread.
  */
 
-#include "event_base.h"
+#include "event_private.h"
 
 #include <stdlib.h>
 

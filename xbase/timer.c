@@ -48,9 +48,7 @@ struct xTimer_ {
 /* ───────────────────── Helpers ───────────────────── */
 
 uint64_t xTimerNowMs(void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+  return xMonoMs();
 }
 
 static int cmp_task(const void *a, const void *b) {
@@ -122,7 +120,7 @@ static void *timer_thread(void *arg) {
     if (t->stopped) break;
 
     struct xTimerTask_ *top = (struct xTimerTask_ *)xHeapPeek(t->heap);
-    uint64_t now            = xTimerNowMs();
+  uint64_t now            = xMonoMs();
 
     if (top->deadline <= now) {
       xHeapPop(t->heap);
@@ -240,7 +238,7 @@ static xTimerTask submit(xTimer t_, xTimerFunc fn, void *arg, uint64_t abs_ms) {
 
 xTimerTask xTimerSubmitAfter(xTimer t, xTimerFunc fn, void *arg,
                               uint64_t delay_ms) {
-  return submit(t, fn, arg, xTimerNowMs() + delay_ms);
+  return submit(t, fn, arg, xMonoMs() + delay_ms);
 }
 
 xTimerTask xTimerSubmitAt(xTimer t, xTimerFunc fn, void *arg, uint64_t abs_ms) {

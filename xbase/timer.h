@@ -24,6 +24,7 @@
 #include <xbase/base.h>
 #include <xbase/error.h>
 #include <xbase/task.h>
+#include <xbase/time.h>
 
 /**
  * @brief Callback invoked when a timer entry fires.
@@ -123,6 +124,7 @@ XCAPI(int) xTimerPoll(xTimer t);
 /**
  * @brief Return the current monotonic time in milliseconds (CLOCK_MONOTONIC).
  * @return Current time in milliseconds.
+ * @deprecated Use xMonoMs() from <xbase/time.h> instead.
  */
 XCAPI(uint64_t) xTimerNowMs(void);
 

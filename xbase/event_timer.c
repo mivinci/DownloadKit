@@ -6,7 +6,7 @@
  * event_timer.c - Builtin event loop timer API (Plan B)
  */
 
-#include "event_base.h"
+#include "event_private.h"
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -43,14 +43,12 @@ static xEventTimer submit_timer(xEventLoop loop_, xEventTimerFunc fn,
 /* ───────────────────── Public API ───────────────────── */
 
 uint64_t xEventLoopNowMs(void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+  return xMonoMs();
 }
 
 xEventTimer xEventLoopTimerAfter(xEventLoop loop, xEventTimerFunc fn,
                                  void *arg, uint64_t delay_ms) {
-  return submit_timer(loop, fn, arg, xEventLoopNowMs() + delay_ms);
+  return submit_timer(loop, fn, arg, xMonoMs() + delay_ms);
 }
 
 xEventTimer xEventLoopTimerAt(xEventLoop loop, xEventTimerFunc fn,

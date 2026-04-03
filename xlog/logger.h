@@ -57,7 +57,7 @@ XDEF_STRUCT(xLoggerConf) {
   int          max_files;         /**< Total files to keep including current
                                        (0 or 1 = no rotation)                 */
   uint64_t     flush_interval_ms; /**< Timer/Mixed flush interval in ms
-                                       (0 = use default 50ms)                 */
+                                       (0 = use default 100ms)                */
 };
 
 /**

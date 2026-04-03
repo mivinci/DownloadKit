@@ -17,7 +17,7 @@
 
 /* ── Default flush interval (ms) ── */
 
-#define XLOG_DEFAULT_FLUSH_MS 1000
+#define XLOG_DEFAULT_FLUSH_MS 100
 
 /* ── Thread-local freelist size for log entries ── */
 
@@ -32,7 +32,21 @@ struct xLogEntry_ {
   xLogLevel level;                  /**< Severity of this entry          */
   int       len;                    /**< Bytes written into buf (excl NUL) */
   char      buf[XLOG_ENTRY_BUF_SIZE]; /**< Pre-formatted message         */
+  struct xLogEntry_ *free_next;     /**< Freelist linkage                */
 };
+
+/* ── Global lock-free freelist ──
+ * Uses a CAS-based lock-free stack shared between producer and consumer
+ * threads, so entries freed by the event loop thread can be reused by
+ * any producer thread. */
+
+struct xLogFreeList_ {
+  struct xLogEntry_ *volatile head;
+  volatile int                count;
+};
+
+/* Global freelist instance (defined in logger.c) */
+extern struct xLogFreeList_ g_entry_freelist;
 
 /* ── Logger instance ── */
 

@@ -12,7 +12,6 @@
 
 #include <xlog/logger.h>
 
-#include <stdatomic.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -22,6 +21,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <xbase/atomic.h>
 #include <xbase/log.h>
 #include <xbase/mpsc.h>
 #include <xbase/time.h>
@@ -44,45 +44,49 @@ static int  logger_make_pipe(int fds[2]);
 static void logger_write_entry(struct xLogger_ *lg, const char *buf, int len);
 static void logger_format_timestamp(char *buf, size_t cap);
 
-/* ── Thread-local entry freelist ── */
+/* ── Global lock-free entry freelist ── */
 
-/* Each thread maintains its own freelist to avoid locking.
- * Entries are allocated from this list first, fallback to malloc.
- * After flush, entries are returned to the thread-local freelist. */
+/* A CAS-based lock-free stack shared between all producer threads and
+ * the consumer (event loop) thread.  This avoids the producer-consumer
+ * mismatch that a thread-local freelist would have: entries freed on
+ * the event loop thread are visible to any producer thread. */
 
-static _Thread_local struct xLogEntry_ *tl_free_list = NULL;
-static _Thread_local int tl_free_cnt = 0;
+struct xLogFreeList_ g_entry_freelist = {
+  .head  = NULL,
+  .count = 0,
+};
 
-/* Allocate an entry from thread-local freelist or malloc. */
+/* Allocate an entry: pop from global freelist, fallback to malloc. */
 static struct xLogEntry_ *entry_alloc(void) {
-  struct xLogEntry_ *e = tl_free_list;
-  if (e) {
-    tl_free_list = (struct xLogEntry_ *)(void *)e->node.next;
-    tl_free_cnt--;
-    return e;
+  struct xLogEntry_ *e =
+      xAtomicLoad(&g_entry_freelist.head, xAtomicAcquire);
+  while (e) {
+    if (xAtomicCasWeak(&g_entry_freelist.head, &e, e->free_next,
+                       xAtomicAcqRel)) {
+      xAtomicFetchSub(&g_entry_freelist.count, 1, xAtomicRelaxed);
+      return e;
+    }
+    /* CAS failed, e is reloaded by CAS */
   }
-  return (struct xLogEntry_ *)malloc(sizeof(*e));
+  return (struct xLogEntry_ *)malloc(sizeof(struct xLogEntry_));
 }
 
-/* Return entry to thread-local freelist or free it. */
+/* Return entry to global freelist, or free it if the list is full.
+ * Note: the count check is intentionally racy (TOCTOU).  This is a
+ * soft cap — a few extra entries beyond XLOG_FREELIST_SIZE are harmless
+ * and avoiding a CAS loop on the count keeps the fast path lean. */
 static void entry_free(struct xLogEntry_ *e) {
-  if (tl_free_cnt < XLOG_FREELIST_SIZE) {
-    e->node.next = (xMpsc *)(void *)tl_free_list;
-    tl_free_list = e;
-    tl_free_cnt++;
-  } else {
+  int cnt = xAtomicLoad(&g_entry_freelist.count, xAtomicRelaxed);
+  if (cnt >= XLOG_FREELIST_SIZE) {
     free(e);
+    return;
   }
-}
-
-/* Clean up thread-local freelist on thread exit or logger leave. */
-static void entry_freelist_cleanup(void) {
-  while (tl_free_list) {
-    struct xLogEntry_ *e = tl_free_list;
-    tl_free_list = (struct xLogEntry_ *)(void *)e->node.next;
-    free(e);
+  e->free_next = xAtomicLoad(&g_entry_freelist.head, xAtomicRelaxed);
+  while (!xAtomicCasWeak(&g_entry_freelist.head, &e->free_next, e,
+                         xAtomicAcqRel)) {
+    /* CAS failed, e->free_next is reloaded */
   }
-  tl_free_cnt = 0;
+  xAtomicFetchAdd(&g_entry_freelist.count, 1, xAtomicRelaxed);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -373,36 +377,27 @@ static void logger_rotate(struct xLogger_ *lg) {
   fclose(lg->fp);
   lg->fp = NULL;
 
-  /* Path buffer for rename operations */
+  /* Stack buffers for rename operations.  The suffix is at most
+   * ".<max_files>" which fits comfortably in 16 extra bytes. */
   size_t plen = strlen(lg->path);
-  char *old_path = malloc(plen + 16);
-  char *new_path = malloc(plen + 16);
-  if (!old_path || !new_path) {
-    /* On allocation failure, just reopen the file */
-    free(old_path);
-    free(new_path);
-    lg->fp = fopen(lg->path, "a");
-    lg->written = 0;
-    return;
-  }
+  size_t cap  = plen + 16;
+  char old_path[cap];
+  char new_path[cap];
 
   /* Delete the oldest file: path.{max_files-1} */
-  snprintf(old_path, plen + 16, "%s.%d", lg->path, lg->max_files - 1);
+  snprintf(old_path, cap, "%s.%d", lg->path, lg->max_files - 1);
   remove(old_path);
 
   /* Cascade rename: path.{i-1} -> path.{i} */
   for (int i = lg->max_files - 1; i >= 2; i--) {
-    snprintf(old_path, plen + 16, "%s.%d", lg->path, i - 1);
-    snprintf(new_path, plen + 16, "%s.%d", lg->path, i);
+    snprintf(old_path, cap, "%s.%d", lg->path, i - 1);
+    snprintf(new_path, cap, "%s.%d", lg->path, i);
     rename(old_path, new_path);
   }
 
   /* Rename current -> path.1 */
-  snprintf(new_path, plen + 16, "%s.1", lg->path);
+  snprintf(new_path, cap, "%s.1", lg->path);
   rename(lg->path, new_path);
-
-  free(old_path);
-  free(new_path);
 
   /* Reopen */
   lg->fp = fopen(lg->path, "a");
@@ -421,21 +416,9 @@ static void logger_flush_req_cb(int fd, xEventMask mask, void *arg) {
   char drain[64];
   while (read(fd, drain, sizeof(drain)) > 0) {}
 
-  /* Flush all entries */
+  /* Flush all entries.  The caller (xLoggerFlush) polls xMpscEmpty()
+   * to detect completion, so no explicit signal-back is needed. */
   logger_flush_entries(lg);
-
-  /* Signal completion by writing back to the request pipe write end.
-   * We reuse a simple approach: the caller blocks on read from a
-   * separate per-call pipe. Instead, we use a simpler approach:
-   * write a byte to flush_req_wfd so the caller can detect completion.
-   * But since flush_req_wfd is the write end of the same pipe the
-   * caller wrote to, we need a different mechanism.
-   *
-   * Simpler approach: the flush is "best effort" — the caller writes
-   * to the pipe and sleeps briefly. For a truly synchronous flush,
-   * we use a completion pipe passed in the request byte. However,
-   * for simplicity, we implement a polling approach in xLoggerFlush.
-   */
 }
 
 void xLoggerFlush(xLogger logger) {
@@ -464,7 +447,7 @@ void xLoggerFlush(xLogger logger) {
  *  xbase/log bridging
  * ═══════════════════════════════════════════════════════════════════ */
 
-static _Thread_local xLogger tl_logger;
+static __thread xLogger tl_logger;
 
 static void bridge_callback(const char *msg, const char *backtrace,
                             void *userdata) {
@@ -477,7 +460,10 @@ static void bridge_callback(const char *msg, const char *backtrace,
    * abort() inside xLog itself, so we just log as Error here). */
   struct xLogger_ *lg = lgr(logger);
 
-  struct xLogEntry_ *entry = malloc(sizeof(*entry));
+  /* Respect the logger's level filter */
+  if (xLogLevel_Info < lg->level) return;
+
+  struct xLogEntry_ *entry = entry_alloc();
   if (!entry) return;
 
   entry->node.next = NULL;
@@ -513,8 +499,6 @@ void xLoggerEnter(xLogger logger) {
 }
 
 void xLoggerLeave(void) {
-  /* Clean up thread-local freelist when leaving logger context */
-  entry_freelist_cleanup();
   tl_logger = NULL;
   xLogSetCallback(NULL, NULL);
 }
@@ -533,21 +517,21 @@ static int logger_make_pipe(int fds[2]) {
   /* Set both ends non-blocking */
   for (int i = 0; i < 2; i++) {
     int flags = fcntl(fds[i], F_GETFL, 0);
-    if (flags < 0) {
-      close(fds[0]);
-      close(fds[1]);
-      return -1;
-    }
-    if (fcntl(fds[i], F_SETFL, flags | O_NONBLOCK) < 0) {
-      close(fds[0]);
-      close(fds[1]);
-      return -1;
-    }
+    if (flags < 0) goto fail;
+    if (fcntl(fds[i], F_SETFL, flags | O_NONBLOCK) < 0) goto fail;
   }
   return 0;
+
+fail:
+  close(fds[0]);
+  close(fds[1]);
+  return -1;
 }
 
 static void logger_format_timestamp(char *buf, size_t cap) {
+  if (cap == 0) return;
+  buf[0] = '\0';
+
   struct timespec ts;
   clock_gettime(CLOCK_REALTIME, &ts);
 

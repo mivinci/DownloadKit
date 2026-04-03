@@ -6,8 +6,8 @@
  * mpsc.h - Multi-producer single-consumer queue
  */
 
-#ifndef XBASE_MSPC_H
-#define XBASE_MSPC_H
+#ifndef XBASE_MPSC_H
+#define XBASE_MPSC_H
 
 #include <xbase/base.h>
 
@@ -43,4 +43,4 @@ XCAPI(xMpsc *) xMpscPop(xMpsc **head, xMpsc **tail);
  */
 XCAPI(bool) xMpscEmpty(xMpsc **head);
 
-#endif // XBASE_MSPC_H
+#endif // XBASE_MPSC_H

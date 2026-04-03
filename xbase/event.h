@@ -22,6 +22,7 @@
 #include <xbase/base.h>
 #include <xbase/error.h>
 #include <xbase/task.h>
+#include <xbase/time.h>
 
 /**
  * @brief Bitmask of I/O events.
@@ -265,6 +266,7 @@ XCAPI(xErrno) xEventLoopSignalWatch(xEventLoop loop, int signo,
  * Convenience wrapper around CLOCK_MONOTONIC.
  *
  * @return Current time in milliseconds.
+ * @deprecated Use xMonoMs() from <xbase/time.h> instead.
  */
 XCAPI(uint64_t) xEventLoopNowMs(void);
 

@@ -197,13 +197,12 @@ static int sse_parser_feed(struct xSseParser_ *p, const char *data, size_t len,
 /* ───────────────────── SSE request ──────────────────────────────────── */
 
 struct xSseReq_ {
-  struct xHttpReq_   base;     /* MUST be first — cast between types */
+  struct xHttpReq_   base;
   xSseEventFunc      on_event;
   xSseDoneFunc       on_done;
   struct xSseParser_ parser;
   struct curl_slist *sse_headers;
 };
-_Static_assert(offsetof(struct xSseReq_, base) == 0, "base must be first");
 
 /* ── Vtable ── */
 
@@ -234,7 +233,7 @@ static size_t sse_write_callback(char *ptr, size_t size, size_t nmemb,
 /* ── Completion ── */
 
 static void sse_on_done(struct xHttpReq_ *req_, CURLcode result) {
-  struct xSseReq_ *req = (struct xSseReq_ *)req_;
+  struct xSseReq_ *req = xContainerOf(req_, struct xSseReq_, base);
 
   /* Invoke user callback only — cleanup is handled by
    * check_multi_info / destroy_req after on_done returns. */
@@ -243,7 +242,7 @@ static void sse_on_done(struct xHttpReq_ *req_, CURLcode result) {
 }
 
 static void sse_on_cleanup(struct xHttpReq_ *req_) {
-  struct xSseReq_ *req = (struct xSseReq_ *)req_;
+  struct xSseReq_ *req = xContainerOf(req_, struct xSseReq_, base);
   /* Only clean up request-specific resources here.
    * curl_multi_remove + curl_easy_cleanup + free(req) are handled
    * by destroy_req() which calls this. */

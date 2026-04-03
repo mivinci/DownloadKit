@@ -8,7 +8,7 @@
 
 #ifdef XK_HAS_EPOLL
 
-#include "event_base.h"
+#include "event_private.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -231,7 +231,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   pthread_mutex_lock(&loop->base.timer_mu);
   struct xEventTimer_ *top = (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
   if (top) {
-    uint64_t now = xEventLoopNowMs();
+  uint64_t now = xMonoMs();
     int64_t wait = (int64_t)(top->deadline - now);
     int timer_timeout = (wait <= 0) ? 0 : (int)wait;
     if (effective_timeout < 0 || timer_timeout < effective_timeout)

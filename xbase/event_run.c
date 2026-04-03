@@ -6,7 +6,7 @@
  * event_run.c - Backend-independent event loop driver (Plan B)
  */
 
-#include "event_base.h"
+#include "event_private.h"
 
 void xEventLoopRun(xEventLoop loop_) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;

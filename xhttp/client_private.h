@@ -71,7 +71,7 @@ struct xHttpReq_;
 /**
  * @brief Virtual table for request completion and cleanup.
  *
- * Different request types (normal HTTP, SSE, WebSocket) implement
+ * Different request types (oneshot HTTP, SSE, WebSocket) implement
  * their own handlers.
  */
 struct xHttpReqVtable {
@@ -89,7 +89,7 @@ struct xHttpReq_ {
   char                         errbuf[CURL_ERROR_SIZE]; /* curl error   */
   int                          cleaned;     /* cleanup already done flag   */
 
-  /* For normal HTTP requests */
+  /* For oneshot HTTP requests */
   xHttpResponseFunc  on_response;  /* completion callback         */
   struct xHttpBuf_   body_buf;      /* response body               */
   struct xHttpBuf_   header_buf;    /* response headers            */

@@ -20,14 +20,14 @@ static int  timer_callback(CURLM *multi, long timeout_ms, void *userp);
 static void fd_ready_callback(int fd, xEventMask mask, void *arg);
 static void on_timeout(void *arg);
 
-/* ── Vtable for normal HTTP requests ───────────────────────────────────── */
+/* ── Vtable for oneshot HTTP requests ──────────────────────────────────── */
 
-static void normal_on_done(struct xHttpReq_ *req, CURLcode result);
-static void normal_on_cleanup(struct xHttpReq_ *req);
+static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result);
+static void oneshot_on_cleanup(struct xHttpReq_ *req);
 
-static const struct xHttpReqVtable normal_vtable = {
-  .on_done    = normal_on_done,
-  .on_cleanup = normal_on_cleanup,
+static const struct xHttpReqVtable oneshot_vtable = {
+  .on_done    = oneshot_on_done,
+  .on_cleanup = oneshot_on_cleanup,
 };
 
 /* ── curl data callbacks ───────────────────────────────────────────────── */
@@ -85,9 +85,9 @@ static void check_multi_info(struct xHttpClient_ *c) {
   }
 }
 
-/* ── Normal HTTP request handlers ──────────────────────────────────────── */
+/* ── Oneshot HTTP request handlers ─────────────────────────────────────── */
 
-static void normal_on_done(struct xHttpReq_ *req, CURLcode result) {
+static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result) {
   /* Build response */
   xHttpResponse resp;
   memset(&resp, 0, sizeof(resp));
@@ -114,7 +114,7 @@ static void normal_on_done(struct xHttpReq_ *req, CURLcode result) {
     req->on_response(&resp, req->arg);
 }
 
-static void normal_on_cleanup(struct xHttpReq_ *req) {
+static void oneshot_on_cleanup(struct xHttpReq_ *req) {
   /* Only clean up request-specific resources here.
    * curl_multi_remove + curl_easy_cleanup + free(req) are handled
    * by destroy_req() which calls this. */
@@ -255,7 +255,7 @@ xHttpClient xHttpClientCreate(xEventLoop loop) {
  * @brief Helper: clean up a single request context and its easy handle.
  *
  * Two cleanup paths exist:
- * 1. Normal completion: check_multi_info -> vt->on_done -> vt->on_cleanup -> free(req)
+ * 1. Oneshot completion: check_multi_info -> vt->on_done -> vt->on_cleanup -> free(req)
  * 2. Early destroy: destroy_req -> curl cleanup -> vt->on_cleanup -> free(req)
  *
  * The cleaned flag ensures they don't interfere with each other.
@@ -366,7 +366,7 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const char *url,
     return NULL;
   }
 
-  req->vt          = &normal_vtable;  /* set vtable for normal requests */
+  req->vt          = &oneshot_vtable;  /* set vtable for oneshot requests */
   req->client      = c;
   req->on_response = on_response;
   req->arg         = arg;

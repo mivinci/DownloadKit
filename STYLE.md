@@ -184,6 +184,51 @@ XCAPI(xErrno) xHeapPush(xHeap h, void *elem);
 - 定义在 `*_private.h` 中的 `static inline` 函数，命名为 snake_case。
 - 用于多个后端共享的通用逻辑（如 `loop_drain_wake`、`sources_add`）。
 
+### 6.4 goto fail 错误处理模式
+
+当一个函数包含**多步初始化**且失败时需要**统一释放已分配的资源**，应使用
+`goto fail` 模式将清理逻辑收拢到函数末尾的 `fail:` 标签下，避免在每个错误
+分支中重复编写相同的清理代码。
+
+**适用场景：**
+
+- 函数中有 2 个及以上需要清理的资源（fd、malloc、fopen 等）。
+- 多个错误分支共享相同的清理逻辑。
+
+**不适用场景：**
+
+- 只有单一资源需要清理，直接 `return` 即可。
+- 销毁/析构函数（每步都必须执行，不存在"失败跳转"语义）。
+- 不同错误分支的清理行为完全不同。
+
+**示例：**
+
+```c
+static int logger_make_pipe(int fds[2]) {
+  if (pipe(fds) != 0) return -1;
+
+  for (int i = 0; i < 2; i++) {
+    int flags = fcntl(fds[i], F_GETFL, 0);
+    if (flags < 0) goto fail;
+    if (fcntl(fds[i], F_SETFL, flags | O_NONBLOCK) < 0) goto fail;
+  }
+  return 0;
+
+fail:
+  close(fds[0]);
+  close(fds[1]);
+  return -1;
+}
+```
+
+**要点：**
+
+- 标签统一命名为 `fail`，放在函数末尾、正常 `return` 之后。
+- `fail:` 块中使用条件判断保护每个资源（如 `if (ptr) free(ptr)`），
+  因为跳转可能发生在资源分配之前。
+- 函数开头将资源变量初始化为安全的零值（`NULL`、`-1` 等），确保
+  `fail:` 块中的条件判断正确。
+
 ---
 
 ## 7. 测试约定

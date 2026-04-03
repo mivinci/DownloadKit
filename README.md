@@ -44,6 +44,14 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 
 Supports oneshot requests (GET / POST / PUT / DELETE / PATCH / HEAD) with per-request timeout, as well as SSE streaming subscriptions with event / done callbacks.
 
+### xlog — Async logging
+
+| Header | Description |
+| -------- | ------------- |
+| `logger.h` | High-performance async logger with MPSC queue, timer/pipe flush modes, and log rotation |
+
+Features thread-local logger context (`xLoggerEnter` / `xLoggerLeave` / `xLoggerCurrent`) for convenient `XLOG_*` macro usage, three operating modes (Timer / Notify / Mixed), size-based log file rotation, and synchronous flush on fatal.
+
 ## Prerequisites
 
 | Dependency | Required | Notes |

@@ -25,13 +25,13 @@
 
 这个模块几乎是做 TCP 客户端连接前的必备环节。
 
-## 2. xbuf — 零拷贝缓冲区 / 环形缓冲区
+## 2. xbuf — 缓冲区模块 ✅
 
-异步 socket 编程中，读写缓冲区管理是绑定的需求。可以提供：
+异步 socket 编程中，读写缓冲区管理是绑定的需求。已实现三种缓冲区：
 
-- `xBuf` — 自动扩容的字节缓冲区（类似 Go 的 `bytes.Buffer`）
-- 或 `xRingBuf` — 固定大小环形缓冲区，适合流式协议解析
-- 支持 `readv`/`writev` 的 scatter-gather I/O 接口
+- `xBuffer`（`buf.h`）— 线性自动扩容字节缓冲区（类似 Go 的 `bytes.Buffer`），2x 扩容策略
+- `xRingBuffer`（`ring.h`）— 固定大小环形缓冲区，power-of-2 掩码索引，适合流式协议解析
+- `xIOBuffer`（`io.h`）— 引用计数 block-chain I/O 缓冲区（brpc IOBuf 风格），支持零拷贝 split/cut、scatter-gather I/O
 
 这样 `xSocket` 的用户就不用每次自己管理 `read`/`write` 的 partial 问题了。
 

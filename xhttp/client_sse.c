@@ -170,8 +170,10 @@ static int sse_parser_feed(struct xSseParser_ *p, const char *data, size_t len,
 
         int r = on_event(&ev, arg);
         sse_parser_reset_event(p);
-        free(line);
-        if (r != 0) return r; /* user wants to close */
+        if (r != 0) {
+          free(line);
+          return r; /* user wants to close */
+        }
       }
     } else if (line) {
       parse_sse_field(p, line, line_len);

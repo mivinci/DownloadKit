@@ -14,6 +14,7 @@
 
 #include "client_private.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,6 +23,7 @@
 struct xSseParser_ {
   struct xHttpBuf_ buf;   /* raw incoming data                    */
   size_t           pos;   /* parse position within buf            */
+  int              error;  /* allocation failure occurred          */
 
   /* Current event fields (reset after each dispatch) */
   char *event_type;       /* "message" by default                 */
@@ -64,51 +66,58 @@ static void parse_sse_field(struct xSseParser_ *p, char *line, size_t len) {
 
   /* Find colon separator */
   char *colon = memchr(line, ':', len);
-  const char *field;
+  char *field;
   const char *value;
+  size_t value_len;
 
   if (!colon) {
     /* Field with no value — treat value as empty string */
     field = line;
     value = "";
+    value_len = 0;
   } else {
     *colon = '\0';
-    field  = line;
-    value  = colon + 1;
+    field   = line;
+    value   = colon + 1;
+    value_len = len - (size_t)(colon + 1 - line);
     /* Skip single leading space in value (per spec) */
-    if (*value == ' ') value++;
+    if (value_len > 0 && *value == ' ') {
+      value++;
+      value_len--;
+    }
   }
 
   if (strcmp(field, "event") == 0) {
     free(p->event_type);
-    p->event_type = strdup(value);
+    p->event_type = strndup(value, value_len);
   } else if (strcmp(field, "data") == 0) {
     if (p->data) {
       /* Append \n + new value */
       size_t old_len = strlen(p->data);
-      size_t val_len = strlen(value);
-      char *tmp = (char *)realloc(p->data, old_len + 1 + val_len + 1);
+      char *tmp = (char *)realloc(p->data, old_len + 1 + value_len + 1);
       if (tmp) {
         p->data = tmp;
         p->data[old_len] = '\n';
-        memcpy(p->data + old_len + 1, value, val_len + 1);
+        memcpy(p->data + old_len + 1, value, value_len);
+        p->data[old_len + 1 + value_len] = '\0';
       }
     } else {
-      p->data = strdup(value);
+      p->data = strndup(value, value_len);
     }
   } else if (strcmp(field, "id") == 0) {
-    /* Ignore if value contains U+0000 (per spec) */
-    if (!memchr(value, '\0', strlen(value))) {
+    /* Ignore if value contains embedded NUL (per spec: last-event-id
+     * must not contain U+0000) — check via field length vs string len */
+    if (value_len > 0 && strlen(value) == value_len) {
       free(p->id);
-      p->id = strdup(value);
+      p->id = strndup(value, value_len);
     }
   } else if (strcmp(field, "retry") == 0) {
     /* Must be all ASCII digits */
     int ok = 1;
-    for (const char *c = value; *c; c++) {
-      if (*c < '0' || *c > '9') { ok = 0; break; }
+    for (size_t i = 0; i < value_len; i++) {
+      if (value[i] < '0' || value[i] > '9') { ok = 0; break; }
     }
-    if (ok && *value) p->retry = atoi(value);
+    if (ok && value_len > 0) p->retry = atoi(value);
   }
   /* Unknown fields are ignored per spec */
 }
@@ -122,8 +131,12 @@ struct xSseReq_;
  */
 static int sse_parser_feed(struct xSseParser_ *p, const char *data, size_t len,
                             xSseEventFunc on_event, void *arg) {
-  if (http_buf_append(&p->buf, data, len) != 0)
-    return 0; /* allocation failure — keep going, data lost */
+  if (p->error) return -1; /* already failed, abort */
+
+  if (http_buf_append(&p->buf, data, len) != 0) {
+    p->error = 1;
+    return -1; /* abort the request */
+  }
 
   while (p->pos < p->buf.len) {
     const char *start = p->buf.data + p->pos;
@@ -188,6 +201,7 @@ struct xSseReq_ {
   struct xSseParser_ parser;
   struct curl_slist *sse_headers;
 };
+_Static_assert(offsetof(struct xSseReq_, base) == 0, "base must be first");
 
 /* ── Vtable ── */
 
@@ -228,12 +242,11 @@ static void sse_on_done(struct xHttpReq_ *req_, CURLcode result) {
 
 static void sse_on_cleanup(struct xHttpReq_ *req_) {
   struct xSseReq_ *req = (struct xSseReq_ *)req_;
-
-  curl_multi_remove_handle(req->base.client->multi, req->base.easy);
-  curl_easy_cleanup(req->base.easy);
+  /* Only clean up request-specific resources here.
+   * curl_multi_remove + curl_easy_cleanup + free(req) are handled
+   * by destroy_req() which calls this. */
   if (req->sse_headers) curl_slist_free_all(req->sse_headers);
   sse_parser_free(&req->parser);
-  free(req);
 }
 
 /* ── Public API ── */

@@ -105,13 +105,13 @@ static void normal_on_done(struct xHttpReq_ *req, CURLcode result) {
 }
 
 static void normal_on_cleanup(struct xHttpReq_ *req) {
-  /* Note: curl_multi_remove_handle + curl_easy_cleanup are already
-   * called by destroy_req() before this is invoked. */
+  /* Only clean up request-specific resources here.
+   * curl_multi_remove + curl_easy_cleanup + free(req) are handled
+   * by destroy_req() which calls this. */
   http_buf_free(&req->body_buf);
   http_buf_free(&req->header_buf);
   if (req->post_data) free(req->post_data);
   if (req->req_headers) curl_slist_free_all(req->req_headers);
-  free(req);
 }
 
 /* ── Socket callback (CURLMOPT_SOCKETFUNCTION) ─────────────────────────── */

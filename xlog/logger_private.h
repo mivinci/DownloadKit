@@ -19,10 +19,10 @@
 
 #define XLOG_DEFAULT_FLUSH_MS 1000
 
-/* ── Freelist size for log entries ── */
+/* ── Thread-local freelist size for log entries ── */
 
 #ifndef XLOG_FREELIST_SIZE
-#define XLOG_FREELIST_SIZE 1024
+#define XLOG_FREELIST_SIZE 64
 #endif
 
 /* ── Log entry (queued per message) ── */
@@ -51,11 +51,6 @@ struct xLogger_ {
   /* MPSC queue (producer: any thread, consumer: loop thread) */
   xMpsc      *head;
   xMpsc      *tail;
-
-  /* Entry freelist (for reduced malloc overhead) */
-  struct xLogEntry_ *free_list;
-  int                free_cnt;   /**< Current free entries */
-  int                free_max;   /**< Max entries to keep in freelist */
 
   /* Timer mode fields */
   xEventTimer timer;                /**< Active timer handle, or NULL    */

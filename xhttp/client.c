@@ -6,7 +6,7 @@
  * client.c - Asynchronous HTTP client: libcurl multi-socket + xEventLoop
  */
 
-#include "client_base.h"
+#include "client_private.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +19,16 @@ static int  socket_callback(CURL *easy, curl_socket_t fd, int what,
 static int  timer_callback(CURLM *multi, long timeout_ms, void *userp);
 static void fd_ready_callback(int fd, xEventMask mask, void *arg);
 static void on_timeout(void *arg);
+
+/* ── Vtable for normal HTTP requests ───────────────────────────────────── */
+
+static void normal_on_done(struct xHttpReq_ *req, CURLcode result);
+static void normal_on_cleanup(struct xHttpReq_ *req);
+
+static const struct xHttpReqVtable normal_vtable = {
+  .on_done    = normal_on_done,
+  .on_cleanup = normal_on_cleanup,
+};
 
 /* ── curl data callbacks ───────────────────────────────────────────────── */
 
@@ -57,40 +67,51 @@ static void check_multi_info(struct xHttpClient_ *c) {
     curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
     if (!req) continue;
 
-    /* Build response */
-    xHttpResponse resp;
-    memset(&resp, 0, sizeof(resp));
-    resp.curl_code = (int)result;
-
-    if (result == CURLE_OK) {
-      long code = 0;
-      curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
-      resp.status_code = code;
-      resp.curl_error  = NULL;
-    } else {
-      resp.status_code = 0;
-      resp.curl_error  = req->errbuf[0] ? req->errbuf
-                                         : curl_easy_strerror(result);
-    }
-
-    resp.body        = req->body_buf.data   ? req->body_buf.data   : "";
-    resp.body_len    = req->body_buf.len;
-    resp.headers     = req->header_buf.data ? req->header_buf.data : "";
-    resp.headers_len = req->header_buf.len;
-
-    /* Invoke user callback */
-    if (req->on_response)
-      req->on_response(&resp, req->arg);
-
-    /* Cleanup */
-    curl_multi_remove_handle(c->multi, easy);
-    curl_easy_cleanup(easy);
-    http_buf_free(&req->body_buf);
-    http_buf_free(&req->header_buf);
-    if (req->post_data) free(req->post_data);
-    if (req->req_headers) curl_slist_free_all(req->req_headers);
-    free(req);
+    /* Dispatch via vtable */
+    if (req->vt && req->vt->on_done)
+      req->vt->on_done(req, result);
   }
+}
+
+/* ── Normal HTTP request handlers ──────────────────────────────────────── */
+
+static void normal_on_done(struct xHttpReq_ *req, CURLcode result) {
+  /* Build response */
+  xHttpResponse resp;
+  memset(&resp, 0, sizeof(resp));
+  resp.curl_code = (int)result;
+
+  if (result == CURLE_OK) {
+    long code = 0;
+    curl_easy_getinfo(req->easy, CURLINFO_RESPONSE_CODE, &code);
+    resp.status_code = code;
+    resp.curl_error  = NULL;
+  } else {
+    resp.status_code = 0;
+    resp.curl_error  = req->errbuf[0] ? req->errbuf
+                                       : curl_easy_strerror(result);
+  }
+
+  resp.body        = req->body_buf.data   ? req->body_buf.data   : "";
+  resp.body_len    = req->body_buf.len;
+  resp.headers     = req->header_buf.data ? req->header_buf.data : "";
+  resp.headers_len = req->header_buf.len;
+
+  /* Invoke user callback */
+  if (req->on_response)
+    req->on_response(&resp, req->arg);
+
+  normal_on_cleanup(req);
+}
+
+static void normal_on_cleanup(struct xHttpReq_ *req) {
+  /* Note: curl_multi_remove_handle + curl_easy_cleanup are already
+   * called by destroy_req() before this is invoked. */
+  http_buf_free(&req->body_buf);
+  http_buf_free(&req->header_buf);
+  if (req->post_data) free(req->post_data);
+  if (req->req_headers) curl_slist_free_all(req->req_headers);
+  free(req);
 }
 
 /* ── Socket callback (CURLMOPT_SOCKETFUNCTION) ─────────────────────────── */
@@ -238,12 +259,18 @@ static void destroy_req(struct xHttpClient_ *c, CURL *easy,
   curl_multi_remove_handle(c->multi, easy);
   curl_easy_cleanup(easy);
 
-  if (req) {
-    http_buf_free(&req->body_buf);
-    http_buf_free(&req->header_buf);
-    if (req->post_data) free(req->post_data);
-    if (req->req_headers) curl_slist_free_all(req->req_headers);
-    free(req);
+  if (req && !req->cleaned) {
+    req->cleaned = 1;
+    /* Use vtable cleanup if available */
+    if (req->vt && req->vt->on_cleanup) {
+      req->vt->on_cleanup(req);
+    } else {
+      http_buf_free(&req->body_buf);
+      http_buf_free(&req->header_buf);
+      if (req->post_data) free(req->post_data);
+      if (req->req_headers) curl_slist_free_all(req->req_headers);
+      free(req);
+    }
   }
 }
 
@@ -331,6 +358,7 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const char *url,
     return NULL;
   }
 
+  req->vt          = &normal_vtable;  /* set vtable for normal requests */
   req->client      = c;
   req->on_response = on_response;
   req->arg         = arg;

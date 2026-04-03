@@ -142,4 +142,54 @@ XCAPI(xErrno) xHttpClientDo(xHttpClient client,
                              const xHttpRequestConf *config,
                              xHttpResponseFunc on_response, void *arg);
 
+/* ── SSE (Server-Sent Events) ──────────────────────────────────────────── */
+
+/**
+ * @brief SSE event delivered to the callback.
+ *
+ * All strings are NUL-terminated and valid only during the callback.
+ * The caller must copy if needed.
+ */
+XDEF_STRUCT(xSseEvent) {
+  const char *event;   /**< event type, "message" if omitted     */
+  const char *data;    /**< event data (may be multiline)        */
+  const char *id;      /**< last event ID, or NULL               */
+  int         retry;   /**< retry delay in ms, or -1 if omitted  */
+};
+
+/**
+ * @brief Callback invoked for each SSE event.
+ *
+ * @param ev   The SSE event (valid only during the callback).
+ * @param arg  User-provided argument.
+ * @return     0 to continue, non-zero to close the connection.
+ */
+typedef int (*xSseEventFunc)(const xSseEvent *ev, void *arg);
+
+/**
+ * @brief Callback invoked when the SSE stream ends.
+ *
+ * @param curl_code  CURLcode (0 = clean close, non-zero = error).
+ * @param arg        User-provided argument.
+ */
+typedef void (*xSseDoneFunc)(int curl_code, void *arg);
+
+/**
+ * @brief Subscribe to an SSE endpoint.
+ *
+ * Sets Accept: text/event-stream and parses the stream according to
+ * the W3C SSE specification.
+ *
+ * @param client    The HTTP client.
+ * @param url       SSE endpoint URL.
+ * @param on_event  Callback for each event (must not be NULL).
+ * @param on_done   Callback when stream ends (may be NULL).
+ * @param arg       User argument forwarded to callbacks.
+ * @return          xErrno_Ok on success.
+ */
+XCAPI(xErrno) xHttpClientGetSse(xHttpClient client, const char *url,
+                                 xSseEventFunc on_event,
+                                 xSseDoneFunc on_done,
+                                 void *arg);
+
 #endif /* XHTTP_CLIENT_H */

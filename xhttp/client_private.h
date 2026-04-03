@@ -3,11 +3,11 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * client_base.h - Internal data structures for the xhttp module
+ * client_private.h - Internal data structures for the xhttp module
  */
 
-#ifndef XHTTP_CLIENT_BASE_H
-#define XHTTP_CLIENT_BASE_H
+#ifndef XHTTP_CLIENT_PRIVATE_H
+#define XHTTP_CLIENT_PRIVATE_H
 
 #include <curl/curl.h>
 #include <stdlib.h>
@@ -64,18 +64,37 @@ struct xHttpSocketCtx_ {
   void         *client;  /* back-pointer to xHttpClient_       */
 };
 
+/* ───────────────────── Vtable for request polymorphism ───────────────── */
+
+struct xHttpReq_;
+
+/**
+ * @brief Virtual table for request completion and cleanup.
+ *
+ * Different request types (normal HTTP, SSE, WebSocket) implement
+ * their own handlers.
+ */
+struct xHttpReqVtable {
+  void (*on_done)(struct xHttpReq_ *req, CURLcode result);
+  void (*on_cleanup)(struct xHttpReq_ *req);
+};
+
 /* ───────────────────── Per-request context ───────────────────── */
 
 struct xHttpReq_ {
-  CURL              *easy;        /* curl easy handle                    */
-  void              *client;      /* back-pointer to xHttpClient_        */
-  xHttpResponseFunc  on_response; /* user completion callback            */
-  void              *arg;         /* user argument                       */
-  struct xHttpBuf_   body_buf;    /* accumulated response body           */
-  struct xHttpBuf_   header_buf;  /* accumulated response headers        */
-  char              *post_data;   /* copy of POST body (owned), or NULL  */
-  struct curl_slist *req_headers; /* custom request headers, or NULL     */
-  char               errbuf[CURL_ERROR_SIZE]; /* curl error buffer       */
+  const struct xHttpReqVtable *vt;  /**< vtable for polymorphism      */
+  CURL                        *easy;        /* curl easy handle            */
+  struct xHttpClient_         *client;      /* back-pointer to client      */
+  void                        *arg;         /* user argument               */
+  char                         errbuf[CURL_ERROR_SIZE]; /* curl error   */
+  int                          cleaned;     /* cleanup already done flag   */
+
+  /* For normal HTTP requests */
+  xHttpResponseFunc  on_response;  /* completion callback         */
+  struct xHttpBuf_   body_buf;      /* response body               */
+  struct xHttpBuf_   header_buf;    /* response headers            */
+  char              *post_data;     /* copy of POST body (owned)   */
+  struct curl_slist *req_headers;   /* custom request headers      */
 };
 
 /* ───────────────────── Client internal structure ───────────────────── */
@@ -86,4 +105,4 @@ struct xHttpClient_ {
   xEventTimer  timer;   /* current curl timeout timer, or NULL */
 };
 
-#endif /* XHTTP_CLIENT_BASE_H */
+#endif /* XHTTP_CLIENT_PRIVATE_H */

@@ -12,6 +12,7 @@
 
 #include <xlog/logger.h>
 
+#include <stdatomic.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -43,6 +44,64 @@ static int  logger_make_pipe(int fds[2]);
 static void logger_write_entry(struct xLogger_ *lg, const char *buf, int len);
 static void logger_format_timestamp(char *buf, size_t cap);
 
+/* ── Entry freelist helpers ── */
+
+/* Allocate an entry from freelist or malloc. Thread-safe: caller must
+ * ensure only one thread calls this per logger (which is true for
+ * xLoggerLog since it uses thread-local logger context). */
+static struct xLogEntry_ *entry_alloc(struct xLogger_ *lg) {
+  struct xLogEntry_ *e = lg->free_list;
+  if (e) {
+    lg->free_list = (struct xLogEntry_ *)(void *)e->node.next;
+    lg->free_cnt--;
+    return e;
+  }
+  return (struct xLogEntry_ *)malloc(sizeof(*e));
+}
+
+/* Return entry to freelist or free it. Called by consumer thread. */
+static void entry_free(struct xLogger_ *lg, struct xLogEntry_ *e) {
+  if (lg->free_cnt < lg->free_max) {
+    e->node.next = (xMpsc *)(void *)lg->free_list;
+    lg->free_list = e;
+    lg->free_cnt++;
+  } else {
+    free(e);
+  }
+}
+
+/* Pre-populate freelist with XLOG_FREELIST_SIZE entries. */
+static int entry_freelist_init(struct xLogger_ *lg) {
+  lg->free_max = XLOG_FREELIST_SIZE;
+  lg->free_cnt = 0;
+  for (int i = 0; i < lg->free_max; i++) {
+    struct xLogEntry_ *e = (struct xLogEntry_ *)malloc(sizeof(*e));
+    if (!e) {
+      /* Free what we allocated so far */
+      while (lg->free_list) {
+        struct xLogEntry_ *tmp = lg->free_list;
+        lg->free_list = (struct xLogEntry_ *)(void *)tmp->node.next;
+        free(tmp);
+      }
+      lg->free_cnt = 0;
+      return -1;
+    }
+    e->node.next = (xMpsc *)(void *)lg->free_list;
+    lg->free_list = e;
+    lg->free_cnt++;
+  }
+  return 0;
+}
+
+static void entry_freelist_destroy(struct xLogger_ *lg) {
+  while (lg->free_list) {
+    struct xLogEntry_ *e = lg->free_list;
+    lg->free_list = (struct xLogEntry_ *)e->node.next;
+    free(e);
+  }
+  lg->free_cnt = 0;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
  *  Create / Destroy
  * ═══════════════════════════════════════════════════════════════════ */
@@ -62,6 +121,9 @@ xLogger xLoggerCreate(xLoggerConf conf) {
       conf.flush_interval_ms ? conf.flush_interval_ms : XLOG_DEFAULT_FLUSH_MS;
   lg->head     = NULL;
   lg->tail     = NULL;
+  lg->free_list = NULL;
+  lg->free_cnt  = 0;
+  lg->free_max  = XLOG_FREELIST_SIZE;
   lg->timer    = NULL;
   lg->pipe_rfd = -1;
   lg->pipe_wfd = -1;
@@ -87,6 +149,9 @@ xLogger xLoggerCreate(xLoggerConf conf) {
     lg->fp = stderr;
     lg->written = 0;
   }
+
+  /* Pre-populate entry freelist */
+  if (entry_freelist_init(lg) != 0) goto fail;
 
   /* Timer mode: register periodic timer */
   if (lg->mode == xLogMode_Timer || lg->mode == xLogMode_Mixed) {
@@ -135,7 +200,7 @@ fail:
 
 void xLoggerDestroy(xLogger logger) {
   if (!logger) return;
-  struct xLogger_ *lg = logger_cast(logger);
+  struct xLogger_ *lg = lgr(logger);
 
   /* Synchronously drain remaining entries */
   logger_flush_entries(lg);
@@ -165,6 +230,9 @@ void xLoggerDestroy(xLogger logger) {
 
   /* Close file */
   if (lg->fp && lg->fp != stderr) fclose(lg->fp);
+
+  /* Free freelist */
+  entry_freelist_destroy(lg);
 
   free(lg->path);
   free(lg);
@@ -213,7 +281,7 @@ static void logger_notify(struct xLogger_ *lg) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 void xLoggerLog(xLogger logger, xLogLevel level, const char *fmt, ...) {
-  struct xLogger_ *lg = logger_cast(logger);
+  struct xLogger_ *lg = lgr(logger);
   if (!lg) return;
 
   /* Level filter */
@@ -252,7 +320,7 @@ void xLoggerLog(xLogger logger, xLogLevel level, const char *fmt, ...) {
   }
 
   /* Async path: format on calling thread, enqueue */
-  struct xLogEntry_ *entry = malloc(sizeof(*entry));
+  struct xLogEntry_ *entry = entry_alloc(lg);
   if (!entry) return; /* drop on OOM */
 
   entry->level = level;
@@ -304,7 +372,7 @@ static void logger_flush_entries(struct xLogger_ *lg) {
   while ((node = xMpscPop(&lg->head, &lg->tail)) != NULL) {
     struct xLogEntry_ *entry = xContainerOf(node, struct xLogEntry_, node);
     logger_write_entry(lg, entry->buf, entry->len);
-    free(entry);
+    entry_free(lg, entry);
   }
   if (lg->fp) fflush(lg->fp);
 }
@@ -398,7 +466,7 @@ static void logger_flush_req_cb(int fd, xEventMask mask, void *arg) {
 
 void xLoggerFlush(xLogger logger) {
   if (!logger) return;
-  struct xLogger_ *lg = logger_cast(logger);
+  struct xLogger_ *lg = lgr(logger);
 
   /* Write a byte to the flush request pipe to trigger flush on loop thread */
   if (lg->flush_req_wfd >= 0) {
@@ -422,7 +490,7 @@ void xLoggerFlush(xLogger logger) {
  *  xbase/log bridging
  * ═══════════════════════════════════════════════════════════════════ */
 
-static __thread xLogger tl_bridge_logger;
+static __thread xLogger tl_logger;
 
 static void bridge_callback(const char *msg, const char *backtrace,
                             void *userdata) {
@@ -433,7 +501,7 @@ static void bridge_callback(const char *msg, const char *backtrace,
   /* The message from xLog() is already formatted. We treat it as Info
    * level unless it came from a fatal xLog() call (but fatal calls
    * abort() inside xLog itself, so we just log as Error here). */
-  struct xLogger_ *lg = logger_cast(logger);
+  struct xLogger_ *lg = lgr(logger);
 
   struct xLogEntry_ *entry = malloc(sizeof(*entry));
   if (!entry) return;
@@ -466,17 +534,17 @@ static void bridge_callback(const char *msg, const char *backtrace,
 }
 
 void xLoggerEnter(xLogger logger) {
-  tl_bridge_logger = logger;
+  tl_logger = logger;
   xLogSetCallback(bridge_callback, logger);
 }
 
 void xLoggerLeave(void) {
-  tl_bridge_logger = NULL;
+  tl_logger = NULL;
   xLogSetCallback(NULL, NULL);
 }
 
 xLogger xLoggerCurrent(void) {
-  return tl_bridge_logger;
+  return tl_logger;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

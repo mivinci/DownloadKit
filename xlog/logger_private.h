@@ -17,7 +17,13 @@
 
 /* ── Default flush interval (ms) ── */
 
-#define XLOG_DEFAULT_FLUSH_MS 50
+#define XLOG_DEFAULT_FLUSH_MS 1000
+
+/* ── Freelist size for log entries ── */
+
+#ifndef XLOG_FREELIST_SIZE
+#define XLOG_FREELIST_SIZE 1024
+#endif
 
 /* ── Log entry (queued per message) ── */
 
@@ -46,6 +52,11 @@ struct xLogger_ {
   xMpsc      *head;
   xMpsc      *tail;
 
+  /* Entry freelist (for reduced malloc overhead) */
+  struct xLogEntry_ *free_list;
+  int                free_cnt;   /**< Current free entries */
+  int                free_max;   /**< Max entries to keep in freelist */
+
   /* Timer mode fields */
   xEventTimer timer;                /**< Active timer handle, or NULL    */
   uint64_t    flush_interval_ms;
@@ -68,7 +79,7 @@ struct xLogger_ {
 
 /* ── Internal helpers (defined in logger.c) ── */
 
-static inline struct xLogger_ *logger_cast(xLogger handle) {
+static inline struct xLogger_ *lgr(xLogger handle) {
   return (struct xLogger_ *)handle;
 }
 

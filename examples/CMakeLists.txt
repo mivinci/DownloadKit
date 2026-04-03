@@ -1,0 +1,2 @@
+add_executable(llm_sse_example llm_sse_example.cpp)
+target_link_libraries(llm_sse_example PRIVATE xhttp xbase)

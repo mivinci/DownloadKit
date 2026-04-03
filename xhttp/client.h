@@ -192,4 +192,27 @@ XCAPI(xErrno) xHttpClientGetSse(xHttpClient client, const char *url,
                                  xSseDoneFunc on_done,
                                  void *arg);
 
+/**
+ * @brief Submit a fully-configured SSE request.
+ *
+ * Like xHttpClientGetSse(), but uses xHttpRequestConf for full control
+ * over the HTTP method, headers, and body. This is useful for LLM APIs
+ * that require POST with a JSON body and custom Authorization headers.
+ *
+ * The Accept: text/event-stream header is added automatically.
+ *
+ * @param client    The HTTP client.
+ * @param config    Request configuration (must not be NULL, config->url
+ *                  must not be NULL).
+ * @param on_event  Callback for each event (must not be NULL).
+ * @param on_done   Callback when stream ends (may be NULL).
+ * @param arg       User argument forwarded to callbacks.
+ * @return          xErrno_Ok on success.
+ */
+XCAPI(xErrno) xHttpClientDoSse(xHttpClient client,
+                                const xHttpRequestConf *config,
+                                xSseEventFunc on_event,
+                                xSseDoneFunc on_done,
+                                void *arg);
+
 #endif /* XHTTP_CLIENT_H */

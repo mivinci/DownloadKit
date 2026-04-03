@@ -257,7 +257,21 @@ xErrno xHttpClientGetSse(xHttpClient client_, const char *url,
                           xSseEventFunc on_event,
                           xSseDoneFunc on_done,
                           void *arg) {
-  if (!client_ || !url || !on_event) return xErrno_InvalidArg;
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url    = url;
+  config.method = xHttpMethod_GET;
+  return xHttpClientDoSse(client_, &config, on_event, on_done, arg);
+}
+
+/* ── Public API: DoSse (generic SSE request) ─────────────────────────── */
+
+xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
+                         xSseEventFunc on_event,
+                         xSseDoneFunc on_done,
+                         void *arg) {
+  if (!client_ || !config || !config->url || !on_event)
+    return xErrno_InvalidArg;
 
   struct xHttpClient_ *c = (struct xHttpClient_ *)client_;
 
@@ -280,8 +294,51 @@ xErrno xHttpClientGetSse(xHttpClient client_, const char *url,
   req->sse_headers = curl_slist_append(req->sse_headers, "Cache-Control: no-cache");
   if (!req->sse_headers) goto fail_easy;
 
-  curl_easy_setopt(easy, CURLOPT_URL, url);
-  curl_easy_setopt(easy, CURLOPT_HTTPGET, 1L);
+  /* Merge user-provided headers */
+  if (config->headers) {
+    for (const char **h = config->headers; *h; h++) {
+      req->sse_headers = curl_slist_append(req->sse_headers, *h);
+    }
+  }
+
+  curl_easy_setopt(easy, CURLOPT_URL, config->url);
+
+  /* Method */
+  switch (config->method) {
+    case xHttpMethod_POST:
+      curl_easy_setopt(easy, CURLOPT_POST, 1L);
+      break;
+    case xHttpMethod_PUT:
+      curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "PUT");
+      break;
+    case xHttpMethod_DELETE:
+      curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "DELETE");
+      break;
+    case xHttpMethod_PATCH:
+      curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "PATCH");
+      break;
+    case xHttpMethod_HEAD:
+      curl_easy_setopt(easy, CURLOPT_NOBODY, 1L);
+      break;
+    default: /* GET */
+      curl_easy_setopt(easy, CURLOPT_HTTPGET, 1L);
+      break;
+  }
+
+  /* Body — make a copy so the caller doesn't need to keep it alive */
+  if (config->body && config->body_len > 0) {
+    req->base.post_data = (char *)malloc(config->body_len);
+    if (!req->base.post_data) goto fail_easy;
+    memcpy(req->base.post_data, config->body, config->body_len);
+    curl_easy_setopt(easy, CURLOPT_POSTFIELDS, req->base.post_data);
+    curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long)config->body_len);
+  }
+
+  /* Per-request timeout */
+  if (config->timeout_ms > 0) {
+    curl_easy_setopt(easy, CURLOPT_TIMEOUT_MS, config->timeout_ms);
+  }
+
   curl_easy_setopt(easy, CURLOPT_HTTPHEADER, req->sse_headers);
   curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, sse_write_callback);
   curl_easy_setopt(easy, CURLOPT_WRITEDATA, req);
@@ -298,6 +355,7 @@ fail_easy:
   curl_easy_cleanup(easy);
   req->base.easy = NULL;
 fail:
+  if (req->base.post_data) free(req->base.post_data);
   if (req->sse_headers) curl_slist_free_all(req->sse_headers);
   sse_parser_free(&req->parser);
   free(req);

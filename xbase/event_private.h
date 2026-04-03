@@ -3,11 +3,11 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * event_base.h - Shared base types for event loop backends
+ * event_private.h - Shared base types for event loop backends
  */
 
-#ifndef XBASE_EVENT_BASE_H
-#define XBASE_EVENT_BASE_H
+#ifndef XBASE_EVENT_PRIVATE_H
+#define XBASE_EVENT_PRIVATE_H
 
 #include <xbase/atomic.h>
 #include <xbase/event.h>
@@ -227,4 +227,4 @@ static inline void loop_wait_inflight(struct xEventLoop_ *loop) {
   }
 }
 
-#endif /* XBASE_EVENT_BASE_H */
+#endif /* XBASE_EVENT_PRIVATE_H */

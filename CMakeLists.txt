@@ -19,6 +19,7 @@ include_directories(${CMAKE_SOURCE_DIR})
 
 add_subdirectory(xbase)
 add_subdirectory(xlog)
+add_subdirectory(xbuf)
 
 find_package(Libcurl QUIET)
 if(Libcurl_FOUND)

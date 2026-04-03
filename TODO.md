@@ -78,12 +78,6 @@
 - 或者经典的 self-pipe trick 作为 fallback
 - 提供 `xSignalWatch(loop, signo, callback, arg)` 接口
 
----
+## 8. 内存分配优化
 
-## 优先级建议
-
-1. **xbuf**（缓冲区）— 几乎是做任何协议解析的前置条件，工作量小，收益高
-2. **xtcp**（TCP 连接器/监听器）— 让 socket 真正可用，是 server 端的基础
-3. **xsignal**（信号处理）— 工作量很小，但对 daemon 进程是刚需 ✅
-4. **xdns**（异步 DNS）— 客户端连接的必备环节
-5. **xhttp/server** — 杀手级功能，但依赖前面几个模块
+项目中存在大量零碎的 malloc/free，考虑引入对象池（pool）或 arena 分配器，减少堆碎片和系统调用开销。

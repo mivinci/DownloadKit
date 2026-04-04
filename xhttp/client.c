@@ -36,7 +36,7 @@ static size_t write_callback(char *ptr, size_t size, size_t nmemb,
                              void *userdata) {
   struct xHttpReq_ *req = (struct xHttpReq_ *)userdata;
   size_t total = size * nmemb;
-  if (http_buf_append(&req->body_buf, ptr, total) != 0)
+  if (xBufferAppend(&req->body_buf, ptr, total) != xErrno_Ok)
     return 0; /* signal error to curl */
   return total;
 }
@@ -45,7 +45,7 @@ static size_t header_callback(char *ptr, size_t size, size_t nmemb,
                               void *userdata) {
   struct xHttpReq_ *req = (struct xHttpReq_ *)userdata;
   size_t total = size * nmemb;
-  if (http_buf_append(&req->header_buf, ptr, total) != 0)
+  if (xBufferAppend(&req->header_buf, ptr, total) != xErrno_Ok)
     return 0;
   return total;
 }
@@ -104,10 +104,17 @@ static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result) {
                                        : curl_easy_strerror(result);
   }
 
-  resp.body        = req->body_buf.data   ? req->body_buf.data   : "";
-  resp.body_len    = req->body_buf.len;
-  resp.headers     = req->header_buf.data ? req->header_buf.data : "";
-  resp.headers_len = req->header_buf.len;
+  /* Append NUL terminators so the user gets C strings. */
+  xBufferAppend(&req->body_buf, "\0", 1);
+  xBufferAppend(&req->header_buf, "\0", 1);
+
+  const char *body_data   = (const char *)xBufferData(req->body_buf);
+  const char *header_data = (const char *)xBufferData(req->header_buf);
+
+  resp.body        = body_data   ? body_data   : "";
+  resp.body_len    = body_data   ? xBufferLen(req->body_buf) - 1 : 0;
+  resp.headers     = header_data ? header_data : "";
+  resp.headers_len = header_data ? xBufferLen(req->header_buf) - 1 : 0;
 
   /* Invoke user callback — do NOT clean up here, let destroy_req handle it */
   if (req->on_response)
@@ -118,8 +125,8 @@ static void oneshot_on_cleanup(struct xHttpReq_ *req) {
   /* Only clean up request-specific resources here.
    * curl_multi_remove + curl_easy_cleanup + free(req) are handled
    * by destroy_req() which calls this. */
-  http_buf_free(&req->body_buf);
-  http_buf_free(&req->header_buf);
+  xBufferDestroy(req->body_buf);
+  xBufferDestroy(req->header_buf);
   if (req->post_data) free(req->post_data);
   if (req->req_headers) curl_slist_free_all(req->req_headers);
 }
@@ -342,8 +349,8 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
   CURLMcode mc = curl_multi_add_handle(c->multi, req->easy);
   if (mc != CURLM_OK) {
     curl_easy_cleanup(req->easy);
-    http_buf_free(&req->body_buf);
-    http_buf_free(&req->header_buf);
+    xBufferDestroy(req->body_buf);
+    xBufferDestroy(req->header_buf);
     if (req->post_data) free(req->post_data);
     if (req->req_headers) curl_slist_free_all(req->req_headers);
     free(req);
@@ -373,8 +380,15 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const char *url,
   req->post_data   = NULL;
   req->req_headers = NULL;
   memset(req->errbuf, 0, sizeof(req->errbuf));
-  http_buf_init(&req->body_buf);
-  http_buf_init(&req->header_buf);
+  req->body_buf   = xBufferCreate(1024);
+  req->header_buf = xBufferCreate(512);
+  if (!req->body_buf || !req->header_buf) {
+    xBufferDestroy(req->body_buf);
+    xBufferDestroy(req->header_buf);
+    curl_easy_cleanup(req->easy);
+    free(req);
+    return NULL;
+  }
 
   curl_easy_setopt(req->easy, CURLOPT_URL, url);
 

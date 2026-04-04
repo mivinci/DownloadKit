@@ -110,7 +110,7 @@ xEventLoop xEventLoopCreate(void) {
   loop->base.wake_wfd = -1;
   loop->base.stopped  = 0;
   loop->base.timer_heap = NULL;
-  sources_init(&loop->base.sources);
+  source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
@@ -132,7 +132,7 @@ xEventLoop xEventLoopCreate(void) {
 
 fail:
   loop_close_wake(&loop->base);
-  sources_free(&loop->base.sources);
+  source_array_free(&loop->base.sources);
   if (loop->base.timer_heap) {
     xHeapDestroy(loop->base.timer_heap);
     pthread_mutex_destroy(&loop->base.timer_mu);
@@ -165,7 +165,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
   }
 
   loop_close_wake(&loop->base);
-  sources_free(&loop->base.sources);
+  source_array_free(&loop->base.sources);
   free(loop->pollfds);
   free(loop);
 }
@@ -176,11 +176,11 @@ xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask,
   if (!loop || !fn) return NULL;
 
   struct xEventSource_ *src =
-      sources_add(&loop->base.sources, fd, mask, fn, arg);
+      source_array_add(&loop->base.sources, fd, mask, fn, arg);
   if (!src) return NULL;
 
   if (set_nonblock(fd) != 0) {
-    sources_remove(&loop->base.sources, src);
+    source_array_remove(&loop->base.sources, src);
     return NULL;
   }
 
@@ -201,7 +201,7 @@ xErrno xEventDel(xEventLoop loop_, xEventSource src_) {
   struct xEventSource_ *src    = (struct xEventSource_ *)src_;
   if (!loop || !src) return xErrno_InvalidArg;
 
-  sources_remove(&loop->base.sources, src);
+  source_array_remove(&loop->base.sources, src);
   return xErrno_Ok;
 }
 
@@ -241,6 +241,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     if (pfd->revents == 0) continue;
 
     struct xEventSource_ *src = loop->base.sources.items[i];
+    if (src->deleted) continue;
     xEventMask ready = 0;
     if (pfd->revents & POLLIN)  ready |= xEvent_Read;
     if (pfd->revents & POLLOUT) ready |= xEvent_Write;
@@ -287,6 +288,9 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     pthread_mutex_lock(&loop->base.timer_mu);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
+
+  /* Sweep sources marked for deletion during this dispatch batch. */
+  source_array_sweep(&loop->base.sources);
 
   return dispatched;
 }

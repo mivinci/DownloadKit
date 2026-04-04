@@ -1,0 +1,20 @@
+[book]
+title = "xKit Documentation"
+description = "Low-level C building blocks for event-driven, asynchronous programming"
+authors = ["Leo X."]
+language = "en"
+src = "."
+
+[build]
+build-dir = "../book"
+
+[output.html]
+git-repository-url = "https://github.com/mivinci/xKit"
+edit-url-template = "https://github.com/mivinci/xKit/edit/main/docs/{path}"
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output.html.fold]
+enable = true
+level = 0

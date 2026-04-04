@@ -10,6 +10,9 @@ xk_message(STATUS "Building ${XK_VERSION}")
 xk_option(XK_BUILD_XKIT "Build xKit" ON)
 xk_option(XK_BUILD_TESTS "Build xKit tests" ON)
 
+add_compile_options(-Wall -Wextra)
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror>)
+
 if(XK_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)

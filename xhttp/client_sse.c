@@ -21,9 +21,9 @@
 /* ───────────────────── SSE parser ───────────────────────────────────── */
 
 struct xSseParser_ {
-  struct xHttpBuf_ buf;   /* raw incoming data                    */
-  size_t           pos;   /* parse position within buf            */
-  int              error;  /* allocation failure occurred          */
+  xBuffer  buf;   /* raw incoming data                    */
+  size_t   pos;   /* parse position within buf            */
+  int      error;  /* allocation failure occurred          */
 
   /* Current event fields (reset after each dispatch) */
   char *event_type;       /* "message" by default                 */
@@ -34,6 +34,7 @@ struct xSseParser_ {
 
 static void sse_parser_init(struct xSseParser_ *p) {
   memset(p, 0, sizeof(*p));
+  p->buf   = xBufferCreate(4096);
   p->retry = -1;
 }
 
@@ -44,7 +45,8 @@ static void sse_parser_reset_event(struct xSseParser_ *p) {
 }
 
 static void sse_parser_free(struct xSseParser_ *p) {
-  http_buf_free(&p->buf);
+  xBufferDestroy(p->buf);
+  p->buf = NULL;
   free(p->event_type);
   free(p->data);
   free(p->id);
@@ -133,14 +135,17 @@ static int sse_parser_feed(struct xSseParser_ *p, const char *data, size_t len,
                             xSseEventFunc on_event, void *arg) {
   if (p->error) return -1; /* already failed, abort */
 
-  if (http_buf_append(&p->buf, data, len) != 0) {
+  if (xBufferAppend(&p->buf, data, len) != xErrno_Ok) {
     p->error = 1;
     return -1; /* abort the request */
   }
 
-  while (p->pos < p->buf.len) {
-    const char *start = p->buf.data + p->pos;
-    size_t remaining  = p->buf.len - p->pos;
+  const char *buf_data = (const char *)xBufferData(p->buf);
+  size_t buf_len = xBufferLen(p->buf);
+
+  while (p->pos < buf_len) {
+    const char *start = buf_data + p->pos;
+    size_t remaining  = buf_len - p->pos;
 
     const char *eol = find_line_end(start, remaining);
     if (!eol) break; /* incomplete line — wait for more data */
@@ -156,7 +161,7 @@ static int sse_parser_feed(struct xSseParser_ *p, const char *data, size_t len,
 
     /* Advance past the line terminator (\r\n counts as one) */
     p->pos += line_len + 1;
-    if (*eol == '\r' && p->pos < p->buf.len && p->buf.data[p->pos] == '\n')
+    if (*eol == '\r' && p->pos < buf_len && buf_data[p->pos] == '\n')
       p->pos++;
 
     if (line_len == 0) {
@@ -184,11 +189,8 @@ static int sse_parser_feed(struct xSseParser_ *p, const char *data, size_t len,
 
   /* Compact buffer: discard already-parsed bytes */
   if (p->pos > 0) {
-    size_t remaining = p->buf.len - p->pos;
-    if (remaining > 0)
-      memmove(p->buf.data, p->buf.data + p->pos, remaining);
-    p->buf.len = remaining;
-    p->pos     = 0;
+    xBufferConsume(p->buf, p->pos);
+    p->pos = 0;
   }
 
   return 0;

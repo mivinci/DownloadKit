@@ -3,7 +3,7 @@ file(GLOB_RECURSE XHTTP_SOURCES "*.c")
 add_library(xhttp SHARED ${XHTTP_SOURCES} ${XHTTP_HEADERS})
 
 target_compile_definitions(xhttp PUBLIC XK_HAS_CURL)
-target_link_libraries(xhttp PUBLIC xbase PRIVATE Libcurl::Libcurl)
+target_link_libraries(xhttp PUBLIC xbase xbuf PRIVATE Libcurl::Libcurl)
 
 message(STATUS "xhttp: libcurl integration enabled")
 

@@ -91,6 +91,7 @@ static inline struct xEventSource_ *source_array_add(struct xEventSourceArray_ *
 
 static inline int source_array_remove(struct xEventSourceArray_ *s,
                                  struct xEventSource_ *src) {
+  (void)s;
   /* Mark for deferred removal — the source may still be referenced
    * by pending events in the current dispatch batch. */
   src->deleted = 1;

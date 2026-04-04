@@ -68,27 +68,27 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant App
-    participant Loop as xEventLoop
-    participant Backend as kqueue | epoll | poll
+    participant EL as xEventLoop
+    participant Backend as kqueue / epoll / poll
     participant Timer as Timer Heap
 
-    App->>Loop: xEventLoopCreate()
-    App->>Loop: xEventAdd(fd, mask, callback)
-    App->>Loop: xEventLoopTimerAfter(fn, 1000ms)
-    App->>Loop: xEventLoopRun()
+    App->>EL: xEventLoopCreate()
+    App->>EL: xEventAdd(fd, mask, callback)
+    App->>EL: xEventLoopTimerAfter(fn, 1000ms)
+    App->>EL: xEventLoopRun()
 
     loop Main Loop
-        Loop->>Timer: Check earliest deadline
-        Timer-->>Loop: timeout = min(user_timeout, timer_deadline)
-        Loop->>Backend: wait(timeout)
-        Backend-->>Loop: ready events
-        Loop->>App: callback(fd, mask)
-        Loop->>Timer: Pop & fire expired timers
-        Loop->>Loop: Sweep deleted sources
+        EL->>Timer: Check earliest deadline
+        Timer-->>EL: timeout = min(user_timeout, timer_deadline)
+        EL->>Backend: wait(timeout)
+        Backend-->>EL: ready events
+        EL->>App: callback(fd, mask)
+        EL->>Timer: Pop & fire expired timers
+        EL->>EL: Sweep deleted sources
     end
 
-    App->>Loop: xEventLoopStop()
-    App->>Loop: xEventLoopDestroy()
+    App->>EL: xEventLoopStop()
+    App->>EL: xEventLoopDestroy()
 ```
 
 ## Implementation Details

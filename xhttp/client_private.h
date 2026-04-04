@@ -12,49 +12,8 @@
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xbuf/buf.h>
 #include <xhttp/client.h>
-
-/* ───────────────────── Dynamic buffer ───────────────────── */
-
-struct xHttpBuf_ {
-  char   *data;
-  size_t  len;
-  size_t  cap;
-};
-
-static inline void http_buf_init(struct xHttpBuf_ *buf) {
-  buf->data = NULL;
-  buf->len  = 0;
-  buf->cap  = 0;
-}
-
-static inline void http_buf_free(struct xHttpBuf_ *buf) {
-  free(buf->data);
-  buf->data = NULL;
-  buf->len  = 0;
-  buf->cap  = 0;
-}
-
-/**
- * @brief Append data to a dynamic buffer, growing as needed.
- * @return 0 on success, -1 on allocation failure.
- */
-static inline int http_buf_append(struct xHttpBuf_ *buf, const char *data,
-                                  size_t len) {
-  if (buf->len + len + 1 > buf->cap) {
-    size_t newcap = buf->cap ? buf->cap * 2 : 1024;
-    while (newcap < buf->len + len + 1)
-      newcap *= 2;
-    char *tmp = (char *)realloc(buf->data, newcap);
-    if (!tmp) return -1;
-    buf->data = tmp;
-    buf->cap  = newcap;
-  }
-  memcpy(buf->data + buf->len, data, len);
-  buf->len += len;
-  buf->data[buf->len] = '\0'; /* keep NUL-terminated */
-  return 0;
-}
 
 /* ───────────────────── Per-socket context ───────────────────── */
 
@@ -91,8 +50,8 @@ struct xHttpReq_ {
 
   /* For oneshot HTTP requests */
   xHttpResponseFunc  on_response;  /* completion callback         */
-  struct xHttpBuf_   body_buf;      /* response body               */
-  struct xHttpBuf_   header_buf;    /* response headers            */
+  xBuffer            body_buf;      /* response body               */
+  xBuffer            header_buf;    /* response headers            */
   char              *post_data;     /* copy of POST body (owned)   */
   struct curl_slist *req_headers;   /* custom request headers      */
 };

@@ -56,7 +56,7 @@ DNS → TCP/UDP → TLS 是建立网络连接的完整链路，放在同一模�
 
 这样 `xSocket` 的用户就不用每次自己管理 `read`/`write` 的 partial 问题了。
 
-## 3. xhttp/server — 异步 HTTP Server
+## 3. xhttp/server — 异步 HTTP Server ✅
 
 现在只有 HTTP client，加一个 server 端会让整个库的实用性大幅提升：
 

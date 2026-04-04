@@ -46,19 +46,19 @@ struct xEventSource_ {
 
 /* ───────────────────── Source list (simple dynamic array) ───────────────── */
 
-struct xEventSources_ {
+struct xEventSourceArray_ {
   struct xEventSource_ **items;
   size_t                 len;
   size_t                 cap;
 };
 
-static inline void sources_init(struct xEventSources_ *s) {
+static inline void source_array_init(struct xEventSourceArray_ *s) {
   s->items = NULL;
   s->len   = 0;
   s->cap   = 0;
 }
 
-static inline void sources_free(struct xEventSources_ *s) {
+static inline void source_array_free(struct xEventSourceArray_ *s) {
   for (size_t i = 0; i < s->len; i++)
     free(s->items[i]);
   free(s->items);
@@ -67,7 +67,7 @@ static inline void sources_free(struct xEventSources_ *s) {
   s->cap   = 0;
 }
 
-static inline struct xEventSource_ *sources_add(struct xEventSources_ *s,
+static inline struct xEventSource_ *source_array_add(struct xEventSourceArray_ *s,
                                                  int fd, xEventMask mask,
                                                  xEventFunc fn, void *arg) {
   if (s->len == s->cap) {
@@ -89,7 +89,7 @@ static inline struct xEventSource_ *sources_add(struct xEventSources_ *s,
   return src;
 }
 
-static inline int sources_remove(struct xEventSources_ *s,
+static inline int source_array_remove(struct xEventSourceArray_ *s,
                                  struct xEventSource_ *src) {
   /* Mark for deferred removal — the source may still be referenced
    * by pending events in the current dispatch batch. */
@@ -103,7 +103,7 @@ static inline int sources_remove(struct xEventSources_ *s,
  * Must be called at the end of each xEventWait() to actually free
  * sources that were removed during callback dispatch.
  */
-static inline void sources_sweep(struct xEventSources_ *s) {
+static inline void source_array_sweep(struct xEventSourceArray_ *s) {
   size_t i = 0;
   while (i < s->len) {
     if (s->items[i]->deleted) {
@@ -115,7 +115,7 @@ static inline void sources_sweep(struct xEventSources_ *s) {
   }
 }
 
-static inline struct xEventSource_ *sources_find_fd(struct xEventSources_ *s,
+static inline struct xEventSource_ *source_array_find_fd(struct xEventSourceArray_ *s,
                                                      int fd) {
   for (size_t i = 0; i < s->len; i++) {
     if (s->items[i]->fd == fd)
@@ -163,7 +163,7 @@ struct xEventWork_ {
 /* ───────────────────── Loop base ───────────────────── */
 
 struct xEventLoop_ {
-  struct xEventSources_ sources;
+  struct xEventSourceArray_ sources;
   int                   wake_rfd; /* read end of wake pipe  */
   int                   wake_wfd; /* write end of wake pipe */
 

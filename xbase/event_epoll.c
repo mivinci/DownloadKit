@@ -97,7 +97,7 @@ xEventLoop xEventLoopCreate(void) {
   loop->base.wake_wfd = -1;
   loop->base.stopped  = 0;
   loop->base.timer_heap = NULL;
-  sources_init(&loop->base.sources);
+  source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
@@ -130,7 +130,7 @@ xEventLoop xEventLoopCreate(void) {
 fail:
   if (loop->epfd >= 0) close(loop->epfd);
   loop_close_wake(&loop->base);
-  sources_free(&loop->base.sources);
+  source_array_free(&loop->base.sources);
   if (loop->base.timer_heap) {
     xHeapDestroy(loop->base.timer_heap);
     pthread_mutex_destroy(&loop->base.timer_mu);
@@ -168,7 +168,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
 
   close(loop->epfd);
   loop_close_wake(&loop->base);
-  sources_free(&loop->base.sources);
+  source_array_free(&loop->base.sources);
   free(loop);
 }
 
@@ -178,11 +178,11 @@ xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask,
   if (!loop || !fn) return NULL;
 
   struct xEventSource_ *src =
-      sources_add(&loop->base.sources, fd, mask, fn, arg);
+      source_array_add(&loop->base.sources, fd, mask, fn, arg);
   if (!src) return NULL;
 
   if (set_nonblock(fd) != 0) {
-    sources_remove(&loop->base.sources, src);
+    source_array_remove(&loop->base.sources, src);
     return NULL;
   }
 
@@ -190,7 +190,7 @@ xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask,
   ev.events   = mask_to_epoll(mask);
   ev.data.ptr = src;
   if (epoll_ctl(loop->epfd, EPOLL_CTL_ADD, fd, &ev) != 0) {
-    sources_remove(&loop->base.sources, src);
+    source_array_remove(&loop->base.sources, src);
     return NULL;
   }
 
@@ -218,7 +218,7 @@ xErrno xEventDel(xEventLoop loop_, xEventSource src_) {
   if (!loop || !src) return xErrno_InvalidArg;
 
   epoll_ctl(loop->epfd, EPOLL_CTL_DEL, src->fd, NULL);
-  sources_remove(&loop->base.sources, src);
+  source_array_remove(&loop->base.sources, src);
   return xErrno_Ok;
 }
 
@@ -304,7 +304,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   pthread_mutex_unlock(&loop->base.timer_mu);
 
   /* Sweep sources marked for deletion during this dispatch batch. */
-  sources_sweep(&loop->base.sources);
+  source_array_sweep(&loop->base.sources);
 
   return dispatched;
 }

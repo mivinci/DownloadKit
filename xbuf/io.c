@@ -16,6 +16,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <limits.h>
+#include <assert.h>
 
 /* ═══════════════════════════════════════════════════════
  *  Block pool — lock-free stack (Treiber stack)
@@ -87,11 +88,23 @@ xErrno xIOBlockPoolWarmup(size_t n) {
     xIOBlock *blk = (xIOBlock *)malloc(sizeof(xIOBlock));
     if (!blk)
       return xErrno_NoMemory;
+    blk->refs = 0;
     pool_push(blk);
   }
   return xErrno_Ok;
 }
 
+/**
+ * Drain all pooled blocks back to the OS.
+ *
+ * Invariant: blocks enter the pool only via xIOBlockRelease (refs decremented
+ * to zero) or xIOBlockPoolWarmup (never handed out).  Callers must ensure no
+ * outstanding references exist before calling this function; otherwise the
+ * application has a block-leak bug.
+ *
+ * Note: we cannot assert refs == 0 here because the PoolNode_ overlay reuses
+ * the refs field as the `next` pointer while the block sits in the pool.
+ */
 void xIOBlockPoolDrain(void) {
   xIOBlock *blk;
   while ((blk = pool_pop()) != NULL) {

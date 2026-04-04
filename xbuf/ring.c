@@ -30,8 +30,10 @@ XDEF_STRUCT(xRingBuffer_) {
 /** Round up to the next power of two (minimum 16). */
 static size_t next_pow2(size_t v) {
   if (v < 16) v = 16;
-  /* Guard against overflow: if v is already larger than the highest
-   * representable power of two, return the maximum power of two. */
+  /* Guard against overflow: if v exceeds the largest representable
+   * power of two, clamp to that value.  We cannot return SIZE_MAX
+   * because the ring buffer relies on (cap - 1) as a bitmask, which
+   * requires cap to be an exact power of two. */
   if (v > (SIZE_MAX >> 1) + 1)
     return (SIZE_MAX >> 1) + 1;
   v--;

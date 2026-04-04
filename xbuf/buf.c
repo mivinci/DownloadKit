@@ -54,10 +54,12 @@ static xErrno buf_grow(xBuffer_ **bufp, size_t needed) {
   if (needed <= buf->cap)
     return xErrno_Ok;
 
-  /* Try compact first: if unread data + needed writable fits in cap */
+  /* Try compact first: slide unread data to the front.  If the unread
+   * portion plus the requested total fits within the existing capacity,
+   * we can avoid a realloc entirely. */
   if (buf->rpos > 0) {
     size_t unread = buf->wpos - buf->rpos;
-    if (needed <= buf->cap) {
+    if (unread + needed <= buf->cap) {
       memmove(buf->data, buf->data + buf->rpos, unread);
       buf->rpos = 0;
       buf->wpos = unread;

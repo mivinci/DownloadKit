@@ -35,6 +35,14 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | `mpsc.h` | Lock-free multi-producer / single-consumer queue |
 | `atomic.h` | Compiler-portable atomic operations |
 
+### xbuf — Buffer primitives
+
+| Header | Description |
+| -------- | ------------- |
+| `buf.h` | Linear auto-growing byte buffer with 2x expansion strategy |
+| `ring.h` | Fixed-size ring (circular) buffer with power-of-2 mask indexing |
+| `io.h` | Reference-counted block-chain I/O buffer (brpc IOBuf style) with zero-copy split/cut |
+
 ### xhttp — Async HTTP client
 
 | Header | Description |

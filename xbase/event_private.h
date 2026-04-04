@@ -41,6 +41,7 @@ struct xEventSource_ {
   xEventMask  mask;
   xEventFunc  fn;
   void       *arg;
+  int         deleted;  /* marked for deferred removal */
 };
 
 /* ───────────────────── Source list (simple dynamic array) ───────────────── */
@@ -90,14 +91,28 @@ static inline struct xEventSource_ *sources_add(struct xEventSources_ *s,
 
 static inline int sources_remove(struct xEventSources_ *s,
                                  struct xEventSource_ *src) {
-  for (size_t i = 0; i < s->len; i++) {
-    if (s->items[i] == src) {
+  /* Mark for deferred removal — the source may still be referenced
+   * by pending events in the current dispatch batch. */
+  src->deleted = 1;
+  return 0;
+}
+
+/**
+ * @brief Sweep deleted sources after a dispatch batch completes.
+ *
+ * Must be called at the end of each xEventWait() to actually free
+ * sources that were removed during callback dispatch.
+ */
+static inline void sources_sweep(struct xEventSources_ *s) {
+  size_t i = 0;
+  while (i < s->len) {
+    if (s->items[i]->deleted) {
       free(s->items[i]);
       s->items[i] = s->items[--s->len];
-      return 0;
+    } else {
+      i++;
     }
   }
-  return -1;
 }
 
 static inline struct xEventSource_ *sources_find_fd(struct xEventSources_ *s,

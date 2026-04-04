@@ -278,7 +278,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 
     /* User event source — registered with data.ptr */
     struct xEventSource_ *src = (struct xEventSource_ *)events[i].data.ptr;
-    if (!src) continue;
+    if (!src || src->deleted) continue;
 
     xEventMask ready = 0;
     if (events[i].events & EPOLLIN)  ready |= xEvent_Read;
@@ -303,11 +303,13 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
 
+  /* Sweep sources marked for deletion during this dispatch batch. */
+  sources_sweep(&loop->base.sources);
+
   return dispatched;
 }
 
-/* ───────────────────── Signal watch (self-pipe trick) ───────────────── */
-
+/* ───────────────────── Signal watch (self-pipe trick) ─────────────────────── */
 static int signo_valid(int signo) {
   return signo > 0 && signo < XK_SIGNAL_MAX &&
          signo != SIGKILL && signo != SIGSTOP;

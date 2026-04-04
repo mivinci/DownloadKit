@@ -236,7 +236,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     }
 
     struct xEventSource_ *src = (struct xEventSource_ *)events[i].udata;
-    if (!src) continue;
+    if (!src || src->deleted) continue;
 
     xEventMask ready = 0;
     if (events[i].filter == EVFILT_READ)  ready |= xEvent_Read;
@@ -260,6 +260,9 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     pthread_mutex_lock(&loop->base.timer_mu);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
+
+  /* Sweep sources marked for deletion during this dispatch batch. */
+  sources_sweep(&loop->base.sources);
 
   return dispatched;
 }

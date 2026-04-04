@@ -241,6 +241,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     if (pfd->revents == 0) continue;
 
     struct xEventSource_ *src = loop->base.sources.items[i];
+    if (src->deleted) continue;
     xEventMask ready = 0;
     if (pfd->revents & POLLIN)  ready |= xEvent_Read;
     if (pfd->revents & POLLOUT) ready |= xEvent_Write;
@@ -287,6 +288,9 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     pthread_mutex_lock(&loop->base.timer_mu);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
+
+  /* Sweep sources marked for deletion during this dispatch batch. */
+  sources_sweep(&loop->base.sources);
 
   return dispatched;
 }

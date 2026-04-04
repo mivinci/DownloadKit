@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD033 MD041 -->
 
 <p align="center">
-  <img src="assets/logo.png" alt="xKit" height="160">
+  <img src="logo.png" alt="xKit" height="160">
 </p>
 
 # xKit Documentation

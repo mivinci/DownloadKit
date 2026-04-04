@@ -1,0 +1,8 @@
+/* Sidebar logo */
+.sidebar .sidebar-scrollbox::before {
+    content: "";
+    display: block;
+    background: url("../logo.png") no-repeat left center / contain;
+    height: 80px;
+    margin: 16px 0 8px 24px;
+}

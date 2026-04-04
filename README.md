@@ -25,7 +25,7 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | ------ | ----------- |
 | **[xbase](docs/xbase/README.md)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
 | **[xbuf](docs/xbuf/README.md)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
-| **[xhttp](docs/xhttp/README.md)** | Async HTTP client — libcurl multi-socket + SSE streaming |
+| **[xhttp](docs/xhttp/README.md)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, llhttp-based async server with parameterized routing |
 | **[xlog](docs/xlog/README.md)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
 
 📖 See the **[full documentation](docs/README.md)** for detailed design, architecture diagrams, API references, and usage examples.
@@ -37,7 +37,8 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | CMake ≥ 3.14 | ✅ | Build system |
 | C99 compiler | ✅ | GCC or Clang |
 | GoogleTest | For tests | `libgtest-dev` (apt) / `googletest` (brew) |
-| libcurl | Optional | Enables the **xhttp** module |
+| libcurl | Optional | Enables the **xhttp** client |
+| llhttp | Optional | Enables the **xhttp** server (HTTP parsing) |
 | libunwind | Optional | Better backtraces on Linux |
 
 ## Build

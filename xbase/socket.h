@@ -54,6 +54,25 @@ XCAPI(xSocket) xSocketCreate(xEventLoop loop,
                               xSocketFunc callback, void *userp);
 
 /**
+ * @brief Create an async socket from an existing file descriptor.
+ *
+ * Wraps an already-open fd (e.g. from accept()) into an xSocket.
+ * The fd is set to O_NONBLOCK and FD_CLOEXEC if not already.
+ * Ownership of the fd is transferred to the xSocket; it will be
+ * closed when xSocketDestroy() is called.
+ *
+ * @param loop      Event loop to bind to (must not be NULL).
+ * @param fd        An open file descriptor.
+ * @param mask      Initial event mask (xEvent_Read, xEvent_Write, or both).
+ * @param callback  Callback for I/O and timeout events (must not be NULL).
+ * @param userp     User data forwarded to @p callback.
+ * @return          A new xSocket handle, or NULL on failure.
+ */
+XCAPI(xSocket) xSocketCreateFromFd(xEventLoop loop, int fd,
+                                    xEventMask mask,
+                                    xSocketFunc callback, void *userp);
+
+/**
  * @brief Destroy a socket, removing it from the event loop.
  *
  * Cancels any pending timeout timers, removes the event source via

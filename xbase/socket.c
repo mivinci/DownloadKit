@@ -161,6 +161,34 @@ fail:
   return NULL;
 }
 
+xSocket xSocketCreateFromFd(xEventLoop loop, int fd,
+                              xEventMask mask,
+                              xSocketFunc callback, void *userp) {
+  if (!loop || !callback || fd < 0) return NULL;
+
+  /* Ensure non-blocking + close-on-exec */
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return NULL;
+
+  int fdflags = fcntl(fd, F_GETFD, 0);
+  if (fdflags < 0 || fcntl(fd, F_SETFD, fdflags | FD_CLOEXEC) < 0) return NULL;
+
+  struct xSocket_ *s = (struct xSocket_ *)calloc(1, sizeof(*s));
+  if (!s) return NULL;
+
+  xEventSource src = xEventAdd(loop, fd, mask, trampoline, s);
+  if (!src) { free(s); return NULL; }
+
+  s->fd               = fd;
+  s->loop             = loop;
+  s->source           = src;
+  s->mask             = mask;
+  s->callback         = callback;
+  s->userp            = userp;
+
+  return (xSocket)s;
+}
+
 void xSocketDestroy(xEventLoop loop, xSocket sock) {
   if (!sock) return;
   struct xSocket_ *s = (struct xSocket_ *)sock;

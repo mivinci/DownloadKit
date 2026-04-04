@@ -11,6 +11,7 @@ build-dir = "../book"
 [output.html]
 git-repository-url = "https://github.com/mivinci/xKit"
 edit-url-template = "https://github.com/mivinci/xKit/edit/main/docs/{path}"
+additional-css = ["theme/custom.css"]
 
 [preprocessor.mermaid]
 command = "mdbook-mermaid"

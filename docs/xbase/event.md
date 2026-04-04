@@ -69,7 +69,7 @@ graph TD
 sequenceDiagram
     participant App
     participant Loop as xEventLoop
-    participant Backend as kqueue/epoll/poll
+    participant Backend as kqueue | epoll | poll
     participant Timer as Timer Heap
 
     App->>Loop: xEventLoopCreate()

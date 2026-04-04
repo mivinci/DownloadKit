@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD033 -->
 <!-- markdownlint-disable MD041 -->
 <p align="center">
-  <img src="assets/logo.png" alt="xKit" height="160">
+  <img src="docs/logo.png" alt="xKit" height="160">
 </p>
 
 <div align="center">

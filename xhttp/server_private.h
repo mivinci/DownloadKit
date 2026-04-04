@@ -25,14 +25,39 @@
 /* Maximum number of iovec entries for writev */
 #define XHTTP_MAX_IOV  64
 
+/* ───────────────────── Route segment ───────────────────── */
+
+/**
+ * A single segment of a route pattern, e.g. for "/users/:id/posts":
+ *   segments[0] = { .text = "users", .param = NULL  }
+ *   segments[1] = { .text = NULL,    .param = "id"  }
+ *   segments[2] = { .text = "posts", .param = NULL  }
+ */
+struct xHttpRouteSegment_ {
+  const char *text;   /**< Static text, or NULL for a param segment  */
+  const char *param;  /**< Param name (e.g. "id"), or NULL for static */
+};
+
 /* ───────────────────── Route entry ───────────────────── */
 
 struct xHttpRoute_ {
-  const char        *method;   /**< HTTP method, or NULL for any method   */
-  const char        *path;     /**< URL path (exact match)                */
-  xHttpHandlerFunc   handler;  /**< Handler callback                      */
-  void              *arg;      /**< User argument for handler             */
-  struct xHttpRoute_ *next;    /**< Next route in the linked list         */
+  const char        *method;        /**< HTTP method, or NULL for any method */
+  const char        *path;          /**< Original pattern string             */
+  struct xHttpRouteSegment_ *segments; /**< Pre-parsed segments             */
+  int                segment_count;   /**< Number of segments               */
+  xHttpHandlerFunc   handler;       /**< Handler callback                    */
+  void              *arg;           /**< User argument for handler           */
+  struct xHttpRoute_ *next;         /**< Next route in the linked list       */
+};
+
+/* ───────────────────── Route param entry (matched) ───────────────────── */
+
+#define XHTTP_MAX_PARAMS  8
+
+struct xHttpParam_ {
+  const char *name;   /**< Param name (points into route segment)  */
+  const char *value;  /**< Param value (points into request URL)   */
+  size_t      value_len; /**< Length of value (not NUL-terminated)  */
 };
 
 /* ───────────────────── Response header entry ───────────────────── */

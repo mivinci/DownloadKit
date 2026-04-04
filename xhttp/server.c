@@ -40,6 +40,7 @@ static void conn_dispatch_request(struct xHttpConn_ *conn);
 static void conn_write_ready(struct xHttpConn_ *conn);
 static void conn_after_response(struct xHttpConn_ *conn);
 static void conn_try_flush(struct xHttpConn_ *conn);
+static void route_free_segments(struct xHttpRouteSegment_ *segs, int count);
 int xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
 
 
@@ -168,6 +169,7 @@ void xHttpServerDestroy(xHttpServer server) {
     struct xHttpRoute_ *next = r->next;
     free((void *)r->method);
     free((void *)r->path);
+    route_free_segments(r->segments, r->segment_count);
     free(r);
     r = next;
   }
@@ -564,7 +566,133 @@ static int on_message_complete(llhttp_t *parser) {
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Routing (Task 7)
+ *
+ *  Current implementation: segment-by-segment matching on a linked list.
+ *  Supports exact segments and ":param" segments (e.g. "/users/:id").
+ *
+ *  TODO: If the number of routes becomes a bottleneck, replace the
+ *  linear scan with a radix tree (compressed trie) for O(path-length)
+ *  lookup.  The public API (xHttpServerRoute / xHttpRequestParam) is
+ *  designed to be compatible with such an upgrade.
  * ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Parse a route pattern like "/users/:id/posts" into an array of segments.
+ * Returns the number of segments, or -1 on error.
+ * Caller must free the returned array (each segment's text/param is strdup'd).
+ */
+static int route_parse_segments(const char *path,
+                                struct xHttpRouteSegment_ **out) {
+  /* Count segments first */
+  int count = 0;
+  const char *p = path;
+  while (*p) {
+    if (*p == '/') { p++; continue; }
+    count++;
+    while (*p && *p != '/') p++;
+  }
+
+  if (count == 0) {
+    /* Root path "/" — zero segments, matches only "/" */
+    *out = NULL;
+    return 0;
+  }
+
+  struct xHttpRouteSegment_ *segs =
+      (struct xHttpRouteSegment_ *)calloc((size_t)count,
+                                          sizeof(struct xHttpRouteSegment_));
+  if (!segs) return -1;
+
+  int i = 0;
+  p = path;
+  while (*p) {
+    if (*p == '/') { p++; continue; }
+    const char *start = p;
+    while (*p && *p != '/') p++;
+    size_t len = (size_t)(p - start);
+
+    if (start[0] == ':' && len > 1) {
+      /* Param segment: skip the leading ':' */
+      segs[i].text  = NULL;
+      segs[i].param = strndup(start + 1, len - 1);
+      if (!segs[i].param) goto fail;
+    } else {
+      /* Static segment */
+      segs[i].text  = strndup(start, len);
+      segs[i].param = NULL;
+      if (!segs[i].text) goto fail;
+    }
+    i++;
+  }
+
+  *out = segs;
+  return count;
+
+fail:
+  for (int j = 0; j < i; j++) {
+    free((void *)segs[j].text);
+    free((void *)segs[j].param);
+  }
+  free(segs);
+  return -1;
+}
+
+static void route_free_segments(struct xHttpRouteSegment_ *segs, int count) {
+  if (!segs) return;
+  for (int i = 0; i < count; i++) {
+    free((void *)segs[i].text);
+    free((void *)segs[i].param);
+  }
+  free(segs);
+}
+
+/**
+ * Match a request URL against a route's pre-parsed segments.
+ * On success, fills params[] and returns 1.  On failure returns 0.
+ */
+static int route_match(const struct xHttpRoute_ *route,
+                       const char *url,
+                       struct xHttpParam_ *params, int *param_count) {
+  *param_count = 0;
+
+  /* Split URL into segments and compare with route segments */
+  const char *p = url;
+  int seg_idx = 0;
+
+  while (*p == '/') p++; /* skip leading slashes */
+
+  for (seg_idx = 0; seg_idx < route->segment_count; seg_idx++) {
+    if (*p == '\0') return 0; /* URL has fewer segments than route */
+
+    const char *seg_start = p;
+    while (*p && *p != '/') p++;
+    size_t seg_len = (size_t)(p - seg_start);
+
+    const struct xHttpRouteSegment_ *rs = &route->segments[seg_idx];
+    if (rs->param) {
+      /* Param segment: matches any non-empty string */
+      if (seg_len == 0) return 0;
+      if (*param_count >= XHTTP_MAX_PARAMS) return 0;
+      params[*param_count].name      = rs->param;
+      params[*param_count].value     = seg_start;
+      params[*param_count].value_len = seg_len;
+      (*param_count)++;
+    } else {
+      /* Static segment: exact match */
+      if (seg_len != strlen(rs->text) ||
+          memcmp(seg_start, rs->text, seg_len) != 0) {
+        return 0;
+      }
+    }
+
+    while (*p == '/') p++; /* skip slashes between segments */
+  }
+
+  /* URL must have no trailing segments */
+  if (*p != '\0') return 0;
+
+  return 1;
+}
 
 xErrno xHttpServerRoute(xHttpServer server,
                          const char *method, const char *path,
@@ -588,6 +716,16 @@ xErrno xHttpServerRoute(xHttpServer server,
     return xErrno_NoMemory;
   }
 
+  /* Pre-parse route pattern into segments */
+  int seg_count = route_parse_segments(path, &route->segments);
+  if (seg_count < 0) {
+    free((void *)route->method);
+    free((void *)route->path);
+    free(route);
+    return xErrno_NoMemory;
+  }
+  route->segment_count = seg_count;
+
   /* Append to tail */
   if (s->routes_tail) {
     s->routes_tail->next = route;
@@ -597,6 +735,25 @@ xErrno xHttpServerRoute(xHttpServer server,
   s->routes_tail = route;
 
   return xErrno_Ok;
+}
+
+/* ── xHttpRequestParam ─────────────────────────────────────────────────── */
+
+const char *xHttpRequestParam(const xHttpRequest *req,
+                               const char *name,
+                               size_t *len) {
+  if (!req || !name || !req->params_) return NULL;
+
+  const struct xHttpParam_ *params =
+      (const struct xHttpParam_ *)req->params_;
+  /* Walk the params array; terminated by name == NULL */
+  for (int i = 0; params[i].name; i++) {
+    if (strcmp(params[i].name, name) == 0) {
+      if (len) *len = params[i].value_len;
+      return params[i].value;
+    }
+  }
+  return NULL;
 }
 
 /**
@@ -619,15 +776,25 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
   req.body        = conn->body
                         ? (const char *)xBufferData(conn->body) : NULL;
   req.body_len    = conn->body ? xBufferLen(conn->body) : 0;
+  req.params_     = NULL;
 
-  /* Search for matching route */
+  /* Search for matching route (segment-by-segment) */
   int path_matched = 0;
   struct xHttpRoute_ *r = s->routes;
+  struct xHttpParam_ params[XHTTP_MAX_PARAMS + 1]; /* +1 for sentinel */
+  int param_count = 0;
+
   while (r) {
-    if (strcmp(r->path, req.url) == 0) {
+    if (route_match(r, req.url, params, &param_count)) {
       path_matched = 1;
       /* Check method match (NULL method matches all) */
       if (!r->method || strcasecmp(r->method, method_str) == 0) {
+        /* Terminate params array with a sentinel */
+        params[param_count].name  = NULL;
+        params[param_count].value = NULL;
+        params[param_count].value_len = 0;
+        req.params_ = params;
+
         /* Match found: call handler */
         r->handler((xHttpResponseWriter)&conn->writer, &req, r->arg);
 

@@ -13,7 +13,7 @@
 
 2. **llhttp-Based Parsing** — Request parsing is delegated to llhttp (the HTTP parser used by Node.js). Incremental callbacks accumulate URL, headers, and body into [`xBuffer`](../xbuf/buf.md) instances, supporting chunked and pipelined requests.
 
-3. **First-Match Routing** — Routes are registered as (method, path) pairs and matched in registration order. This keeps the routing logic simple and predictable.
+3. **First-Match Routing** — Routes are registered as (method, path) pairs and matched in registration order. Path patterns support both exact segments and `:param` segments (e.g. `/users/:id`). This keeps the routing logic simple and predictable.
 
 4. **Writer-Based Response API** — Handlers receive an `xHttpResponseWriter` handle to set status, headers, and body. The response is serialized into an [`xIOBuffer`](../xbuf/io.md) and flushed asynchronously, with backpressure handled automatically.
 
@@ -116,9 +116,10 @@ sequenceDiagram
 
 Routes are stored in a singly-linked list and matched in registration order (first match wins):
 
-1. **Path match** — Exact string comparison (`strcmp`).
+1. **Path match** — Segment-by-segment comparison. Static segments require exact match; `:param` segments match any non-empty string and capture the value.
 2. **Method match** — Case-insensitive comparison (`strcasecmp`). A `NULL` method matches any HTTP method.
 3. **Fallback** — If the path matches but no method matches → 405 Method Not Allowed. If no path matches → 404 Not Found.
+4. **Parameter access** — Inside a handler, call `xHttpRequestParam(req, "id", &len)` to retrieve the captured value.
 
 ### Response Serialization
 
@@ -178,7 +179,13 @@ All pointers are valid only for the duration of the handler callback.
 
 | Function | Signature | Description |
 | --- | --- | --- |
-| `xHttpServerRoute` | `xErrno xHttpServerRoute(xHttpServer server, const char *method, const char *path, xHttpHandlerFunc handler, void *arg)` | Register a route. `method` may be `NULL` to match all methods. First match wins. |
+| `xHttpServerRoute` | `xErrno xHttpServerRoute(xHttpServer server, const char *method, const char *path, xHttpHandlerFunc handler, void *arg)` | Register a route. `method` may be `NULL` to match all methods. `path` supports `:param` segments (e.g. `/users/:id`). First match wins. |
+
+### Request Parameters
+
+| Function | Signature | Description |
+| --- | --- | --- |
+| `xHttpRequestParam` | `const char *xHttpRequestParam(const xHttpRequest *req, const char *name, size_t *len)` | Look up a path parameter by name. Returns a pointer to the value (NOT NUL-terminated) and sets `*len`, or returns `NULL` if not found. |
 
 ### Response
 
@@ -296,6 +303,43 @@ int main(void) {
 
     xHttpServerListen(server, NULL, 8080);
     printf("SSE server on :8080/events\n");
+    xEventLoopRun(loop);
+
+    xHttpServerDestroy(server);
+    xEventLoopDestroy(loop);
+    return 0;
+}
+```
+
+### RESTful API with Path Parameters
+
+```c
+#include <stdio.h>
+#include <string.h>
+#include <xbase/event.h>
+#include <xhttp/server.h>
+
+static void on_get_user(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
+    (void)arg;
+    size_t id_len = 0;
+    const char *id = xHttpRequestParam(req, "id", &id_len);
+
+    char body[128];
+    int len = snprintf(body, sizeof(body),
+                       "{\"user_id\": \"%.*s\"}\n", (int)id_len, id);
+
+    xHttpResponseSetHeader(w, "Content-Type", "application/json");
+    xHttpResponseSend(w, body, (size_t)len);
+}
+
+int main(void) {
+    xEventLoop loop = xEventLoopCreate();
+    xHttpServer server = xHttpServerCreate(loop);
+
+    xHttpServerRoute(server, "GET", "/users/:id", on_get_user, NULL);
+
+    xHttpServerListen(server, NULL, 8080);
+    printf("REST API on :8080\n");
     xEventLoopRun(loop);
 
     xHttpServerDestroy(server);

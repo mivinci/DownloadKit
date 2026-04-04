@@ -698,3 +698,235 @@ TEST_F(HttpServerTest, WriteAndSendMutuallyExclusive) {
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_EQ(ctx.last_body, "InvalidState");
 }
+
+/* ───────────────────── Parameterized route: /users/:id ───────────────── */
+
+struct ParamHandlerCtx {
+  std::atomic<int> call_count{0};
+  std::string      param_id;
+  std::string      param_action;
+};
+
+static void param_handler(xHttpResponseWriter writer,
+                           const xHttpRequest *req, void *arg) {
+  auto *ctx = static_cast<ParamHandlerCtx *>(arg);
+  ctx->call_count.fetch_add(1, std::memory_order_release);
+
+  size_t len = 0;
+  const char *id = xHttpRequestParam(req, "id", &len);
+  if (id && len > 0) ctx->param_id.assign(id, len);
+
+  char body[128];
+  int blen = snprintf(body, sizeof(body), "id=%s", ctx->param_id.c_str());
+  xHttpResponseSetStatus(writer, 200);
+  xHttpResponseSetHeader(writer, "Content-Type", "text/plain");
+  xHttpResponseSend(writer, body, (size_t)blen);
+}
+
+TEST_F(HttpServerTest, ParamRouteBasic) {
+  ParamHandlerCtx ctx;
+  xHttpServerRoute(server, "GET", "/users/:id", param_handler, &ctx);
+  listen_and_pump();
+
+  int fd = connect_to(port);
+  ASSERT_GE(fd, 0);
+
+  std::string request = "GET /users/42 HTTP/1.1\r\nHost: localhost\r\n"
+                        "Connection: close\r\n\r\n";
+  ASSERT_TRUE(send_str(fd, request));
+  pump_loop(loop, 100);
+
+  std::string response = recv_all(fd);
+  close(fd);
+
+  EXPECT_EQ(ctx.call_count.load(), 1);
+  EXPECT_EQ(ctx.param_id, "42");
+  EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
+  EXPECT_NE(response.find("id=42"), std::string::npos);
+}
+
+TEST_F(HttpServerTest, ParamRouteStringId) {
+  ParamHandlerCtx ctx;
+  xHttpServerRoute(server, "GET", "/users/:id", param_handler, &ctx);
+  listen_and_pump();
+
+  int fd = connect_to(port);
+  ASSERT_GE(fd, 0);
+
+  std::string request = "GET /users/alice HTTP/1.1\r\nHost: localhost\r\n"
+                        "Connection: close\r\n\r\n";
+  ASSERT_TRUE(send_str(fd, request));
+  pump_loop(loop, 100);
+
+  std::string response = recv_all(fd);
+  close(fd);
+
+  EXPECT_EQ(ctx.call_count.load(), 1);
+  EXPECT_EQ(ctx.param_id, "alice");
+  EXPECT_NE(response.find("id=alice"), std::string::npos);
+}
+
+/* ───────────────────── Multiple params: /users/:id/posts/:pid ────────── */
+
+static void multi_param_handler(xHttpResponseWriter writer,
+                                 const xHttpRequest *req, void *arg) {
+  auto *ctx = static_cast<ParamHandlerCtx *>(arg);
+  ctx->call_count.fetch_add(1, std::memory_order_release);
+
+  size_t id_len = 0, action_len = 0;
+  const char *id = xHttpRequestParam(req, "id", &id_len);
+  const char *action = xHttpRequestParam(req, "action", &action_len);
+  if (id && id_len > 0) ctx->param_id.assign(id, id_len);
+  if (action && action_len > 0) ctx->param_action.assign(action, action_len);
+
+  char body[256];
+  int blen = snprintf(body, sizeof(body), "id=%s,action=%s",
+                      ctx->param_id.c_str(), ctx->param_action.c_str());
+  xHttpResponseSetStatus(writer, 200);
+  xHttpResponseSend(writer, body, (size_t)blen);
+}
+
+TEST_F(HttpServerTest, ParamRouteMultipleParams) {
+  ParamHandlerCtx ctx;
+  xHttpServerRoute(server, "GET", "/users/:id/:action",
+                    multi_param_handler, &ctx);
+  listen_and_pump();
+
+  int fd = connect_to(port);
+  ASSERT_GE(fd, 0);
+
+  std::string request = "GET /users/99/edit HTTP/1.1\r\nHost: localhost\r\n"
+                        "Connection: close\r\n\r\n";
+  ASSERT_TRUE(send_str(fd, request));
+  pump_loop(loop, 100);
+
+  std::string response = recv_all(fd);
+  close(fd);
+
+  EXPECT_EQ(ctx.call_count.load(), 1);
+  EXPECT_EQ(ctx.param_id, "99");
+  EXPECT_EQ(ctx.param_action, "edit");
+  EXPECT_NE(response.find("id=99,action=edit"), std::string::npos);
+}
+
+/* ───────────────────── Param route: 404 when extra segments ─────────── */
+
+TEST_F(HttpServerTest, ParamRouteExtraSegments404) {
+  ParamHandlerCtx ctx;
+  xHttpServerRoute(server, "GET", "/users/:id", param_handler, &ctx);
+  listen_and_pump();
+
+  int fd = connect_to(port);
+  ASSERT_GE(fd, 0);
+
+  /* /users/42/extra should NOT match /users/:id */
+  std::string request = "GET /users/42/extra HTTP/1.1\r\nHost: localhost\r\n"
+                        "Connection: close\r\n\r\n";
+  ASSERT_TRUE(send_str(fd, request));
+  pump_loop(loop, 100);
+
+  std::string response = recv_all(fd);
+  close(fd);
+
+  EXPECT_EQ(ctx.call_count.load(), 0);
+  EXPECT_NE(response.find("404"), std::string::npos);
+}
+
+/* ───────────────────── Param route: missing param returns NULL ───────── */
+
+static void missing_param_handler(xHttpResponseWriter writer,
+                                   const xHttpRequest *req, void *arg) {
+  auto *ctx = static_cast<ParamHandlerCtx *>(arg);
+  ctx->call_count.fetch_add(1, std::memory_order_release);
+
+  size_t len = 0;
+  const char *val = xHttpRequestParam(req, "nonexistent", &len);
+  ctx->param_id = val ? "found" : "null";
+
+  xHttpResponseSend(writer, "ok", 2);
+}
+
+TEST_F(HttpServerTest, ParamRouteNonexistentParam) {
+  ParamHandlerCtx ctx;
+  xHttpServerRoute(server, "GET", "/items/:id",
+                    missing_param_handler, &ctx);
+  listen_and_pump();
+
+  int fd = connect_to(port);
+  ASSERT_GE(fd, 0);
+
+  std::string request = "GET /items/7 HTTP/1.1\r\nHost: localhost\r\n"
+                        "Connection: close\r\n\r\n";
+  ASSERT_TRUE(send_str(fd, request));
+  pump_loop(loop, 100);
+
+  std::string response = recv_all(fd);
+  close(fd);
+
+  EXPECT_EQ(ctx.call_count.load(), 1);
+  EXPECT_EQ(ctx.param_id, "null");
+}
+
+/* ───────────────────── Static route takes priority over param route ──── */
+
+TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
+  HandlerCtx static_ctx;
+  ParamHandlerCtx param_ctx;
+
+  /* Register static route first (first match wins) */
+  xHttpServerRoute(server, "GET", "/users/me", echo_handler, &static_ctx);
+  xHttpServerRoute(server, "GET", "/users/:id", param_handler, &param_ctx);
+  listen_and_pump();
+
+  /* /users/me should match the static route */
+  {
+    int fd = connect_to(port);
+    ASSERT_GE(fd, 0);
+    std::string request = "GET /users/me HTTP/1.1\r\nHost: localhost\r\n"
+                          "Connection: close\r\n\r\n";
+    ASSERT_TRUE(send_str(fd, request));
+    pump_loop(loop, 100);
+    std::string response = recv_all(fd);
+    close(fd);
+    EXPECT_EQ(static_ctx.call_count.load(), 1);
+    EXPECT_EQ(param_ctx.call_count.load(), 0);
+  }
+
+  /* /users/42 should match the param route */
+  {
+    int fd = connect_to(port);
+    ASSERT_GE(fd, 0);
+    std::string request = "GET /users/42 HTTP/1.1\r\nHost: localhost\r\n"
+                          "Connection: close\r\n\r\n";
+    ASSERT_TRUE(send_str(fd, request));
+    pump_loop(loop, 100);
+    std::string response = recv_all(fd);
+    close(fd);
+    EXPECT_EQ(param_ctx.call_count.load(), 1);
+    EXPECT_EQ(param_ctx.param_id, "42");
+  }
+}
+
+/* ───────────────────── Param route with method filtering ─────────────── */
+
+TEST_F(HttpServerTest, ParamRouteMethodNotAllowed) {
+  ParamHandlerCtx ctx;
+  xHttpServerRoute(server, "GET", "/items/:id", param_handler, &ctx);
+  listen_and_pump();
+
+  int fd = connect_to(port);
+  ASSERT_GE(fd, 0);
+
+  /* POST to a GET-only param route should be 405 */
+  std::string request = "POST /items/5 HTTP/1.1\r\nHost: localhost\r\n"
+                        "Content-Length: 0\r\n"
+                        "Connection: close\r\n\r\n";
+  ASSERT_TRUE(send_str(fd, request));
+  pump_loop(loop, 100);
+
+  std::string response = recv_all(fd);
+  close(fd);
+
+  EXPECT_EQ(ctx.call_count.load(), 0);
+  EXPECT_NE(response.find("405"), std::string::npos);
+}

@@ -45,6 +45,7 @@ XDEF_STRUCT(xHttpRequest) {
   size_t      headers_len;  /**< Length of headers in bytes                 */
   const char *body;         /**< Request body, or NULL if no body           */
   size_t      body_len;     /**< Length of body in bytes                    */
+  void       *params_;      /**< (internal) matched route params            */
 };
 
 /**
@@ -114,6 +115,22 @@ XCAPI(void) xHttpServerDestroy(xHttpServer server);
 XCAPI(xErrno) xHttpServerRoute(xHttpServer server,
                                 const char *method, const char *path,
                                 xHttpHandlerFunc handler, void *arg);
+
+/**
+ * @brief Look up a path parameter by name.
+ *
+ * For a route registered as "/users/:id", calling
+ * xHttpRequestParam(req, "id") returns the matched segment value.
+ *
+ * @param req   The HTTP request (must not be NULL).
+ * @param name  Parameter name without the leading ':' (must not be NULL).
+ * @param len   If non-NULL, receives the length of the returned value.
+ * @return      Pointer to the parameter value (NOT NUL-terminated), or
+ *              NULL if the parameter was not found.
+ */
+XCAPI(const char *) xHttpRequestParam(const xHttpRequest *req,
+                                       const char *name,
+                                       size_t *len);
 
 /* ── Response ──────────────────────────────────────────────────────────── */
 

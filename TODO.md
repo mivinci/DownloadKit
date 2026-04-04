@@ -15,15 +15,36 @@
 
 ---
 
-## 1. xdns — 异步 DNS 解析
+## 1. xnet — 异步网络层（DNS + TCP + UDP + TLS）
 
-目前 `xSocket` 直接操作 fd，但实际使用中 DNS 解析是第一个阻塞点。可以做一个轻量的异步 DNS 模块：
+在 `xSocket` 之上封装一层完整的网络抽象，涵盖 DNS 解析、TCP/UDP 连接管理和 TLS 加密：
+
+### DNS 解析
 
 - 基于 `xEventLoopSubmit` 把 `getaddrinfo` offload 到线程池（简单方案）
 - 或者自己实现 UDP DNS 协议直接走 `xSocket`（高级方案，类似 c-ares）
 - 提供 `xDnsResolve(loop, hostname, callback, arg)` 这样的接口
 
-这个模块几乎是做 TCP 客户端连接前的必备环节。
+### TCP 连接器 / 监听器
+
+- **xTcpConnect** — 非阻塞 connect + 超时 + DNS 解析，一步到位
+- **xTcpListener** — bind + listen + accept 循环，每个新连接回调一个 `xSocket`
+- 处理 `SO_KEEPALIVE`、`TCP_NODELAY` 等常见选项
+
+### UDP
+
+- **xUdpSocket** — 异步 UDP 收发，集成到事件循环（`EPOLLIN` / `EVFILT_READ`）
+- 支持 `sendto` / `recvfrom` 回调模型，适配无连接场景
+- 可选 connected UDP（`connect` 后用 `send`/`recv`），减少每次发送的地址查找开销
+- 为上层协议（DNS、QUIC、自定义 RPC 等）提供基础传输
+
+### TLS 封装
+
+- 基于 OpenSSL / BoringSSL / mbedTLS 的 BIO 接口
+- 与 `xSocket` 集成，提供 `xSslSocket`，握手过程完全异步
+- `xhttp` 模块目前依赖 libcurl 自带的 TLS，但如果未来要做 HTTP server 或其他协议就需要独立的 TLS 层
+
+DNS → TCP/UDP → TLS 是建立网络连接的完整链路，放在同一模块中可以让上层协议（如 HTTPS、QUIC）直接调用 `xnet` 一步到位。
 
 ## 2. xbuf — 缓冲区模块 ✅
 
@@ -35,25 +56,7 @@
 
 这样 `xSocket` 的用户就不用每次自己管理 `read`/`write` 的 partial 问题了。
 
-## 3. xtcp — 异步 TCP 连接器 / 监听器
-
-在 `xSocket` 之上再封装一层，处理 TCP 特有的流程：
-
-- **xTcpConnect** — 非阻塞 connect + 超时 + DNS 解析，一步到位
-- **xTcpListener** — bind + listen + accept 循环，每个新连接回调一个 `xSocket`
-- 处理 `SO_KEEPALIVE`、`TCP_NODELAY` 等常见选项
-
-这是从 raw socket 到可用网络服务之间缺失的一层。
-
-## 4. xssl — TLS 封装
-
-如果要做真正可用的网络库，TLS 是绕不开的：
-
-- 基于 OpenSSL / BoringSSL / mbedTLS 的 BIO 接口
-- 与 `xSocket` 集成，提供 `xSslSocket`，握手过程完全异步
-- `xhttp` 模块目前依赖 libcurl 自带的 TLS，但如果未来要做 HTTP server 或其他协议就需要独立的 TLS 层
-
-## 5. xhttp/server — 异步 HTTP Server
+## 3. xhttp/server — 异步 HTTP Server
 
 现在只有 HTTP client，加一个 server 端会让整个库的实用性大幅提升：
 
@@ -62,7 +65,7 @@
 - 路由 + handler 回调模型
 - 接口风格类似：`xHttpServerCreate(loop)` → `xHttpServerRoute(server, "GET", "/path", handler)` → `xHttpServerListen(server, ":8080")`
 
-## 6. xlog 增强 — 异步日志 ✅
+## 4. xlog 增强 — 异步日志 ✅
 
 基于 MPSC 无锁队列 + 事件循环线程消费的异步日志模块，已实现：
 
@@ -75,7 +78,7 @@
 - 同步 flush 支持（xLoggerFlush）
 - Fatal 级别同步写入后 abort()
 
-## 7. xsignal — 信号处理 ✅
+## 5. xsignal — 信号处理 ✅
 
 事件循环通常需要优雅处理 SIGINT / SIGTERM 等信号：
 
@@ -83,6 +86,6 @@
 - 或者经典的 self-pipe trick 作为 fallback
 - 提供 `xSignalWatch(loop, signo, callback, arg)` 接口
 
-## 8. 内存分配优化
+## 6. 内存分配优化
 
 项目中存在大量零碎的 malloc/free，考虑引入对象池（pool）或 arena 分配器，减少堆碎片和系统调用开销。

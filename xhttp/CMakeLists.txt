@@ -7,6 +7,12 @@ target_link_libraries(xhttp PUBLIC xbase xbuf PRIVATE Libcurl::Libcurl)
 
 message(STATUS "xhttp: libcurl integration enabled")
 
+find_package(Llhttp REQUIRED)
+target_compile_definitions(xhttp PUBLIC XK_HAS_LLHTTP)
+target_link_libraries(xhttp PRIVATE Llhttp::Llhttp)
+
+message(STATUS "xhttp: llhttp integration enabled")
+
 if(XK_BUILD_TESTS)
   file(GLOB_RECURSE XHTTP_TEST_SOURCES "*_test.cpp")
   if(XHTTP_TEST_SOURCES)

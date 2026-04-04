@@ -64,7 +64,7 @@ graph LR
 
 The actual memory layout:
 
-```
+```plain
 ┌──────────────────────────────────────────────────────┐
 │ Header (hidden)                                      │
 │   const char *name   — type name string (e.g. "Foo") │

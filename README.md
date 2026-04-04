@@ -1,11 +1,13 @@
+<!-- markdownlint-disable MD033 -->
+<!-- markdownlint-disable MD041 -->
 <p align="center">
   <img src="assets/logo.png" alt="xKit" height="160">
 </p>
 
 <div align="center">
-  <a href="diary">Diary</a>
+  <a href="docs/README.md">Docs</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
-  <a href="TODO.md">Todo</a>
+  <a href="diary">Diary</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
   <a href="STYLE.md">Style</a>
   <br />
@@ -19,46 +21,14 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 
 ## Modules
 
-### xbase — Core primitives
+| Module | Description |
+| ------ | ----------- |
+| **[xbase](docs/xbase/README.md)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
+| **[xbuf](docs/xbuf/README.md)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
+| **[xhttp](docs/xhttp/README.md)** | Async HTTP client — libcurl multi-socket + SSE streaming |
+| **[xlog](docs/xlog/README.md)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
 
-| Header | Description |
-| -------- | ------------- |
-| `event.h` | Cross-platform event loop (edge-triggered) — kqueue / epoll / poll |
-| `timer.h` | Monotonic timer with push (thread-pool) and poll (lock-free MPSC) fire modes |
-| `task.h` | N:M task model — lightweight tasks multiplexed onto a thread pool |
-| `socket.h` | Async socket abstraction with idle-timeout support over xEventLoop |
-| `memory.h` | Reference-counted allocation with vtable-driven lifecycle (ctor / dtor / retain / release) |
-| `log.h` | Per-thread callback-based logging with optional backtrace on fatal |
-| `backtrace.h` | Platform-adaptive stack trace capture (libunwind > execinfo > stub) |
-| `error.h` | Unified error codes and human-readable messages |
-| `heap.h` | Min-heap used internally by the timer subsystem |
-| `mpsc.h` | Lock-free multi-producer / single-consumer queue |
-| `atomic.h` | Compiler-portable atomic operations |
-
-### xbuf — Buffer primitives
-
-| Header | Description |
-| -------- | ------------- |
-| `buf.h` | Linear auto-growing byte buffer with 2x expansion strategy |
-| `ring.h` | Fixed-size ring (circular) buffer with power-of-2 mask indexing |
-| `io.h` | Reference-counted block-chain I/O buffer (brpc IOBuf style) with zero-copy split/cut |
-
-### xhttp — Async HTTP client
-
-| Header | Description |
-| -------- | ------------- |
-| `client.h` | Non-blocking HTTP client powered by libcurl multi-socket + xEventLoop |
-| `client_sse.c` | SSE (Server-Sent Events) streaming client with W3C-compliant event parsing |
-
-Supports oneshot requests (GET / POST / PUT / DELETE / PATCH / HEAD) with per-request timeout, as well as SSE streaming subscriptions with event / done callbacks.
-
-### xlog — Async logging
-
-| Header | Description |
-| -------- | ------------- |
-| `logger.h` | High-performance async logger with MPSC queue, timer/pipe flush modes, and log rotation |
-
-Features thread-local logger context (`xLoggerEnter` / `xLoggerLeave` / `xLoggerCurrent`) for convenient `XLOG_*` macro usage, three operating modes (Timer / Notify / Mixed), size-based log file rotation, and synchronous flush on fatal.
+📖 See the **[full documentation](docs/README.md)** for detailed design, architecture diagrams, API references, and usage examples.
 
 ## Prerequisites
 

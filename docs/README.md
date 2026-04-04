@@ -1,14 +1,14 @@
 <!-- markdownlint-disable MD033 MD041 -->
+# xKit Documentation
 
 <p align="center">
   <img src="logo.png" alt="xKit" height="160">
 </p>
 
-# xKit Documentation
+Welcome to the xKit documentation. xKit is a collection of low-level C building blocks for event-driven, asynchronous programming on **macOS** and **Linux**. (Windows is on the roadmap but not a near-term priority).
 
-Welcome to the xKit documentation. xKit is a collection of low-level C building blocks for event-driven, asynchronous programming on **macOS** and **Linux**.
-
-> Designed and reviewed by Leo X. · Coded by Codebuddy with claude-4.6-opus
+- Designed and reviewed by Leo X.
+- Coded by Codebuddy with claude-4.6-opus
 
 ## Architecture Overview
 

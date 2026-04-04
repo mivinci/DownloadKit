@@ -51,7 +51,6 @@ TEST(xRingBuffer, WriteRead) {
 
 TEST(xRingBuffer, WrapAround) {
   xRingBuffer rb = xRingBufferCreate(16); /* actual cap = 16 */
-  size_t cap = xRingBufferCap(rb);
 
   /* Fill most of the buffer. */
   char fill[12];
@@ -80,7 +79,7 @@ TEST(xRingBuffer, Full) {
   size_t cap = xRingBufferCap(rb);
 
   char data[16];
-  memset(data, 'X', cap);
+  memset(data, 'X', (size_t)cap);
   ASSERT_EQ(xRingBufferWrite(rb, data, cap), xErrno_Ok);
   EXPECT_TRUE(xRingBufferFull(rb));
 

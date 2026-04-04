@@ -13,12 +13,19 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/uio.h>
+#include <errno.h>
 #include <pthread.h>
+#include <limits.h>
 
 /* ═══════════════════════════════════════════════════════
  *  Block pool — lock-free stack (Treiber stack)
  * ═══════════════════════════════════════════════════════ */
 
+/*
+ * PoolNode_ overlays xIOBlock to form a lock-free Treiber stack.
+ * Only the first pointer-sized field (reused as `next`) is accessed in pool state.
+ * When a block is in the pool, refs/size/data are stale and must not be read.
+ */
 XDEF_STRUCT(PoolNode_) {
   PoolNode_ *next;
 };
@@ -125,8 +132,14 @@ static xErrno iobuf_grow_refs(xIOBuffer *io, size_t needed) {
   return xErrno_Ok;
 }
 
+/**
+ * Append a ref to the ref array.
+ * If `adjust_nbytes` is true, io->nbytes is incremented by `length`.
+ * Callers that manage nbytes externally (e.g. xIOBufferCut) pass false.
+ */
 static xErrno iobuf_push_ref(xIOBuffer *io, xIOBlock *blk,
-                              size_t offset, size_t length) {
+                              size_t offset, size_t length,
+                              bool adjust_nbytes) {
   xErrno err;
 
   if (length == 0)
@@ -140,7 +153,8 @@ static xErrno iobuf_push_ref(xIOBuffer *io, xIOBlock *blk,
   io->refs[io->nrefs].offset = offset;
   io->refs[io->nrefs].length = length;
   io->nrefs++;
-  io->nbytes += length;
+  if (adjust_nbytes)
+    io->nbytes += length;
   return xErrno_Ok;
 }
 
@@ -252,7 +266,7 @@ xErrno xIOBufferAppend(xIOBuffer *io, const void *data, size_t len) {
     memcpy(blk->data, src, chunk);
     blk->size = chunk;
 
-    err = iobuf_push_ref(io, blk, 0, chunk);
+    err = iobuf_push_ref(io, blk, 0, chunk, true);
     if (err != xErrno_Ok) {
       xIOBlockRelease(blk);
       return err;
@@ -361,23 +375,20 @@ size_t xIOBufferCut(xIOBuffer *io, xIOBuffer *dst, size_t n) {
 
     if (chunk <= n - total) {
       /* Move entire ref to dst (transfer ownership, no refcount change). */
-      err = iobuf_push_ref(dst, ref->block, ref->offset, ref->length);
+      err = iobuf_push_ref(dst, ref->block, ref->offset, ref->length, false);
       if (err != xErrno_Ok)
         break;
-      /* Undo the nbytes bump from iobuf_push_ref — we'll adjust at the end. */
-      dst->nbytes -= ref->length;
       total += chunk;
       shift++;
     } else {
       /* Split: partial ref. Need to share the block. */
       chunk = n - total;
       xIOBlockRetain(ref->block);
-      err = iobuf_push_ref(dst, ref->block, ref->offset, chunk);
+      err = iobuf_push_ref(dst, ref->block, ref->offset, chunk, false);
       if (err != xErrno_Ok) {
         xIOBlockRelease(ref->block);
         break;
       }
-      dst->nbytes -= chunk;
       ref->offset += chunk;
       ref->length -= chunk;
       total += chunk;
@@ -485,7 +496,9 @@ ssize_t xIOBufferReadFd(xIOBuffer *io, int fd) {
     tail  = &io->refs[io->nrefs - 1];
     avail = XIOBUFFER_BLOCK_SIZE - (tail->offset + tail->length);
     if (avail > 0) {
-      n = read(fd, tail->block->data + tail->offset + tail->length, avail);
+      do {
+        n = read(fd, tail->block->data + tail->offset + tail->length, avail);
+      } while (n < 0 && errno == EINTR);
       if (n > 0) {
         tail->length += (size_t)n;
         io->nbytes   += (size_t)n;
@@ -499,14 +512,16 @@ ssize_t xIOBufferReadFd(xIOBuffer *io, int fd) {
   if (!blk)
     return -1;
 
-  n = read(fd, blk->data, XIOBUFFER_BLOCK_SIZE);
+  do {
+    n = read(fd, blk->data, XIOBUFFER_BLOCK_SIZE);
+  } while (n < 0 && errno == EINTR);
   if (n <= 0) {
     xIOBlockRelease(blk);
     return n;
   }
 
   blk->size = (size_t)n;
-  err = iobuf_push_ref(io, blk, 0, (size_t)n);
+  err = iobuf_push_ref(io, blk, 0, (size_t)n, true);
   if (err != xErrno_Ok) {
     xIOBlockRelease(blk);
     return -1;
@@ -516,18 +531,23 @@ ssize_t xIOBufferReadFd(xIOBuffer *io, int fd) {
 }
 
 ssize_t xIOBufferWriteFd(xIOBuffer *io, int fd) {
-  struct iovec iov[64]; /* reasonable upper bound for writev */
+#ifndef IOV_MAX
+#define IOV_MAX 1024
+#endif
+  struct iovec iov[IOV_MAX < 64 ? IOV_MAX : 64];
   int          cnt;
   ssize_t      n;
 
   if (!io)
     return -1;
 
-  cnt = xIOBufferReadIov(io, iov, 64);
+  cnt = xIOBufferReadIov(io, iov, (int)(sizeof(iov) / sizeof(iov[0])));
   if (cnt == 0)
     return 0;
 
-  n = writev(fd, iov, cnt);
+  do {
+    n = writev(fd, iov, cnt);
+  } while (n < 0 && errno == EINTR);
   if (n > 0)
     xIOBufferConsume(io, (size_t)n);
   return n;

@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/uio.h>
+#include <errno.h>
 #include <unistd.h>
 
 /* ───────────────────── Types ───────────────────── */
@@ -28,6 +29,10 @@ XDEF_STRUCT(xRingBuffer_) {
 /** Round up to the next power of two (minimum 16). */
 static size_t next_pow2(size_t v) {
   if (v < 16) v = 16;
+  /* Guard against overflow: if v is already larger than the highest
+   * representable power of two, return the maximum power of two. */
+  if (v > (SIZE_MAX >> 1) + 1)
+    return (SIZE_MAX >> 1) + 1;
   v--;
   v |= v >> 1;
   v |= v >> 2;
@@ -255,7 +260,9 @@ ssize_t xRingBufferReadFd(xRingBuffer rb, int fd) {
   if (cnt == 0)
     return 0; /* full */
 
-  n = readv(fd, iov, cnt);
+  do {
+    n = readv(fd, iov, cnt);
+  } while (n < 0 && errno == EINTR);
   if (n > 0)
     r->head += (size_t)n;
   return n;
@@ -273,7 +280,9 @@ ssize_t xRingBufferWriteFd(xRingBuffer rb, int fd) {
   if (cnt == 0)
     return 0; /* empty */
 
-  n = writev(fd, iov, cnt);
+  do {
+    n = writev(fd, iov, cnt);
+  } while (n < 0 && errno == EINTR);
   if (n > 0)
     r->tail += (size_t)n;
   return n;

@@ -10,6 +10,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <unistd.h>
 
 /* ───────────────────── Types ───────────────────── */
@@ -29,6 +30,8 @@ XDEF_STRUCT(xBuffer_) {
 /** Growth factor: double the capacity each time. */
 static size_t buf_next_cap(size_t current, size_t needed) {
   size_t cap = current ? current : BUF_MIN_CAP;
+  if (needed > SIZE_MAX / 2)
+    return SIZE_MAX;
   while (cap < needed)
     cap *= 2;
   return cap;
@@ -53,12 +56,11 @@ static xErrno buf_grow(xBuffer_ **bufp, size_t needed) {
   /* Try compact first: if unread data + needed writable fits in cap */
   if (buf->rpos > 0) {
     size_t unread = buf->wpos - buf->rpos;
-    if (unread + (needed - unread) <= buf->cap) {
+    if (needed <= buf->cap) {
       memmove(buf->data, buf->data + buf->rpos, unread);
       buf->rpos = 0;
       buf->wpos = unread;
-      if (buf->wpos + (needed - buf->wpos) <= buf->cap)
-        return xErrno_Ok;
+      return xErrno_Ok;
     }
   }
 
@@ -227,7 +229,9 @@ ssize_t xBufferReadFd(xBuffer *bufp, int fd) {
   }
 
   b = (xBuffer_ *)*bufp;
-  n = read(fd, b->data + b->wpos, b->cap - b->wpos);
+  do {
+    n = read(fd, b->data + b->wpos, b->cap - b->wpos);
+  } while (n < 0 && errno == EINTR);
   if (n > 0)
     b->wpos += (size_t)n;
   return n;
@@ -245,7 +249,9 @@ ssize_t xBufferWriteFd(xBuffer buf, int fd) {
   if (readable == 0)
     return 0;
 
-  n = write(fd, b->data + b->rpos, readable);
+  do {
+    n = write(fd, b->data + b->rpos, readable);
+  } while (n < 0 && errno == EINTR);
   if (n > 0)
     xBufferConsume(buf, (size_t)n);
   return n;

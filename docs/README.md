@@ -1,5 +1,8 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../README.md) > Docs
+<!-- markdownlint-disable MD033 MD041 -->
+
+<p align="center">
+  <img src="logo.png" alt="xKit" height="160">
+</p>
 
 # xKit Documentation
 

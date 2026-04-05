@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <xbase/log.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -237,8 +238,8 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) break;
       if (errno == EMFILE || errno == ENFILE) {
         /* fd exhaustion: log warning and continue */
-        fprintf(stderr, "xhttp: accept() failed: %s (fd exhaustion)\n",
-                strerror(errno));
+        xLog(false, "xhttp: accept() failed: %s (fd exhaustion)",
+             strerror(errno));
         break;
       }
       /* Other errors: stop accepting this round */

@@ -39,7 +39,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y libgtest-dev libgmock-dev cmake
+          sudo apt-get install -y libgtest-dev libgmock-dev libnghttp2-dev cmake
           # Install llhttp from source (no apt package available)
           git clone --depth 1 --branch release/v9.3.1 https://github.com/nodejs/llhttp.git /tmp/llhttp
           cmake -S /tmp/llhttp -B /tmp/llhttp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
@@ -48,7 +48,7 @@ jobs:
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install googletest llhttp
+        run: brew install googletest llhttp nghttp2
 
       # ── Cache ─────────────────────────────────────────────────────────────
 

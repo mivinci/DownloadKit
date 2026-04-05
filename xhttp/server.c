@@ -7,6 +7,8 @@
  */
 
 #include "server_private.h"
+#include "proto_h1.h"
+#include "proto_h2.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -24,14 +26,6 @@
 
 static void on_listen_event(xSocket sock, xEventMask mask, void *arg);
 static void on_conn_event(xSocket sock, xEventMask mask, void *arg);
-
-/* llhttp callbacks */
-static int on_url(llhttp_t *parser, const char *at, size_t len);
-static int on_header_field(llhttp_t *parser, const char *at, size_t len);
-static int on_header_value(llhttp_t *parser, const char *at, size_t len);
-static int on_headers_complete(llhttp_t *parser);
-static int on_body(llhttp_t *parser, const char *at, size_t len);
-static int on_message_complete(llhttp_t *parser);
 
 /* Internal helpers */
 static void conn_init_parser(struct xHttpConn_ *conn);
@@ -248,15 +242,7 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
     conn->keep_alive = 1; /* HTTP/1.1 default */
     conn->writing    = 0;
 
-    /* Initialize response writer defaults */
-    conn->writer.status_code = 200;
-    conn->writer.headers     = NULL;
-    conn->writer.headers_tail = NULL;
-    conn->writer.sent        = 0;
-    conn->writer.streaming   = 0;
-    conn->writer.conn        = conn;
-
-    /* Initialize llhttp parser */
+    /* Initialize protocol handler (also creates the implicit stream) */
     conn_init_parser(conn);
 
     /* Wrap accepted fd in xSocket */
@@ -285,34 +271,43 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
 }
 
 /**
- * Initialize the llhttp parser and settings for a connection.
+ * Create a new stream for a connection.
+ * For H1, stream_id is always 0 (implicit stream).
+ * For H2, stream_id is assigned by nghttp2.
  */
-static void conn_init_parser(struct xHttpConn_ *conn) {
-  memset(&conn->parser_settings, 0, sizeof(conn->parser_settings));
-  conn->parser_settings.on_url              = on_url;
-  conn->parser_settings.on_header_field     = on_header_field;
-  conn->parser_settings.on_header_value     = on_header_value;
-  conn->parser_settings.on_headers_complete = on_headers_complete;
-  conn->parser_settings.on_body             = on_body;
-  conn->parser_settings.on_message_complete = on_message_complete;
+struct xHttpStream_ *xHttpStreamCreate(struct xHttpConn_ *conn, int32_t stream_id) {
+  struct xHttpStream_ *stream =
+      (struct xHttpStream_ *)calloc(1, sizeof(struct xHttpStream_));
+  if (!stream) return NULL;
 
-  llhttp_init(&conn->parser, HTTP_REQUEST, &conn->parser_settings);
-  conn->parser.data = conn;
+  stream->conn      = conn;
+  stream->stream_id = stream_id;
+
+  /* Initialize response writer defaults */
+  stream->writer.status_code  = 200;
+  stream->writer.headers      = NULL;
+  stream->writer.headers_tail = NULL;
+  stream->writer.sent         = 0;
+  stream->writer.streaming    = 0;
+  stream->writer.stream       = stream;
+
+  return stream;
 }
 
 /**
- * Reset per-request parsing state (for keep-alive reuse).
+ * Destroy a stream, freeing all its resources.
  */
-static void conn_reset_request_state(struct xHttpConn_ *conn) {
-  xBufferReset(conn->url);
-  xBufferReset(conn->header_field);
-  xBufferReset(conn->headers_raw);
-  xBufferReset(conn->body);
+void xHttpStreamDestroy(struct xHttpStream_ *stream) {
+  if (!stream) return;
 
-  conn->header_bytes = 0;
+  /* Free request parsing state */
+  xBufferDestroy(stream->url);
+  xBufferDestroy(stream->header_field);
+  xBufferDestroy(stream->headers_raw);
+  xBufferDestroy(stream->body);
 
-  /* Reset response writer */
-  struct xHttpHeader_ *h = conn->writer.headers;
+  /* Free response headers */
+  struct xHttpHeader_ *h = stream->writer.headers;
   while (h) {
     struct xHttpHeader_ *next = h->next;
     free(h->key);
@@ -320,14 +315,63 @@ static void conn_reset_request_state(struct xHttpConn_ *conn) {
     free(h);
     h = next;
   }
-  conn->writer.status_code  = 200;
-  conn->writer.headers      = NULL;
-  conn->writer.headers_tail = NULL;
-  conn->writer.sent         = 0;
-  conn->writer.streaming    = 0;
+
+  free(stream);
+}
+
+/**
+ * Reset a stream for reuse (keep-alive).
+ * Resets request parsing state and response writer, but keeps the stream alive.
+ */
+void xHttpStreamReset(struct xHttpStream_ *stream) {
+  if (!stream) return;
+
+  xBufferReset(stream->url);
+  xBufferReset(stream->header_field);
+  xBufferReset(stream->headers_raw);
+  xBufferReset(stream->body);
+
+  stream->header_bytes      = 0;
+  stream->request_complete  = 0;
+  stream->pending_error     = 0;
+  stream->pending_error_reason = NULL;
+
+  /* Reset response writer */
+  struct xHttpHeader_ *h = stream->writer.headers;
+  while (h) {
+    struct xHttpHeader_ *next = h->next;
+    free(h->key);
+    free(h->value);
+    free(h);
+    h = next;
+  }
+  stream->writer.status_code  = 200;
+  stream->writer.headers      = NULL;
+  stream->writer.headers_tail = NULL;
+  stream->writer.sent         = 0;
+  stream->writer.streaming    = 0;
+}
+
+/**
+ * Initialize the protocol handler for a connection.
+ * Protocol detection is deferred until first data arrives.
+ */
+static void conn_init_parser(struct xHttpConn_ *conn) {
+  conn->proto_detected = 0;
+  /* Zero out the vtable; will be populated after protocol detection */
+  memset(&conn->proto, 0, sizeof(conn->proto));
+}
+
+/**
+ * Reset per-request parsing state (for keep-alive reuse).
+ */
+static void conn_reset_request_state(struct xHttpConn_ *conn) {
+  if (conn->stream) {
+    xHttpStreamReset(conn->stream);
+  }
 
   /* Reset parser for next request */
-  llhttp_reset(&conn->parser);
+  conn->proto.reset(conn);
 }
 
 void xHttpConnResetParser(struct xHttpConn_ *conn) {
@@ -356,20 +400,15 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
   xIOBufferDeinit(&conn->read_buf);
   xIOBufferDeinit(&conn->write_buf);
 
-  /* Free request parsing state */
-  xBufferDestroy(conn->url);
-  xBufferDestroy(conn->header_field);
-  xBufferDestroy(conn->headers_raw);
-  xBufferDestroy(conn->body);
+  /* Destroy protocol handler (only if initialized) */
+  if (conn->proto_detected && conn->proto.destroy) {
+    conn->proto.destroy(conn);
+  }
 
-  /* Free response headers */
-  struct xHttpHeader_ *h = conn->writer.headers;
-  while (h) {
-    struct xHttpHeader_ *next = h->next;
-    free(h->key);
-    free(h->value);
-    free(h);
-    h = next;
+  /* Destroy stream (frees request buffers and response headers) */
+  if (conn->stream) {
+    xHttpStreamDestroy(conn->stream);
+    conn->stream = NULL;
   }
 
   free(conn);
@@ -413,10 +452,48 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
       break; /* Got data; process below */
     }
 
-    /* Feed accumulated data to llhttp parser */
+    /* Feed accumulated data to protocol handler */
     size_t buf_len = xIOBufferLen(&conn->read_buf);
     if (buf_len > 0) {
+      /* Protocol auto-detection (Prior Knowledge) */
+      if (!conn->proto_detected) {
+        /* HTTP/2 connection preface: 24 bytes "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" */
+        static const char h2_magic[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+        static const size_t h2_magic_len = 24;
+
+        /* Copy data to linear buffer for inspection */
+        char *peek = (char *)malloc(buf_len);
+        if (!peek) {
+          xHttpConnClose(conn);
+          return;
+        }
+        xIOBufferCopyTo(&conn->read_buf, peek);
+
+        if (buf_len >= h2_magic_len) {
+          /* Enough data to decide */
+          if (memcmp(peek, h2_magic, h2_magic_len) == 0) {
+            xHttpProtoH2Init(conn);
+          } else {
+            xHttpProtoH1Init(conn);
+          }
+          conn->proto_detected = 1;
+        } else {
+          /* Not enough data yet; check if prefix still matches */
+          if (memcmp(peek, h2_magic, buf_len) == 0) {
+            /* Could still be H2; wait for more data */
+            free(peek);
+            return;
+          } else {
+            /* Definitely not H2; use H1 */
+            xHttpProtoH1Init(conn);
+            conn->proto_detected = 1;
+          }
+        }
+        free(peek);
+      }
+
       /* Copy read buffer to a contiguous buffer for parsing */
+      buf_len = xIOBufferLen(&conn->read_buf);
       char *linear = (char *)malloc(buf_len);
       if (!linear) {
         xHttpConnSendError(conn, 500, "Internal Server Error");
@@ -426,142 +503,36 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
       xIOBufferCopyTo(&conn->read_buf, linear);
       xIOBufferConsume(&conn->read_buf, buf_len);
 
-      enum llhttp_errno err = llhttp_execute(&conn->parser, linear, buf_len);
+      int rc = conn->proto.on_data(conn, linear, buf_len);
       free(linear);
 
-      /* Handle deferred error from llhttp callbacks */
-      if (conn->pending_error) {
-        int code = conn->pending_error;
-        const char *reason = conn->pending_error_reason;
-        conn->pending_error = 0;
-        conn->pending_error_reason = NULL;
-        xHttpConnSendError(conn, code, reason);
+      if (rc < 0) {
+        /* Parse error or deferred error from callbacks */
+        if (conn->stream && conn->stream->pending_error) {
+          int code = conn->stream->pending_error;
+          const char *reason = conn->stream->pending_error_reason;
+          conn->stream->pending_error = 0;
+          conn->stream->pending_error_reason = NULL;
+          xHttpConnSendError(conn, code, reason);
+        } else {
+          xHttpConnSendError(conn, 400, "Bad Request");
+        }
         conn_after_response(conn);
         return;
       }
 
-      /* Handle completed request (deferred from on_message_complete) */
-      if (conn->request_complete) {
-        conn->request_complete = 0;
+      if (rc > 0) {
+        /* Request complete: dispatch */
+        conn->stream->request_complete = 0;
         conn_dispatch_request(conn);
         /* conn may have been freed by dispatch (e.g. Connection: close),
          * so we must not access conn after this point. */
         return;
       }
 
-      if (err != HPE_OK && err != HPE_PAUSED) {
-        /* Parse error: send 400 and close */
-        xHttpConnSendError(conn, 400, "Bad Request");
-        conn_after_response(conn);
-        return;
-      }
+      /* rc == 0: need more data, continue */
     }
   }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- *  HTTP request parsing — llhttp callbacks (Task 6)
- * ═══════════════════════════════════════════════════════════════════════════ */
-
-static int on_url(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-  conn->header_bytes += len;
-
-  if (!conn->url) conn->url = xBufferCreate(256);
-  if (!conn->url) return HPE_INTERNAL;
-  if (xBufferAppend(&conn->url, at, len) != xErrno_Ok) return HPE_INTERNAL;
-  return HPE_OK;
-}
-
-static int on_header_field(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-  conn->header_bytes += len;
-
-  if (conn->header_bytes > conn->server->max_header_size) {
-    conn->pending_error = 431;
-    conn->pending_error_reason = "Request Header Fields Too Large";
-    return HPE_USER;
-  }
-
-  /* Accumulate into raw headers */
-  if (!conn->headers_raw) conn->headers_raw = xBufferCreate(512);
-  if (!conn->headers_raw) return HPE_INTERNAL;
-  if (xBufferAppend(&conn->headers_raw, at, len) != xErrno_Ok)
-    return HPE_INTERNAL;
-
-  /* Track current field for potential use */
-  if (conn->header_field) {
-    xBufferReset(conn->header_field);
-  } else {
-    conn->header_field = xBufferCreate(128);
-    if (!conn->header_field) return HPE_INTERNAL;
-  }
-  if (xBufferAppend(&conn->header_field, at, len) != xErrno_Ok)
-    return HPE_INTERNAL;
-
-  return HPE_OK;
-}
-
-static int on_header_value(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-  conn->header_bytes += len;
-
-  if (conn->header_bytes > conn->server->max_header_size) {
-    conn->pending_error = 431;
-    conn->pending_error_reason = "Request Header Fields Too Large";
-    return HPE_USER;
-  }
-
-  /* Append ": " + value + "\r\n" to raw headers */
-  if (xBufferAppend(&conn->headers_raw, ": ", 2) != xErrno_Ok)
-    return HPE_INTERNAL;
-  if (xBufferAppend(&conn->headers_raw, at, len) != xErrno_Ok)
-    return HPE_INTERNAL;
-  if (xBufferAppend(&conn->headers_raw, "\r\n", 2) != xErrno_Ok)
-    return HPE_INTERNAL;
-
-  return HPE_OK;
-}
-
-static int on_headers_complete(llhttp_t *parser) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-
-  /* Determine keep-alive from HTTP version and headers */
-  conn->keep_alive = llhttp_should_keep_alive(parser);
-
-  return HPE_OK;
-}
-
-static int on_body(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-
-  size_t cur_len = conn->body ? xBufferLen(conn->body) : 0;
-  if (cur_len + len > conn->server->max_body_size) {
-    conn->pending_error = 413;
-    conn->pending_error_reason = "Content Too Large";
-    return HPE_USER;
-  }
-
-  if (!conn->body) conn->body = xBufferCreate(1024);
-  if (!conn->body) return HPE_INTERNAL;
-  if (xBufferAppend(&conn->body, at, len) != xErrno_Ok) return HPE_INTERNAL;
-
-  return HPE_OK;
-}
-
-static int on_message_complete(llhttp_t *parser) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-
-  /* Set flag to dispatch after llhttp_execute returns.
-   * We must not call dispatch from within a callback because
-   * the response flush may reset/close the parser. */
-  conn->request_complete = 1;
-
-  /* Pause the parser so we can process the response before parsing
-   * the next pipelined request */
-  llhttp_pause(parser);
-
-  return HPE_OK;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -761,21 +732,31 @@ const char *xHttpRequestParam(const xHttpRequest *req,
  */
 static void conn_dispatch_request(struct xHttpConn_ *conn) {
   struct xHttpServer_ *s = conn->server;
+  struct xHttpStream_ *stream = conn->stream;
 
-  /* Get method string from llhttp */
-  const char *method_str = llhttp_method_name(
-      (llhttp_method_t)conn->parser.method);
+  /* Get method string from protocol handler */
+  const char *method_str = conn->proto.method(stream);
 
-  /* Build the xHttpRequest */
+  /* Ensure buffers are null-terminated for C string usage.
+   * xBuffer doesn't auto-terminate, so we append a '\0' sentinel.
+   * This is safe because xBufferAppend will grow if needed. */
+  if (stream->url)
+    xBufferAppend(&stream->url, "", 1);
+  if (stream->headers_raw)
+    xBufferAppend(&stream->headers_raw, "", 1);
+  if (stream->body)
+    xBufferAppend(&stream->body, "", 1);
+
+  /* Build the xHttpRequest from stream state */
   xHttpRequest req;
   req.method      = method_str;
-  req.url         = conn->url ? (const char *)xBufferData(conn->url) : "/";
-  req.headers     = conn->headers_raw
-                        ? (const char *)xBufferData(conn->headers_raw) : "";
-  req.headers_len = conn->headers_raw ? xBufferLen(conn->headers_raw) : 0;
-  req.body        = conn->body
-                        ? (const char *)xBufferData(conn->body) : NULL;
-  req.body_len    = conn->body ? xBufferLen(conn->body) : 0;
+  req.url         = stream->url ? (const char *)xBufferData(stream->url) : "/";
+  req.headers     = stream->headers_raw
+                        ? (const char *)xBufferData(stream->headers_raw) : "";
+  req.headers_len = stream->headers_raw ? xBufferLen(stream->headers_raw) - 1 : 0;
+  req.body        = stream->body
+                        ? (const char *)xBufferData(stream->body) : NULL;
+  req.body_len    = stream->body ? xBufferLen(stream->body) - 1 : 0;
   req.params_     = NULL;
 
   /* Search for matching route (segment-by-segment) */
@@ -796,16 +777,16 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
         req.params_ = params;
 
         /* Match found: call handler */
-        r->handler((xHttpResponseWriter)&conn->writer, &req, r->arg);
+        r->handler((xHttpResponseWriter)&stream->writer, &req, r->arg);
 
         /* If handler didn't send a response, send default 200 OK */
-        if (!conn->writer.sent && !conn->writer.streaming) {
-          xHttpResponseSend((xHttpResponseWriter)&conn->writer, NULL, 0);
+        if (!stream->writer.sent && !stream->writer.streaming) {
+          xHttpResponseSend((xHttpResponseWriter)&stream->writer, NULL, 0);
         }
 
         /* If handler was streaming but didn't call End, end it now */
-        if (conn->writer.streaming && !conn->writer.sent) {
-          xHttpResponseEnd((xHttpResponseWriter)&conn->writer);
+        if (stream->writer.streaming && !stream->writer.sent) {
+          xHttpResponseEnd((xHttpResponseWriter)&stream->writer);
         }
 
         /* conn_after_response may close the connection, so don't
@@ -879,86 +860,18 @@ xErrno xHttpResponseSend(xHttpResponseWriter writer,
   if (w->sent || w->streaming) return xErrno_InvalidState;
   w->sent = 1;
 
-  struct xHttpConn_ *conn = w->conn;
-  xIOBuffer *wb = &conn->write_buf;
+  struct xHttpStream_ *stream = w->stream;
+  struct xHttpConn_ *conn = stream->conn;
 
-  /* Status line: "HTTP/1.1 <code> <reason>\r\n" */
-  char status_line[64];
-  int slen = snprintf(status_line, sizeof(status_line),
-                      "HTTP/1.1 %d %s\r\n",
-                      w->status_code, xHttpStatusReason(w->status_code));
-  xIOBufferAppend(wb, status_line, (size_t)slen);
-
-  /* Content-Length header */
-  char cl_buf[48];
-  int cl_len = snprintf(cl_buf, sizeof(cl_buf),
-                        "Content-Length: %zu\r\n", body_len);
-  xIOBufferAppend(wb, cl_buf, (size_t)cl_len);
-
-  /* Connection header */
-  if (conn->keep_alive) {
-    xIOBufferAppendStr(wb, "Connection: keep-alive\r\n");
-  } else {
-    xIOBufferAppendStr(wb, "Connection: close\r\n");
-  }
-
-  /* User-set headers */
-  struct xHttpHeader_ *h = w->headers;
-  while (h) {
-    xIOBufferAppendStr(wb, h->key);
-    xIOBufferAppendStr(wb, ": ");
-    xIOBufferAppendStr(wb, h->value);
-    xIOBufferAppendStr(wb, "\r\n");
-    h = h->next;
-  }
-
-  /* End of headers */
-  xIOBufferAppendStr(wb, "\r\n");
-
-  /* Body */
-  if (body && body_len > 0) {
-    xIOBufferAppend(wb, body, body_len);
-  }
+  /* Delegate to protocol-specific response serialization */
+  conn->proto.send_response(stream, w->status_code, w->headers,
+                            body, body_len);
 
   /* Try to flush immediately (but don't close the connection yet;
    * the caller will handle lifecycle via conn_after_response) */
   conn_try_flush(conn);
 
   return xErrno_Ok;
-}
-
-/* ── Streaming response API ─────────────────────────────────────────── */
-
-/**
- * Flush the response headers for streaming mode (no Content-Length).
- */
-static void conn_flush_stream_headers(struct xHttpResponseWriter_ *w) {
-  struct xHttpConn_ *conn = w->conn;
-  xIOBuffer *wb = &conn->write_buf;
-
-  /* Status line */
-  char status_line[64];
-  int slen = snprintf(status_line, sizeof(status_line),
-                      "HTTP/1.1 %d %s\r\n",
-                      w->status_code, xHttpStatusReason(w->status_code));
-  xIOBufferAppend(wb, status_line, (size_t)slen);
-
-  /* Transfer-Encoding: chunked is not used; we rely on
-   * Connection: close to signal end-of-body for simplicity. */
-  xIOBufferAppendStr(wb, "Connection: close\r\n");
-
-  /* User-set headers */
-  struct xHttpHeader_ *h = w->headers;
-  while (h) {
-    xIOBufferAppendStr(wb, h->key);
-    xIOBufferAppendStr(wb, ": ");
-    xIOBufferAppendStr(wb, h->value);
-    xIOBufferAppendStr(wb, "\r\n");
-    h = h->next;
-  }
-
-  /* End of headers */
-  xIOBufferAppendStr(wb, "\r\n");
 }
 
 xErrno xHttpResponseWrite(xHttpResponseWriter writer,
@@ -969,19 +882,11 @@ xErrno xHttpResponseWrite(xHttpResponseWriter writer,
   /* Cannot mix with Send */
   if (w->sent) return xErrno_InvalidState;
 
-  struct xHttpConn_ *conn = w->conn;
+  struct xHttpStream_ *stream = w->stream;
+  struct xHttpConn_ *conn = stream->conn;
 
-  /* First call: flush headers and enter streaming mode */
-  if (!w->streaming) {
-    w->streaming = 1;
-    conn->keep_alive = 0; /* streaming responses always close */
-    conn_flush_stream_headers(w);
-  }
-
-  /* Append data */
-  if (data && len > 0) {
-    xIOBufferAppend(&conn->write_buf, data, len);
-  }
+  /* Delegate to protocol-specific write_data */
+  conn->proto.write_data(stream, data, len);
 
   /* Try to flush immediately */
   conn_try_flush(conn);
@@ -995,10 +900,15 @@ void xHttpResponseEnd(xHttpResponseWriter writer) {
 
   /* Only meaningful in streaming mode, and only once */
   if (!w->streaming || w->sent) return;
-  w->sent = 1;
+
+  struct xHttpStream_ *stream = w->stream;
+  struct xHttpConn_ *conn = stream->conn;
+
+  /* Delegate to protocol-specific end_stream */
+  conn->proto.end_stream(stream);
 
   /* Flush any remaining data */
-  conn_try_flush(w->conn);
+  conn_try_flush(conn);
 }
 
 /**
@@ -1044,8 +954,10 @@ static void conn_try_flush(struct xHttpConn_ *conn) {
  */
 void xHttpConnSendError(struct xHttpConn_ *conn, int status_code,
                          const char *reason) {
+  struct xHttpStream_ *stream = conn->stream;
+
   /* If response already sent, just close */
-  if (conn->writer.sent) {
+  if (stream->writer.sent) {
     conn->keep_alive = 0;
     return;
   }
@@ -1056,12 +968,17 @@ void xHttpConnSendError(struct xHttpConn_ *conn, int status_code,
                           "<html><body><h1>%d %s</h1></body></html>\r\n",
                           status_code, reason);
 
-  conn->writer.status_code = status_code;
-  conn->keep_alive = 0; /* Close after error */
+  stream->writer.status_code = status_code;
 
-  xHttpResponseSetHeader((xHttpResponseWriter)&conn->writer,
+  /* Close connection after error for H1; H2 connections stay open
+   * (only the individual stream is closed by nghttp2). */
+  if (!stream->stream_id) {
+    conn->keep_alive = 0; /* H1: close after error */
+  }
+
+  xHttpResponseSetHeader((xHttpResponseWriter)&stream->writer,
                           "Content-Type", "text/html");
-  xHttpResponseSend((xHttpResponseWriter)&conn->writer,
+  xHttpResponseSend((xHttpResponseWriter)&stream->writer,
                      body, (size_t)body_len);
 }
 
@@ -1107,6 +1024,24 @@ static void conn_write_ready(struct xHttpConn_ *conn) {
  * Note: conn may be freed after this call if keep_alive is false.
  */
 static void conn_after_response(struct xHttpConn_ *conn) {
+  /* H2 connections: stream lifecycle is managed by nghttp2 callbacks.
+   * Don't reset or close — just return. The caller (h2_on_data) will
+   * handle session_send and flushing after all dispatches complete. */
+  if (conn->proto_detected && conn->proto.reset != NULL) {
+    /* Check if this is H2 by testing if should_keep_alive always returns 1
+     * (H2 connections are always persistent). A cleaner approach would be
+     * a protocol type flag, but this works for now. */
+    if (conn->proto.should_keep_alive && conn->proto.should_keep_alive(conn) &&
+        conn->keep_alive) {
+      /* Could be H1 keep-alive or H2. Distinguish by checking if
+       * conn->stream was created by H2 (stream_id > 0). */
+      if (conn->stream && conn->stream->stream_id > 0) {
+        /* H2 stream: don't reset, nghttp2 manages lifecycle */
+        return;
+      }
+    }
+  }
+
   if (xIOBufferEmpty(&conn->write_buf)) {
     /* All data already flushed synchronously. Handle lifecycle now. */
     if (!conn->keep_alive) {
@@ -1123,4 +1058,16 @@ static void conn_after_response(struct xHttpConn_ *conn) {
     xHttpConnFlushWriteInternal(conn);
   }
   /* If conn->writing is true, the write event handler will take over. */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  Public wrappers for internal functions (used by proto_h2.c)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+void xHttpConnDispatchRequest(struct xHttpConn_ *conn) {
+  conn_dispatch_request(conn);
+}
+
+void xHttpConnTryFlush(struct xHttpConn_ *conn) {
+  conn_try_flush(conn);
 }

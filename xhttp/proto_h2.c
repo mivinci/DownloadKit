@@ -396,6 +396,7 @@ static ssize_t h2_body_read_callback(nghttp2_session *session,
     *data_flags |= NGHTTP2_DATA_FLAG_EOF;
     free(src->data);
     src->data = NULL;
+    free(src);
   }
 
   return (ssize_t)to_copy;

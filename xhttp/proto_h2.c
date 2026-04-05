@@ -9,6 +9,7 @@
 #include "proto_h2.h"
 #include "server_private.h"
 
+#include <ctype.h>
 #include <nghttp2/nghttp2.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -424,10 +425,12 @@ static int h2_send_response(struct xHttpStream_ *stream, int status,
   nva[0].valuelen = (size_t)status_len;
   nva[0].flags    = NGHTTP2_NV_FLAG_NO_COPY_NAME;
 
-  /* User headers */
+  /* User headers — HTTP/2 requires lowercase header names */
   int i = 1;
   h = headers;
   while (h) {
+    /* Lowercase the header key in-place (h->key is strdup'd, safe to modify) */
+    for (char *p = h->key; *p; p++) *p = (char)tolower((unsigned char)*p);
     nva[i].name     = (uint8_t *)h->key;
     nva[i].namelen  = strlen(h->key);
     nva[i].value    = (uint8_t *)h->value;

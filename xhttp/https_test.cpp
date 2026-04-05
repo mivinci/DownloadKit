@@ -276,6 +276,9 @@ protected:
   }
 
   void TearDown() override {
+    /* Give the server loop time to finish processing any pending events
+     * (e.g. TLS handshake failure cleanup) before stopping. */
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     stop_server_loop();
     if (client) xHttpClientDestroy(client);
     if (client_loop) xEventLoopDestroy(client_loop);
@@ -641,6 +644,9 @@ protected:
   }
 
   void TearDown() override {
+    /* Give the server loop time to finish processing any pending events
+     * (e.g. TLS handshake failure cleanup) before stopping. */
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     loop_running = false;
     if (loop_thread.joinable()) loop_thread.join();
     if (client) xHttpClientDestroy(client);

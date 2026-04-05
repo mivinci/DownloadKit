@@ -11,7 +11,12 @@
 #include "server_private.h"
 #include "transport_private.h"
 
+/* mbedTLS 3.x+ provides build_info.h; mbedTLS 2.x uses version.h */
+#if __has_include(<mbedtls/build_info.h>)
 #include <mbedtls/build_info.h>
+#else
+#include <mbedtls/version.h>
+#endif
 #include <mbedtls/error.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/pk.h>

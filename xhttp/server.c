@@ -14,6 +14,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -92,6 +93,11 @@ const char *xHttpStatusReason(int code) {
 
 xHttpServer xHttpServerCreate(xEventLoop loop) {
   if (!loop) return NULL;
+
+  /* Ignore SIGPIPE so that writing to a closed socket returns EPIPE
+   * instead of killing the process. This is essential for any network
+   * server that handles client disconnections gracefully. */
+  signal(SIGPIPE, SIG_IGN);
 
   struct xHttpServer_ *s = (struct xHttpServer_ *)calloc(1, sizeof(*s));
   if (!s) return NULL;

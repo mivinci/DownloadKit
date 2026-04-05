@@ -209,6 +209,10 @@ static void openssl_destroy(void *ctx) {
     if (SSL_is_init_finished(t->ssl)) {
       SSL_shutdown(t->ssl);
     }
+    /* Clear the OpenSSL error queue for this thread before freeing
+     * the SSL object. This prevents stale error state from interfering
+     * with other SSL operations in the same thread. */
+    ERR_clear_error();
     SSL_free(t->ssl);
   }
   free(t);

@@ -135,6 +135,7 @@ struct xHttpStream_ {
   int         request_complete;     /**< Request fully parsed          */
   int         pending_error;        /**< Error status to send          */
   const char *pending_error_reason; /**< Error reason string        */
+  int         closed_by_peer;       /**< H2: stream closed by nghttp2  */
 };
 
 /* ───────────────────── Connection ───────────────────── */

@@ -1176,7 +1176,14 @@ static void conn_after_response(struct xHttpConn_ *conn) {
       /* Could be H1 keep-alive or H2. Distinguish by checking if
        * conn->stream was created by H2 (stream_id > 0). */
       if (conn->stream && conn->stream->stream_id > 0) {
-        /* H2 stream: don't reset, nghttp2 manages lifecycle */
+        /* H2 stream: don't reset, nghttp2 manages lifecycle.
+         * However, if the stream was closed by nghttp2 during dispatch
+         * (e.g. session_send triggered stream_close_callback), we need
+         * to destroy it here since the callback deferred destruction. */
+        if (conn->stream->closed_by_peer) {
+          xHttpStreamDestroy(conn->stream);
+          conn->stream = NULL;
+        }
         return;
       }
     }

@@ -10,15 +10,16 @@
 # Usage:
 #   ./scripts/test-linux.sh              # default: gcc:14, Debug, -j2
 #   ./scripts/test-linux.sh -j4 -m 4G    # custom parallelism and memory
+#   XK_TLS_BACKEND=openssl ./scripts/test-linux.sh  # test single backend
 #
 
 set -euo pipefail
 
 IMAGE="${IMAGE:-gcc:14}"
 BUILD_TYPE="${BUILD_TYPE:-Debug}"
-BUILD_DIR="build-linux"
 MEMORY="2G"
 JOBS="2"
+TLS_BACKENDS="${XK_TLS_BACKEND:-openssl mbedtls}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -31,23 +32,40 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "==> Running Linux tests in container"
-echo "    Image:      $IMAGE"
-echo "    Build type: $BUILD_TYPE"
-echo "    Memory:     $MEMORY"
-echo "    Jobs:       $JOBS"
-echo ""
+for TLS in $TLS_BACKENDS; do
+    BUILD_DIR="build-linux-${TLS}"
 
-container run --rm -m "$MEMORY" \
-    -v "$PROJECT_DIR":/work \
-    -w /work \
-    "$IMAGE" \
-    bash -c "
-        apt-get update -qq && \
-        apt-get install -y -qq cmake libgtest-dev > /dev/null 2>&1 && \
-        find /work -name '*.c' -o -name '*.cpp' -o -name '*.h' | xargs touch && \
-        rm -rf $BUILD_DIR && mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
-        cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE && \
-        cmake --build . -j$JOBS && \
-        ctest --output-on-failure
-    "
+    echo "==> Running Linux tests in container (TLS=$TLS)"
+    echo "    Image:      $IMAGE"
+    echo "    Build type: $BUILD_TYPE"
+    echo "    TLS backend: $TLS"
+    echo "    Memory:     $MEMORY"
+    echo "    Jobs:       $JOBS"
+    echo ""
+
+    container run --rm -m "$MEMORY" \
+        -v "$PROJECT_DIR":/work \
+        -w /work \
+        "$IMAGE" \
+        bash -c "
+            apt-get update -qq && \
+            apt-get install -y -qq cmake libgtest-dev libssl-dev libcurl4-openssl-dev \
+              libnghttp2-dev libmbedtls-dev > /dev/null 2>&1 && \
+            # Install llhttp from source (no apt package available)
+            git clone --depth 1 --branch release/v9.3.1 https://github.com/nodejs/llhttp.git /tmp/llhttp && \
+            cmake -S /tmp/llhttp -B /tmp/llhttp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON > /dev/null 2>&1 && \
+            cmake --build /tmp/llhttp/build > /dev/null 2>&1 && \
+            cmake --install /tmp/llhttp/build > /dev/null 2>&1 && \
+            find /work -name '*.c' -o -name '*.cpp' -o -name '*.h' | xargs touch && \
+            rm -rf $BUILD_DIR && mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
+            cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DXK_TLS_BACKEND=$TLS && \
+            cmake --build . -j$JOBS && \
+            ctest --output-on-failure
+        "
+
+    echo ""
+    echo "==> ✅ TLS=$TLS passed"
+    echo ""
+done
+
+echo "==> ✅ All TLS backends passed"

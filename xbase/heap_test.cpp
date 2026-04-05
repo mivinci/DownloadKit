@@ -44,8 +44,7 @@ protected:
   }
 
   void TearDown() override {
-    if (h)
-      xHeapDestroy(h);
+    if (h) xHeapDestroy(h);
   }
 };
 

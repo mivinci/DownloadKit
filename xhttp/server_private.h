@@ -9,6 +9,7 @@
 #ifndef XHTTP_SERVER_PRIVATE_H
 #define XHTTP_SERVER_PRIVATE_H
 
+#include "transport.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <xbase/event.h>
@@ -144,6 +145,10 @@ struct xHttpConn_ {
   xIOBuffer            read_buf;  /**< Read buffer                      */
   xIOBuffer            write_buf; /**< Write buffer                     */
 
+  /* Transport layer (vtable) */
+  xHttpTransport transport;      /**< Transport I/O interface          */
+  int            handshake_done; /**< Whether TLS handshake is complete */
+
   /* Protocol handler (vtable) */
   xHttpProto proto; /**< Protocol handler interface       */
 
@@ -166,6 +171,11 @@ struct xHttpServer_ {
   xEventLoop loop;        /**< Event loop                       */
   xSocket    listen_sock; /**< Listening socket                  */
   int        listen_fd;   /**< Listening socket fd (raw)         */
+
+  /* TLS listening socket (separate port) */
+  xSocket tls_listen_sock; /**< TLS listening socket              */
+  int     tls_listen_fd;   /**< TLS listening socket fd (raw)     */
+  void   *tls_ctx;         /**< Opaque TLS context (SSL_CTX* etc) */
 
   /* Routes */
   struct xHttpRoute_ *routes;      /**< Head of route linked list         */

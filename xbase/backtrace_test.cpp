@@ -18,12 +18,11 @@ extern "C" {
 /* ── Helpers ── */
 
 static int countFrames(const char *buf) {
-  int count = 0;
-  const char *p = buf;
+  int         count = 0;
+  const char *p     = buf;
   while ((p = strstr(p, "#")) != nullptr) {
     /* Verify it looks like a frame marker: #<digit> */
-    if (p[1] >= '0' && p[1] <= '9')
-      count++;
+    if (p[1] >= '0' && p[1] <= '9') count++;
     p++;
   }
   return count;
@@ -33,7 +32,7 @@ static int countFrames(const char *buf) {
 
 TEST(BacktraceTest, BasicCapture) {
   char buf[4096];
-  int n = xBacktrace(buf, sizeof(buf));
+  int  n = xBacktrace(buf, sizeof(buf));
 
   EXPECT_GT(n, 0);
   EXPECT_EQ(n, (int)strlen(buf));
@@ -44,7 +43,7 @@ TEST(BacktraceTest, BasicCapture) {
 
 TEST(BacktraceTest, OutputContainsFrameMarkers) {
   char buf[4096];
-  int n = xBacktrace(buf, sizeof(buf));
+  int  n = xBacktrace(buf, sizeof(buf));
 
   EXPECT_GT(n, 0);
   EXPECT_GE(countFrames(buf), 1);
@@ -59,7 +58,7 @@ TEST(BacktraceTest, NullBufReturnsZero) {
 
 TEST(BacktraceTest, ZeroSizeReturnsZero) {
   char buf[16];
-  int n = xBacktrace(buf, 0);
+  int  n = xBacktrace(buf, 0);
   EXPECT_EQ(n, 0);
 }
 
@@ -87,7 +86,7 @@ TEST(BacktraceTest, SmallBufferTruncation) {
 
 TEST(BacktraceTest, ExactOneByteBuf) {
   char buf[1];
-  int n = xBacktrace(buf, sizeof(buf));
+  int  n = xBacktrace(buf, sizeof(buf));
 
   /* Only room for NUL terminator */
   EXPECT_EQ(n, 0);
@@ -148,26 +147,25 @@ TEST(BacktraceTest, BacktraceEqualsSkipZero) {
 
 TEST(BacktraceTest, FrameFormatPattern) {
   char buf[4096];
-  int n = xBacktrace(buf, sizeof(buf));
+  int  n = xBacktrace(buf, sizeof(buf));
 
   EXPECT_GT(n, 0);
 
   /* Each line should start with #N followed by content */
-  std::string output(buf);
+  std::string        output(buf);
   std::istringstream stream(output);
-  std::string line;
-  int frame_idx = 0;
+  std::string        line;
+  int                frame_idx = 0;
 
   while (std::getline(stream, line)) {
-    if (line.empty())
-      continue;
+    if (line.empty()) continue;
 
     /* Should start with #<number> */
     EXPECT_EQ(line[0], '#');
 
     std::string expected_prefix = "#" + std::to_string(frame_idx);
     EXPECT_EQ(line.substr(0, expected_prefix.size()), expected_prefix)
-        << "Frame " << frame_idx << " has unexpected prefix: " << line;
+      << "Frame " << frame_idx << " has unexpected prefix: " << line;
 
     frame_idx++;
   }

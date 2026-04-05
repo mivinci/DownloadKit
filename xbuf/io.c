@@ -528,3 +528,64 @@ ssize_t xIOBufferWriteFd(xIOBuffer *io, int fd) {
   if (n > 0) xIOBufferConsume(io, (size_t)n);
   return n;
 }
+
+ssize_t xIOBufferReadWith(xIOBuffer *io, xIOBufferReadFunc fn, void *ctx) {
+  xIOBlock     *blk;
+  xIOBufferRef *tail;
+  size_t        avail;
+  ssize_t       n;
+  xErrno        err;
+
+  if (!io || !fn) return -1;
+
+  /* Try to read into the tail block's remaining space. */
+  if (io->nrefs > 0) {
+    tail  = &io->refs[io->nrefs - 1];
+    avail = XIOBUFFER_BLOCK_SIZE - (tail->offset + tail->length);
+    if (avail > 0) {
+      n = fn(ctx, tail->block->data + tail->offset + tail->length, avail);
+      if (n > 0) {
+        tail->length += (size_t)n;
+        io->nbytes += (size_t)n;
+      }
+      return n;
+    }
+  }
+
+  /* Allocate a new block. */
+  blk = xIOBlockAcquire();
+  if (!blk) return -1;
+
+  n = fn(ctx, blk->data, XIOBUFFER_BLOCK_SIZE);
+  if (n <= 0) {
+    xIOBlockRelease(blk);
+    return n;
+  }
+
+  blk->size = (size_t)n;
+  err       = iobuf_push_ref(io, blk, 0, (size_t)n, true);
+  if (err != xErrno_Ok) {
+    xIOBlockRelease(blk);
+    return -1;
+  }
+
+  return n;
+}
+
+ssize_t xIOBufferWriteWith(xIOBuffer *io, xIOBufferWritevFunc fn, void *ctx) {
+#ifndef IOV_MAX
+#define IOV_MAX 1024
+#endif
+  struct iovec iov[IOV_MAX < 64 ? IOV_MAX : 64];
+  int          cnt;
+  ssize_t      n;
+
+  if (!io || !fn) return -1;
+
+  cnt = xIOBufferReadIov(io, iov, (int)(sizeof(iov) / sizeof(iov[0])));
+  if (cnt == 0) return 0;
+
+  n = fn(ctx, iov, cnt);
+  if (n > 0) xIOBufferConsume(io, (size_t)n);
+  return n;
+}

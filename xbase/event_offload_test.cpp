@@ -9,7 +9,6 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
-#include <chrono>
 #include <thread>
 #include <vector>
 
@@ -22,30 +21,30 @@ extern "C" {
 
 class EventOffloadTest : public ::testing::Test {
 protected:
-  xEventLoop  loop  = nullptr;
-  xTaskGroup  group = nullptr;
+  xEventLoop loop  = nullptr;
+  xTaskGroup group = nullptr;
 
   void SetUp() override {
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
 
     xTaskGroupConf conf = {};
-    conf.nthreads = 4;
-    group = xTaskGroupCreate(&conf);
+    conf.nthreads       = 4;
+    group               = xTaskGroupCreate(&conf);
     ASSERT_NE(group, nullptr);
   }
 
   void TearDown() override {
     if (group) xTaskGroupDestroy(group);
-    if (loop)  xEventLoopDestroy(loop);
+    if (loop) xEventLoopDestroy(loop);
   }
 };
 
 /* ───────────────────── Basic offload ───────────────────── */
 
 struct OffloadCtx {
-  std::atomic<bool>     work_done{false};
-  std::atomic<bool>     done_called{false};
+  std::atomic<bool>      work_done{false};
+  std::atomic<bool>      done_called{false};
   std::atomic<pthread_t> work_thread{0};
   std::atomic<pthread_t> done_thread{0};
   void                  *result_ptr{nullptr};
@@ -72,7 +71,8 @@ TEST_F(EventOffloadTest, BasicOffload) {
             xErrno_Ok);
 
   /* Pump the event loop until done_fn fires (max 2 s). */
-  for (int i = 0; i < 200 && !ctx.done_called.load(std::memory_order_acquire); i++) {
+  for (int i = 0; i < 200 && !ctx.done_called.load(std::memory_order_acquire);
+       i++) {
     xEventWait(loop, 10);
   }
 
@@ -140,7 +140,8 @@ TEST_F(EventOffloadTest, ConcurrentSubmits) {
   for (int t = 0; t < THREADS; t++) {
     threads.emplace_back([&]() {
       for (int i = 0; i < PER_THREAD; i++) {
-        xEventLoopSubmit(loop, group,
+        xEventLoopSubmit(
+          loop, group,
           [](void *arg) -> void * {
             auto *ctx = static_cast<SubmitCtx *>(arg);
             ctx->work_cnt->fetch_add(1, std::memory_order_relaxed);
@@ -155,10 +156,12 @@ TEST_F(EventOffloadTest, ConcurrentSubmits) {
     });
   }
 
-  for (auto &th : threads) th.join();
+  for (auto &th : threads)
+    th.join();
 
   /* Pump the event loop until all done callbacks fire. */
-  for (int i = 0; i < 500 && done_count.load(std::memory_order_acquire) < TOTAL; i++) {
+  for (int i = 0; i < 500 && done_count.load(std::memory_order_acquire) < TOTAL;
+       i++) {
     xEventWait(loop, 10);
   }
 
@@ -175,7 +178,8 @@ TEST_F(EventOffloadTest, NullGroupUsesGlobal) {
   ASSERT_EQ(xEventLoopSubmit(loop, nullptr, basic_work, basic_done, &ctx),
             xErrno_Ok);
 
-  for (int i = 0; i < 200 && !ctx.done_called.load(std::memory_order_acquire); i++) {
+  for (int i = 0; i < 200 && !ctx.done_called.load(std::memory_order_acquire);
+       i++) {
     xEventWait(loop, 10);
   }
 
@@ -187,13 +191,11 @@ TEST_F(EventOffloadTest, NullGroupUsesGlobal) {
 /* ───────────────────── Result passing ───────────────────── */
 
 TEST_F(EventOffloadTest, ResultPassedToDoneFn) {
-  static int sentinel = 42;
+  static int        sentinel = 42;
   std::atomic<bool> done{false};
-  void *received_result = nullptr;
+  void             *received_result = nullptr;
 
-  auto work_fn = [](void *) -> void * {
-    return &sentinel;
-  };
+  auto work_fn = [](void *) -> void * { return &sentinel; };
 
   auto done_fn = [](void *arg, void *result) {
     /* arg points to a small struct with the two out-params. */
@@ -201,7 +203,7 @@ TEST_F(EventOffloadTest, ResultPassedToDoneFn) {
       std::atomic<bool> *flag;
       void             **result_slot;
     };
-    auto *out = static_cast<Out *>(arg);
+    auto *out         = static_cast<Out *>(arg);
     *out->result_slot = result;
     out->flag->store(true, std::memory_order_release);
   };
@@ -211,8 +213,7 @@ TEST_F(EventOffloadTest, ResultPassedToDoneFn) {
     void             **result_slot;
   } out{&done, &received_result};
 
-  ASSERT_EQ(xEventLoopSubmit(loop, group, work_fn, done_fn, &out),
-            xErrno_Ok);
+  ASSERT_EQ(xEventLoopSubmit(loop, group, work_fn, done_fn, &out), xErrno_Ok);
 
   for (int i = 0; i < 200 && !done.load(std::memory_order_acquire); i++) {
     xEventWait(loop, 10);

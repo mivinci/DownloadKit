@@ -28,7 +28,7 @@ struct CapturedLog {
 static void capture_callback(const char *msg, const char *backtrace,
                              void *userdata) {
   (void)backtrace;
-  auto *cap    = static_cast<CapturedLog *>(userdata);
+  auto *cap     = static_cast<CapturedLog *>(userdata);
   cap->msg      = msg;
   cap->userdata = userdata;
   cap->count++;
@@ -142,8 +142,8 @@ TEST_F(LogTest, MessageTruncation) {
 TEST(LogThreadTest, ThreadIsolation) {
   std::atomic<bool> t1_done{false};
   std::atomic<bool> t2_done{false};
-  CapturedLog cap1{};
-  CapturedLog cap2{};
+  CapturedLog       cap1{};
+  CapturedLog       cap2{};
 
   std::thread thread1([&]() {
     xLogSetCallback(capture_callback, &cap1);
@@ -203,7 +203,5 @@ TEST(LogThreadTest, NoCallbackInNewThread) {
 /* ========== Fatal abort ========== */
 
 TEST(LogDeathTest, FatalAbortsProcess) {
-  EXPECT_DEATH({
-    xLog(true, "fatal error %d", 42);
-  }, "");
+  EXPECT_DEATH({ xLog(true, "fatal error %d", 42); }, "");
 }

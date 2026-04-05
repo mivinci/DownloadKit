@@ -63,7 +63,9 @@ public:
   explicit MiniSseServer(std::string payload, int delay_ms = 0)
       : payload_(std::move(payload)), delay_ms_(delay_ms) {}
 
-  ~MiniSseServer() { join(); }
+  ~MiniSseServer() {
+    join();
+  }
 
   void start() {
     listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
@@ -72,7 +74,7 @@ public:
     int opt = 1;
     setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    struct sockaddr_in addr{};
+    struct sockaddr_in addr {};
     addr.sin_family      = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port        = 0; /* OS picks a free port */
@@ -97,7 +99,9 @@ public:
     }
   }
 
-  const std::string &url() const { return url_; }
+  const std::string &url() const {
+    return url_;
+  }
 
 private:
   void serve() {
@@ -105,21 +109,19 @@ private:
     if (client_fd < 0) return;
 
     /* Read the HTTP request (we don't care about contents) */
-    char buf[4096];
+    char    buf[4096];
     ssize_t n = read(client_fd, buf, sizeof(buf));
     (void)n;
 
-    if (delay_ms_ > 0)
-      std::this_thread::sleep_for(ms(delay_ms_));
+    if (delay_ms_ > 0) std::this_thread::sleep_for(ms(delay_ms_));
 
     /* Send SSE response */
-    std::string response =
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: text/event-stream\r\n"
-        "Cache-Control: no-cache\r\n"
-        "Connection: close\r\n"
-        "\r\n" +
-        payload_;
+    std::string response = "HTTP/1.1 200 OK\r\n"
+                           "Content-Type: text/event-stream\r\n"
+                           "Cache-Control: no-cache\r\n"
+                           "Connection: close\r\n"
+                           "\r\n" +
+                           payload_;
 
     ssize_t sent = write(client_fd, response.data(), response.size());
     (void)sent;
@@ -129,9 +131,9 @@ private:
   }
 
   std::string payload_;
-  int         delay_ms_ = 0;
+  int         delay_ms_  = 0;
   int         listen_fd_ = -1;
-  int         port_ = 0;
+  int         port_      = 0;
   std::string url_;
   std::thread thread_;
 };
@@ -152,7 +154,7 @@ protected:
 
   void TearDown() override {
     if (client) xHttpClientDestroy(client);
-    if (loop)   xEventLoopDestroy(loop);
+    if (loop) xEventLoopDestroy(loop);
   }
 };
 
@@ -160,8 +162,9 @@ protected:
 
 TEST_F(SseClientTest, NullClientReturnsError) {
   auto cb = [](const xSseEvent *, void *) -> int { return 0; };
-  EXPECT_NE(xHttpClientGetSse(nullptr, "http://localhost/events", cb, nullptr, nullptr),
-            xErrno_Ok);
+  EXPECT_NE(
+    xHttpClientGetSse(nullptr, "http://localhost/events", cb, nullptr, nullptr),
+    xErrno_Ok);
 }
 
 TEST_F(SseClientTest, NullUrlReturnsError) {
@@ -171,8 +174,8 @@ TEST_F(SseClientTest, NullUrlReturnsError) {
 }
 
 TEST_F(SseClientTest, NullOnEventReturnsError) {
-  EXPECT_NE(xHttpClientGetSse(client, "http://localhost/events",
-                               nullptr, nullptr, nullptr),
+  EXPECT_NE(xHttpClientGetSse(client, "http://localhost/events", nullptr,
+                              nullptr, nullptr),
             xErrno_Ok);
 }
 
@@ -197,22 +200,21 @@ static int on_sse_event(const xSseEvent *ev, void *arg) {
 }
 
 static void on_sse_done(int curl_code, void *arg) {
-  auto *ctx = static_cast<SseCtx *>(arg);
+  auto *ctx           = static_cast<SseCtx *>(arg);
   ctx->done_curl_code = curl_code;
   ctx->done.store(true, std::memory_order_release);
 }
 
 TEST_F(SseClientTest, ReceiveSingleEvent) {
-  std::string payload =
-      "data: hello world\n"
-      "\n";
+  std::string payload = "data: hello world\n"
+                        "\n";
 
   MiniSseServer srv(payload);
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(),
-                                  on_sse_event, on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
+                                 on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -224,20 +226,19 @@ TEST_F(SseClientTest, ReceiveSingleEvent) {
 }
 
 TEST_F(SseClientTest, ReceiveMultipleEvents) {
-  std::string payload =
-      "data: first\n"
-      "\n"
-      "data: second\n"
-      "\n"
-      "data: third\n"
-      "\n";
+  std::string payload = "data: first\n"
+                        "\n"
+                        "data: second\n"
+                        "\n"
+                        "data: third\n"
+                        "\n";
 
   MiniSseServer srv(payload);
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(),
-                                  on_sse_event, on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
+                                 on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -250,17 +251,16 @@ TEST_F(SseClientTest, ReceiveMultipleEvents) {
 }
 
 TEST_F(SseClientTest, CustomEventType) {
-  std::string payload =
-      "event: custom_type\n"
-      "data: payload\n"
-      "\n";
+  std::string payload = "event: custom_type\n"
+                        "data: payload\n"
+                        "\n";
 
   MiniSseServer srv(payload);
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(),
-                                  on_sse_event, on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
+                                 on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -272,18 +272,17 @@ TEST_F(SseClientTest, CustomEventType) {
 }
 
 TEST_F(SseClientTest, MultilineData) {
-  std::string payload =
-      "data: line1\n"
-      "data: line2\n"
-      "data: line3\n"
-      "\n";
+  std::string payload = "data: line1\n"
+                        "data: line2\n"
+                        "data: line3\n"
+                        "\n";
 
   MiniSseServer srv(payload);
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(),
-                                  on_sse_event, on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
+                                 on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -294,17 +293,16 @@ TEST_F(SseClientTest, MultilineData) {
 }
 
 TEST_F(SseClientTest, EventWithId) {
-  std::string payload =
-      "id: 42\n"
-      "data: with-id\n"
-      "\n";
+  std::string payload = "id: 42\n"
+                        "data: with-id\n"
+                        "\n";
 
   MiniSseServer srv(payload);
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(),
-                                  on_sse_event, on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
+                                 on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -315,17 +313,16 @@ TEST_F(SseClientTest, EventWithId) {
 }
 
 TEST_F(SseClientTest, CommentLinesIgnored) {
-  std::string payload =
-      ": this is a comment\n"
-      "data: real data\n"
-      "\n";
+  std::string payload = ": this is a comment\n"
+                        "data: real data\n"
+                        "\n";
 
   MiniSseServer srv(payload);
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(),
-                                  on_sse_event, on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
+                                 on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -347,19 +344,17 @@ static int on_sse_event_close_after_2(const xSseEvent *ev, void *arg) {
 }
 
 TEST_F(SseClientTest, UserCloseStopsStream) {
-  std::string payload =
-      "data: one\n\n"
-      "data: two\n\n"
-      "data: three\n\n"
-      "data: four\n\n";
+  std::string payload = "data: one\n\n"
+                        "data: two\n\n"
+                        "data: three\n\n"
+                        "data: four\n\n";
 
   MiniSseServer srv(payload);
   srv.start();
 
   SseCtx ctx;
   xErrno err = xHttpClientGetSse(client, srv.url().c_str(),
-                                  on_sse_event_close_after_2,
-                                  on_sse_done, &ctx);
+                                 on_sse_event_close_after_2, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -372,16 +367,15 @@ TEST_F(SseClientTest, UserCloseStopsStream) {
 /* ───────────────────── on_done callback ───────────────────── */
 
 TEST_F(SseClientTest, OnDoneCalledOnStreamEnd) {
-  std::string payload =
-      "data: hello\n"
-      "\n";
+  std::string payload = "data: hello\n"
+                        "\n";
 
   MiniSseServer srv(payload);
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(),
-                                  on_sse_event, on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
+                                 on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -392,23 +386,21 @@ TEST_F(SseClientTest, OnDoneCalledOnStreamEnd) {
 }
 
 TEST_F(SseClientTest, OnDoneNullDoesNotCrash) {
-  std::string payload =
-      "data: hello\n"
-      "\n";
+  std::string payload = "data: hello\n"
+                        "\n";
 
   MiniSseServer srv(payload);
   srv.start();
 
   std::atomic<int> event_count{0};
-  auto cb = [](const xSseEvent *, void *arg) -> int {
+  auto             cb = [](const xSseEvent *, void *arg) -> int {
     auto *c = static_cast<std::atomic<int> *>(arg);
     c->fetch_add(1, std::memory_order_release);
     return 0;
   };
 
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(),
-                                  cb, nullptr /* on_done = NULL */,
-                                  &event_count);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), cb,
+                                 nullptr /* on_done = NULL */, &event_count);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_count(loop, event_count, 1, 5000);
@@ -430,9 +422,8 @@ TEST(SseLifecycle, DestroyWithInflightSse) {
   ASSERT_NE(c, nullptr);
 
   /* Server that delays before sending — simulates a long-lived stream */
-  std::string payload =
-      "data: delayed\n"
-      "\n";
+  std::string   payload = "data: delayed\n"
+                          "\n";
   MiniSseServer srv(payload, /*delay_ms=*/3000);
   srv.start();
 
@@ -456,14 +447,14 @@ TEST_F(SseClientTest, ConnectionFailureCallsDone) {
   SseCtx ctx;
 
   /* Connect to a port that nobody is listening on */
-  xErrno err = xHttpClientGetSse(client,
-                                  "http://127.0.0.1:1/events",
-                                  on_sse_event, on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, "http://127.0.0.1:1/events",
+                                 on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 10000);
 
-  ASSERT_TRUE(ctx.done.load()) << "on_done was not called on connection failure";
-  EXPECT_NE(ctx.done_curl_code, 0); /* should be a curl error */
+  ASSERT_TRUE(ctx.done.load())
+    << "on_done was not called on connection failure";
+  EXPECT_NE(ctx.done_curl_code, 0);     /* should be a curl error */
   EXPECT_EQ(ctx.event_count.load(), 0); /* no events received */
 }

@@ -19,9 +19,9 @@
 #include <vector>
 
 extern "C" {
-#include <xlog/logger.h>
 #include <xbase/event.h>
 #include <xbase/log.h>
+#include <xlog/logger.h>
 }
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -34,7 +34,7 @@ static void sleep_ms(int n) {
 
 /** Read entire file into a string. */
 static std::string read_file(const char *path) {
-  std::ifstream ifs(path);
+  std::ifstream      ifs(path);
   std::ostringstream oss;
   oss << ifs.rdbuf();
   return oss.str();
@@ -52,8 +52,7 @@ static void cleanup_files(const char *path, int max_files = 10) {
 
 /** Run the event loop for up to `timeout_ms`, pumping events. */
 static void pump_loop(xEventLoop loop, int timeout_ms) {
-  auto deadline =
-      std::chrono::steady_clock::now() + ms(timeout_ms);
+  auto deadline = std::chrono::steady_clock::now() + ms(timeout_ms);
   while (std::chrono::steady_clock::now() < deadline) {
     xEventWait(loop, 10);
   }
@@ -63,7 +62,7 @@ static void pump_loop(xEventLoop loop, int timeout_ms) {
 
 class LoggerTest : public ::testing::Test {
 protected:
-  xEventLoop loop = nullptr;
+  xEventLoop  loop      = nullptr;
   const char *test_path = "/tmp/xlog_test.log";
 
   void SetUp() override {
@@ -82,10 +81,10 @@ protected:
 
 TEST_F(LoggerTest, CreateWithValidConf) {
   xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Timer;
-  conf.level = xLogLevel_Info;
+  conf.loop        = loop;
+  conf.path        = test_path;
+  conf.mode        = xLogMode_Timer;
+  conf.level       = xLogLevel_Info;
 
   xLogger logger = xLoggerCreate(conf);
   ASSERT_NE(logger, nullptr);
@@ -94,8 +93,8 @@ TEST_F(LoggerTest, CreateWithValidConf) {
 
 TEST_F(LoggerTest, CreateWithNullLoopReturnsNull) {
   xLoggerConf conf = {};
-  conf.loop = nullptr;
-  conf.path = test_path;
+  conf.loop        = nullptr;
+  conf.path        = test_path;
 
   xLogger logger = xLoggerCreate(conf);
   EXPECT_EQ(logger, nullptr);
@@ -107,9 +106,9 @@ TEST_F(LoggerTest, DestroyNullIsNoop) {
 
 TEST_F(LoggerTest, CreateStderrMode) {
   xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = nullptr; /* stderr */
-  conf.mode = xLogMode_Timer;
+  conf.loop        = loop;
+  conf.path        = nullptr; /* stderr */
+  conf.mode        = xLogMode_Timer;
 
   xLogger logger = xLoggerCreate(conf);
   ASSERT_NE(logger, nullptr);
@@ -119,11 +118,11 @@ TEST_F(LoggerTest, CreateStderrMode) {
 /* ========== Level Filtering Tests ========== */
 
 TEST_F(LoggerTest, LevelFiltering) {
-  xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Timer;
-  conf.level = xLogLevel_Warn;
+  xLoggerConf conf       = {};
+  conf.loop              = loop;
+  conf.path              = test_path;
+  conf.mode              = xLogMode_Timer;
+  conf.level             = xLogLevel_Warn;
   conf.flush_interval_ms = 10;
 
   xLogger logger = xLoggerCreate(conf);
@@ -152,11 +151,11 @@ TEST_F(LoggerTest, LevelFiltering) {
 /* ========== Timer Mode Tests ========== */
 
 TEST_F(LoggerTest, TimerModeFlush) {
-  xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Timer;
-  conf.level = xLogLevel_Debug;
+  xLoggerConf conf       = {};
+  conf.loop              = loop;
+  conf.path              = test_path;
+  conf.mode              = xLogMode_Timer;
+  conf.level             = xLogLevel_Debug;
   conf.flush_interval_ms = 20;
 
   xLogger logger = xLoggerCreate(conf);
@@ -178,10 +177,10 @@ TEST_F(LoggerTest, TimerModeFlush) {
 
 TEST_F(LoggerTest, NotifyModeFlush) {
   xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Notify;
-  conf.level = xLogLevel_Debug;
+  conf.loop        = loop;
+  conf.path        = test_path;
+  conf.mode        = xLogMode_Notify;
+  conf.level       = xLogLevel_Debug;
 
   xLogger logger = xLoggerCreate(conf);
   ASSERT_NE(logger, nullptr);
@@ -200,11 +199,11 @@ TEST_F(LoggerTest, NotifyModeFlush) {
 /* ========== Mixed Mode Tests ========== */
 
 TEST_F(LoggerTest, MixedModeErrorFlushesImmediately) {
-  xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Mixed;
-  conf.level = xLogLevel_Debug;
+  xLoggerConf conf       = {};
+  conf.loop              = loop;
+  conf.path              = test_path;
+  conf.mode              = xLogMode_Mixed;
+  conf.level             = xLogLevel_Debug;
   conf.flush_interval_ms = 5000; /* Very long timer */
 
   xLogger logger = xLoggerCreate(conf);
@@ -223,11 +222,11 @@ TEST_F(LoggerTest, MixedModeErrorFlushesImmediately) {
 }
 
 TEST_F(LoggerTest, MixedModeDebugWaitsForTimer) {
-  xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Mixed;
-  conf.level = xLogLevel_Debug;
+  xLoggerConf conf       = {};
+  conf.loop              = loop;
+  conf.path              = test_path;
+  conf.mode              = xLogMode_Mixed;
+  conf.level             = xLogLevel_Debug;
   conf.flush_interval_ms = 30;
 
   xLogger logger = xLoggerCreate(conf);
@@ -247,14 +246,14 @@ TEST_F(LoggerTest, MixedModeDebugWaitsForTimer) {
 /* ========== File Rotation Tests ========== */
 
 TEST_F(LoggerTest, FileRotation) {
-  xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Timer;
-  conf.level = xLogLevel_Debug;
+  xLoggerConf conf       = {};
+  conf.loop              = loop;
+  conf.path              = test_path;
+  conf.mode              = xLogMode_Timer;
+  conf.level             = xLogLevel_Debug;
   conf.flush_interval_ms = 10;
-  conf.max_size = 100;  /* Very small to trigger rotation */
-  conf.max_files = 3;   /* Keep path + path.1 + path.2 */
+  conf.max_size          = 100; /* Very small to trigger rotation */
+  conf.max_files         = 3;   /* Keep path + path.1 + path.2 */
 
   xLogger logger = xLoggerCreate(conf);
   ASSERT_NE(logger, nullptr);
@@ -281,14 +280,14 @@ TEST_F(LoggerTest, FileRotation) {
 /* ========== Stderr Output Tests ========== */
 
 TEST_F(LoggerTest, StderrNoRotation) {
-  xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = nullptr; /* stderr */
-  conf.mode = xLogMode_Timer;
-  conf.level = xLogLevel_Debug;
+  xLoggerConf conf       = {};
+  conf.loop              = loop;
+  conf.path              = nullptr; /* stderr */
+  conf.mode              = xLogMode_Timer;
+  conf.level             = xLogLevel_Debug;
   conf.flush_interval_ms = 10;
-  conf.max_size = 10;
-  conf.max_files = 3;
+  conf.max_size          = 10;
+  conf.max_files         = 3;
 
   xLogger logger = xLoggerCreate(conf);
   ASSERT_NE(logger, nullptr);
@@ -304,16 +303,16 @@ TEST_F(LoggerTest, StderrNoRotation) {
 
 TEST_F(LoggerTest, MultiThreadSafety) {
   xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Notify;
-  conf.level = xLogLevel_Debug;
+  conf.loop        = loop;
+  conf.path        = test_path;
+  conf.mode        = xLogMode_Notify;
+  conf.level       = xLogLevel_Debug;
 
   xLogger logger = xLoggerCreate(conf);
   ASSERT_NE(logger, nullptr);
 
-  constexpr int THREADS = 4;
-  constexpr int PER_THREAD = 50;
+  constexpr int    THREADS    = 4;
+  constexpr int    PER_THREAD = 50;
   std::atomic<int> count{0};
 
   /* Spawn writer threads */
@@ -329,11 +328,13 @@ TEST_F(LoggerTest, MultiThreadSafety) {
 
   /* Pump loop while writers are active */
   for (auto &th : threads) {
-    while (!th.joinable()) sleep_ms(1);
+    while (!th.joinable())
+      sleep_ms(1);
   }
 
   /* Wait for all writers to finish */
-  for (auto &th : threads) th.join();
+  for (auto &th : threads)
+    th.join();
 
   /* Pump loop to flush remaining entries */
   pump_loop(loop, 200);
@@ -357,10 +358,10 @@ TEST_F(LoggerTest, MultiThreadSafety) {
 
 TEST_F(LoggerTest, BridgeRedirectsXLog) {
   xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Notify;
-  conf.level = xLogLevel_Debug;
+  conf.loop        = loop;
+  conf.path        = test_path;
+  conf.mode        = xLogMode_Notify;
+  conf.level       = xLogLevel_Debug;
 
   xLogger logger = xLoggerCreate(conf);
   ASSERT_NE(logger, nullptr);
@@ -385,10 +386,10 @@ TEST_F(LoggerTest, BridgeRedirectsXLog) {
 
 TEST_F(LoggerTest, BridgeLeaveRestoresDefault) {
   xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Notify;
-  conf.level = xLogLevel_Debug;
+  conf.loop        = loop;
+  conf.path        = test_path;
+  conf.mode        = xLogMode_Notify;
+  conf.level       = xLogLevel_Debug;
 
   xLogger logger = xLoggerCreate(conf);
   ASSERT_NE(logger, nullptr);
@@ -409,11 +410,11 @@ TEST_F(LoggerTest, BridgeLeaveRestoresDefault) {
 /* ========== Timestamp Format Tests ========== */
 
 TEST_F(LoggerTest, LogEntryContainsTimestamp) {
-  xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Timer;
-  conf.level = xLogLevel_Debug;
+  xLoggerConf conf       = {};
+  conf.loop              = loop;
+  conf.path              = test_path;
+  conf.mode              = xLogMode_Timer;
+  conf.level             = xLogLevel_Debug;
   conf.flush_interval_ms = 10;
 
   xLogger logger = xLoggerCreate(conf);
@@ -435,11 +436,11 @@ TEST_F(LoggerTest, LogEntryContainsTimestamp) {
 /* ========== Default Flush Interval Tests ========== */
 
 TEST_F(LoggerTest, DefaultFlushInterval) {
-  xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Timer;
-  conf.level = xLogLevel_Debug;
+  xLoggerConf conf       = {};
+  conf.loop              = loop;
+  conf.path              = test_path;
+  conf.mode              = xLogMode_Timer;
+  conf.level             = xLogLevel_Debug;
   conf.flush_interval_ms = 0; /* Should use default 50ms */
 
   xLogger logger = xLoggerCreate(conf);
@@ -458,10 +459,10 @@ TEST_F(LoggerTest, DefaultFlushInterval) {
 
 TEST_F(LoggerTest, ContextMacrosUseCurrentLogger) {
   xLoggerConf conf = {};
-  conf.loop = loop;
-  conf.path = test_path;
-  conf.mode = xLogMode_Notify;
-  conf.level = xLogLevel_Debug;
+  conf.loop        = loop;
+  conf.path        = test_path;
+  conf.mode        = xLogMode_Notify;
+  conf.level       = xLogLevel_Debug;
 
   xLogger logger = xLoggerCreate(conf);
   ASSERT_NE(logger, nullptr);

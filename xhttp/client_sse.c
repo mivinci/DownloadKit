@@ -307,24 +307,24 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
 
   /* Method */
   switch (config->method) {
-  case xHttpMethod_POST:
-    curl_easy_setopt(easy, CURLOPT_POST, 1L);
-    break;
-  case xHttpMethod_PUT:
-    curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "PUT");
-    break;
-  case xHttpMethod_DELETE:
-    curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "DELETE");
-    break;
-  case xHttpMethod_PATCH:
-    curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "PATCH");
-    break;
-  case xHttpMethod_HEAD:
-    curl_easy_setopt(easy, CURLOPT_NOBODY, 1L);
-    break;
-  default: /* GET */
-    curl_easy_setopt(easy, CURLOPT_HTTPGET, 1L);
-    break;
+    case xHttpMethod_POST:
+      curl_easy_setopt(easy, CURLOPT_POST, 1L);
+      break;
+    case xHttpMethod_PUT:
+      curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "PUT");
+      break;
+    case xHttpMethod_DELETE:
+      curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "DELETE");
+      break;
+    case xHttpMethod_PATCH:
+      curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "PATCH");
+      break;
+    case xHttpMethod_HEAD:
+      curl_easy_setopt(easy, CURLOPT_NOBODY, 1L);
+      break;
+    default: /* GET */
+      curl_easy_setopt(easy, CURLOPT_HTTPGET, 1L);
+      break;
   }
 
   /* Body — make a copy so the caller doesn't need to keep it alive */
@@ -355,24 +355,37 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
     if (ver != xHttpVersion_Default) {
       long curl_ver = 0;
       switch (ver) {
-      case xHttpVersion_H1:
-        curl_ver = CURL_HTTP_VERSION_1_1;
-        break;
-      case xHttpVersion_H2:
-        curl_ver = CURL_HTTP_VERSION_2;
-        break;
-      case xHttpVersion_H2TLS:
-        curl_ver = CURL_HTTP_VERSION_2TLS;
-        break;
-      case xHttpVersion_H2C:
-        curl_ver = CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE;
-        break;
-      default:
-        break;
+        case xHttpVersion_H1:
+          curl_ver = CURL_HTTP_VERSION_1_1;
+          break;
+        case xHttpVersion_H2:
+          curl_ver = CURL_HTTP_VERSION_2;
+          break;
+        case xHttpVersion_H2TLS:
+          curl_ver = CURL_HTTP_VERSION_2TLS;
+          break;
+        case xHttpVersion_H2C:
+          curl_ver = CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE;
+          break;
+        default:
+          break;
       }
       if (curl_ver) curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, curl_ver);
     }
   }
+
+  /* Apply TLS configuration */
+  if (c->tls_skip_verify) {
+    curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
+  }
+  if (c->tls_ca_path) curl_easy_setopt(easy, CURLOPT_CAINFO, c->tls_ca_path);
+  if (c->tls_client_cert)
+    curl_easy_setopt(easy, CURLOPT_SSLCERT, c->tls_client_cert);
+  if (c->tls_client_key)
+    curl_easy_setopt(easy, CURLOPT_SSLKEY, c->tls_client_key);
+  if (c->tls_key_password)
+    curl_easy_setopt(easy, CURLOPT_KEYPASSWD, c->tls_key_password);
 
   CURLMcode mc = curl_multi_add_handle(c->multi, easy);
   if (mc != CURLM_OK) goto fail_easy;

@@ -8,20 +8,20 @@
 
 #include <xbuf/ring.h>
 
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/uio.h>
-#include <errno.h>
 #include <unistd.h>
 
 /* ───────────────────── Types ───────────────────── */
 
 XDEF_STRUCT(xRingBuffer_) {
-  size_t cap;  /* Allocated capacity (power of two)    */
-  size_t mask; /* cap - 1, for fast modulo             */
-  size_t head; /* Write cursor (monotonic)             */
-  size_t tail; /* Read cursor  (monotonic)             */
+  size_t cap;    /* Allocated capacity (power of two)    */
+  size_t mask;   /* cap - 1, for fast modulo             */
+  size_t head;   /* Write cursor (monotonic)             */
+  size_t tail;   /* Read cursor  (monotonic)             */
   char   data[]; /* Inline data storage (flexible array member) */
 };
 
@@ -34,8 +34,7 @@ static size_t next_pow2(size_t v) {
    * power of two, clamp to that value.  We cannot return SIZE_MAX
    * because the ring buffer relies on (cap - 1) as a bitmask, which
    * requires cap to be an exact power of two. */
-  if (v > (SIZE_MAX >> 1) + 1)
-    return (SIZE_MAX >> 1) + 1;
+  if (v > (SIZE_MAX >> 1) + 1) return (SIZE_MAX >> 1) + 1;
   v--;
   v |= v >> 1;
   v |= v >> 2;
@@ -52,16 +51,14 @@ static size_t next_pow2(size_t v) {
 
 xRingBuffer xRingBufferCreate(size_t min_cap) {
   xRingBuffer_ *rb;
-  size_t            cap;
+  size_t        cap;
 
-  if (min_cap == 0)
-    return NULL;
+  if (min_cap == 0) return NULL;
 
   cap = next_pow2(min_cap);
 
   rb = (xRingBuffer_ *)malloc(sizeof(xRingBuffer_) + cap);
-  if (!rb)
-    return NULL;
+  if (!rb) return NULL;
 
   rb->cap  = cap;
   rb->mask = cap - 1;
@@ -76,8 +73,7 @@ void xRingBufferDestroy(xRingBuffer rb) {
 
 void xRingBufferReset(xRingBuffer rb) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  if (!r)
-    return;
+  if (!r) return;
   r->head = 0;
   r->tail = 0;
 }
@@ -118,16 +114,13 @@ bool xRingBufferFull(xRingBuffer rb) {
 
 xErrno xRingBufferWrite(xRingBuffer rb, const void *data, size_t len) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  size_t writable, pos, first, second;
+  size_t        writable, pos, first, second;
 
-  if (!r)
-    return xErrno_InvalidArg;
-  if (len == 0)
-    return xErrno_Ok;
+  if (!r) return xErrno_InvalidArg;
+  if (len == 0) return xErrno_Ok;
 
   writable = r->cap - (r->head - r->tail);
-  if (len > writable)
-    return xErrno_NoMemory;
+  if (len > writable) return xErrno_NoMemory;
 
   pos   = r->head & r->mask;
   first = r->cap - pos; /* bytes until wrap */
@@ -154,10 +147,8 @@ static size_t ring_copy_out(const xRingBuffer_ *r, void *out, size_t len) {
   size_t readable, pos, first;
 
   readable = r->head - r->tail;
-  if (len > readable)
-    len = readable;
-  if (len == 0)
-    return 0;
+  if (len > readable) len = readable;
+  if (len == 0) return 0;
 
   pos   = r->tail & r->mask;
   first = r->cap - pos;
@@ -173,7 +164,7 @@ static size_t ring_copy_out(const xRingBuffer_ *r, void *out, size_t len) {
 
 size_t xRingBufferRead(xRingBuffer rb, void *out, size_t len) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  size_t n;
+  size_t        n;
   if (!r) return 0;
   n = ring_copy_out(r, out, len);
   r->tail += n;
@@ -188,11 +179,10 @@ size_t xRingBufferPeek(xRingBuffer rb, void *out, size_t len) {
 
 size_t xRingBufferDiscard(xRingBuffer rb, size_t n) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  size_t readable;
+  size_t        readable;
   if (!r) return 0;
   readable = r->head - r->tail;
-  if (n > readable)
-    n = readable;
+  if (n > readable) n = readable;
   r->tail += n;
   return n;
 }
@@ -201,13 +191,12 @@ size_t xRingBufferDiscard(xRingBuffer rb, size_t n) {
 
 int xRingBufferReadIov(xRingBuffer rb, struct iovec iov[2]) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  size_t readable, pos, first;
+  size_t        readable, pos, first;
 
   if (!r) return 0;
 
   readable = r->head - r->tail;
-  if (readable == 0)
-    return 0;
+  if (readable == 0) return 0;
 
   pos   = r->tail & r->mask;
   first = r->cap - pos;
@@ -227,13 +216,12 @@ int xRingBufferReadIov(xRingBuffer rb, struct iovec iov[2]) {
 
 int xRingBufferWriteIov(xRingBuffer rb, struct iovec iov[2]) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  size_t writable, pos, first;
+  size_t        writable, pos, first;
 
   if (!r) return 0;
 
   writable = r->cap - (r->head - r->tail);
-  if (writable == 0)
-    return 0;
+  if (writable == 0) return 0;
 
   pos   = r->head & r->mask;
   first = r->cap - pos;
@@ -253,40 +241,36 @@ int xRingBufferWriteIov(xRingBuffer rb, struct iovec iov[2]) {
 
 ssize_t xRingBufferReadFd(xRingBuffer rb, int fd) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  struct iovec iov[2];
-  ssize_t      n;
-  int          cnt;
+  struct iovec  iov[2];
+  ssize_t       n;
+  int           cnt;
 
   if (!r) return -1;
 
   cnt = xRingBufferWriteIov(rb, iov);
-  if (cnt == 0)
-    return 0; /* full */
+  if (cnt == 0) return 0; /* full */
 
   do {
     n = readv(fd, iov, cnt);
   } while (n < 0 && errno == EINTR);
-  if (n > 0)
-    r->head += (size_t)n;
+  if (n > 0) r->head += (size_t)n;
   return n;
 }
 
 ssize_t xRingBufferWriteFd(xRingBuffer rb, int fd) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  struct iovec iov[2];
-  ssize_t      n;
-  int          cnt;
+  struct iovec  iov[2];
+  ssize_t       n;
+  int           cnt;
 
   if (!r) return -1;
 
   cnt = xRingBufferReadIov(rb, iov);
-  if (cnt == 0)
-    return 0; /* empty */
+  if (cnt == 0) return 0; /* empty */
 
   do {
     n = writev(fd, iov, cnt);
   } while (n < 0 && errno == EINTR);
-  if (n > 0)
-    r->tail += (size_t)n;
+  if (n > 0) r->tail += (size_t)n;
   return n;
 }

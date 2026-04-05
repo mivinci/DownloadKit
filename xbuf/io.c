@@ -6,17 +6,17 @@
  * io.c - Reference-counted block-chain I/O buffer implementation
  */
 
-#include <xbuf/io.h>
 #include <xbase/atomic.h>
+#include <xbuf/io.h>
 
+#include <assert.h>
+#include <errno.h>
+#include <limits.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/uio.h>
-#include <errno.h>
-#include <pthread.h>
-#include <limits.h>
-#include <assert.h>
+#include <unistd.h>
 
 /* ═══════════════════════════════════════════════════════
  *  Block pool — lock-free stack (Treiber stack)
@@ -24,8 +24,9 @@
 
 /*
  * PoolNode_ overlays xIOBlock to form a lock-free Treiber stack.
- * Only the first pointer-sized field (reused as `next`) is accessed in pool state.
- * When a block is in the pool, refs/size/data are stale and must not be read.
+ * Only the first pointer-sized field (reused as `next`) is accessed in pool
+ * state. When a block is in the pool, refs/size/data are stale and must not be
+ * read.
  */
 XDEF_STRUCT(PoolNode_) {
   PoolNode_ *next;
@@ -37,7 +38,7 @@ static void pool_push(xIOBlock *blk) {
   PoolNode_ *node = (PoolNode_ *)blk; /* reuse block memory as node */
   PoolNode_ *head;
   do {
-    head = xAtomicLoad(&g_pool_head, xAtomicAcquire);
+    head       = xAtomicLoad(&g_pool_head, xAtomicAcquire);
     node->next = head;
   } while (!xAtomicCasWeak(&g_pool_head, &head, node, xAtomicRelease));
 }
@@ -47,8 +48,7 @@ static xIOBlock *pool_pop(void) {
   PoolNode_ *next;
   do {
     head = xAtomicLoad(&g_pool_head, xAtomicAcquire);
-    if (!head)
-      return NULL;
+    if (!head) return NULL;
     next = head->next;
   } while (!xAtomicCasWeak(&g_pool_head, &head, next, xAtomicRelease));
   return (xIOBlock *)head;
@@ -62,8 +62,7 @@ xIOBlock *xIOBlockAcquire(void) {
   xIOBlock *blk = pool_pop();
   if (!blk) {
     blk = (xIOBlock *)malloc(sizeof(xIOBlock));
-    if (!blk)
-      return NULL;
+    if (!blk) return NULL;
   }
   blk->refs = 1;
   blk->size = 0;
@@ -86,8 +85,7 @@ xErrno xIOBlockPoolWarmup(size_t n) {
   size_t i;
   for (i = 0; i < n; i++) {
     xIOBlock *blk = (xIOBlock *)malloc(sizeof(xIOBlock));
-    if (!blk)
-      return xErrno_NoMemory;
+    if (!blk) return xErrno_NoMemory;
     blk->refs = 0;
     pool_push(blk);
   }
@@ -117,11 +115,10 @@ void xIOBlockPoolDrain(void) {
  * ═══════════════════════════════════════════════════════ */
 
 static xErrno iobuf_grow_refs(xIOBuffer *io, size_t needed) {
-  size_t     newcap;
+  size_t        newcap;
   xIOBufferRef *newrefs;
 
-  if (needed <= io->cap)
-    return xErrno_Ok;
+  if (needed <= io->cap) return xErrno_Ok;
 
   newcap = io->cap ? io->cap * 2 : XIOBUFFER_INLINE_REFS;
   while (newcap < needed)
@@ -130,14 +127,12 @@ static xErrno iobuf_grow_refs(xIOBuffer *io, size_t needed) {
   if (io->refs == io->inlined) {
     /* Transition from inline to heap. */
     newrefs = (xIOBufferRef *)malloc(newcap * sizeof(xIOBufferRef));
-    if (!newrefs)
-      return xErrno_NoMemory;
+    if (!newrefs) return xErrno_NoMemory;
     if (io->nrefs > 0)
       memcpy(newrefs, io->inlined, io->nrefs * sizeof(xIOBufferRef));
   } else {
     newrefs = (xIOBufferRef *)realloc(io->refs, newcap * sizeof(xIOBufferRef));
-    if (!newrefs)
-      return xErrno_NoMemory;
+    if (!newrefs) return xErrno_NoMemory;
   }
 
   io->refs = newrefs;
@@ -150,31 +145,26 @@ static xErrno iobuf_grow_refs(xIOBuffer *io, size_t needed) {
  * If `adjust_nbytes` is true, io->nbytes is incremented by `length`.
  * Callers that manage nbytes externally (e.g. xIOBufferCut) pass false.
  */
-static xErrno iobuf_push_ref(xIOBuffer *io, xIOBlock *blk,
-                              size_t offset, size_t length,
-                              bool adjust_nbytes) {
+static xErrno iobuf_push_ref(xIOBuffer *io, xIOBlock *blk, size_t offset,
+                             size_t length, bool adjust_nbytes) {
   xErrno err;
 
-  if (length == 0)
-    return xErrno_Ok;
+  if (length == 0) return xErrno_Ok;
 
   err = iobuf_grow_refs(io, io->nrefs + 1);
-  if (err != xErrno_Ok)
-    return err;
+  if (err != xErrno_Ok) return err;
 
   io->refs[io->nrefs].block  = blk;
   io->refs[io->nrefs].offset = offset;
   io->refs[io->nrefs].length = length;
   io->nrefs++;
-  if (adjust_nbytes)
-    io->nbytes += length;
+  if (adjust_nbytes) io->nbytes += length;
   return xErrno_Ok;
 }
 
 /** Remove the first `count` refs, shifting the rest down. */
 static void iobuf_shift_refs(xIOBuffer *io, size_t count) {
-  if (count == 0)
-    return;
+  if (count == 0) return;
   if (count >= io->nrefs) {
     io->nrefs = 0;
     return;
@@ -203,8 +193,7 @@ void xIOBufferDeinit(xIOBuffer *io) {
   for (i = 0; i < io->nrefs; i++)
     xIOBlockRelease(io->refs[i].block);
 
-  if (io->refs != io->inlined)
-    free(io->refs);
+  if (io->refs != io->inlined) free(io->refs);
 
   io->refs   = io->inlined;
   io->nrefs  = 0;
@@ -244,16 +233,14 @@ size_t xIOBufferRefCount(const xIOBuffer *io) {
  * ═══════════════════════════════════════════════════════ */
 
 xErrno xIOBufferAppend(xIOBuffer *io, const void *data, size_t len) {
-  const char *src = (const char *)data;
-  xIOBufferRef  *tail;
-  xIOBlock   *blk;
-  size_t      avail, chunk;
-  xErrno      err;
+  const char   *src = (const char *)data;
+  xIOBufferRef *tail;
+  xIOBlock     *blk;
+  size_t        avail, chunk;
+  xErrno        err;
 
-  if (!io)
-    return xErrno_InvalidArg;
-  if (len == 0)
-    return xErrno_Ok;
+  if (!io) return xErrno_InvalidArg;
+  if (len == 0) return xErrno_Ok;
 
   /* Try to fill the tail block's remaining space first. */
   if (io->nrefs > 0) {
@@ -263,7 +250,7 @@ xErrno xIOBufferAppend(xIOBuffer *io, const void *data, size_t len) {
       chunk = len < avail ? len : avail;
       memcpy(tail->block->data + tail->offset + tail->length, src, chunk);
       tail->length += chunk;
-      io->nbytes   += chunk;
+      io->nbytes += chunk;
       src += chunk;
       len -= chunk;
     }
@@ -272,8 +259,7 @@ xErrno xIOBufferAppend(xIOBuffer *io, const void *data, size_t len) {
   /* Allocate new blocks for the remaining data. */
   while (len > 0) {
     blk = xIOBlockAcquire();
-    if (!blk)
-      return xErrno_NoMemory;
+    if (!blk) return xErrno_NoMemory;
 
     chunk = len < XIOBUFFER_BLOCK_SIZE ? len : XIOBUFFER_BLOCK_SIZE;
     memcpy(blk->data, src, chunk);
@@ -293,8 +279,7 @@ xErrno xIOBufferAppend(xIOBuffer *io, const void *data, size_t len) {
 }
 
 xErrno xIOBufferAppendStr(xIOBuffer *io, const char *str) {
-  if (!io || !str)
-    return xErrno_InvalidArg;
+  if (!io || !str) return xErrno_InvalidArg;
   return xIOBufferAppend(io, str, strlen(str));
 }
 
@@ -302,20 +287,17 @@ xErrno xIOBufferAppendIOBuffer(xIOBuffer *io, xIOBuffer *other) {
   xErrno err;
   size_t i;
 
-  if (!io || !other)
-    return xErrno_InvalidArg;
-  if (other->nrefs == 0)
-    return xErrno_Ok;
+  if (!io || !other) return xErrno_InvalidArg;
+  if (other->nrefs == 0) return xErrno_Ok;
 
   err = iobuf_grow_refs(io, io->nrefs + other->nrefs);
-  if (err != xErrno_Ok)
-    return err;
+  if (err != xErrno_Ok) return err;
 
   /* Transfer refs (no refcount bump — ownership moves). */
   for (i = 0; i < other->nrefs; i++)
     io->refs[io->nrefs + i] = other->refs[i];
 
-  io->nrefs  += other->nrefs;
+  io->nrefs += other->nrefs;
   io->nbytes += other->nbytes;
 
   /* Clear other without releasing blocks (ownership transferred). */
@@ -330,23 +312,20 @@ xErrno xIOBufferAppendIOBuffer(xIOBuffer *io, xIOBuffer *other) {
  * ═══════════════════════════════════════════════════════ */
 
 size_t xIOBufferRead(xIOBuffer *io, void *out, size_t len) {
-  char      *dst = (char *)out;
-  size_t     total = 0;
-  size_t     shift = 0;
-  size_t     chunk;
+  char         *dst   = (char *)out;
+  size_t        total = 0;
+  size_t        shift = 0;
+  size_t        chunk;
   xIOBufferRef *ref;
 
-  if (!io || !out || len == 0)
-    return 0;
+  if (!io || !out || len == 0) return 0;
 
-  if (len > io->nbytes)
-    len = io->nbytes;
+  if (len > io->nbytes) len = io->nbytes;
 
   while (total < len && shift < io->nrefs) {
     ref   = &io->refs[shift];
     chunk = ref->length;
-    if (chunk > len - total)
-      chunk = len - total;
+    if (chunk > len - total) chunk = len - total;
 
     memcpy(dst + total, ref->block->data + ref->offset, chunk);
     total += chunk;
@@ -362,25 +341,22 @@ size_t xIOBufferRead(xIOBuffer *io, void *out, size_t len) {
     }
   }
 
-  if (shift > 0)
-    iobuf_shift_refs(io, shift);
+  if (shift > 0) iobuf_shift_refs(io, shift);
 
   io->nbytes -= total;
   return total;
 }
 
 size_t xIOBufferCut(xIOBuffer *io, xIOBuffer *dst, size_t n) {
-  size_t     total = 0;
-  size_t     shift = 0;
-  size_t     chunk;
+  size_t        total = 0;
+  size_t        shift = 0;
+  size_t        chunk;
   xIOBufferRef *ref;
-  xErrno     err;
+  xErrno        err;
 
-  if (!io || !dst || n == 0)
-    return 0;
+  if (!io || !dst || n == 0) return 0;
 
-  if (n > io->nbytes)
-    n = io->nbytes;
+  if (n > io->nbytes) n = io->nbytes;
 
   while (total < n && shift < io->nrefs) {
     ref   = &io->refs[shift];
@@ -389,8 +365,7 @@ size_t xIOBufferCut(xIOBuffer *io, xIOBuffer *dst, size_t n) {
     if (chunk <= n - total) {
       /* Move entire ref to dst (transfer ownership, no refcount change). */
       err = iobuf_push_ref(dst, ref->block, ref->offset, ref->length, false);
-      if (err != xErrno_Ok)
-        break;
+      if (err != xErrno_Ok) break;
       total += chunk;
       shift++;
     } else {
@@ -409,25 +384,22 @@ size_t xIOBufferCut(xIOBuffer *io, xIOBuffer *dst, size_t n) {
   }
 
   /* Shift consumed refs out of io. */
-  if (shift > 0)
-    iobuf_shift_refs(io, shift);
+  if (shift > 0) iobuf_shift_refs(io, shift);
 
-  io->nbytes  -= total;
+  io->nbytes -= total;
   dst->nbytes += total;
   return total;
 }
 
 size_t xIOBufferConsume(xIOBuffer *io, size_t n) {
-  size_t     total = 0;
-  size_t     shift = 0;
-  size_t     chunk;
+  size_t        total = 0;
+  size_t        shift = 0;
+  size_t        chunk;
   xIOBufferRef *ref;
 
-  if (!io || n == 0)
-    return 0;
+  if (!io || n == 0) return 0;
 
-  if (n > io->nbytes)
-    n = io->nbytes;
+  if (n > io->nbytes) n = io->nbytes;
 
   while (total < n && shift < io->nrefs) {
     ref   = &io->refs[shift];
@@ -445,8 +417,7 @@ size_t xIOBufferConsume(xIOBuffer *io, size_t n) {
     }
   }
 
-  if (shift > 0)
-    iobuf_shift_refs(io, shift);
+  if (shift > 0) iobuf_shift_refs(io, shift);
 
   io->nbytes -= total;
   return total;
@@ -457,12 +428,11 @@ size_t xIOBufferConsume(xIOBuffer *io, size_t n) {
  * ═══════════════════════════════════════════════════════ */
 
 size_t xIOBufferCopyTo(const xIOBuffer *io, void *out) {
-  char   *dst = (char *)out;
-  size_t  total = 0;
-  size_t  i;
+  char  *dst   = (char *)out;
+  size_t total = 0;
+  size_t i;
 
-  if (!io || !out)
-    return 0;
+  if (!io || !out) return 0;
 
   for (i = 0; i < io->nrefs; i++) {
     const xIOBufferRef *ref = &io->refs[i];
@@ -480,13 +450,11 @@ int xIOBufferReadIov(const xIOBuffer *io, struct iovec *iov, int max_iov) {
   int    cnt = 0;
   size_t i;
 
-  if (!io || !iov || max_iov <= 0)
-    return 0;
+  if (!io || !iov || max_iov <= 0) return 0;
 
   for (i = 0; i < io->nrefs && cnt < max_iov; i++) {
     const xIOBufferRef *ref = &io->refs[i];
-    if (ref->length == 0)
-      continue;
+    if (ref->length == 0) continue;
     iov[cnt].iov_base = ref->block->data + ref->offset;
     iov[cnt].iov_len  = ref->length;
     cnt++;
@@ -495,14 +463,13 @@ int xIOBufferReadIov(const xIOBuffer *io, struct iovec *iov, int max_iov) {
 }
 
 ssize_t xIOBufferReadFd(xIOBuffer *io, int fd) {
-  xIOBlock  *blk;
+  xIOBlock     *blk;
   xIOBufferRef *tail;
-  size_t     avail;
-  ssize_t    n;
-  xErrno     err;
+  size_t        avail;
+  ssize_t       n;
+  xErrno        err;
 
-  if (!io)
-    return -1;
+  if (!io) return -1;
 
   /* Try to read into the tail block's remaining space. */
   if (io->nrefs > 0) {
@@ -514,7 +481,7 @@ ssize_t xIOBufferReadFd(xIOBuffer *io, int fd) {
       } while (n < 0 && errno == EINTR);
       if (n > 0) {
         tail->length += (size_t)n;
-        io->nbytes   += (size_t)n;
+        io->nbytes += (size_t)n;
       }
       return n;
     }
@@ -522,8 +489,7 @@ ssize_t xIOBufferReadFd(xIOBuffer *io, int fd) {
 
   /* Allocate a new block. */
   blk = xIOBlockAcquire();
-  if (!blk)
-    return -1;
+  if (!blk) return -1;
 
   do {
     n = read(fd, blk->data, XIOBUFFER_BLOCK_SIZE);
@@ -534,7 +500,7 @@ ssize_t xIOBufferReadFd(xIOBuffer *io, int fd) {
   }
 
   blk->size = (size_t)n;
-  err = iobuf_push_ref(io, blk, 0, (size_t)n, true);
+  err       = iobuf_push_ref(io, blk, 0, (size_t)n, true);
   if (err != xErrno_Ok) {
     xIOBlockRelease(blk);
     return -1;
@@ -551,17 +517,14 @@ ssize_t xIOBufferWriteFd(xIOBuffer *io, int fd) {
   int          cnt;
   ssize_t      n;
 
-  if (!io)
-    return -1;
+  if (!io) return -1;
 
   cnt = xIOBufferReadIov(io, iov, (int)(sizeof(iov) / sizeof(iov[0])));
-  if (cnt == 0)
-    return 0;
+  if (cnt == 0) return 0;
 
   do {
     n = writev(fd, iov, cnt);
   } while (n < 0 && errno == EINTR);
-  if (n > 0)
-    xIOBufferConsume(io, (size_t)n);
+  if (n > 0) xIOBufferConsume(io, (size_t)n);
   return n;
 }

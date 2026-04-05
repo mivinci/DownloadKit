@@ -16,16 +16,16 @@
 /* ───────────────────── Internal structure ───────────────────── */
 
 struct xSocket_ {
-  int              fd;
-  xEventLoop       loop;
-  xEventSource     source;
-  xEventMask       mask;
-  xSocketFunc      callback;
-  void            *userp;
-  xEventTimer      read_timer;
-  xEventTimer      write_timer;
-  int              read_timeout_ms;
-  int              write_timeout_ms;
+  int          fd;
+  xEventLoop   loop;
+  xEventSource source;
+  xEventMask   mask;
+  xSocketFunc  callback;
+  void        *userp;
+  xEventTimer  read_timer;
+  xEventTimer  write_timer;
+  int          read_timeout_ms;
+  int          write_timeout_ms;
 };
 
 /* ───────────────────── Forward declarations ───────────────────── */
@@ -45,10 +45,8 @@ static void trampoline(int fd, xEventMask mask, void *arg) {
   (void)fd;
 
   /* Reset idle timers on normal I/O events */
-  if (mask & xEvent_Read)
-    reset_read_timer(s);
-  if (mask & xEvent_Write)
-    reset_write_timer(s);
+  if (mask & xEvent_Read) reset_read_timer(s);
+  if (mask & xEvent_Write) reset_write_timer(s);
 
   s->callback((xSocket)s, mask, s->userp);
 }
@@ -57,14 +55,14 @@ static void trampoline(int fd, xEventMask mask, void *arg) {
 
 static void read_timeout_cb(void *arg) {
   struct xSocket_ *s = (struct xSocket_ *)arg;
-  s->read_timer = NULL;
+  s->read_timer      = NULL;
   /* Or xEvent_Read so user knows which direction timed out */
   s->callback((xSocket)s, xEvent_Timeout | xEvent_Read, s->userp);
 }
 
 static void write_timeout_cb(void *arg) {
   struct xSocket_ *s = (struct xSocket_ *)arg;
-  s->write_timer = NULL;
+  s->write_timer     = NULL;
   /* Or xEvent_Write so user knows which direction timed out */
   s->callback((xSocket)s, xEvent_Timeout | xEvent_Write, s->userp);
 }
@@ -89,14 +87,14 @@ static void reset_read_timer(struct xSocket_ *s) {
   if (s->read_timeout_ms <= 0) return;
   cancel_read_timer(s);
   s->read_timer = xEventLoopTimerAfter(s->loop, read_timeout_cb, s,
-                                        (uint64_t)s->read_timeout_ms);
+                                       (uint64_t)s->read_timeout_ms);
 }
 
 static void reset_write_timer(struct xSocket_ *s) {
   if (s->write_timeout_ms <= 0) return;
   cancel_write_timer(s);
   s->write_timer = xEventLoopTimerAfter(s->loop, write_timeout_cb, s,
-                                         (uint64_t)s->write_timeout_ms);
+                                        (uint64_t)s->write_timeout_ms);
 }
 
 /* ───────────────────── Lifecycle ───────────────────── */
@@ -130,10 +128,8 @@ fail:
 #endif
 }
 
-xSocket xSocketCreate(xEventLoop loop,
-                       int family, int type, int protocol,
-                       xEventMask mask,
-                       xSocketFunc callback, void *userp) {
+xSocket xSocketCreate(xEventLoop loop, int family, int type, int protocol,
+                      xEventMask mask, xSocketFunc callback, void *userp) {
   if (!loop || !callback) return NULL;
 
   struct xSocket_ *s = (struct xSocket_ *)calloc(1, sizeof(*s));
@@ -145,12 +141,12 @@ xSocket xSocketCreate(xEventLoop loop,
   xEventSource src = xEventAdd(loop, fd, mask, trampoline, s);
   if (!src) goto fail_fd;
 
-  s->fd               = fd;
-  s->loop             = loop;
-  s->source           = src;
-  s->mask             = mask;
-  s->callback         = callback;
-  s->userp            = userp;
+  s->fd       = fd;
+  s->loop     = loop;
+  s->source   = src;
+  s->mask     = mask;
+  s->callback = callback;
+  s->userp    = userp;
 
   return (xSocket)s;
 
@@ -161,9 +157,8 @@ fail:
   return NULL;
 }
 
-xSocket xSocketCreateFromFd(xEventLoop loop, int fd,
-                              xEventMask mask,
-                              xSocketFunc callback, void *userp) {
+xSocket xSocketCreateFromFd(xEventLoop loop, int fd, xEventMask mask,
+                            xSocketFunc callback, void *userp) {
   if (!loop || !callback || fd < 0) return NULL;
 
   /* Ensure non-blocking + close-on-exec */
@@ -177,14 +172,17 @@ xSocket xSocketCreateFromFd(xEventLoop loop, int fd,
   if (!s) return NULL;
 
   xEventSource src = xEventAdd(loop, fd, mask, trampoline, s);
-  if (!src) { free(s); return NULL; }
+  if (!src) {
+    free(s);
+    return NULL;
+  }
 
-  s->fd               = fd;
-  s->loop             = loop;
-  s->source           = src;
-  s->mask             = mask;
-  s->callback         = callback;
-  s->userp            = userp;
+  s->fd       = fd;
+  s->loop     = loop;
+  s->source   = src;
+  s->mask     = mask;
+  s->callback = callback;
+  s->userp    = userp;
 
   return (xSocket)s;
 }
@@ -208,15 +206,14 @@ xErrno xSocketSetMask(xEventLoop loop, xSocket sock, xEventMask mask) {
   struct xSocket_ *s = (struct xSocket_ *)sock;
 
   xErrno err = xEventMod(loop, s->source, mask);
-  if (err == xErrno_Ok)
-    s->mask = mask;
+  if (err == xErrno_Ok) s->mask = mask;
   return err;
 }
 
 /* ───────────────────── Timeout ───────────────────── */
 
-xErrno xSocketSetTimeout(xSocket sock,
-                          int read_timeout_ms, int write_timeout_ms) {
+xErrno xSocketSetTimeout(xSocket sock, int read_timeout_ms,
+                         int write_timeout_ms) {
   if (!sock) return xErrno_InvalidArg;
   struct xSocket_ *s = (struct xSocket_ *)sock;
 
@@ -225,7 +222,7 @@ xErrno xSocketSetTimeout(xSocket sock,
   if (read_timeout_ms > 0) {
     cancel_read_timer(s);
     s->read_timer = xEventLoopTimerAfter(s->loop, read_timeout_cb, s,
-                                          (uint64_t)read_timeout_ms);
+                                         (uint64_t)read_timeout_ms);
   } else {
     cancel_read_timer(s);
   }
@@ -235,7 +232,7 @@ xErrno xSocketSetTimeout(xSocket sock,
   if (write_timeout_ms > 0) {
     cancel_write_timer(s);
     s->write_timer = xEventLoopTimerAfter(s->loop, write_timeout_cb, s,
-                                           (uint64_t)write_timeout_ms);
+                                          (uint64_t)write_timeout_ms);
   } else {
     cancel_write_timer(s);
   }

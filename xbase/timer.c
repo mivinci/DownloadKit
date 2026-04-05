@@ -6,9 +6,9 @@
  * timer.c - Monotonic timer implementation
  */
 
-#include <xbase/timer.h>
 #include <xbase/heap.h>
 #include <xbase/mpsc.h>
+#include <xbase/timer.h>
 
 #include <pthread.h>
 #include <stdlib.h>
@@ -17,32 +17,32 @@
 
 /* ───────────────────── Internal types ───────────────────── */
 
-#define TIMER_INVALID_IDX ((size_t)-1)
+#define TIMER_INVALID_IDX ((size_t) - 1)
 
 struct xTimerTask_ {
-  xMpsc        node;      /* intrusive MPSC node; xContainerOf is used to   */
-                          /* recover the enclosing struct, so this field may */
-                          /* appear anywhere in the layout                   */
-  uint64_t     deadline;  /* expiry time in ms, CLOCK_MONOTONIC             */
-  xTimerFunc   fn;
-  void        *arg;
-  size_t       heap_idx;  /* current position in the min-heap;              */
-                          /* TIMER_INVALID_IDX when not in the heap          */
-  int          cancelled; /* set to 1 under mu before removing from heap    */
+  xMpsc node;          /* intrusive MPSC node; xContainerOf is used to   */
+                       /* recover the enclosing struct, so this field may */
+                       /* appear anywhere in the layout                   */
+  uint64_t   deadline; /* expiry time in ms, CLOCK_MONOTONIC             */
+  xTimerFunc fn;
+  void      *arg;
+  size_t     heap_idx; /* current position in the min-heap;              */
+                       /* TIMER_INVALID_IDX when not in the heap          */
+  int cancelled;       /* set to 1 under mu before removing from heap    */
 };
 
 struct xTimer_ {
-  xHeap            heap;      /* min-heap ordered by deadline               */
-  xTaskGroup       group;     /* non-NULL → push mode; NULL → poll mode     */
+  xHeap      heap;  /* min-heap ordered by deadline               */
+  xTaskGroup group; /* non-NULL → push mode; NULL → poll mode     */
 
   /* Poll-mode queue (lock-free MPSC)                                       */
-  xMpsc           *mq_head;
-  xMpsc           *mq_tail;
+  xMpsc *mq_head;
+  xMpsc *mq_tail;
 
-  pthread_t        thread;
-  pthread_mutex_t  mu;
-  pthread_cond_t   cond;
-  int              stopped;
+  pthread_t       thread;
+  pthread_mutex_t mu;
+  pthread_cond_t  cond;
+  int             stopped;
 };
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -55,7 +55,7 @@ static int cmp_task(const void *a, const void *b) {
   const struct xTimerTask_ *ta = (const struct xTimerTask_ *)a;
   const struct xTimerTask_ *tb = (const struct xTimerTask_ *)b;
   if (ta->deadline < tb->deadline) return -1;
-  if (ta->deadline > tb->deadline) return  1;
+  if (ta->deadline > tb->deadline) return 1;
   return 0;
 }
 
@@ -120,7 +120,7 @@ static void *timer_thread(void *arg) {
     if (t->stopped) break;
 
     struct xTimerTask_ *top = (struct xTimerTask_ *)xHeapPeek(t->heap);
-  uint64_t now            = xMonoMs();
+    uint64_t            now = xMonoMs();
 
     if (top->deadline <= now) {
       xHeapPop(t->heap);
@@ -129,10 +129,10 @@ static void *timer_thread(void *arg) {
       pthread_mutex_lock(&t->mu);
     } else {
       /* Sleep until next deadline (or until signalled) */
-      uint64_t wait_ms = top->deadline - now;
+      uint64_t        wait_ms = top->deadline - now;
       struct timespec abs_ts;
       clock_gettime(CLOCK_REALTIME, &abs_ts);
-      abs_ts.tv_sec  += (time_t)(wait_ms / 1000);
+      abs_ts.tv_sec += (time_t)(wait_ms / 1000);
       abs_ts.tv_nsec += (long)((wait_ms % 1000) * 1000000L);
       if (abs_ts.tv_nsec >= 1000000000L) {
         abs_ts.tv_sec++;
@@ -169,10 +169,14 @@ xTimer xTimerCreate(xTaskGroup g) {
 
   return (xTimer)t;
 
-fail_thread: pthread_cond_destroy(&t->cond);
-fail_cond:   pthread_mutex_destroy(&t->mu);
-fail_mutex:  xHeapDestroy(t->heap);
-fail_heap:   free(t);
+fail_thread:
+  pthread_cond_destroy(&t->cond);
+fail_cond:
+  pthread_mutex_destroy(&t->mu);
+fail_mutex:
+  xHeapDestroy(t->heap);
+fail_heap:
+  free(t);
   return NULL;
 }
 
@@ -191,8 +195,7 @@ void xTimerDestroy(xTimer t_) {
   if (!t->group) {
     xMpsc *node;
     while ((node = xMpscPop(&t->mq_head, &t->mq_tail)) != NULL) {
-      struct xTimerTask_ *task =
-          xContainerOf(node, struct xTimerTask_, node);
+      struct xTimerTask_ *task = xContainerOf(node, struct xTimerTask_, node);
       free(task);
     }
   }
@@ -214,7 +217,7 @@ static xTimerTask submit(xTimer t_, xTimerFunc fn, void *arg, uint64_t abs_ms) {
   if (!t || !fn) return NULL;
 
   struct xTimerTask_ *task =
-      (struct xTimerTask_ *)calloc(1, sizeof(struct xTimerTask_));
+    (struct xTimerTask_ *)calloc(1, sizeof(struct xTimerTask_));
   if (!task) return NULL;
 
   task->deadline  = abs_ms;
@@ -237,7 +240,7 @@ static xTimerTask submit(xTimer t_, xTimerFunc fn, void *arg, uint64_t abs_ms) {
 }
 
 xTimerTask xTimerSubmitAfter(xTimer t, xTimerFunc fn, void *arg,
-                              uint64_t delay_ms) {
+                             uint64_t delay_ms) {
   return submit(t, fn, arg, xMonoMs() + delay_ms);
 }
 
@@ -271,11 +274,10 @@ int xTimerPoll(xTimer t_) {
   struct xTimer_ *t = (struct xTimer_ *)t_;
   if (!t || t->group) return 0; /* push mode: no-op */
 
-  int count = 0;
+  int    count = 0;
   xMpsc *node;
   while ((node = xMpscPop(&t->mq_head, &t->mq_tail)) != NULL) {
-    struct xTimerTask_ *task =
-        xContainerOf(node, struct xTimerTask_, node);
+    struct xTimerTask_ *task = xContainerOf(node, struct xTimerTask_, node);
     task->fn(task->arg);
     free(task);
     count++;

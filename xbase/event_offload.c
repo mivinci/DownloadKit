@@ -21,8 +21,7 @@ static void *offload_worker(void *arg) {
 
   /* Enqueue the work item into the done queue (lock-free). */
   xMpscPush(&((struct xEventLoop_ *)w->loop)->done_head,
-            &((struct xEventLoop_ *)w->loop)->done_tail,
-            &w->mpsc);
+            &((struct xEventLoop_ *)w->loop)->done_tail, &w->mpsc);
 
   /*
    * Wake the event loop so it drains the done queue promptly.
@@ -39,9 +38,8 @@ static void *offload_worker(void *arg) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
-                        xTaskFunc work_fn, xEventDoneFunc done_fn,
-                        void *arg) {
+xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn,
+                        xEventDoneFunc done_fn, void *arg) {
   if (!loop || !work_fn) return xErrno_InvalidArg;
 
   if (!group) {
@@ -50,7 +48,7 @@ xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
   }
 
   struct xEventWork_ *w =
-      (struct xEventWork_ *)calloc(1, sizeof(struct xEventWork_));
+    (struct xEventWork_ *)calloc(1, sizeof(struct xEventWork_));
   if (!w) return xErrno_NoMemory;
 
   w->work_fn = work_fn;

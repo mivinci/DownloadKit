@@ -28,9 +28,8 @@
  * @brief Bitmask of I/O events.
  */
 XDEF_ENUM(xEventMask){
-  xEvent_Read    = 1 << 0,
-  xEvent_Write   = 1 << 1,
-  xEvent_Timeout = 1 << 2,  /* Used by higher-level modules (e.g., xSocket) */
+  xEvent_Read = 1 << 0, xEvent_Write = 1 << 1,
+  xEvent_Timeout = 1 << 2, /* Used by higher-level modules (e.g., xSocket) */
 };
 
 /**
@@ -101,7 +100,7 @@ XCAPI(void) xEventLoopDestroy(xEventLoop loop);
  * @return      An event source handle, or NULL on failure.
  */
 XCAPI(xEventSource) xEventAdd(xEventLoop loop, int fd, xEventMask mask,
-                               xEventFunc fn, void *arg);
+                              xEventFunc fn, void *arg);
 
 /**
  * @brief Modify the watched events for an existing source.
@@ -214,8 +213,8 @@ typedef void (*xEventDoneFunc)(void *arg, void *result);
  * @return         xErrno_Ok on success, or an error code.
  */
 XCAPI(xErrno) xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
-                                xTaskFunc work_fn, xEventDoneFunc done_fn,
-                                void *arg);
+                               xTaskFunc work_fn, xEventDoneFunc done_fn,
+                               void *arg);
 
 /**
  * @brief Run the event loop.
@@ -258,7 +257,7 @@ XCAPI(void) xEventLoopStop(xEventLoop loop);
  *              xErrno_SysError if the underlying OS call fails.
  */
 XCAPI(xErrno) xEventLoopSignalWatch(xEventLoop loop, int signo,
-                                     xEventSignalFunc fn, void *arg);
+                                    xEventSignalFunc fn, void *arg);
 
 /**
  * @brief Return the current monotonic time in milliseconds.

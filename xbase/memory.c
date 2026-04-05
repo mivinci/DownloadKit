@@ -26,8 +26,7 @@ void *xAlloc(const char *name, const size_t size, const size_t count,
   void   *ptr;
 
   hdr = (Header *)malloc(sizeof(Header) + size * count);
-  if (!hdr)
-    return NULL;
+  if (!hdr) return NULL;
 
   hdr->name = name;
   hdr->size = size;

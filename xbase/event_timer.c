@@ -10,13 +10,13 @@
 
 /* ───────────────────── Helpers ───────────────────── */
 
-static xEventTimer submit_timer(xEventLoop loop_, xEventTimerFunc fn,
-                                void *arg, uint64_t abs_ms) {
+static xEventTimer submit_timer(xEventLoop loop_, xEventTimerFunc fn, void *arg,
+                                uint64_t abs_ms) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
   if (!loop || !fn) return NULL;
 
   struct xEventTimer_ *t =
-      (struct xEventTimer_ *)calloc(1, sizeof(struct xEventTimer_));
+    (struct xEventTimer_ *)calloc(1, sizeof(struct xEventTimer_));
   if (!t) return NULL;
 
   t->deadline = abs_ms;
@@ -46,19 +46,19 @@ uint64_t xEventLoopNowMs(void) {
   return xMonoMs();
 }
 
-xEventTimer xEventLoopTimerAfter(xEventLoop loop, xEventTimerFunc fn,
-                                 void *arg, uint64_t delay_ms) {
+xEventTimer xEventLoopTimerAfter(xEventLoop loop, xEventTimerFunc fn, void *arg,
+                                 uint64_t delay_ms) {
   return submit_timer(loop, fn, arg, xMonoMs() + delay_ms);
 }
 
-xEventTimer xEventLoopTimerAt(xEventLoop loop, xEventTimerFunc fn,
-                              void *arg, uint64_t abs_ms) {
+xEventTimer xEventLoopTimerAt(xEventLoop loop, xEventTimerFunc fn, void *arg,
+                              uint64_t abs_ms) {
   return submit_timer(loop, fn, arg, abs_ms);
 }
 
 xErrno xEventLoopTimerCancel(xEventLoop loop_, xEventTimer timer_) {
-  struct xEventLoop_   *loop  = (struct xEventLoop_ *)loop_;
-  struct xEventTimer_  *timer = (struct xEventTimer_ *)timer_;
+  struct xEventLoop_  *loop  = (struct xEventLoop_ *)loop_;
+  struct xEventTimer_ *timer = (struct xEventTimer_ *)timer_;
   if (!loop || !timer) return xErrno_InvalidArg;
 
   pthread_mutex_lock(&loop->timer_mu);

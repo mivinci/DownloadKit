@@ -17,10 +17,12 @@
  *
  *   xIOBlock:  fixed-size memory block (default 8KB), reference counted.
  *   xIOBufferRef: { block*, offset, length } — a slice into a block.
- *   xIOBuffer:    a dynamic array of xIOBufferRef, representing a logical byte stream.
+ *   xIOBuffer:    a dynamic array of xIOBufferRef, representing a logical byte
+ * stream.
  *
  * Key properties:
- *   - Append two xIOBuffers: O(1) — just concatenate ref arrays, bump refcounts.
+ *   - Append two xIOBuffers: O(1) — just concatenate ref arrays, bump
+ * refcounts.
  *   - Split/cut N bytes from front: O(k) where k = number of refs touched.
  *   - writev: each ref maps directly to an iovec entry.
  *   - Blocks are pooled in a global freelist for reuse.
@@ -66,9 +68,9 @@
  * Users should not manipulate blocks directly.
  */
 XDEF_STRUCT(xIOBlock) {
-  size_t    refs;                    /**< Reference count (atomic)     */
-  size_t    size;                    /**< Usable data size in bytes    */
-  char      data[XIOBUFFER_BLOCK_SIZE]; /**< Inline data storage          */
+  size_t refs;                       /**< Reference count (atomic)     */
+  size_t size;                       /**< Usable data size in bytes    */
+  char   data[XIOBUFFER_BLOCK_SIZE]; /**< Inline data storage          */
 };
 
 /**
@@ -108,10 +110,10 @@ XDEF_STRUCT(xIOBufferRef) {
  */
 XDEF_STRUCT(xIOBuffer) {
   xIOBufferRef  inlined[XIOBUFFER_INLINE_REFS]; /**< Inline ref storage       */
-  xIOBufferRef *refs;    /**< Pointer to ref array (inlined or heap)        */
-  size_t     nrefs;   /**< Number of active refs                         */
-  size_t     cap;     /**< Capacity of the refs array                    */
-  size_t     nbytes;  /**< Total logical byte count (cached)             */
+  xIOBufferRef *refs;   /**< Pointer to ref array (inlined or heap)        */
+  size_t        nrefs;  /**< Number of active refs                         */
+  size_t        cap;    /**< Capacity of the refs array                    */
+  size_t        nbytes; /**< Total logical byte count (cached)             */
 };
 
 /* ───────────────────── Lifecycle ───────────────────── */
@@ -243,7 +245,8 @@ XCAPI(size_t) xIOBufferCopyTo(const xIOBuffer *io, void *out);
  * @param max_iov Maximum number of iovec entries to fill.
  * @return Number of iovec entries filled.
  */
-XCAPI(int) xIOBufferReadIov(const xIOBuffer *io, struct iovec *iov, int max_iov);
+XCAPI(int) xIOBufferReadIov(const xIOBuffer *io, struct iovec *iov,
+                            int max_iov);
 
 /**
  * @brief Read from a file descriptor into the IOBuf.

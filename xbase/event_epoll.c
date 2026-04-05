@@ -25,7 +25,7 @@ static int set_nonblock(int fd) {
 
 static uint32_t mask_to_epoll(xEventMask mask) {
   uint32_t ev = EPOLLET; /* always edge-triggered */
-  if (mask & xEvent_Read)  ev |= EPOLLIN;
+  if (mask & xEvent_Read) ev |= EPOLLIN;
   if (mask & xEvent_Write) ev |= EPOLLOUT;
   return ev;
 }
@@ -79,8 +79,7 @@ struct xEventLoopEpoll_ {
  * Returns the signal number, or 0 if not found. */
 static int find_signal_by_fd(struct xEventLoopEpoll_ *loop, int fd) {
   for (int i = 1; i < XK_SIGNAL_MAX; i++) {
-    if (loop->signal_pipe_r[i] >= 0 && loop->signal_pipe_r[i] == fd)
-      return i;
+    if (loop->signal_pipe_r[i] >= 0 && loop->signal_pipe_r[i] == fd) return i;
   }
   return 0;
 }
@@ -89,13 +88,13 @@ static int find_signal_by_fd(struct xEventLoopEpoll_ *loop, int fd) {
 
 xEventLoop xEventLoopCreate(void) {
   struct xEventLoopEpoll_ *loop =
-      (struct xEventLoopEpoll_ *)calloc(1, sizeof(*loop));
+    (struct xEventLoopEpoll_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
-  loop->epfd = -1;
-  loop->base.wake_rfd = -1;
-  loop->base.wake_wfd = -1;
-  loop->base.stopped  = 0;
+  loop->epfd            = -1;
+  loop->base.wake_rfd   = -1;
+  loop->base.wake_wfd   = -1;
+  loop->base.stopped    = 0;
   loop->base.timer_heap = NULL;
   source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
@@ -146,7 +145,8 @@ void xEventLoopDestroy(xEventLoop loop_) {
   /* Discard all pending timers without firing */
   pthread_mutex_lock(&loop->base.timer_mu);
   while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
+    struct xEventTimer_ *t =
+      (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
     free(t);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
@@ -162,8 +162,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
       epoll_ctl(loop->epfd, EPOLL_CTL_DEL, loop->signal_pipe_r[i], NULL);
       close(loop->signal_pipe_r[i]);
     }
-    if (loop->signal_pipe_w[i] >= 0)
-      close(loop->signal_pipe_w[i]);
+    if (loop->signal_pipe_w[i] >= 0) close(loop->signal_pipe_w[i]);
   }
 
   close(loop->epfd);
@@ -172,13 +171,13 @@ void xEventLoopDestroy(xEventLoop loop_) {
   free(loop);
 }
 
-xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask,
-                        xEventFunc fn, void *arg) {
+xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask, xEventFunc fn,
+                       void *arg) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
   if (!loop || !fn) return NULL;
 
   struct xEventSource_ *src =
-      source_array_add(&loop->base.sources, fd, mask, fn, arg);
+    source_array_add(&loop->base.sources, fd, mask, fn, arg);
   if (!src) return NULL;
 
   if (set_nonblock(fd) != 0) {
@@ -199,7 +198,7 @@ xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask,
 
 xErrno xEventMod(xEventLoop loop_, xEventSource src_, xEventMask mask) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
-  struct xEventSource_ *src     = (struct xEventSource_ *)src_;
+  struct xEventSource_    *src  = (struct xEventSource_ *)src_;
   if (!loop || !src) return xErrno_InvalidArg;
 
   struct epoll_event ev;
@@ -214,7 +213,7 @@ xErrno xEventMod(xEventLoop loop_, xEventSource src_, xEventMask mask) {
 
 xErrno xEventDel(xEventLoop loop_, xEventSource src_) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
-  struct xEventSource_ *src     = (struct xEventSource_ *)src_;
+  struct xEventSource_    *src  = (struct xEventSource_ *)src_;
   if (!loop || !src) return xErrno_InvalidArg;
 
   epoll_ctl(loop->epfd, EPOLL_CTL_DEL, src->fd, NULL);
@@ -229,18 +228,19 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   /* Adjust timeout based on timer heap */
   int effective_timeout = timeout_ms;
   pthread_mutex_lock(&loop->base.timer_mu);
-  struct xEventTimer_ *top = (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
+  struct xEventTimer_ *top =
+    (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
   if (top) {
-  uint64_t now = xMonoMs();
-    int64_t wait = (int64_t)(top->deadline - now);
-    int timer_timeout = (wait <= 0) ? 0 : (int)wait;
+    uint64_t now           = xMonoMs();
+    int64_t  wait          = (int64_t)(top->deadline - now);
+    int      timer_timeout = (wait <= 0) ? 0 : (int)wait;
     if (effective_timeout < 0 || timer_timeout < effective_timeout)
       effective_timeout = timer_timeout;
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
 
   struct epoll_event events[64];
-  int n = epoll_wait(loop->epfd, events, 64, effective_timeout);
+  int                n = epoll_wait(loop->epfd, events, 64, effective_timeout);
   if (n < 0) n = 0;
 
   int dispatched = 0;
@@ -270,7 +270,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 
       if (loop->base.signal_watches[signo].fn) {
         loop->base.signal_watches[signo].fn(
-            signo, loop->base.signal_watches[signo].arg);
+          signo, loop->base.signal_watches[signo].arg);
         dispatched++;
       }
       continue;
@@ -281,7 +281,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     if (!src || src->deleted) continue;
 
     xEventMask ready = 0;
-    if (events[i].events & EPOLLIN)  ready |= xEvent_Read;
+    if (events[i].events & EPOLLIN) ready |= xEvent_Read;
     if (events[i].events & EPOLLOUT) ready |= xEvent_Write;
 
     src->fn(src->fd, ready, src->arg);
@@ -292,7 +292,8 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   pthread_mutex_lock(&loop->base.timer_mu);
   uint64_t now = xEventLoopNowMs();
   while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
+    struct xEventTimer_ *t =
+      (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
     if (t->deadline > now) break;
     xHeapPop(loop->base.timer_heap);
     t->fired = 1;
@@ -309,14 +310,15 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   return dispatched;
 }
 
-/* ───────────────────── Signal watch (self-pipe trick) ─────────────────────── */
+/* ───────────────────── Signal watch (self-pipe trick) ───────────────────────
+ */
 static int signo_valid(int signo) {
-  return signo > 0 && signo < XK_SIGNAL_MAX &&
-         signo != SIGKILL && signo != SIGSTOP;
+  return signo > 0 && signo < XK_SIGNAL_MAX && signo != SIGKILL &&
+         signo != SIGSTOP;
 }
 
-xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo,
-                              xEventSignalFunc fn, void *arg) {
+xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
+                             void *arg) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
   if (!loop || !signo_valid(signo)) return xErrno_InvalidArg;
 
@@ -363,9 +365,9 @@ xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo,
       epoll_ctl(loop->epfd, EPOLL_CTL_DEL, fds[0], NULL);
       close(fds[0]);
       close(fds[1]);
-      loop->signal_pipe_r[signo] = -1;
-      loop->signal_pipe_w[signo] = -1;
-      g_signal_pipe_w[signo]     = -1;
+      loop->signal_pipe_r[signo]           = -1;
+      loop->signal_pipe_w[signo]           = -1;
+      g_signal_pipe_w[signo]               = -1;
       loop->base.signal_watches[signo].fn  = NULL;
       loop->base.signal_watches[signo].arg = NULL;
       return xErrno_SysError;
@@ -397,7 +399,7 @@ xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
 
-  char c = 1;
+  char    c = 1;
   ssize_t r;
   do {
     r = write(loop->base.wake_wfd, &c, 1);

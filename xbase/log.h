@@ -32,7 +32,7 @@
  * @param userdata   User-provided context pointer.
  */
 typedef void (*xLogCallback)(const char *msg, const char *backtrace,
-                              void *userdata);
+                             void *userdata);
 
 /**
  * @brief Register (or clear) the current thread's log callback.

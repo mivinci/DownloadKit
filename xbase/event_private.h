@@ -37,11 +37,11 @@ struct xSignalWatch_ {
 /* ───────────────────── Source ───────────────────── */
 
 struct xEventSource_ {
-  int         fd;
-  xEventMask  mask;
-  xEventFunc  fn;
-  void       *arg;
-  int         deleted;  /* marked for deferred removal */
+  int        fd;
+  xEventMask mask;
+  xEventFunc fn;
+  void      *arg;
+  int        deleted; /* marked for deferred removal */
 };
 
 /* ───────────────────── Source list (simple dynamic array) ───────────────── */
@@ -67,30 +67,30 @@ static inline void source_array_free(struct xEventSourceArray_ *s) {
   s->cap   = 0;
 }
 
-static inline struct xEventSource_ *source_array_add(struct xEventSourceArray_ *s,
-                                                 int fd, xEventMask mask,
-                                                 xEventFunc fn, void *arg) {
+static inline struct xEventSource_ *
+source_array_add(struct xEventSourceArray_ *s, int fd, xEventMask mask,
+                 xEventFunc fn, void *arg) {
   if (s->len == s->cap) {
-    size_t newcap = s->cap ? s->cap * 2 : 16;
-    struct xEventSource_ **tmp = (struct xEventSource_ **)realloc(
-        s->items, newcap * sizeof(*s->items));
+    size_t                 newcap = s->cap ? s->cap * 2 : 16;
+    struct xEventSource_ **tmp =
+      (struct xEventSource_ **)realloc(s->items, newcap * sizeof(*s->items));
     if (!tmp) return NULL;
     s->items = tmp;
     s->cap   = newcap;
   }
   struct xEventSource_ *src =
-      (struct xEventSource_ *)calloc(1, sizeof(struct xEventSource_));
+    (struct xEventSource_ *)calloc(1, sizeof(struct xEventSource_));
   if (!src) return NULL;
-  src->fd   = fd;
-  src->mask = mask;
-  src->fn   = fn;
-  src->arg  = arg;
+  src->fd            = fd;
+  src->mask          = mask;
+  src->fn            = fn;
+  src->arg           = arg;
   s->items[s->len++] = src;
   return src;
 }
 
 static inline int source_array_remove(struct xEventSourceArray_ *s,
-                                 struct xEventSource_ *src) {
+                                      struct xEventSource_      *src) {
   (void)s;
   /* Mark for deferred removal — the source may still be referenced
    * by pending events in the current dispatch batch. */
@@ -116,32 +116,31 @@ static inline void source_array_sweep(struct xEventSourceArray_ *s) {
   }
 }
 
-static inline struct xEventSource_ *source_array_find_fd(struct xEventSourceArray_ *s,
-                                                     int fd) {
+static inline struct xEventSource_ *
+source_array_find_fd(struct xEventSourceArray_ *s, int fd) {
   for (size_t i = 0; i < s->len; i++) {
-    if (s->items[i]->fd == fd)
-      return s->items[i];
+    if (s->items[i]->fd == fd) return s->items[i];
   }
   return NULL;
 }
 
 /* ───────────────────── Builtin timer entry ───────────────────── */
 
-#define EVENT_TIMER_INVALID_IDX ((size_t)-1)
+#define EVENT_TIMER_INVALID_IDX ((size_t) - 1)
 
 struct xEventTimer_ {
-  uint64_t         deadline;  /* absolute ms, CLOCK_MONOTONIC */
-  xEventTimerFunc  fn;
-  void            *arg;
-  size_t           heap_idx;  /* position in the min-heap     */
-  int              fired;     /* 1 after callback has run     */
+  uint64_t        deadline; /* absolute ms, CLOCK_MONOTONIC */
+  xEventTimerFunc fn;
+  void           *arg;
+  size_t          heap_idx; /* position in the min-heap     */
+  int             fired;    /* 1 after callback has run     */
 };
 
 static inline int event_timer_cmp(const void *a, const void *b) {
   const struct xEventTimer_ *ta = (const struct xEventTimer_ *)a;
   const struct xEventTimer_ *tb = (const struct xEventTimer_ *)b;
   if (ta->deadline < tb->deadline) return -1;
-  if (ta->deadline > tb->deadline) return  1;
+  if (ta->deadline > tb->deadline) return 1;
   return 0;
 }
 
@@ -152,34 +151,34 @@ static inline void event_timer_set_idx(void *elem, size_t idx) {
 /* ───────────────────── Offload work item ───────────────────── */
 
 struct xEventWork_ {
-  xMpsc             mpsc;     /* intrusive MPSC queue node                */
-  xTaskFunc         work_fn;  /* executed on worker thread                */
-  void            (*done_fn)(void *arg, void *result); /* executed on loop thread */
-  void             *arg;
-  void             *result;
-  xEventLoop        loop;     /* back-pointer to the owning event loop    */
-  xTask             task;     /* handle returned by xTaskSubmit           */
+  xMpsc     mpsc;    /* intrusive MPSC queue node                */
+  xTaskFunc work_fn; /* executed on worker thread                */
+  void (*done_fn)(void *arg, void *result); /* executed on loop thread */
+  void      *arg;
+  void      *result;
+  xEventLoop loop; /* back-pointer to the owning event loop    */
+  xTask      task; /* handle returned by xTaskSubmit           */
 };
 
 /* ───────────────────── Loop base ───────────────────── */
 
 struct xEventLoop_ {
   struct xEventSourceArray_ sources;
-  int                   wake_rfd; /* read end of wake pipe  */
-  int                   wake_wfd; /* write end of wake pipe */
+  int                       wake_rfd; /* read end of wake pipe  */
+  int                       wake_wfd; /* write end of wake pipe */
 
   /* Offload done queue (lock-free MPSC) */
-  xMpsc                *done_head;
-  xMpsc                *done_tail;
-  int                   inflight; /* number of in-flight offload workers */
+  xMpsc *done_head;
+  xMpsc *done_tail;
+  int    inflight; /* number of in-flight offload workers */
 
   /* Builtin timer heap */
-  xHeap                 timer_heap;
-  pthread_mutex_t       timer_mu;
-  int                   stopped;
+  xHeap           timer_heap;
+  pthread_mutex_t timer_mu;
+  int             stopped;
 
   /* Signal watches (indexed by signal number) */
-  struct xSignalWatch_  signal_watches[XK_SIGNAL_MAX];
+  struct xSignalWatch_ signal_watches[XK_SIGNAL_MAX];
 };
 
 static inline int loop_init_wake(struct xEventLoop_ *loop) {
@@ -214,14 +213,14 @@ static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
     struct xEventWork_ *w = xContainerOf(node, struct xEventWork_, mpsc);
     /* Release the xTask handle allocated by xTaskSubmit. */
     xTaskWait(w->task, NULL);
-    if (w->done_fn)
-      w->done_fn(w->arg, w->result);
+    if (w->done_fn) w->done_fn(w->arg, w->result);
     xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
     free(w);
   }
 }
 
-/* Drain remaining offload work items without executing done_fn (for destroy). */
+/* Drain remaining offload work items without executing done_fn (for destroy).
+ */
 static inline void loop_cleanup_done(struct xEventLoop_ *loop) {
   xMpsc *node;
   while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {

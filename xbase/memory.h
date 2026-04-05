@@ -20,8 +20,8 @@
 #define XDEF_CTOR(T)   static void XSYM_CTOR(T)(T * self)
 #define XDEF_DTOR(T)   static void XSYM_DTOR(T)(T * self)
 
-#define XMALLOC(T)         (T *)xAlloc(#T, sizeof(T), 1, &XSYM_VTABLE(T))
-#define XMALLOCEX(T, sz)   (T *)xAlloc(#T, sizeof(T) + (sz), 1, &XSYM_VTABLE(T))
+#define XMALLOC(T)       (T *)xAlloc(#T, sizeof(T), 1, &XSYM_VTABLE(T))
+#define XMALLOCEX(T, sz) (T *)xAlloc(#T, sizeof(T) + (sz), 1, &XSYM_VTABLE(T))
 
 /**
  * @brief Virtual table for object lifecycle management.

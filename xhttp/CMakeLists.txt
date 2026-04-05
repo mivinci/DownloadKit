@@ -1,5 +1,6 @@
 file(GLOB_RECURSE XHTTP_HEADERS "*.h")
 file(GLOB_RECURSE XHTTP_SOURCES "*.c")
+list(FILTER XHTTP_HEADERS EXCLUDE REGEX "_test")
 add_library(xhttp SHARED ${XHTTP_SOURCES} ${XHTTP_HEADERS})
 
 target_compile_definitions(xhttp PUBLIC XK_HAS_CURL)
@@ -13,11 +14,17 @@ target_link_libraries(xhttp PRIVATE Llhttp::Llhttp)
 
 message(STATUS "xhttp: llhttp integration enabled")
 
+find_package(Nghttp2 REQUIRED)
+target_compile_definitions(xhttp PUBLIC XK_HAS_NGHTTP2)
+target_link_libraries(xhttp PRIVATE Nghttp2::Nghttp2)
+
+message(STATUS "xhttp: nghttp2 integration enabled")
+
 if(XK_BUILD_TESTS)
   file(GLOB_RECURSE XHTTP_TEST_SOURCES "*_test.cpp")
   if(XHTTP_TEST_SOURCES)
     add_executable(xhttp_test ${XHTTP_TEST_SOURCES})
-    target_link_libraries(xhttp_test PRIVATE xhttp GTest::gtest GTest::gtest_main)
+    target_link_libraries(xhttp_test PRIVATE xhttp Nghttp2::Nghttp2 GTest::gtest GTest::gtest_main)
     add_test(NAME xhttp_test COMMAND xhttp_test)
   endif()
 endif()

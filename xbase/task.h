@@ -33,8 +33,8 @@ XDEF_HANDLE(xTask);
  * @ingroup xTask
  */
 XDEF_STRUCT(xTaskGroupConf) {
-  size_t nthreads;    /**< Number of worker threads (M). 0 = auto-detect. */
-  size_t queue_cap;   /**< Task queue capacity. 0 = unbounded. */
+  size_t nthreads;  /**< Number of worker threads (M). 0 = auto-detect. */
+  size_t queue_cap; /**< Task queue capacity. 0 = unbounded. */
 };
 
 /**

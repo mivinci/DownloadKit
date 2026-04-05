@@ -21,8 +21,8 @@
 /* ───────────────────── Internal types ───────────────────── */
 
 struct xTask_ {
-  xTaskFunc       fn;
-  void           *arg;
+  xTaskFunc fn;
+  void     *arg;
 
   /* Completion notification */
   pthread_mutex_t lock;
@@ -31,13 +31,13 @@ struct xTask_ {
   void           *result;
 
   /* Intrusive queue linkage */
-  struct xTask_  *next;
+  struct xTask_ *next;
 };
 
 struct xTaskGroup_ {
-  pthread_t      *workers;
-  size_t          max_threads;
-  size_t          nthreads;
+  pthread_t *workers;
+  size_t     max_threads;
+  size_t     nthreads;
 
   /* Task queue (protected by qlock) */
   pthread_mutex_t qlock;
@@ -50,18 +50,18 @@ struct xTaskGroup_ {
   /* Idle worker count: workers that have popped a task and finished
    * their work, waiting for more. When a new task arrives and
    * idle > 0, we signal qcond to wake one instead of spawning. */
-  size_t          idle;
+  size_t idle;
 
-  atomic_size_t   pending;       /* submitted - finished */
-  atomic_size_t   done_count;   /* tasks that have completed */
+  atomic_size_t pending;    /* submitted - finished */
+  atomic_size_t done_count; /* tasks that have completed */
 
   /* Dedicated condition for xTaskGroupWait(), separate from qcond
    * which is shared with idle workers.  Using a single cond caused
    * lost wake-ups: pthread_cond_signal() could wake an idle worker
    * instead of the GroupWait caller, leaving it blocked forever. */
-  pthread_cond_t  wcond;
+  pthread_cond_t wcond;
 
-  bool            shutdown;
+  bool shutdown;
 };
 
 static inline struct xTaskGroup_ *grp(xTaskGroup g) {
@@ -94,7 +94,7 @@ static void *worker_loop(void *arg) {
 
     /* Dequeue one task */
     struct xTask_ *task = g->qhead;
-    g->qhead = task->next;
+    g->qhead            = task->next;
     if (!g->qhead) g->qtail = NULL;
     g->qsize--;
 
@@ -127,15 +127,15 @@ static bool spawn_one_worker(struct xTaskGroup_ *g) {
 
   if (g->nthreads >= g->max_threads) return false;
 
-  new_workers = (pthread_t *)realloc(
-      g->workers, (g->nthreads + 1) * sizeof(pthread_t));
+  new_workers =
+    (pthread_t *)realloc(g->workers, (g->nthreads + 1) * sizeof(pthread_t));
   if (!new_workers) return false;
 
   if (pthread_create(&new_workers[g->nthreads], NULL, worker_loop, g) != 0) {
     return false;
   }
 
-  g->workers  = new_workers;
+  g->workers = new_workers;
   g->nthreads++;
   return true;
 }
@@ -150,8 +150,8 @@ xTaskGroup xTaskGroupCreate(const xTaskGroupConf *conf) {
 
   /* max_threads: 0 means unlimited (no cap) — use a large default cap */
   g->max_threads = (conf && conf->nthreads) ? conf->nthreads : (size_t)-1;
-  g->nthreads = 0;
-  g->workers  = NULL;
+  g->nthreads    = 0;
+  g->workers     = NULL;
   g->qcap        = (conf && conf->queue_cap) ? conf->queue_cap : 0;
 
   pthread_mutex_init(&g->qlock, NULL);
@@ -174,7 +174,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
 
   pthread_mutex_lock(&g->qlock);
   g->shutdown = true;
-  pthread_cond_broadcast(&g->qcond);  /* wake all idle workers */
+  pthread_cond_broadcast(&g->qcond); /* wake all idle workers */
   pthread_mutex_unlock(&g->qlock);
 
   for (i = 0; i < g->nthreads; i++) {
@@ -184,7 +184,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   /* Drain and free any remaining queued tasks */
   while (g->qhead) {
     struct xTask_ *t = g->qhead;
-    g->qhead = t->next;
+    g->qhead         = t->next;
     pthread_mutex_destroy(&t->lock);
     pthread_cond_destroy(&t->cond);
     free(t);
@@ -307,8 +307,8 @@ size_t xTaskGroupPending(xTaskGroup g_) {
 
 /* ───────────────────── Global task group ───────────────────── */
 
-static xTaskGroup          g_global_group = NULL;
-static pthread_once_t      g_global_once  = PTHREAD_ONCE_INIT;
+static xTaskGroup     g_global_group = NULL;
+static pthread_once_t g_global_once  = PTHREAD_ONCE_INIT;
 
 static void global_group_destroy(void) {
   if (g_global_group) {

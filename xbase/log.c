@@ -22,8 +22,8 @@
 XDEF_STRUCT(xLogCtx) {
   xLogCallback cb;
   void        *userdata;
-  char          buf[XLOG_BUF_SIZE];
-  char          bt[XLOG_BT_SIZE];
+  char         buf[XLOG_BUF_SIZE];
+  char         bt[XLOG_BT_SIZE];
 };
 
 static __thread xLogCtx tl_ctx;
@@ -36,7 +36,7 @@ void xLogSetCallback(xLogCallback cb, void *userdata) {
 }
 
 void xLog(bool fatal, const char *fmt, ...) {
-  va_list ap;
+  va_list     ap;
   const char *msg;
 
   if (!fmt) {

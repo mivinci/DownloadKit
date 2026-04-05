@@ -127,15 +127,6 @@ TEST_F(TaskTest, GroupWait) {
   EXPECT_EQ(xTaskGroupPending(g), 0);
 }
 
-/* Helper: spin-wait until a condition is true */
-static void spin_wait_until(std::function<bool()> pred, int max_ms = 2000) {
-  int elapsed = 0;
-  while (!pred() && elapsed < max_ms) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    elapsed++;
-  }
-}
-
 TEST_F(TaskTest, PendingCount) {
   /* Submit a blocking task first so subsequent submits queue up. */
   std::atomic<bool> unblock{false};

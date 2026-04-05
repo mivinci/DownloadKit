@@ -30,11 +30,10 @@ static int set_nonblock(int fd) {
  */
 static int kq_apply(int kqfd, struct xEventSource_ *src, xEventMask mask) {
   struct kevent changes[2];
-  int n = 0;
+  int           n = 0;
 
   if (mask & xEvent_Read) {
-    EV_SET(&changes[n], src->fd, EVFILT_READ,
-           EV_ADD | EV_CLEAR, 0, 0, src);
+    EV_SET(&changes[n], src->fd, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, src);
     n++;
   } else {
     /* Remove read filter if it was previously set */
@@ -43,8 +42,7 @@ static int kq_apply(int kqfd, struct xEventSource_ *src, xEventMask mask) {
   }
 
   if (mask & xEvent_Write) {
-    EV_SET(&changes[n], src->fd, EVFILT_WRITE,
-           EV_ADD | EV_CLEAR, 0, 0, src);
+    EV_SET(&changes[n], src->fd, EVFILT_WRITE, EV_ADD | EV_CLEAR, 0, 0, src);
     n++;
   } else {
     EV_SET(&changes[n], src->fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
@@ -53,8 +51,7 @@ static int kq_apply(int kqfd, struct xEventSource_ *src, xEventMask mask) {
 
   /* Ignore ENOENT errors from deleting filters that don't exist */
   for (int i = 0; i < n; i++) {
-    if (kevent(kqfd, &changes[i], 1, NULL, 0, NULL) < 0 &&
-        errno != ENOENT)
+    if (kevent(kqfd, &changes[i], 1, NULL, 0, NULL) < 0 && errno != ENOENT)
       return -1;
   }
   return 0;
@@ -71,13 +68,13 @@ struct xEventLoopKqueue_ {
 
 xEventLoop xEventLoopCreate(void) {
   struct xEventLoopKqueue_ *loop =
-      (struct xEventLoopKqueue_ *)calloc(1, sizeof(*loop));
+    (struct xEventLoopKqueue_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
-  loop->kqfd = -1;
-  loop->base.wake_rfd = -1;
-  loop->base.wake_wfd = -1;
-  loop->base.stopped  = 0;
+  loop->kqfd            = -1;
+  loop->base.wake_rfd   = -1;
+  loop->base.wake_wfd   = -1;
+  loop->base.stopped    = 0;
   loop->base.timer_heap = NULL;
   source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
@@ -97,8 +94,7 @@ xEventLoop xEventLoopCreate(void) {
 
   /* Register wake pipe read end with kqueue (edge-triggered) */
   struct kevent ev;
-  EV_SET(&ev, loop->base.wake_rfd, EVFILT_READ,
-         EV_ADD | EV_CLEAR, 0, 0, NULL);
+  EV_SET(&ev, loop->base.wake_rfd, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, NULL);
   if (kevent(loop->kqfd, &ev, 1, NULL, 0, NULL) < 0) goto fail;
 
   return (xEventLoop)loop;
@@ -122,7 +118,8 @@ void xEventLoopDestroy(xEventLoop loop_) {
   /* Discard all pending timers without firing */
   pthread_mutex_lock(&loop->base.timer_mu);
   while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
+    struct xEventTimer_ *t =
+      (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
     free(t);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
@@ -138,13 +135,13 @@ void xEventLoopDestroy(xEventLoop loop_) {
   free(loop);
 }
 
-xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask,
-                        xEventFunc fn, void *arg) {
+xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask, xEventFunc fn,
+                       void *arg) {
   struct xEventLoopKqueue_ *loop = (struct xEventLoopKqueue_ *)loop_;
   if (!loop || !fn) return NULL;
 
   struct xEventSource_ *src =
-      source_array_add(&loop->base.sources, fd, mask, fn, arg);
+    source_array_add(&loop->base.sources, fd, mask, fn, arg);
   if (!src) return NULL;
 
   if (set_nonblock(fd) != 0 || kq_apply(loop->kqfd, src, mask) != 0) {
@@ -157,11 +154,10 @@ xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask,
 
 xErrno xEventMod(xEventLoop loop_, xEventSource src_, xEventMask mask) {
   struct xEventLoopKqueue_ *loop = (struct xEventLoopKqueue_ *)loop_;
-  struct xEventSource_ *src      = (struct xEventSource_ *)src_;
+  struct xEventSource_     *src  = (struct xEventSource_ *)src_;
   if (!loop || !src) return xErrno_InvalidArg;
 
-  if (kq_apply(loop->kqfd, src, mask) != 0)
-    return xErrno_SysError;
+  if (kq_apply(loop->kqfd, src, mask) != 0) return xErrno_SysError;
 
   src->mask = mask;
   return xErrno_Ok;
@@ -169,7 +165,7 @@ xErrno xEventMod(xEventLoop loop_, xEventSource src_, xEventMask mask) {
 
 xErrno xEventDel(xEventLoop loop_, xEventSource src_) {
   struct xEventLoopKqueue_ *loop = (struct xEventLoopKqueue_ *)loop_;
-  struct xEventSource_ *src      = (struct xEventSource_ *)src_;
+  struct xEventSource_     *src  = (struct xEventSource_ *)src_;
   if (!loop || !src) return xErrno_InvalidArg;
 
   /* Remove all filters */
@@ -191,24 +187,25 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   /* Adjust timeout based on timer heap */
   int effective_timeout = timeout_ms;
   pthread_mutex_lock(&loop->base.timer_mu);
-  struct xEventTimer_ *top = (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
+  struct xEventTimer_ *top =
+    (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
   if (top) {
-  uint64_t now = xMonoMs();
-    int64_t wait = (int64_t)(top->deadline - now);
-    int timer_timeout = (wait <= 0) ? 0 : (int)wait;
+    uint64_t now           = xMonoMs();
+    int64_t  wait          = (int64_t)(top->deadline - now);
+    int      timer_timeout = (wait <= 0) ? 0 : (int)wait;
     if (effective_timeout < 0 || timer_timeout < effective_timeout)
       effective_timeout = timer_timeout;
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
 
-  struct kevent events[64];
-  struct timespec ts;
+  struct kevent    events[64];
+  struct timespec  ts;
   struct timespec *tsp = NULL;
 
   if (effective_timeout >= 0) {
     ts.tv_sec  = effective_timeout / 1000;
     ts.tv_nsec = (effective_timeout % 1000) * 1000000L;
-    tsp = &ts;
+    tsp        = &ts;
   }
 
   int n = kevent(loop->kqfd, NULL, 0, events, 64, tsp);
@@ -229,7 +226,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
       if (signo > 0 && signo < XK_SIGNAL_MAX &&
           loop->base.signal_watches[signo].fn) {
         loop->base.signal_watches[signo].fn(
-            signo, loop->base.signal_watches[signo].arg);
+          signo, loop->base.signal_watches[signo].arg);
         dispatched++;
       }
       continue;
@@ -239,7 +236,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     if (!src || src->deleted) continue;
 
     xEventMask ready = 0;
-    if (events[i].filter == EVFILT_READ)  ready |= xEvent_Read;
+    if (events[i].filter == EVFILT_READ) ready |= xEvent_Read;
     if (events[i].filter == EVFILT_WRITE) ready |= xEvent_Write;
 
     src->fn(src->fd, ready, src->arg);
@@ -250,7 +247,8 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   pthread_mutex_lock(&loop->base.timer_mu);
   uint64_t now = xEventLoopNowMs();
   while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
+    struct xEventTimer_ *t =
+      (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
     if (t->deadline > now) break;
     xHeapPop(loop->base.timer_heap);
     t->fired = 1;
@@ -270,12 +268,12 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 /* ───────────────────── Signal watch ───────────────────── */
 
 static int signo_valid(int signo) {
-  return signo > 0 && signo < XK_SIGNAL_MAX &&
-         signo != SIGKILL && signo != SIGSTOP;
+  return signo > 0 && signo < XK_SIGNAL_MAX && signo != SIGKILL &&
+         signo != SIGSTOP;
 }
 
-xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo,
-                              xEventSignalFunc fn, void *arg) {
+xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
+                             void *arg) {
   struct xEventLoopKqueue_ *loop = (struct xEventLoopKqueue_ *)loop_;
   if (!loop || !signo_valid(signo)) return xErrno_InvalidArg;
 
@@ -319,7 +317,7 @@ xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopKqueue_ *loop = (struct xEventLoopKqueue_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
 
-  char c = 1;
+  char    c = 1;
   ssize_t r;
   do {
     r = write(loop->base.wake_wfd, &c, 1);

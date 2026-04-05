@@ -24,10 +24,6 @@ using ms = std::chrono::milliseconds;
 
 static void noop_callback(xSocket, xEventMask, void *) {}
 
-static void sleep_ms(int n) {
-  std::this_thread::sleep_for(ms(n));
-}
-
 /* Drain all data from a non-blocking fd. */
 static void drain_fd(int fd) {
   char buf[256];
@@ -435,11 +431,10 @@ TEST(SocketCallback, UserpMatch) {
   ASSERT_NE(loop, nullptr);
 
   int sentinel = 42;
-  int *received_userp = nullptr;
 
   xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0,
                                 xEvent_Read,
-                                [](xSocket, xEventMask, void *arg) {
+                                [](xSocket, xEventMask, void *) {
                                   /* arg IS the userp we passed */
                                 }, &sentinel);
   ASSERT_NE(sock, nullptr);

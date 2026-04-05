@@ -23,20 +23,20 @@
  * @brief Log severity levels (ascending order).
  */
 XDEF_ENUM(xLogLevel){
-    xLogLevel_Debug = 0, /**< Verbose debug information */
-    xLogLevel_Info,       /**< Informational messages    */
-    xLogLevel_Warn,       /**< Warning conditions        */
-    xLogLevel_Error,      /**< Error conditions          */
-    xLogLevel_Fatal,      /**< Fatal error, abort()      */
+  xLogLevel_Debug = 0, /**< Verbose debug information */
+  xLogLevel_Info,      /**< Informational messages    */
+  xLogLevel_Warn,      /**< Warning conditions        */
+  xLogLevel_Error,     /**< Error conditions          */
+  xLogLevel_Fatal,     /**< Fatal error, abort()      */
 };
 
 /**
  * @brief Logger operating modes.
  */
 XDEF_ENUM(xLogMode){
-    xLogMode_Timer  = 0, /**< Periodic timer flush (default)          */
-    xLogMode_Notify,     /**< Pipe-based immediate notification       */
-    xLogMode_Mixed,      /**< Timer + pipe for high-severity entries  */
+  xLogMode_Timer = 0, /**< Periodic timer flush (default)          */
+  xLogMode_Notify,    /**< Pipe-based immediate notification       */
+  xLogMode_Mixed,     /**< Timer + pipe for high-severity entries  */
 };
 
 /**
@@ -48,16 +48,16 @@ XDEF_HANDLE(xLogger);
  * @brief Configuration for creating a logger.
  */
 XDEF_STRUCT(xLoggerConf) {
-  xEventLoop   loop;              /**< Event loop (required, must not be NULL) */
-  const char  *path;              /**< Log file path, or NULL for stderr       */
-  xLogMode     mode;              /**< Operating mode (default: Timer)         */
-  xLogLevel    level;             /**< Minimum log level (default: Info)       */
-  size_t       max_size;          /**< Max file size in bytes before rotation
-                                       (0 = no rotation)                       */
-  int          max_files;         /**< Total files to keep including current
-                                       (0 or 1 = no rotation)                 */
-  uint64_t     flush_interval_ms; /**< Timer/Mixed flush interval in ms
-                                       (0 = use default 100ms)                */
+  xEventLoop  loop;           /**< Event loop (required, must not be NULL) */
+  const char *path;           /**< Log file path, or NULL for stderr       */
+  xLogMode    mode;           /**< Operating mode (default: Timer)         */
+  xLogLevel   level;          /**< Minimum log level (default: Info)       */
+  size_t      max_size;       /**< Max file size in bytes before rotation
+                                   (0 = no rotation)                       */
+  int max_files;              /**< Total files to keep including current
+                                   (0 or 1 = no rotation)                 */
+  uint64_t flush_interval_ms; /**< Timer/Mixed flush interval in ms
+                                   (0 = use default 100ms)                */
 };
 
 /**
@@ -146,27 +146,27 @@ XCAPI(xLogger) xLoggerCurrent(void);
 #endif
 
 /* Macros using the thread-local logger context (set via xLoggerEnter). */
-#define XLOG_DEBUG(fmt, ...)                                                   \
+#define XLOG_DEBUG(fmt, ...) \
   xLoggerLog(xLoggerCurrent(), xLogLevel_Debug, (fmt), ##__VA_ARGS__)
-#define XLOG_INFO(fmt, ...)                                                    \
+#define XLOG_INFO(fmt, ...) \
   xLoggerLog(xLoggerCurrent(), xLogLevel_Info, (fmt), ##__VA_ARGS__)
-#define XLOG_WARN(fmt, ...)                                                    \
+#define XLOG_WARN(fmt, ...) \
   xLoggerLog(xLoggerCurrent(), xLogLevel_Warn, (fmt), ##__VA_ARGS__)
-#define XLOG_ERROR(fmt, ...)                                                   \
+#define XLOG_ERROR(fmt, ...) \
   xLoggerLog(xLoggerCurrent(), xLogLevel_Error, (fmt), ##__VA_ARGS__)
-#define XLOG_FATAL(fmt, ...)                                                   \
+#define XLOG_FATAL(fmt, ...) \
   xLoggerLog(xLoggerCurrent(), xLogLevel_Fatal, (fmt), ##__VA_ARGS__)
 
 /* Explicit-logger variants: pass a specific logger handle. */
-#define XLOG_DEBUG_L(logger, fmt, ...)                                         \
+#define XLOG_DEBUG_L(logger, fmt, ...) \
   xLoggerLog((logger), xLogLevel_Debug, (fmt), ##__VA_ARGS__)
-#define XLOG_INFO_L(logger, fmt, ...)                                          \
+#define XLOG_INFO_L(logger, fmt, ...) \
   xLoggerLog((logger), xLogLevel_Info, (fmt), ##__VA_ARGS__)
-#define XLOG_WARN_L(logger, fmt, ...)                                          \
+#define XLOG_WARN_L(logger, fmt, ...) \
   xLoggerLog((logger), xLogLevel_Warn, (fmt), ##__VA_ARGS__)
-#define XLOG_ERROR_L(logger, fmt, ...)                                         \
+#define XLOG_ERROR_L(logger, fmt, ...) \
   xLoggerLog((logger), xLogLevel_Error, (fmt), ##__VA_ARGS__)
-#define XLOG_FATAL_L(logger, fmt, ...)                                         \
+#define XLOG_FATAL_L(logger, fmt, ...) \
   xLoggerLog((logger), xLogLevel_Fatal, (fmt), ##__VA_ARGS__)
 
 #endif /* XLOG_LOGGER_H */

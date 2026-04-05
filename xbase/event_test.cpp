@@ -322,8 +322,6 @@ TEST(EventWake, WakeFromAnotherThread) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  std::atomic<bool> woke{false};
-
   std::thread waker([&]() {
     sleep_ms(50);
     xEventWake(loop);
@@ -666,9 +664,8 @@ TEST(EventSignal, BasicRegisterAndTrigger) {
 
   kill(getpid(), SIGUSR1);
 
-  int n = 0;
   for (int i = 0; i < 10 && ctx.count == 0; i++)
-    n += xEventWait(loop, 100);
+    xEventWait(loop, 100);
 
   EXPECT_GE(ctx.count, 1);
   EXPECT_EQ(ctx.signo, SIGUSR1);

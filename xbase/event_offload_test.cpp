@@ -18,14 +18,6 @@ extern "C" {
 #include <xbase/task.h>
 }
 
-/* ───────────────────── Helpers ───────────────────── */
-
-using ms = std::chrono::milliseconds;
-
-static void sleep_ms(int n) {
-  std::this_thread::sleep_for(ms(n));
-}
-
 /* ───────────────────── Fixture ───────────────────── */
 
 class EventOffloadTest : public ::testing::Test {

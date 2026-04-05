@@ -16,12 +16,12 @@
 
 #endif
 
-#define XDEF_STRUCT(T)                                                         \
-  typedef struct T T;                                                          \
+#define XDEF_STRUCT(T) \
+  typedef struct T T;  \
   struct T
 
-#define XDEF_ENUM(T)                                                           \
-  typedef int T;                                                               \
+#define XDEF_ENUM(T) \
+  typedef int T;     \
   enum
 
 #define XDEF_HANDLE(T) typedef void *T

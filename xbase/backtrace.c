@@ -39,14 +39,12 @@ static int bt_capture(int skip, char *buf, size_t size) {
   unw_context_t ctx;
   unw_word_t    ip, off;
   char          sym[256];
-  int           n     = 0;   /* written bytes */
-  int           frame = 0;
+  int           n          = 0; /* written bytes */
+  int           frame      = 0;
   int           total_skip = skip + INTERNAL_SKIP;
 
-  if (unw_getcontext(&ctx) < 0)
-    return 0;
-  if (unw_init_local(&cursor, &ctx) < 0)
-    return 0;
+  if (unw_getcontext(&ctx) < 0) return 0;
+  if (unw_init_local(&cursor, &ctx) < 0) return 0;
 
   while (unw_step(&cursor) > 0) {
     if (total_skip > 0) {
@@ -58,17 +56,14 @@ static int bt_capture(int skip, char *buf, size_t size) {
 
     int ret;
     if (unw_get_proc_name(&cursor, sym, sizeof(sym), &off) == 0) {
-      ret = snprintf(buf + n, size - (size_t)n,
-                     "#%d 0x%lx %s+0x%lx\n",
-                     frame, (unsigned long)ip, sym, (unsigned long)off);
+      ret = snprintf(buf + n, size - (size_t)n, "#%d 0x%lx %s+0x%lx\n", frame,
+                     (unsigned long)ip, sym, (unsigned long)off);
     } else {
-      ret = snprintf(buf + n, size - (size_t)n,
-                     "#%d 0x%lx <unknown>\n",
-                     frame, (unsigned long)ip);
+      ret = snprintf(buf + n, size - (size_t)n, "#%d 0x%lx <unknown>\n", frame,
+                     (unsigned long)ip);
     }
 
-    if (ret < 0)
-      break;
+    if (ret < 0) break;
 
     if ((size_t)(n + ret) >= size) {
       /* Truncated — buf is already NUL-terminated by snprintf */
@@ -94,16 +89,15 @@ static int bt_capture(int skip, char *buf, size_t size) {
 #include <stdlib.h>
 
 static int bt_capture(int skip, char *buf, size_t size) {
-  void *frames[MAX_FRAMES];
-  int   depth;
+  void  *frames[MAX_FRAMES];
+  int    depth;
   char **syms;
-  int   n     = 0;
-  int   frame = 0;
-  int   total_skip = skip + INTERNAL_SKIP;
+  int    n          = 0;
+  int    frame      = 0;
+  int    total_skip = skip + INTERNAL_SKIP;
 
   depth = backtrace(frames, MAX_FRAMES);
-  if (depth <= 0)
-    return 0;
+  if (depth <= 0) return 0;
 
   syms = backtrace_symbols(frames, depth);
 
@@ -115,15 +109,13 @@ static int bt_capture(int skip, char *buf, size_t size) {
 
     int ret;
     if (syms) {
-      ret = snprintf(buf + n, size - (size_t)n,
-                     "#%d %s\n", frame, syms[i]);
+      ret = snprintf(buf + n, size - (size_t)n, "#%d %s\n", frame, syms[i]);
     } else {
-      ret = snprintf(buf + n, size - (size_t)n,
-                     "#%d %p <unknown>\n", frame, frames[i]);
+      ret = snprintf(buf + n, size - (size_t)n, "#%d %p <unknown>\n", frame,
+                     frames[i]);
     }
 
-    if (ret < 0)
-      break;
+    if (ret < 0) break;
 
     if ((size_t)(n + ret) >= size) {
       n = (int)(size - 1);
@@ -146,10 +138,9 @@ static int bt_capture(int skip, char *buf, size_t size) {
 static int bt_capture(int skip, char *buf, size_t size) {
   (void)skip;
   static const char msg[] = "<backtrace not supported on this platform>\n";
-  size_t len = sizeof(msg) - 1; /* exclude NUL */
+  size_t            len   = sizeof(msg) - 1; /* exclude NUL */
 
-  if (len >= size)
-    len = size - 1;
+  if (len >= size) len = size - 1;
 
   memcpy(buf, msg, len);
   buf[len] = '\0';
@@ -163,8 +154,7 @@ static int bt_capture(int skip, char *buf, size_t size) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 int xBacktraceSkip(int skip, char *buf, size_t size) {
-  if (!buf || size == 0)
-    return 0;
+  if (!buf || size == 0) return 0;
 
   buf[0] = '\0';
   return bt_capture(skip, buf, size);

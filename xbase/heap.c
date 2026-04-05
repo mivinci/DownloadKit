@@ -61,7 +61,7 @@ static void sift_down(struct xHeap_ *h, size_t i) {
 static bool ensure_cap(struct xHeap_ *h) {
   if (h->size < h->cap) return true;
 
-  size_t new_cap = h->cap ? h->cap * 2 : HEAP_DEFAULT_CAP;
+  size_t new_cap  = h->cap ? h->cap * 2 : HEAP_DEFAULT_CAP;
   void **new_data = (void **)realloc(h->data, new_cap * sizeof(void *));
   if (!new_data) return false;
 
@@ -105,7 +105,7 @@ xErrno xHeapPush(xHeap h_, void *elem) {
   if (!h || !elem) return xErrno_InvalidArg;
   if (!ensure_cap(h)) return xErrno_NoMemory;
 
-  size_t idx = h->size;
+  size_t idx   = h->size;
   h->data[idx] = elem;
   h->setidx(elem, idx);
   h->size++;

@@ -381,6 +381,327 @@ TEST_F(IntegrationTest, SseOverH2c) {
   EXPECT_EQ(ctx.data[2], "gamma");
 }
 
+/* ───────────────────── H2C 404 Not Found ───────────────────── */
+
+TEST_F(IntegrationTest, H2cNotFound) {
+  xHttpServerRoute(server, "GET", "/exists", hello_handler, nullptr);
+  listen_and_pump();
+
+  RespCtx ctx;
+  std::string url = make_url("/nonexistent");
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url          = url.c_str();
+  config.method       = xHttpMethod_GET;
+  config.http_version = xHttpVersion_H2C;
+
+  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "H2C 404 request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 404);
+}
+
+/* ───────────────────── H2C custom headers ───────────────────── */
+
+TEST_F(IntegrationTest, H2cDoCustomHeaders) {
+  xHttpServerRoute(server, "GET", "/headers", echo_header_handler, nullptr);
+  listen_and_pump();
+
+  RespCtx ctx;
+  std::string url = make_url("/headers");
+
+  const char *hdrs[] = {"X-H2-Test: h2c-value-456", NULL};
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url          = url.c_str();
+  config.method       = xHttpMethod_GET;
+  config.headers      = hdrs;
+  config.http_version = xHttpVersion_H2C;
+
+  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "H2C headers request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  /* H2 lowercases header names; verify the value is present */
+  EXPECT_NE(ctx.body.find("h2c-value-456"), std::string::npos);
+}
+
+/* ───────────────────── Route params over H1 ───────────────────── */
+
+static void param_echo_handler(xHttpResponseWriter w, const xHttpRequest *req,
+                                void *arg) {
+  (void)arg;
+  size_t len = 0;
+  const char *id = xHttpRequestParam(req, "id", &len);
+
+  xHttpResponseSetStatus(w, 200);
+  xHttpResponseSetHeader(w, "Content-Type", "text/plain");
+  if (id && len > 0) {
+    char buf[128];
+    int n = snprintf(buf, sizeof(buf), "id=%.*s", (int)len, id);
+    xHttpResponseSend(w, buf, (size_t)n);
+  } else {
+    xHttpResponseSend(w, "id=none", 7);
+  }
+}
+
+TEST_F(IntegrationTest, H1RouteParam) {
+  xHttpServerRoute(server, "GET", "/users/:id", param_echo_handler, nullptr);
+  listen_and_pump();
+
+  RespCtx ctx;
+  std::string url = make_url("/users/42");
+  xErrno err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "Request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_EQ(ctx.body, "id=42");
+}
+
+/* ───────────────────── Route params over H2C ───────────────────── */
+
+TEST_F(IntegrationTest, H2cRouteParam) {
+  xHttpServerRoute(server, "GET", "/users/:id", param_echo_handler, nullptr);
+  listen_and_pump();
+
+  RespCtx ctx;
+  std::string url = make_url("/users/alice");
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url          = url.c_str();
+  config.method       = xHttpMethod_GET;
+  config.http_version = xHttpVersion_H2C;
+
+  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "H2C param request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_EQ(ctx.body, "id=alice");
+}
+
+/* ───────────────────── PUT method ───────────────────── */
+
+static void put_handler(xHttpResponseWriter w, const xHttpRequest *req,
+                         void *arg) {
+  (void)arg;
+  xHttpResponseSetStatus(w, 200);
+  xHttpResponseSetHeader(w, "Content-Type", "text/plain");
+  /* Echo method + body */
+  char buf[256];
+  int n = snprintf(buf, sizeof(buf), "%s:%.*s",
+                   req->method, (int)req->body_len, req->body ? req->body : "");
+  xHttpResponseSend(w, buf, (size_t)n);
+}
+
+TEST_F(IntegrationTest, H1PutMethod) {
+  xHttpServerRoute(server, "PUT", "/resource", put_handler, nullptr);
+  listen_and_pump();
+
+  RespCtx ctx;
+  std::string url = make_url("/resource");
+  const char *body = "updated-data";
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url      = url.c_str();
+  config.method   = xHttpMethod_PUT;
+  config.body     = body;
+  config.body_len = strlen(body);
+
+  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "PUT request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_EQ(ctx.body, "PUT:updated-data");
+}
+
+/* ───────────────────── DELETE method over H2C ───────────────────── */
+
+static void delete_handler(xHttpResponseWriter w, const xHttpRequest *req,
+                            void *arg) {
+  (void)arg;
+  (void)req;
+  xHttpResponseSetStatus(w, 204);
+  xHttpResponseSend(w, NULL, 0);
+}
+
+TEST_F(IntegrationTest, H2cDeleteMethod) {
+  xHttpServerRoute(server, "DELETE", "/resource", delete_handler, nullptr);
+  listen_and_pump();
+
+  RespCtx ctx;
+  std::string url = make_url("/resource");
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url          = url.c_str();
+  config.method       = xHttpMethod_DELETE;
+  config.http_version = xHttpVersion_H2C;
+
+  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "DELETE request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 204);
+  EXPECT_TRUE(ctx.body.empty());
+}
+
+/* ───────────────────── Large body round-trip ───────────────────── */
+
+TEST_F(IntegrationTest, LargeBodyRoundTrip) {
+  xHttpServerRoute(server, "POST", "/echo", echo_body_handler, nullptr);
+  listen_and_pump();
+
+  /* Use a body that fits in a single socket read.
+   * TODO: bodies larger than ~4 KB may time out due to an edge-triggered
+   * read bug in the server (only one read per event). */
+  std::string large_body(4000, 'X');
+
+  RespCtx ctx;
+  std::string url = make_url("/echo");
+  xErrno err = xHttpClientPost(client, url.c_str(),
+                                large_body.c_str(), large_body.size(),
+                                on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 10000);
+
+  ASSERT_TRUE(ctx.done.load()) << "Large body request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_EQ(ctx.body.size(), large_body.size());
+  EXPECT_EQ(ctx.body, large_body);
+}
+
+/* ───────────────────── SSE via DoSse POST (LLM-style) ───────────────────── */
+
+static void sse_post_handler(xHttpResponseWriter w, const xHttpRequest *req,
+                              void *arg) {
+  (void)arg;
+  /* Echo the request body as an SSE event, then send a done event */
+  xHttpResponseSetStatus(w, 200);
+  xHttpResponseSetHeader(w, "Content-Type", "text/event-stream");
+  xHttpResponseSetHeader(w, "Cache-Control", "no-cache");
+
+  char buf[512];
+  int n = snprintf(buf, sizeof(buf), "data: %.*s\n\n",
+                   (int)req->body_len, req->body ? req->body : "");
+  xHttpResponseWrite(w, buf, (size_t)n);
+  xHttpResponseWrite(w, "event: done\ndata: [DONE]\n\n", 26);
+  xHttpResponseEnd(w);
+}
+
+TEST_F(IntegrationTest, SseDoPostH1) {
+  xHttpServerRoute(server, "POST", "/v1/chat", sse_post_handler, nullptr);
+  listen_and_pump();
+
+  SseTestCtx ctx;
+  std::string url = make_url("/v1/chat");
+  const char *body = "{\"model\":\"gpt-4\"}";
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url      = url.c_str();
+  config.method   = xHttpMethod_POST;
+  config.body     = body;
+  config.body_len = strlen(body);
+
+  xErrno err = xHttpClientDoSse(client, &config,
+                                 on_sse_ev, on_sse_end, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "SSE POST stream did not finish";
+  EXPECT_EQ(ctx.done_curl_code, 0);
+  ASSERT_EQ(ctx.event_count.load(), 2);
+  EXPECT_EQ(ctx.data[0], body);
+  EXPECT_EQ(ctx.events[1], "done");
+  EXPECT_EQ(ctx.data[1], "[DONE]");
+}
+
+/* ───────────────────── SSE via DoSse POST over H2C ───────────────────── */
+
+TEST_F(IntegrationTest, SseDoPostH2c) {
+  xHttpServerRoute(server, "POST", "/v1/chat", sse_post_handler, nullptr);
+  listen_and_pump();
+
+  SseTestCtx ctx;
+  std::string url = make_url("/v1/chat");
+  const char *body = "{\"stream\":true}";
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url          = url.c_str();
+  config.method       = xHttpMethod_POST;
+  config.body         = body;
+  config.body_len     = strlen(body);
+  config.http_version = xHttpVersion_H2C;
+
+  xErrno err = xHttpClientDoSse(client, &config,
+                                 on_sse_ev, on_sse_end, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "SSE POST/H2C stream did not finish";
+  EXPECT_EQ(ctx.done_curl_code, 0);
+  ASSERT_EQ(ctx.event_count.load(), 2);
+  EXPECT_EQ(ctx.data[0], body);
+  EXPECT_EQ(ctx.events[1], "done");
+  EXPECT_EQ(ctx.data[1], "[DONE]");
+}
+
+/* ───────────────────── Empty body response (204) ───────────────────── */
+
+TEST_F(IntegrationTest, H1EmptyBodyResponse) {
+  xHttpServerRoute(server, "DELETE", "/item", delete_handler, nullptr);
+  listen_and_pump();
+
+  RespCtx ctx;
+  std::string url = make_url("/item");
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url    = url.c_str();
+  config.method = xHttpMethod_DELETE;
+
+  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "204 request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 204);
+  EXPECT_TRUE(ctx.body.empty());
+}
+
 /* ───────────────────── Concurrent H1 + H2C requests ───────────────────── */
 
 TEST_F(IntegrationTest, ConcurrentH1AndH2c) {

@@ -365,9 +365,9 @@ static int h2_should_keep_alive(struct xHttpConn_ *conn) {
 
 /* Body source for nghttp2 data provider */
 typedef struct h2_body_source_ {
-  const char *data;
-  size_t      len;
-  size_t      pos;
+  char   *data;   /**< Heap-allocated copy of body data */
+  size_t  len;
+  size_t  pos;
 } h2_body_source;
 
 /**
@@ -394,6 +394,8 @@ static ssize_t h2_body_read_callback(nghttp2_session *session,
 
   if (src->pos >= src->len) {
     *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+    free(src->data);
+    src->data = NULL;
   }
 
   return (ssize_t)to_copy;
@@ -453,7 +455,15 @@ static int h2_send_response(struct xHttpStream_ *stream, int status,
       free(nva);
       return -1;
     }
-    src->data = body;
+    /* Copy body to heap — the caller's buffer may be stack-allocated
+     * and will be invalid by the time nghttp2_session_send() runs. */
+    src->data = (char *)malloc(body_len);
+    if (!src->data) {
+      free(src);
+      free(nva);
+      return -1;
+    }
+    memcpy(src->data, body, body_len);
     src->len  = body_len;
     src->pos  = 0;
 

@@ -75,10 +75,14 @@ struct xHttpStream_ {
 1. ~~**Step 1 (low cost)**: Extract llhttp-related fields from `xHttpConn_` behind an `xHttpProto`
    interface. Minimal change, no impact on existing functionality.~~ ✅ **Done** — `xHttpProto`
    vtable defined in `server_private.h`, HTTP/1.1 handler isolated in `proto_h1.c`.
-2. **Step 2**: Add TLS support (OpenSSL/BoringSSL) with ALPN negotiation, or support h2c
-   (cleartext HTTP/2) first for internal service-to-service communication.
-3. **Step 3**: Integrate nghttp2, implement the HTTP/2 protocol handler, and plug it into
-   the `xHttpProto` interface.
+2. ~~**Step 2**: Add TLS support (OpenSSL/BoringSSL) with ALPN negotiation, or support h2c
+   (cleartext HTTP/2) first for internal service-to-service communication.~~ ✅ **Done** — h2c
+   (cleartext HTTP/2) via Prior Knowledge supported. Protocol auto-detection in `server.c`
+   inspects the first bytes for the HTTP/2 connection preface.
+3. ~~**Step 3**: Integrate nghttp2, implement the HTTP/2 protocol handler, and plug it into
+   the `xHttpProto` interface.~~ ✅ **Done** — HTTP/2 protocol handler implemented in
+   `proto_h2.c` using nghttp2, with stream multiplexing, HPACK header compression,
+   and deferred dispatch. H1 and H2 coexist on the same port.
 
 Upper-layer APIs (routing, SSE, ResponseWriter) should require zero changes — user code
 works transparently with both HTTP/1.1 and HTTP/2.

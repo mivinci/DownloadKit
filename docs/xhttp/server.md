@@ -1,23 +1,25 @@
 <!-- markdownlint-disable MD041 -->
 [xKit](../../README.md) > [xhttp](README.md) > server.h
 
-# server.h — Asynchronous HTTP/1.1 Server
+# server.h — Asynchronous HTTP/1.1 & HTTP/2 Server
 
 ## Introduction
 
-`server.h` provides `xHttpServer`, an asynchronous, non-blocking HTTP/1.1 server powered by xbase's event loop. The protocol parsing layer is abstracted behind an `xHttpProto` vtable interface, with the current implementation using [llhttp](https://github.com/nodejs/llhttp) for HTTP/1.1. All connection handling, request parsing, and response sending are driven by the event loop on a single thread — no locks or thread pools required. The server supports routing, keep-alive, configurable limits, and automatic error responses.
+`server.h` provides `xHttpServer`, an asynchronous, non-blocking HTTP server powered by xbase's event loop. The server supports both **HTTP/1.1** and **HTTP/2** (h2c, cleartext) on the same port, with automatic protocol detection via [Prior Knowledge](https://httpwg.org/specs/rfc9113.html#known-http). The protocol parsing layer is abstracted behind an `xHttpProto` vtable interface — HTTP/1.1 uses [llhttp](https://github.com/nodejs/llhttp), HTTP/2 uses [nghttp2](https://nghttp2.org/). All connection handling, request parsing, and response sending are driven by the event loop on a single thread — no locks or thread pools required. The server supports routing, keep-alive, configurable limits, and automatic error responses.
 
 ## Design Philosophy
 
 1. **Single-Threaded Event-Driven I/O** — The server registers listening and client sockets with [`xEventLoop`](../xbase/event.md). Accept, read, parse, dispatch, and write all happen on the event loop thread, eliminating synchronization overhead.
 
-2. **Protocol-Abstracted Parsing** — Request parsing is delegated to a protocol handler behind the `xHttpProto` vtable interface. The current HTTP/1.1 implementation (`proto_h1.c`) uses llhttp (the HTTP parser used by Node.js). Incremental callbacks accumulate URL, headers, and body into [`xBuffer`](../xbuf/buf.md) instances, supporting chunked and pipelined requests. This abstraction allows transparent addition of HTTP/2 (or other protocols) without changing the connection management layer.
+2. **Protocol-Abstracted Parsing** — Request parsing is delegated to a protocol handler behind the `xHttpProto` vtable interface. HTTP/1.1 (`proto_h1.c`) uses llhttp; HTTP/2 (`proto_h2.c`) uses nghttp2. Incremental callbacks accumulate URL, headers, and body into [`xBuffer`](../xbuf/buf.md) instances. This abstraction allows both protocols to share the same connection management, routing, and response serialization layers.
 
-3. **First-Match Routing** — Routes are registered as (method, path) pairs and matched in registration order. Path patterns support both exact segments and `:param` segments (e.g. `/users/:id`). This keeps the routing logic simple and predictable.
+3. **Automatic Protocol Detection** — On each new connection, the server inspects the first bytes of incoming data. If the 24-byte HTTP/2 connection preface (`PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n`) is detected, the connection is upgraded to HTTP/2; otherwise, HTTP/1.1 is used. This enables h2c (cleartext HTTP/2) via Prior Knowledge — ideal for internal service-to-service communication.
 
-4. **Writer-Based Response API** — Handlers receive an `xHttpResponseWriter` handle to set status, headers, and body. The response is serialized into an [`xIOBuffer`](../xbuf/io.md) and flushed asynchronously, with backpressure handled automatically.
+4. **First-Match Routing** — Routes are registered as (method, path) pairs and matched in registration order. Path patterns support both exact segments and `:param` segments (e.g. `/users/:id`). This keeps the routing logic simple and predictable.
 
-5. **Defensive Limits** — Configurable limits on header size (default 8 KiB), body size (default 1 MiB), and idle timeout (default 60 s) protect against slow clients and oversized payloads. Violations produce appropriate 4xx error responses.
+5. **Writer-Based Response API** — Handlers receive an `xHttpResponseWriter` handle to set status, headers, and body. The response is serialized into an [`xIOBuffer`](../xbuf/io.md) and flushed asynchronously, with backpressure handled automatically.
+
+6. **Defensive Limits** — Configurable limits on header size (default 8 KiB), body size (default 1 MiB), and idle timeout (default 60 s) protect against slow clients and oversized payloads. Violations produce appropriate 4xx error responses.
 
 ## Architecture
 
@@ -32,8 +34,11 @@ graph TD
         SERVER["xHttpServer"]
         ROUTER["Route Table<br/>(linked list)"]
         CONN["xHttpConn_<br/>(per connection)"]
+        DETECT["Protocol Detection<br/>(Prior Knowledge)"]
         PROTO["xHttpProto (vtable)"]
-        PARSER["proto_h1 (llhttp)"]
+        PARSER_H1["proto_h1 (llhttp)"]
+        PARSER_H2["proto_h2 (nghttp2)"]
+        STREAM["xHttpStream_<br/>(per request)"]
         WRITER["xHttpResponseWriter"]
     end
 
@@ -46,12 +51,17 @@ graph TD
     APP -->|"xHttpServerRoute"| ROUTER
     APP -->|"xHttpServerListen"| SERVER
     SERVER -->|"accept()"| CONN
-    CONN --> PROTO
-    PROTO --> PARSER
-    PARSER -->|"on_data → complete"| ROUTER
+    CONN --> DETECT
+    DETECT -->|"H1"| PARSER_H1
+    DETECT -->|"H2 preface"| PARSER_H2
+    PARSER_H1 --> PROTO
+    PARSER_H2 --> PROTO
+    PROTO -->|"request complete"| STREAM
+    STREAM --> ROUTER
     ROUTER -->|"first match"| HANDLER
     HANDLER -->|"xHttpResponseSend"| WRITER
-    WRITER -->|"xIOBuffer"| CONN
+    WRITER --> STREAM
+    STREAM -->|"H1: xIOBuffer / H2: nghttp2 frames"| CONN
     CONN --> SOCK
     SOCK --> LOOP
     TIMER --> LOOP
@@ -59,7 +69,9 @@ graph TD
     style SERVER fill:#4a90d9,color:#fff
     style LOOP fill:#50b86c,color:#fff
     style PROTO fill:#9b59b6,color:#fff
-    style PARSER fill:#f5a623,color:#fff
+    style PARSER_H1 fill:#f5a623,color:#fff
+    style PARSER_H2 fill:#e74c3c,color:#fff
+    style DETECT fill:#1abc9c,color:#fff
 ```
 
 ## Implementation Details
@@ -144,6 +156,72 @@ When `xHttpResponseSend()` is called:
 - HTTP/1.1 connections default to keep-alive. After a response is fully flushed, `proto.reset()` is called and the connection waits for the next request.
 - The parser is paused in `on_message_complete` to prevent parsing the next pipelined request before the current response is sent.
 - Error responses always set `Connection: close`.
+
+### HTTP/2 Support (h2c Prior Knowledge)
+
+The server supports cleartext HTTP/2 (h2c) via the Prior Knowledge mechanism. HTTP/1.1 and HTTP/2 coexist on the same port — no TLS or Upgrade header required.
+
+#### Protocol Detection
+
+When a new connection is accepted, protocol detection is deferred until the first bytes arrive:
+
+1. If the first 24 bytes match the HTTP/2 connection preface (`PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n`), `xHttpProtoH2Init()` is called.
+2. If the prefix doesn't match, `xHttpProtoH1Init()` is called.
+3. If fewer than 24 bytes have arrived but the prefix still matches so far, the server waits for more data before deciding.
+
+#### Stream Multiplexing
+
+Under HTTP/2, a single TCP connection carries multiple concurrent streams, each representing an independent request/response exchange:
+
+- **`xHttpStream_`** — Per-request state (URL, headers, body, response writer). HTTP/1.1 uses a single implicit stream (stream_id = 0); HTTP/2 creates a new stream for each request.
+- **Deferred dispatch** — Completed streams are queued during `nghttp2_session_mem_recv()` and dispatched after it returns, avoiding re-entrancy issues.
+- **Response framing** — Responses are submitted via `nghttp2_submit_response()` with HPACK-compressed headers and DATA frames, then flushed through the connection's write buffer.
+
+#### H2 Connection Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Conn as xHttpConn_
+    participant Detect as Protocol Detection
+    participant H2 as proto_h2 (nghttp2)
+    participant Stream as xHttpStream_
+    participant Router as Route Table
+    participant Handler as User Handler
+
+    Client->>Conn: TCP connect
+    Client->>Conn: H2 connection preface + SETTINGS
+    Conn->>Detect: First bytes inspection
+    Detect->>H2: xHttpProtoH2Init()
+    H2->>Client: SETTINGS frame (server preface)
+    Client->>Conn: HEADERS frame (stream 1, :method=GET, :path=/hello)
+    Conn->>H2: h2_on_data()
+    H2->>Stream: Create stream (id=1)
+    H2->>Stream: Accumulate headers
+    H2->>Router: Dispatch (END_STREAM received)
+    Router->>Handler: handler(writer, req, arg)
+    Handler->>Stream: xHttpResponseSend(body)
+    Stream->>H2: nghttp2_submit_response()
+    H2->>Client: HEADERS + DATA frames
+```
+
+#### Key Differences: H1 vs H2
+
+| Feature | HTTP/1.1 (proto_h1) | HTTP/2 (proto_h2) |
+| --- | --- | --- |
+| Parser | llhttp (byte stream → request) | nghttp2 (byte stream → frame → stream) |
+| Multiplexing | None (pipelining at best) | Native, multiple concurrent streams |
+| Headers | Plain text `Key: Value` | HPACK compressed pseudo-headers + regular headers |
+| Keep-alive | `Connection: keep-alive` header | Always persistent (multiplexed) |
+| Reset | Per-request `proto.reset()` | No-op (streams are independent) |
+| Response framing | Raw HTTP/1.1 status line + headers + body | `nghttp2_submit_response()` → HEADERS + DATA frames |
+| Flow control | None | Built-in per-stream flow control |
+
+#### Limitations
+
+- **h2c only** — TLS-based HTTP/2 (h2 with ALPN) is not yet supported. Use Prior Knowledge for cleartext h2c.
+- **No server push** — HTTP/2 server push is not implemented.
+- **Streaming responses** — `xHttpResponseWrite()`/`xHttpResponseEnd()` for HTTP/2 streaming DATA frames is not yet fully implemented.
 
 ### Idle Timeout
 
@@ -416,17 +494,18 @@ int main(void) {
 | --- | --- | --- | --- | --- | --- |
 | **I/O Model** | Async (event loop) | Async (event loop) | Threaded / select | Goroutines | Async (event loop) |
 | **Event Loop** | xEventLoop integration | libuv | Internal | Go runtime | libuv (V8) |
-| **HTTP Parser** | llhttp | http-parser / llhttp | Internal | Internal | llhttp |
+| **HTTP Parser** | llhttp (H1) + nghttp2 (H2) | http-parser / llhttp | Internal | Internal | llhttp |
 | **Streaming Response** | Built-in (`Write`/`End`) | Manual | Manual | Built-in (`Flusher`) | Built-in (`write`/`end`) |
 | **Routing** | Built-in (first match) | None (manual) | None (manual) | Built-in (`ServeMux`) | None (manual) |
 | **Keep-Alive** | Automatic | Manual | Automatic | Automatic | Automatic |
 | **Thread Model** | Single-threaded | Single-threaded | Multi-threaded | Multi-goroutine | Single-threaded |
 | **Language** | C99 | C | C | Go | JavaScript |
 
-**Key Differentiator:** xhttp server provides a complete, single-threaded HTTP/1.1 server with built-in routing, streaming responses, and automatic keep-alive — all integrated with xEventLoop. Unlike libuv + http-parser (which requires manual response assembly) or libmicrohttpd (which uses threads), xhttp keeps everything on one thread with zero synchronization overhead. The streaming API (`xHttpResponseWrite`/`xHttpResponseEnd`) makes it straightforward to implement SSE or chunked streaming without external dependencies.
+**Key Differentiator:** xhttp server provides a complete, single-threaded HTTP/1.1 & HTTP/2 server with built-in routing, streaming responses, and automatic keep-alive — all integrated with xEventLoop. HTTP/1.1 and HTTP/2 coexist on the same port via automatic protocol detection (Prior Knowledge). Unlike libuv + http-parser (which requires manual response assembly) or libmicrohttpd (which uses threads), xhttp keeps everything on one thread with zero synchronization overhead. The streaming API (`xHttpResponseWrite`/`xHttpResponseEnd`) makes it straightforward to implement SSE or chunked streaming without external dependencies.
 
 ## Relationship with Other Modules
 
 - **xbase** — Uses [`xEventLoop`](../xbase/event.md) for I/O multiplexing, [`xSocket`](../xbase/socket.md) for non-blocking socket management, and socket timeouts for idle connection detection.
 - **xbuf** — Uses [`xBuffer`](../xbuf/buf.md) for request parsing accumulation (URL, headers, body) and [`xIOBuffer`](../xbuf/io.md) for read/write buffering with scatter-gather I/O.
 - **llhttp** — External dependency. Provides incremental HTTP/1.1 request parsing via callbacks, isolated behind the `xHttpProto` vtable in `proto_h1.c`.
+- **nghttp2** — External dependency. Provides HTTP/2 frame processing, HPACK header compression, and stream management, isolated behind the `xHttpProto` vtable in `proto_h2.c`.

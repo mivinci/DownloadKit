@@ -213,12 +213,13 @@ static void openssl_destroy(void *ctx) {
     BIO *wbio = SSL_get_wbio(t->ssl);
     if (wbio && wbio != rbio) BIO_set_close(wbio, BIO_NOCLOSE);
 
-    /* Only attempt SSL_shutdown if the handshake was completed.
-     * Calling SSL_shutdown on an SSL object whose handshake never
-     * finished is undefined behavior and can corrupt the heap. */
-    if (SSL_is_init_finished(t->ssl)) {
-      SSL_shutdown(t->ssl);
-    }
+    /* NOTE: We intentionally do NOT call SSL_shutdown() here.
+     * In our architecture, xSocketDestroy() has already closed the fd
+     * before this function is called (see xHttpConnClose).  Calling
+     * SSL_shutdown on a closed fd would attempt I/O on an invalid
+     * (or worse, reassigned) fd, leading to SEGFAULT or data corruption.
+     * The TCP RST from close(fd) is sufficient to signal the peer. */
+
     /* Clear the OpenSSL error queue for this thread before freeing
      * the SSL object. This prevents stale error state from interfering
      * with other SSL operations in the same thread. */

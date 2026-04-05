@@ -72,8 +72,9 @@ struct xHttpStream_ {
 
 ### Implementation Roadmap
 
-1. **Step 1 (low cost)**: Extract llhttp-related fields from `xHttpConn_` behind an `xHttpProto`
-   interface. Minimal change, no impact on existing functionality.
+1. ~~**Step 1 (low cost)**: Extract llhttp-related fields from `xHttpConn_` behind an `xHttpProto`
+   interface. Minimal change, no impact on existing functionality.~~ ✅ **Done** — `xHttpProto`
+   vtable defined in `server_private.h`, HTTP/1.1 handler isolated in `proto_h1.c`.
 2. **Step 2**: Add TLS support (OpenSSL/BoringSSL) with ALPN negotiation, or support h2c
    (cleartext HTTP/2) first for internal service-to-service communication.
 3. **Step 3**: Integrate nghttp2, implement the HTTP/2 protocol handler, and plug it into

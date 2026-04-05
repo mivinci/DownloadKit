@@ -7,6 +7,7 @@
  */
 
 #include "server_private.h"
+#include "proto_h1.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -24,14 +25,6 @@
 
 static void on_listen_event(xSocket sock, xEventMask mask, void *arg);
 static void on_conn_event(xSocket sock, xEventMask mask, void *arg);
-
-/* llhttp callbacks */
-static int on_url(llhttp_t *parser, const char *at, size_t len);
-static int on_header_field(llhttp_t *parser, const char *at, size_t len);
-static int on_header_value(llhttp_t *parser, const char *at, size_t len);
-static int on_headers_complete(llhttp_t *parser);
-static int on_body(llhttp_t *parser, const char *at, size_t len);
-static int on_message_complete(llhttp_t *parser);
 
 /* Internal helpers */
 static void conn_init_parser(struct xHttpConn_ *conn);
@@ -256,7 +249,7 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
     conn->writer.streaming   = 0;
     conn->writer.conn        = conn;
 
-    /* Initialize llhttp parser */
+    /* Initialize protocol handler */
     conn_init_parser(conn);
 
     /* Wrap accepted fd in xSocket */
@@ -285,19 +278,10 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
 }
 
 /**
- * Initialize the llhttp parser and settings for a connection.
+ * Initialize the protocol handler for a connection.
  */
 static void conn_init_parser(struct xHttpConn_ *conn) {
-  memset(&conn->parser_settings, 0, sizeof(conn->parser_settings));
-  conn->parser_settings.on_url              = on_url;
-  conn->parser_settings.on_header_field     = on_header_field;
-  conn->parser_settings.on_header_value     = on_header_value;
-  conn->parser_settings.on_headers_complete = on_headers_complete;
-  conn->parser_settings.on_body             = on_body;
-  conn->parser_settings.on_message_complete = on_message_complete;
-
-  llhttp_init(&conn->parser, HTTP_REQUEST, &conn->parser_settings);
-  conn->parser.data = conn;
+  xHttpProtoH1Init(conn);
 }
 
 /**
@@ -327,7 +311,7 @@ static void conn_reset_request_state(struct xHttpConn_ *conn) {
   conn->writer.streaming    = 0;
 
   /* Reset parser for next request */
-  llhttp_reset(&conn->parser);
+  conn->proto.reset(conn);
 }
 
 void xHttpConnResetParser(struct xHttpConn_ *conn) {
@@ -355,6 +339,9 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
   /* Free buffers */
   xIOBufferDeinit(&conn->read_buf);
   xIOBufferDeinit(&conn->write_buf);
+
+  /* Destroy protocol handler */
+  conn->proto.destroy(conn);
 
   /* Free request parsing state */
   xBufferDestroy(conn->url);
@@ -413,7 +400,7 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
       break; /* Got data; process below */
     }
 
-    /* Feed accumulated data to llhttp parser */
+    /* Feed accumulated data to protocol handler */
     size_t buf_len = xIOBufferLen(&conn->read_buf);
     if (buf_len > 0) {
       /* Copy read buffer to a contiguous buffer for parsing */
@@ -426,22 +413,26 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
       xIOBufferCopyTo(&conn->read_buf, linear);
       xIOBufferConsume(&conn->read_buf, buf_len);
 
-      enum llhttp_errno err = llhttp_execute(&conn->parser, linear, buf_len);
+      int rc = conn->proto.on_data(conn, linear, buf_len);
       free(linear);
 
-      /* Handle deferred error from llhttp callbacks */
-      if (conn->pending_error) {
-        int code = conn->pending_error;
-        const char *reason = conn->pending_error_reason;
-        conn->pending_error = 0;
-        conn->pending_error_reason = NULL;
-        xHttpConnSendError(conn, code, reason);
+      if (rc < 0) {
+        /* Parse error or deferred error from callbacks */
+        if (conn->pending_error) {
+          int code = conn->pending_error;
+          const char *reason = conn->pending_error_reason;
+          conn->pending_error = 0;
+          conn->pending_error_reason = NULL;
+          xHttpConnSendError(conn, code, reason);
+        } else {
+          xHttpConnSendError(conn, 400, "Bad Request");
+        }
         conn_after_response(conn);
         return;
       }
 
-      /* Handle completed request (deferred from on_message_complete) */
-      if (conn->request_complete) {
+      if (rc > 0) {
+        /* Request complete: dispatch */
         conn->request_complete = 0;
         conn_dispatch_request(conn);
         /* conn may have been freed by dispatch (e.g. Connection: close),
@@ -449,119 +440,9 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
         return;
       }
 
-      if (err != HPE_OK && err != HPE_PAUSED) {
-        /* Parse error: send 400 and close */
-        xHttpConnSendError(conn, 400, "Bad Request");
-        conn_after_response(conn);
-        return;
-      }
+      /* rc == 0: need more data, continue */
     }
   }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
- *  HTTP request parsing — llhttp callbacks (Task 6)
- * ═══════════════════════════════════════════════════════════════════════════ */
-
-static int on_url(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-  conn->header_bytes += len;
-
-  if (!conn->url) conn->url = xBufferCreate(256);
-  if (!conn->url) return HPE_INTERNAL;
-  if (xBufferAppend(&conn->url, at, len) != xErrno_Ok) return HPE_INTERNAL;
-  return HPE_OK;
-}
-
-static int on_header_field(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-  conn->header_bytes += len;
-
-  if (conn->header_bytes > conn->server->max_header_size) {
-    conn->pending_error = 431;
-    conn->pending_error_reason = "Request Header Fields Too Large";
-    return HPE_USER;
-  }
-
-  /* Accumulate into raw headers */
-  if (!conn->headers_raw) conn->headers_raw = xBufferCreate(512);
-  if (!conn->headers_raw) return HPE_INTERNAL;
-  if (xBufferAppend(&conn->headers_raw, at, len) != xErrno_Ok)
-    return HPE_INTERNAL;
-
-  /* Track current field for potential use */
-  if (conn->header_field) {
-    xBufferReset(conn->header_field);
-  } else {
-    conn->header_field = xBufferCreate(128);
-    if (!conn->header_field) return HPE_INTERNAL;
-  }
-  if (xBufferAppend(&conn->header_field, at, len) != xErrno_Ok)
-    return HPE_INTERNAL;
-
-  return HPE_OK;
-}
-
-static int on_header_value(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-  conn->header_bytes += len;
-
-  if (conn->header_bytes > conn->server->max_header_size) {
-    conn->pending_error = 431;
-    conn->pending_error_reason = "Request Header Fields Too Large";
-    return HPE_USER;
-  }
-
-  /* Append ": " + value + "\r\n" to raw headers */
-  if (xBufferAppend(&conn->headers_raw, ": ", 2) != xErrno_Ok)
-    return HPE_INTERNAL;
-  if (xBufferAppend(&conn->headers_raw, at, len) != xErrno_Ok)
-    return HPE_INTERNAL;
-  if (xBufferAppend(&conn->headers_raw, "\r\n", 2) != xErrno_Ok)
-    return HPE_INTERNAL;
-
-  return HPE_OK;
-}
-
-static int on_headers_complete(llhttp_t *parser) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-
-  /* Determine keep-alive from HTTP version and headers */
-  conn->keep_alive = llhttp_should_keep_alive(parser);
-
-  return HPE_OK;
-}
-
-static int on_body(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-
-  size_t cur_len = conn->body ? xBufferLen(conn->body) : 0;
-  if (cur_len + len > conn->server->max_body_size) {
-    conn->pending_error = 413;
-    conn->pending_error_reason = "Content Too Large";
-    return HPE_USER;
-  }
-
-  if (!conn->body) conn->body = xBufferCreate(1024);
-  if (!conn->body) return HPE_INTERNAL;
-  if (xBufferAppend(&conn->body, at, len) != xErrno_Ok) return HPE_INTERNAL;
-
-  return HPE_OK;
-}
-
-static int on_message_complete(llhttp_t *parser) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
-
-  /* Set flag to dispatch after llhttp_execute returns.
-   * We must not call dispatch from within a callback because
-   * the response flush may reset/close the parser. */
-  conn->request_complete = 1;
-
-  /* Pause the parser so we can process the response before parsing
-   * the next pipelined request */
-  llhttp_pause(parser);
-
-  return HPE_OK;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -762,9 +643,8 @@ const char *xHttpRequestParam(const xHttpRequest *req,
 static void conn_dispatch_request(struct xHttpConn_ *conn) {
   struct xHttpServer_ *s = conn->server;
 
-  /* Get method string from llhttp */
-  const char *method_str = llhttp_method_name(
-      (llhttp_method_t)conn->parser.method);
+  /* Get method string from protocol handler */
+  const char *method_str = conn->proto.method(conn);
 
   /* Build the xHttpRequest */
   xHttpRequest req;

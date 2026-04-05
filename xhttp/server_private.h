@@ -9,7 +9,7 @@
 #ifndef XHTTP_SERVER_PRIVATE_H
 #define XHTTP_SERVER_PRIVATE_H
 
-#include <llhttp.h>
+#include <stddef.h>
 #include <xbase/event.h>
 #include <xbase/socket.h>
 #include <xbuf/buf.h>
@@ -79,6 +79,21 @@ struct xHttpResponseWriter_ {
   struct xHttpConn_   *conn;         /**< Back-pointer to the connection  */
 };
 
+/* ───────────────────── Protocol handler vtable ───────────────────── */
+
+/**
+ * Abstract protocol handler interface (vtable).
+ * Allows transparent switching between HTTP/1.1 (llhttp) and HTTP/2 (nghttp2).
+ */
+typedef struct xHttpProto_ {
+  int          (*on_data)(struct xHttpConn_ *conn, const char *buf, size_t len);
+  void         (*reset)(struct xHttpConn_ *conn);
+  void         (*destroy)(struct xHttpConn_ *conn);
+  const char  *(*method)(struct xHttpConn_ *conn);
+  int          (*should_keep_alive)(struct xHttpConn_ *conn);
+  void         *state;  /**< Opaque protocol state (e.g. xHttpProtoH1*) */
+} xHttpProto;
+
 /* ───────────────────── Connection ───────────────────── */
 
 struct xHttpConn_ {
@@ -87,9 +102,8 @@ struct xHttpConn_ {
   xIOBuffer            read_buf;     /**< Read buffer                      */
   xIOBuffer            write_buf;    /**< Write buffer                     */
 
-  /* llhttp parser state */
-  llhttp_t             parser;       /**< HTTP parser instance             */
-  llhttp_settings_t    parser_settings; /**< Parser callbacks              */
+  /* Protocol handler (vtable) */
+  xHttpProto           proto;        /**< Protocol handler interface       */
 
   /* Request parsing state (accumulated during parsing) */
   xBuffer              url;          /**< Parsed URL                       */

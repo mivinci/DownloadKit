@@ -5,13 +5,13 @@
 
 ## Introduction
 
-`server.h` provides `xHttpServer`, an asynchronous, non-blocking HTTP/1.1 server powered by [llhttp](https://github.com/nodejs/llhttp) and xbase's event loop. All connection handling, request parsing, and response sending are driven by the event loop on a single thread — no locks or thread pools required. The server supports routing, keep-alive, configurable limits, and automatic error responses.
+`server.h` provides `xHttpServer`, an asynchronous, non-blocking HTTP/1.1 server powered by xbase's event loop. The protocol parsing layer is abstracted behind an `xHttpProto` vtable interface, with the current implementation using [llhttp](https://github.com/nodejs/llhttp) for HTTP/1.1. All connection handling, request parsing, and response sending are driven by the event loop on a single thread — no locks or thread pools required. The server supports routing, keep-alive, configurable limits, and automatic error responses.
 
 ## Design Philosophy
 
 1. **Single-Threaded Event-Driven I/O** — The server registers listening and client sockets with [`xEventLoop`](../xbase/event.md). Accept, read, parse, dispatch, and write all happen on the event loop thread, eliminating synchronization overhead.
 
-2. **llhttp-Based Parsing** — Request parsing is delegated to llhttp (the HTTP parser used by Node.js). Incremental callbacks accumulate URL, headers, and body into [`xBuffer`](../xbuf/buf.md) instances, supporting chunked and pipelined requests.
+2. **Protocol-Abstracted Parsing** — Request parsing is delegated to a protocol handler behind the `xHttpProto` vtable interface. The current HTTP/1.1 implementation (`proto_h1.c`) uses llhttp (the HTTP parser used by Node.js). Incremental callbacks accumulate URL, headers, and body into [`xBuffer`](../xbuf/buf.md) instances, supporting chunked and pipelined requests. This abstraction allows transparent addition of HTTP/2 (or other protocols) without changing the connection management layer.
 
 3. **First-Match Routing** — Routes are registered as (method, path) pairs and matched in registration order. Path patterns support both exact segments and `:param` segments (e.g. `/users/:id`). This keeps the routing logic simple and predictable.
 
@@ -32,7 +32,8 @@ graph TD
         SERVER["xHttpServer"]
         ROUTER["Route Table<br/>(linked list)"]
         CONN["xHttpConn_<br/>(per connection)"]
-        PARSER["llhttp Parser"]
+        PROTO["xHttpProto (vtable)"]
+        PARSER["proto_h1 (llhttp)"]
         WRITER["xHttpResponseWriter"]
     end
 
@@ -45,8 +46,9 @@ graph TD
     APP -->|"xHttpServerRoute"| ROUTER
     APP -->|"xHttpServerListen"| SERVER
     SERVER -->|"accept()"| CONN
-    CONN --> PARSER
-    PARSER -->|"on_message_complete"| ROUTER
+    CONN --> PROTO
+    PROTO --> PARSER
+    PARSER -->|"on_data → complete"| ROUTER
     ROUTER -->|"first match"| HANDLER
     HANDLER -->|"xHttpResponseSend"| WRITER
     WRITER -->|"xIOBuffer"| CONN
@@ -56,6 +58,7 @@ graph TD
 
     style SERVER fill:#4a90d9,color:#fff
     style LOOP fill:#50b86c,color:#fff
+    style PROTO fill:#9b59b6,color:#fff
     style PARSER fill:#f5a623,color:#fff
 ```
 
@@ -93,19 +96,22 @@ stateDiagram-v2
 sequenceDiagram
     participant Client
     participant Conn as xHttpConn_
-    participant Parser as llhttp
+    participant Proto as xHttpProto (vtable)
+    participant Parser as proto_h1 (llhttp)
     participant Bufs as xBuffer (url/headers/body)
     participant Router as Route Table
     participant Handler as User Handler
 
     Client->>Conn: TCP data
     Conn->>Conn: xIOBufferReadFd()
-    Conn->>Parser: llhttp_execute(data)
+    Conn->>Proto: proto.on_data(data)
+    Proto->>Parser: llhttp_execute(data)
     Parser->>Bufs: on_url → xBufferAppend(url)
     Parser->>Bufs: on_header_field → xBufferAppend(headers_raw)
     Parser->>Bufs: on_header_value → xBufferAppend(headers_raw)
     Parser->>Bufs: on_body → xBufferAppend(body)
-    Parser->>Conn: on_message_complete → pause parser
+    Parser->>Proto: on_message_complete → return 1
+    Proto->>Conn: return 1 (request complete)
     Conn->>Router: conn_dispatch_request()
     Router->>Handler: handler(writer, req, arg)
     Handler->>Conn: xHttpResponseSend(body)
@@ -135,7 +141,7 @@ When `xHttpResponseSend()` is called:
 
 ### Keep-Alive & Pipelining
 
-- HTTP/1.1 connections default to keep-alive. After a response is fully flushed, the parser state is reset and the connection waits for the next request.
+- HTTP/1.1 connections default to keep-alive. After a response is fully flushed, `proto.reset()` is called and the connection waits for the next request.
 - The parser is paused in `on_message_complete` to prevent parsing the next pipelined request before the current response is sent.
 - Error responses always set `Connection: close`.
 
@@ -423,4 +429,4 @@ int main(void) {
 
 - **xbase** — Uses [`xEventLoop`](../xbase/event.md) for I/O multiplexing, [`xSocket`](../xbase/socket.md) for non-blocking socket management, and socket timeouts for idle connection detection.
 - **xbuf** — Uses [`xBuffer`](../xbuf/buf.md) for request parsing accumulation (URL, headers, body) and [`xIOBuffer`](../xbuf/io.md) for read/write buffering with scatter-gather I/O.
-- **llhttp** — External dependency. Provides incremental HTTP/1.1 request parsing via callbacks.
+- **llhttp** — External dependency. Provides incremental HTTP/1.1 request parsing via callbacks, isolated behind the `xHttpProto` vtable in `proto_h1.c`.

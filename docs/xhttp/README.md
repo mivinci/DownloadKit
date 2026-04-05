@@ -8,7 +8,7 @@
 **xhttp** is xKit's HTTP module, providing both a fully asynchronous HTTP **client** and **server**, all powered by xbase's event loop.
 
 - The **client** uses libcurl's multi-socket API for non-blocking HTTP requests and SSE streaming — ideal for integrating with REST APIs and LLM streaming endpoints.
-- The **server** uses llhttp for incremental HTTP/1.1 parsing with single-threaded, event-driven connection handling — ideal for building lightweight HTTP services and APIs.
+- The **server** uses an `xHttpProto` vtable interface for protocol-abstracted parsing, with the current HTTP/1.1 implementation backed by llhttp. Single-threaded, event-driven connection handling — ideal for building lightweight HTTP services and APIs.
 
 ## Design Philosophy
 
@@ -69,7 +69,7 @@ graph TD
 
 | File | Description | Doc |
 | --- | --- | --- |
-| `server.h` | Async HTTP/1.1 server (routing, request/response) | [server.md](server.md) |
+| `server.h` | Async HTTP/1.1 server (routing, request/response, protocol-abstracted parsing) | [server.md](server.md) |
 | `client.h` | Async HTTP client API (GET, POST, Do, SSE) | [client.md](client.md) |
 | `client_sse.c` | SSE stream parser and request handler | [client_sse.md](client_sse.md) |
 
@@ -109,4 +109,4 @@ int main(void) {
 - **xbase** — Uses [`xEventLoop`](../xbase/event.md) for I/O multiplexing and [`xEventLoopTimerAfter`](../xbase/timer.md) for curl timeout management.
 - **xbuf** — Uses [`xBuffer`](../xbuf/buf.md) for response header and body accumulation.
 - **libcurl** — External dependency (client). Uses the multi-socket API (`curl_multi_socket_action`) for non-blocking HTTP.
-- **llhttp** — External dependency (server). Provides incremental HTTP/1.1 request parsing.
+- **llhttp** — External dependency (server). Provides incremental HTTP/1.1 request parsing, isolated behind the `xHttpProto` vtable in `proto_h1.c`.

@@ -49,9 +49,9 @@ TEST(BuiltinTimerAfter, BasicDelay) {
 
   std::atomic<int> fired{0};
 
-  xEventTimer t = xEventLoopTimerAfter(loop,
-      [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &fired, 50);
+  xEventTimer t = xEventLoopTimerAfter(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 50);
   ASSERT_NE(t, nullptr);
 
   /* Wait long enough for the timer to fire (may need multiple waits
@@ -70,9 +70,9 @@ TEST(BuiltinTimerAfter, ZeroDelayFiresImmediately) {
 
   std::atomic<int> fired{0};
 
-  xEventLoopTimerAfter(loop,
-      [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &fired, 0);
+  xEventLoopTimerAfter(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 0);
 
   xEventWait(loop, 100);
 
@@ -99,10 +99,10 @@ TEST(BuiltinTimerAt, AbsoluteTime) {
 
   std::atomic<int> fired{0};
 
-  uint64_t deadline = xEventLoopNowMs() + 50;
-  xEventTimer t = xEventLoopTimerAt(loop,
-      [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &fired, deadline);
+  uint64_t    deadline = xEventLoopNowMs() + 50;
+  xEventTimer t        = xEventLoopTimerAt(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, deadline);
   ASSERT_NE(t, nullptr);
 
   for (int i = 0; i < 10 && fired.load() == 0; i++)
@@ -120,9 +120,9 @@ TEST(BuiltinTimerAt, ExpiredDeadlineFiresImmediately) {
   std::atomic<int> fired{0};
 
   /* Deadline in the past */
-  xEventLoopTimerAt(loop,
-      [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &fired, 0);
+  xEventLoopTimerAt(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 0);
 
   xEventWait(loop, 100);
 
@@ -139,9 +139,9 @@ TEST(BuiltinTimerCancel, CancelBeforeFire) {
 
   std::atomic<int> fired{0};
 
-  xEventTimer t = xEventLoopTimerAfter(loop,
-      [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &fired, 500);
+  xEventTimer t = xEventLoopTimerAfter(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 500);
   ASSERT_NE(t, nullptr);
 
   EXPECT_EQ(xEventLoopTimerCancel(loop, t), xErrno_Ok);
@@ -171,12 +171,16 @@ TEST(BuiltinTimerOrder, MultipleTimersInOrder) {
   ASSERT_NE(loop, nullptr);
 
   std::vector<int> order;
-  std::mutex mu;
+  std::mutex       mu;
 
-  struct Ctx { std::vector<int> *order; std::mutex *mu; int id; };
+  struct Ctx {
+    std::vector<int> *order;
+    std::mutex       *mu;
+    int               id;
+  };
 
   auto fn = [](void *arg) {
-    auto *ctx = static_cast<Ctx *>(arg);
+    auto                       *ctx = static_cast<Ctx *>(arg);
     std::lock_guard<std::mutex> lock(*ctx->mu);
     ctx->order->push_back(ctx->id);
   };
@@ -217,16 +221,18 @@ TEST(BuiltinTimerMixed, IOAndTimerTogether) {
   std::atomic<int> io_count{0};
   std::atomic<int> timer_count{0};
 
-  xEventSource src = xEventAdd(loop, fds[0], xEvent_Read,
-      [](int fd, xEventMask, void *arg) {
-        static_cast<std::atomic<int> *>(arg)->fetch_add(1);
-        drain_fd(fd);
-      }, &io_count);
+  xEventSource src = xEventAdd(
+    loop, fds[0], xEvent_Read,
+    [](int fd, xEventMask, void *arg) {
+      static_cast<std::atomic<int> *>(arg)->fetch_add(1);
+      drain_fd(fd);
+    },
+    &io_count);
   ASSERT_NE(src, nullptr);
 
-  xEventLoopTimerAfter(loop,
-      [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &timer_count, 50);
+  xEventLoopTimerAfter(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &timer_count, 50);
 
   /* Write data to trigger I/O */
   write(fds[1], "x", 1);
@@ -259,7 +265,8 @@ TEST(BuiltinTimerRun, RunAndStop) {
     xEventLoopRun(loop);
   });
 
-  while (!running) sleep_ms(1);
+  while (!running)
+    sleep_ms(1);
   sleep_ms(20);
 
   xEventLoopStop(loop);
@@ -279,13 +286,11 @@ TEST(BuiltinTimerRun, TimerFiresDuringRun) {
 
   std::atomic<int> fired{0};
 
-  xEventLoopTimerAfter(loop,
-      [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &fired, 50);
+  xEventLoopTimerAfter(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 50);
 
-  std::thread runner([&]() {
-    xEventLoopRun(loop);
-  });
+  std::thread runner([&]() { xEventLoopRun(loop); });
 
   for (int i = 0; i < 40 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -306,16 +311,14 @@ TEST(BuiltinTimerCrossThread, SubmitFromAnotherThread) {
 
   std::atomic<int> fired{0};
 
-  std::thread runner([&]() {
-    xEventLoopRun(loop);
-  });
+  std::thread runner([&]() { xEventLoopRun(loop); });
 
   sleep_ms(20);
 
   /* Submit timer from a different thread */
-  xEventLoopTimerAfter(loop,
-      [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &fired, 50);
+  xEventLoopTimerAfter(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 50);
 
   for (int i = 0; i < 40 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -328,7 +331,8 @@ TEST(BuiltinTimerCrossThread, SubmitFromAnotherThread) {
   xEventLoopDestroy(loop);
 }
 
-/* ───────────────────── Destroy discards pending timers ───────────────────── */
+/* ───────────────────── Destroy discards pending timers ─────────────────────
+ */
 
 TEST(BuiltinTimerDestroy, DiscardsPendingTimers) {
   xEventLoop loop = xEventLoopCreate();
@@ -337,12 +341,12 @@ TEST(BuiltinTimerDestroy, DiscardsPendingTimers) {
   std::atomic<int> fired{0};
 
   /* Schedule timers far in the future */
-  xEventLoopTimerAfter(loop,
-      [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &fired, 10000);
-  xEventLoopTimerAfter(loop,
-      [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &fired, 20000);
+  xEventLoopTimerAfter(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 10000);
+  xEventLoopTimerAfter(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 20000);
 
   /* Destroy without waiting — should not crash or fire callbacks */
   xEventLoopDestroy(loop);
@@ -359,14 +363,14 @@ TEST(BuiltinTimerPrecision, DelayAccuracy) {
   std::atomic<uint64_t> fire_time{0};
 
   uint64_t submit_time = xEventLoopNowMs();
-  xEventLoopTimerAfter(loop,
-      [](void *arg) {
-        static_cast<std::atomic<uint64_t> *>(arg)->store(xEventLoopNowMs());
-      }, &fire_time, 100);
+  xEventLoopTimerAfter(
+    loop,
+    [](void *arg) {
+      static_cast<std::atomic<uint64_t> *>(arg)->store(xEventLoopNowMs());
+    },
+    &fire_time, 100);
 
-  std::thread runner([&]() {
-    xEventLoopRun(loop);
-  });
+  std::thread runner([&]() { xEventLoopRun(loop); });
 
   for (int i = 0; i < 60 && fire_time.load() == 0; i++)
     sleep_ms(10);

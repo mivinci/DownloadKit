@@ -35,15 +35,16 @@ protected:
   }
 
   /* 辅助：push 一个 TestNode */
-  void Push(TestNode *node) { xMpscPush(&head, &tail, &node->mpsc); }
+  void Push(TestNode *node) {
+    xMpscPush(&head, &tail, &node->mpsc);
+  }
 
   /* 辅助：pop 并返回 TestNode，队列为空时返回 nullptr */
   TestNode *Pop() {
     xMpsc *n = xMpscPop(&head, &tail);
-    if (!n)
-      return nullptr;
-    return reinterpret_cast<TestNode *>(
-        reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
+    if (!n) return nullptr;
+    return reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) -
+                                        offsetof(TestNode, mpsc));
   }
 };
 
@@ -177,9 +178,9 @@ TEST_F(MpscTest, SingleNodeCASPath) {
 
 /* 多生产者单消费者：所有 push 的节点都能被 pop 出来 */
 TEST_F(MpscTest, ConcurrentMultiProducerSingleConsumer) {
-  constexpr int NUM_PRODUCERS     = 4;
+  constexpr int NUM_PRODUCERS      = 4;
   constexpr int NODES_PER_PRODUCER = 1000;
-  constexpr int TOTAL_NODES       = NUM_PRODUCERS * NODES_PER_PRODUCER;
+  constexpr int TOTAL_NODES        = NUM_PRODUCERS * NODES_PER_PRODUCER;
 
   /* 每个生产者拥有自己的节点数组 */
   std::vector<std::vector<TestNode>> producer_nodes(NUM_PRODUCERS);
@@ -219,7 +220,7 @@ TEST_F(MpscTest, ConcurrentMultiProducerSingleConsumer) {
       xMpsc *n = xMpscPop(&head, &tail);
       if (n) {
         TestNode *tn = reinterpret_cast<TestNode *>(
-            reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
+          reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
         consumed.push_back(tn->value);
         empty_spins = 0;
       } else {
@@ -252,9 +253,9 @@ TEST_F(MpscTest, ConcurrentMultiProducerSingleConsumer) {
 
 /* 并发 push 后批量 pop：先并发 push 完成，再单线程 pop 全部 */
 TEST_F(MpscTest, ConcurrentPushThenSequentialPop) {
-  constexpr int NUM_PRODUCERS     = 8;
+  constexpr int NUM_PRODUCERS      = 8;
   constexpr int NODES_PER_PRODUCER = 500;
-  constexpr int TOTAL_NODES       = NUM_PRODUCERS * NODES_PER_PRODUCER;
+  constexpr int TOTAL_NODES        = NUM_PRODUCERS * NODES_PER_PRODUCER;
 
   std::vector<std::vector<TestNode>> producer_nodes(NUM_PRODUCERS);
   for (int p = 0; p < NUM_PRODUCERS; p++) {
@@ -264,7 +265,7 @@ TEST_F(MpscTest, ConcurrentPushThenSequentialPop) {
     }
   }
 
-  std::atomic<bool> start{false};
+  std::atomic<bool>        start{false};
   std::vector<std::thread> producers;
   for (int p = 0; p < NUM_PRODUCERS; p++) {
     producers.emplace_back([&, p]() {
@@ -284,10 +285,9 @@ TEST_F(MpscTest, ConcurrentPushThenSequentialPop) {
   int           count = 0;
   while (true) {
     xMpsc *n = xMpscPop(&head, &tail);
-    if (!n)
-      break;
-    TestNode *tn = reinterpret_cast<TestNode *>(
-        reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
+    if (!n) break;
+    TestNode *tn = reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) -
+                                                offsetof(TestNode, mpsc));
     consumed_set.insert(tn->value);
     count++;
   }
@@ -299,9 +299,9 @@ TEST_F(MpscTest, ConcurrentPushThenSequentialPop) {
 
 /* 高并发压力测试：大量生产者 + 大量节点 */
 TEST_F(MpscTest, StressTest) {
-  constexpr int NUM_PRODUCERS     = 16;
+  constexpr int NUM_PRODUCERS      = 16;
   constexpr int NODES_PER_PRODUCER = 2000;
-  constexpr int TOTAL_NODES       = NUM_PRODUCERS * NODES_PER_PRODUCER;
+  constexpr int TOTAL_NODES        = NUM_PRODUCERS * NODES_PER_PRODUCER;
 
   std::vector<std::vector<TestNode>> producer_nodes(NUM_PRODUCERS);
   for (int p = 0; p < NUM_PRODUCERS; p++) {
@@ -335,8 +335,7 @@ TEST_F(MpscTest, StressTest) {
         empty_spins = 0;
       } else {
         empty_spins++;
-        if (empty_spins > 5000000)
-          break;
+        if (empty_spins > 5000000) break;
       }
     }
   });
@@ -380,7 +379,7 @@ TEST_F(MpscTest, SingleProducerSingleConsumer) {
       xMpsc *n = xMpscPop(&head, &tail);
       if (n) {
         TestNode *tn = reinterpret_cast<TestNode *>(
-            reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
+          reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
         consumed.push_back(tn->value);
       } else if (producer_done.load(std::memory_order_acquire)) {
         /* producer is done, drain remaining nodes.
@@ -391,7 +390,7 @@ TEST_F(MpscTest, SingleProducerSingleConsumer) {
           n = xMpscPop(&head, &tail);
           if (n) {
             TestNode *tn = reinterpret_cast<TestNode *>(
-                reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
+              reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
             consumed.push_back(tn->value);
             empty_spins = 0;
           } else {
@@ -411,13 +410,13 @@ TEST_F(MpscTest, SingleProducerSingleConsumer) {
   EXPECT_EQ(consumed.size(), static_cast<size_t>(N));
   for (size_t i = 0; i < consumed.size(); i++) {
     EXPECT_EQ(consumed[i], static_cast<int>(i))
-        << "FIFO 顺序在第 " << i << " 个节点处不一致";
+      << "FIFO 顺序在第 " << i << " 个节点处不一致";
   }
 }
 
 /* 多生产者场景下，同一生产者内部的节点保持相对顺序 */
 TEST_F(MpscTest, PerProducerFIFOOrder) {
-  constexpr int NUM_PRODUCERS     = 4;
+  constexpr int NUM_PRODUCERS      = 4;
   constexpr int NODES_PER_PRODUCER = 500;
 
   std::vector<std::vector<TestNode>> producer_nodes(NUM_PRODUCERS);
@@ -429,7 +428,7 @@ TEST_F(MpscTest, PerProducerFIFOOrder) {
     }
   }
 
-  std::atomic<bool> start{false};
+  std::atomic<bool>        start{false};
   std::vector<std::thread> producers;
   for (int p = 0; p < NUM_PRODUCERS; p++) {
     producers.emplace_back([&, p]() {
@@ -448,12 +447,11 @@ TEST_F(MpscTest, PerProducerFIFOOrder) {
   std::vector<std::vector<int>> per_producer_order(NUM_PRODUCERS);
   while (true) {
     xMpsc *n = xMpscPop(&head, &tail);
-    if (!n)
-      break;
-    TestNode *tn = reinterpret_cast<TestNode *>(
-        reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
-    int producer_id = (tn->value >> 16) & 0xFFFF;
-    int seq         = tn->value & 0xFFFF;
+    if (!n) break;
+    TestNode *tn = reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) -
+                                                offsetof(TestNode, mpsc));
+    int       producer_id = (tn->value >> 16) & 0xFFFF;
+    int       seq         = tn->value & 0xFFFF;
     per_producer_order[producer_id].push_back(seq);
   }
 
@@ -461,10 +459,10 @@ TEST_F(MpscTest, PerProducerFIFOOrder) {
   for (int p = 0; p < NUM_PRODUCERS; p++) {
     ASSERT_EQ(per_producer_order[p].size(),
               static_cast<size_t>(NODES_PER_PRODUCER))
-        << "生产者 " << p << " 的节点数量不正确";
+      << "生产者 " << p << " 的节点数量不正确";
     for (int i = 0; i < NODES_PER_PRODUCER; i++) {
       EXPECT_EQ(per_producer_order[p][i], i)
-          << "生产者 " << p << " 的第 " << i << " 个节点顺序错误";
+        << "生产者 " << p << " 的第 " << i << " 个节点顺序错误";
     }
   }
 }

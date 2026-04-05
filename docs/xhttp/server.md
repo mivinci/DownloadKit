@@ -2,7 +2,7 @@
 
 ## Introduction
 
-`server.h` provides `xHttpServer`, an asynchronous, non-blocking HTTP server powered by xbase's event loop. The server supports both **HTTP/1.1** and **HTTP/2** (h2c, cleartext) on the same port, with automatic protocol detection via [Prior Knowledge](https://httpwg.org/specs/rfc9113.html#known-http). The protocol parsing layer is abstracted behind an `xHttpProto` vtable interface — HTTP/1.1 uses [llhttp](https://github.com/nodejs/llhttp), HTTP/2 uses [nghttp2](https://nghttp2.org/). All connection handling, request parsing, and response sending are driven by the event loop on a single thread — no locks or thread pools required. The server supports routing, keep-alive, configurable limits, and automatic error responses.
+`server.h` provides `xHttpServer`, an asynchronous, non-blocking HTTP server powered by xbase's event loop. The server supports both **HTTP/1.1** and **HTTP/2** (h2c, cleartext) on the same port, with automatic protocol detection via [Prior Knowledge](https://httpwg.org/specs/rfc9113.html#known-http). The protocol parsing layer is abstracted behind an `xHttpProto` vtable interface — HTTP/1.1 uses [llhttp](https://github.com/nodejs/llhttp), HTTP/2 uses [nghttp2](https://nghttp2.org/). All connection handling, request parsing, and response sending are driven by the event loop on a single thread — no locks or thread pools required. The server supports routing, keep-alive, configurable limits, automatic error responses, and **TLS/HTTPS** via `xHttpServerListenTls()` with pluggable TLS backends (OpenSSL or Mbed TLS).
 
 ## Design Philosophy
 
@@ -18,6 +18,8 @@
 
 6. **Defensive Limits** — Configurable limits on header size (default 8 KiB), body size (default 1 MiB), and idle timeout (default 60 s) protect against slow clients and oversized payloads. Violations produce appropriate 4xx error responses.
 
+7. **Pluggable TLS** — TLS support is provided via `xHttpServerListenTls()` with `xHttpTlsServerConf`. The TLS backend (OpenSSL or Mbed TLS) is selected at compile time via `XK_TLS_BACKEND`. ALPN negotiation automatically selects HTTP/1.1 or HTTP/2 over TLS. Mutual TLS (mTLS) is supported via the `verify_client` option.
+
 ## Architecture
 
 ```mermaid
@@ -29,9 +31,10 @@ graph TD
 
     subgraph "xhttp Server"
         SERVER["xHttpServer"]
+        TLS["TLS Layer<br/>(OpenSSL / Mbed TLS)"]
         ROUTER["Route Table<br/>(linked list)"]
         CONN["xHttpConn_<br/>(per connection)"]
-        DETECT["Protocol Detection<br/>(Prior Knowledge)"]
+        DETECT["Protocol Detection<br/>(Prior Knowledge / ALPN)"]
         PROTO["xHttpProto (vtable)"]
         PARSER_H1["proto_h1 (llhttp)"]
         PARSER_H2["proto_h2 (nghttp2)"]
@@ -46,8 +49,10 @@ graph TD
     end
 
     APP -->|"xHttpServerRoute"| ROUTER
-    APP -->|"xHttpServerListen"| SERVER
+    APP -->|"xHttpServerListen<br/>xHttpServerListenTls"| SERVER
     SERVER -->|"accept()"| CONN
+    SERVER -.->|"TLS handshake"| TLS
+    TLS -.-> CONN
     CONN --> DETECT
     DETECT -->|"H1"| PARSER_H1
     DETECT -->|"H2 preface"| PARSER_H2
@@ -69,6 +74,7 @@ graph TD
     style PARSER_H1 fill:#f5a623,color:#fff
     style PARSER_H2 fill:#e74c3c,color:#fff
     style DETECT fill:#1abc9c,color:#fff
+    style TLS fill:#2ecc71,color:#fff
 ```
 
 ## Implementation Details
@@ -216,7 +222,7 @@ sequenceDiagram
 
 #### Limitations
 
-- **h2c only** — TLS-based HTTP/2 (h2 with ALPN) is not yet supported. Use Prior Knowledge for cleartext h2c.
+- **h2 over TLS** — TLS-based HTTP/2 (h2 with ALPN) is supported via `xHttpServerListenTls()`. Cleartext h2c uses Prior Knowledge.
 - **No server push** — HTTP/2 server push is not implemented.
 - **Streaming responses** — `xHttpResponseWrite()`/`xHttpResponseEnd()` for HTTP/2 streaming DATA frames is not yet fully implemented.
 
@@ -234,6 +240,7 @@ Each connection has an idle timeout (default 60 s). If no data is received withi
 | `xHttpResponseWriter` | Opaque handle to a response writer (valid only during handler) |
 | `xHttpRequest` | Request data delivered to the handler callback |
 | `xHttpHandlerFunc` | `void (*)(xHttpResponseWriter writer, const xHttpRequest *req, void *arg)` |
+| `xHttpTlsServerConf` | TLS configuration for HTTPS listeners (cert, key, CA, client verification) |
 
 ### xHttpRequest Fields
 
@@ -254,6 +261,7 @@ All pointers are valid only for the duration of the handler callback.
 | --- | --- | --- |
 | `xHttpServerCreate` | `xHttpServer xHttpServerCreate(xEventLoop loop)` | Create a server bound to an event loop. |
 | `xHttpServerListen` | `xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port)` | Start listening on the given address and port. |
+| `xHttpServerListenTls` | `xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port, const xHttpTlsServerConf *config)` | Start listening for HTTPS connections with TLS. ALPN selects H1/H2. Can coexist with `Listen` on a different port. Returns `xErrno_NotSupported` if no TLS backend was compiled. |
 | `xHttpServerDestroy` | `void xHttpServerDestroy(xHttpServer server)` | Destroy server, close all connections, free all routes. |
 
 ### Route Registration
@@ -286,7 +294,20 @@ All pointers are valid only for the duration of the handler callback.
 | `xHttpServerSetMaxHeaderSize` | `xErrno xHttpServerSetMaxHeaderSize(xHttpServer server, size_t max_size)` | Set max header size. Exceeding → 431. | 8192 bytes |
 | `xHttpServerSetMaxBodySize` | `xErrno xHttpServerSetMaxBodySize(xHttpServer server, size_t max_size)` | Set max body size. Exceeding → 413. | 1048576 bytes |
 
-All configuration functions must be called **before** `xHttpServerListen()`.
+All configuration functions must be called **before** `xHttpServerListen()` / `xHttpServerListenTls()`.
+
+### TLS Configuration
+
+#### `xHttpTlsServerConf` Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `cert_file` | `const char *` | Path to PEM certificate file (**required**). |
+| `key_file` | `const char *` | Path to PEM private key file (**required**). |
+| `ca_file` | `const char *` | Path to CA certificate file for client verification (optional). |
+| `verify_client` | `int` | Client certificate verification mode: `0` = none (default), `1` = optional, `2` = required. |
+
+When `verify_client` is set to `2` (required), the server performs mutual TLS (mTLS) — clients must present a valid certificate signed by the CA specified in `ca_file`.
 
 ## Usage Examples
 
@@ -429,6 +450,115 @@ int main(void) {
 }
 ```
 
+### HTTPS Server
+
+```c
+#include <stdio.h>
+#include <xbase/event.h>
+#include <xhttp/server.h>
+
+static void on_hello(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
+    (void)req; (void)arg;
+    xHttpResponseSetHeader(w, "Content-Type", "text/plain");
+    xHttpResponseSend(w, "Hello, HTTPS!\n", 14);
+}
+
+int main(void) {
+    xEventLoop loop = xEventLoopCreate();
+    xHttpServer server = xHttpServerCreate(loop);
+
+    xHttpServerRoute(server, "GET", "/hello", on_hello, NULL);
+
+    // TLS configuration
+    xHttpTlsServerConf tls = {
+        .cert_file = "/path/to/server.pem",
+        .key_file  = "/path/to/server-key.pem",
+    };
+    xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
+
+    printf("HTTPS server on :8443\n");
+    xEventLoopRun(loop);
+
+    xHttpServerDestroy(server);
+    xEventLoopDestroy(loop);
+    return 0;
+}
+```
+
+### HTTPS Server with Mutual TLS (mTLS)
+
+```c
+#include <stdio.h>
+#include <xbase/event.h>
+#include <xhttp/server.h>
+
+static void on_secure(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
+    (void)req; (void)arg;
+    xHttpResponseSetHeader(w, "Content-Type", "text/plain");
+    xHttpResponseSend(w, "mTLS verified!\n", 15);
+}
+
+int main(void) {
+    xEventLoop loop = xEventLoopCreate();
+    xHttpServer server = xHttpServerCreate(loop);
+
+    xHttpServerRoute(server, "GET", "/secure", on_secure, NULL);
+
+    // Require client certificates
+    xHttpTlsServerConf tls = {
+        .cert_file     = "/path/to/server.pem",
+        .key_file      = "/path/to/server-key.pem",
+        .ca_file       = "/path/to/ca.pem",
+        .verify_client = 2,  // required
+    };
+    xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
+
+    printf("mTLS server on :8443\n");
+    xEventLoopRun(loop);
+
+    xHttpServerDestroy(server);
+    xEventLoopDestroy(loop);
+    return 0;
+}
+```
+
+### HTTP + HTTPS on Different Ports
+
+```c
+#include <stdio.h>
+#include <xbase/event.h>
+#include <xhttp/server.h>
+
+static void on_hello(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
+    (void)req; (void)arg;
+    xHttpResponseSend(w, "Hello!\n", 7);
+}
+
+int main(void) {
+    xEventLoop loop = xEventLoopCreate();
+    xHttpServer server = xHttpServerCreate(loop);
+
+    xHttpServerRoute(server, "GET", "/hello", on_hello, NULL);
+
+    // Serve HTTP on port 8080
+    xHttpServerListen(server, "0.0.0.0", 8080);
+
+    // Serve HTTPS on port 8443
+    xHttpTlsServerConf tls = {
+        .cert_file = "/path/to/server.pem",
+        .key_file  = "/path/to/server-key.pem",
+    };
+    xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
+
+    printf("HTTP on :8080, HTTPS on :8443\n");
+    xEventLoopRun(loop);
+
+    xHttpServerDestroy(server);
+    xEventLoopDestroy(loop);
+    return 0;
+}
+```
+
 ### Multiple Routes with Shared State
 
 ```c
@@ -480,8 +610,10 @@ int main(void) {
 - **Don't block in handlers.** Handlers run on the event loop thread. Blocking delays all other connections.
 - **Always call `xHttpResponseSend()` or `xHttpResponseWrite()`.** If the handler returns without sending, a default 200 OK with empty body is sent automatically — but it's better to be explicit.
 - **Don't mix `Send` and `Write`.** `xHttpResponseSend()` is for one-shot responses; `xHttpResponseWrite()` is for streaming. They are mutually exclusive — calling one after the other returns `xErrno_InvalidState`.
-- **Configure limits before listening.** `SetIdleTimeout`, `SetMaxHeaderSize`, and `SetMaxBodySize` must be called before `xHttpServerListen()`.
+- **Configure limits before listening.** `SetIdleTimeout`, `SetMaxHeaderSize`, and `SetMaxBodySize` must be called before `xHttpServerListen()` / `xHttpServerListenTls()`.
 - **Register routes before listening.** Routes should be set up before the server starts accepting connections.
+- **Use `xHttpServerListenTls()` for HTTPS.** Provide valid PEM certificate and key files. For mTLS, set `ca_file` and `verify_client = 2`.
+- **Serve HTTP and HTTPS on different ports.** Call both `xHttpServerListen()` and `xHttpServerListenTls()` on the same server instance to support both protocols simultaneously.
 - **Destroy server before event loop.** `xHttpServerDestroy()` closes all connections and frees all resources.
 - **Copy data you need to keep.** `xHttpRequest` pointers (`url`, `headers`, `body`) are only valid during the handler callback.
 
@@ -496,9 +628,10 @@ int main(void) {
 | **Routing** | Built-in (first match) | None (manual) | None (manual) | Built-in (`ServeMux`) | None (manual) |
 | **Keep-Alive** | Automatic | Manual | Automatic | Automatic | Automatic |
 | **Thread Model** | Single-threaded | Single-threaded | Multi-threaded | Multi-goroutine | Single-threaded |
+| **TLS/HTTPS** | Built-in (`ListenTLS`, mTLS) | Manual (libuv + OpenSSL) | Built-in | Built-in (`ListenAndServeTLS`) | Built-in (`https.createServer`) |
 | **Language** | C99 | C | C | Go | JavaScript |
 
-**Key Differentiator:** xhttp server provides a complete, single-threaded HTTP/1.1 & HTTP/2 server with built-in routing, streaming responses, and automatic keep-alive — all integrated with xEventLoop. HTTP/1.1 and HTTP/2 coexist on the same port via automatic protocol detection (Prior Knowledge). Unlike libuv + http-parser (which requires manual response assembly) or libmicrohttpd (which uses threads), xhttp keeps everything on one thread with zero synchronization overhead. The streaming API (`xHttpResponseWrite`/`xHttpResponseEnd`) makes it straightforward to implement SSE or chunked streaming without external dependencies.
+**Key Differentiator:** xhttp server provides a complete, single-threaded HTTP/1.1 & HTTP/2 server with built-in routing, streaming responses, TLS/HTTPS, and automatic keep-alive — all integrated with xEventLoop. HTTP/1.1 and HTTP/2 coexist on the same port via automatic protocol detection (Prior Knowledge for cleartext, ALPN for TLS). Unlike libuv + http-parser (which requires manual response assembly and TLS integration) or libmicrohttpd (which uses threads), xhttp keeps everything on one thread with zero synchronization overhead. The TLS layer supports mutual TLS (mTLS) with client certificate verification, and the streaming API (`xHttpResponseWrite`/`xHttpResponseEnd`) makes it straightforward to implement SSE or chunked streaming without external dependencies.
 
 ## Relationship with Other Modules
 
@@ -506,3 +639,4 @@ int main(void) {
 - **xbuf** — Uses [`xBuffer`](../xbuf/buf.md) for request parsing accumulation (URL, headers, body) and [`xIOBuffer`](../xbuf/io.md) for read/write buffering with scatter-gather I/O.
 - **llhttp** — External dependency. Provides incremental HTTP/1.1 request parsing via callbacks, isolated behind the `xHttpProto` vtable in `proto_h1.c`.
 - **nghttp2** — External dependency. Provides HTTP/2 frame processing, HPACK header compression, and stream management, isolated behind the `xHttpProto` vtable in `proto_h2.c`.
+- **OpenSSL / Mbed TLS** — External dependency (TLS backend, compile-time selection via `XK_TLS_BACKEND`). Provides TLS handshake, encryption, certificate verification, and ALPN negotiation for `xHttpServerListenTls()`.

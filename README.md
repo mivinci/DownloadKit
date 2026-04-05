@@ -25,7 +25,7 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | ------ | ----------- |
 | **[xbase](docs/xbase/README.md)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
 | **[xbuf](docs/xbuf/README.md)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
-| **[xhttp](docs/xhttp/README.md)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, llhttp-based async server with parameterized routing |
+| **[xhttp](docs/xhttp/README.md)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming and TLS configuration (custom CA, mTLS, skip-verify), HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing |
 | **[xlog](docs/xlog/README.md)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
 
 📖 See the **[full documentation](docs/README.md)** for detailed design, architecture diagrams, API references, and usage examples.
@@ -37,8 +37,11 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | CMake ≥ 3.14 | ✅ | Build system |
 | C99 compiler | ✅ | GCC or Clang |
 | GoogleTest | For tests | `libgtest-dev` (apt) / `googletest` (brew) |
-| libcurl | Optional | Enables the **xhttp** client |
-| llhttp | Optional | Enables the **xhttp** server (HTTP parsing) |
+| libcurl | ✅ | Enables the **xhttp** client |
+| llhttp | ✅ | HTTP/1.1 parsing for **xhttp** server — `libllhttp-dev` (apt) / `llhttp` (brew) |
+| nghttp2 | ✅ | HTTP/2 support for **xhttp** server — `libnghttp2-dev` (apt) / `nghttp2` (brew) |
+| OpenSSL | ✅ pick one | TLS backend for **xhttp** — `libssl-dev` (apt) / `openssl` (brew) |
+| MbedTLS | ✅ pick one | TLS backend for **xhttp** — `libmbedtls-dev` (apt) / `mbedtls` (brew) |
 | libunwind | Optional | Better backtraces on Linux |
 
 ## Build
@@ -61,6 +64,50 @@ cmake -S . -B build -DXK_BUILD_TESTS=OFF
 ```bash
 ctest --test-dir build --output-on-failure --parallel 4
 ```
+
+### TLS backend selection
+
+The **xhttp** module supports two TLS backends. Use `XK_TLS_BACKEND` to choose one at configure time:
+
+| Backend | Value | Extra dependency |
+| ------- | ----- | ---------------- |
+| OpenSSL | `openssl` | `libssl-dev` (apt) / `openssl` (brew) |
+| MbedTLS | `mbedtls` | `libmbedtls-dev` (apt) / `mbedtls` (brew) |
+
+**OpenSSL** (default when available):
+
+```bash
+cmake -S . -B build-openssl -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=openssl
+cmake --build build-openssl --parallel
+ctest --test-dir build-openssl --output-on-failure --parallel 4
+```
+
+**MbedTLS**:
+
+```bash
+cmake -S . -B build-mbedtls -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=mbedtls
+cmake --build build-mbedtls --parallel
+ctest --test-dir build-mbedtls --output-on-failure --parallel 4
+```
+
+> **Tip:** To test both backends in one go, simply run the above commands sequentially with separate build directories.
+
+### HTTPS integration tests
+
+The `xhttp/https_test.cpp` suite tests the client and server TLS integration end-to-end. It generates self-signed certificates at test time (requires `openssl` CLI) and covers:
+
+- HTTPS GET / POST / Do with `skip_verify`
+- Custom CA path verification
+- Self-signed certificate rejection (verify enabled)
+- Wrong CA path failure
+- Mutual TLS (mTLS) with client certificates
+- mTLS failure when client cert is missing
+- Concurrent HTTPS requests
+- Request timeout over HTTPS
+- TLS config reset between requests
+- Destroy client with in-flight HTTPS request
+
+These tests run automatically with `ctest` when `XK_TLS_BACKEND=openssl` is set.
 
 ### Linux via container (macOS host)
 

@@ -341,14 +341,14 @@ void xLoggerLog(xLogger logger, xLogLevel level, const char *fmt, ...) {
 
   /* Notify based on mode */
   switch (lg->mode) {
-    case xLogMode_Notify:
-      logger_notify(lg);
-      break;
-    case xLogMode_Mixed:
-      if (level >= xLogLevel_Error) logger_notify(lg);
-      break;
-    default: /* Timer: no notification */
-      break;
+  case xLogMode_Notify:
+    logger_notify(lg);
+    break;
+  case xLogMode_Mixed:
+    if (level >= xLogLevel_Error) logger_notify(lg);
+    break;
+  default: /* Timer: no notification */
+    break;
   }
 }
 
@@ -493,14 +493,14 @@ static void bridge_callback(const char *msg, const char *backtrace,
 
   /* Notify based on mode */
   switch (lg->mode) {
-    case xLogMode_Notify:
-      logger_notify(lg);
-      break;
-    case xLogMode_Mixed:
-      /* Bridge messages are treated as Info, no urgent notify */
-      break;
-    default:
-      break;
+  case xLogMode_Notify:
+    logger_notify(lg);
+    break;
+  case xLogMode_Mixed:
+    /* Bridge messages are treated as Info, no urgent notify */
+    break;
+  default:
+    break;
   }
 }
 

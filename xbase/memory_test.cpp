@@ -40,14 +40,34 @@ struct Calls {
 
 static Calls g_calls;
 
-static void obj_ctor(void *ptr)              { (void)ptr; g_calls.ctor++;    }
-static void obj_dtor(void *ptr)              { (void)ptr; g_calls.dtor++;    }
-static void obj_retain(void *ptr)            { (void)ptr; g_calls.retain++;  }
-static void obj_release(void *ptr)           { (void)ptr; g_calls.release++; }
-static void obj_copy(void *ptr, void *other) { (void)ptr; (void)other; g_calls.copy++;    }
-static void obj_move(void *ptr, void *other) { (void)ptr; (void)other; g_calls.move++;    }
+static void obj_ctor(void *ptr) {
+  (void)ptr;
+  g_calls.ctor++;
+}
+static void obj_dtor(void *ptr) {
+  (void)ptr;
+  g_calls.dtor++;
+}
+static void obj_retain(void *ptr) {
+  (void)ptr;
+  g_calls.retain++;
+}
+static void obj_release(void *ptr) {
+  (void)ptr;
+  g_calls.release++;
+}
+static void obj_copy(void *ptr, void *other) {
+  (void)ptr;
+  (void)other;
+  g_calls.copy++;
+}
+static void obj_move(void *ptr, void *other) {
+  (void)ptr;
+  (void)other;
+  g_calls.move++;
+}
 
-XDEF_VTABLE(Obj) {
+XDEF_VTABLE(Obj){
   obj_ctor, obj_dtor, obj_retain, obj_release, obj_copy, obj_move,
 };
 
@@ -58,7 +78,9 @@ static xVTable NullVTable = {0, 0, 0, 0, 0, 0};
 
 class MemoryTest : public ::testing::Test {
 protected:
-  void SetUp() override { g_calls.reset(); }
+  void SetUp() override {
+    g_calls.reset();
+  }
 };
 
 /* ========== xAlloc / xFree ========== */
@@ -124,12 +146,13 @@ TEST_F(MemoryTest, AllocExtraSize) {
 
 TEST_F(MemoryTest, AllocCountMultiple) {
   /* xAlloc with count=4 should give contiguous memory for 4 Objs */
-  Obj *arr = static_cast<Obj *>(
-      xAlloc("Obj", sizeof(Obj), 4, &ObjVTable));
+  Obj *arr = static_cast<Obj *>(xAlloc("Obj", sizeof(Obj), 4, &ObjVTable));
   ASSERT_NE(arr, nullptr);
-  EXPECT_EQ(g_calls.ctor.load(), 1);  /* ctor called once on the block */
-  for (int i = 0; i < 4; i++) arr[i].value = i;
-  for (int i = 0; i < 4; i++) EXPECT_EQ(arr[i].value, i);
+  EXPECT_EQ(g_calls.ctor.load(), 1); /* ctor called once on the block */
+  for (int i = 0; i < 4; i++)
+    arr[i].value = i;
+  for (int i = 0; i < 4; i++)
+    EXPECT_EQ(arr[i].value, i);
   xFree(arr);
 }
 
@@ -140,7 +163,7 @@ TEST_F(MemoryTest, RetainCallsHook) {
   g_calls.reset();
   xRetain(o);
   EXPECT_EQ(g_calls.retain.load(), 1);
-  xRelease(o);  /* balance retain */
+  xRelease(o); /* balance retain */
   xFree(o);
 }
 
@@ -149,7 +172,7 @@ TEST_F(MemoryTest, ReleaseCallsHook) {
   xRetain(o);
   g_calls.reset();
   xRelease(o);
-  EXPECT_EQ(g_calls.release.load(), 0);  /* refs still > 0, no release hook */
+  EXPECT_EQ(g_calls.release.load(), 0); /* refs still > 0, no release hook */
   xFree(o);
 }
 
@@ -166,14 +189,14 @@ TEST_F(MemoryTest, RetainReleasePaired) {
   Obj *o = XMALLOC(Obj);
   g_calls.reset();
 
-  xRetain(o);   /* refs = 2 */
-  xRetain(o);   /* refs = 3 */
-  xRelease(o);  /* refs = 2 — no free */
-  xRelease(o);  /* refs = 1 — no free */
+  xRetain(o);  /* refs = 2 */
+  xRetain(o);  /* refs = 3 */
+  xRelease(o); /* refs = 2 — no free */
+  xRelease(o); /* refs = 1 — no free */
 
   EXPECT_EQ(g_calls.dtor.load(), 0);
 
-  xRelease(o);  /* refs = 0 — freed */
+  xRelease(o); /* refs = 0 — freed */
   EXPECT_EQ(g_calls.dtor.load(), 1);
 }
 
@@ -181,7 +204,7 @@ TEST_F(MemoryTest, RetainNullVtableNoCrash) {
   void *p = xAlloc("test", sizeof(Obj), 1, &NullVTable);
   ASSERT_NE(p, nullptr);
   xRetain(p);
-  xRelease(p);  /* refs = 1 still, no free */
+  xRelease(p); /* refs = 1 still, no free */
   xFree(p);
 }
 
@@ -212,7 +235,7 @@ TEST_F(MemoryTest, CopyNullVtableNoCrash) {
   void *b = xAlloc("test", sizeof(Obj), 1, &NullVTable);
   ASSERT_NE(a, nullptr);
   ASSERT_NE(b, nullptr);
-  xCopy(a, b);  /* copy is NULL — should not crash */
+  xCopy(a, b); /* copy is NULL — should not crash */
   EXPECT_EQ(g_calls.copy.load(), 0);
   xFree(a);
   xFree(b);
@@ -223,7 +246,7 @@ TEST_F(MemoryTest, MoveNullVtableNoCrash) {
   void *b = xAlloc("test", sizeof(Obj), 1, &NullVTable);
   ASSERT_NE(a, nullptr);
   ASSERT_NE(b, nullptr);
-  xMove(a, b);  /* move is NULL — should not crash */
+  xMove(a, b); /* move is NULL — should not crash */
   EXPECT_EQ(g_calls.move.load(), 0);
   xFree(a);
   xFree(b);
@@ -232,8 +255,8 @@ TEST_F(MemoryTest, MoveNullVtableNoCrash) {
 /* ========== Thread Safety ========== */
 
 TEST_F(MemoryTest, ConcurrentRetainRelease) {
-  constexpr int NTHREADS  = 8;
-  constexpr int NRETAINS  = 10000;
+  constexpr int NTHREADS = 8;
+  constexpr int NRETAINS = 10000;
 
   Obj *o = XMALLOC(Obj);
   g_calls.reset();
@@ -250,7 +273,8 @@ TEST_F(MemoryTest, ConcurrentRetainRelease) {
     });
   }
 
-  for (auto &th : threads) th.join();
+  for (auto &th : threads)
+    th.join();
 
   /* All extra retains balanced — one xRelease should free it */
   g_calls.reset();
@@ -277,7 +301,8 @@ TEST_F(MemoryTest, ConcurrentAllocFree) {
     });
   }
 
-  for (auto &th : threads) th.join();
+  for (auto &th : threads)
+    th.join();
   EXPECT_EQ(alive.load(), 0);
 }
 
@@ -300,7 +325,8 @@ TEST_F(MemoryTest, ConcurrentRetainReleaseAcrossThreads) {
     });
   }
 
-  for (auto &th : threads) th.join();
+  for (auto &th : threads)
+    th.join();
 
   /* All extra retains balanced — one xRelease should free it */
   g_calls.reset();

@@ -12,9 +12,9 @@
 #include <ctype.h>
 #include <nghttp2/nghttp2.h>
 #include <stdio.h>
-#include <xbase/log.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xbase/log.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Internal state for HTTP/2 protocol handler
@@ -191,13 +191,14 @@ static int h2_on_frame_recv_callback(nghttp2_session     *session,
                                      void                *user_data) {
   struct xHttpConn_ *conn = (struct xHttpConn_ *)user_data;
   xHttpProtoH2      *h2   = (xHttpProtoH2 *)conn->proto.state;
+  xH2StreamData     *sd;
 
   switch (frame->hd.type) {
   case NGHTTP2_HEADERS:
-  case NGHTTP2_DATA: {
+  case NGHTTP2_DATA:
     /* Check for END_STREAM flag */
     if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-      xH2StreamData *sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
+      sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
         session, frame->hd.stream_id);
       if (sd && sd->stream) {
         sd->stream->request_complete = 1;
@@ -208,7 +209,6 @@ static int h2_on_frame_recv_callback(nghttp2_session     *session,
       }
     }
     break;
-  }
   default:
     break;
   }
@@ -231,17 +231,13 @@ static int h2_on_stream_close_callback(nghttp2_session *session,
   if (sd) {
     if (sd->stream) {
       struct xHttpConn_ *conn = sd->stream->conn;
-      /* If this is the current stream (being dispatched), don't destroy it
-       * yet. The dispatch code will handle cleanup via conn_after_response.
-       * Just clear the conn->stream pointer so conn_after_response knows
-       * the stream is done. */
       if (conn->stream == sd->stream) {
-        /* Stream is still being dispatched; defer destruction.
-         * conn_after_response will detect conn->stream == NULL and skip
-         * reset. The stream will be freed when the connection closes or
-         * when we explicitly clean up here after dispatch. */
-        xHttpStreamDestroy(sd->stream);
-        conn->stream = NULL;
+        /* Stream is currently being dispatched (we're inside
+         * conn_dispatch_request → handler → session_send → this callback).
+         * Do NOT destroy the stream here — conn_dispatch_request and
+         * conn_after_response still reference it.  Mark it as closed so
+         * conn_after_response will destroy it after dispatch completes. */
+        sd->stream->closed_by_peer = 1;
       } else {
         xHttpStreamDestroy(sd->stream);
       }
@@ -626,6 +622,10 @@ static int h2_end_stream(struct xHttpStream_ *stream) {
   struct xHttpConn_ *conn = stream->conn;
   xHttpProtoH2      *h2   = (xHttpProtoH2 *)conn->proto.state;
 
+  /* Set sent flag BEFORE nghttp2_session_send(), because send() may
+   * trigger h2_on_stream_close_callback which destroys the stream. */
+  stream->writer.sent = 1;
+
   xH2StreamData *sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
     h2->session, stream->stream_id);
   if (sd) {
@@ -634,7 +634,6 @@ static int h2_end_stream(struct xHttpStream_ *stream) {
     nghttp2_session_send(h2->session);
   }
 
-  stream->writer.sent = 1;
   return 0;
 }
 

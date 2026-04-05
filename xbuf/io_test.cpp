@@ -42,8 +42,8 @@ TEST(xIOBuffer, AppendSmall) {
   EXPECT_EQ(xIOBufferLen(&io), strlen(msg));
   EXPECT_EQ(xIOBufferRefCount(&io), 1u);
 
-  char out[64] = {};
-  size_t n = xIOBufferRead(&io, out, sizeof(out));
+  char   out[64] = {};
+  size_t n       = xIOBufferRead(&io, out, sizeof(out));
   EXPECT_EQ(n, strlen(msg));
   EXPECT_EQ(memcmp(out, msg, strlen(msg)), 0);
   EXPECT_TRUE(xIOBufferEmpty(&io));
@@ -71,7 +71,7 @@ TEST(xIOBuffer, AppendLargeMultiBlock) {
   xIOBufferInit(&io);
 
   /* Write more than one block worth of data. */
-  size_t total = XIOBUFFER_BLOCK_SIZE * 3 + 100;
+  size_t            total = XIOBUFFER_BLOCK_SIZE * 3 + 100;
   std::vector<char> data(total, 'Z');
   ASSERT_EQ(xIOBufferAppend(&io, data.data(), total), xErrno_Ok);
   EXPECT_EQ(xIOBufferLen(&io), total);
@@ -79,7 +79,7 @@ TEST(xIOBuffer, AppendLargeMultiBlock) {
 
   /* Read it all back. */
   std::vector<char> out(total);
-  size_t n = xIOBufferRead(&io, out.data(), total);
+  size_t            n = xIOBufferRead(&io, out.data(), total);
   EXPECT_EQ(n, total);
   EXPECT_EQ(data, out);
   EXPECT_TRUE(xIOBufferEmpty(&io));
@@ -141,7 +141,7 @@ TEST(xIOBuffer, CutMultiBlock) {
   xIOBufferInit(&dst);
 
   /* Fill across multiple blocks. */
-  size_t total = XIOBUFFER_BLOCK_SIZE * 2 + 500;
+  size_t            total = XIOBUFFER_BLOCK_SIZE * 2 + 500;
   std::vector<char> data(total);
   for (size_t i = 0; i < total; i++)
     data[i] = (char)(i & 0xFF);
@@ -149,7 +149,7 @@ TEST(xIOBuffer, CutMultiBlock) {
 
   /* Cut first block + partial second. */
   size_t cut_size = XIOBUFFER_BLOCK_SIZE + 100;
-  size_t cut = xIOBufferCut(&io, &dst, cut_size);
+  size_t cut      = xIOBufferCut(&io, &dst, cut_size);
   EXPECT_EQ(cut, cut_size);
   EXPECT_EQ(xIOBufferLen(&dst), cut_size);
   EXPECT_EQ(xIOBufferLen(&io), total - cut_size);
@@ -193,8 +193,8 @@ TEST(xIOBuffer, CopyTo) {
   xIOBufferInit(&io);
   xIOBufferAppend(&io, "copy_test", 9);
 
-  char out[16] = {};
-  size_t n = xIOBufferCopyTo(&io, out);
+  char   out[16] = {};
+  size_t n       = xIOBufferCopyTo(&io, out);
   EXPECT_EQ(n, 9u);
   EXPECT_EQ(memcmp(out, "copy_test", 9), 0);
   EXPECT_EQ(xIOBufferLen(&io), 9u); /* not consumed */
@@ -269,12 +269,12 @@ TEST(xIOBuffer, ReadIov) {
   xIOBufferInit(&io);
 
   /* Create multi-block data. */
-  size_t total = XIOBUFFER_BLOCK_SIZE + 100;
+  size_t            total = XIOBUFFER_BLOCK_SIZE + 100;
   std::vector<char> data(total, 'Q');
   xIOBufferAppend(&io, data.data(), total);
 
   struct iovec iov[8];
-  int cnt = xIOBufferReadIov(&io, iov, 8);
+  int          cnt = xIOBufferReadIov(&io, iov, 8);
   EXPECT_GE(cnt, 2); /* at least 2 blocks */
 
   /* Verify total iov length matches. */
@@ -282,6 +282,73 @@ TEST(xIOBuffer, ReadIov) {
   for (int i = 0; i < cnt; i++)
     iov_total += iov[i].iov_len;
   EXPECT_EQ(iov_total, total);
+
+  xIOBufferDeinit(&io);
+}
+
+/* ───────────────────── ReadWith / WriteWith ───────────────────── */
+
+/* Custom read function that reads from a pipe fd */
+static ssize_t test_read_fn(void *ctx, void *buf, size_t len) {
+  int     fd = *(int *)ctx;
+  ssize_t n;
+  do {
+    n = read(fd, buf, len);
+  } while (n < 0 && errno == EINTR);
+  return n;
+}
+
+/* Custom writev function that writes to a pipe fd */
+static ssize_t test_writev_fn(void *ctx, const struct iovec *iov, int iovcnt) {
+  int     fd = *(int *)ctx;
+  ssize_t n;
+  do {
+    n = writev(fd, iov, iovcnt);
+  } while (n < 0 && errno == EINTR);
+  return n;
+}
+
+TEST(xIOBuffer, ReadWriteWith) {
+  xIOBuffer wio, rio;
+  xIOBufferInit(&wio);
+  xIOBufferInit(&rio);
+
+  int pipefd[2];
+  ASSERT_EQ(pipe(pipefd), 0);
+
+  const char *msg = "custom io test data";
+  xIOBufferAppend(&wio, msg, strlen(msg));
+
+  /* Write through custom writev function */
+  ssize_t written = xIOBufferWriteWith(&wio, test_writev_fn, &pipefd[1]);
+  ASSERT_GT(written, 0);
+  EXPECT_TRUE(xIOBufferEmpty(&wio));
+
+  /* Read through custom read function */
+  ssize_t nread = xIOBufferReadWith(&rio, test_read_fn, &pipefd[0]);
+  ASSERT_GT(nread, 0);
+  EXPECT_EQ(xIOBufferLen(&rio), strlen(msg));
+
+  char out[64] = {};
+  xIOBufferRead(&rio, out, sizeof(out));
+  EXPECT_EQ(memcmp(out, msg, strlen(msg)), 0);
+
+  close(pipefd[0]);
+  close(pipefd[1]);
+  xIOBufferDeinit(&wio);
+  xIOBufferDeinit(&rio);
+}
+
+TEST(xIOBuffer, ReadWithNullFn) {
+  xIOBuffer io;
+  xIOBufferInit(&io);
+
+  /* NULL function should return -1 */
+  ssize_t n = xIOBufferReadWith(&io, NULL, NULL);
+  EXPECT_EQ(n, -1);
+
+  n = xIOBufferWriteWith(&io, NULL, NULL);
+  EXPECT_EQ(n, -1);
 
   xIOBufferDeinit(&io);
 }

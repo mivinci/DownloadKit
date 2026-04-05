@@ -40,8 +40,8 @@ TEST(xRingBuffer, WriteRead) {
   ASSERT_EQ(xRingBufferWrite(rb, msg, strlen(msg)), xErrno_Ok);
   EXPECT_EQ(xRingBufferLen(rb), strlen(msg));
 
-  char out[32] = {};
-  size_t n = xRingBufferRead(rb, out, sizeof(out));
+  char   out[32] = {};
+  size_t n       = xRingBufferRead(rb, out, sizeof(out));
   EXPECT_EQ(n, strlen(msg));
   EXPECT_EQ(memcmp(out, msg, strlen(msg)), 0);
   EXPECT_TRUE(xRingBufferEmpty(rb));
@@ -66,8 +66,8 @@ TEST(xRingBuffer, WrapAround) {
   ASSERT_EQ(xRingBufferWrite(rb, wrap, 4), xErrno_Ok);
 
   /* Read everything out. */
-  char out[16] = {};
-  size_t n = xRingBufferRead(rb, out, sizeof(out));
+  char   out[16] = {};
+  size_t n       = xRingBufferRead(rb, out, sizeof(out));
   EXPECT_EQ(n, 4u + 4u); /* 4 remaining from fill + 4 from wrap */
   EXPECT_EQ(memcmp(out + 4, "WRAP", 4), 0);
 
@@ -75,8 +75,8 @@ TEST(xRingBuffer, WrapAround) {
 }
 
 TEST(xRingBuffer, Full) {
-  xRingBuffer rb = xRingBufferCreate(16);
-  size_t cap = xRingBufferCap(rb);
+  xRingBuffer rb  = xRingBufferCreate(16);
+  size_t      cap = xRingBufferCap(rb);
 
   char data[16];
   memset(data, 'X', (size_t)cap);
@@ -95,8 +95,8 @@ TEST(xRingBuffer, PeekDiscard) {
   xRingBuffer rb = xRingBufferCreate(64);
   xRingBufferWrite(rb, "abcdef", 6);
 
-  char out[4] = {};
-  size_t n = xRingBufferPeek(rb, out, 4);
+  char   out[4] = {};
+  size_t n      = xRingBufferPeek(rb, out, 4);
   EXPECT_EQ(n, 4u);
   EXPECT_EQ(memcmp(out, "abcd", 4), 0);
   EXPECT_EQ(xRingBufferLen(rb), 6u); /* not consumed */

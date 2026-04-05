@@ -28,7 +28,9 @@ static void *increment(void *arg) {
   return nullptr;
 }
 
-static void *noop(void *) { return nullptr; }
+static void *noop(void *) {
+  return nullptr;
+}
 
 /* ── Fixture ── */
 
@@ -38,8 +40,8 @@ protected:
 
   void SetUp() override {
     xTaskGroupConf conf = {};
-    conf.nthreads = 4;
-    g             = xTaskGroupCreate(&conf);
+    conf.nthreads       = 4;
+    g                   = xTaskGroupCreate(&conf);
     ASSERT_NE(g, nullptr);
   }
 
@@ -75,7 +77,7 @@ TEST_F(TaskTest, PendingInitiallyZero) {
 
 TEST_F(TaskTest, SubmitAndWaitSingle) {
   Counter c;
-  xTask t = xTaskSubmit(g, increment, &c);
+  xTask   t = xTaskSubmit(g, increment, &c);
   ASSERT_NE(t, nullptr);
   EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Ok);
   EXPECT_EQ(c.value.load(), 1);
@@ -96,8 +98,8 @@ TEST_F(TaskTest, SubmitNullGroupReturnsNull) {
 /* ========== Multiple Tasks ========== */
 
 TEST_F(TaskTest, SubmitManyAndWaitAll) {
-  constexpr int N       = 1000;
-  Counter      counter;
+  constexpr int      N = 1000;
+  Counter            counter;
   std::vector<xTask> tasks(N);
 
   for (int i = 0; i < N; i++) {
@@ -113,8 +115,8 @@ TEST_F(TaskTest, SubmitManyAndWaitAll) {
 }
 
 TEST_F(TaskTest, GroupWait) {
-  constexpr int N       = 500;
-  Counter      counter;
+  constexpr int N = 500;
+  Counter       counter;
 
   for (int i = 0; i < N; i++) {
     xTask t = xTaskSubmit(g, increment, &counter);
@@ -139,7 +141,7 @@ TEST_F(TaskTest, PendingCount) {
     return nullptr;
   };
 
-  xTaskGroupConf conf = {.nthreads = 1};
+  xTaskGroupConf conf   = {.nthreads = 1};
   xTaskGroup     single = xTaskGroupCreate(&conf);
   ASSERT_NE(single, nullptr);
 
@@ -165,9 +167,9 @@ TEST_F(TaskTest, PendingCount) {
 /* ========== Concurrent Submit ========== */
 
 TEST_F(TaskTest, ConcurrentSubmits) {
-  constexpr int        THREADS    = 8;
-  constexpr int        PER_THREAD = 200;
-  Counter              counter;
+  constexpr int            THREADS    = 8;
+  constexpr int            PER_THREAD = 200;
+  Counter                  counter;
   std::vector<std::thread> threads;
 
   for (int t = 0; t < THREADS; t++) {
@@ -178,7 +180,8 @@ TEST_F(TaskTest, ConcurrentSubmits) {
     });
   }
 
-  for (auto &th : threads) th.join();
+  for (auto &th : threads)
+    th.join();
   xTaskGroupWait(g);
 
   EXPECT_EQ(counter.value.load(), THREADS * PER_THREAD);
@@ -193,7 +196,7 @@ TEST_F(TaskTest, QueueCapRejectsWhenFull) {
 
   /* Block the single worker so tasks accumulate in the queue. */
   std::atomic<bool> unblock{false};
-  auto block_fn = [](void *arg) -> void * {
+  auto              block_fn = [](void *arg) -> void              *{
     auto *flag = static_cast<std::atomic<bool> *>(arg);
     while (!flag->load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -250,9 +253,9 @@ static void *return_value(void *arg) {
 }
 
 TEST_F(TaskTest, WaitReturnsTaskResult) {
-  int    val = 42;
-  void  *result = nullptr;
-  xTask  t = xTaskSubmit(g, return_value, &val);
+  int   val    = 42;
+  void *result = nullptr;
+  xTask t      = xTaskSubmit(g, return_value, &val);
   ASSERT_NE(t, nullptr);
   EXPECT_EQ(xTaskWait(t, &result), xErrno_Ok);
   EXPECT_EQ(result, &val);
@@ -269,7 +272,7 @@ TEST_F(TaskTest, WaitResultNullIgnored) {
 
 TEST_F(TaskTest, StressTest) {
   constexpr int N = 10000;
-  Counter      counter;
+  Counter       counter;
 
   for (int i = 0; i < N; i++) {
     xTaskSubmit(g, increment, &counter);
@@ -293,7 +296,7 @@ TEST(TaskGroupGlobal, ReturnsSameInstance) {
 }
 
 TEST(TaskGroupGlobal, CanSubmitAndWait) {
-  Counter c;
+  Counter    c;
   xTaskGroup g = xTaskGroupGlobal();
   ASSERT_NE(g, nullptr);
 
@@ -306,7 +309,7 @@ TEST(TaskGroupGlobal, CanSubmitAndWait) {
 TEST(TaskGroupGlobal, ConcurrentAccess) {
   constexpr int THREADS    = 4;
   constexpr int PER_THREAD = 100;
-  Counter counter;
+  Counter       counter;
 
   std::vector<std::thread> threads;
   for (int t = 0; t < THREADS; t++) {
@@ -318,7 +321,8 @@ TEST(TaskGroupGlobal, ConcurrentAccess) {
     });
   }
 
-  for (auto &th : threads) th.join();
+  for (auto &th : threads)
+    th.join();
   xTaskGroupWait(xTaskGroupGlobal());
 
   EXPECT_EQ(counter.value.load(), THREADS * PER_THREAD);

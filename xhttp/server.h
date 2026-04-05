@@ -244,4 +244,40 @@ XCAPI(xErrno) xHttpServerSetMaxHeaderSize(xHttpServer server, size_t max_size);
  */
 XCAPI(xErrno) xHttpServerSetMaxBodySize(xHttpServer server, size_t max_size);
 
+/* ── TLS ───────────────────────────────────────────────────────────────── */
+
+/**
+ * @brief TLS configuration for xHttpServerListenTls().
+ */
+XDEF_STRUCT(xHttpTlsServerConf) {
+  const char *cert_file; /**< Path to PEM certificate file (required)   */
+  const char *key_file;  /**< Path to PEM private key file (required)   */
+  const char *ca_file;   /**< Path to CA certificate file (optional)    */
+  int verify_client; /**< Client verification: 0=none, 1=optional, 2=required */
+};
+
+/**
+ * @brief Start listening for HTTPS connections with TLS.
+ *
+ * Creates a TLS context using the provided certificate and key, then
+ * begins accepting TLS connections on the specified address and port.
+ * ALPN negotiation is used to select HTTP/1.1 or HTTP/2.
+ *
+ * Can be called alongside xHttpServerListen() to serve both HTTP and
+ * HTTPS on different ports.
+ *
+ * If no TLS library was available at compile time, this function returns
+ * xErrno_NotSupported.
+ *
+ * @param server  The HTTP server (must not be NULL).
+ * @param host    Bind address (e.g. "0.0.0.0"), or NULL for INADDR_ANY.
+ * @param port    Port number to listen on.
+ * @param config  TLS configuration (must not be NULL, cert_file and
+ *                key_file must not be NULL).
+ * @return        xErrno_Ok on success, or an error code.
+ */
+XCAPI(xErrno) xHttpServerListenTls(xHttpServer server, const char *host,
+                                   uint16_t                  port,
+                                   const xHttpTlsServerConf *config);
+
 #endif /* XHTTP_SERVER_H */

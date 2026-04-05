@@ -97,7 +97,7 @@ static inline bool send_str(int fd, const std::string &s) {
  */
 static inline std::string recv_all(int fd, int timeout_ms = 2000) {
   std::string result;
-  char buf[4096];
+  char        buf[4096];
 
   struct timeval tv;
   tv.tv_sec  = timeout_ms / 1000;
@@ -117,7 +117,8 @@ static inline std::string recv_all(int fd, int timeout_ms = 2000) {
         size_t cl_start = cl_pos + 16;
         size_t cl_end   = result.find("\r\n", cl_start);
         if (cl_end != std::string::npos) {
-          int content_len = std::stoi(result.substr(cl_start, cl_end - cl_start));
+          int content_len =
+            std::stoi(result.substr(cl_start, cl_end - cl_start));
           size_t body_start = result.find("\r\n\r\n") + 4;
           if (result.size() >= body_start + (size_t)content_len) break;
         }
@@ -165,7 +166,7 @@ protected:
 
   void TearDown() override {
     if (server) xHttpServerDestroy(server);
-    if (loop)   xEventLoopDestroy(loop);
+    if (loop) xEventLoopDestroy(loop);
   }
 
   /** Start listening and pump briefly to let the socket settle. */

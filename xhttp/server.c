@@ -6,9 +6,9 @@
  * server.c - Asynchronous HTTP/1.1 server implementation
  */
 
-#include "server_private.h"
 #include "proto_h1.h"
 #include "proto_h2.h"
+#include "server_private.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -22,7 +22,8 @@
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Forward declarations
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 static void on_listen_event(xSocket sock, xEventMask mask, void *arg);
 static void on_conn_event(xSocket sock, xEventMask mask, void *arg);
@@ -35,40 +36,56 @@ static void conn_write_ready(struct xHttpConn_ *conn);
 static void conn_after_response(struct xHttpConn_ *conn);
 static void conn_try_flush(struct xHttpConn_ *conn);
 static void route_free_segments(struct xHttpRouteSegment_ *segs, int count);
-int xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
-
+int         xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  HTTP status reason phrases
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 const char *xHttpStatusReason(int code) {
   switch (code) {
-    case 200: return "OK";
-    case 201: return "Created";
-    case 204: return "No Content";
-    case 301: return "Moved Permanently";
-    case 302: return "Found";
-    case 304: return "Not Modified";
-    case 400: return "Bad Request";
-    case 403: return "Forbidden";
-    case 404: return "Not Found";
-    case 405: return "Method Not Allowed";
-    case 408: return "Request Timeout";
-    case 413: return "Content Too Large";
-    case 431: return "Request Header Fields Too Large";
-    case 500: return "Internal Server Error";
-    case 502: return "Bad Gateway";
-    case 503: return "Service Unavailable";
-    default:  return "Unknown";
+  case 200:
+    return "OK";
+  case 201:
+    return "Created";
+  case 204:
+    return "No Content";
+  case 301:
+    return "Moved Permanently";
+  case 302:
+    return "Found";
+  case 304:
+    return "Not Modified";
+  case 400:
+    return "Bad Request";
+  case 403:
+    return "Forbidden";
+  case 404:
+    return "Not Found";
+  case 405:
+    return "Method Not Allowed";
+  case 408:
+    return "Request Timeout";
+  case 413:
+    return "Content Too Large";
+  case 431:
+    return "Request Header Fields Too Large";
+  case 500:
+    return "Internal Server Error";
+  case 502:
+    return "Bad Gateway";
+  case 503:
+    return "Service Unavailable";
+  default:
+    return "Unknown";
   }
 }
 
-
-
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Server lifecycle (Task 4)
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 xHttpServer xHttpServerCreate(xEventLoop loop) {
   if (!loop) return NULL;
@@ -76,21 +93,20 @@ xHttpServer xHttpServerCreate(xEventLoop loop) {
   struct xHttpServer_ *s = (struct xHttpServer_ *)calloc(1, sizeof(*s));
   if (!s) return NULL;
 
-  s->loop             = loop;
-  s->listen_sock      = NULL;
-  s->listen_fd        = -1;
-  s->routes           = NULL;
-  s->routes_tail      = NULL;
-  s->conns            = NULL;
-  s->idle_timeout_ms  = XHTTP_DEFAULT_IDLE_TIMEOUT_MS;
-  s->max_header_size  = XHTTP_DEFAULT_MAX_HEADER_SIZE;
-  s->max_body_size    = XHTTP_DEFAULT_MAX_BODY_SIZE;
+  s->loop            = loop;
+  s->listen_sock     = NULL;
+  s->listen_fd       = -1;
+  s->routes          = NULL;
+  s->routes_tail     = NULL;
+  s->conns           = NULL;
+  s->idle_timeout_ms = XHTTP_DEFAULT_IDLE_TIMEOUT_MS;
+  s->max_header_size = XHTTP_DEFAULT_MAX_HEADER_SIZE;
+  s->max_body_size   = XHTTP_DEFAULT_MAX_BODY_SIZE;
 
   return (xHttpServer)s;
 }
 
-xErrno xHttpServerListen(xHttpServer server,
-                          const char *host, uint16_t port) {
+xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port) {
   if (!server) return xErrno_InvalidArg;
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
 
@@ -128,8 +144,8 @@ xErrno xHttpServerListen(xHttpServer server,
   }
 
   /* Wrap in xSocket (sets non-blocking + registers with event loop) */
-  xSocket sock = xSocketCreateFromFd(s->loop, fd, xEvent_Read,
-                                      on_listen_event, s);
+  xSocket sock =
+    xSocketCreateFromFd(s->loop, fd, xEvent_Read, on_listen_event, s);
   if (!sock) {
     close(fd);
     return xErrno_SysError;
@@ -177,7 +193,7 @@ xErrno xHttpServerSetIdleTimeout(xHttpServer server, int timeout_ms) {
   if (!server) return xErrno_InvalidArg;
   if (timeout_ms <= 0) return xErrno_InvalidArg;
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
-  s->idle_timeout_ms = timeout_ms;
+  s->idle_timeout_ms     = timeout_ms;
   return xErrno_Ok;
 }
 
@@ -185,7 +201,7 @@ xErrno xHttpServerSetMaxHeaderSize(xHttpServer server, size_t max_size) {
   if (!server) return xErrno_InvalidArg;
   if (max_size == 0) return xErrno_InvalidArg;
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
-  s->max_header_size = max_size;
+  s->max_header_size     = max_size;
   return xErrno_Ok;
 }
 
@@ -193,13 +209,14 @@ xErrno xHttpServerSetMaxBodySize(xHttpServer server, size_t max_size) {
   if (!server) return xErrno_InvalidArg;
   if (max_size == 0) return xErrno_InvalidArg;
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
-  s->max_body_size = max_size;
+  s->max_body_size       = max_size;
   return xErrno_Ok;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Connection accept & management (Task 5)
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 /**
  * Accept callback: called when the listening socket has a new connection.
@@ -213,9 +230,9 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
   /* Accept in a loop to drain all pending connections (edge-triggered) */
   for (;;) {
     struct sockaddr_in client_addr;
-    socklen_t addr_len = sizeof(client_addr);
-    int client_fd = accept(s->listen_fd,
-                           (struct sockaddr *)&client_addr, &addr_len);
+    socklen_t          addr_len = sizeof(client_addr);
+    int                client_fd =
+      accept(s->listen_fd, (struct sockaddr *)&client_addr, &addr_len);
     if (client_fd < 0) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) break;
       if (errno == EMFILE || errno == ENFILE) {
@@ -230,7 +247,7 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
 
     /* Create connection */
     struct xHttpConn_ *conn =
-        (struct xHttpConn_ *)calloc(1, sizeof(struct xHttpConn_));
+      (struct xHttpConn_ *)calloc(1, sizeof(struct xHttpConn_));
     if (!conn) {
       close(client_fd);
       continue;
@@ -246,8 +263,8 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
     conn_init_parser(conn);
 
     /* Wrap accepted fd in xSocket */
-    xSocket client_sock = xSocketCreateFromFd(
-        s->loop, client_fd, xEvent_Read, on_conn_event, conn);
+    xSocket client_sock =
+      xSocketCreateFromFd(s->loop, client_fd, xEvent_Read, on_conn_event, conn);
     if (!client_sock) {
       xIOBufferDeinit(&conn->read_buf);
       xIOBufferDeinit(&conn->write_buf);
@@ -275,9 +292,10 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
  * For H1, stream_id is always 0 (implicit stream).
  * For H2, stream_id is assigned by nghttp2.
  */
-struct xHttpStream_ *xHttpStreamCreate(struct xHttpConn_ *conn, int32_t stream_id) {
+struct xHttpStream_ *xHttpStreamCreate(struct xHttpConn_ *conn,
+                                       int32_t            stream_id) {
   struct xHttpStream_ *stream =
-      (struct xHttpStream_ *)calloc(1, sizeof(struct xHttpStream_));
+    (struct xHttpStream_ *)calloc(1, sizeof(struct xHttpStream_));
   if (!stream) return NULL;
 
   stream->conn      = conn;
@@ -331,9 +349,9 @@ void xHttpStreamReset(struct xHttpStream_ *stream) {
   xBufferReset(stream->headers_raw);
   xBufferReset(stream->body);
 
-  stream->header_bytes      = 0;
-  stream->request_complete  = 0;
-  stream->pending_error     = 0;
+  stream->header_bytes         = 0;
+  stream->request_complete     = 0;
+  stream->pending_error        = 0;
   stream->pending_error_reason = NULL;
 
   /* Reset response writer */
@@ -386,8 +404,10 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
   struct xHttpServer_ *s = conn->server;
 
   /* Remove from doubly-linked list */
-  if (conn->prev) conn->prev->next = conn->next;
-  else            s->conns = conn->next;
+  if (conn->prev)
+    conn->prev->next = conn->next;
+  else
+    s->conns = conn->next;
   if (conn->next) conn->next->prev = conn->prev;
 
   /* Destroy socket */
@@ -416,7 +436,8 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Connection I/O event handler
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
   struct xHttpConn_ *conn = (struct xHttpConn_ *)arg;
@@ -477,8 +498,9 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
     if (buf_len > 0) {
       /* Protocol auto-detection (Prior Knowledge) */
       if (!conn->proto_detected) {
-        /* HTTP/2 connection preface: 24 bytes "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" */
-        static const char h2_magic[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+        /* HTTP/2 connection preface: 24 bytes "PRI *
+         * HTTP/2.0\r\n\r\nSM\r\n\r\n" */
+        static const char   h2_magic[]   = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
         static const size_t h2_magic_len = 24;
 
         /* Copy data to linear buffer for inspection */
@@ -513,7 +535,7 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
       }
 
       /* Copy read buffer to a contiguous buffer for parsing */
-      buf_len = xIOBufferLen(&conn->read_buf);
+      buf_len      = xIOBufferLen(&conn->read_buf);
       char *linear = (char *)malloc(buf_len);
       if (!linear) {
         xHttpConnSendError(conn, 500, "Internal Server Error");
@@ -529,8 +551,8 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
       if (rc < 0) {
         /* Parse error or deferred error from callbacks */
         if (conn->stream && conn->stream->pending_error) {
-          int code = conn->stream->pending_error;
-          const char *reason = conn->stream->pending_error_reason;
+          int         code            = conn->stream->pending_error;
+          const char *reason          = conn->stream->pending_error_reason;
           conn->stream->pending_error = 0;
           conn->stream->pending_error_reason = NULL;
           xHttpConnSendError(conn, code, reason);
@@ -565,22 +587,27 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
  *  linear scan with a radix tree (compressed trie) for O(path-length)
  *  lookup.  The public API (xHttpServerRoute / xHttpRequestParam) is
  *  designed to be compatible with such an upgrade.
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 /**
  * Parse a route pattern like "/users/:id/posts" into an array of segments.
  * Returns the number of segments, or -1 on error.
  * Caller must free the returned array (each segment's text/param is strdup'd).
  */
-static int route_parse_segments(const char *path,
+static int route_parse_segments(const char                 *path,
                                 struct xHttpRouteSegment_ **out) {
   /* Count segments first */
-  int count = 0;
-  const char *p = path;
+  int         count = 0;
+  const char *p     = path;
   while (*p) {
-    if (*p == '/') { p++; continue; }
+    if (*p == '/') {
+      p++;
+      continue;
+    }
     count++;
-    while (*p && *p != '/') p++;
+    while (*p && *p != '/')
+      p++;
   }
 
   if (count == 0) {
@@ -589,17 +616,20 @@ static int route_parse_segments(const char *path,
     return 0;
   }
 
-  struct xHttpRouteSegment_ *segs =
-      (struct xHttpRouteSegment_ *)calloc((size_t)count,
-                                          sizeof(struct xHttpRouteSegment_));
+  struct xHttpRouteSegment_ *segs = (struct xHttpRouteSegment_ *)calloc(
+    (size_t)count, sizeof(struct xHttpRouteSegment_));
   if (!segs) return -1;
 
   int i = 0;
-  p = path;
+  p     = path;
   while (*p) {
-    if (*p == '/') { p++; continue; }
+    if (*p == '/') {
+      p++;
+      continue;
+    }
     const char *start = p;
-    while (*p && *p != '/') p++;
+    while (*p && *p != '/')
+      p++;
     size_t len = (size_t)(p - start);
 
     if (start[0] == ':' && len > 1) {
@@ -641,22 +671,23 @@ static void route_free_segments(struct xHttpRouteSegment_ *segs, int count) {
  * Match a request URL against a route's pre-parsed segments.
  * On success, fills params[] and returns 1.  On failure returns 0.
  */
-static int route_match(const struct xHttpRoute_ *route,
-                       const char *url,
+static int route_match(const struct xHttpRoute_ *route, const char *url,
                        struct xHttpParam_ *params, int *param_count) {
   *param_count = 0;
 
   /* Split URL into segments and compare with route segments */
-  const char *p = url;
-  int seg_idx = 0;
+  const char *p       = url;
+  int         seg_idx = 0;
 
-  while (*p == '/') p++; /* skip leading slashes */
+  while (*p == '/')
+    p++; /* skip leading slashes */
 
   for (seg_idx = 0; seg_idx < route->segment_count; seg_idx++) {
     if (*p == '\0') return 0; /* URL has fewer segments than route */
 
     const char *seg_start = p;
-    while (*p && *p != '/') p++;
+    while (*p && *p != '/')
+      p++;
     size_t seg_len = (size_t)(p - seg_start);
 
     const struct xHttpRouteSegment_ *rs = &route->segments[seg_idx];
@@ -676,7 +707,8 @@ static int route_match(const struct xHttpRoute_ *route,
       }
     }
 
-    while (*p == '/') p++; /* skip slashes between segments */
+    while (*p == '/')
+      p++; /* skip slashes between segments */
   }
 
   /* URL must have no trailing segments */
@@ -685,14 +717,13 @@ static int route_match(const struct xHttpRoute_ *route,
   return 1;
 }
 
-xErrno xHttpServerRoute(xHttpServer server,
-                         const char *method, const char *path,
-                         xHttpHandlerFunc handler, void *arg) {
+xErrno xHttpServerRoute(xHttpServer server, const char *method,
+                        const char *path, xHttpHandlerFunc handler, void *arg) {
   if (!server || !path || !handler) return xErrno_InvalidArg;
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
 
   struct xHttpRoute_ *route =
-      (struct xHttpRoute_ *)calloc(1, sizeof(struct xHttpRoute_));
+    (struct xHttpRoute_ *)calloc(1, sizeof(struct xHttpRoute_));
   if (!route) return xErrno_NoMemory;
 
   route->method  = method ? strdup(method) : NULL;
@@ -730,13 +761,11 @@ xErrno xHttpServerRoute(xHttpServer server,
 
 /* ── xHttpRequestParam ─────────────────────────────────────────────────── */
 
-const char *xHttpRequestParam(const xHttpRequest *req,
-                               const char *name,
-                               size_t *len) {
+const char *xHttpRequestParam(const xHttpRequest *req, const char *name,
+                              size_t *len) {
   if (!req || !name || !req->params_) return NULL;
 
-  const struct xHttpParam_ *params =
-      (const struct xHttpParam_ *)req->params_;
+  const struct xHttpParam_ *params = (const struct xHttpParam_ *)req->params_;
   /* Walk the params array; terminated by name == NULL */
   for (int i = 0; params[i].name; i++) {
     if (strcmp(params[i].name, name) == 0) {
@@ -751,7 +780,7 @@ const char *xHttpRequestParam(const xHttpRequest *req,
  * Dispatch a parsed request to the matching route handler.
  */
 static void conn_dispatch_request(struct xHttpConn_ *conn) {
-  struct xHttpServer_ *s = conn->server;
+  struct xHttpServer_ *s      = conn->server;
   struct xHttpStream_ *stream = conn->stream;
 
   /* Get method string from protocol handler */
@@ -760,30 +789,27 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
   /* Ensure buffers are null-terminated for C string usage.
    * xBuffer doesn't auto-terminate, so we append a '\0' sentinel.
    * This is safe because xBufferAppend will grow if needed. */
-  if (stream->url)
-    xBufferAppend(&stream->url, "", 1);
-  if (stream->headers_raw)
-    xBufferAppend(&stream->headers_raw, "", 1);
-  if (stream->body)
-    xBufferAppend(&stream->body, "", 1);
+  if (stream->url) xBufferAppend(&stream->url, "", 1);
+  if (stream->headers_raw) xBufferAppend(&stream->headers_raw, "", 1);
+  if (stream->body) xBufferAppend(&stream->body, "", 1);
 
   /* Build the xHttpRequest from stream state */
   xHttpRequest req;
-  req.method      = method_str;
-  req.url         = stream->url ? (const char *)xBufferData(stream->url) : "/";
-  req.headers     = stream->headers_raw
-                        ? (const char *)xBufferData(stream->headers_raw) : "";
-  req.headers_len = stream->headers_raw ? xBufferLen(stream->headers_raw) - 1 : 0;
-  req.body        = stream->body
-                        ? (const char *)xBufferData(stream->body) : NULL;
-  req.body_len    = stream->body ? xBufferLen(stream->body) - 1 : 0;
-  req.params_     = NULL;
+  req.method = method_str;
+  req.url    = stream->url ? (const char *)xBufferData(stream->url) : "/";
+  req.headers =
+    stream->headers_raw ? (const char *)xBufferData(stream->headers_raw) : "";
+  req.headers_len =
+    stream->headers_raw ? xBufferLen(stream->headers_raw) - 1 : 0;
+  req.body     = stream->body ? (const char *)xBufferData(stream->body) : NULL;
+  req.body_len = stream->body ? xBufferLen(stream->body) - 1 : 0;
+  req.params_  = NULL;
 
   /* Search for matching route (segment-by-segment) */
-  int path_matched = 0;
-  struct xHttpRoute_ *r = s->routes;
-  struct xHttpParam_ params[XHTTP_MAX_PARAMS + 1]; /* +1 for sentinel */
-  int param_count = 0;
+  int                 path_matched = 0;
+  struct xHttpRoute_ *r            = s->routes;
+  struct xHttpParam_  params[XHTTP_MAX_PARAMS + 1]; /* +1 for sentinel */
+  int                 param_count = 0;
 
   while (r) {
     if (route_match(r, req.url, params, &param_count)) {
@@ -791,10 +817,10 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
       /* Check method match (NULL method matches all) */
       if (!r->method || strcasecmp(r->method, method_str) == 0) {
         /* Terminate params array with a sentinel */
-        params[param_count].name  = NULL;
-        params[param_count].value = NULL;
+        params[param_count].name      = NULL;
+        params[param_count].value     = NULL;
         params[param_count].value_len = 0;
-        req.params_ = params;
+        req.params_                   = params;
 
         /* Match found: call handler */
         r->handler((xHttpResponseWriter)&stream->writer, &req, r->arg);
@@ -832,21 +858,22 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Response building & sending (Task 8)
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 void xHttpResponseSetStatus(xHttpResponseWriter writer, int code) {
   if (!writer) return;
   struct xHttpResponseWriter_ *w = (struct xHttpResponseWriter_ *)writer;
-  w->status_code = code;
+  w->status_code                 = code;
 }
 
-xErrno xHttpResponseSetHeader(xHttpResponseWriter writer,
-                                const char *key, const char *value) {
+xErrno xHttpResponseSetHeader(xHttpResponseWriter writer, const char *key,
+                              const char *value) {
   if (!writer || !key || !value) return xErrno_InvalidArg;
   struct xHttpResponseWriter_ *w = (struct xHttpResponseWriter_ *)writer;
 
   struct xHttpHeader_ *h =
-      (struct xHttpHeader_ *)calloc(1, sizeof(struct xHttpHeader_));
+    (struct xHttpHeader_ *)calloc(1, sizeof(struct xHttpHeader_));
   if (!h) return xErrno_NoMemory;
 
   h->key   = strdup(key);
@@ -871,8 +898,8 @@ xErrno xHttpResponseSetHeader(xHttpResponseWriter writer,
   return xErrno_Ok;
 }
 
-xErrno xHttpResponseSend(xHttpResponseWriter writer,
-                           const char *body, size_t body_len) {
+xErrno xHttpResponseSend(xHttpResponseWriter writer, const char *body,
+                         size_t body_len) {
   if (!writer) return xErrno_InvalidArg;
   struct xHttpResponseWriter_ *w = (struct xHttpResponseWriter_ *)writer;
 
@@ -881,11 +908,10 @@ xErrno xHttpResponseSend(xHttpResponseWriter writer,
   w->sent = 1;
 
   struct xHttpStream_ *stream = w->stream;
-  struct xHttpConn_ *conn = stream->conn;
+  struct xHttpConn_   *conn   = stream->conn;
 
   /* Delegate to protocol-specific response serialization */
-  conn->proto.send_response(stream, w->status_code, w->headers,
-                            body, body_len);
+  conn->proto.send_response(stream, w->status_code, w->headers, body, body_len);
 
   /* Try to flush immediately (but don't close the connection yet;
    * the caller will handle lifecycle via conn_after_response) */
@@ -894,8 +920,8 @@ xErrno xHttpResponseSend(xHttpResponseWriter writer,
   return xErrno_Ok;
 }
 
-xErrno xHttpResponseWrite(xHttpResponseWriter writer,
-                           const char *data, size_t len) {
+xErrno xHttpResponseWrite(xHttpResponseWriter writer, const char *data,
+                          size_t len) {
   if (!writer) return xErrno_InvalidArg;
   struct xHttpResponseWriter_ *w = (struct xHttpResponseWriter_ *)writer;
 
@@ -903,7 +929,7 @@ xErrno xHttpResponseWrite(xHttpResponseWriter writer,
   if (w->sent) return xErrno_InvalidState;
 
   struct xHttpStream_ *stream = w->stream;
-  struct xHttpConn_ *conn = stream->conn;
+  struct xHttpConn_   *conn   = stream->conn;
 
   /* Delegate to protocol-specific write_data */
   conn->proto.write_data(stream, data, len);
@@ -922,7 +948,7 @@ void xHttpResponseEnd(xHttpResponseWriter writer) {
   if (!w->streaming || w->sent) return;
 
   struct xHttpStream_ *stream = w->stream;
-  struct xHttpConn_ *conn = stream->conn;
+  struct xHttpConn_   *conn   = stream->conn;
 
   /* Delegate to protocol-specific end_stream */
   conn->proto.end_stream(stream);
@@ -973,7 +999,7 @@ static void conn_try_flush(struct xHttpConn_ *conn) {
  * Send a simple error response (used internally for 400, 404, 405, etc.)
  */
 void xHttpConnSendError(struct xHttpConn_ *conn, int status_code,
-                         const char *reason) {
+                        const char *reason) {
   struct xHttpStream_ *stream = conn->stream;
 
   /* If response already sent, just close */
@@ -984,9 +1010,9 @@ void xHttpConnSendError(struct xHttpConn_ *conn, int status_code,
 
   /* Build a simple HTML error body */
   char body[256];
-  int body_len = snprintf(body, sizeof(body),
-                          "<html><body><h1>%d %s</h1></body></html>\r\n",
-                          status_code, reason);
+  int  body_len =
+    snprintf(body, sizeof(body), "<html><body><h1>%d %s</h1></body></html>\r\n",
+             status_code, reason);
 
   stream->writer.status_code = status_code;
 
@@ -996,10 +1022,10 @@ void xHttpConnSendError(struct xHttpConn_ *conn, int status_code,
     conn->keep_alive = 0; /* H1: close after error */
   }
 
-  xHttpResponseSetHeader((xHttpResponseWriter)&stream->writer,
-                          "Content-Type", "text/html");
-  xHttpResponseSend((xHttpResponseWriter)&stream->writer,
-                     body, (size_t)body_len);
+  xHttpResponseSetHeader((xHttpResponseWriter)&stream->writer, "Content-Type",
+                         "text/html");
+  xHttpResponseSend((xHttpResponseWriter)&stream->writer, body,
+                    (size_t)body_len);
 }
 
 /**
@@ -1082,7 +1108,8 @@ static void conn_after_response(struct xHttpConn_ *conn) {
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Public wrappers for internal functions (used by proto_h2.c)
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 void xHttpConnDispatchRequest(struct xHttpConn_ *conn) {
   conn_dispatch_request(conn);

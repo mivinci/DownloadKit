@@ -39,13 +39,13 @@ XDEF_HANDLE(xHttpResponseWriter);
  * their lifetime.
  */
 XDEF_STRUCT(xHttpRequest) {
-  const char *method;       /**< HTTP method string (e.g. "GET", "POST")    */
-  const char *url;          /**< Request URL / path (NUL-terminated)        */
-  const char *headers;      /**< Raw request headers (NUL-terminated)       */
-  size_t      headers_len;  /**< Length of headers in bytes                 */
-  const char *body;         /**< Request body, or NULL if no body           */
-  size_t      body_len;     /**< Length of body in bytes                    */
-  void       *params_;      /**< (internal) matched route params            */
+  const char *method;      /**< HTTP method string (e.g. "GET", "POST")    */
+  const char *url;         /**< Request URL / path (NUL-terminated)        */
+  const char *headers;     /**< Raw request headers (NUL-terminated)       */
+  size_t      headers_len; /**< Length of headers in bytes                 */
+  const char *body;        /**< Request body, or NULL if no body           */
+  size_t      body_len;    /**< Length of body in bytes                    */
+  void       *params_;     /**< (internal) matched route params            */
 };
 
 /**
@@ -56,8 +56,7 @@ XDEF_STRUCT(xHttpRequest) {
  * @param arg     User-provided argument from xHttpServerRoute().
  */
 typedef void (*xHttpHandlerFunc)(xHttpResponseWriter writer,
-                                 const xHttpRequest *req,
-                                 void *arg);
+                                 const xHttpRequest *req, void *arg);
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
 
@@ -83,8 +82,8 @@ XCAPI(xHttpServer) xHttpServerCreate(xEventLoop loop);
  * @param port    Port number to listen on.
  * @return        xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpServerListen(xHttpServer server,
-                                 const char *host, uint16_t port);
+XCAPI(xErrno) xHttpServerListen(xHttpServer server, const char *host,
+                                uint16_t port);
 
 /**
  * @brief Destroy an HTTP server and release all resources.
@@ -112,9 +111,9 @@ XCAPI(void) xHttpServerDestroy(xHttpServer server);
  * @param arg      User argument forwarded to @p handler.
  * @return         xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpServerRoute(xHttpServer server,
-                                const char *method, const char *path,
-                                xHttpHandlerFunc handler, void *arg);
+XCAPI(xErrno) xHttpServerRoute(xHttpServer server, const char *method,
+                               const char *path, xHttpHandlerFunc handler,
+                               void *arg);
 
 /**
  * @brief Look up a path parameter by name.
@@ -128,9 +127,8 @@ XCAPI(xErrno) xHttpServerRoute(xHttpServer server,
  * @return      Pointer to the parameter value (NOT NUL-terminated), or
  *              NULL if the parameter was not found.
  */
-XCAPI(const char *) xHttpRequestParam(const xHttpRequest *req,
-                                       const char *name,
-                                       size_t *len);
+XCAPI(const char *) xHttpRequestParam(const xHttpRequest *req, const char *name,
+                                      size_t *len);
 
 /* ── Response ──────────────────────────────────────────────────────────── */
 
@@ -156,7 +154,7 @@ XCAPI(void) xHttpResponseSetStatus(xHttpResponseWriter writer, int code);
  * @return        xErrno_Ok on success, xErrno_NoMemory on failure.
  */
 XCAPI(xErrno) xHttpResponseSetHeader(xHttpResponseWriter writer,
-                                      const char *key, const char *value);
+                                     const char *key, const char *value);
 
 /**
  * @brief Send the HTTP response.
@@ -173,8 +171,8 @@ XCAPI(xErrno) xHttpResponseSetHeader(xHttpResponseWriter writer,
  * @param body_len  Length of body in bytes.
  * @return          xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpResponseSend(xHttpResponseWriter writer,
-                                 const char *body, size_t body_len);
+XCAPI(xErrno) xHttpResponseSend(xHttpResponseWriter writer, const char *body,
+                                size_t body_len);
 
 /**
  * @brief Write data to a streaming response.
@@ -190,8 +188,8 @@ XCAPI(xErrno) xHttpResponseSend(xHttpResponseWriter writer,
  * @param len     Length of data in bytes.
  * @return        xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpResponseWrite(xHttpResponseWriter writer,
-                                  const char *data, size_t len);
+XCAPI(xErrno) xHttpResponseWrite(xHttpResponseWriter writer, const char *data,
+                                 size_t len);
 
 /**
  * @brief End a streaming response.

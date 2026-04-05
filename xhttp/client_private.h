@@ -18,9 +18,9 @@
 /* ───────────────────── Per-socket context ───────────────────── */
 
 struct xHttpSocketCtx_ {
-  xEventSource  src;     /* event source handle from xEventAdd */
-  int           fd;      /* the socket file descriptor         */
-  void         *client;  /* back-pointer to xHttpClient_       */
+  xEventSource src;    /* event source handle from xEventAdd */
+  int          fd;     /* the socket file descriptor         */
+  void        *client; /* back-pointer to xHttpClient_       */
 };
 
 /* ───────────────────── Vtable for request polymorphism ───────────────── */
@@ -41,28 +41,28 @@ struct xHttpReqVtable {
 /* ───────────────────── Per-request context ───────────────────── */
 
 struct xHttpReq_ {
-  const struct xHttpReqVtable *vt;  /**< vtable for polymorphism      */
-  CURL                        *easy;        /* curl easy handle            */
-  struct xHttpClient_         *client;      /* back-pointer to client      */
-  void                        *arg;         /* user argument               */
+  const struct xHttpReqVtable *vt;     /**< vtable for polymorphism      */
+  CURL                        *easy;   /* curl easy handle            */
+  struct xHttpClient_         *client; /* back-pointer to client      */
+  void                        *arg;    /* user argument               */
   char                         errbuf[CURL_ERROR_SIZE]; /* curl error   */
-  int                          cleaned;     /* cleanup already done flag   */
+  int                          cleaned; /* cleanup already done flag   */
 
   /* For oneshot HTTP requests */
-  xHttpResponseFunc  on_response;  /* completion callback         */
-  xBuffer            body_buf;      /* response body               */
-  xBuffer            header_buf;    /* response headers            */
-  char              *post_data;     /* copy of POST body (owned)   */
-  struct curl_slist *req_headers;   /* custom request headers      */
+  xHttpResponseFunc  on_response; /* completion callback         */
+  xBuffer            body_buf;    /* response body               */
+  xBuffer            header_buf;  /* response headers            */
+  char              *post_data;   /* copy of POST body (owned)   */
+  struct curl_slist *req_headers; /* custom request headers      */
 };
 
 /* ───────────────────── Client internal structure ───────────────────── */
 
 struct xHttpClient_ {
-  CURLM        *multi;   /* curl multi handle                   */
-  xEventLoop    loop;    /* the event loop we are bound to      */
-  xEventTimer   timer;   /* current curl timeout timer, or NULL */
-  xHttpVersion  http_ver; /* default HTTP version for requests   */
+  CURLM       *multi;    /* curl multi handle                   */
+  xEventLoop   loop;     /* the event loop we are bound to      */
+  xEventTimer  timer;    /* current curl timeout timer, or NULL */
+  xHttpVersion http_ver; /* default HTTP version for requests   */
 };
 
 #endif /* XHTTP_CLIENT_PRIVATE_H */

@@ -16,19 +16,21 @@
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Internal state for HTTP/1.1 protocol handler
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
-typedef struct xHttpProtoH1_ {
-  llhttp_t           parser;
-  llhttp_settings_t  settings;
-} xHttpProtoH1;
+XDEF_STRUCT(xHttpProtoH1) {
+  llhttp_t          parser;
+  llhttp_settings_t settings;
+};
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  llhttp callbacks
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 static int on_url(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
+  struct xHttpConn_   *conn   = (struct xHttpConn_ *)parser->data;
   struct xHttpStream_ *stream = conn->stream;
   stream->header_bytes += len;
 
@@ -39,12 +41,12 @@ static int on_url(llhttp_t *parser, const char *at, size_t len) {
 }
 
 static int on_header_field(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
+  struct xHttpConn_   *conn   = (struct xHttpConn_ *)parser->data;
   struct xHttpStream_ *stream = conn->stream;
   stream->header_bytes += len;
 
   if (stream->header_bytes > conn->server->max_header_size) {
-    stream->pending_error = 431;
+    stream->pending_error        = 431;
     stream->pending_error_reason = "Request Header Fields Too Large";
     return HPE_USER;
   }
@@ -69,12 +71,12 @@ static int on_header_field(llhttp_t *parser, const char *at, size_t len) {
 }
 
 static int on_header_value(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
+  struct xHttpConn_   *conn   = (struct xHttpConn_ *)parser->data;
   struct xHttpStream_ *stream = conn->stream;
   stream->header_bytes += len;
 
   if (stream->header_bytes > conn->server->max_header_size) {
-    stream->pending_error = 431;
+    stream->pending_error        = 431;
     stream->pending_error_reason = "Request Header Fields Too Large";
     return HPE_USER;
   }
@@ -100,12 +102,12 @@ static int on_headers_complete(llhttp_t *parser) {
 }
 
 static int on_body(llhttp_t *parser, const char *at, size_t len) {
-  struct xHttpConn_ *conn = (struct xHttpConn_ *)parser->data;
+  struct xHttpConn_   *conn   = (struct xHttpConn_ *)parser->data;
   struct xHttpStream_ *stream = conn->stream;
 
   size_t cur_len = stream->body ? xBufferLen(stream->body) : 0;
   if (cur_len + len > conn->server->max_body_size) {
-    stream->pending_error = 413;
+    stream->pending_error        = 413;
     stream->pending_error_reason = "Content Too Large";
     return HPE_USER;
   }
@@ -134,7 +136,8 @@ static int on_message_complete(llhttp_t *parser) {
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  vtable method implementations
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 /**
  * Feed data to the HTTP/1.1 parser.
@@ -204,22 +207,21 @@ static int h1_should_keep_alive(struct xHttpConn_ *conn) {
  * H1 send_response: serialize HTTP/1.1 status line + headers + body.
  */
 static int h1_send_response(struct xHttpStream_ *stream, int status,
-                            struct xHttpHeader_ *headers,
-                            const char *body, size_t body_len) {
+                            struct xHttpHeader_ *headers, const char *body,
+                            size_t body_len) {
   struct xHttpConn_ *conn = stream->conn;
-  xIOBuffer *wb = &conn->write_buf;
+  xIOBuffer         *wb   = &conn->write_buf;
 
   /* Status line: "HTTP/1.1 <code> <reason>\r\n" */
   char status_line[64];
-  int slen = snprintf(status_line, sizeof(status_line),
-                      "HTTP/1.1 %d %s\r\n",
-                      status, xHttpStatusReason(status));
+  int  slen = snprintf(status_line, sizeof(status_line), "HTTP/1.1 %d %s\r\n",
+                       status, xHttpStatusReason(status));
   xIOBufferAppend(wb, status_line, (size_t)slen);
 
   /* Content-Length header */
   char cl_buf[48];
-  int cl_len = snprintf(cl_buf, sizeof(cl_buf),
-                        "Content-Length: %zu\r\n", body_len);
+  int  cl_len =
+    snprintf(cl_buf, sizeof(cl_buf), "Content-Length: %zu\r\n", body_len);
   xIOBufferAppend(wb, cl_buf, (size_t)cl_len);
 
   /* Connection header */
@@ -254,23 +256,22 @@ static int h1_send_response(struct xHttpStream_ *stream, int status,
  * H1 write_data: append data to write buffer (streaming mode).
  * On first call, flushes headers with Connection: close.
  */
-static int h1_write_data(struct xHttpStream_ *stream,
-                         const char *data, size_t len) {
-  struct xHttpConn_ *conn = stream->conn;
-  struct xHttpResponseWriter_ *w = &stream->writer;
+static int h1_write_data(struct xHttpStream_ *stream, const char *data,
+                         size_t len) {
+  struct xHttpConn_           *conn = stream->conn;
+  struct xHttpResponseWriter_ *w    = &stream->writer;
 
   /* First call: flush headers and enter streaming mode */
   if (!w->streaming) {
-    w->streaming = 1;
+    w->streaming     = 1;
     conn->keep_alive = 0; /* streaming responses always close */
 
     xIOBuffer *wb = &conn->write_buf;
 
     /* Status line */
     char status_line[64];
-    int slen = snprintf(status_line, sizeof(status_line),
-                        "HTTP/1.1 %d %s\r\n",
-                        w->status_code, xHttpStatusReason(w->status_code));
+    int  slen = snprintf(status_line, sizeof(status_line), "HTTP/1.1 %d %s\r\n",
+                         w->status_code, xHttpStatusReason(w->status_code));
     xIOBufferAppend(wb, status_line, (size_t)slen);
 
     /* Connection: close (no Content-Length in streaming) */
@@ -308,7 +309,8 @@ static int h1_end_stream(struct xHttpStream_ *stream) {
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Initialization
- * ═══════════════════════════════════════════════════════════════════════════ */
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 
 int xHttpProtoH1Init(struct xHttpConn_ *conn) {
   xHttpProtoH1 *h1 = (xHttpProtoH1 *)calloc(1, sizeof(xHttpProtoH1));

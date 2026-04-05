@@ -203,6 +203,16 @@ static const char *openssl_alpn(void *ctx) {
 static void openssl_destroy(void *ctx) {
   xHttpTlsOpenSSL_ *t = (xHttpTlsOpenSSL_ *)ctx;
   if (t->ssl) {
+    /* Prevent SSL_free from closing the fd.  The fd is owned by
+     * xSocket and will be closed by xSocketDestroy().  Without
+     * this, SSL_free's internal BIO_free closes the fd, and then
+     * xSocketDestroy closes it again (double-close → SEGFAULT or
+     * closing an unrelated fd). */
+    BIO *rbio = SSL_get_rbio(t->ssl);
+    if (rbio) BIO_set_close(rbio, BIO_NOCLOSE);
+    BIO *wbio = SSL_get_wbio(t->ssl);
+    if (wbio && wbio != rbio) BIO_set_close(wbio, BIO_NOCLOSE);
+
     /* Only attempt SSL_shutdown if the handshake was completed.
      * Calling SSL_shutdown on an SSL object whose handshake never
      * finished is undefined behavior and can corrupt the heap. */

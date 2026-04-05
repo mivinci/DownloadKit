@@ -183,6 +183,14 @@ TEST_F(HttpClientTest, ConcurrentRequests) {
 
   pump_until_count(loop, done_count, N, 15000);
 
+  /*
+   * Destroy client before ctxs goes out of scope. If any requests are
+   * still in-flight, xHttpClientDestroy will invoke their callbacks
+   * which reference ctxs elements — those must still be alive.
+   */
+  xHttpClientDestroy(client);
+  client = nullptr; /* prevent double-destroy in TearDown */
+
   EXPECT_EQ(done_count.load(), N);
   for (int i = 0; i < N; i++) {
     EXPECT_EQ(ctxs[i].status_code, 200);

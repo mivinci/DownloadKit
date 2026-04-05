@@ -8,7 +8,6 @@
 
 #ifdef XK_HAS_OPENSSL
 
-#include "server_private.h"
 #include "transport_private.h"
 
 #include <openssl/err.h>

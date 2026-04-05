@@ -647,6 +647,7 @@ TEST(EventReadWrite, BothReadAndWrite) {
 
   /* Monitor write end for both read and write.
    * Write end of a pipe is always writable. */
+  auto *ctx_pair = new std::pair<xEventMask *, int *>(&got_mask, &count);
   xEventSource src = xEventAdd(
     loop, fds[1], (xEventMask)(xEvent_Read | xEvent_Write),
     [](int, xEventMask mask, void *arg) {
@@ -654,7 +655,7 @@ TEST(EventReadWrite, BothReadAndWrite) {
       *ctx->first |= mask;
       (*ctx->second)++;
     },
-    new std::pair<xEventMask *, int *>(&got_mask, &count));
+    ctx_pair);
   ASSERT_NE(src, nullptr);
 
   /* Should get at least a write event */
@@ -667,6 +668,7 @@ TEST(EventReadWrite, BothReadAndWrite) {
   EXPECT_TRUE(got_mask & xEvent_Write);
 
   xEventDel(loop, src);
+  delete ctx_pair;
   xEventLoopDestroy(loop);
   close(fds[0]);
   close(fds[1]);

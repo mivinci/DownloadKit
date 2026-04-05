@@ -30,6 +30,9 @@ struct xTask_ {
   bool            done;
   void           *result;
 
+  /* Back-pointer to owning group (for done-list removal in xTaskWait) */
+  struct xTaskGroup_ *group;
+
   /* Intrusive queue linkage */
   struct xTask_ *next;
 };
@@ -46,6 +49,12 @@ struct xTaskGroup_ {
   struct xTask_  *qtail;
   size_t          qsize;
   size_t          qcap;
+
+  /* Completed-but-not-waited tasks (protected by qlock).
+   * When a task finishes and nobody calls xTaskWait(), the worker
+   * appends it here so xTaskGroupDestroy() can free it. */
+  struct xTask_ *done_head;
+  struct xTask_ *done_tail;
 
   /* Idle worker count: workers that have popped a task and finished
    * their work, waiting for more. When a new task arrives and
@@ -109,6 +118,18 @@ static void *worker_loop(void *arg) {
     task->result = result;
     pthread_cond_broadcast(&task->cond);
     pthread_mutex_unlock(&task->lock);
+
+    /* Append to done list so xTaskGroupDestroy can free it
+     * if nobody calls xTaskWait(). */
+    pthread_mutex_lock(&g->qlock);
+    task->next = NULL;
+    if (g->done_tail) {
+      g->done_tail->next = task;
+    } else {
+      g->done_head = task;
+    }
+    g->done_tail = task;
+    pthread_mutex_unlock(&g->qlock);
 
     /* Update counters and wake GroupWait if all done */
     atomic_fetch_add(&g->done_count, 1);
@@ -190,6 +211,15 @@ void xTaskGroupDestroy(xTaskGroup g_) {
     free(t);
   }
 
+  /* Free completed-but-not-waited tasks */
+  while (g->done_head) {
+    struct xTask_ *t = g->done_head;
+    g->done_head     = t->next;
+    pthread_mutex_destroy(&t->lock);
+    pthread_cond_destroy(&t->cond);
+    free(t);
+  }
+
   free(g->workers);
   pthread_mutex_destroy(&g->qlock);
   pthread_cond_destroy(&g->qcond);
@@ -210,6 +240,7 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
   task->arg    = arg;
   task->done   = false;
   task->result = NULL;
+  task->group  = g;
   task->next   = NULL;
 
   pthread_mutex_init(&task->lock, NULL);
@@ -273,6 +304,28 @@ xErrno xTaskWait(xTask t_, void **result) {
   }
   if (result) *result = t->result;
   pthread_mutex_unlock(&t->lock);
+
+  /* Remove from the done list before freeing. */
+  struct xTaskGroup_ *g = t->group;
+  pthread_mutex_lock(&g->qlock);
+  struct xTask_ **pp = &g->done_head;
+  while (*pp) {
+    if (*pp == t) {
+      *pp = t->next;
+      if (g->done_tail == t) {
+        g->done_tail = (g->done_head == NULL) ? NULL : g->done_head;
+        /* Walk to find the real tail */
+        struct xTask_ *tail = g->done_head;
+        if (tail) {
+          while (tail->next) tail = tail->next;
+          g->done_tail = tail;
+        }
+      }
+      break;
+    }
+    pp = &(*pp)->next;
+  }
+  pthread_mutex_unlock(&g->qlock);
 
   pthread_mutex_destroy(&t->lock);
   pthread_cond_destroy(&t->cond);

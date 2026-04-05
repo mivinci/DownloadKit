@@ -24,21 +24,21 @@ static void on_timeout(void *arg);
 
 static void apply_http_version(CURL *easy, xHttpVersion ver) {
   switch (ver) {
-    case xHttpVersion_H1:
-      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-      break;
-    case xHttpVersion_H2:
-      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
-      break;
-    case xHttpVersion_H2TLS:
-      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
-      break;
-    case xHttpVersion_H2C:
-      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION,
-                       CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
-      break;
-    default:
-      break; /* xHttpVersion_Default — use libcurl default */
+  case xHttpVersion_H1:
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    break;
+  case xHttpVersion_H2:
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
+    break;
+  case xHttpVersion_H2TLS:
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
+    break;
+  case xHttpVersion_H2C:
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION,
+                     CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+    break;
+  default:
+    break; /* xHttpVersion_Default — use libcurl default */
   }
 }
 
@@ -533,27 +533,27 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *config,
 
   /* Method */
   switch (config->method) {
-    case xHttpMethod_GET:
-      curl_easy_setopt(req->easy, CURLOPT_HTTPGET, 1L);
-      break;
-    case xHttpMethod_POST:
-      curl_easy_setopt(req->easy, CURLOPT_POST, 1L);
-      break;
-    case xHttpMethod_PUT:
-      curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "PUT");
-      break;
-    case xHttpMethod_DELETE:
-      curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "DELETE");
-      break;
-    case xHttpMethod_PATCH:
-      curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "PATCH");
-      break;
-    case xHttpMethod_HEAD:
-      curl_easy_setopt(req->easy, CURLOPT_NOBODY, 1L);
-      break;
-    default:
-      curl_easy_setopt(req->easy, CURLOPT_HTTPGET, 1L);
-      break;
+  case xHttpMethod_GET:
+    curl_easy_setopt(req->easy, CURLOPT_HTTPGET, 1L);
+    break;
+  case xHttpMethod_POST:
+    curl_easy_setopt(req->easy, CURLOPT_POST, 1L);
+    break;
+  case xHttpMethod_PUT:
+    curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "PUT");
+    break;
+  case xHttpMethod_DELETE:
+    curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "DELETE");
+    break;
+  case xHttpMethod_PATCH:
+    curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "PATCH");
+    break;
+  case xHttpMethod_HEAD:
+    curl_easy_setopt(req->easy, CURLOPT_NOBODY, 1L);
+    break;
+  default:
+    curl_easy_setopt(req->easy, CURLOPT_HTTPGET, 1L);
+    break;
   }
 
   /* Body */

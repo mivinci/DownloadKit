@@ -121,15 +121,15 @@ static ssize_t openssl_read(void *ctx, void *buf, size_t len) {
 
   int err = SSL_get_error(t->ssl, n);
   switch (err) {
-    case SSL_ERROR_WANT_READ:
-    case SSL_ERROR_WANT_WRITE:
-      errno = EAGAIN;
-      return -1;
-    case SSL_ERROR_ZERO_RETURN:
-      return 0; /* Clean shutdown (EOF) */
-    default:
-      errno = EIO;
-      return -1;
+  case SSL_ERROR_WANT_READ:
+  case SSL_ERROR_WANT_WRITE:
+    errno = EAGAIN;
+    return -1;
+  case SSL_ERROR_ZERO_RETURN:
+    return 0; /* Clean shutdown (EOF) */
+  default:
+    errno = EIO;
+    return -1;
   }
 }
 
@@ -185,12 +185,12 @@ static int openssl_handshake(void *ctx) {
 
   int err = SSL_get_error(t->ssl, ret);
   switch (err) {
-    case SSL_ERROR_WANT_READ:
-      return xHttpTransportResult_WantRead;
-    case SSL_ERROR_WANT_WRITE:
-      return xHttpTransportResult_WantWrite;
-    default:
-      return xHttpTransportResult_Error;
+  case SSL_ERROR_WANT_READ:
+    return xHttpTransportResult_WantRead;
+  case SSL_ERROR_WANT_WRITE:
+    return xHttpTransportResult_WantWrite;
+  default:
+    return xHttpTransportResult_Error;
   }
 }
 

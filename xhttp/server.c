@@ -49,40 +49,40 @@ int         xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
 
 const char *xHttpStatusReason(int code) {
   switch (code) {
-    case 200:
-      return "OK";
-    case 201:
-      return "Created";
-    case 204:
-      return "No Content";
-    case 301:
-      return "Moved Permanently";
-    case 302:
-      return "Found";
-    case 304:
-      return "Not Modified";
-    case 400:
-      return "Bad Request";
-    case 403:
-      return "Forbidden";
-    case 404:
-      return "Not Found";
-    case 405:
-      return "Method Not Allowed";
-    case 408:
-      return "Request Timeout";
-    case 413:
-      return "Content Too Large";
-    case 431:
-      return "Request Header Fields Too Large";
-    case 500:
-      return "Internal Server Error";
-    case 502:
-      return "Bad Gateway";
-    case 503:
-      return "Service Unavailable";
-    default:
-      return "Unknown";
+  case 200:
+    return "OK";
+  case 201:
+    return "Created";
+  case 204:
+    return "No Content";
+  case 301:
+    return "Moved Permanently";
+  case 302:
+    return "Found";
+  case 304:
+    return "Not Modified";
+  case 400:
+    return "Bad Request";
+  case 403:
+    return "Forbidden";
+  case 404:
+    return "Not Found";
+  case 405:
+    return "Method Not Allowed";
+  case 408:
+    return "Request Timeout";
+  case 413:
+    return "Content Too Large";
+  case 431:
+    return "Request Header Fields Too Large";
+  case 500:
+    return "Internal Server Error";
+  case 502:
+    return "Bad Gateway";
+  case 503:
+    return "Service Unavailable";
+  default:
+    return "Unknown";
   }
 }
 
@@ -504,21 +504,21 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
   if (!conn->handshake_done && conn->transport.handshake) {
     int hs = conn->transport.handshake(conn->transport.ctx);
     switch (hs) {
-      case xHttpTransportResult_Done:
-        conn->handshake_done = 1;
-        break;
-      case xHttpTransportResult_WantRead:
-        xSocketSetMask(conn->server->loop, conn->sock, xEvent_Read);
-        return;
-      case xHttpTransportResult_WantWrite:
-        xSocketSetMask(conn->server->loop, conn->sock,
-                       xEvent_Read | xEvent_Write);
-        return;
-      case xHttpTransportResult_Error:
-      default:
-        xLog(false, "xhttp: TLS handshake failed");
-        xHttpConnClose(conn);
-        return;
+    case xHttpTransportResult_Done:
+      conn->handshake_done = 1;
+      break;
+    case xHttpTransportResult_WantRead:
+      xSocketSetMask(conn->server->loop, conn->sock, xEvent_Read);
+      return;
+    case xHttpTransportResult_WantWrite:
+      xSocketSetMask(conn->server->loop, conn->sock,
+                     xEvent_Read | xEvent_Write);
+      return;
+    case xHttpTransportResult_Error:
+    default:
+      xLog(false, "xhttp: TLS handshake failed");
+      xHttpConnClose(conn);
+      return;
     }
   }
 

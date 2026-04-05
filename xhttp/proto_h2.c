@@ -191,27 +191,26 @@ static int h2_on_frame_recv_callback(nghttp2_session     *session,
                                      void                *user_data) {
   struct xHttpConn_ *conn = (struct xHttpConn_ *)user_data;
   xHttpProtoH2      *h2   = (xHttpProtoH2 *)conn->proto.state;
+  xH2StreamData     *sd;
 
   switch (frame->hd.type) {
-    case NGHTTP2_HEADERS:
-    case NGHTTP2_DATA: {
-      /* Check for END_STREAM flag */
-      if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-        xH2StreamData *sd =
-          (xH2StreamData *)nghttp2_session_get_stream_user_data(
-            session, frame->hd.stream_id);
-        if (sd && sd->stream) {
-          sd->stream->request_complete = 1;
-          /* Queue for dispatch after mem_recv returns (avoid re-entrancy) */
-          if (h2->pending_count < XHTTP_H2_MAX_PENDING_DISPATCH) {
-            h2->pending_dispatch[h2->pending_count++] = sd->stream;
-          }
+  case NGHTTP2_HEADERS:
+  case NGHTTP2_DATA:
+    /* Check for END_STREAM flag */
+    if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
+      sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
+        session, frame->hd.stream_id);
+      if (sd && sd->stream) {
+        sd->stream->request_complete = 1;
+        /* Queue for dispatch after mem_recv returns (avoid re-entrancy) */
+        if (h2->pending_count < XHTTP_H2_MAX_PENDING_DISPATCH) {
+          h2->pending_dispatch[h2->pending_count++] = sd->stream;
         }
       }
-      break;
     }
-    default:
-      break;
+    break;
+  default:
+    break;
   }
 
   return 0;

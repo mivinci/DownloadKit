@@ -243,16 +243,16 @@ static ssize_t mbedtls_transport_read(void *ctx, void *buf, size_t len) {
   if (n > 0) return (ssize_t)n;
 
   switch (n) {
-    case MBEDTLS_ERR_SSL_WANT_READ:
-    case MBEDTLS_ERR_SSL_WANT_WRITE:
-      errno = EAGAIN;
-      return -1;
-    case MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY:
-    case 0:
-      return 0; /* Clean shutdown (EOF) */
-    default:
-      errno = EIO;
-      return -1;
+  case MBEDTLS_ERR_SSL_WANT_READ:
+  case MBEDTLS_ERR_SSL_WANT_WRITE:
+    errno = EAGAIN;
+    return -1;
+  case MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY:
+  case 0:
+    return 0; /* Clean shutdown (EOF) */
+  default:
+    errno = EIO;
+    return -1;
   }
 }
 
@@ -291,12 +291,12 @@ static int mbedtls_transport_handshake(void *ctx) {
   if (ret == 0) return xHttpTransportResult_Done;
 
   switch (ret) {
-    case MBEDTLS_ERR_SSL_WANT_READ:
-      return xHttpTransportResult_WantRead;
-    case MBEDTLS_ERR_SSL_WANT_WRITE:
-      return xHttpTransportResult_WantWrite;
-    default:
-      return xHttpTransportResult_Error;
+  case MBEDTLS_ERR_SSL_WANT_READ:
+    return xHttpTransportResult_WantRead;
+  case MBEDTLS_ERR_SSL_WANT_WRITE:
+    return xHttpTransportResult_WantWrite;
+  default:
+    return xHttpTransportResult_Error;
   }
 }
 

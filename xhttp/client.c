@@ -20,6 +20,28 @@ static int  timer_callback(CURLM *multi, long timeout_ms, void *userp);
 static void fd_ready_callback(int fd, xEventMask mask, void *arg);
 static void on_timeout(void *arg);
 
+/* ── HTTP version helper ───────────────────────────────────────────────── */
+
+static void apply_http_version(CURL *easy, xHttpVersion ver) {
+  switch (ver) {
+    case xHttpVersion_H1:
+      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+      break;
+    case xHttpVersion_H2:
+      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
+      break;
+    case xHttpVersion_H2TLS:
+      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
+      break;
+    case xHttpVersion_H2C:
+      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION,
+                       CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+      break;
+    default:
+      break; /* xHttpVersion_Default — use libcurl default */
+  }
+}
+
 /* ── Vtable for oneshot HTTP requests ──────────────────────────────────── */
 
 static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result);
@@ -247,8 +269,9 @@ xHttpClient xHttpClientCreate(xEventLoop loop) {
     return NULL;
   }
 
-  c->loop  = loop;
-  c->timer = NULL;
+  c->loop     = loop;
+  c->timer    = NULL;
+  c->http_ver = xHttpVersion_Default;
 
   curl_multi_setopt(c->multi, CURLMOPT_SOCKETFUNCTION, socket_callback);
   curl_multi_setopt(c->multi, CURLMOPT_SOCKETDATA, c);
@@ -256,6 +279,12 @@ xHttpClient xHttpClientCreate(xEventLoop loop) {
   curl_multi_setopt(c->multi, CURLMOPT_TIMERDATA, c);
 
   return (xHttpClient)c;
+}
+
+void xHttpClientSetHttpVersion(xHttpClient client, xHttpVersion ver) {
+  if (!client) return;
+  struct xHttpClient_ *c = (struct xHttpClient_ *)client;
+  c->http_ver = ver;
 }
 
 /**
@@ -345,6 +374,10 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
   curl_easy_setopt(req->easy, CURLOPT_PRIVATE, req);
   curl_easy_setopt(req->easy, CURLOPT_ERRORBUFFER, req->errbuf);
   curl_easy_setopt(req->easy, CURLOPT_NOSIGNAL, 1L);
+
+  /* Apply HTTP version: per-request override or client default */
+  if (req->client)
+    apply_http_version(req->easy, req->client->http_ver);
 
   CURLMcode mc = curl_multi_add_handle(c->multi, req->easy);
   if (mc != CURLM_OK) {
@@ -503,6 +536,11 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *config,
   /* Per-request timeout */
   if (config->timeout_ms > 0) {
     curl_easy_setopt(req->easy, CURLOPT_TIMEOUT_MS, config->timeout_ms);
+  }
+
+  /* Per-request HTTP version override */
+  if (config->http_version != xHttpVersion_Default) {
+    apply_http_version(req->easy, config->http_version);
   }
 
   return http_submit(c, req);

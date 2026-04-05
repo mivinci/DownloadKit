@@ -9,6 +9,7 @@
 #include "proto_h2.h"
 #include "server_private.h"
 
+#include <ctype.h>
 #include <nghttp2/nghttp2.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +33,9 @@ typedef struct xHttpProtoH2_ {
 typedef struct xH2StreamData_ {
   struct xHttpStream_ *stream;
   char                *method;  /**< :method pseudo-header value */
+  /* Streaming response state */
+  xIOBuffer            stream_buf;  /**< Buffered DATA for streaming */
+  int                  stream_eof;  /**< EOF flag for streaming      */
 } xH2StreamData;
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -240,6 +244,8 @@ static int h2_on_stream_close_callback(nghttp2_session *session,
       }
       sd->stream = NULL;
     }
+    /* Free streaming buffer if it was initialized */
+    xIOBufferDeinit(&sd->stream_buf);
     free(sd->method);
     free(sd);
     nghttp2_session_set_stream_user_data(session, stream_id, NULL);
@@ -359,9 +365,9 @@ static int h2_should_keep_alive(struct xHttpConn_ *conn) {
 
 /* Body source for nghttp2 data provider */
 typedef struct h2_body_source_ {
-  const char *data;
-  size_t      len;
-  size_t      pos;
+  char   *data;   /**< Heap-allocated copy of body data */
+  size_t  len;
+  size_t  pos;
 } h2_body_source;
 
 /**
@@ -388,6 +394,8 @@ static ssize_t h2_body_read_callback(nghttp2_session *session,
 
   if (src->pos >= src->len) {
     *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+    free(src->data);
+    src->data = NULL;
   }
 
   return (ssize_t)to_copy;
@@ -424,10 +432,12 @@ static int h2_send_response(struct xHttpStream_ *stream, int status,
   nva[0].valuelen = (size_t)status_len;
   nva[0].flags    = NGHTTP2_NV_FLAG_NO_COPY_NAME;
 
-  /* User headers */
+  /* User headers — HTTP/2 requires lowercase header names */
   int i = 1;
   h = headers;
   while (h) {
+    /* Lowercase the header key in-place (h->key is strdup'd, safe to modify) */
+    for (char *p = h->key; *p; p++) *p = (char)tolower((unsigned char)*p);
     nva[i].name     = (uint8_t *)h->key;
     nva[i].namelen  = strlen(h->key);
     nva[i].value    = (uint8_t *)h->value;
@@ -445,7 +455,15 @@ static int h2_send_response(struct xHttpStream_ *stream, int status,
       free(nva);
       return -1;
     }
-    src->data = body;
+    /* Copy body to heap — the caller's buffer may be stack-allocated
+     * and will be invalid by the time nghttp2_session_send() runs. */
+    src->data = (char *)malloc(body_len);
+    if (!src->data) {
+      free(src);
+      free(nva);
+      return -1;
+    }
+    memcpy(src->data, body, body_len);
     src->len  = body_len;
     src->pos  = 0;
 
@@ -476,22 +494,136 @@ static int h2_send_response(struct xHttpStream_ *stream, int status,
 }
 
 /**
- * H2 write_data: submit DATA frame for streaming response.
- * (Simplified: not yet fully implemented for streaming)
+ * nghttp2 data provider read callback for streaming responses.
+ * Reads from the per-stream xIOBuffer. Returns NGHTTP2_ERR_DEFERRED
+ * when the buffer is empty and EOF has not been signalled yet.
+ */
+static ssize_t h2_streaming_read_callback(nghttp2_session *session,
+                                          int32_t stream_id,
+                                          uint8_t *buf, size_t length,
+                                          uint32_t *data_flags,
+                                          nghttp2_data_source *source,
+                                          void *user_data) {
+  (void)session;
+  (void)stream_id;
+  (void)user_data;
+  xH2StreamData *sd = (xH2StreamData *)source->ptr;
+
+  size_t avail = xIOBufferLen(&sd->stream_buf);
+  if (avail == 0) {
+    if (sd->stream_eof) {
+      *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+      return 0;
+    }
+    /* No data yet; tell nghttp2 to try again later */
+    return NGHTTP2_ERR_DEFERRED;
+  }
+
+  size_t to_copy = avail < length ? avail : length;
+  xIOBufferRead(&sd->stream_buf, buf, to_copy);
+
+  if (sd->stream_eof && xIOBufferEmpty(&sd->stream_buf)) {
+    *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+  }
+
+  return (ssize_t)to_copy;
+}
+
+/**
+ * H2 write_data: submit DATA frames for streaming response.
+ *
+ * On the first call, submits HEADERS + a data provider that reads from
+ * the per-stream buffer. Subsequent calls append data and resume the
+ * deferred data provider.
  */
 static int h2_write_data(struct xHttpStream_ *stream,
                          const char *data, size_t len) {
-  (void)stream;
-  (void)data;
-  (void)len;
-  /* TODO: Implement H2 streaming DATA frames */
+  struct xHttpConn_ *conn = stream->conn;
+  xHttpProtoH2 *h2 = (xHttpProtoH2 *)conn->proto.state;
+  struct xHttpResponseWriter_ *w = &stream->writer;
+
+  /* Retrieve per-stream data */
+  xH2StreamData *sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
+      h2->session, stream->stream_id);
+  if (!sd) return -1;
+
+  /* First call: submit HEADERS + data provider, enter streaming mode */
+  if (!w->streaming) {
+    w->streaming = 1;
+    xIOBufferInit(&sd->stream_buf);
+    sd->stream_eof = 0;
+
+    /* Build nv array: :status + user headers */
+    int nheader = 1;
+    struct xHttpHeader_ *h = w->headers;
+    while (h) { nheader++; h = h->next; }
+
+    nghttp2_nv *nva = (nghttp2_nv *)calloc((size_t)nheader, sizeof(nghttp2_nv));
+    if (!nva) return -1;
+
+    char status_str[16];
+    int status_len = snprintf(status_str, sizeof(status_str), "%d", w->status_code);
+    nva[0].name     = (uint8_t *)":status";
+    nva[0].namelen  = 7;
+    nva[0].value    = (uint8_t *)status_str;
+    nva[0].valuelen = (size_t)status_len;
+    nva[0].flags    = NGHTTP2_NV_FLAG_NO_COPY_NAME;
+
+    int i = 1;
+    h = w->headers;
+    while (h) {
+      for (char *p = h->key; *p; p++) *p = (char)tolower((unsigned char)*p);
+      nva[i].name     = (uint8_t *)h->key;
+      nva[i].namelen  = strlen(h->key);
+      nva[i].value    = (uint8_t *)h->value;
+      nva[i].valuelen = strlen(h->value);
+      nva[i].flags    = NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE;
+      i++;
+      h = h->next;
+    }
+
+    nghttp2_data_provider data_prd;
+    data_prd.source.ptr    = sd;
+    data_prd.read_callback = h2_streaming_read_callback;
+
+    int rv = nghttp2_submit_response(h2->session, stream->stream_id,
+                                     nva, (size_t)nheader, &data_prd);
+    free(nva);
+    if (rv != 0) return -1;
+  }
+
+  /* Append data to the streaming buffer */
+  if (data && len > 0) {
+    xIOBufferAppend(&sd->stream_buf, data, len);
+  }
+
+  /* Resume the deferred data provider so nghttp2 reads from the buffer */
+  nghttp2_session_resume_data(h2->session, stream->stream_id);
+
+  /* Send frames immediately */
+  int rv = nghttp2_session_send(h2->session);
+  if (rv != 0) return -1;
+
   return 0;
 }
 
 /**
- * H2 end_stream: signal end of response stream.
+ * H2 end_stream: signal end of streaming response.
+ * Sets the EOF flag and resumes the data provider so nghttp2 can
+ * emit the final DATA frame with END_STREAM.
  */
 static int h2_end_stream(struct xHttpStream_ *stream) {
+  struct xHttpConn_ *conn = stream->conn;
+  xHttpProtoH2 *h2 = (xHttpProtoH2 *)conn->proto.state;
+
+  xH2StreamData *sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
+      h2->session, stream->stream_id);
+  if (sd) {
+    sd->stream_eof = 1;
+    nghttp2_session_resume_data(h2->session, stream->stream_id);
+    nghttp2_session_send(h2->session);
+  }
+
   stream->writer.sent = 1;
   return 0;
 }

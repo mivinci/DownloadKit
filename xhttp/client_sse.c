@@ -347,6 +347,25 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
   curl_easy_setopt(easy, CURLOPT_ERRORBUFFER, req->base.errbuf);
   curl_easy_setopt(easy, CURLOPT_NOSIGNAL, 1L);
 
+  /* Apply HTTP version: per-request override or client default */
+  {
+    xHttpVersion ver = config->http_version;
+    if (ver == xHttpVersion_Default)
+      ver = c->http_ver;
+    if (ver != xHttpVersion_Default) {
+      long curl_ver = 0;
+      switch (ver) {
+        case xHttpVersion_H1:   curl_ver = CURL_HTTP_VERSION_1_1; break;
+        case xHttpVersion_H2:   curl_ver = CURL_HTTP_VERSION_2; break;
+        case xHttpVersion_H2TLS: curl_ver = CURL_HTTP_VERSION_2TLS; break;
+        case xHttpVersion_H2C:  curl_ver = CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE; break;
+        default: break;
+      }
+      if (curl_ver)
+        curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, curl_ver);
+    }
+  }
+
   CURLMcode mc = curl_multi_add_handle(c->multi, easy);
   if (mc != CURLM_OK) goto fail_easy;
 

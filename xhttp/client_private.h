@@ -59,9 +59,10 @@ struct xHttpReq_ {
 /* ───────────────────── Client internal structure ───────────────────── */
 
 struct xHttpClient_ {
-  CURLM       *multi;   /* curl multi handle                   */
-  xEventLoop   loop;    /* the event loop we are bound to      */
-  xEventTimer  timer;   /* current curl timeout timer, or NULL */
+  CURLM        *multi;   /* curl multi handle                   */
+  xEventLoop    loop;    /* the event loop we are bound to      */
+  xEventTimer   timer;   /* current curl timeout timer, or NULL */
+  xHttpVersion  http_ver; /* default HTTP version for requests   */
 };
 
 #endif /* XHTTP_CLIENT_PRIVATE_H */

@@ -9,9 +9,16 @@ message(STATUS "xKit: Building ${XK_VERSION}")
 
 option(XK_BUILD_XKIT "Build xKit" ON)
 option(XK_BUILD_TESTS "Build xKit tests" ON)
+option(XK_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 
 add_compile_options(-Wall -Wextra)
 add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror>)
+
+if(XK_ENABLE_ASAN)
+  message(STATUS "xKit: AddressSanitizer enabled")
+  add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address)
+endif()
 
 if(XK_BUILD_TESTS)
   enable_testing()

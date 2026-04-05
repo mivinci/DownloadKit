@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbase](README.md) > memory.h
-
 # memory.h — Reference-Counted Memory Management
 
 ## Introduction

@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbuf](README.md)
-
 # xbuf — Buffer Toolkit
 
 ## Introduction

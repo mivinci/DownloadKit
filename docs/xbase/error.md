@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbase](README.md) > error.h
-
 # error.h — Unified Error Codes
 
 ## Introduction

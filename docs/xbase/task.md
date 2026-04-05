@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbase](README.md) > task.h
-
 # task.h — N:M Task Model
 
 ## Introduction

@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbuf](README.md) > buf.h
-
 # buf.h — Linear Auto-Growing Buffer
 
 ## Introduction

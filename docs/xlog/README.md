@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xlog](README.md)
-
 # xlog — Async Logging
 
 ## Introduction

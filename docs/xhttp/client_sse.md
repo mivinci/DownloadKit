@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xhttp](README.md) > client_sse.c
-
 # client_sse.c — SSE Stream Client
 
 ## Introduction

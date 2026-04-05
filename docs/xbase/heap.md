@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbase](README.md) > heap.h
-
 # heap.h — Min-Heap
 
 ## Introduction

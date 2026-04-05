@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbase](README.md) > mpsc.h
-
 # mpsc.h — Lock-Free MPSC Queue
 
 ## Introduction

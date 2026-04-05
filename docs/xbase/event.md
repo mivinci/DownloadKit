@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbase](README.md) > event.h
-
 # event.h — Cross-Platform Event Loop
 
 ## Introduction

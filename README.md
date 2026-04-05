@@ -25,7 +25,7 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | ------ | ----------- |
 | **[xbase](docs/xbase/README.md)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
 | **[xbuf](docs/xbuf/README.md)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
-| **[xhttp](docs/xhttp/README.md)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming and TLS configuration (custom CA, mTLS, skip-verify), HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / Mbed TLS) and parameterized routing |
+| **[xhttp](docs/xhttp/README.md)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming and TLS configuration (custom CA, mTLS, skip-verify), HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing |
 | **[xlog](docs/xlog/README.md)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
 
 📖 See the **[full documentation](docs/README.md)** for detailed design, architecture diagrams, API references, and usage examples.
@@ -72,7 +72,7 @@ The **xhttp** module supports two TLS backends. Use `XK_TLS_BACKEND` to choose o
 | Backend | Value | Extra dependency |
 | ------- | ----- | ---------------- |
 | OpenSSL | `openssl` | `libssl-dev` (apt) / `openssl` (brew) |
-| Mbed TLS | `mbedtls` | `libmbedtls-dev` (apt) / `mbedtls` (brew) |
+| MbedTLS | `mbedtls` | `libmbedtls-dev` (apt) / `mbedtls` (brew) |
 
 **OpenSSL** (default when available):
 
@@ -82,7 +82,7 @@ cmake --build build-openssl --parallel
 ctest --test-dir build-openssl --output-on-failure --parallel 4
 ```
 
-**Mbed TLS**:
+**MbedTLS**:
 
 ```bash
 cmake -S . -B build-mbedtls -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=mbedtls

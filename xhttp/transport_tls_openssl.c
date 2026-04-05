@@ -204,8 +204,9 @@ static void openssl_destroy(void *ctx) {
   xHttpTlsOpenSSL_ *t = (xHttpTlsOpenSSL_ *)ctx;
   if (t->ssl) {
     /* Prevent SSL_free from closing the fd.  The fd is owned by
-     * xSocket and will be closed by xSocketDestroy().  Without
-     * this, SSL_free's internal BIO_free closes the fd, and then
+     * xSocket and will be closed by xSocketDestroy() after this
+     * function returns (see xHttpConnClose).  Without this,
+     * SSL_free's internal BIO_free closes the fd, and then
      * xSocketDestroy closes it again (double-close → SEGFAULT or
      * closing an unrelated fd). */
     BIO *rbio = SSL_get_rbio(t->ssl);
@@ -214,11 +215,11 @@ static void openssl_destroy(void *ctx) {
     if (wbio && wbio != rbio) BIO_set_close(wbio, BIO_NOCLOSE);
 
     /* NOTE: We intentionally do NOT call SSL_shutdown() here.
-     * In our architecture, xSocketDestroy() has already closed the fd
-     * before this function is called (see xHttpConnClose).  Calling
-     * SSL_shutdown on a closed fd would attempt I/O on an invalid
-     * (or worse, reassigned) fd, leading to SEGFAULT or data corruption.
-     * The TCP RST from close(fd) is sufficient to signal the peer. */
+     * While the fd is still open at this point, SSL_shutdown sends
+     * a close_notify alert which requires a round-trip with the peer.
+     * This adds latency and complexity (handling partial shutdowns).
+     * The subsequent close(fd) in xSocketDestroy sends a TCP RST,
+     * which is sufficient to signal the peer. */
 
     /* Clear the OpenSSL error queue for this thread before freeing
      * the SSL object. This prevents stale error state from interfering

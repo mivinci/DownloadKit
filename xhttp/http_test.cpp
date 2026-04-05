@@ -355,7 +355,6 @@ TEST_F(IntegrationTest, SseOverH1) {
 /* ───────────────────── SSE over H2C ───────────────────── */
 
 TEST_F(IntegrationTest, SseOverH2c) {
-  GTEST_SKIP() << "Server-side H2 streaming (write_data) not yet implemented";
   xHttpServerRoute(server, "GET", "/events", sse_handler, nullptr);
   listen_and_pump();
 

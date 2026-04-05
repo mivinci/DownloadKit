@@ -251,6 +251,7 @@ static void sse_on_cleanup(struct xHttpReq_ *req_) {
    * curl_multi_remove + curl_easy_cleanup + free(req) are handled
    * by destroy_req() which calls this. */
   if (req->sse_headers) curl_slist_free_all(req->sse_headers);
+  if (req->base.post_data) free(req->base.post_data);
   sse_parser_free(&req->parser);
 }
 

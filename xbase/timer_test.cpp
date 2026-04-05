@@ -73,6 +73,7 @@ TEST(TimerSubmitAfter, FiresAfterDelay) {
       auto *p = static_cast<std::pair<std::atomic<int> *, uint64_t *> *>(arg);
       p->second[0] = xTimerNowMs();
       p->first->store(1);
+      delete p;
     },
     new std::pair<std::atomic<int> *, uint64_t *>(&fired, &fire_at), 80);
 

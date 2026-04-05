@@ -12,15 +12,15 @@
 #include <xbase/base.h>
 
 XDEF_ENUM(xErrno){
-  xErrno_Ok             = 0,  /**< Success                                    */
-  xErrno_Unknown,             /**< Unspecified error (legacy / catch-all)     */
-  xErrno_InvalidArg,          /**< NULL or invalid argument                   */
-  xErrno_NoMemory,            /**< Memory allocation failed                   */
-  xErrno_InvalidState,        /**< Object is in the wrong state for this call */
-  xErrno_SysError,            /**< Underlying syscall / OS error              */
-  xErrno_NotFound,            /**< Requested item does not exist              */
-  xErrno_AlreadyExists,       /**< Item already registered / bound            */
-  xErrno_Cancelled,           /**< Operation was cancelled                    */
+  xErrno_Ok = 0,        /**< Success                                    */
+  xErrno_Unknown,       /**< Unspecified error (legacy / catch-all)     */
+  xErrno_InvalidArg,    /**< NULL or invalid argument                   */
+  xErrno_NoMemory,      /**< Memory allocation failed                   */
+  xErrno_InvalidState,  /**< Object is in the wrong state for this call */
+  xErrno_SysError,      /**< Underlying syscall / OS error              */
+  xErrno_NotFound,      /**< Requested item does not exist              */
+  xErrno_AlreadyExists, /**< Item already registered / bound            */
+  xErrno_Cancelled,     /**< Operation was cancelled                    */
 };
 
 /**

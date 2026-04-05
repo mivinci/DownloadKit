@@ -30,7 +30,7 @@ static int set_nonblock(int fd) {
 
 static short mask_to_poll(xEventMask mask) {
   short ev = 0;
-  if (mask & xEvent_Read)  ev |= POLLIN;
+  if (mask & xEvent_Read) ev |= POLLIN;
   if (mask & xEvent_Write) ev |= POLLOUT;
   return ev;
 }
@@ -52,9 +52,9 @@ struct xEventLoopPoll_ {
 };
 
 static int pfd_grow(struct xEventLoopPoll_ *loop) {
-  size_t newcap = loop->pfd_cap ? loop->pfd_cap * 2 : 16;
-  struct pollfd *tmp = (struct pollfd *)realloc(
-      loop->pollfds, newcap * sizeof(struct pollfd));
+  size_t         newcap = loop->pfd_cap ? loop->pfd_cap * 2 : 16;
+  struct pollfd *tmp =
+    (struct pollfd *)realloc(loop->pollfds, newcap * sizeof(struct pollfd));
   if (!tmp) return -1;
   loop->pollfds = tmp;
   loop->pfd_cap = newcap;
@@ -66,11 +66,11 @@ static void pfd_rebuild(struct xEventLoopPoll_ *loop) {
   /* Count active signal pipes */
   size_t nsig = 0;
   for (int i = 1; i < XK_SIGNAL_MAX; i++) {
-    if (loop->signal_pipe_r[i] >= 0)
-      nsig++;
+    if (loop->signal_pipe_r[i] >= 0) nsig++;
   }
 
-  size_t needed = 1 + loop->base.sources.len + nsig; /* wake + sources + signals */
+  size_t needed =
+    1 + loop->base.sources.len + nsig; /* wake + sources + signals */
   while (loop->pfd_cap < needed)
     pfd_grow(loop);
 
@@ -80,7 +80,7 @@ static void pfd_rebuild(struct xEventLoopPoll_ *loop) {
   loop->pollfds[0].revents = 0;
 
   for (size_t i = 0; i < loop->base.sources.len; i++) {
-    struct xEventSource_ *src = loop->base.sources.items[i];
+    struct xEventSource_ *src    = loop->base.sources.items[i];
     loop->pollfds[1 + i].fd      = src->fd;
     loop->pollfds[1 + i].events  = mask_to_poll(src->mask);
     loop->pollfds[1 + i].revents = 0;
@@ -103,12 +103,12 @@ static void pfd_rebuild(struct xEventLoopPoll_ *loop) {
 
 xEventLoop xEventLoopCreate(void) {
   struct xEventLoopPoll_ *loop =
-      (struct xEventLoopPoll_ *)calloc(1, sizeof(*loop));
+    (struct xEventLoopPoll_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
-  loop->base.wake_rfd = -1;
-  loop->base.wake_wfd = -1;
-  loop->base.stopped  = 0;
+  loop->base.wake_rfd   = -1;
+  loop->base.wake_wfd   = -1;
+  loop->base.stopped    = 0;
   loop->base.timer_heap = NULL;
   source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
@@ -148,7 +148,8 @@ void xEventLoopDestroy(xEventLoop loop_) {
   /* Discard all pending timers without firing */
   pthread_mutex_lock(&loop->base.timer_mu);
   while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
+    struct xEventTimer_ *t =
+      (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
     free(t);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
@@ -170,13 +171,13 @@ void xEventLoopDestroy(xEventLoop loop_) {
   free(loop);
 }
 
-xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask,
-                        xEventFunc fn, void *arg) {
+xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask, xEventFunc fn,
+                       void *arg) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
   if (!loop || !fn) return NULL;
 
   struct xEventSource_ *src =
-      source_array_add(&loop->base.sources, fd, mask, fn, arg);
+    source_array_add(&loop->base.sources, fd, mask, fn, arg);
   if (!src) return NULL;
 
   if (set_nonblock(fd) != 0) {
@@ -189,7 +190,7 @@ xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask,
 
 xErrno xEventMod(xEventLoop loop_, xEventSource src_, xEventMask mask) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
-  struct xEventSource_ *src    = (struct xEventSource_ *)src_;
+  struct xEventSource_   *src  = (struct xEventSource_ *)src_;
   if (!loop || !src) return xErrno_InvalidArg;
 
   src->mask = mask;
@@ -198,7 +199,7 @@ xErrno xEventMod(xEventLoop loop_, xEventSource src_, xEventMask mask) {
 
 xErrno xEventDel(xEventLoop loop_, xEventSource src_) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
-  struct xEventSource_ *src    = (struct xEventSource_ *)src_;
+  struct xEventSource_   *src  = (struct xEventSource_ *)src_;
   if (!loop || !src) return xErrno_InvalidArg;
 
   source_array_remove(&loop->base.sources, src);
@@ -212,11 +213,12 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   /* Adjust timeout based on timer heap */
   int effective_timeout = timeout_ms;
   pthread_mutex_lock(&loop->base.timer_mu);
-  struct xEventTimer_ *top = (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
+  struct xEventTimer_ *top =
+    (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
   if (top) {
-  uint64_t now = xMonoMs();
-    int64_t wait = (int64_t)(top->deadline - now);
-    int timer_timeout = (wait <= 0) ? 0 : (int)wait;
+    uint64_t now           = xMonoMs();
+    int64_t  wait          = (int64_t)(top->deadline - now);
+    int      timer_timeout = (wait <= 0) ? 0 : (int)wait;
     if (effective_timeout < 0 || timer_timeout < effective_timeout)
       effective_timeout = timer_timeout;
   }
@@ -243,7 +245,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     struct xEventSource_ *src = loop->base.sources.items[i];
     if (src->deleted) continue;
     xEventMask ready = 0;
-    if (pfd->revents & POLLIN)  ready |= xEvent_Read;
+    if (pfd->revents & POLLIN) ready |= xEvent_Read;
     if (pfd->revents & POLLOUT) ready |= xEvent_Write;
 
     if (ready) {
@@ -255,7 +257,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 
   /* Check signal pipes */
   size_t sig_base = 1 + loop->base.sources.len;
-  size_t sig_idx = 0;
+  size_t sig_idx  = 0;
   for (int s = 1; s < XK_SIGNAL_MAX; s++) {
     if (loop->signal_pipe_r[s] < 0) continue;
     struct pollfd *pfd = &loop->pollfds[sig_base + sig_idx];
@@ -268,8 +270,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
       ;
 
     if (loop->base.signal_watches[s].fn) {
-      loop->base.signal_watches[s].fn(
-          s, loop->base.signal_watches[s].arg);
+      loop->base.signal_watches[s].fn(s, loop->base.signal_watches[s].arg);
       dispatched++;
     }
   }
@@ -278,7 +279,8 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   pthread_mutex_lock(&loop->base.timer_mu);
   uint64_t now = xEventLoopNowMs();
   while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
+    struct xEventTimer_ *t =
+      (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
     if (t->deadline > now) break;
     xHeapPop(loop->base.timer_heap);
     t->fired = 1;
@@ -299,7 +301,7 @@ xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
 
-  char c = 1;
+  char    c = 1;
   ssize_t r;
   do {
     r = write(loop->base.wake_wfd, &c, 1);
@@ -324,12 +326,12 @@ static void signal_handler(int signo) {
 }
 
 static int signo_valid(int signo) {
-  return signo > 0 && signo < XK_SIGNAL_MAX &&
-         signo != SIGKILL && signo != SIGSTOP;
+  return signo > 0 && signo < XK_SIGNAL_MAX && signo != SIGKILL &&
+         signo != SIGSTOP;
 }
 
-xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo,
-                              xEventSignalFunc fn, void *arg) {
+xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
+                             void *arg) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
   if (!loop || !signo_valid(signo)) return xErrno_InvalidArg;
 
@@ -365,9 +367,9 @@ xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo,
     if (sigaction(signo, &sa, NULL) < 0) {
       close(fds[0]);
       close(fds[1]);
-      loop->signal_pipe_r[signo] = -1;
-      loop->signal_pipe_w[signo] = -1;
-      g_signal_pipe_w[signo]     = -1;
+      loop->signal_pipe_r[signo]           = -1;
+      loop->signal_pipe_w[signo]           = -1;
+      g_signal_pipe_w[signo]               = -1;
       loop->base.signal_watches[signo].fn  = NULL;
       loop->base.signal_watches[signo].arg = NULL;
       return xErrno_SysError;

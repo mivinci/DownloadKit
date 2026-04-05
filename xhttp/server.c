@@ -443,16 +443,18 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
     s->conns = conn->next;
   if (conn->next) conn->next->prev = conn->prev;
 
-  /* Destroy socket */
-  if (conn->sock) {
-    xSocketDestroy(s->loop, conn->sock);
-    conn->sock = NULL;
-  }
-
-  /* Destroy transport layer */
+  /* Destroy transport layer BEFORE closing the socket fd.
+   * SSL_free() may access the underlying BIO/fd, so the fd must
+   * still be open when the transport is torn down. */
   if (conn->transport.destroy) {
     conn->transport.destroy(conn->transport.ctx);
     conn->transport.ctx = NULL;
+  }
+
+  /* Destroy socket (closes the fd) */
+  if (conn->sock) {
+    xSocketDestroy(s->loop, conn->sock);
+    conn->sock = NULL;
   }
 
   /* Free buffers */

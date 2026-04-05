@@ -66,7 +66,6 @@ for TLS in $TLS_BACKENDS; do
         "$IMAGE" \
         bash -c "
             export XKIT_SKIP_NETWORK_TESTS=1 && \
-            export GTEST_FILTER='-HttpsIntegrationTest.SelfSignedCertRejectedWithoutSkipVerify:HttpsIntegrationTest.WrongCaPathFails:HttpsIntegrationTest.ResetTlsConfigBetweenRequests' && \
             ${MIRROR_CMD}
             apt-get update -qq && \
             apt-get install -y -qq cmake libgtest-dev libssl-dev libcurl4-openssl-dev \

@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbase](README.md) > socket.h
-
 # socket.h — Async Socket
 
 ## Introduction

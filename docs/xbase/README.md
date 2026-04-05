@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > xbase
-
 # xbase — Event-Driven Async Foundation
 
 ## Introduction

@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xlog](README.md) > logger.h
-
 # logger.h — High-Performance Async Logger
 
 ## Introduction
@@ -99,14 +96,14 @@ sequenceDiagram
     participant File as Log File
 
     App->>Pool: entry_alloc()
-    Pool-->>App: xLogEntry_ (recycled or malloc'd)
-    App->>App: snprintf(entry->buf, timestamp + level + message)
+    Pool-->>App: "xLogEntry_ (recycled or malloc'd)"
+    App->>App: "snprintf(entry->buf, timestamp + level + message)"
     App->>Queue: xMpscPush(entry)
-    Note over App: Optional: write(pipe_wfd, 1) for Notify/Mixed
+    Note over App: "Optional: write(pipe_wfd, 1) for Notify/Mixed"
 
-    Loop->>Queue: xMpscPop() (timer or pipe callback)
+    Loop->>Queue: "xMpscPop() (timer or pipe callback)"
     Queue-->>Loop: xLogEntry_
-    Loop->>File: fwrite(entry->buf)
+    Loop->>File: "fwrite(entry->buf)"
     Loop->>Pool: entry_free(entry)
     Loop->>File: fflush()
 ```

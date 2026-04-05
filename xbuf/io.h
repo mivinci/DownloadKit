@@ -235,6 +235,33 @@ XCAPI(size_t) xIOBufferConsume(xIOBuffer *io, size_t n);
  */
 XCAPI(size_t) xIOBufferCopyTo(const xIOBuffer *io, void *out);
 
+/* ───────────────────── Custom I/O function types ───────────────────── */
+
+/**
+ * @brief Custom read function type for xIOBufferReadWith.
+ *
+ * Semantics match read(2): returns bytes read, 0 on EOF, -1 on error.
+ *
+ * @param ctx  User-provided context (e.g. SSL*, fd wrapper).
+ * @param buf  Destination buffer.
+ * @param len  Maximum bytes to read.
+ * @return Bytes read, 0 on EOF, -1 on error.
+ */
+typedef ssize_t (*xIOBufferReadFunc)(void *ctx, void *buf, size_t len);
+
+/**
+ * @brief Custom writev function type for xIOBufferWriteWith.
+ *
+ * Semantics match writev(2): returns bytes written, -1 on error.
+ *
+ * @param ctx     User-provided context.
+ * @param iov     Array of iovec entries.
+ * @param iovcnt  Number of iovec entries.
+ * @return Bytes written, or -1 on error.
+ */
+typedef ssize_t (*xIOBufferWritevFunc)(void *ctx, const struct iovec *iov,
+                                       int iovcnt);
+
 /* ───────────────────── I/O helpers ───────────────────── */
 
 /**
@@ -270,6 +297,34 @@ XCAPI(ssize_t) xIOBufferReadFd(xIOBuffer *io, int fd);
  * @return Bytes written, or -1 on error.
  */
 XCAPI(ssize_t) xIOBufferWriteFd(xIOBuffer *io, int fd);
+
+/**
+ * @brief Read into the IOBuf using a custom read function.
+ *
+ * Same semantics as xIOBufferReadFd, but uses the provided callback
+ * instead of read(2).
+ *
+ * @param io   IOBuf (must not be NULL).
+ * @param fn   Custom read function.
+ * @param ctx  Context passed to fn.
+ * @return Bytes read, 0 on EOF, -1 on error.
+ */
+XCAPI(ssize_t) xIOBufferReadWith(xIOBuffer *io, xIOBufferReadFunc fn,
+                                 void *ctx);
+
+/**
+ * @brief Write IOBuf data using a custom writev function.
+ *
+ * Same semantics as xIOBufferWriteFd, but uses the provided callback
+ * instead of writev(2).
+ *
+ * @param io   IOBuf (must not be NULL).
+ * @param fn   Custom writev function.
+ * @param ctx  Context passed to fn.
+ * @return Bytes written, or -1 on error.
+ */
+XCAPI(ssize_t) xIOBufferWriteWith(xIOBuffer *io, xIOBufferWritevFunc fn,
+                                  void *ctx);
 
 /* ───────────────────── Block pool ───────────────────── */
 

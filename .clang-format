@@ -30,7 +30,7 @@ AllowShortBlocksOnASingleLine: Empty
 AllowShortEnumsOnASingleLine: false
 
 # ── Switch / Case ─────────────────────────────────────────────────────────
-IndentCaseLabels: true
+IndentCaseLabels: false
 
 # ── Function declarations / calls ─────────────────────────────────────────
 AlignAfterOpenBracket: Align

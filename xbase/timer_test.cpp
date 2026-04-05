@@ -64,14 +64,17 @@ TEST(TimerSubmitAfter, FiresAfterDelay) {
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
-  uint64_t start = xTimerNowMs();
-  uint64_t fire_at = 0;
+  uint64_t         start   = xTimerNowMs();
+  uint64_t         fire_at = 0;
 
-  xTimerSubmitAfter(t, [](void *arg) {
-    auto *p = static_cast<std::pair<std::atomic<int>*, uint64_t*>*>(arg);
-    p->second[0] = xTimerNowMs();
-    p->first->store(1);
-  }, new std::pair<std::atomic<int>*, uint64_t*>(&fired, &fire_at), 80);
+  xTimerSubmitAfter(
+    t,
+    [](void *arg) {
+      auto *p = static_cast<std::pair<std::atomic<int> *, uint64_t *> *>(arg);
+      p->second[0] = xTimerNowMs();
+      p->first->store(1);
+    },
+    new std::pair<std::atomic<int> *, uint64_t *>(&fired, &fire_at), 80);
 
   /* Wait up to 500 ms */
   for (int i = 0; i < 50 && fired.load() == 0; i++)
@@ -88,9 +91,9 @@ TEST(TimerSubmitAfter, ZeroDelayFiresImmediately) {
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
-  xTimerSubmitAfter(t, [](void *arg) {
-    static_cast<std::atomic<int>*>(arg)->store(1);
-  }, &fired, 0);
+  xTimerSubmitAfter(
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); },
+    &fired, 0);
 
   for (int i = 0; i < 20 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -104,12 +107,16 @@ TEST(TimerSubmitAfter, MultipleTasksOrdering) {
   ASSERT_NE(t, nullptr);
 
   std::vector<int> order;
-  pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+  pthread_mutex_t  mu = PTHREAD_MUTEX_INITIALIZER;
 
-  struct Ctx { std::vector<int> *order; pthread_mutex_t *mu; int id; };
+  struct Ctx {
+    std::vector<int> *order;
+    pthread_mutex_t  *mu;
+    int               id;
+  };
 
   auto cb = [](void *arg) {
-    auto *ctx = static_cast<Ctx*>(arg);
+    auto *ctx = static_cast<Ctx *>(arg);
     pthread_mutex_lock(ctx->mu);
     ctx->order->push_back(ctx->id);
     pthread_mutex_unlock(ctx->mu);
@@ -137,11 +144,11 @@ TEST(TimerSubmitAt, FiresAtAbsoluteTime) {
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
-  uint64_t target = xTimerNowMs() + 80;
+  uint64_t         target = xTimerNowMs() + 80;
 
-  xTimerSubmitAt(t, [](void *arg) {
-    static_cast<std::atomic<int>*>(arg)->store(1);
-  }, &fired, target);
+  xTimerSubmitAt(
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); },
+    &fired, target);
 
   for (int i = 0; i < 50 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -157,11 +164,11 @@ TEST(TimerSubmitAt, PastDeadlineFiresImmediately) {
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
-  uint64_t past = xTimerNowMs() - 1000; /* 1 s in the past */
+  uint64_t         past = xTimerNowMs() - 1000; /* 1 s in the past */
 
-  xTimerSubmitAt(t, [](void *arg) {
-    static_cast<std::atomic<int>*>(arg)->store(1);
-  }, &fired, past);
+  xTimerSubmitAt(
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); },
+    &fired, past);
 
   for (int i = 0; i < 20 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -177,9 +184,9 @@ TEST(TimerCancel, CancelBeforeFire) {
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
-  xTimerTask task = xTimerSubmitAfter(t, [](void *arg) {
-    static_cast<std::atomic<int>*>(arg)->store(1);
-  }, &fired, 200);
+  xTimerTask       task = xTimerSubmitAfter(
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); },
+    &fired, 200);
 
   ASSERT_NE(task, nullptr);
   xErrno err = xTimerCancel(t, task);
@@ -199,16 +206,16 @@ TEST(TimerCancel, NullArguments) {
 
 TEST(TimerWithGroup, CallbackRunsOnWorkerThread) {
   xTaskGroupConf conf = {2, 0};
-  xTaskGroup g = xTaskGroupCreate(&conf);
+  xTaskGroup     g    = xTaskGroupCreate(&conf);
   ASSERT_NE(g, nullptr);
 
   xTimer t = xTimerCreate(g);
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
-  xTimerSubmitAfter(t, [](void *arg) {
-    static_cast<std::atomic<int>*>(arg)->fetch_add(1);
-  }, &fired, 50);
+  xTimerSubmitAfter(
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 50);
 
   sleep_ms(300);
   EXPECT_EQ(fired.load(), 1);
@@ -224,13 +231,13 @@ TEST(TimerWithGroup, ManyTasksWithGroup) {
   xTimer t = xTimerCreate(g);
   ASSERT_NE(t, nullptr);
 
-  const int N = 20;
+  const int        N = 20;
   std::atomic<int> counter{0};
 
   for (int i = 0; i < N; i++) {
-    xTimerSubmitAfter(t, [](void *arg) {
-      static_cast<std::atomic<int>*>(arg)->fetch_add(1);
-    }, &counter, (uint64_t)(i * 10));
+    xTimerSubmitAfter(
+      t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+      &counter, (uint64_t)(i * 10));
   }
 
   sleep_ms(500);
@@ -247,9 +254,9 @@ TEST(TimerPoll, PollModeFiresOnCallerThread) {
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
-  xTimerSubmitAfter(t, [](void *arg) {
-    static_cast<std::atomic<int>*>(arg)->fetch_add(1);
-  }, &fired, 100);
+  xTimerSubmitAfter(
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 100);
 
   /* Before deadline: poll returns 0 */
   int n = xTimerPoll(t);
@@ -275,13 +282,15 @@ TEST(TimerPoll, PollModeMultipleTasks) {
   xTimer t = xTimerCreate(NULL);
   ASSERT_NE(t, nullptr);
 
-  const int N = 5;
-  int counter = 0;
+  const int N       = 5;
+  int       counter = 0;
 
-  struct Ctx { int *counter; };
+  struct Ctx {
+    int *counter;
+  };
   auto cb = [](void *arg) {
-    static_cast<Ctx*>(arg)->counter[0]++;
-    delete static_cast<Ctx*>(arg);
+    static_cast<Ctx *>(arg)->counter[0]++;
+    delete static_cast<Ctx *>(arg);
   };
 
   for (int i = 0; i < N; i++)
@@ -298,7 +307,7 @@ TEST(TimerPoll, PollModeMultipleTasks) {
 
 TEST(TimerPoll, PushModeIgnoresPoll) {
   xTaskGroup g = xTaskGroupCreate(NULL);
-  xTimer t = xTimerCreate(g); /* push mode */
+  xTimer     t = xTimerCreate(g); /* push mode */
   ASSERT_NE(t, nullptr);
 
   /* xTimerPoll must be no-op in push mode */
@@ -313,9 +322,9 @@ TEST(TimerPoll, PollModeDestroyDrainsQueue) {
   ASSERT_NE(t, nullptr);
 
   std::atomic<int> fired{0};
-  xTimerSubmitAfter(t, [](void *arg) {
-    static_cast<std::atomic<int>*>(arg)->fetch_add(1);
-  }, &fired, 30);
+  xTimerSubmitAfter(
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 30);
 
   sleep_ms(100); /* let it expire into the queue */
 

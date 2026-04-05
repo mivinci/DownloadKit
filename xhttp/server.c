@@ -9,17 +9,20 @@
 #include "proto_h1.h"
 #include "proto_h2.h"
 #include "server_private.h"
+#include "transport_private.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <xbase/log.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <unistd.h>
+#include <xbase/log.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Forward declarations
@@ -91,12 +94,20 @@ const char *xHttpStatusReason(int code) {
 xHttpServer xHttpServerCreate(xEventLoop loop) {
   if (!loop) return NULL;
 
+  /* Ignore SIGPIPE so that writing to a closed socket returns EPIPE
+   * instead of killing the process. This is essential for any network
+   * server that handles client disconnections gracefully. */
+  signal(SIGPIPE, SIG_IGN);
+
   struct xHttpServer_ *s = (struct xHttpServer_ *)calloc(1, sizeof(*s));
   if (!s) return NULL;
 
   s->loop            = loop;
   s->listen_sock     = NULL;
   s->listen_fd       = -1;
+  s->tls_listen_sock = NULL;
+  s->tls_listen_fd   = -1;
+  s->tls_ctx         = NULL;
   s->routes          = NULL;
   s->routes_tail     = NULL;
   s->conns           = NULL;
@@ -172,6 +183,23 @@ void xHttpServerDestroy(xHttpServer server) {
     xSocketDestroy(s->loop, s->listen_sock);
     s->listen_sock = NULL;
     s->listen_fd   = -1;
+  }
+
+  /* Close TLS listening socket */
+  if (s->tls_listen_sock) {
+    xSocketDestroy(s->loop, s->tls_listen_sock);
+    s->tls_listen_sock = NULL;
+    s->tls_listen_fd   = -1;
+  }
+
+  /* Destroy TLS context */
+  if (s->tls_ctx) {
+#if defined(XK_HAS_OPENSSL)
+    xHttpTlsCtxDestroyOpenSSL(s->tls_ctx);
+#elif defined(XK_HAS_MBEDTLS)
+    xHttpTlsCtxDestroyMbedTLS(s->tls_ctx);
+#endif
+    s->tls_ctx = NULL;
   }
 
   /* Free routes */
@@ -257,8 +285,12 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
     conn->server = s;
     xIOBufferInit(&conn->read_buf);
     xIOBufferInit(&conn->write_buf);
-    conn->keep_alive = 1; /* HTTP/1.1 default */
-    conn->writing    = 0;
+    conn->keep_alive     = 1; /* HTTP/1.1 default */
+    conn->writing        = 0;
+    conn->handshake_done = 1; /* Plain TCP: no handshake needed */
+
+    /* Initialize transport layer (Plain TCP) */
+    xHttpTransportPlainInit(&conn->transport, client_fd);
 
     /* Initialize protocol handler (also creates the implicit stream) */
     conn_init_parser(conn);
@@ -411,7 +443,20 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
     s->conns = conn->next;
   if (conn->next) conn->next->prev = conn->prev;
 
-  /* Destroy socket */
+  /* Destroy transport layer first (e.g. SSL_free) while the fd is still
+   * open.  OpenSSL's SSL_free may internally access the BIO's fd (even
+   * with BIO_NOCLOSE set), so the fd must be valid at this point.
+   * This is safe because xHttpConnClose is only called from the event
+   * loop thread (on_conn_event) or after the loop has stopped
+   * (xHttpServerDestroy), so no concurrent I/O events can fire. */
+  if (conn->transport.destroy) {
+    conn->transport.destroy(conn->transport.ctx);
+    conn->transport.ctx = NULL;
+  }
+
+  /* Now remove from event loop and close the fd.
+   * BIO_NOCLOSE in openssl_destroy() ensures SSL_free above did NOT
+   * close the fd, so xSocketDestroy is the sole owner of close(). */
   if (conn->sock) {
     xSocketDestroy(s->loop, conn->sock);
     conn->sock = NULL;
@@ -455,6 +500,28 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
     conn_write_ready(conn);
   }
 
+  /* TLS handshake phase (if transport requires it) */
+  if (!conn->handshake_done && conn->transport.handshake) {
+    int hs = conn->transport.handshake(conn->transport.ctx);
+    switch (hs) {
+    case xHttpTransportResult_Done:
+      conn->handshake_done = 1;
+      break;
+    case xHttpTransportResult_WantRead:
+      xSocketSetMask(conn->server->loop, conn->sock, xEvent_Read);
+      return;
+    case xHttpTransportResult_WantWrite:
+      xSocketSetMask(conn->server->loop, conn->sock,
+                     xEvent_Read | xEvent_Write);
+      return;
+    case xHttpTransportResult_Error:
+    default:
+      xLog(false, "xhttp: TLS handshake failed");
+      xHttpConnClose(conn);
+      return;
+    }
+  }
+
   /* Readable: read data and feed to parser */
   if (mask & xEvent_Read) {
     /*
@@ -478,10 +545,14 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
      * XIOBUFFER_BLOCK_SIZE (8 KB) may require multiple event-loop
      * iterations to be fully received under edge-triggered mode.
      */
-    for (;;) {
-      ssize_t n = xIOBufferReadFd(&conn->read_buf, xSocketFd(conn->sock));
-      if (n < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+    {
+      /* Read through transport layer directly into IOBuffer (zero-copy).
+       * xIOBufferReadWith reuses tail-block space or acquires a new block,
+       * then invokes the transport read callback with the block's data
+       * pointer — no intermediate stack buffer needed. */
+      ssize_t n = xIOBufferReadWith(&conn->read_buf, conn->transport.read,
+                                    conn->transport.ctx);
+      if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         /* Read error: close connection */
         xHttpConnClose(conn);
         return;
@@ -491,48 +562,60 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
         xHttpConnClose(conn);
         return;
       }
-      break; /* Got data; process below (see NOTE above) */
+      /* n > 0: got data; n < 0 with EAGAIN: no new data, but may have
+       * buffered data from a previous read — fall through to feed. */
     }
 
     /* Feed accumulated data to protocol handler */
     size_t buf_len = xIOBufferLen(&conn->read_buf);
     if (buf_len > 0) {
-      /* Protocol auto-detection (Prior Knowledge) */
+      /* Protocol auto-detection */
       if (!conn->proto_detected) {
-        /* HTTP/2 connection preface: 24 bytes "PRI *
-         * HTTP/2.0\r\n\r\nSM\r\n\r\n" */
-        static const char   h2_magic[]   = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
-        static const size_t h2_magic_len = 24;
-
-        /* Copy data to linear buffer for inspection */
-        char *peek = (char *)malloc(buf_len);
-        if (!peek) {
-          xHttpConnClose(conn);
-          return;
-        }
-        xIOBufferCopyTo(&conn->read_buf, peek);
-
-        if (buf_len >= h2_magic_len) {
-          /* Enough data to decide */
-          if (memcmp(peek, h2_magic, h2_magic_len) == 0) {
+        /* TLS connections: use ALPN negotiation result */
+        if (conn->transport.alpn) {
+          const char *alpn = conn->transport.alpn(conn->transport.ctx);
+          if (alpn && strcmp(alpn, "h2") == 0) {
             xHttpProtoH2Init(conn);
           } else {
+            /* "http/1.1", empty, or unknown → default to H1 */
             xHttpProtoH1Init(conn);
           }
           conn->proto_detected = 1;
         } else {
-          /* Not enough data yet; check if prefix still matches */
-          if (memcmp(peek, h2_magic, buf_len) == 0) {
-            /* Could still be H2; wait for more data */
-            free(peek);
+          /* Plain TCP: H2 Prior Knowledge detection via magic prefix */
+          static const char   h2_magic[]   = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+          static const size_t h2_magic_len = 24;
+
+          /* Copy data to linear buffer for inspection */
+          char *peek = (char *)malloc(buf_len);
+          if (!peek) {
+            xHttpConnClose(conn);
             return;
-          } else {
-            /* Definitely not H2; use H1 */
-            xHttpProtoH1Init(conn);
-            conn->proto_detected = 1;
           }
-        }
-        free(peek);
+          xIOBufferCopyTo(&conn->read_buf, peek);
+
+          if (buf_len >= h2_magic_len) {
+            /* Enough data to decide */
+            if (memcmp(peek, h2_magic, h2_magic_len) == 0) {
+              xHttpProtoH2Init(conn);
+            } else {
+              xHttpProtoH1Init(conn);
+            }
+            conn->proto_detected = 1;
+          } else {
+            /* Not enough data yet; check if prefix still matches */
+            if (memcmp(peek, h2_magic, buf_len) == 0) {
+              /* Could still be H2; wait for more data */
+              free(peek);
+              return;
+            } else {
+              /* Definitely not H2; use H1 */
+              xHttpProtoH1Init(conn);
+              conn->proto_detected = 1;
+            }
+          }
+          free(peek);
+        } /* end else (Plain TCP) */
       }
 
       /* Copy read buffer to a contiguous buffer for parsing */
@@ -961,11 +1044,27 @@ void xHttpResponseEnd(xHttpResponseWriter writer) {
 /**
  * Try to write pending data to the socket without lifecycle management.
  * Does NOT close the connection or reset parser state.
+ *
+ * At most XHTTP_MAX_IOV (64) iovec entries are submitted per writev call,
+ * covering up to 64 × 8 KB = 512 KB.  Building the iov array from the
+ * xIOBuffer ref chain is O(nrefs) with zero allocation and zero copy, so
+ * the overhead is negligible compared to the syscall itself.  If the
+ * write_buf contains more refs than XHTTP_MAX_IOV, the remainder is
+ * picked up on the next writable event — no data is lost.
  */
 static void conn_try_flush(struct xHttpConn_ *conn) {
   if (xIOBufferEmpty(&conn->write_buf)) return;
 
-  ssize_t n = xIOBufferWriteFd(&conn->write_buf, xSocketFd(conn->sock));
+  /*
+   * Build a scatter-gather iov from the write buffer (zero-copy, O(nrefs)).
+   * Capped at XHTTP_MAX_IOV entries; any excess is flushed on the next
+   * writable event via the backpressure path below.
+   */
+  struct iovec iov[XHTTP_MAX_IOV];
+  int          cnt = xIOBufferReadIov(&conn->write_buf, iov, XHTTP_MAX_IOV);
+  if (cnt == 0) return;
+
+  ssize_t n = conn->transport.writev(conn->transport.ctx, iov, cnt);
   if (n < 0) {
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
       /* Register for write events (backpressure) */
@@ -980,6 +1079,7 @@ static void conn_try_flush(struct xHttpConn_ *conn) {
     conn->keep_alive = 0;
     return;
   }
+  if (n > 0) xIOBufferConsume(&conn->write_buf, (size_t)n);
 
   /* Check if there's more to write */
   if (!xIOBufferEmpty(&conn->write_buf)) {
@@ -1083,7 +1183,14 @@ static void conn_after_response(struct xHttpConn_ *conn) {
       /* Could be H1 keep-alive or H2. Distinguish by checking if
        * conn->stream was created by H2 (stream_id > 0). */
       if (conn->stream && conn->stream->stream_id > 0) {
-        /* H2 stream: don't reset, nghttp2 manages lifecycle */
+        /* H2 stream: don't reset, nghttp2 manages lifecycle.
+         * However, if the stream was closed by nghttp2 during dispatch
+         * (e.g. session_send triggered stream_close_callback), we need
+         * to destroy it here since the callback deferred destruction. */
+        if (conn->stream->closed_by_peer) {
+          xHttpStreamDestroy(conn->stream);
+          conn->stream = NULL;
+        }
         return;
       }
     }
@@ -1119,3 +1226,189 @@ void xHttpConnDispatchRequest(struct xHttpConn_ *conn) {
 void xHttpConnTryFlush(struct xHttpConn_ *conn) {
   conn_try_flush(conn);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  TLS support
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+#if defined(XK_HAS_OPENSSL) || defined(XK_HAS_MBEDTLS)
+static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg);
+#endif
+
+xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
+                            const xHttpTlsServerConf *config) {
+  if (!server) return xErrno_InvalidArg;
+  if (!config) return xErrno_InvalidArg;
+  if (!config->cert_file || !config->key_file) return xErrno_InvalidArg;
+
+#if !defined(XK_HAS_OPENSSL) && !defined(XK_HAS_MBEDTLS)
+  (void)host;
+  (void)port;
+  return xErrno_NotSupported;
+#else
+  struct xHttpServer_ *s = (struct xHttpServer_ *)server;
+
+  /* Create TLS context */
+#if defined(XK_HAS_OPENSSL)
+  void *tls_ctx = xHttpTlsCtxCreateOpenSSL(config);
+#elif defined(XK_HAS_MBEDTLS)
+  void *tls_ctx = xHttpTlsCtxCreateMbedTLS(config);
+#endif
+  if (!tls_ctx) return xErrno_SysError;
+
+  /* Create listening socket */
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) {
+#if defined(XK_HAS_OPENSSL)
+    xHttpTlsCtxDestroyOpenSSL(tls_ctx);
+#elif defined(XK_HAS_MBEDTLS)
+    xHttpTlsCtxDestroyMbedTLS(tls_ctx);
+#endif
+    return xErrno_SysError;
+  }
+
+  /* SO_REUSEADDR */
+  int optval = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+
+  /* Bind */
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_port   = htons(port);
+
+  if (host) {
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+      close(fd);
+#if defined(XK_HAS_OPENSSL)
+      xHttpTlsCtxDestroyOpenSSL(tls_ctx);
+#elif defined(XK_HAS_MBEDTLS)
+      xHttpTlsCtxDestroyMbedTLS(tls_ctx);
+#endif
+      return xErrno_InvalidArg;
+    }
+  } else {
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  }
+
+  if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    close(fd);
+#if defined(XK_HAS_OPENSSL)
+    xHttpTlsCtxDestroyOpenSSL(tls_ctx);
+#elif defined(XK_HAS_MBEDTLS)
+    xHttpTlsCtxDestroyMbedTLS(tls_ctx);
+#endif
+    return xErrno_SysError;
+  }
+
+  if (listen(fd, SOMAXCONN) < 0) {
+    close(fd);
+#if defined(XK_HAS_OPENSSL)
+    xHttpTlsCtxDestroyOpenSSL(tls_ctx);
+#elif defined(XK_HAS_MBEDTLS)
+    xHttpTlsCtxDestroyMbedTLS(tls_ctx);
+#endif
+    return xErrno_SysError;
+  }
+
+  /* Wrap in xSocket */
+  xSocket sock =
+    xSocketCreateFromFd(s->loop, fd, xEvent_Read, on_tls_listen_event, s);
+  if (!sock) {
+    close(fd);
+#if defined(XK_HAS_OPENSSL)
+    xHttpTlsCtxDestroyOpenSSL(tls_ctx);
+#elif defined(XK_HAS_MBEDTLS)
+    xHttpTlsCtxDestroyMbedTLS(tls_ctx);
+#endif
+    return xErrno_SysError;
+  }
+
+  s->tls_listen_sock = sock;
+  s->tls_listen_fd   = fd;
+  s->tls_ctx         = tls_ctx;
+
+  return xErrno_Ok;
+#endif /* XK_HAS_OPENSSL || XK_HAS_MBEDTLS */
+}
+
+#if defined(XK_HAS_OPENSSL) || defined(XK_HAS_MBEDTLS)
+/**
+ * Accept callback for TLS listening socket.
+ * Creates a TLS transport for each accepted connection.
+ */
+static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg) {
+  (void)sock;
+
+  if (!(mask & xEvent_Read)) return;
+
+  struct xHttpServer_ *s = (struct xHttpServer_ *)arg;
+  for (;;) {
+    struct sockaddr_in client_addr;
+    socklen_t          addr_len = sizeof(client_addr);
+    int                client_fd =
+      accept(s->tls_listen_fd, (struct sockaddr *)&client_addr, &addr_len);
+    if (client_fd < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+      if (errno == EMFILE || errno == ENFILE) {
+        xLog(false, "xhttp: TLS accept() failed: %s (fd exhaustion)",
+             strerror(errno));
+        break;
+      }
+      break;
+    }
+
+    /* Create connection */
+    struct xHttpConn_ *conn =
+      (struct xHttpConn_ *)calloc(1, sizeof(struct xHttpConn_));
+    if (!conn) {
+      close(client_fd);
+      continue;
+    }
+
+    conn->server = s;
+    xIOBufferInit(&conn->read_buf);
+    xIOBufferInit(&conn->write_buf);
+    conn->keep_alive     = 1;
+    conn->writing        = 0;
+    conn->handshake_done = 0; /* TLS: handshake required */
+
+    /* Initialize TLS transport */
+#if defined(XK_HAS_OPENSSL)
+    xHttpTlsTransportInitOpenSSL(&conn->transport, s->tls_ctx, client_fd);
+#elif defined(XK_HAS_MBEDTLS)
+    xHttpTlsTransportInitMbedTLS(&conn->transport, s->tls_ctx, client_fd);
+#endif
+
+    /* Initialize protocol handler */
+    conn_init_parser(conn);
+
+    /* Wrap accepted fd in xSocket */
+    xSocket client_sock =
+      xSocketCreateFromFd(s->loop, client_fd, xEvent_Read, on_conn_event, conn);
+    if (!client_sock) {
+      if (conn->transport.destroy) {
+        conn->transport.destroy(conn->transport.ctx);
+      }
+      xIOBufferDeinit(&conn->read_buf);
+      xIOBufferDeinit(&conn->write_buf);
+      free(conn);
+      close(client_fd);
+      continue;
+    }
+    conn->sock = client_sock;
+
+    /* Set idle timeout */
+    if (s->idle_timeout_ms > 0) {
+      xSocketSetTimeout(conn->sock, s->idle_timeout_ms, 0);
+    }
+
+    /* Add to active connections list */
+    conn->prev = NULL;
+    conn->next = s->conns;
+    if (s->conns) s->conns->prev = conn;
+    s->conns = conn;
+  }
+}
+#endif /* XK_HAS_OPENSSL || XK_HAS_MBEDTLS */

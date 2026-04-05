@@ -279,6 +279,44 @@ void xHttpClientSetHttpVersion(xHttpClient client, xHttpVersion ver) {
   c->http_ver            = ver;
 }
 
+/* ── Helper: duplicate a string or return NULL ─────────────────────────── */
+
+static char *xstrdup_(const char *s) {
+  if (!s) return NULL;
+  size_t len = strlen(s);
+  char  *dup = (char *)malloc(len + 1);
+  if (dup) memcpy(dup, s, len + 1);
+  return dup;
+}
+
+static void tls_conf_free(struct xHttpClient_ *c) {
+  free(c->tls_ca_path);
+  free(c->tls_client_cert);
+  free(c->tls_client_key);
+  free(c->tls_key_password);
+  c->tls_ca_path      = NULL;
+  c->tls_client_cert  = NULL;
+  c->tls_client_key   = NULL;
+  c->tls_key_password = NULL;
+  c->tls_skip_verify  = 0;
+}
+
+void xHttpClientSetTls(xHttpClient client, const xHttpTlsClientConf *conf) {
+  if (!client) return;
+  struct xHttpClient_ *c = (struct xHttpClient_ *)client;
+
+  /* Free any previous TLS config */
+  tls_conf_free(c);
+
+  if (!conf) return; /* reset to defaults */
+
+  c->tls_ca_path      = xstrdup_(conf->ca_path);
+  c->tls_client_cert  = xstrdup_(conf->client_cert);
+  c->tls_client_key   = xstrdup_(conf->client_key);
+  c->tls_key_password = xstrdup_(conf->key_password);
+  c->tls_skip_verify  = conf->skip_verify;
+}
+
 /**
  * @brief Helper: clean up a single request context and its easy handle.
  *
@@ -352,6 +390,7 @@ void xHttpClientDestroy(xHttpClient client) {
   }
 
   curl_multi_cleanup(c->multi);
+  tls_conf_free(c);
   free(c);
 }
 
@@ -369,6 +408,23 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
 
   /* Apply HTTP version: per-request override or client default */
   if (req->client) apply_http_version(req->easy, req->client->http_ver);
+
+  /* Apply TLS configuration */
+  if (req->client) {
+    struct xHttpClient_ *cl = req->client;
+    if (cl->tls_skip_verify) {
+      curl_easy_setopt(req->easy, CURLOPT_SSL_VERIFYPEER, 0L);
+      curl_easy_setopt(req->easy, CURLOPT_SSL_VERIFYHOST, 0L);
+    }
+    if (cl->tls_ca_path)
+      curl_easy_setopt(req->easy, CURLOPT_CAINFO, cl->tls_ca_path);
+    if (cl->tls_client_cert)
+      curl_easy_setopt(req->easy, CURLOPT_SSLCERT, cl->tls_client_cert);
+    if (cl->tls_client_key)
+      curl_easy_setopt(req->easy, CURLOPT_SSLKEY, cl->tls_client_key);
+    if (cl->tls_key_password)
+      curl_easy_setopt(req->easy, CURLOPT_KEYPASSWD, cl->tls_key_password);
+  }
 
   CURLMcode mc = curl_multi_add_handle(c->multi, req->easy);
   if (mc != CURLM_OK) {

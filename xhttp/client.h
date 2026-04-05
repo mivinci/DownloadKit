@@ -86,6 +86,23 @@ XDEF_STRUCT(xHttpRequestConf) {
   xHttpVersion http_version; /**< HTTP version (0 = use client default)      */
 };
 
+/**
+ * @brief TLS configuration for the HTTP client.
+ *
+ * Controls how the client verifies the server's TLS certificate and
+ * optionally presents a client certificate for mutual TLS (mTLS).
+ *
+ * Zero-initialize for defaults: system CA bundle, peer and host
+ * verification enabled, no client certificate.
+ */
+XDEF_STRUCT(xHttpTlsClientConf) {
+  const char *ca_path;      /**< Path to CA cert file (NULL = system default) */
+  const char *client_cert;  /**< Path to client certificate (NULL = none)     */
+  const char *client_key;   /**< Path to client private key (NULL = none)     */
+  const char *key_password; /**< Private key password (NULL = none)           */
+  int         skip_verify;  /**< If non-zero, skip peer & host verification   */
+};
+
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
 
 /**
@@ -120,6 +137,21 @@ XCAPI(void) xHttpClientDestroy(xHttpClient client);
  * @param ver     The HTTP version to use by default.
  */
 XCAPI(void) xHttpClientSetHttpVersion(xHttpClient client, xHttpVersion ver);
+
+/**
+ * @brief Configure TLS settings for all requests on this client.
+ *
+ * The client copies the strings from @p conf, so the caller may free
+ * them after this call returns. Passing NULL resets to defaults
+ * (system CA, verification enabled, no client certificate).
+ *
+ * Must be called before any requests are submitted.
+ *
+ * @param client  The HTTP client.
+ * @param conf    TLS configuration, or NULL to reset to defaults.
+ */
+XCAPI(void) xHttpClientSetTls(xHttpClient               client,
+                              const xHttpTlsClientConf *conf);
 
 /* ── Convenience request helpers ───────────────────────────────────────── */
 

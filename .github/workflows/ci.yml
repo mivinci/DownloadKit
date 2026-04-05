@@ -13,7 +13,7 @@ on:
 
 jobs:
   test:
-    name: Build & Test (${{ matrix.os }} / ${{ matrix.compiler }})
+    name: Build & Test (${{ matrix.os }} / ${{ matrix.compiler }} / TLS=${{ matrix.tls_backend }})
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -24,10 +24,22 @@ jobs:
             compiler: clang
             cc: clang
             cxx: clang++
+            tls_backend: openssl
+          - os: macos-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            tls_backend: mbedtls
           - os: ubuntu-latest
             compiler: gcc
             cc: gcc
             cxx: g++
+            tls_backend: openssl
+          - os: ubuntu-latest
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            tls_backend: mbedtls
 
     steps:
       - name: Checkout
@@ -39,7 +51,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y libgtest-dev libgmock-dev libnghttp2-dev cmake
+          sudo apt-get install -y libgtest-dev libgmock-dev libnghttp2-dev cmake \
+            libssl-dev libcurl4-openssl-dev libmbedtls-dev
           # Install llhttp from source (no apt package available)
           git clone --depth 1 --branch release/v9.3.1 https://github.com/nodejs/llhttp.git /tmp/llhttp
           cmake -S /tmp/llhttp -B /tmp/llhttp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
@@ -48,7 +61,7 @@ jobs:
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install googletest llhttp nghttp2
+        run: brew install googletest llhttp nghttp2 openssl mbedtls
 
       # ── Cache ─────────────────────────────────────────────────────────────
 
@@ -56,9 +69,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build
-          key: build-${{ matrix.os }}-${{ matrix.compiler }}-${{ hashFiles('**/CMakeLists.txt') }}
+          key: build-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.tls_backend }}-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: |
-            build-${{ matrix.os }}-${{ matrix.compiler }}-
+            build-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.tls_backend }}-
 
       # ── Build ─────────────────────────────────────────────────────────────
 
@@ -67,11 +80,25 @@ jobs:
           CC: ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
         run: |
+          CMAKE_EXTRA_ARGS="-DXK_TLS_BACKEND=${{ matrix.tls_backend }}"
+          # Homebrew OpenSSL is keg-only; tell CMake where to find it
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            OPENSSL_PREFIX="$(brew --prefix openssl 2>/dev/null || true)"
+            if [ -n "$OPENSSL_PREFIX" ]; then
+              CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX"
+            fi
+            MBEDTLS_PREFIX="$(brew --prefix mbedtls 2>/dev/null || true)"
+            if [ -n "$MBEDTLS_PREFIX" ]; then
+              CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DMBEDTLS_ROOT_DIR=$MBEDTLS_PREFIX"
+            fi
+          fi
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DBUILD_TESTING=ON \
-            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror" \
-            -DCMAKE_CXX_FLAGS="-Wall -Wextra"
+            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror -fsanitize=address -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-Wall -Wextra -fsanitize=address -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
+            $CMAKE_EXTRA_ARGS
 
       - name: Build
         run: cmake --build build --parallel
@@ -79,6 +106,8 @@ jobs:
       # ── Test ──────────────────────────────────────────────────────────────
 
       - name: Run tests
+        env:
+          ASAN_OPTIONS: detect_leaks=0
         run: ctest --test-dir build --output-on-failure --parallel 4
 
   # ── Branch naming lint ────────────────────────────────────────────────────

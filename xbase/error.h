@@ -21,6 +21,7 @@ XDEF_ENUM(xErrno){
   xErrno_NotFound,      /**< Requested item does not exist              */
   xErrno_AlreadyExists, /**< Item already registered / bound            */
   xErrno_Cancelled,     /**< Operation was cancelled                    */
+  xErrno_NotSupported,  /**< Feature not available / not compiled in    */
 };
 
 /**

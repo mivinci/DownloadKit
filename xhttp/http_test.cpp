@@ -45,7 +45,7 @@ struct RespCtx {
 };
 
 static void on_resp(const xHttpResponse *resp, void *arg) {
-  auto *ctx = static_cast<RespCtx *>(arg);
+  auto *ctx        = static_cast<RespCtx *>(arg);
   ctx->status_code = resp->status_code;
   ctx->curl_code   = resp->curl_code;
   if (resp->body && resp->body_len > 0)
@@ -74,7 +74,7 @@ static int on_sse_ev(const xSseEvent *ev, void *arg) {
 }
 
 static void on_sse_end(int curl_code, void *arg) {
-  auto *ctx = static_cast<SseTestCtx *>(arg);
+  auto *ctx           = static_cast<SseTestCtx *>(arg);
   ctx->done_curl_code = curl_code;
   ctx->done.store(true, std::memory_order_release);
 }
@@ -82,7 +82,7 @@ static void on_sse_end(int curl_code, void *arg) {
 /* ───────────────────── Server handlers ───────────────────── */
 
 static void hello_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                           void *arg) {
+                          void *arg) {
   (void)req;
   (void)arg;
   xHttpResponseSetStatus(w, 200);
@@ -91,15 +91,15 @@ static void hello_handler(xHttpResponseWriter w, const xHttpRequest *req,
 }
 
 static void echo_body_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                               void *arg) {
+                              void *arg) {
   (void)arg;
   xHttpResponseSetStatus(w, 200);
   xHttpResponseSetHeader(w, "Content-Type", "application/octet-stream");
   xHttpResponseSend(w, req->body, req->body_len);
 }
 
-static void echo_header_handler(xHttpResponseWriter w,
-                                 const xHttpRequest *req, void *arg) {
+static void echo_header_handler(xHttpResponseWriter w, const xHttpRequest *req,
+                                void *arg) {
   (void)arg;
   /* Echo back the raw request headers as the response body */
   xHttpResponseSetStatus(w, 200);
@@ -108,7 +108,7 @@ static void echo_header_handler(xHttpResponseWriter w,
 }
 
 static void sse_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                         void *arg) {
+                        void *arg) {
   (void)req;
   (void)arg;
   xHttpResponseSetStatus(w, 200);
@@ -147,7 +147,7 @@ protected:
   void TearDown() override {
     if (client) xHttpClientDestroy(client);
     if (server) xHttpServerDestroy(server);
-    if (loop)   xEventLoopDestroy(loop);
+    if (loop) xEventLoopDestroy(loop);
   }
 
   void listen_and_pump() {
@@ -167,9 +167,9 @@ TEST_F(IntegrationTest, H1Get) {
   xHttpServerRoute(server, "GET", "/hello", hello_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/hello");
-  xErrno err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
+  xErrno      err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 5000);
@@ -186,11 +186,11 @@ TEST_F(IntegrationTest, H1PostEcho) {
   xHttpServerRoute(server, "POST", "/echo", echo_body_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
-  std::string url = make_url("/echo");
+  RespCtx     ctx;
+  std::string url  = make_url("/echo");
   const char *body = "{\"msg\":\"integration\"}";
-  xErrno err = xHttpClientPost(client, url.c_str(), body, strlen(body),
-                                on_resp, &ctx);
+  xErrno      err =
+    xHttpClientPost(client, url.c_str(), body, strlen(body), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 5000);
@@ -207,10 +207,10 @@ TEST_F(IntegrationTest, H1DoCustomHeaders) {
   xHttpServerRoute(server, "GET", "/headers", echo_header_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/headers");
 
-  const char *hdrs[] = {"X-Test-Key: test-value-123", NULL};
+  const char      *hdrs[] = {"X-Test-Key: test-value-123", NULL};
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
   config.url     = url.c_str();
@@ -236,9 +236,9 @@ TEST_F(IntegrationTest, H1NotFound) {
   xHttpServerRoute(server, "GET", "/exists", hello_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/nonexistent");
-  xErrno err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
+  xErrno      err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 5000);
@@ -254,7 +254,7 @@ TEST_F(IntegrationTest, H2cGet) {
   xHttpServerRoute(server, "GET", "/hello", hello_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/hello");
 
   xHttpRequestConf config;
@@ -280,8 +280,8 @@ TEST_F(IntegrationTest, H2cPostEcho) {
   xHttpServerRoute(server, "POST", "/echo", echo_body_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
-  std::string url = make_url("/echo");
+  RespCtx     ctx;
+  std::string url  = make_url("/echo");
   const char *body = "h2c-body-test";
 
   xHttpRequestConf config;
@@ -312,7 +312,7 @@ TEST_F(IntegrationTest, ClientDefaultH2c) {
   /* Set client-level default to H2C */
   xHttpClientSetHttpVersion(client, xHttpVersion_H2C);
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/hello");
 
   /* Use convenience API — should inherit client default H2C */
@@ -333,10 +333,10 @@ TEST_F(IntegrationTest, SseOverH1) {
   xHttpServerRoute(server, "GET", "/events", sse_handler, nullptr);
   listen_and_pump();
 
-  SseTestCtx ctx;
+  SseTestCtx  ctx;
   std::string url = make_url("/events");
-  xErrno err = xHttpClientGetSse(client, url.c_str(),
-                                  on_sse_ev, on_sse_end, &ctx);
+  xErrno      err =
+    xHttpClientGetSse(client, url.c_str(), on_sse_ev, on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 5000);
@@ -358,7 +358,7 @@ TEST_F(IntegrationTest, SseOverH2c) {
   xHttpServerRoute(server, "GET", "/events", sse_handler, nullptr);
   listen_and_pump();
 
-  SseTestCtx ctx;
+  SseTestCtx  ctx;
   std::string url = make_url("/events");
 
   xHttpRequestConf config;
@@ -367,8 +367,7 @@ TEST_F(IntegrationTest, SseOverH2c) {
   config.method       = xHttpMethod_GET;
   config.http_version = xHttpVersion_H2C;
 
-  xErrno err = xHttpClientDoSse(client, &config,
-                                 on_sse_ev, on_sse_end, &ctx);
+  xErrno err = xHttpClientDoSse(client, &config, on_sse_ev, on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 5000);
@@ -387,7 +386,7 @@ TEST_F(IntegrationTest, H2cNotFound) {
   xHttpServerRoute(server, "GET", "/exists", hello_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/nonexistent");
 
   xHttpRequestConf config;
@@ -412,10 +411,10 @@ TEST_F(IntegrationTest, H2cDoCustomHeaders) {
   xHttpServerRoute(server, "GET", "/headers", echo_header_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/headers");
 
-  const char *hdrs[] = {"X-H2-Test: h2c-value-456", NULL};
+  const char      *hdrs[] = {"X-H2-Test: h2c-value-456", NULL};
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
   config.url          = url.c_str();
@@ -438,16 +437,16 @@ TEST_F(IntegrationTest, H2cDoCustomHeaders) {
 /* ───────────────────── Route params over H1 ───────────────────── */
 
 static void param_echo_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                                void *arg) {
+                               void *arg) {
   (void)arg;
-  size_t len = 0;
-  const char *id = xHttpRequestParam(req, "id", &len);
+  size_t      len = 0;
+  const char *id  = xHttpRequestParam(req, "id", &len);
 
   xHttpResponseSetStatus(w, 200);
   xHttpResponseSetHeader(w, "Content-Type", "text/plain");
   if (id && len > 0) {
     char buf[128];
-    int n = snprintf(buf, sizeof(buf), "id=%.*s", (int)len, id);
+    int  n = snprintf(buf, sizeof(buf), "id=%.*s", (int)len, id);
     xHttpResponseSend(w, buf, (size_t)n);
   } else {
     xHttpResponseSend(w, "id=none", 7);
@@ -458,9 +457,9 @@ TEST_F(IntegrationTest, H1RouteParam) {
   xHttpServerRoute(server, "GET", "/users/:id", param_echo_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/users/42");
-  xErrno err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
+  xErrno      err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 5000);
@@ -477,7 +476,7 @@ TEST_F(IntegrationTest, H2cRouteParam) {
   xHttpServerRoute(server, "GET", "/users/:id", param_echo_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/users/alice");
 
   xHttpRequestConf config;
@@ -500,14 +499,14 @@ TEST_F(IntegrationTest, H2cRouteParam) {
 /* ───────────────────── PUT method ───────────────────── */
 
 static void put_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                         void *arg) {
+                        void *arg) {
   (void)arg;
   xHttpResponseSetStatus(w, 200);
   xHttpResponseSetHeader(w, "Content-Type", "text/plain");
   /* Echo method + body */
   char buf[256];
-  int n = snprintf(buf, sizeof(buf), "%s:%.*s",
-                   req->method, (int)req->body_len, req->body ? req->body : "");
+  int n = snprintf(buf, sizeof(buf), "%s:%.*s", req->method, (int)req->body_len,
+                   req->body ? req->body : "");
   xHttpResponseSend(w, buf, (size_t)n);
 }
 
@@ -515,8 +514,8 @@ TEST_F(IntegrationTest, H1PutMethod) {
   xHttpServerRoute(server, "PUT", "/resource", put_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
-  std::string url = make_url("/resource");
+  RespCtx     ctx;
+  std::string url  = make_url("/resource");
   const char *body = "updated-data";
 
   xHttpRequestConf config;
@@ -540,7 +539,7 @@ TEST_F(IntegrationTest, H1PutMethod) {
 /* ───────────────────── DELETE method over H2C ───────────────────── */
 
 static void delete_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                            void *arg) {
+                           void *arg) {
   (void)arg;
   (void)req;
   xHttpResponseSetStatus(w, 204);
@@ -551,7 +550,7 @@ TEST_F(IntegrationTest, H2cDeleteMethod) {
   xHttpServerRoute(server, "DELETE", "/resource", delete_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/resource");
 
   xHttpRequestConf config;
@@ -582,11 +581,10 @@ TEST_F(IntegrationTest, LargeBodyRoundTrip) {
    * read bug in the server (only one read per event). */
   std::string large_body(4000, 'X');
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/echo");
-  xErrno err = xHttpClientPost(client, url.c_str(),
-                                large_body.c_str(), large_body.size(),
-                                on_resp, &ctx);
+  xErrno      err = xHttpClientPost(client, url.c_str(), large_body.c_str(),
+                                    large_body.size(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 10000);
@@ -601,7 +599,7 @@ TEST_F(IntegrationTest, LargeBodyRoundTrip) {
 /* ───────────────────── SSE via DoSse POST (LLM-style) ───────────────────── */
 
 static void sse_post_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                              void *arg) {
+                             void *arg) {
   (void)arg;
   /* Echo the request body as an SSE event, then send a done event */
   xHttpResponseSetStatus(w, 200);
@@ -609,8 +607,8 @@ static void sse_post_handler(xHttpResponseWriter w, const xHttpRequest *req,
   xHttpResponseSetHeader(w, "Cache-Control", "no-cache");
 
   char buf[512];
-  int n = snprintf(buf, sizeof(buf), "data: %.*s\n\n",
-                   (int)req->body_len, req->body ? req->body : "");
+  int  n = snprintf(buf, sizeof(buf), "data: %.*s\n\n", (int)req->body_len,
+                   req->body ? req->body : "");
   xHttpResponseWrite(w, buf, (size_t)n);
   xHttpResponseWrite(w, "event: done\ndata: [DONE]\n\n", 26);
   xHttpResponseEnd(w);
@@ -620,8 +618,8 @@ TEST_F(IntegrationTest, SseDoPostH1) {
   xHttpServerRoute(server, "POST", "/v1/chat", sse_post_handler, nullptr);
   listen_and_pump();
 
-  SseTestCtx ctx;
-  std::string url = make_url("/v1/chat");
+  SseTestCtx  ctx;
+  std::string url  = make_url("/v1/chat");
   const char *body = "{\"model\":\"gpt-4\"}";
 
   xHttpRequestConf config;
@@ -631,8 +629,7 @@ TEST_F(IntegrationTest, SseDoPostH1) {
   config.body     = body;
   config.body_len = strlen(body);
 
-  xErrno err = xHttpClientDoSse(client, &config,
-                                 on_sse_ev, on_sse_end, &ctx);
+  xErrno err = xHttpClientDoSse(client, &config, on_sse_ev, on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 5000);
@@ -651,8 +648,8 @@ TEST_F(IntegrationTest, SseDoPostH2c) {
   xHttpServerRoute(server, "POST", "/v1/chat", sse_post_handler, nullptr);
   listen_and_pump();
 
-  SseTestCtx ctx;
-  std::string url = make_url("/v1/chat");
+  SseTestCtx  ctx;
+  std::string url  = make_url("/v1/chat");
   const char *body = "{\"stream\":true}";
 
   xHttpRequestConf config;
@@ -663,8 +660,7 @@ TEST_F(IntegrationTest, SseDoPostH2c) {
   config.body_len     = strlen(body);
   config.http_version = xHttpVersion_H2C;
 
-  xErrno err = xHttpClientDoSse(client, &config,
-                                 on_sse_ev, on_sse_end, &ctx);
+  xErrno err = xHttpClientDoSse(client, &config, on_sse_ev, on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 5000);
@@ -683,7 +679,7 @@ TEST_F(IntegrationTest, H1EmptyBodyResponse) {
   xHttpServerRoute(server, "DELETE", "/item", delete_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx;
+  RespCtx     ctx;
   std::string url = make_url("/item");
 
   xHttpRequestConf config;
@@ -708,7 +704,7 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
   xHttpServerRoute(server, "GET", "/hello", hello_handler, nullptr);
   listen_and_pump();
 
-  RespCtx ctx_h1, ctx_h2c;
+  RespCtx     ctx_h1, ctx_h2c;
   std::string url = make_url("/hello");
 
   /* H1 request */

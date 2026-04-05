@@ -37,7 +37,8 @@ using ms = std::chrono::milliseconds;
  */
 static void pump_until(xEventLoop loop, std::atomic<bool> &flag,
                        int max_ms = 5000) {
-  for (int elapsed = 0; elapsed < max_ms && !flag.load(std::memory_order_acquire);
+  for (int elapsed = 0;
+       elapsed < max_ms && !flag.load(std::memory_order_acquire);
        elapsed += 10) {
     xEventWait(loop, 10);
   }
@@ -69,7 +70,7 @@ protected:
 
   void TearDown() override {
     if (client) xHttpClientDestroy(client);
-    if (loop)   xEventLoopDestroy(loop);
+    if (loop) xEventLoopDestroy(loop);
   }
 };
 
@@ -104,15 +105,14 @@ struct ResponseCtx {
 };
 
 static void on_response(const xHttpResponse *resp, void *arg) {
-  auto *ctx = static_cast<ResponseCtx *>(arg);
+  auto *ctx        = static_cast<ResponseCtx *>(arg);
   ctx->status_code = resp->status_code;
   ctx->curl_code   = resp->curl_code;
   if (resp->body && resp->body_len > 0)
     ctx->body.assign(resp->body, resp->body_len);
   if (resp->headers && resp->headers_len > 0)
     ctx->headers.assign(resp->headers, resp->headers_len);
-  if (resp->curl_error)
-    ctx->curl_error = resp->curl_error;
+  if (resp->curl_error) ctx->curl_error = resp->curl_error;
   ctx->done.store(true, std::memory_order_release);
 }
 
@@ -120,9 +120,8 @@ TEST_F(HttpClientTest, GetRequest) {
   SKIP_IF_NO_NETWORK();
   ResponseCtx ctx;
 
-  xErrno err = xHttpClientGet(client,
-                               "https://httpbin.org/get",
-                               on_response, &ctx);
+  xErrno err =
+    xHttpClientGet(client, "https://httpbin.org/get", on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 10000);
@@ -139,12 +138,10 @@ TEST_F(HttpClientTest, GetRequest) {
 TEST_F(HttpClientTest, PostRequest) {
   SKIP_IF_NO_NETWORK();
   ResponseCtx ctx;
-  const char *body = "{\"hello\":\"world\"}";  
+  const char *body = "{\"hello\":\"world\"}";
 
-  xErrno err = xHttpClientPost(client,
-                                "https://httpbin.org/post",
-                                body, strlen(body),
-                                on_response, &ctx);
+  xErrno err = xHttpClientPost(client, "https://httpbin.org/post", body,
+                               strlen(body), on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 10000);
@@ -160,7 +157,7 @@ TEST_F(HttpClientTest, PostRequest) {
 
 TEST_F(HttpClientTest, ConcurrentRequests) {
   SKIP_IF_NO_NETWORK();
-  constexpr int N = 3;
+  constexpr int    N = 3;
   std::atomic<int> done_count{0};
 
   struct MultiCtx {
@@ -169,18 +166,18 @@ TEST_F(HttpClientTest, ConcurrentRequests) {
   };
 
   std::vector<MultiCtx> ctxs(N);
-  for (auto &c : ctxs) c.counter = &done_count;
+  for (auto &c : ctxs)
+    c.counter = &done_count;
 
   auto multi_cb = [](const xHttpResponse *resp, void *arg) {
-    auto *ctx = static_cast<MultiCtx *>(arg);
+    auto *ctx        = static_cast<MultiCtx *>(arg);
     ctx->status_code = resp->status_code;
     ctx->counter->fetch_add(1, std::memory_order_release);
   };
 
   for (int i = 0; i < N; i++) {
-    xErrno err = xHttpClientGet(client,
-                                 "https://httpbin.org/get",
-                                 multi_cb, &ctxs[i]);
+    xErrno err =
+      xHttpClientGet(client, "https://httpbin.org/get", multi_cb, &ctxs[i]);
     ASSERT_EQ(err, xErrno_Ok);
   }
 
@@ -198,9 +195,9 @@ TEST_F(HttpClientTest, InvalidUrlFails) {
   SKIP_IF_NO_NETWORK();
   ResponseCtx ctx;
 
-  xErrno err = xHttpClientGet(client,
-                               "http://invalid.host.that.does.not.exist.example/",
-                               on_response, &ctx);
+  xErrno err =
+    xHttpClientGet(client, "http://invalid.host.that.does.not.exist.example/",
+                   on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok); /* submission succeeds, failure is async */
 
   pump_until(loop, ctx.done, 15000);
@@ -210,7 +207,8 @@ TEST_F(HttpClientTest, InvalidUrlFails) {
   EXPECT_EQ(ctx.status_code, 0);
 }
 
-/* ───────────────────── Destroy with in-flight requests ───────────────────── */
+/* ───────────────────── Destroy with in-flight requests ─────────────────────
+ */
 
 TEST(HttpClientLifecycle, DestroyWithInflightRequests) {
   SKIP_IF_NO_NETWORK();
@@ -228,9 +226,8 @@ TEST(HttpClientLifecycle, DestroyWithInflightRequests) {
   };
 
   /* Submit a request to a slow endpoint */
-  xErrno err = xHttpClientGet(c,
-                               "https://httpbin.org/delay/10",
-                               cb, &cb_called);
+  xErrno err =
+    xHttpClientGet(c, "https://httpbin.org/delay/10", cb, &cb_called);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Pump briefly to let curl start the connection */
@@ -254,14 +251,13 @@ TEST_F(HttpClientTest, GetNullUrlReturnsError) {
 }
 
 TEST_F(HttpClientTest, GetNullClientReturnsError) {
-  EXPECT_EQ(xHttpClientGet(nullptr, "https://example.com",
-                            on_response, nullptr),
-            xErrno_Unknown);
+  EXPECT_EQ(
+    xHttpClientGet(nullptr, "https://example.com", on_response, nullptr),
+    xErrno_Unknown);
 }
 
 TEST_F(HttpClientTest, PostNullUrlReturnsError) {
-  EXPECT_EQ(xHttpClientPost(client, nullptr, "body", 4,
-                             on_response, nullptr),
+  EXPECT_EQ(xHttpClientPost(client, nullptr, "body", 4, on_response, nullptr),
             xErrno_Unknown);
 }
 

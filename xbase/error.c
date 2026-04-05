@@ -18,6 +18,7 @@ static const char *xErrnoStrings[] = {
   [xErrno_NotFound]      = "not found",
   [xErrno_AlreadyExists] = "already exists",
   [xErrno_Cancelled]     = "cancelled",
+  [xErrno_NotSupported]  = "not supported",
 };
 
 const char *xstrerror(xErrno err) {

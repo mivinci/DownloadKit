@@ -40,19 +40,19 @@ struct Calls {
 
 static Calls g_calls;
 
-static void obj_ctor(void *ptr)              { g_calls.ctor++;    }
-static void obj_dtor(void *ptr)              { g_calls.dtor++;    }
-static void obj_retain(void *ptr)            { g_calls.retain++;  }
-static void obj_release(void *ptr)           { g_calls.release++; }
-static void obj_copy(void *ptr, void *other) { g_calls.copy++;    }
-static void obj_move(void *ptr, void *other) { g_calls.move++;    }
+static void obj_ctor(void *ptr)              { (void)ptr; g_calls.ctor++;    }
+static void obj_dtor(void *ptr)              { (void)ptr; g_calls.dtor++;    }
+static void obj_retain(void *ptr)            { (void)ptr; g_calls.retain++;  }
+static void obj_release(void *ptr)           { (void)ptr; g_calls.release++; }
+static void obj_copy(void *ptr, void *other) { (void)ptr; (void)other; g_calls.copy++;    }
+static void obj_move(void *ptr, void *other) { (void)ptr; (void)other; g_calls.move++;    }
 
 XDEF_VTABLE(Obj) {
   obj_ctor, obj_dtor, obj_retain, obj_release, obj_copy, obj_move,
 };
 
 /* Vtable with all NULL hooks */
-static xVTable NullVTable = {0};
+static xVTable NullVTable = {0, 0, 0, 0, 0, 0};
 
 /* ── Fixture ── */
 
@@ -293,7 +293,7 @@ TEST_F(MemoryTest, ConcurrentRetainReleaseAcrossThreads) {
 
   std::vector<std::thread> threads;
   for (int t = 0; t < NRETAINERS; t++) {
-    threads.emplace_back([o, NRELEASES]() {
+    threads.emplace_back([o]() {
       for (int i = 0; i < NRELEASES; i++) {
         xRelease(o);
       }

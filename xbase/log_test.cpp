@@ -73,7 +73,6 @@ TEST_F(LogTest, UserdataPassthrough) {
 }
 
 TEST_F(LogTest, DifferentUserdata) {
-  int ctx = 99;
   CapturedLog other{};
   xLogSetCallback(capture_callback, &other);
   xLog(false, "msg");

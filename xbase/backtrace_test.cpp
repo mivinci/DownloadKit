@@ -100,8 +100,8 @@ TEST(BacktraceTest, SkipReducesFrames) {
   char buf0[4096], buf2[4096], buf5[4096];
 
   int n0 = xBacktraceSkip(0, buf0, sizeof(buf0));
-  int n2 = xBacktraceSkip(2, buf2, sizeof(buf2));
-  int n5 = xBacktraceSkip(5, buf5, sizeof(buf5));
+  (void)xBacktraceSkip(2, buf2, sizeof(buf2));
+  (void)xBacktraceSkip(5, buf5, sizeof(buf5));
 
   int frames0 = countFrames(buf0);
   int frames2 = countFrames(buf2);

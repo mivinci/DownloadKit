@@ -203,7 +203,12 @@ static const char *openssl_alpn(void *ctx) {
 static void openssl_destroy(void *ctx) {
   xHttpTlsOpenSSL_ *t = (xHttpTlsOpenSSL_ *)ctx;
   if (t->ssl) {
-    SSL_shutdown(t->ssl);
+    /* Only attempt SSL_shutdown if the handshake was completed.
+     * Calling SSL_shutdown on an SSL object whose handshake never
+     * finished is undefined behavior and can corrupt the heap. */
+    if (SSL_is_init_finished(t->ssl)) {
+      SSL_shutdown(t->ssl);
+    }
     SSL_free(t->ssl);
   }
   free(t);

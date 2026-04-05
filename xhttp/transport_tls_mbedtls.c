@@ -308,7 +308,19 @@ static const char *mbedtls_transport_alpn(void *ctx) {
 
 static void mbedtls_transport_destroy(void *ctx) {
   xHttpTlsMbedTLS_ *t = (xHttpTlsMbedTLS_ *)ctx;
-  mbedtls_ssl_close_notify(&t->ssl);
+  /* Only send close_notify if the handshake was completed.
+   * Calling mbedtls_ssl_close_notify on an SSL context whose
+   * handshake never finished can cause undefined behavior. */
+#if MBEDTLS_VERSION_NUMBER >= 0x03000000
+  if (mbedtls_ssl_is_handshake_over(&t->ssl)) {
+    mbedtls_ssl_close_notify(&t->ssl);
+  }
+#else
+  /* mbedTLS 2.x: check state directly (public field in 2.x) */
+  if (t->ssl.state == MBEDTLS_SSL_HANDSHAKE_OVER) {
+    mbedtls_ssl_close_notify(&t->ssl);
+  }
+#endif
   mbedtls_ssl_free(&t->ssl);
   free(t);
 }

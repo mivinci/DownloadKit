@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbase](README.md) > atomic.h
-
 # atomic.h — Atomic Operations
 
 ## Introduction

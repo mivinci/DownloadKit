@@ -43,7 +43,7 @@ graph TD
 
 ## Module Index
 
-### [xbase](xbase/README.md) — Core Primitives
+### [xbase](xbase/index.html) — Core Primitives
 
 The foundation of xKit. Provides event loop, timers, tasks, async sockets, memory management, and lock-free data structures.
 
@@ -62,7 +62,7 @@ The foundation of xKit. Provides event loop, timers, tasks, async sockets, memor
 | [backtrace.h](xbase/backtrace.md) | Platform-adaptive stack trace (libunwind > execinfo > stub) |
 | `time.h` | Time utilities: `xMonoMs()` (monotonic) and `xWallMs()` (wall-clock) |
 
-### [xbuf](xbuf/README.md) — Buffer Primitives
+### [xbuf](xbuf/index.html) — Buffer Primitives
 
 Three buffer types for different I/O patterns — linear, ring, and block-chain.
 
@@ -72,7 +72,7 @@ Three buffer types for different I/O patterns — linear, ring, and block-chain.
 | [ring.h](xbuf/ring.md) | Fixed-size ring buffer with power-of-2 mask indexing |
 | [io.h](xbuf/io.md) | Reference-counted block-chain I/O buffer with zero-copy split/cut |
 
-### [xhttp](xhttp/README.md) — Async HTTP Client
+### [xhttp](xhttp/index.html) — Async HTTP Client
 
 Non-blocking HTTP client powered by libcurl multi-socket API + xEventLoop, with built-in SSE streaming.
 
@@ -81,7 +81,7 @@ Non-blocking HTTP client powered by libcurl multi-socket API + xEventLoop, with 
 | [client.h](xhttp/client.md) | Async HTTP client (GET / POST / PUT / DELETE / PATCH / HEAD) |
 | [client_sse.c](xhttp/client_sse.md) | SSE streaming client with W3C-compliant event parsing |
 
-### [xlog](xlog/README.md) — Async Logging
+### [xlog](xlog/index.html) — Async Logging
 
 High-performance async logger with MPSC queue, three flush modes, and file rotation.
 
@@ -102,7 +102,7 @@ High-performance async logger with MPSC queue, three flush modes, and file rotat
 | Stream LLM API responses (SSE) | [xhttp/client_sse.c](xhttp/client_sse.md) |
 | Add async logging | [xlog/logger.h](xlog/logger.md) |
 | Manage object lifecycles | [xbase/memory.h](xbase/memory.md) |
-| Choose the right buffer type | [xbuf overview](xbuf/README.md) |
+| Choose the right buffer type | [xbuf overview](xbuf/index.html) |
 | Build a lock-free producer/consumer pipeline | [xbase/mpsc.h](xbase/mpsc.md) |
 
 ### By Dependency Level

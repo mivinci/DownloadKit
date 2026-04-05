@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xhttp](README.md) > server.h
-
 # server.h — Asynchronous HTTP/1.1 & HTTP/2 Server
 
 ## Introduction

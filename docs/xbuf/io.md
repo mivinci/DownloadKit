@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xbuf](README.md) > io.h
-
 # io.h — Reference-Counted Block-Chain I/O Buffer
 
 ## Introduction
@@ -329,7 +326,7 @@ void handle_data(int sockfd) {
 
 ## Use Cases
 
-1. **HTTP Response Body** — The [`xhttp`](../xhttp/README.md) module uses `xIOBuffer` to accumulate response chunks from libcurl without copying between buffers.
+1. **HTTP Response Body** — The [`xhttp`](../xhttp/index.html) module uses `xIOBuffer` to accumulate response chunks from libcurl without copying between buffers.
 
 2. **Protocol Framing** — Use `xIOBufferCut()` to split headers from body in a zero-copy fashion, then process each part independently.
 

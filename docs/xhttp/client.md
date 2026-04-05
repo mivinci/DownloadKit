@@ -1,6 +1,3 @@
-<!-- markdownlint-disable MD041 -->
-[xKit](../../README.md) > [xhttp](README.md) > client.h
-
 # client.h — Asynchronous HTTP Client
 
 ## Introduction

@@ -21,15 +21,15 @@
 /* ───────────────────── SSE parser ───────────────────────────────────── */
 
 struct xSseParser_ {
-  xBuffer  buf;   /* raw incoming data                    */
-  size_t   pos;   /* parse position within buf            */
-  int      error;  /* allocation failure occurred          */
+  xBuffer buf;   /* raw incoming data                    */
+  size_t  pos;   /* parse position within buf            */
+  int     error; /* allocation failure occurred          */
 
   /* Current event fields (reset after each dispatch) */
-  char *event_type;       /* "message" by default                 */
-  char *data;             /* accumulated data lines, joined by \n */
-  char *id;               /* last event ID                        */
-  int   retry;            /* retry delay in ms, -1 if not set     */
+  char *event_type; /* "message" by default                 */
+  char *data;       /* accumulated data lines, joined by \n */
+  char *id;         /* last event ID                        */
+  int   retry;      /* retry delay in ms, -1 if not set     */
 };
 
 static void sse_parser_init(struct xSseParser_ *p) {
@@ -39,8 +39,10 @@ static void sse_parser_init(struct xSseParser_ *p) {
 }
 
 static void sse_parser_reset_event(struct xSseParser_ *p) {
-  free(p->event_type); p->event_type = NULL;
-  free(p->data);       p->data       = NULL;
+  free(p->event_type);
+  p->event_type = NULL;
+  free(p->data);
+  p->data = NULL;
   /* Keep id and retry across events per spec */
 }
 
@@ -56,8 +58,7 @@ static void sse_parser_free(struct xSseParser_ *p) {
  * or NULL if no complete line is found. */
 static const char *find_line_end(const char *s, size_t len) {
   for (size_t i = 0; i < len; i++) {
-    if (s[i] == '\n' || s[i] == '\r')
-      return s + i;
+    if (s[i] == '\n' || s[i] == '\r') return s + i;
   }
   return NULL;
 }
@@ -67,20 +68,20 @@ static void parse_sse_field(struct xSseParser_ *p, char *line, size_t len) {
   if (len > 0 && line[0] == ':') return;
 
   /* Find colon separator */
-  char *colon = memchr(line, ':', len);
-  char *field;
+  char       *colon = memchr(line, ':', len);
+  char       *field;
   const char *value;
-  size_t value_len;
+  size_t      value_len;
 
   if (!colon) {
     /* Field with no value — treat value as empty string */
-    field = line;
-    value = "";
+    field     = line;
+    value     = "";
     value_len = 0;
   } else {
-    *colon = '\0';
-    field   = line;
-    value   = colon + 1;
+    *colon    = '\0';
+    field     = line;
+    value     = colon + 1;
     value_len = len - (size_t)(colon + 1 - line);
     /* Skip single leading space in value (per spec) */
     if (value_len > 0 && *value == ' ') {
@@ -96,9 +97,9 @@ static void parse_sse_field(struct xSseParser_ *p, char *line, size_t len) {
     if (p->data) {
       /* Append \n + new value */
       size_t old_len = strlen(p->data);
-      char *tmp = (char *)realloc(p->data, old_len + 1 + value_len + 1);
+      char  *tmp     = (char *)realloc(p->data, old_len + 1 + value_len + 1);
       if (tmp) {
-        p->data = tmp;
+        p->data          = tmp;
         p->data[old_len] = '\n';
         memcpy(p->data + old_len + 1, value, value_len);
         p->data[old_len + 1 + value_len] = '\0';
@@ -117,7 +118,10 @@ static void parse_sse_field(struct xSseParser_ *p, char *line, size_t len) {
     /* Must be all ASCII digits */
     int ok = 1;
     for (size_t i = 0; i < value_len; i++) {
-      if (value[i] < '0' || value[i] > '9') { ok = 0; break; }
+      if (value[i] < '0' || value[i] > '9') {
+        ok = 0;
+        break;
+      }
     }
     if (ok && value_len > 0) p->retry = atoi(value);
   }
@@ -132,7 +136,7 @@ struct xSseReq_;
  * Returns 0 to continue, non-zero if the user callback requested close.
  */
 static int sse_parser_feed(struct xSseParser_ *p, const char *data, size_t len,
-                            xSseEventFunc on_event, void *arg) {
+                           xSseEventFunc on_event, void *arg) {
   if (p->error) return -1; /* already failed, abort */
 
   if (xBufferAppend(&p->buf, data, len) != xErrno_Ok) {
@@ -141,11 +145,11 @@ static int sse_parser_feed(struct xSseParser_ *p, const char *data, size_t len,
   }
 
   const char *buf_data = (const char *)xBufferData(p->buf);
-  size_t buf_len = xBufferLen(p->buf);
+  size_t      buf_len  = xBufferLen(p->buf);
 
   while (p->pos < buf_len) {
-    const char *start = buf_data + p->pos;
-    size_t remaining  = buf_len - p->pos;
+    const char *start     = buf_data + p->pos;
+    size_t      remaining = buf_len - p->pos;
 
     const char *eol = find_line_end(start, remaining);
     if (!eol) break; /* incomplete line — wait for more data */
@@ -161,8 +165,7 @@ static int sse_parser_feed(struct xSseParser_ *p, const char *data, size_t len,
 
     /* Advance past the line terminator (\r\n counts as one) */
     p->pos += line_len + 1;
-    if (*eol == '\r' && p->pos < buf_len && buf_data[p->pos] == '\n')
-      p->pos++;
+    if (*eol == '\r' && p->pos < buf_len && buf_data[p->pos] == '\n') p->pos++;
 
     if (line_len == 0) {
       /* Empty line — dispatch accumulated event */
@@ -219,12 +222,12 @@ static const struct xHttpReqVtable sse_vtable = {
 /* ── curl write callback ── */
 
 static size_t sse_write_callback(char *ptr, size_t size, size_t nmemb,
-                                  void *userdata) {
-  struct xSseReq_ *req = (struct xSseReq_ *)userdata;
-  size_t total = size * nmemb;
+                                 void *userdata) {
+  struct xSseReq_ *req   = (struct xSseReq_ *)userdata;
+  size_t           total = size * nmemb;
 
-  int r = sse_parser_feed(&req->parser, ptr, total,
-                           req->on_event, req->base.arg);
+  int r =
+    sse_parser_feed(&req->parser, ptr, total, req->on_event, req->base.arg);
   if (r != 0) {
     /* User requested close — return 0 to signal error to curl */
     return 0;
@@ -239,8 +242,7 @@ static void sse_on_done(struct xHttpReq_ *req_, CURLcode result) {
 
   /* Invoke user callback only — cleanup is handled by
    * check_multi_info / destroy_req after on_done returns. */
-  if (req->on_done)
-    req->on_done((int)result, req->base.arg);
+  if (req->on_done) req->on_done((int)result, req->base.arg);
 }
 
 static void sse_on_cleanup(struct xHttpReq_ *req_) {
@@ -255,9 +257,8 @@ static void sse_on_cleanup(struct xHttpReq_ *req_) {
 /* ── Public API ── */
 
 xErrno xHttpClientGetSse(xHttpClient client_, const char *url,
-                          xSseEventFunc on_event,
-                          xSseDoneFunc on_done,
-                          void *arg) {
+                         xSseEventFunc on_event, xSseDoneFunc on_done,
+                         void *arg) {
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
   config.url    = url;
@@ -268,9 +269,8 @@ xErrno xHttpClientGetSse(xHttpClient client_, const char *url,
 /* ── Public API: DoSse (generic SSE request) ─────────────────────────── */
 
 xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
-                         xSseEventFunc on_event,
-                         xSseDoneFunc on_done,
-                         void *arg) {
+                        xSseEventFunc on_event, xSseDoneFunc on_done,
+                        void *arg) {
   if (!client_ || !config || !config->url || !on_event)
     return xErrno_InvalidArg;
 
@@ -292,7 +292,8 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
 
   /* SSE-specific headers */
   req->sse_headers = curl_slist_append(NULL, "Accept: text/event-stream");
-  req->sse_headers = curl_slist_append(req->sse_headers, "Cache-Control: no-cache");
+  req->sse_headers =
+    curl_slist_append(req->sse_headers, "Cache-Control: no-cache");
   if (!req->sse_headers) goto fail_easy;
 
   /* Merge user-provided headers */
@@ -306,24 +307,24 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
 
   /* Method */
   switch (config->method) {
-    case xHttpMethod_POST:
-      curl_easy_setopt(easy, CURLOPT_POST, 1L);
-      break;
-    case xHttpMethod_PUT:
-      curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "PUT");
-      break;
-    case xHttpMethod_DELETE:
-      curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "DELETE");
-      break;
-    case xHttpMethod_PATCH:
-      curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "PATCH");
-      break;
-    case xHttpMethod_HEAD:
-      curl_easy_setopt(easy, CURLOPT_NOBODY, 1L);
-      break;
-    default: /* GET */
-      curl_easy_setopt(easy, CURLOPT_HTTPGET, 1L);
-      break;
+  case xHttpMethod_POST:
+    curl_easy_setopt(easy, CURLOPT_POST, 1L);
+    break;
+  case xHttpMethod_PUT:
+    curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "PUT");
+    break;
+  case xHttpMethod_DELETE:
+    curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "DELETE");
+    break;
+  case xHttpMethod_PATCH:
+    curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "PATCH");
+    break;
+  case xHttpMethod_HEAD:
+    curl_easy_setopt(easy, CURLOPT_NOBODY, 1L);
+    break;
+  default: /* GET */
+    curl_easy_setopt(easy, CURLOPT_HTTPGET, 1L);
+    break;
   }
 
   /* Body — make a copy so the caller doesn't need to keep it alive */
@@ -350,19 +351,26 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
   /* Apply HTTP version: per-request override or client default */
   {
     xHttpVersion ver = config->http_version;
-    if (ver == xHttpVersion_Default)
-      ver = c->http_ver;
+    if (ver == xHttpVersion_Default) ver = c->http_ver;
     if (ver != xHttpVersion_Default) {
       long curl_ver = 0;
       switch (ver) {
-        case xHttpVersion_H1:   curl_ver = CURL_HTTP_VERSION_1_1; break;
-        case xHttpVersion_H2:   curl_ver = CURL_HTTP_VERSION_2; break;
-        case xHttpVersion_H2TLS: curl_ver = CURL_HTTP_VERSION_2TLS; break;
-        case xHttpVersion_H2C:  curl_ver = CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE; break;
-        default: break;
+      case xHttpVersion_H1:
+        curl_ver = CURL_HTTP_VERSION_1_1;
+        break;
+      case xHttpVersion_H2:
+        curl_ver = CURL_HTTP_VERSION_2;
+        break;
+      case xHttpVersion_H2TLS:
+        curl_ver = CURL_HTTP_VERSION_2TLS;
+        break;
+      case xHttpVersion_H2C:
+        curl_ver = CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE;
+        break;
+      default:
+        break;
       }
-      if (curl_ver)
-        curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, curl_ver);
+      if (curl_ver) curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, curl_ver);
     }
   }
 

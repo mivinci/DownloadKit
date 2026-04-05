@@ -32,13 +32,13 @@ XDEF_HANDLE(xHttpClient);
  * their lifetime.
  */
 XDEF_STRUCT(xHttpResponse) {
-  long        status_code;    /**< HTTP status code (e.g. 200), 0 on failure */
-  const char *headers;        /**< Raw response headers (NUL-terminated)     */
-  size_t      headers_len;    /**< Length of headers in bytes                 */
-  const char *body;           /**< Response body (NUL-terminated)             */
-  size_t      body_len;       /**< Length of body in bytes                    */
-  int         curl_code;      /**< CURLcode (0 = CURLE_OK on success)        */
-  const char *curl_error;     /**< Human-readable curl error, or NULL        */
+  long        status_code; /**< HTTP status code (e.g. 200), 0 on failure */
+  const char *headers;     /**< Raw response headers (NUL-terminated)     */
+  size_t      headers_len; /**< Length of headers in bytes                 */
+  const char *body;        /**< Response body (NUL-terminated)             */
+  size_t      body_len;    /**< Length of body in bytes                    */
+  int         curl_code;   /**< CURLcode (0 = CURLE_OK on success)        */
+  const char *curl_error;  /**< Human-readable curl error, or NULL        */
 };
 
 /**
@@ -52,12 +52,8 @@ typedef void (*xHttpResponseFunc)(const xHttpResponse *resp, void *arg);
  * @brief HTTP method constants.
  */
 XDEF_ENUM(xHttpMethod){
-  xHttpMethod_GET    = 0,
-  xHttpMethod_POST   = 1,
-  xHttpMethod_PUT    = 2,
-  xHttpMethod_DELETE = 3,
-  xHttpMethod_PATCH  = 4,
-  xHttpMethod_HEAD   = 5,
+  xHttpMethod_GET = 0,    xHttpMethod_POST = 1,  xHttpMethod_PUT = 2,
+  xHttpMethod_DELETE = 3, xHttpMethod_PATCH = 4, xHttpMethod_HEAD = 5,
 };
 
 /**
@@ -68,10 +64,10 @@ XDEF_ENUM(xHttpMethod){
  */
 XDEF_ENUM(xHttpVersion){
   xHttpVersion_Default = 0, /**< Use client default (initially HTTP/1.1)    */
-  xHttpVersion_H1     = 1, /**< Force HTTP/1.1                              */
-  xHttpVersion_H2     = 2, /**< HTTP/2 with TLS (ALPN), fallback to H1      */
-  xHttpVersion_H2TLS  = 3, /**< HTTP/2 over TLS only, no fallback           */
-  xHttpVersion_H2C    = 4, /**< HTTP/2 cleartext (Prior Knowledge)           */
+  xHttpVersion_H1      = 1, /**< Force HTTP/1.1                              */
+  xHttpVersion_H2      = 2, /**< HTTP/2 with TLS (ALPN), fallback to H1      */
+  xHttpVersion_H2TLS   = 3, /**< HTTP/2 over TLS only, no fallback           */
+  xHttpVersion_H2C     = 4, /**< HTTP/2 cleartext (Prior Knowledge)           */
 };
 
 /**
@@ -81,13 +77,13 @@ XDEF_ENUM(xHttpVersion){
  * Zero-initialize for defaults (GET, no headers, no timeout).
  */
 XDEF_STRUCT(xHttpRequestConf) {
-  const char   *url;           /**< Request URL (must not be NULL)             */
-  xHttpMethod   method;        /**< HTTP method (default: GET)                 */
-  const char   *body;          /**< Request body, or NULL                      */
-  size_t        body_len;      /**< Length of body in bytes                    */
-  const char  **headers;       /**< NULL-terminated array of "Key: Value"      */
-  long          timeout_ms;    /**< Per-request timeout in ms (0 = no limit)   */
-  xHttpVersion  http_version;  /**< HTTP version (0 = use client default)      */
+  const char  *url;          /**< Request URL (must not be NULL)             */
+  xHttpMethod  method;       /**< HTTP method (default: GET)                 */
+  const char  *body;         /**< Request body, or NULL                      */
+  size_t       body_len;     /**< Length of body in bytes                    */
+  const char **headers;      /**< NULL-terminated array of "Key: Value"      */
+  long         timeout_ms;   /**< Per-request timeout in ms (0 = no limit)   */
+  xHttpVersion http_version; /**< HTTP version (0 = use client default)      */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
@@ -137,7 +133,7 @@ XCAPI(void) xHttpClientSetHttpVersion(xHttpClient client, xHttpVersion ver);
  * @return             xErrno_Ok on success, or an error code.
  */
 XCAPI(xErrno) xHttpClientGet(xHttpClient client, const char *url,
-                              xHttpResponseFunc on_response, void *arg);
+                             xHttpResponseFunc on_response, void *arg);
 
 /**
  * @brief Submit an asynchronous HTTP POST request.
@@ -151,8 +147,8 @@ XCAPI(xErrno) xHttpClientGet(xHttpClient client, const char *url,
  * @return             xErrno_Ok on success, or an error code.
  */
 XCAPI(xErrno) xHttpClientPost(xHttpClient client, const char *url,
-                               const char *body, size_t body_len,
-                               xHttpResponseFunc on_response, void *arg);
+                              const char *body, size_t body_len,
+                              xHttpResponseFunc on_response, void *arg);
 
 /* ── Generic request ───────────────────────────────────────────────────── */
 
@@ -165,9 +161,8 @@ XCAPI(xErrno) xHttpClientPost(xHttpClient client, const char *url,
  * @param arg          User argument forwarded to @p on_response.
  * @return             xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpClientDo(xHttpClient client,
-                             const xHttpRequestConf *config,
-                             xHttpResponseFunc on_response, void *arg);
+XCAPI(xErrno) xHttpClientDo(xHttpClient client, const xHttpRequestConf *config,
+                            xHttpResponseFunc on_response, void *arg);
 
 /* ── SSE (Server-Sent Events) ──────────────────────────────────────────── */
 
@@ -178,10 +173,10 @@ XCAPI(xErrno) xHttpClientDo(xHttpClient client,
  * The caller must copy if needed.
  */
 XDEF_STRUCT(xSseEvent) {
-  const char *event;   /**< event type, "message" if omitted     */
-  const char *data;    /**< event data (may be multiline)        */
-  const char *id;      /**< last event ID, or NULL               */
-  int         retry;   /**< retry delay in ms, or -1 if omitted  */
+  const char *event; /**< event type, "message" if omitted     */
+  const char *data;  /**< event data (may be multiline)        */
+  const char *id;    /**< last event ID, or NULL               */
+  int         retry; /**< retry delay in ms, or -1 if omitted  */
 };
 
 /**
@@ -215,9 +210,8 @@ typedef void (*xSseDoneFunc)(int curl_code, void *arg);
  * @return          xErrno_Ok on success.
  */
 XCAPI(xErrno) xHttpClientGetSse(xHttpClient client, const char *url,
-                                 xSseEventFunc on_event,
-                                 xSseDoneFunc on_done,
-                                 void *arg);
+                                xSseEventFunc on_event, xSseDoneFunc on_done,
+                                void *arg);
 
 /**
  * @brief Submit a fully-configured SSE request.
@@ -236,10 +230,9 @@ XCAPI(xErrno) xHttpClientGetSse(xHttpClient client, const char *url,
  * @param arg       User argument forwarded to callbacks.
  * @return          xErrno_Ok on success.
  */
-XCAPI(xErrno) xHttpClientDoSse(xHttpClient client,
-                                const xHttpRequestConf *config,
-                                xSseEventFunc on_event,
-                                xSseDoneFunc on_done,
-                                void *arg);
+XCAPI(xErrno) xHttpClientDoSse(xHttpClient             client,
+                               const xHttpRequestConf *config,
+                               xSseEventFunc on_event, xSseDoneFunc on_done,
+                               void *arg);
 
 #endif /* XHTTP_CLIENT_H */

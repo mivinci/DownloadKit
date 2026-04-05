@@ -14,8 +14,8 @@
 /* ── Forward declarations ──────────────────────────────────────────────── */
 
 static void check_multi_info(struct xHttpClient_ *c);
-static int  socket_callback(CURL *easy, curl_socket_t fd, int what,
-                            void *userp, void *socketp);
+static int  socket_callback(CURL *easy, curl_socket_t fd, int what, void *userp,
+                            void *socketp);
 static int  timer_callback(CURLM *multi, long timeout_ms, void *userp);
 static void fd_ready_callback(int fd, xEventMask mask, void *arg);
 static void on_timeout(void *arg);
@@ -24,21 +24,21 @@ static void on_timeout(void *arg);
 
 static void apply_http_version(CURL *easy, xHttpVersion ver) {
   switch (ver) {
-    case xHttpVersion_H1:
-      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-      break;
-    case xHttpVersion_H2:
-      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
-      break;
-    case xHttpVersion_H2TLS:
-      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
-      break;
-    case xHttpVersion_H2C:
-      curl_easy_setopt(easy, CURLOPT_HTTP_VERSION,
-                       CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
-      break;
-    default:
-      break; /* xHttpVersion_Default — use libcurl default */
+  case xHttpVersion_H1:
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    break;
+  case xHttpVersion_H2:
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
+    break;
+  case xHttpVersion_H2TLS:
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
+    break;
+  case xHttpVersion_H2C:
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION,
+                     CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+    break;
+  default:
+    break; /* xHttpVersion_Default — use libcurl default */
   }
 }
 
@@ -56,8 +56,8 @@ static const struct xHttpReqVtable oneshot_vtable = {
 
 static size_t write_callback(char *ptr, size_t size, size_t nmemb,
                              void *userdata) {
-  struct xHttpReq_ *req = (struct xHttpReq_ *)userdata;
-  size_t total = size * nmemb;
+  struct xHttpReq_ *req   = (struct xHttpReq_ *)userdata;
+  size_t            total = size * nmemb;
   if (xBufferAppend(&req->body_buf, ptr, total) != xErrno_Ok)
     return 0; /* signal error to curl */
   return total;
@@ -65,10 +65,9 @@ static size_t write_callback(char *ptr, size_t size, size_t nmemb,
 
 static size_t header_callback(char *ptr, size_t size, size_t nmemb,
                               void *userdata) {
-  struct xHttpReq_ *req = (struct xHttpReq_ *)userdata;
-  size_t total = size * nmemb;
-  if (xBufferAppend(&req->header_buf, ptr, total) != xErrno_Ok)
-    return 0;
+  struct xHttpReq_ *req   = (struct xHttpReq_ *)userdata;
+  size_t            total = size * nmemb;
+  if (xBufferAppend(&req->header_buf, ptr, total) != xErrno_Ok) return 0;
   return total;
 }
 
@@ -76,13 +75,12 @@ static size_t header_callback(char *ptr, size_t size, size_t nmemb,
 
 static void check_multi_info(struct xHttpClient_ *c) {
   CURLMsg *msg;
-  int msgs_in_queue;
+  int      msgs_in_queue;
 
   while ((msg = curl_multi_info_read(c->multi, &msgs_in_queue)) != NULL) {
-    if (msg->msg != CURLMSG_DONE)
-      continue;
+    if (msg->msg != CURLMSG_DONE) continue;
 
-    CURL *easy = msg->easy_handle;
+    CURL    *easy   = msg->easy_handle;
     CURLcode result = msg->data.result;
 
     struct xHttpReq_ *req = NULL;
@@ -93,15 +91,13 @@ static void check_multi_info(struct xHttpClient_ *c) {
 
     /* Dispatch via vtable — on_done calls user callback only.
      * After it returns, clean up curl handles + req resources. */
-    if (req->vt && req->vt->on_done)
-      req->vt->on_done(req, result);
+    if (req->vt && req->vt->on_done) req->vt->on_done(req, result);
 
     if (!req->cleaned) {
       req->cleaned = 1;
       curl_multi_remove_handle(c->multi, easy);
       curl_easy_cleanup(easy);
-      if (req->vt && req->vt->on_cleanup)
-        req->vt->on_cleanup(req);
+      if (req->vt && req->vt->on_cleanup) req->vt->on_cleanup(req);
       free(req);
     }
   }
@@ -122,8 +118,7 @@ static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result) {
     resp.curl_error  = NULL;
   } else {
     resp.status_code = 0;
-    resp.curl_error  = req->errbuf[0] ? req->errbuf
-                                       : curl_easy_strerror(result);
+    resp.curl_error = req->errbuf[0] ? req->errbuf : curl_easy_strerror(result);
   }
 
   /* Append NUL terminators so the user gets C strings. */
@@ -133,14 +128,13 @@ static void oneshot_on_done(struct xHttpReq_ *req, CURLcode result) {
   const char *body_data   = (const char *)xBufferData(req->body_buf);
   const char *header_data = (const char *)xBufferData(req->header_buf);
 
-  resp.body        = body_data   ? body_data   : "";
-  resp.body_len    = body_data   ? xBufferLen(req->body_buf) - 1 : 0;
+  resp.body        = body_data ? body_data : "";
+  resp.body_len    = body_data ? xBufferLen(req->body_buf) - 1 : 0;
   resp.headers     = header_data ? header_data : "";
   resp.headers_len = header_data ? xBufferLen(req->header_buf) - 1 : 0;
 
   /* Invoke user callback — do NOT clean up here, let destroy_req handle it */
-  if (req->on_response)
-    req->on_response(&resp, req->arg);
+  if (req->on_response) req->on_response(&resp, req->arg);
 }
 
 static void oneshot_on_cleanup(struct xHttpReq_ *req) {
@@ -155,10 +149,10 @@ static void oneshot_on_cleanup(struct xHttpReq_ *req) {
 
 /* ── Socket callback (CURLMOPT_SOCKETFUNCTION) ─────────────────────────── */
 
-static int socket_callback(CURL *easy, curl_socket_t fd, int what,
-                           void *userp, void *socketp) {
+static int socket_callback(CURL *easy, curl_socket_t fd, int what, void *userp,
+                           void *socketp) {
   (void)easy;
-  struct xHttpClient_ *c = (struct xHttpClient_ *)userp;
+  struct xHttpClient_    *c   = (struct xHttpClient_ *)userp;
   struct xHttpSocketCtx_ *ctx = (struct xHttpSocketCtx_ *)socketp;
 
   if (what == CURL_POLL_REMOVE) {
@@ -172,8 +166,8 @@ static int socket_callback(CURL *easy, curl_socket_t fd, int what,
 
   /* Map curl poll flags to xEventMask */
   xEventMask mask = 0;
-  if (what == CURL_POLL_IN)    mask = xEvent_Read;
-  if (what == CURL_POLL_OUT)   mask = xEvent_Write;
+  if (what == CURL_POLL_IN) mask = xEvent_Read;
+  if (what == CURL_POLL_OUT) mask = xEvent_Write;
   if (what == CURL_POLL_INOUT) mask = xEvent_Read | xEvent_Write;
 
   if (!ctx) {
@@ -200,10 +194,10 @@ static int socket_callback(CURL *easy, curl_socket_t fd, int what,
 
 static void fd_ready_callback(int fd, xEventMask mask, void *arg) {
   struct xHttpSocketCtx_ *ctx = (struct xHttpSocketCtx_ *)arg;
-  struct xHttpClient_ *c = (struct xHttpClient_ *)ctx->client;
+  struct xHttpClient_    *c   = (struct xHttpClient_ *)ctx->client;
 
   int ev_bitmask = 0;
-  if (mask & xEvent_Read)  ev_bitmask |= CURL_CSELECT_IN;
+  if (mask & xEvent_Read) ev_bitmask |= CURL_CSELECT_IN;
   if (mask & xEvent_Write) ev_bitmask |= CURL_CSELECT_OUT;
 
   int running = 0;
@@ -234,12 +228,10 @@ static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
    * curl_multi_socket_action() here would be reentrant. Schedule a 1ms
    * timer instead to defer the action to the next event loop iteration.
    */
-  if (timeout_ms == 0)
-    timeout_ms = 1;
+  if (timeout_ms == 0) timeout_ms = 1;
 
   /* Schedule a new timer */
-  c->timer = xEventLoopTimerAfter(c->loop, on_timeout, c,
-                                  (uint64_t)timeout_ms);
+  c->timer = xEventLoopTimerAfter(c->loop, on_timeout, c, (uint64_t)timeout_ms);
   return 0;
 }
 
@@ -247,7 +239,7 @@ static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
 
 static void on_timeout(void *arg) {
   struct xHttpClient_ *c = (struct xHttpClient_ *)arg;
-  c->timer = NULL; /* timer has fired, handle is now invalid */
+  c->timer               = NULL; /* timer has fired, handle is now invalid */
 
   int running = 0;
   curl_multi_socket_action(c->multi, CURL_SOCKET_TIMEOUT, 0, &running);
@@ -260,7 +252,7 @@ xHttpClient xHttpClientCreate(xEventLoop loop) {
   if (!loop) return NULL;
 
   struct xHttpClient_ *c =
-      (struct xHttpClient_ *)calloc(1, sizeof(struct xHttpClient_));
+    (struct xHttpClient_ *)calloc(1, sizeof(struct xHttpClient_));
   if (!c) return NULL;
 
   c->multi = curl_multi_init();
@@ -284,14 +276,15 @@ xHttpClient xHttpClientCreate(xEventLoop loop) {
 void xHttpClientSetHttpVersion(xHttpClient client, xHttpVersion ver) {
   if (!client) return;
   struct xHttpClient_ *c = (struct xHttpClient_ *)client;
-  c->http_ver = ver;
+  c->http_ver            = ver;
 }
 
 /**
  * @brief Helper: clean up a single request context and its easy handle.
  *
  * Two cleanup paths exist:
- * 1. Oneshot completion: check_multi_info -> vt->on_done -> vt->on_cleanup -> free(req)
+ * 1. Oneshot completion: check_multi_info -> vt->on_done -> vt->on_cleanup ->
+ * free(req)
  * 2. Early destroy: destroy_req -> curl cleanup -> vt->on_cleanup -> free(req)
  *
  * The cleaned flag ensures they don't interfere with each other.
@@ -312,8 +305,7 @@ static void destroy_req(struct xHttpClient_ *c, CURL *easy,
     req->cleaned = 1;
     curl_multi_remove_handle(c->multi, easy);
     curl_easy_cleanup(easy);
-    if (req->vt && req->vt->on_cleanup)
-      req->vt->on_cleanup(req);
+    if (req->vt && req->vt->on_cleanup) req->vt->on_cleanup(req);
     free(req);
   }
 }
@@ -333,12 +325,12 @@ void xHttpClientDestroy(xHttpClient client) {
    * all remaining in-flight handles.
    */
   CURLMsg *msg;
-  int msgs_in_queue;
+  int      msgs_in_queue;
 
   while ((msg = curl_multi_info_read(c->multi, &msgs_in_queue)) != NULL) {
     if (msg->msg != CURLMSG_DONE) continue;
-    CURL *easy = msg->easy_handle;
-    struct xHttpReq_ *req = NULL;
+    CURL             *easy = msg->easy_handle;
+    struct xHttpReq_ *req  = NULL;
     curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
     destroy_req(c, easy, req, 1);
   }
@@ -351,8 +343,8 @@ void xHttpClientDestroy(xHttpClient client) {
   CURL **handles = curl_multi_get_handles(c->multi);
   if (handles) {
     for (int i = 0; handles[i] != NULL; i++) {
-      CURL *easy = handles[i];
-      struct xHttpReq_ *req = NULL;
+      CURL             *easy = handles[i];
+      struct xHttpReq_ *req  = NULL;
       curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
       destroy_req(c, easy, req, 1);
     }
@@ -376,8 +368,7 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
   curl_easy_setopt(req->easy, CURLOPT_NOSIGNAL, 1L);
 
   /* Apply HTTP version: per-request override or client default */
-  if (req->client)
-    apply_http_version(req->easy, req->client->http_ver);
+  if (req->client) apply_http_version(req->easy, req->client->http_ver);
 
   CURLMcode mc = curl_multi_add_handle(c->multi, req->easy);
   if (mc != CURLM_OK) {
@@ -395,9 +386,9 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
 
 static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const char *url,
                                       xHttpResponseFunc on_response,
-                                      void *arg) {
+                                      void             *arg) {
   struct xHttpReq_ *req =
-      (struct xHttpReq_ *)calloc(1, sizeof(struct xHttpReq_));
+    (struct xHttpReq_ *)calloc(1, sizeof(struct xHttpReq_));
   if (!req) return NULL;
 
   req->easy = curl_easy_init();
@@ -406,7 +397,7 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const char *url,
     return NULL;
   }
 
-  req->vt          = &oneshot_vtable;  /* set vtable for oneshot requests */
+  req->vt          = &oneshot_vtable; /* set vtable for oneshot requests */
   req->client      = c;
   req->on_response = on_response;
   req->arg         = arg;
@@ -431,7 +422,7 @@ static struct xHttpReq_ *http_req_new(struct xHttpClient_ *c, const char *url,
 /* ── Public API: GET ───────────────────────────────────────────────────── */
 
 xErrno xHttpClientGet(xHttpClient client, const char *url,
-                       xHttpResponseFunc on_response, void *arg) {
+                      xHttpResponseFunc on_response, void *arg) {
   if (!client || !url) return xErrno_Unknown;
   struct xHttpClient_ *c = (struct xHttpClient_ *)client;
 
@@ -445,9 +436,9 @@ xErrno xHttpClientGet(xHttpClient client, const char *url,
 
 /* ── Public API: POST ──────────────────────────────────────────────────── */
 
-xErrno xHttpClientPost(xHttpClient client, const char *url,
-                        const char *body, size_t body_len,
-                        xHttpResponseFunc on_response, void *arg) {
+xErrno xHttpClientPost(xHttpClient client, const char *url, const char *body,
+                       size_t body_len, xHttpResponseFunc on_response,
+                       void *arg) {
   if (!client || !url) return xErrno_Unknown;
   struct xHttpClient_ *c = (struct xHttpClient_ *)client;
 
@@ -477,7 +468,7 @@ xErrno xHttpClientPost(xHttpClient client, const char *url,
 /* ── Public API: Do (generic request) ──────────────────────────────────── */
 
 xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *config,
-                      xHttpResponseFunc on_response, void *arg) {
+                     xHttpResponseFunc on_response, void *arg) {
   if (!client || !config || !config->url) return xErrno_Unknown;
   struct xHttpClient_ *c = (struct xHttpClient_ *)client;
 
@@ -486,27 +477,27 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *config,
 
   /* Method */
   switch (config->method) {
-    case xHttpMethod_GET:
-      curl_easy_setopt(req->easy, CURLOPT_HTTPGET, 1L);
-      break;
-    case xHttpMethod_POST:
-      curl_easy_setopt(req->easy, CURLOPT_POST, 1L);
-      break;
-    case xHttpMethod_PUT:
-      curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "PUT");
-      break;
-    case xHttpMethod_DELETE:
-      curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "DELETE");
-      break;
-    case xHttpMethod_PATCH:
-      curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "PATCH");
-      break;
-    case xHttpMethod_HEAD:
-      curl_easy_setopt(req->easy, CURLOPT_NOBODY, 1L);
-      break;
-    default:
-      curl_easy_setopt(req->easy, CURLOPT_HTTPGET, 1L);
-      break;
+  case xHttpMethod_GET:
+    curl_easy_setopt(req->easy, CURLOPT_HTTPGET, 1L);
+    break;
+  case xHttpMethod_POST:
+    curl_easy_setopt(req->easy, CURLOPT_POST, 1L);
+    break;
+  case xHttpMethod_PUT:
+    curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "PUT");
+    break;
+  case xHttpMethod_DELETE:
+    curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "DELETE");
+    break;
+  case xHttpMethod_PATCH:
+    curl_easy_setopt(req->easy, CURLOPT_CUSTOMREQUEST, "PATCH");
+    break;
+  case xHttpMethod_HEAD:
+    curl_easy_setopt(req->easy, CURLOPT_NOBODY, 1L);
+    break;
+  default:
+    curl_easy_setopt(req->easy, CURLOPT_HTTPGET, 1L);
+    break;
   }
 
   /* Body */
@@ -519,8 +510,7 @@ xErrno xHttpClientDo(xHttpClient client, const xHttpRequestConf *config,
     }
     memcpy(req->post_data, config->body, config->body_len);
     curl_easy_setopt(req->easy, CURLOPT_POSTFIELDS, req->post_data);
-    curl_easy_setopt(req->easy, CURLOPT_POSTFIELDSIZE,
-                     (long)config->body_len);
+    curl_easy_setopt(req->easy, CURLOPT_POSTFIELDSIZE, (long)config->body_len);
   }
 
   /* Custom headers */

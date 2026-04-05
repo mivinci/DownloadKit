@@ -12,6 +12,7 @@
 #include <ctype.h>
 #include <nghttp2/nghttp2.h>
 #include <stdio.h>
+#include <xbase/log.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -274,16 +275,16 @@ static int h2_on_data(struct xHttpConn_ *conn, const char *buf, size_t len) {
 
   ssize_t rv = nghttp2_session_mem_recv(h2->session, (const uint8_t *)buf, len);
   if (rv < 0) {
-    fprintf(stderr, "xhttp h2: nghttp2_session_mem_recv error: %s\n",
-            nghttp2_strerror((int)rv));
+    xLog(false, "xhttp h2: nghttp2_session_mem_recv error: %s",
+         nghttp2_strerror((int)rv));
     return -1;
   }
 
   /* Send any pending frames (e.g. SETTINGS ACK) */
   rv = nghttp2_session_send(h2->session);
   if (rv != 0) {
-    fprintf(stderr, "xhttp h2: nghttp2_session_send error: %s\n",
-            nghttp2_strerror((int)rv));
+    xLog(false, "xhttp h2: nghttp2_session_send error: %s",
+         nghttp2_strerror((int)rv));
     return -1;
   }
 
@@ -300,9 +301,8 @@ static int h2_on_data(struct xHttpConn_ *conn, const char *buf, size_t len) {
   /* Send response frames submitted during dispatch */
   rv = nghttp2_session_send(h2->session);
   if (rv != 0) {
-    fprintf(stderr,
-            "xhttp h2: nghttp2_session_send (post-dispatch) error: %s\n",
-            nghttp2_strerror((int)rv));
+    xLog(false, "xhttp h2: nghttp2_session_send (post-dispatch) error: %s",
+         nghttp2_strerror((int)rv));
     return -1;
   }
 

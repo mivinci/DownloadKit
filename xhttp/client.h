@@ -61,18 +61,33 @@ XDEF_ENUM(xHttpMethod){
 };
 
 /**
+ * @brief HTTP version preference for requests.
+ *
+ * Controls which HTTP protocol version libcurl will use.
+ * Zero-initialized structs default to xHttpVersion_Default.
+ */
+XDEF_ENUM(xHttpVersion){
+  xHttpVersion_Default = 0, /**< Use client default (initially HTTP/1.1)    */
+  xHttpVersion_H1     = 1, /**< Force HTTP/1.1                              */
+  xHttpVersion_H2     = 2, /**< HTTP/2 with TLS (ALPN), fallback to H1      */
+  xHttpVersion_H2TLS  = 3, /**< HTTP/2 over TLS only, no fallback           */
+  xHttpVersion_H2C    = 4, /**< HTTP/2 cleartext (Prior Knowledge)           */
+};
+
+/**
  * @brief Configuration for a custom HTTP request.
  *
  * Used with xHttpClientDo() for full control over the request.
  * Zero-initialize for defaults (GET, no headers, no timeout).
  */
 XDEF_STRUCT(xHttpRequestConf) {
-  const char  *url;           /**< Request URL (must not be NULL)             */
-  xHttpMethod  method;        /**< HTTP method (default: GET)                 */
-  const char  *body;          /**< Request body, or NULL                      */
-  size_t       body_len;      /**< Length of body in bytes                    */
-  const char **headers;       /**< NULL-terminated array of "Key: Value"      */
-  long         timeout_ms;    /**< Per-request timeout in ms (0 = no limit)   */
+  const char   *url;           /**< Request URL (must not be NULL)             */
+  xHttpMethod   method;        /**< HTTP method (default: GET)                 */
+  const char   *body;          /**< Request body, or NULL                      */
+  size_t        body_len;      /**< Length of body in bytes                    */
+  const char  **headers;       /**< NULL-terminated array of "Key: Value"      */
+  long          timeout_ms;    /**< Per-request timeout in ms (0 = no limit)   */
+  xHttpVersion  http_version;  /**< HTTP version (0 = use client default)      */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
@@ -97,6 +112,18 @@ XCAPI(xHttpClient) xHttpClientCreate(xEventLoop loop);
  * @param client  The client to destroy.
  */
 XCAPI(void) xHttpClientDestroy(xHttpClient client);
+
+/**
+ * @brief Set the default HTTP version for all requests on this client.
+ *
+ * Requests that specify a non-zero http_version in xHttpRequestConf
+ * will override this default. Convenience helpers (Get, Post) and
+ * SSE helpers (GetSse) use this default.
+ *
+ * @param client  The HTTP client.
+ * @param ver     The HTTP version to use by default.
+ */
+XCAPI(void) xHttpClientSetHttpVersion(xHttpClient client, xHttpVersion ver);
 
 /* ── Convenience request helpers ───────────────────────────────────────── */
 

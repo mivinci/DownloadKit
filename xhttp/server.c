@@ -435,7 +435,27 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
 
   /* Readable: read data and feed to parser */
   if (mask & xEvent_Read) {
-    /* Read in a loop for edge-triggered mode */
+    /*
+     * NOTE: We intentionally read only one chunk per event instead of
+     * draining the socket until EAGAIN. A full drain loop would be the
+     * textbook approach for edge-triggered I/O, but the current
+     * downstream code has two issues that make it unsafe:
+     *
+     *  1. Memory: all data is linearized into a malloc'd buffer before
+     *     being fed to the parser, so draining a large request body
+     *     would cause peak memory usage of ~2× body size.
+     *
+     *  2. Consumption: xIOBufferConsume() discards the entire read_buf
+     *     after on_data(), but the parser (llhttp / nghttp2) may only
+     *     consume a portion of it (e.g. H1 pipelining, partial H2
+     *     frames). Draining amplifies this data-loss risk.
+     *
+     * Until the feed path is refactored to parse incrementally (read a
+     * chunk → feed → consume only what was parsed → repeat), we keep
+     * the single-read approach. This means a request whose body exceeds
+     * XIOBUFFER_BLOCK_SIZE (8 KB) may require multiple event-loop
+     * iterations to be fully received under edge-triggered mode.
+     */
     for (;;) {
       ssize_t n = xIOBufferReadFd(&conn->read_buf, xSocketFd(conn->sock));
       if (n < 0) {
@@ -449,7 +469,7 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
         xHttpConnClose(conn);
         return;
       }
-      break; /* Got data; process below */
+      break; /* Got data; process below (see NOTE above) */
     }
 
     /* Feed accumulated data to protocol handler */

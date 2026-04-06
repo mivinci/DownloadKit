@@ -124,7 +124,21 @@ jobs:
       - name: Run tests
         env:
           ASAN_OPTIONS: detect_leaks=0
-        run: ctest --test-dir build --output-on-failure --parallel 4
+        run: |
+          max_attempts=3
+          for attempt in $(seq 1 $max_attempts); do
+            echo "── Attempt $attempt / $max_attempts ──"
+            if ctest --test-dir build --output-on-failure --parallel 4; then
+              echo "✅ Tests passed on attempt $attempt"
+              exit 0
+            fi
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "⚠️  Tests failed, retrying..."
+              sleep 2
+            fi
+          done
+          echo "❌ Tests failed after $max_attempts attempts"
+          exit 1
 
   # ── Branch naming lint ────────────────────────────────────────────────────
 

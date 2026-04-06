@@ -49,3 +49,4 @@ build-*
 cmake-build-*
 book
 tmp
+.codebuddy

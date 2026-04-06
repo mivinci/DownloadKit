@@ -2,37 +2,19 @@
 
 ## Introduction
 
-`dns.h` provides asynchronous DNS resolution by offloading
-`getaddrinfo()` to the event loop's thread pool. The
-completion callback is always invoked on the event loop
-thread, maintaining xKit's single-threaded callback model.
-Queries can be cancelled before the callback fires.
+`dns.h` provides asynchronous DNS resolution by offloading `getaddrinfo()` to the event loop's thread pool. The completion callback is always invoked on the event loop thread, maintaining xKit's single-threaded callback model. Queries can be cancelled before the callback fires.
 
 ## Design Philosophy
 
-1. **Thread-Pool Offload** — `getaddrinfo()` is a blocking
-   POSIX call. Rather than introducing a dedicated DNS
-   thread, xnet reuses the event loop's existing thread pool
-   via `xEventLoopSubmit()`.
+1. **Thread-Pool Offload** — `getaddrinfo()` is a blocking POSIX call. Rather than introducing a dedicated DNS thread, xnet reuses the event loop's existing thread pool via `xEventLoopSubmit()`.
 
-2. **Event-Loop-Thread Callbacks** — The done callback runs
-   on the event loop thread, so user code never needs
-   synchronization. This is consistent with every other
-   callback in xKit.
+2. **Event-Loop-Thread Callbacks** — The done callback runs on the event loop thread, so user code never needs synchronization. This is consistent with every other callback in xKit.
 
-3. **Linked-List Result** — Resolved addresses are returned
-   as a linked list of `xDnsAddr` nodes, preserving the full
-   `getaddrinfo()` result (family, socktype, protocol) for
-   each address.
+3. **Linked-List Result** — Resolved addresses are returned as a linked list of `xDnsAddr` nodes, preserving the full `getaddrinfo()` result (family, socktype, protocol) for each address.
 
-4. **Cancellation Support** — `xDnsCancel()` sets an atomic
-   flag. If the worker has already finished, the done
-   callback silently discards the result instead of invoking
-   the user callback.
+4. **Cancellation Support** — `xDnsCancel()` sets an atomic flag. If the worker has already finished, the done callback silently discards the result instead of invoking the user callback.
 
-5. **IP Literal Fast Path** — If the hostname is an IPv4 or
-   IPv6 literal, `AI_NUMERICHOST` is set automatically,
-   skipping the actual DNS lookup.
+5. **IP Literal Fast Path** — If the hostname is an IPv4 or IPv6 literal, `AI_NUMERICHOST` is set automatically, skipping the actual DNS lookup.
 
 ## Architecture
 
@@ -76,8 +58,7 @@ stateDiagram-v2
 
 ### Error Mapping
 
-`getaddrinfo()` returns EAI\_\* codes. These are mapped
-to xKit error codes:
+`getaddrinfo()` returns EAI\_\* codes. These are mapped to xKit error codes:
 
 | EAI Code | xErrno | Meaning |
 | --- | --- | --- |
@@ -89,10 +70,7 @@ to xKit error codes:
 
 ### IP Literal Detection
 
-Before calling `getaddrinfo()`, the worker checks if the
-hostname is an IP literal using `inet_pton()`. If it is,
-`AI_NUMERICHOST` is added to the hints, which tells
-`getaddrinfo()` to skip DNS lookup entirely.
+Before calling `getaddrinfo()`, the worker checks if the hostname is an IP literal using `inet_pton()`. If it is, `AI_NUMERICHOST` is added to the hints, which tells `getaddrinfo()` to skip DNS lookup entirely.
 
 ```c
 // Pseudocode
@@ -150,8 +128,7 @@ if (inet_pton(AF_INET, hostname, buf) == 1 ||
 | `callback` | Yes | Completion callback (must not be `NULL`) |
 | `arg` | No | User argument forwarded to callback |
 
-Returns a `xDnsQuery` handle, or `NULL` on invalid
-arguments.
+Returns a `xDnsQuery` handle, or `NULL` on invalid arguments.
 
 ## Usage Examples
 
@@ -163,12 +140,11 @@ arguments.
 #include <xbase/event.h>
 #include <xnet/dns.h>
 
-static void on_resolved(xDnsResult *result, void *arg) {
+static void on_resolve(xDnsResult *result, void *arg) {
     xEventLoop loop = (xEventLoop)arg;
 
     if (result->error != xErrno_Ok) {
-        fprintf(stderr, "DNS failed: %d\n",
-                result->error);
+        fprintf(stderr, "DNS failed: %d\n", result->error);
         xDnsResultFree(result);
         xEventLoopStop(loop);
         return;
@@ -177,15 +153,11 @@ static void on_resolved(xDnsResult *result, void *arg) {
     for (xDnsAddr *a = result->addrs; a; a = a->next) {
         char buf[INET6_ADDRSTRLEN];
         if (a->family == AF_INET) {
-            struct sockaddr_in *sin =
-                (struct sockaddr_in *)&a->addr;
-            inet_ntop(AF_INET, &sin->sin_addr,
-                      buf, sizeof(buf));
+            struct sockaddr_in *sin = (struct sockaddr_in *)&a->addr;
+            inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof(buf));
         } else {
-            struct sockaddr_in6 *sin6 =
-                (struct sockaddr_in6 *)&a->addr;
-            inet_ntop(AF_INET6, &sin6->sin6_addr,
-                      buf, sizeof(buf));
+            struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&a->addr;
+            inet_ntop(AF_INET6, &sin6->sin6_addr, buf, sizeof(buf));
         }
         printf("  %s (family=%d)\n", buf, a->family);
     }
@@ -197,9 +169,7 @@ static void on_resolved(xDnsResult *result, void *arg) {
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
 
-    xDnsResolve(loop, "example.com", "443",
-                NULL, on_resolved, loop);
-
+    xDnsResolve(loop, "example.com", "443", NULL, on_resolved, loop);
     xEventLoopRun(loop);
     xEventLoopDestroy(loop);
     return 0;
@@ -213,17 +183,12 @@ struct addrinfo hints = {0};
 hints.ai_family   = AF_INET;
 hints.ai_socktype = SOCK_STREAM;
 
-xDnsResolve(loop, "example.com", "80",
-            &hints, on_resolved, loop);
-```
+xDnsResolve(loop, "example.com", "80", &hints, on_resolved, loop);```
 
 ### Cancelling a Query
 
 ```c
-xDnsQuery q = xDnsResolve(
-    loop, "slow.example.com", NULL,
-    NULL, on_resolved, NULL);
-
+xDnsQuery q = xDnsResolve(loop, "slow.example.com", NULL, NULL, on_resolved, NULL);
 // Cancel immediately — callback will NOT fire
 xDnsCancel(loop, q);
 ```
@@ -232,11 +197,9 @@ xDnsCancel(loop, q);
 
 ```c
 // Resolves instantly via AI_NUMERICHOST
-xDnsResolve(loop, "127.0.0.1", "8080",
-            NULL, on_resolved, loop);
+xDnsResolve(loop, "127.0.0.1", "8080", NULL, on_resolved, loop);
 
-xDnsResolve(loop, "::1", "8080",
-            NULL, on_resolved, loop);
+xDnsResolve(loop, "::1", "8080", NULL, on_resolved, loop);
 ```
 
 ## Thread Safety
@@ -260,15 +223,8 @@ xDnsResolve(loop, "::1", "8080",
 
 ## Best Practices
 
-- **Always call `xDnsResultFree()`** in your callback.
-  The callee owns the result.
-- **Check `result->error` before iterating `addrs`.**
-  On failure, `addrs` is `NULL`.
-- **Use `xDnsCancel()` for cleanup.** If you destroy the
-  object that owns the callback context, cancel the query
-  first to prevent a use-after-free.
-- **Pass `NULL` hints for typical use.** The defaults
-  (`AF_UNSPEC` + `SOCK_STREAM`) cover most HTTP/WebSocket
-  connection scenarios.
-- **`xDnsCancel(loop, NULL)` is safe** — it's a no-op,
-  so you don't need to guard against NULL handles.
+- **Always call `xDnsResultFree()`** in your callback. The callee owns the result.
+- **Check `result->error` before iterating `addrs`.** On failure, `addrs` is `NULL`.
+- **Use `xDnsCancel()` for cleanup.** If you destroy the object that owns the callback context, cancel the query first to prevent a use-after-free.
+- **Pass `NULL` hints for typical use.** The defaults (`AF_UNSPEC` + `SOCK_STREAM`) cover most HTTP/WebSocket connection scenarios.
+- **`xDnsCancel(loop, NULL)` is safe** — it's a no-op, so you don't need to guard against NULL handles.

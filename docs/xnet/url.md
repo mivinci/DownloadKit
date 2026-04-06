@@ -2,33 +2,17 @@
 
 ## Introduction
 
-`url.h` provides `xUrl`, a lightweight URL parser that
-decomposes a URL string into its RFC 3986 components:
-scheme, userinfo, host, port, path, query, and fragment.
-The parser makes a single internal copy of the input; all
-component fields are pointer+length pairs referencing this
-copy, so the caller may discard the original string
-immediately after parsing.
+`url.h` provides `xUrl`, a lightweight URL parser that decomposes a URL string into its RFC 3986 components: scheme, userinfo, host, port, path, query, and fragment. The parser makes a single internal copy of the input; all component fields are pointer+length pairs referencing this copy, so the caller may discard the original string immediately after parsing.
 
 ## Design Philosophy
 
-1. **Single Copy, Zero Per-Field Allocation** — `xUrlParse()`
-   calls `strdup()` once. All output fields point into this
-   copy, avoiding per-component heap allocations.
+1. **Single Copy, Zero Per-Field Allocation** — `xUrlParse()` calls `strdup()` once. All output fields point into this copy, avoiding per-component heap allocations.
 
-2. **Pointer+Length Pairs** — Fields use `const char *` +
-   `size_t` pairs rather than NUL-terminated strings. This
-   avoids mutating the internal copy and supports efficient
-   substring access.
+2. **Pointer+Length Pairs** — Fields use `const char *` + `size_t` pairs rather than NUL-terminated strings. This avoids mutating the internal copy and supports efficient substring access.
 
-3. **Scheme-Aware Default Ports** — `xUrlPort()` returns
-   well-known default ports (80 for http/ws, 443 for
-   https/wss) when no explicit port is present, simplifying
-   connection logic.
+3. **Scheme-Aware Default Ports** — `xUrlPort()` returns well-known default ports (80 for http/ws, 443 for https/wss) when no explicit port is present, simplifying connection logic.
 
-4. **IPv6 Literal Support** — The parser correctly handles
-   bracketed IPv6 addresses (`[::1]:8080`), extracting the
-   bare address without brackets.
+4. **IPv6 Literal Support** — The parser correctly handles bracketed IPv6 addresses (`[::1]:8080`), extracting the bare address without brackets.
 
 ## Architecture
 
@@ -147,8 +131,7 @@ All pointers reference the single raw_ copy.
 | `query` / `query_len` | `const char *` / `size_t` | e.g. `"key=val"` (optional) |
 | `fragment` / `fragment_len` | `const char *` / `size_t` | e.g. `"section1"` (optional) |
 
-> **Note:** Optional fields have `ptr=NULL, len=0` when
-> absent. The `raw_` field is internal — do not access it.
+> **Note:** Optional fields have `ptr=NULL, len=0` when absent. The `raw_` field is internal — do not access it.
 
 ## Usage Examples
 
@@ -160,30 +143,19 @@ All pointers reference the single raw_ copy.
 
 int main(void) {
     xUrl url;
-    xErrno err = xUrlParse(
-        "https://user:pass@example.com:8443"
-        "/ws/chat?token=abc#top",
-        &url);
+    xErrno err = xUrlParse("https://user:pass@example.com:8443/ws/chat?token=abc#top", &url);
     if (err != xErrno_Ok) {
         fprintf(stderr, "parse failed\n");
         return 1;
     }
 
-    printf("scheme:   %.*s\n",
-           (int)url.scheme_len, url.scheme);
-    printf("userinfo: %.*s\n",
-           (int)url.userinfo_len, url.userinfo);
-    printf("host:     %.*s\n",
-           (int)url.host_len, url.host);
-    printf("port:     %.*s (numeric: %u)\n",
-           (int)url.port_len, url.port,
-           xUrlPort(&url));
-    printf("path:     %.*s\n",
-           (int)url.path_len, url.path);
-    printf("query:    %.*s\n",
-           (int)url.query_len, url.query);
-    printf("fragment: %.*s\n",
-           (int)url.fragment_len, url.fragment);
+    printf("scheme:   %.*s\n", (int)url.scheme_len, url.scheme);
+    printf("userinfo: %.*s\n", (int)url.userinfo_len, url.userinfo);
+    printf("host:     %.*s\n", (int)url.host_len, url.host);
+    printf("port:     %.*s (numeric: %u)\n", (int)url.port_len, url.port, xUrlPort(&url));
+    printf("path:     %.*s\n", (int)url.path_len, url.path);
+    printf("query:    %.*s\n", (int)url.query_len, url.query);
+    printf("fragment: %.*s\n", (int)url.fragment_len, url.fragment);
 
     xUrlFree(&url);
     return 0;
@@ -208,8 +180,7 @@ fragment: top
 xUrl url;
 xUrlParse("http://[::1]:8080/test", &url);
 
-printf("host: %.*s\n",
-       (int)url.host_len, url.host);
+printf("host: %.*s\n", (int)url.host_len, url.host);
 // Output: host: ::1  (brackets stripped)
 
 printf("port: %u\n", xUrlPort(&url));
@@ -225,8 +196,7 @@ xUrl url;
 xUrlParse("wss://echo.example.com/sock", &url);
 
 // No explicit port in URL
-printf("port field: %s\n",
-       url.port ? "present" : "absent");
+printf("port field: %s\n", url.port ? "present" : "absent");
 // Output: port field: absent
 
 // xUrlPort() returns 443 for wss://
@@ -246,8 +216,7 @@ xUrlParse(heap, &url);
 free(heap);  // safe: xUrl has its own copy
 
 // url fields are still valid here
-printf("host: %.*s\n",
-       (int)url.host_len, url.host);
+printf("host: %.*s\n", (int)url.host_len, url.host);
 
 xUrlFree(&url);
 // After free, all fields are zeroed (NULL)
@@ -267,13 +236,7 @@ On error, the `xUrl` struct is zeroed — no cleanup needed.
 
 ## Best Practices
 
-- **Always check the return value** of `xUrlParse()`.
-  On error the struct is zeroed, so accessing fields is
-  safe but yields empty values.
-- **Use `xUrlPort()` instead of parsing the port string
-  yourself.** It handles default ports and validates the
-  numeric range (0–65535).
-- **Call `xUrlFree()` when done.** Forgetting to free
-  leaks the internal string copy.
-- **Don't cache field pointers past `xUrlFree()`.** All
-  pointers become invalid after the free call.
+- **Always check the return value** of `xUrlParse()`. On error the struct is zeroed, so accessing fields is safe but yields empty values.
+- **Use `xUrlPort()` instead of parsing the port string yourself.** It handles default ports and validates the numeric range (0–65535).
+- **Call `xUrlFree()` when done.** Forgetting to free leaks the internal string copy.
+- **Don't cache field pointers past `xUrlFree()`.** All pointers become invalid after the free call.

@@ -5,7 +5,7 @@
 </p>
 
 <div align="center">
-  <a href="docs/README.md">Docs</a>
+  <a href="https://le0.me/xKit">Docs</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
   <a href="diary">Diary</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
@@ -23,12 +23,13 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 
 | Module | Description |
 | ------ | ----------- |
-| **[xbase](docs/xbase/README.md)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
-| **[xbuf](docs/xbuf/README.md)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
-| **[xhttp](docs/xhttp/README.md)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming and TLS configuration (custom CA, mTLS, skip-verify), HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing |
-| **[xlog](docs/xlog/README.md)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
+| **[xbase](https://le0.me/xKit/xbase)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
+| **[xbuf](https://le0.me/xKit/xbuf)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
+| **[xnet](https://le0.me/xKit/xnet)** | Networking primitives — URL parser, async DNS resolver, shared TLS configuration types |
+| **[xhttp](https://le0.me/xKit/xhttp)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing, WebSocket server & client (RFC 6455) |
+| **[xlog](https://le0.me/xKit/xlog)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
 
-📖 See the **[full documentation](docs/README.md)** for detailed design, architecture diagrams, API references, and usage examples.
+📖 See the **[full documentation](https://le0.me/xKit)** for detailed design, architecture diagrams, API references, and usage examples.
 
 ## Prerequisites
 

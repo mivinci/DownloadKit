@@ -160,6 +160,7 @@ struct xHttpConn_ {
   int keep_alive;     /**< Whether to keep connection alive */
   int writing;        /**< Whether we are in write mode     */
   int proto_detected; /**< Whether protocol has been detected */
+  int hijacked;       /**< Whether connection was hijacked (WS) */
 
   /* Linked list of active connections */
   struct xHttpConn_ *prev;
@@ -184,6 +185,9 @@ struct xHttpServer_ {
 
   /* Active connections (doubly-linked list) */
   struct xHttpConn_ *conns; /**< Head of active connection list    */
+
+  /* Active WebSocket connections (doubly-linked list) */
+  struct xWsConn_ *ws_conns; /**< Head of WS connection list        */
 
   /* Configuration */
   int    idle_timeout_ms;
@@ -212,5 +216,11 @@ void xHttpConnTryFlush(struct xHttpConn_ *conn);
 
 /* HTTP status reason phrase lookup */
 const char *xHttpStatusReason(int code);
+
+/* Connection hijack (for WebSocket upgrade) */
+void xHttpConnHijack(struct xHttpConn_ *conn);
+
+/* Internal flush helper (returns 1 if connection was closed) */
+int xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
 
 #endif /* XHTTP_SERVER_PRIVATE_H */

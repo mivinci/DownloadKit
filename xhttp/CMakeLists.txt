@@ -1,8 +1,10 @@
 file(GLOB_RECURSE XHTTP_HEADERS "*.h")
 file(GLOB_RECURSE XHTTP_SOURCES "*.c")
 list(FILTER XHTTP_HEADERS EXCLUDE REGEX "_test")
-# Exclude TLS backend sources from default GLOB; they are added conditionally below
+# Exclude TLS and WS crypto backend sources from default GLOB;
+# they are added conditionally below
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "transport_tls_")
+list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_crypto_")
 add_library(xhttp SHARED ${XHTTP_SOURCES} ${XHTTP_HEADERS})
 
 target_compile_definitions(xhttp PUBLIC XK_HAS_CURL)
@@ -27,16 +29,23 @@ set(XK_TLS_BACKEND "auto" CACHE STRING "TLS backend: auto, openssl, mbedtls, non
 
 if(XK_TLS_BACKEND STREQUAL "none")
   message(STATUS "xhttp: TLS support disabled by user")
+  target_sources(xhttp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_builtin.c)
+  message(STATUS "xhttp: WS crypto = builtin (TLS disabled)")
 elseif(XK_TLS_BACKEND STREQUAL "openssl")
   find_package(OpenSSL REQUIRED)
   target_compile_definitions(xhttp PUBLIC XK_HAS_OPENSSL)
-  target_sources(xhttp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_openssl.c)
+  target_sources(xhttp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_openssl.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_openssl.c)
   target_link_libraries(xhttp PRIVATE OpenSSL::SSL OpenSSL::Crypto)
   message(STATUS "xhttp: TLS backend = OpenSSL (forced)")
 elseif(XK_TLS_BACKEND STREQUAL "mbedtls")
   find_package(MbedTLS REQUIRED)
   target_compile_definitions(xhttp PUBLIC XK_HAS_MBEDTLS)
-  target_sources(xhttp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_mbedtls.c)
+  target_sources(xhttp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_mbedtls.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_mbedtls.c)
   target_include_directories(xhttp BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
   target_link_libraries(xhttp PRIVATE MbedTLS::MbedTLS)
   message(STATUS "xhttp: TLS backend = mbedTLS (forced)")
@@ -44,23 +53,33 @@ elseif(XK_TLS_BACKEND STREQUAL "auto")
   find_package(OpenSSL QUIET)
   if(OpenSSL_FOUND)
     target_compile_definitions(xhttp PUBLIC XK_HAS_OPENSSL)
-    target_sources(xhttp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_openssl.c)
+    target_sources(xhttp PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_openssl.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_openssl.c)
     target_link_libraries(xhttp PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     message(STATUS "xhttp: TLS backend = OpenSSL (auto-detected)")
   else()
     find_package(MbedTLS QUIET)
     if(MbedTLS_FOUND)
       target_compile_definitions(xhttp PUBLIC XK_HAS_MBEDTLS)
-      target_sources(xhttp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_mbedtls.c)
+      target_sources(xhttp PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_mbedtls.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_mbedtls.c)
       target_include_directories(xhttp BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
       target_link_libraries(xhttp PRIVATE MbedTLS::MbedTLS)
       message(STATUS "xhttp: TLS backend = mbedTLS (auto-detected)")
     else()
       message(STATUS "xhttp: No TLS library found, TLS support disabled")
+      target_sources(xhttp PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_builtin.c)
+      message(STATUS "xhttp: WS crypto = builtin (no TLS library)")
     endif()
   endif()
 else()
   message(WARNING "xhttp: Unknown XK_TLS_BACKEND '${XK_TLS_BACKEND}', TLS support disabled")
+  target_sources(xhttp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_builtin.c)
+  message(STATUS "xhttp: WS crypto = builtin (unknown TLS backend)")
 endif()
 
 if(XK_BUILD_TESTS)

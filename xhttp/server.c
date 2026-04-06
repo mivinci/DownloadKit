@@ -111,6 +111,7 @@ xHttpServer xHttpServerCreate(xEventLoop loop) {
   s->routes          = NULL;
   s->routes_tail     = NULL;
   s->conns           = NULL;
+  s->ws_conns        = NULL;
   s->idle_timeout_ms = XHTTP_DEFAULT_IDLE_TIMEOUT_MS;
   s->max_header_size = XHTTP_DEFAULT_MAX_HEADER_SIZE;
   s->max_body_size   = XHTTP_DEFAULT_MAX_BODY_SIZE;
@@ -172,6 +173,19 @@ xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port) {
 void xHttpServerDestroy(xHttpServer server) {
   if (!server) return;
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
+
+  /* Close all active WebSocket connections (send 1001 Going Away) */
+  {
+    /* Include ws_private.h types via forward decl;
+     * xWsConnClose / xWsConnDestroy are linked from ws.c */
+    extern void xWsConnClose(struct xWsConn_ *conn, uint16_t code,
+                             const char *reason, size_t len);
+    extern void xWsConnDestroy(struct xWsConn_ *conn);
+    while (s->ws_conns) {
+      xWsConnClose(s->ws_conns, 1001 /* Going Away */, NULL, 0);
+      xWsConnDestroy(s->ws_conns);
+    }
+  }
 
   /* Close all active connections */
   while (s->conns) {
@@ -434,6 +448,7 @@ void xHttpConnResetParser(struct xHttpConn_ *conn) {
  */
 void xHttpConnClose(struct xHttpConn_ *conn) {
   if (!conn) return;
+  if (conn->hijacked) return; /* Hijacked connections are managed by WS */
   struct xHttpServer_ *s = conn->server;
 
   /* Remove from doubly-linked list */
@@ -480,6 +495,38 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
   free(conn);
 }
 
+void xHttpConnHijack(struct xHttpConn_ *conn) {
+  if (!conn) return;
+  struct xHttpServer_ *s = conn->server;
+
+  /* Mark as hijacked so HTTP layer ignores this connection */
+  conn->hijacked = 1;
+
+  /* Remove from server's HTTP connection list */
+  if (conn->prev)
+    conn->prev->next = conn->next;
+  else
+    s->conns = conn->next;
+  if (conn->next) conn->next->prev = conn->prev;
+  conn->prev = NULL;
+  conn->next = NULL;
+
+  /* Destroy protocol handler (no longer needed) */
+  if (conn->proto_detected && conn->proto.destroy) {
+    conn->proto.destroy(conn);
+    conn->proto.state = NULL;
+  }
+
+  /* Destroy stream (frees request buffers and response headers) */
+  if (conn->stream) {
+    xHttpStreamDestroy(conn->stream);
+    conn->stream = NULL;
+  }
+
+  /* NOTE: socket, transport, and read_buf are NOT freed here.
+   * They are transferred to the xWsConn by the caller. */
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Connection I/O event handler
  * ═══════════════════════════════════════════════════════════════════════════
@@ -488,6 +535,9 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
 static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
   struct xHttpConn_ *conn = (struct xHttpConn_ *)arg;
   (void)sock;
+
+  /* Hijacked connections are handled by WebSocket layer */
+  if (conn->hijacked) return;
 
   /* Idle timeout */
   if (mask & xEvent_Timeout) {
@@ -908,6 +958,16 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
 
         /* Match found: call handler */
         r->handler((xHttpResponseWriter)&stream->writer, &req, r->arg);
+
+        /* If the handler hijacked the connection (e.g. WebSocket
+         * upgrade via xWsUpgrade), the stream has been destroyed
+         * and conn is detached. Clean up and return immediately. */
+        if (conn->hijacked) {
+          xIOBufferDeinit(&conn->read_buf);
+          xIOBufferDeinit(&conn->write_buf);
+          free(conn);
+          return;
+        }
 
         /* If handler didn't send a response, send default 200 OK */
         if (!stream->writer.sent && !stream->writer.streaming) {

@@ -24,6 +24,7 @@
   - [HTTP Client](xhttp/client.md)
   - [HTTP Server](xhttp/server.md)
   - [SSE Streaming](xhttp/client_sse.md)
+  - [WebSocket Server](xhttp/websocket.md)
   - [TLS Deployment Guide](xhttp/tls.md)
 - [xlog — Async Logging](xlog/README.md)
   - [Async Logger](xlog/logger.md)

@@ -13,6 +13,7 @@
 
 #include <xbase/backtrace.h>
 
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -162,4 +163,52 @@ int xBacktraceSkip(int skip, char *buf, size_t size) {
 
 int xBacktrace(char *buf, size_t size) {
   return xBacktraceSkip(0, buf, size);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Crash handler — print backtrace on fatal signals
+ * ═══════════════════════════════════════════════════════════════════ */
+
+static void xbt_crash_handler(int sig) {
+  const char *name = "UNKNOWN";
+  switch (sig) {
+#ifdef SIGSEGV
+    case SIGSEGV: name = "SIGSEGV"; break;
+#endif
+#ifdef SIGABRT
+    case SIGABRT: name = "SIGABRT"; break;
+#endif
+#ifdef SIGBUS
+    case SIGBUS:  name = "SIGBUS";  break;
+#endif
+    default: break;
+  }
+
+  char buf[4096];
+  int  n;
+
+  fprintf(stderr, "\n=== CRASH: signal %s (%d) ===\n", name, sig);
+
+  n = bt_capture(1, buf, sizeof(buf)); /* skip this handler frame */
+  if (n > 0) {
+    fprintf(stderr, "Backtrace:\n%s", buf);
+  }
+
+  fprintf(stderr, "===========================\n");
+
+  /* Re-raise with default handler so the OS can produce a core dump */
+  signal(sig, SIG_DFL);
+  raise(sig);
+}
+
+void xPrintBacktraceOnCrash(void) {
+#ifdef SIGSEGV
+  signal(SIGSEGV, xbt_crash_handler);
+#endif
+#ifdef SIGABRT
+  signal(SIGABRT, xbt_crash_handler);
+#endif
+#ifdef SIGBUS
+  signal(SIGBUS,  xbt_crash_handler);
+#endif
 }

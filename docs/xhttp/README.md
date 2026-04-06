@@ -6,6 +6,7 @@
 
 - The **client** uses libcurl's multi-socket API for non-blocking HTTP requests and SSE streaming — ideal for integrating with REST APIs and LLM streaming endpoints. Supports TLS configuration including custom CA certificates, mutual TLS (mTLS), and certificate verification control via `xHttpTlsClientConf`.
 - The **server** uses an `xHttpProto` vtable interface for protocol-abstracted parsing, supporting both HTTP/1.1 (llhttp) and HTTP/2 (nghttp2, h2c Prior Knowledge) on the same port. TLS listeners are supported via `xHttpServerListenTls` with `xHttpTlsServerConf`. Single-threaded, event-driven connection handling — ideal for building lightweight HTTP services and APIs.
+- **WebSocket** support is built into the server via `xWsUpgrade()`. Call it inside a regular HTTP handler to perform the RFC 6455 upgrade handshake; the library then handles frame codec, ping/pong, fragment reassembly, and close negotiation automatically.
 
 ## Design Philosophy
 
@@ -72,6 +73,7 @@ graph TD
 | `server.h` | Async HTTP/1.1 & HTTP/2 server (routing, request/response, protocol-abstracted parsing) | [server.md](server.md) |
 | `client.h` | Async HTTP client API (GET, POST, Do, SSE, TLS configuration) | [client.md](client.md) |
 | `client_sse.c` | SSE stream parser and request handler | [client_sse.md](client_sse.md) |
+| `ws.h` | WebSocket server API (upgrade, send, close, callbacks) | [websocket.md](websocket.md) |
 | *(guide)* | TLS deployment guide (certificate generation, one-way TLS, mTLS, troubleshooting) | [tls.md](tls.md) |
 
 ## Quick Start

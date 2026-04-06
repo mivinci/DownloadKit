@@ -1,5 +1,85 @@
 # xhttp TODO
 
+## WebSocket Client
+
+Two candidate approaches for adding a WS client to xhttp.
+Both share the same public callback API (`xWsCallbacks`,
+`xWsConn`, `xWsSend`, `xWsClose`), so switching the
+underlying implementation is transparent to users.
+
+### Option A — libcurl (reuse xHttpClient)
+
+Leverage the existing `xHttpClient` + curl multi-socket
+architecture, similar to `client_sse.c`.
+
+- curl ≥ 7.86 exposes `CURLWS_*` / `CURLOPT_CONNECT_ONLY=2`
+- Add a new `xHttpReqVtable` (`ws_vtable`) for WS requests
+- ~300 lines of new code
+
+#### Proposed API (Option A)
+
+```c
+XCAPI(xErrno) xHttpClientWs(xHttpClient client,
+                            const char *url,
+                            const xWsCallbacks *cbs,
+                            void *arg);
+
+XCAPI(xErrno) xHttpClientDoWs(xHttpClient client,
+                              const xHttpRequestConf *conf,
+                              const xWsCallbacks *cbs,
+                              void *arg);
+```
+
+| Pros | Cons |
+| ---- | ---- |
+| Reuses xHttpClient lifecycle / TLS | curl ≥ 7.86 required |
+| Consistent with SSE client style | curl WS API is experimental |
+| Proxy / redirect / auth for free | Limited frame-level control |
+| Small code footprint (~300 LOC) | |
+
+### Option B — Native (reuse server frame codec)
+
+Manage TCP + TLS directly via `xSocket` / `xEventLoop` /
+`xHttpTransport`; reuse the server-side `xWsFrame*` codec
+and `xIOBuffer`.
+
+- Manual HTTP/1.1 Upgrade handshake + 101 parsing
+- Need to add masking to `xWsFrameEncode` (RFC 6455)
+- ~800–1000 lines of new code
+
+#### Proposed API (Option B)
+
+```c
+XDEF_HANDLE(xWsClient);
+
+XDEF_STRUCT(xWsClientConf) {
+  const char               *url;
+  const xWsCallbacks       *callbacks;
+  void                     *arg;
+  const char              **headers;
+  const xHttpTlsClientConf *tls;
+  int                       timeout_ms;
+};
+
+XCAPI(xWsClient) xWsClientCreate(xEventLoop loop);
+XCAPI(void)      xWsClientDestroy(xWsClient client);
+XCAPI(xErrno)    xWsClientConnect(xWsClient client,
+                                  const xWsClientConf *conf);
+```
+
+| Pros | Cons |
+| ---- | ---- |
+| Zero external deps, embedded-friendly | ~800-1000 LOC |
+| Full frame-level control | DNS / TCP / TLS / Upgrade by hand |
+| Shares codec with server side | No HTTP proxy support |
+| Stable — no experimental API | Masking support needed |
+
+### Decision
+
+TBD — discuss which approach to take first.
+
+---
+
 ## HTTP/2 Support
 
 ### Current Status
@@ -62,13 +142,13 @@ struct xHttpStream_ {
 
 ### Key Differences
 
-| Feature        | HTTP/1.1 (llhttp)              | HTTP/2 (nghttp2)                    |
-|----------------|--------------------------------|-------------------------------------|
-| Parsing unit   | byte stream → request          | byte stream → frame → stream        |
-| Multiplexing   | None (pipeline at best)        | Native, multiple streams per conn   |
-| Headers        | Plain text key: value          | HPACK compressed                    |
-| Flow control   | None                           | Built-in per-stream flow control    |
-| SSE            | chunked transfer               | DATA frames on a stream             |
+| Feature      | HTTP/1.1 (llhttp)       | HTTP/2 (nghttp2)                  |
+| ------------ | ----------------------- | --------------------------------- |
+| Parsing unit | byte stream → request   | byte stream → frame → stream      |
+| Multiplexing | None (pipeline at best) | Native, multiple streams per conn |
+| Headers      | Plain text key: value   | HPACK compressed                  |
+| Flow control | None                    | Built-in per-stream flow control  |
+| SSE          | chunked transfer        | DATA frames on a stream           |
 
 ### Implementation Roadmap
 
@@ -121,15 +201,15 @@ an HTTP/3 protocol handler behind the existing `xHttpProto` vtable:
 
 ### Key Differences from HTTP/2
 
-| Feature            | HTTP/2 (TCP+TLS)                | HTTP/3 (QUIC)                        |
-|--------------------|---------------------------------|--------------------------------------|
-| Transport          | TCP                             | UDP (QUIC)                           |
-| TLS                | Separate TLS handshake          | Built-in TLS 1.3 (mandatory)        |
-| Head-of-line block | TCP-level HOL across streams    | No cross-stream HOL blocking         |
-| Connection setup   | TCP + TLS = 2-3 RTT             | 1-RTT (0-RTT on resumption)         |
-| Multiplexing       | Streams over single TCP conn    | Independent streams over QUIC        |
-| Connection migrate | Not supported                   | Supported (connection ID based)      |
-| Event loop         | epoll/kqueue on TCP fd          | Needs UDP recv + QUIC timer mgmt     |
+| Feature            | HTTP/2 (TCP+TLS)             | HTTP/3 (QUIC)                    |
+| ------------------ | ---------------------------- | -------------------------------- |
+| Transport          | TCP                          | UDP (QUIC)                       |
+| TLS                | Separate TLS handshake       | Built-in TLS 1.3 (mandatory)     |
+| Head-of-line block | TCP-level HOL across streams | No cross-stream HOL blocking     |
+| Connection setup   | TCP + TLS = 2-3 RTT          | 1-RTT (0-RTT on resumption)      |
+| Multiplexing       | Streams over single TCP conn | Independent streams over QUIC    |
+| Connection migrate | Not supported                | Supported (connection ID based)  |
+| Event loop         | epoll/kqueue on TCP fd       | Needs UDP recv + QUIC timer mgmt |
 
 ### Challenges
 
@@ -142,7 +222,7 @@ an HTTP/3 protocol handler behind the existing `xHttpProto` vtable:
 4. **Flow control**: QUIC has its own per-stream and connection-level flow control,
    separate from the application-layer nghttp3 flow control.
 
-### Implementation Roadmap
+### Implementation Roadmap (HTTP/3)
 
 1. **Step 1**: Evaluate and choose a QUIC library (ngtcp2+nghttp3 vs quiche). Build and
    integrate as a dependency alongside nghttp2.

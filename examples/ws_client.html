@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebSocket Test Client</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "Segoe UI", Roboto, Helvetica, sans-serif;
+    background: #f5f5f5; color: #333;
+    display: flex; justify-content: center;
+    padding: 2rem;
+  }
+  .card {
+    background: #fff; border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.1);
+    width: 100%; max-width: 600px; padding: 1.5rem;
+  }
+  h1 { font-size: 1.25rem; margin-bottom: 1rem; }
+  .row {
+    display: flex; gap: .5rem; margin-bottom: .75rem;
+  }
+  input[type="text"] {
+    flex: 1; padding: .5rem .75rem;
+    border: 1px solid #ccc; border-radius: 4px;
+    font-size: .9rem;
+  }
+  button {
+    padding: .5rem 1rem; border: none;
+    border-radius: 4px; cursor: pointer;
+    font-size: .9rem; color: #fff;
+  }
+  .btn-connect    { background: #4caf50; }
+  .btn-disconnect { background: #f44336; }
+  .btn-send       { background: #2196f3; }
+  .btn-clear      { background: #9e9e9e; }
+  button:disabled { opacity: .5; cursor: default; }
+  .status {
+    font-size: .85rem; margin-bottom: .75rem;
+  }
+  .status .dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; margin-right: 4px;
+  }
+  .dot-closed  { background: #f44336; }
+  .dot-open    { background: #4caf50; }
+  .dot-pending { background: #ff9800; }
+  #log {
+    background: #1e1e1e; color: #d4d4d4;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: .8rem; line-height: 1.5;
+    padding: .75rem; border-radius: 4px;
+    height: 320px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .log-in  { color: #4fc3f7; }
+  .log-out { color: #aed581; }
+  .log-sys { color: #ffb74d; }
+  .log-err { color: #ef5350; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>WebSocket Test Client</h1>
+
+  <!-- Connection -->
+  <div class="row">
+    <input type="text" id="url"
+           value="ws://localhost:8080/ws"
+           placeholder="ws://host:port/path">
+    <button class="btn-connect" id="btnConn"
+            onclick="doConnect()">Connect</button>
+    <button class="btn-disconnect" id="btnDisc"
+            onclick="doDisconnect()" disabled>
+      Disconnect</button>
+  </div>
+
+  <!-- Status -->
+  <div class="status">
+    <span class="dot dot-closed" id="dot"></span>
+    <span id="st">Disconnected</span>
+  </div>
+
+  <!-- Send -->
+  <div class="row">
+    <input type="text" id="msg"
+           placeholder="Type a message…"
+           disabled>
+    <button class="btn-send" id="btnSend"
+            onclick="doSend()" disabled>Send</button>
+    <button class="btn-clear"
+            onclick="clearLog()">Clear</button>
+  </div>
+
+  <!-- Log -->
+  <div id="log"></div>
+</div>
+
+<script>
+const $url  = document.getElementById('url');
+const $msg  = document.getElementById('msg');
+const $log  = document.getElementById('log');
+const $st   = document.getElementById('st');
+const $dot  = document.getElementById('dot');
+const $conn = document.getElementById('btnConn');
+const $disc = document.getElementById('btnDisc');
+const $send = document.getElementById('btnSend');
+
+let ws = null;
+
+function log(text, cls) {
+  const span = document.createElement('span');
+  span.className = cls || '';
+  span.textContent = text + '\n';
+  $log.appendChild(span);
+  $log.scrollTop = $log.scrollHeight;
+}
+
+function setConnected(open) {
+  $conn.disabled = open;
+  $disc.disabled = !open;
+  $msg.disabled  = !open;
+  $send.disabled = !open;
+  $dot.className = 'dot ' + (open ? 'dot-open' : 'dot-closed');
+  $st.textContent = open ? 'Connected' : 'Disconnected';
+}
+
+function doConnect() {
+  const url = $url.value.trim();
+  if (!url) return;
+
+  $dot.className = 'dot dot-pending';
+  $st.textContent = 'Connecting…';
+  log('[connecting] ' + url, 'log-sys');
+
+  ws = new WebSocket(url);
+
+  ws.onopen = function () {
+    setConnected(true);
+    log('[open]', 'log-sys');
+    $msg.focus();
+  };
+
+  ws.onmessage = function (ev) {
+    log('< ' + ev.data, 'log-in');
+  };
+
+  ws.onclose = function (ev) {
+    setConnected(false);
+    log('[close] code=' + ev.code +
+        (ev.reason ? ' reason=' + ev.reason : ''),
+        'log-sys');
+    ws = null;
+  };
+
+  ws.onerror = function () {
+    log('[error]', 'log-err');
+  };
+}
+
+function doDisconnect() {
+  if (ws) ws.close(1000, 'user disconnect');
+}
+
+function doSend() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const text = $msg.value;
+  if (!text) return;
+  log('> ' + text, 'log-out');
+  ws.send(text);
+  $msg.value = '';
+}
+
+function clearLog() {
+  $log.innerHTML = '';
+}
+
+/* Enter key sends message */
+$msg.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') doSend();
+});
+</script>
+</body>
+</html>

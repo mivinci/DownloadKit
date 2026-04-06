@@ -80,6 +80,17 @@ typedef void (*xEventSignalFunc)(int signo, void *arg);
 XCAPI(xEventLoop) xEventLoopCreate(void);
 
 /**
+ * @brief Create an event loop with a default task group for offloading.
+ *
+ * When xEventLoopSubmit() is called with a NULL group, the loop will
+ * use @p group instead of falling back to xTaskGroupGlobal().
+ *
+ * @param group  Default task group, or NULL (same as xEventLoopCreate).
+ * @return A new event loop, or NULL on failure.
+ */
+XCAPI(xEventLoop) xEventLoopCreateWithGroup(xTaskGroup group);
+
+/**
  * @brief Destroy an event loop.
  *
  * All registered sources are implicitly removed. The caller is still

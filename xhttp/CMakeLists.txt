@@ -5,24 +5,44 @@ list(FILTER XHTTP_HEADERS EXCLUDE REGEX "_test")
 # they are added conditionally below
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "transport_tls_")
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_crypto_")
+list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_deflate")
 add_library(xhttp SHARED ${XHTTP_SOURCES} ${XHTTP_HEADERS})
 
 target_compile_definitions(xhttp PUBLIC XK_HAS_CURL)
-target_link_libraries(xhttp PUBLIC xbase xbuf PRIVATE Libcurl::Libcurl)
+target_link_libraries(xhttp PUBLIC xbase xbuf xnet PRIVATE Libcurl::Libcurl)
 
 message(STATUS "xhttp: libcurl integration enabled")
 
 find_package(Llhttp REQUIRED)
+set_target_properties(Llhttp::Llhttp PROPERTIES IMPORTED_NO_SYSTEM TRUE)
 target_compile_definitions(xhttp PUBLIC XK_HAS_LLHTTP)
 target_link_libraries(xhttp PRIVATE Llhttp::Llhttp)
 
 message(STATUS "xhttp: llhttp integration enabled")
 
 find_package(Nghttp2 REQUIRED)
+set_target_properties(Nghttp2::Nghttp2 PROPERTIES IMPORTED_NO_SYSTEM TRUE)
 target_compile_definitions(xhttp PUBLIC XK_HAS_NGHTTP2)
 target_link_libraries(xhttp PRIVATE Nghttp2::Nghttp2)
 
 message(STATUS "xhttp: nghttp2 integration enabled")
+
+# ── permessage-deflate (zlib) ──────────────────────────────────────────
+option(XK_WS_DEFLATE "Enable WebSocket permessage-deflate" ON)
+if(XK_WS_DEFLATE)
+  find_package(ZLIB QUIET)
+  if(ZLIB_FOUND)
+    target_compile_definitions(xhttp PUBLIC XHTTP_WS_DEFLATE)
+    target_sources(xhttp PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/ws_deflate.c)
+    target_link_libraries(xhttp PRIVATE ZLIB::ZLIB)
+    message(STATUS "xhttp: permessage-deflate enabled (zlib)")
+  else()
+    message(STATUS "xhttp: zlib not found, permessage-deflate disabled")
+  endif()
+else()
+  message(STATUS "xhttp: permessage-deflate disabled by user")
+endif()
 
 # ── TLS backend detection ──────────────────────────────────────────────
 set(XK_TLS_BACKEND "auto" CACHE STRING "TLS backend: auto, openssl, mbedtls, none")
@@ -36,15 +56,18 @@ elseif(XK_TLS_BACKEND STREQUAL "openssl")
   find_package(OpenSSL REQUIRED)
   target_compile_definitions(xhttp PUBLIC XK_HAS_OPENSSL)
   target_sources(xhttp PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_openssl.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_server_openssl.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_client_openssl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_openssl.c)
   target_link_libraries(xhttp PRIVATE OpenSSL::SSL OpenSSL::Crypto)
   message(STATUS "xhttp: TLS backend = OpenSSL (forced)")
 elseif(XK_TLS_BACKEND STREQUAL "mbedtls")
   find_package(MbedTLS REQUIRED)
+  set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
   target_compile_definitions(xhttp PUBLIC XK_HAS_MBEDTLS)
   target_sources(xhttp PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_mbedtls.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_server_mbedtls.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_client_mbedtls.c
     ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_mbedtls.c)
   target_include_directories(xhttp BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
   target_link_libraries(xhttp PRIVATE MbedTLS::MbedTLS)
@@ -54,16 +77,19 @@ elseif(XK_TLS_BACKEND STREQUAL "auto")
   if(OpenSSL_FOUND)
     target_compile_definitions(xhttp PUBLIC XK_HAS_OPENSSL)
     target_sources(xhttp PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_openssl.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_server_openssl.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_client_openssl.c
       ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_openssl.c)
     target_link_libraries(xhttp PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     message(STATUS "xhttp: TLS backend = OpenSSL (auto-detected)")
   else()
     find_package(MbedTLS QUIET)
     if(MbedTLS_FOUND)
+      set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
       target_compile_definitions(xhttp PUBLIC XK_HAS_MBEDTLS)
       target_sources(xhttp PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_mbedtls.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_server_mbedtls.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_client_mbedtls.c
         ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_mbedtls.c)
       target_include_directories(xhttp BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
       target_link_libraries(xhttp PRIVATE MbedTLS::MbedTLS)

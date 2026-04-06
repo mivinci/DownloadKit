@@ -3,10 +3,13 @@
 ## Introduction
 
 `ws.h` provides a callback-driven WebSocket interface
-integrated with the xhttp server. Call `xWsUpgrade()` inside
-a regular HTTP handler to perform the RFC 6455 upgrade
-handshake; the library then handles frame codec, ping/pong,
-fragment reassembly, and close negotiation automatically.
+integrated with the xhttp server. For pure WebSocket
+services, call `xWsServe()` to create a server in one
+line. For mixed HTTP + WebSocket endpoints, call
+`xWsUpgrade()` inside a regular HTTP handler to perform
+the RFC 6455 upgrade handshake. The library handles
+frame codec, ping/pong, fragment reassembly, and close
+negotiation automatically.
 
 All callbacks are dispatched on the event loop thread —
 no locks or thread pools required.
@@ -185,12 +188,14 @@ typedef enum {
 | --- | --- |
 | `ws.h` | Public API (types, callbacks, functions) |
 | `ws.c` | Connection lifecycle, I/O, frame dispatch |
-| `ws_handshake.c` | Upgrade handshake (RFC 6455 §4.2) |
+| `ws_handshake_server.c` | Server upgrade handshake (RFC 6455 §4.2) |
+| `ws_handshake_client.h/c` | Client upgrade handshake |
 | `ws_frame.h/c` | Frame codec (parse + encode) |
 | `ws_crypto.h` | SHA-1 + Base64 interface |
 | `ws_crypto_openssl.c` | OpenSSL backend |
 | `ws_crypto_mbedtls.c` | Mbed TLS backend |
 | `ws_crypto_builtin.c` | Built-in (no TLS dep) |
+| `ws_serve.c` | `xWsServe()` convenience wrapper |
 | `ws_private.h` | Internal data structures |
 
 ## API Reference
@@ -254,9 +259,37 @@ typedef struct {
 
 | Function | Description |
 | --- | --- |
+| `xWsServe` | One-call WebSocket-only server |
 | `xWsUpgrade` | Upgrade HTTP → WebSocket |
 | `xWsSend` | Send a text or binary message |
 | `xWsClose` | Initiate graceful close |
+
+#### xWsServe
+
+```c
+xHttpServer xWsServe(
+    xEventLoop loop,
+    const char *host,
+    uint16_t port,
+    const xWsCallbacks *callbacks,
+    void *arg);
+```
+
+Convenience function that creates an HTTP server, registers
+a catch-all route that upgrades every incoming request to
+WebSocket, and starts listening. Returns the server handle
+for later cleanup via `xHttpServerDestroy()`, or `NULL` on
+failure.
+
+**Parameters:**
+
+- `loop` — Event loop (must not be NULL).
+- `host` — Bind address (e.g. `"0.0.0.0"`), or NULL.
+- `port` — Port number to listen on.
+- `callbacks` — WebSocket event callbacks (not NULL).
+- `arg` — User argument forwarded to all callbacks.
+
+**Returns:** Server handle, or `NULL` on failure.
 
 #### xWsUpgrade
 
@@ -337,11 +370,10 @@ peer responds or a 5-second timeout expires.
 
 ## Usage Examples
 
-### Echo Server
+### Echo Server (with xWsServe)
 
 ```c
 #include <xbase/event.h>
-#include <xhttp/server.h>
 #include <xhttp/ws.h>
 #include <stdio.h>
 #include <string.h>
@@ -349,20 +381,26 @@ peer responds or a 5-second timeout expires.
 static void on_open(xWsConn conn, void *arg) {
     (void)arg;
     const char *hi = "Welcome!";
-    xWsSend(conn, xWsOpcode_Text, hi, strlen(hi));
+    xWsSend(conn, xWsOpcode_Text,
+            hi, strlen(hi));
 }
 
-static void on_message(xWsConn conn, xWsOpcode op,
-                       const void *data, size_t len,
+static void on_message(xWsConn conn,
+                       xWsOpcode op,
+                       const void *data,
+                       size_t len,
                        void *arg) {
     (void)arg;
-    xWsSend(conn, op, data, len); // echo back
+    xWsSend(conn, op, data, len);
 }
 
-static void on_close(xWsConn conn, uint16_t code,
-                     const char *reason, size_t len,
+static void on_close(xWsConn conn,
+                     uint16_t code,
+                     const char *reason,
+                     size_t len,
                      void *arg) {
-    (void)conn; (void)reason; (void)len; (void)arg;
+    (void)conn; (void)reason;
+    (void)len; (void)arg;
     printf("closed: %u\n", code);
 }
 
@@ -372,20 +410,52 @@ static const xWsCallbacks ws_cbs = {
     .on_close   = on_close,
 };
 
-static void ws_handler(xHttpResponseWriter w,
-                       const xHttpRequest *req,
-                       void *arg) {
+int main(void) {
+    xEventLoop loop = xEventLoopCreate();
+
+    xHttpServer srv = xWsServe(
+        loop, "0.0.0.0", 8080,
+        &ws_cbs, NULL);
+    if (!srv) return 1;
+
+    printf("ws://localhost:8080/\n");
+    xEventLoopRun(loop);
+
+    xHttpServerDestroy(srv);
+    xEventLoopDestroy(loop);
+    return 0;
+}
+```
+
+### Echo Server (with xWsUpgrade)
+
+```c
+#include <xbase/event.h>
+#include <xhttp/server.h>
+#include <xhttp/ws.h>
+#include <stdio.h>
+#include <string.h>
+
+static const xWsCallbacks ws_cbs = { ... };
+
+static void ws_handler(
+    xHttpResponseWriter w,
+    const xHttpRequest *req,
+    void *arg) {
     (void)arg;
     xWsUpgrade(w, req, &ws_cbs, NULL);
 }
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xHttpServer srv = xHttpServerCreate(loop);
+    xHttpServer srv =
+        xHttpServerCreate(loop);
 
-    xHttpServerRoute(srv, "GET /ws",
-                     ws_handler, NULL);
-    xHttpServerListen(srv, "0.0.0.0", 8080);
+    xHttpServerRoute(
+        srv, "GET /ws",
+        ws_handler, NULL);
+    xHttpServerListen(
+        srv, "0.0.0.0", 8080);
 
     printf("ws://localhost:8080/ws\n");
     xEventLoopRun(loop);

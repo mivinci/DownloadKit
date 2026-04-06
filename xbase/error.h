@@ -22,6 +22,9 @@ XDEF_ENUM(xErrno){
   xErrno_AlreadyExists, /**< Item already registered / bound            */
   xErrno_Cancelled,     /**< Operation was cancelled                    */
   xErrno_NotSupported,  /**< Feature not available / not compiled in    */
+  xErrno_DnsNotFound,   /**< DNS: hostname does not exist               */
+  xErrno_DnsTempFail,   /**< DNS: temporary failure, try again later    */
+  xErrno_DnsError,      /**< DNS: unrecoverable resolution error        */
 };
 
 /**

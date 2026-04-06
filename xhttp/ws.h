@@ -3,13 +3,16 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * ws.h - WebSocket server API
+ * ws.h - WebSocket API (server + client)
  *
- * Provides a callback-driven WebSocket interface integrated with
- * the xhttp server. Call xWsUpgrade() inside a regular HTTP
- * handler to perform the WebSocket upgrade handshake; the library
- * then handles the frame codec, ping/pong, and close negotiation
- * automatically.
+ * Provides a callback-driven WebSocket interface.
+ *
+ * Server: Call xWsServe() for a one-line WebSocket-only server,
+ * or call xWsUpgrade() inside a regular HTTP handler to perform
+ * the WebSocket upgrade handshake alongside other HTTP routes.
+ *
+ * Client: Call xWsConnect() with a ws:// or wss:// URL to
+ * initiate an asynchronous WebSocket connection.
  *
  * All callbacks are dispatched on the event loop thread.
  */
@@ -21,9 +24,12 @@
 #include <stdint.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
+#include <xbase/event.h>
+#include <xnet/tls.h>
 
 /* Forward declarations (avoid circular include with server.h) */
 XDEF_HANDLE(xHttpResponseWriter);
+XDEF_HANDLE(xHttpServer);
 typedef struct xHttpRequest xHttpRequest;
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
@@ -159,5 +165,88 @@ XCAPI(xErrno) xWsUpgrade(xHttpResponseWriter writer,
                          const xHttpRequest *req,
                          const xWsCallbacks *callbacks,
                          void *arg);
+
+/* ── Client Connect ─────────────────────────────────────────────────── */
+
+/**
+ * @brief Configuration for xWsConnect().
+ *
+ * Zero-initialize and set only the fields you need.
+ * At minimum, @c url must be set.
+ */
+XDEF_STRUCT(xWsConnectConf) {
+  /** WebSocket URL (ws:// or wss://). Required. */
+  const char *url;
+
+  /**
+   * TLS configuration for wss:// connections.
+   * NULL = use defaults (system CA, verify enabled).
+   * Ignored for ws:// URLs.
+   */
+  const xTlsClientConf *tls;
+
+  /**
+   * Extra HTTP headers for the Upgrade request.
+   * Format: "Key: Value\r\nKey2: Value2\r\n".
+   * NULL = no extra headers.
+   */
+  const char *headers;
+
+  /**
+   * Connection timeout in milliseconds.
+   * 0 = use default (10000 ms).
+   */
+  int timeout_ms;
+};
+
+/**
+ * @brief Initiate an asynchronous WebSocket client connection.
+ *
+ * Parses the URL, resolves DNS, connects via TCP, optionally
+ * performs a TLS handshake (for wss://), sends the HTTP Upgrade
+ * request, and validates the 101 response — all asynchronously.
+ *
+ * On success, @c callbacks->on_open is invoked with a usable
+ * xWsConn handle. On failure at any stage, @c callbacks->on_close
+ * is invoked with an appropriate error code (on_open is NOT
+ * called).
+ *
+ * @param loop       Event loop to run the connection on.
+ * @param conf       Connection configuration (must not be NULL).
+ * @param callbacks  WebSocket event callbacks (must not be NULL).
+ * @param arg        User argument forwarded to callbacks.
+ * @return           xErrno_Ok if the async process started,
+ *                   or xErrno_InvalidArg for bad parameters.
+ */
+XCAPI(xErrno) xWsConnect(xEventLoop loop,
+                         const xWsConnectConf *conf,
+                         const xWsCallbacks *callbacks,
+                         void *arg);
+
+/* ── Convenience: WebSocket-only server ─────────────────────────────── */
+
+/**
+ * @brief Create a WebSocket-only HTTP server.
+ *
+ * Convenience function that creates an HTTP server, registers a
+ * catch-all route that upgrades every incoming request to WebSocket,
+ * and starts listening on the given address and port.
+ *
+ * The returned handle can be used with xHttpServerDestroy() for
+ * cleanup, or with xHttpServerRoute() to add extra HTTP endpoints
+ * (e.g. a health-check page).
+ *
+ * @param loop       Event loop (must not be NULL).
+ * @param host       Bind address (e.g. "0.0.0.0"), or NULL.
+ * @param port       Port number to listen on.
+ * @param callbacks  WebSocket event callbacks (must not be NULL).
+ * @param arg        User argument forwarded to all callbacks.
+ * @return           The server handle, or NULL on failure.
+ */
+XCAPI(xHttpServer) xWsServe(xEventLoop loop,
+                             const char *host,
+                             uint16_t port,
+                             const xWsCallbacks *callbacks,
+                             void *arg);
 
 #endif /* XHTTP_WS_H */

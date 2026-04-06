@@ -44,6 +44,7 @@
 .DS_Store
 .cache
 .idea
+.venv
 build
 build-*
 cmake-build-*

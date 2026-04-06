@@ -137,7 +137,7 @@ protected:
     server = xHttpServerCreate(loop);
     ASSERT_NE(server, nullptr);
 
-    client = xHttpClientCreate(loop);
+    client = xHttpClientCreate(loop, nullptr);
     ASSERT_NE(client, nullptr);
 
     port = find_free_port();
@@ -309,8 +309,12 @@ TEST_F(IntegrationTest, ClientDefaultH2c) {
   xHttpServerRoute(server, "GET /hello", hello_handler, nullptr);
   listen_and_pump();
 
-  /* Set client-level default to H2C */
-  xHttpClientSetHttpVersion(client, xHttpVersion_H2C);
+  /* Recreate client with H2C as default version */
+  xHttpClientDestroy(client);
+  xHttpClientConf conf = {};
+  conf.http_version    = xHttpVersion_H2C;
+  client = xHttpClientCreate(loop, &conf);
+  ASSERT_NE(client, nullptr);
 
   RespCtx     ctx;
   std::string url = make_url("/hello");

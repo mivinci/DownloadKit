@@ -87,15 +87,20 @@ static int find_signal_by_fd(struct xEventLoopEpoll_ *loop, int fd) {
 /* ───────────────────── Public API ───────────────────── */
 
 xEventLoop xEventLoopCreate(void) {
+  return xEventLoopCreateWithGroup(NULL);
+}
+
+xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   struct xEventLoopEpoll_ *loop =
     (struct xEventLoopEpoll_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
-  loop->epfd            = -1;
-  loop->base.wake_rfd   = -1;
-  loop->base.wake_wfd   = -1;
-  loop->base.stopped    = 0;
-  loop->base.timer_heap = NULL;
+  loop->epfd              = -1;
+  loop->base.wake_rfd     = -1;
+  loop->base.wake_wfd     = -1;
+  loop->base.stopped      = 0;
+  loop->base.timer_heap   = NULL;
+  loop->base.task_group   = group;
   source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;

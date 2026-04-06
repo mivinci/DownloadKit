@@ -57,10 +57,11 @@ struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server,
   xIOBufferInit(&conn->write_buf);
   xIOBufferInit(&conn->frag_buf);
 
-  xWsFrameParserInit(&conn->parser);
+  xWsFrameParserInit(&conn->parser, server ? 1 : 0);
 
   conn->close_state = XWS_OPEN;
   conn->in_fragment = 0;
+  conn->is_client   = (server == NULL) ? 1 : 0;
   conn->writing     = 0;
 
   if (callbacks) {
@@ -71,13 +72,18 @@ struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server,
   conn->idle_timeout_ms = timeout_ms;
   conn->idle_timer      = NULL;
 
-  /* Add to server's WS connection list */
-  conn->prev = NULL;
-  conn->next = server->ws_conns;
-  if (server->ws_conns) {
-    server->ws_conns->prev = conn;
+  /* Add to server's WS connection list (server mode only) */
+  if (server) {
+    conn->prev = NULL;
+    conn->next = server->ws_conns;
+    if (server->ws_conns) {
+      server->ws_conns->prev = conn;
+    }
+    server->ws_conns = conn;
+  } else {
+    conn->prev = NULL;
+    conn->next = NULL;
   }
-  server->ws_conns = conn;
 
   /* Re-register socket with our WS event handler */
   xSocketSetCallback(sock, ws_on_event, conn);
@@ -125,6 +131,11 @@ void xWsConnDestroy(struct xWsConn_ *conn) {
     conn->sock = NULL;
   }
 
+#ifdef XHTTP_WS_DEFLATE
+  /* Destroy deflate context */
+  xWsDeflateDestroy(conn->deflate_ctx);
+#endif
+
   /* Free buffers */
   xIOBufferDeinit(&conn->read_buf);
   xIOBufferDeinit(&conn->write_buf);
@@ -146,7 +157,8 @@ void xWsConnClose(struct xWsConn_ *conn, uint16_t code,
   conn->close_state = XWS_CLOSE_SENT;
   conn->close_code  = code;
 
-  xWsFrameEncodeClose(&conn->write_buf, code, reason, len);
+  xWsFrameEncodeClose(&conn->write_buf, code, reason, len,
+                      conn->is_client);
   ws_try_flush(conn);
 
   /* Set a timeout for the peer's Close response */
@@ -171,7 +183,28 @@ xErrno xWsSend(xWsConn handle, xWsOpcode opcode,
   uint8_t op = (opcode == xWsOpcode_Text)
                  ? XWS_OPCODE_TEXT : XWS_OPCODE_BINARY;
 
-  if (xWsFrameEncode(&conn->write_buf, 1, op, payload, len) < 0)
+#ifdef XHTTP_WS_DEFLATE
+  if (conn->deflate_ctx && len > 0) {
+    uint8_t *compressed = NULL;
+    size_t compressed_len = 0;
+    if (xWsDeflateCompress(conn->deflate_ctx,
+                           (const uint8_t *)payload, len,
+                           &compressed,
+                           &compressed_len) == 0) {
+      int rc = xWsFrameEncodeEx(&conn->write_buf, 1, 1, op,
+                                compressed, compressed_len,
+                                conn->is_client);
+      free(compressed);
+      if (rc < 0) return xErrno_NoMemory;
+      ws_try_flush(conn);
+      return xErrno_Ok;
+    }
+    /* Compression failed: fall through to uncompressed */
+  }
+#endif
+
+  if (xWsFrameEncode(&conn->write_buf, 1, op, payload, len,
+                     conn->is_client) < 0)
     return xErrno_NoMemory;
 
   ws_try_flush(conn);
@@ -306,7 +339,8 @@ static void ws_process_frame(struct xWsConn_ *conn,
   case XWS_OPCODE_PING:
     /* Auto-reply with Pong (same payload) */
     xWsFrameEncode(&conn->write_buf, 1, XWS_OPCODE_PONG,
-                   frame->payload, (size_t)frame->payload_len);
+                   frame->payload, (size_t)frame->payload_len,
+                   conn->is_client);
     ws_try_flush(conn);
     break;
 
@@ -340,7 +374,7 @@ static void ws_process_frame(struct xWsConn_ *conn,
         }
       }
       xWsFrameEncodeClose(&conn->write_buf, code, reason,
-                          reason_len);
+                          reason_len, conn->is_client);
       ws_try_flush(conn);
       /* Connection will be destroyed after flush completes */
     } else if (conn->close_state == XWS_CLOSE_SENT) {
@@ -359,6 +393,32 @@ static void ws_process_frame(struct xWsConn_ *conn,
         xWsConnClose(conn, XWS_CLOSE_PROTOCOL_ERR, NULL, 0);
         break;
       }
+#ifdef XHTTP_WS_DEFLATE
+      if (frame->rsv1 && conn->deflate_ctx) {
+        /* Decompress the payload */
+        uint8_t *decompressed = NULL;
+        size_t decompressed_len = 0;
+        if (xWsDeflateDecompress(
+              conn->deflate_ctx,
+              frame->payload, (size_t)frame->payload_len,
+              &decompressed, &decompressed_len) < 0) {
+          xWsConnClose(conn, XWS_CLOSE_PROTOCOL_ERR,
+                       NULL, 0);
+          break;
+        }
+        if (conn->callbacks.on_message) {
+          xWsOpcode op = (opcode == XWS_OPCODE_TEXT)
+                           ? xWsOpcode_Text
+                           : xWsOpcode_Binary;
+          conn->callbacks.on_message(
+            (xWsConn)conn, op,
+            decompressed, decompressed_len,
+            conn->user_arg);
+        }
+        free(decompressed);
+        break;
+      }
+#endif
       if (conn->callbacks.on_message) {
         xWsOpcode op = (opcode == XWS_OPCODE_TEXT)
                          ? xWsOpcode_Text : xWsOpcode_Binary;
@@ -375,6 +435,7 @@ static void ws_process_frame(struct xWsConn_ *conn,
       }
       conn->in_fragment = 1;
       conn->frag_opcode = opcode;
+      conn->frag_compressed = frame->rsv1 ? 1 : 0;
       xIOBufferReset(&conn->frag_buf);
       if (frame->payload_len > 0) {
         xIOBufferAppend(&conn->frag_buf, frame->payload,
@@ -396,23 +457,49 @@ static void ws_process_frame(struct xWsConn_ *conn,
     if (frame->fin) {
       /* Final fragment: deliver reassembled message */
       conn->in_fragment = 0;
-      if (conn->callbacks.on_message) {
-        size_t total = xIOBufferLen(&conn->frag_buf);
-        uint8_t *assembled = NULL;
-        if (total > 0) {
-          assembled = (uint8_t *)malloc(total);
-          if (assembled) {
-            xIOBufferCopyTo(&conn->frag_buf, assembled);
-          }
+      size_t total = xIOBufferLen(&conn->frag_buf);
+      uint8_t *assembled = NULL;
+      if (total > 0) {
+        assembled = (uint8_t *)malloc(total);
+        if (assembled) {
+          xIOBufferCopyTo(&conn->frag_buf, assembled);
         }
-        xWsOpcode op = (conn->frag_opcode == XWS_OPCODE_TEXT)
-                         ? xWsOpcode_Text : xWsOpcode_Binary;
+      }
+      xIOBufferReset(&conn->frag_buf);
+
+#ifdef XHTTP_WS_DEFLATE
+      /* RFC 7692: RSV1 on the first fragment indicates the
+       * entire reassembled message is compressed. We stored
+       * the raw (compressed) fragments; now decompress. */
+      if (conn->frag_compressed && conn->deflate_ctx) {
+        uint8_t *decompressed = NULL;
+        size_t decompressed_len = 0;
+        if (assembled && total > 0 &&
+            xWsDeflateDecompress(
+              conn->deflate_ctx,
+              assembled, total,
+              &decompressed, &decompressed_len) == 0) {
+          free(assembled);
+          assembled = decompressed;
+          total = decompressed_len;
+        } else {
+          free(assembled);
+          xWsConnClose(conn, XWS_CLOSE_PROTOCOL_ERR,
+                       NULL, 0);
+          break;
+        }
+      }
+#endif
+
+      if (conn->callbacks.on_message) {
+        xWsOpcode op =
+          (conn->frag_opcode == XWS_OPCODE_TEXT)
+            ? xWsOpcode_Text : xWsOpcode_Binary;
         conn->callbacks.on_message(
           (xWsConn)conn, op,
           assembled, total, conn->user_arg);
-        free(assembled);
       }
-      xIOBufferReset(&conn->frag_buf);
+      free(assembled);
     }
     break;
 

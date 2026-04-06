@@ -177,6 +177,9 @@ struct xEventLoop_ {
   pthread_mutex_t timer_mu;
   int             stopped;
 
+  /* Default task group for offload (may be NULL) */
+  xTaskGroup task_group;
+
   /* Signal watches (indexed by signal number) */
   struct xSignalWatch_ signal_watches[XK_SIGNAL_MAX];
 };

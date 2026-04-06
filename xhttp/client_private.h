@@ -65,9 +65,9 @@ struct xHttpClient_ {
   xHttpVersion http_ver; /* default HTTP version for requests   */
 
   /* TLS configuration (owned copies, freed on destroy) */
-  char *tls_ca_path;      /* CA cert file path, or NULL          */
-  char *tls_client_cert;  /* client certificate path, or NULL    */
-  char *tls_client_key;   /* client private key path, or NULL    */
+  char *tls_ca;           /* CA cert file path, or NULL          */
+  char *tls_cert;         /* client certificate path, or NULL    */
+  char *tls_key;          /* client private key path, or NULL    */
   char *tls_key_password; /* private key password, or NULL       */
   int   tls_skip_verify;  /* skip peer & host verification       */
 };

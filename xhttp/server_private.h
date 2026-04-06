@@ -193,6 +193,10 @@ struct xHttpServer_ {
   int    idle_timeout_ms;
   size_t max_header_size;
   size_t max_body_size;
+
+  /* Auxiliary data (set by convenience wrappers like xWsServe) */
+  void  *aux_data;
+  void (*aux_free)(void *);
 };
 
 /* ───────────────────── Internal functions ───────────────────── */

@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * transport_tls_openssl.c - OpenSSL TLS transport implementation
+ * transport_tls_server_openssl.c - OpenSSL TLS transport implementation
  */
 
 #ifdef XK_HAS_OPENSSL
@@ -41,7 +41,7 @@ static int alpn_select_cb(SSL *ssl, const unsigned char **out,
 
 /* ───────────────────── TLS context (server-level) ───────────────────── */
 
-void *xHttpTlsCtxCreateOpenSSL(const xHttpTlsServerConf *config) {
+void *xHttpTlsCtxCreateOpenSSL(const xTlsServerConf *config) {
   SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
   if (!ctx) {
     xLog(false, "xhttp: SSL_CTX_new failed");
@@ -52,16 +52,16 @@ void *xHttpTlsCtxCreateOpenSSL(const xHttpTlsServerConf *config) {
   SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
 
   /* Load certificate */
-  if (SSL_CTX_use_certificate_chain_file(ctx, config->cert_file) != 1) {
-    xLog(false, "xhttp: failed to load certificate: %s", config->cert_file);
+  if (SSL_CTX_use_certificate_chain_file(ctx, config->cert) != 1) {
+    xLog(false, "xhttp: failed to load certificate: %s", config->cert);
     SSL_CTX_free(ctx);
     return NULL;
   }
 
   /* Load private key */
-  if (SSL_CTX_use_PrivateKey_file(ctx, config->key_file, SSL_FILETYPE_PEM) !=
+  if (SSL_CTX_use_PrivateKey_file(ctx, config->key, SSL_FILETYPE_PEM) !=
       1) {
-    xLog(false, "xhttp: failed to load private key: %s", config->key_file);
+    xLog(false, "xhttp: failed to load private key: %s", config->key);
     SSL_CTX_free(ctx);
     return NULL;
   }
@@ -74,19 +74,19 @@ void *xHttpTlsCtxCreateOpenSSL(const xHttpTlsServerConf *config) {
   }
 
   /* Load CA certificate for client verification (optional) */
-  if (config->ca_file) {
-    if (SSL_CTX_load_verify_locations(ctx, config->ca_file, NULL) != 1) {
-      xLog(false, "xhttp: failed to load CA certificate: %s", config->ca_file);
+  if (config->ca) {
+    if (SSL_CTX_load_verify_locations(ctx, config->ca, NULL) != 1) {
+      xLog(false, "xhttp: failed to load CA certificate: %s", config->ca);
       SSL_CTX_free(ctx);
       return NULL;
     }
   }
 
   /* Client verification mode */
-  if (config->verify_client == 2) {
+  if (config->verify_peer == 2) {
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
                        NULL);
-  } else if (config->verify_client == 1) {
+  } else if (config->verify_peer == 1) {
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
   } else {
     SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);

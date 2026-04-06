@@ -65,7 +65,7 @@ graph TD
 sequenceDiagram
     participant App as Application
     participant Client as xHttpClient
-    participant Curl as curl_multi
+    participant Curl as "curl_multi"
     participant Loop as xEventLoop
 
     App->>Client: xHttpClientGet(url, cb)
@@ -140,6 +140,7 @@ All pointers are valid only during the callback. The library manages their lifet
 | Type | Description |
 | --- | --- |
 | `xHttpClient` | Opaque handle to an HTTP client bound to an event loop |
+| `xHttpClientConf` | Configuration struct for creating a client (TLS, HTTP version) |
 | `xHttpResponse` | Response data delivered to the completion callback |
 | `xHttpResponseFunc` | `void (*)(const xHttpResponse *resp, void *arg)` |
 | `xHttpMethod` | Enum: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD` |
@@ -147,28 +148,29 @@ All pointers are valid only during the callback. The library manages their lifet
 | `xSseEvent` | SSE event data delivered to the event callback |
 | `xSseEventFunc` | `int (*)(const xSseEvent *ev, void *arg)` — return 0 to continue, non-zero to close |
 | `xSseDoneFunc` | `void (*)(int curl_code, void *arg)` |
-| `xHttpTlsClientConf` | TLS configuration for the client (CA path, client cert/key, skip verify) |
+| `xTlsClientConf` | TLS configuration for the client (CA path, client cert/key, skip verify) |
 
 ### Lifecycle
 
 | Function | Signature | Description | Thread Safety |
 | --- | --- | --- | --- |
-| `xHttpClientCreate` | `xHttpClient xHttpClientCreate(xEventLoop loop)` | Create a client bound to an event loop. | Not thread-safe |
+| `xHttpClientCreate` | `xHttpClient xHttpClientCreate(xEventLoop loop, const xHttpClientConf *conf)` | Create a client bound to an event loop. Pass `NULL` for defaults. | Not thread-safe |
 | `xHttpClientDestroy` | `void xHttpClientDestroy(xHttpClient client)` | Destroy client. In-flight requests get error callbacks. | Not thread-safe |
 
 ### TLS Configuration
 
-| Function | Signature | Description | Thread Safety |
-| --- | --- | --- | --- |
-| `xHttpClientSetTls` | `void xHttpClientSetTls(xHttpClient client, const xHttpTlsClientConf *conf)` | Configure TLS options for all subsequent requests. Pass `NULL` to reset to defaults. | Not thread-safe |
+TLS is configured at client creation time via
+`xHttpClientConf`. The `xTlsClientConf` fields are
+deep-copied internally; the caller does not need to
+keep them alive after creation.
 
-#### `xHttpTlsClientConf` Fields
+#### `xTlsClientConf` Fields
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `ca_path` | `const char *` | Path to a CA certificate file for server verification. When set, the system CA bundle is bypassed. |
-| `client_cert` | `const char *` | Path to a client certificate file (PEM) for mutual TLS (mTLS). |
-| `client_key` | `const char *` | Path to the client private key file (PEM) for mTLS. |
+| `ca` | `const char *` | Path to a CA certificate file for server verification. When set, the system CA bundle is bypassed. |
+| `cert` | `const char *` | Path to a client certificate file (PEM) for mutual TLS (mTLS). |
+| `key` | `const char *` | Path to the client private key file (PEM) for mTLS. |
 | `key_password` | `const char *` | Passphrase for an encrypted client private key. |
 | `skip_verify` | `int` | If non-zero, skip server certificate verification (useful for self-signed certs in development). |
 
@@ -215,7 +217,7 @@ static void on_response(const xHttpResponse *resp, void *arg) {
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xHttpClient client = xHttpClientCreate(loop);
+    xHttpClient client = xHttpClientCreate(loop, NULL);
 
     xHttpClientGet(client, "https://httpbin.org/get", on_response, NULL);
 
@@ -232,29 +234,26 @@ int main(void) {
 #include <xbase/event.h>
 #include <xhttp/client.h>
 
-static void on_response(const xHttpResponse *resp, void *arg) {
+static void on_response(const xHttpResponse *resp,
+                        void *arg) {
     (void)arg;
     printf("Status: %ld\n", resp->status_code);
 }
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xHttpClient client = xHttpClientCreate(loop);
 
-    // Option 1: Skip certificate verification (development only)
-    xHttpTlsClientConf tls = {0};
+    // Skip certificate verification (dev only)
+    xTlsClientConf tls = {0};
     tls.skip_verify = 1;
-    xHttpClientSetTls(client, &tls);
+    xHttpClientConf conf = {.tls = &tls};
+    xHttpClient client =
+        xHttpClientCreate(loop, &conf);
 
-    // Option 2: Custom CA + mutual TLS
-    xHttpTlsClientConf mtls = {0};
-    mtls.ca_path     = "/path/to/ca.pem";
-    mtls.client_cert = "/path/to/client.pem";
-    mtls.client_key  = "/path/to/client-key.pem";
-    xHttpClientSetTls(client, &mtls);
-
-    xHttpClientGet(client, "https://secure.example.com/api",
-                   on_response, NULL);
+    xHttpClientGet(
+        client,
+        "https://secure.example.com/api",
+        on_response, NULL);
 
     xEventLoopRun(loop);
     xHttpClientDestroy(client);
@@ -277,7 +276,7 @@ static void on_response(const xHttpResponse *resp, void *arg) {
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xHttpClient client = xHttpClientCreate(loop);
+    xHttpClient client = xHttpClientCreate(loop, NULL);
 
     const char *headers[] = {
         "Content-Type: application/json",
@@ -307,7 +306,12 @@ int main(void) {
 
 1. **REST API Integration** — Make async HTTP calls to microservices, cloud APIs, or webhooks from an event-driven C application.
 
-2. **Secure Communication** — Use `xHttpClientSetTls()` to configure custom CA certificates, client certificates for mTLS, or skip verification for development environments with self-signed certs.
+2. **Secure Communication** — Pass TLS config
+   via `xHttpClientConf` at creation time to
+   configure custom CA certificates, client
+   certificates for mTLS, or skip verification
+   for development environments with self-signed
+   certs.
 
 3. **LLM API Calls** — Use `xHttpClientDoSse()` with POST method and JSON body to stream responses from OpenAI, Anthropic, or other LLM APIs. See [client_sse.md](client_sse.md) for a complete example.
 
@@ -321,7 +325,11 @@ int main(void) {
 - **Destroy the client before the event loop.** `xHttpClientDestroy()` cancels in-flight requests and invokes their callbacks with error status.
 - **Check `curl_code` first.** A `curl_code` of 0 means the HTTP transfer succeeded; then check `status_code` for the HTTP-level result.
 - **Never use `skip_verify` in production.** It disables all certificate validation. Use a proper CA path or system CA bundle instead.
-- **TLS config applies to all subsequent requests.** Call `xHttpClientSetTls()` once after creating the client; it affects both oneshot and SSE requests.
+- **TLS config is set at creation time.** Pass
+  `xHttpClientConf` with TLS settings when creating
+  the client; it affects both oneshot and SSE
+  requests. To change TLS config, destroy and
+  recreate the client.
 
 ## Comparison with Other Libraries
 
@@ -330,7 +338,7 @@ int main(void) {
 | **I/O Model** | Async (event loop) | Blocking | Blocking | Blocking |
 | **Event Loop** | xEventLoop integration | None (or manual multi) | None | None (asyncio separate) |
 | **SSE Support** | Built-in (`GetSse`/`DoSse`) | Manual parsing | No | No (needs `sseclient`) |
-| **TLS Config** | `xHttpClientSetTls` (CA, mTLS, skip) | `curl_easy_setopt` (manual) | Built-in | `verify`/`cert` params |
+| **TLS Config** | `xHttpClientConf.tls` at creation | `curl_easy_setopt` (manual) | Built-in | `verify`/`cert` params |
 | **Thread Model** | Single-threaded callbacks | One thread per request | One thread per request | One thread per request |
 | **Memory** | Automatic (xBuffer) | Manual (`WRITEFUNCTION`) | Automatic (std::string) | Automatic (Python GC) |
 | **Language** | C99 | C | C++ | Python |

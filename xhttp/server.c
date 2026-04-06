@@ -851,16 +851,37 @@ static int route_match(const struct xHttpRoute_ *route, const char *url,
   return 1;
 }
 
-xErrno xHttpServerRoute(xHttpServer server, const char *method,
-                        const char *path, xHttpHandlerFunc handler, void *arg) {
-  if (!server || !path || !handler) return xErrno_InvalidArg;
+xErrno xHttpServerRoute(xHttpServer server, const char *pattern,
+                        xHttpHandlerFunc handler, void *arg) {
+  if (!server || !pattern || !handler) return xErrno_InvalidArg;
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
+
+  /* Parse pattern: "METHOD /path" or "/path" */
+  const char *method_str = NULL;
+  const char *path       = pattern;
+
+  if (pattern[0] != '/') {
+    /* Pattern has a method prefix: find the space separator */
+    const char *space = strchr(pattern, ' ');
+    if (!space || space[1] != '/') return xErrno_InvalidArg;
+    /* Extract method */
+    size_t method_len = (size_t)(space - pattern);
+    char  *m          = (char *)malloc(method_len + 1);
+    if (!m) return xErrno_NoMemory;
+    memcpy(m, pattern, method_len);
+    m[method_len] = '\0';
+    method_str    = m;
+    path          = space + 1;
+  }
 
   struct xHttpRoute_ *route =
     (struct xHttpRoute_ *)calloc(1, sizeof(struct xHttpRoute_));
-  if (!route) return xErrno_NoMemory;
+  if (!route) {
+    free((void *)method_str);
+    return xErrno_NoMemory;
+  }
 
-  route->method  = method ? strdup(method) : NULL;
+  route->method  = method_str; /* already strdup'd above, or NULL */
   route->path    = strdup(path);
   route->handler = handler;
   route->arg     = arg;

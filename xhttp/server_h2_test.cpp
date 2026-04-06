@@ -330,7 +330,7 @@ static void h2_hello_handler(xHttpResponseWriter w, const xHttpRequest *req,
 }
 
 TEST_F(HttpServerH2Test, PriorKnowledgeGetRequest) {
-  xHttpServerRoute(server, "GET", "/hello", h2_hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", h2_hello_handler, nullptr);
   listen_and_pump();
 
   H2Client client;
@@ -383,7 +383,7 @@ TEST_F(HttpServerH2Test, H2NotFoundReturns404) {
 }
 
 TEST_F(HttpServerH2Test, H1AndH2Coexist) {
-  xHttpServerRoute(server, "GET", "/hello", h2_hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", h2_hello_handler, nullptr);
   listen_and_pump();
 
   /* First: H1 request */

@@ -164,7 +164,7 @@ protected:
 /* ───────────────────── H1 GET ───────────────────── */
 
 TEST_F(IntegrationTest, H1Get) {
-  xHttpServerRoute(server, "GET", "/hello", hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", hello_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -183,7 +183,7 @@ TEST_F(IntegrationTest, H1Get) {
 /* ───────────────────── H1 POST with body echo ───────────────────── */
 
 TEST_F(IntegrationTest, H1PostEcho) {
-  xHttpServerRoute(server, "POST", "/echo", echo_body_handler, nullptr);
+  xHttpServerRoute(server, "POST /echo", echo_body_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -204,7 +204,7 @@ TEST_F(IntegrationTest, H1PostEcho) {
 /* ───────────────────── H1 Do with custom headers ───────────────────── */
 
 TEST_F(IntegrationTest, H1DoCustomHeaders) {
-  xHttpServerRoute(server, "GET", "/headers", echo_header_handler, nullptr);
+  xHttpServerRoute(server, "GET /headers", echo_header_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -233,7 +233,7 @@ TEST_F(IntegrationTest, H1DoCustomHeaders) {
 /* ───────────────────── H1 404 Not Found ───────────────────── */
 
 TEST_F(IntegrationTest, H1NotFound) {
-  xHttpServerRoute(server, "GET", "/exists", hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /exists", hello_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -251,7 +251,7 @@ TEST_F(IntegrationTest, H1NotFound) {
 /* ───────────────────── H2C Prior Knowledge GET ───────────────────── */
 
 TEST_F(IntegrationTest, H2cGet) {
-  xHttpServerRoute(server, "GET", "/hello", hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", hello_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -277,7 +277,7 @@ TEST_F(IntegrationTest, H2cGet) {
 /* ───────────────────── H2C POST with body echo ───────────────────── */
 
 TEST_F(IntegrationTest, H2cPostEcho) {
-  xHttpServerRoute(server, "POST", "/echo", echo_body_handler, nullptr);
+  xHttpServerRoute(server, "POST /echo", echo_body_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -306,7 +306,7 @@ TEST_F(IntegrationTest, H2cPostEcho) {
 /* ───────────────────── Client default HTTP version ───────────────────── */
 
 TEST_F(IntegrationTest, ClientDefaultH2c) {
-  xHttpServerRoute(server, "GET", "/hello", hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", hello_handler, nullptr);
   listen_and_pump();
 
   /* Set client-level default to H2C */
@@ -330,7 +330,7 @@ TEST_F(IntegrationTest, ClientDefaultH2c) {
 /* ───────────────────── SSE over H1 ───────────────────── */
 
 TEST_F(IntegrationTest, SseOverH1) {
-  xHttpServerRoute(server, "GET", "/events", sse_handler, nullptr);
+  xHttpServerRoute(server, "GET /events", sse_handler, nullptr);
   listen_and_pump();
 
   SseTestCtx  ctx;
@@ -355,7 +355,7 @@ TEST_F(IntegrationTest, SseOverH1) {
 /* ───────────────────── SSE over H2C ───────────────────── */
 
 TEST_F(IntegrationTest, SseOverH2c) {
-  xHttpServerRoute(server, "GET", "/events", sse_handler, nullptr);
+  xHttpServerRoute(server, "GET /events", sse_handler, nullptr);
   listen_and_pump();
 
   SseTestCtx  ctx;
@@ -383,7 +383,7 @@ TEST_F(IntegrationTest, SseOverH2c) {
 /* ───────────────────── H2C 404 Not Found ───────────────────── */
 
 TEST_F(IntegrationTest, H2cNotFound) {
-  xHttpServerRoute(server, "GET", "/exists", hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /exists", hello_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -408,7 +408,7 @@ TEST_F(IntegrationTest, H2cNotFound) {
 /* ───────────────────── H2C custom headers ───────────────────── */
 
 TEST_F(IntegrationTest, H2cDoCustomHeaders) {
-  xHttpServerRoute(server, "GET", "/headers", echo_header_handler, nullptr);
+  xHttpServerRoute(server, "GET /headers", echo_header_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -454,7 +454,7 @@ static void param_echo_handler(xHttpResponseWriter w, const xHttpRequest *req,
 }
 
 TEST_F(IntegrationTest, H1RouteParam) {
-  xHttpServerRoute(server, "GET", "/users/:id", param_echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /users/:id", param_echo_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -473,7 +473,7 @@ TEST_F(IntegrationTest, H1RouteParam) {
 /* ───────────────────── Route params over H2C ───────────────────── */
 
 TEST_F(IntegrationTest, H2cRouteParam) {
-  xHttpServerRoute(server, "GET", "/users/:id", param_echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /users/:id", param_echo_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -511,7 +511,7 @@ static void put_handler(xHttpResponseWriter w, const xHttpRequest *req,
 }
 
 TEST_F(IntegrationTest, H1PutMethod) {
-  xHttpServerRoute(server, "PUT", "/resource", put_handler, nullptr);
+  xHttpServerRoute(server, "PUT /resource", put_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -547,7 +547,7 @@ static void delete_handler(xHttpResponseWriter w, const xHttpRequest *req,
 }
 
 TEST_F(IntegrationTest, H2cDeleteMethod) {
-  xHttpServerRoute(server, "DELETE", "/resource", delete_handler, nullptr);
+  xHttpServerRoute(server, "DELETE /resource", delete_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -573,7 +573,7 @@ TEST_F(IntegrationTest, H2cDeleteMethod) {
 /* ───────────────────── Large body round-trip ───────────────────── */
 
 TEST_F(IntegrationTest, LargeBodyRoundTrip) {
-  xHttpServerRoute(server, "POST", "/echo", echo_body_handler, nullptr);
+  xHttpServerRoute(server, "POST /echo", echo_body_handler, nullptr);
   listen_and_pump();
 
   /* Use a body that fits in a single socket read.
@@ -615,7 +615,7 @@ static void sse_post_handler(xHttpResponseWriter w, const xHttpRequest *req,
 }
 
 TEST_F(IntegrationTest, SseDoPostH1) {
-  xHttpServerRoute(server, "POST", "/v1/chat", sse_post_handler, nullptr);
+  xHttpServerRoute(server, "POST /v1/chat", sse_post_handler, nullptr);
   listen_and_pump();
 
   SseTestCtx  ctx;
@@ -645,7 +645,7 @@ TEST_F(IntegrationTest, SseDoPostH1) {
 /* ───────────────────── SSE via DoSse POST over H2C ───────────────────── */
 
 TEST_F(IntegrationTest, SseDoPostH2c) {
-  xHttpServerRoute(server, "POST", "/v1/chat", sse_post_handler, nullptr);
+  xHttpServerRoute(server, "POST /v1/chat", sse_post_handler, nullptr);
   listen_and_pump();
 
   SseTestCtx  ctx;
@@ -676,7 +676,7 @@ TEST_F(IntegrationTest, SseDoPostH2c) {
 /* ───────────────────── Empty body response (204) ───────────────────── */
 
 TEST_F(IntegrationTest, H1EmptyBodyResponse) {
-  xHttpServerRoute(server, "DELETE", "/item", delete_handler, nullptr);
+  xHttpServerRoute(server, "DELETE /item", delete_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx;
@@ -701,7 +701,7 @@ TEST_F(IntegrationTest, H1EmptyBodyResponse) {
 /* ───────────────────── Concurrent H1 + H2C requests ───────────────────── */
 
 TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
-  xHttpServerRoute(server, "GET", "/hello", hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", hello_handler, nullptr);
   listen_and_pump();
 
   RespCtx     ctx_h1, ctx_h2c;

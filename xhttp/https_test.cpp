@@ -340,7 +340,7 @@ protected:
 /* ── HTTPS GET with skip_verify ────────────────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, GetWithSkipVerify) {
-  xHttpServerRoute(server, "GET", "/hello", echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -359,7 +359,7 @@ TEST_F(HttpsIntegrationTest, GetWithSkipVerify) {
 /* ── HTTPS POST with skip_verify ───────────────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, PostWithSkipVerify) {
-  xHttpServerRoute(server, "POST", "/echo", echo_handler, nullptr);
+  xHttpServerRoute(server, "POST /echo", echo_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -380,7 +380,7 @@ TEST_F(HttpsIntegrationTest, PostWithSkipVerify) {
 /* ── HTTPS Do (generic) with custom headers ────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, DoWithCustomHeaders) {
-  xHttpServerRoute(server, "PUT", "/data", echo_handler, nullptr);
+  xHttpServerRoute(server, "PUT /data", echo_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -417,7 +417,7 @@ TEST_F(HttpsIntegrationTest, DoWithCustomHeaders) {
 
 #if 0  /* disabled: server TLS streaming not yet supported */
 TEST_F(HttpsIntegrationTest, SseOverHttps) {
-  xHttpServerRoute(server, "GET", "/events", sse_handler, nullptr);
+  xHttpServerRoute(server, "GET /events", sse_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -444,7 +444,7 @@ TEST_F(HttpsIntegrationTest, SseOverHttps) {
 
 /* ── HTTPS with correct CA path (no skip_verify) ────────────────────── */
 TEST_F(HttpsIntegrationTest, GetWithCorrectCaPath) {
-  xHttpServerRoute(server, "GET", "/hello", echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
 
   /* Use the self-signed cert as CA — should pass verification */
@@ -465,7 +465,7 @@ TEST_F(HttpsIntegrationTest, GetWithCorrectCaPath) {
 /* ── HTTPS without skip_verify + self-signed cert → should fail ────────── */
 
 TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
-  xHttpServerRoute(server, "GET", "/hello", echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
 
   /* Default TLS config: verify enabled, system CA bundle.
@@ -487,7 +487,7 @@ TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
 /* ── HTTPS with wrong CA path → should fail ────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
-  xHttpServerRoute(server, "GET", "/hello", echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
 
   /* Point to a non-existent CA file */
@@ -509,7 +509,7 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
 /* ── Multiple concurrent HTTPS requests ────────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, ConcurrentHttpsRequests) {
-  xHttpServerRoute(server, "GET", "/hello", echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -676,7 +676,7 @@ protected:
 };
 
 TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
-  xHttpServerRoute(server, "GET", "/secure", echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /secure", echo_handler, nullptr);
 
   /* Server requires client certificate (verify_client = 2) */
   xHttpTlsServerConf srv_conf = {};
@@ -710,7 +710,7 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
 }
 
 TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
-  xHttpServerRoute(server, "GET", "/secure", echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /secure", echo_handler, nullptr);
 
   /* Server requires client certificate */
   xHttpTlsServerConf srv_conf = {};
@@ -771,7 +771,7 @@ TEST_F(HttpsIntegrationTest, HttpsRequestTimeout) {
 
 #if 0  /* disabled: server TLS streaming not yet supported */
 TEST_F(HttpsIntegrationTest, DoSseOverHttps) {
-  xHttpServerRoute(server, "POST", "/sse", sse_handler, nullptr);
+  xHttpServerRoute(server, "POST /sse", sse_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -805,7 +805,7 @@ TEST_F(HttpsIntegrationTest, DoSseOverHttps) {
 
 /* ── Destroy client with in-flight HTTPS request ────────────────────── */
 TEST_F(HttpsIntegrationTest, DestroyWithInflightHttpsRequest) {
-  xHttpServerRoute(server, "GET", "/hello", echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
   client_skip_verify();
 
@@ -830,7 +830,7 @@ TEST_F(HttpsIntegrationTest, DestroyWithInflightHttpsRequest) {
 /* ── Reset TLS config between requests ─────────────────────────────────── */
 
 TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
-  xHttpServerRoute(server, "GET", "/hello", echo_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", echo_handler, nullptr);
   listen_tls_and_start();
 
   /* First request: skip verify → should succeed */

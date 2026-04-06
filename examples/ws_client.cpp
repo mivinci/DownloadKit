@@ -1,8 +1,8 @@
 /*
- * ws_client_example.cpp - WebSocket client demo
+ * ws_client.cpp - WebSocket client demo
  *
  * Usage:
- *   ./ws_client_example [url]
+ *   ./ws_client [url]
  *
  * Connects to a WebSocket server (default: ws://127.0.0.1:9000)
  * and enters an interactive loop: type a line and press Enter to
@@ -11,7 +11,7 @@
  *
  * Pair with ws_echo_server.py for a quick test:
  *   python3 ws_echo_server.py &
- *   ./ws_client_example ws://127.0.0.1:9000
+ *   ./ws_client ws://127.0.0.1:9000
  */
 
 #include <xbase/backtrace.h>

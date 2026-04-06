@@ -1,8 +1,8 @@
 /*
- * ws_server_example.cpp - WebSocket echo server demo
+ * ws_echo_server.cpp - WebSocket echo server demo
  *
  * Usage:
- *   ./ws_server_example [port]
+ *   ./ws_echo_server [port]
  *
  * Open ws_client.html in a browser and connect to ws://localhost:<port>/ws.
  * Messages sent from the browser are echoed back by the server.

@@ -1,11 +1,11 @@
 /*
- * llm_sse_example.cpp - Interactive REPL for streaming LLM chat via SSE
+ * llm_sse.cpp - Interactive REPL for streaming LLM chat via SSE
  *
  * Usage:
  *   export LLM_API_URL="https://api.openai.com"   # base URL (path
  * auto-appended) export LLM_API_KEY="sk-xxx" export LLM_MODEL="gpt-4o" #
  * optional, defaults to "gpt-4o"
- *   ./llm_sse_example
+ *   ./llm_sse
  *
  * Type a message and press Enter. The assistant's reply streams in real
  * time via Server-Sent Events. Press Ctrl-D or type "exit" to quit.

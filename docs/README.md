@@ -97,7 +97,7 @@ Full-featured async HTTP framework: libcurl-powered client with SSE streaming, e
 | Sub-Module | Description |
 | --- | --- |
 | [client.h](xhttp/client.md) | Async HTTP client (GET / POST / PUT / DELETE / PATCH / HEAD) |
-| [client_sse.c](xhttp/client_sse.md) | SSE streaming client with W3C-compliant event parsing |
+| [sse.c](xhttp/sse.md) | SSE streaming client with W3C-compliant event parsing |
 | [server.h](xhttp/server.md) | Event-driven HTTP server with HTTP/1.1 and HTTP/2 (h2c) |
 | [ws.h](xhttp/ws_server.md) | RFC 6455 WebSocket server with handler-initiated upgrade |
 | [ws.h](xhttp/ws_client.md) | RFC 6455 WebSocket client with async connect |
@@ -121,7 +121,7 @@ High-performance async logger with MPSC queue, three flush modes, and file rotat
 | Schedule timers | [xbase/timer.h](xbase/timer.md) |
 | Run tasks on a thread pool | [xbase/task.h](xbase/task.md) |
 | Make async HTTP requests | [xhttp/client.h](xhttp/client.md) |
-| Stream LLM API responses (SSE) | [xhttp/client_sse.c](xhttp/client_sse.md) |
+| Stream LLM API responses (SSE) | [xhttp/sse.c](xhttp/sse.md) |
 | Build an HTTP server | [xhttp/server.h](xhttp/server.md) |
 | Add WebSocket server | [xhttp/ws.h](xhttp/ws_server.md) |
 | Connect as WebSocket client | [xhttp/ws.h](xhttp/ws_client.md) |

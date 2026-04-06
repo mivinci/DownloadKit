@@ -72,7 +72,7 @@ graph TD
 | --- | --- | --- |
 | `server.h` | Async HTTP/1.1 & HTTP/2 server (routing, request/response, protocol-abstracted parsing) | [server.md](server.md) |
 | `client.h` | Async HTTP client API (GET, POST, Do, SSE, TLS configuration) | [client.md](client.md) |
-| `client_sse.c` | SSE stream parser and request handler | [client_sse.md](client_sse.md) |
+| `sse.c` | SSE stream parser and request handler | [sse.md](sse.md) |
 | `ws.h` (server) | WebSocket server API (upgrade, send, close, callbacks) | [ws_server.md](ws_server.md) |
 | `ws.h` (client) | WebSocket client API (connect, send, close, callbacks) | [ws_client.md](ws_client.md) |
 | *(guide)* | TLS deployment guide (certificate generation, one-way TLS, mTLS, troubleshooting) | [tls.md](tls.md) |

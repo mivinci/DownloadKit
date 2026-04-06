@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * client_sse_test.cpp - Unit tests for SSE (Server-Sent Events) support
+ * sse_test.cpp - Unit tests for SSE (Server-Sent Events) support
  */
 
 #include <gtest/gtest.h>

@@ -1,8 +1,8 @@
-# client_sse.c — SSE Stream Client
+# sse.c — SSE Stream Client
 
 ## Introduction
 
-`client_sse.c` implements Server-Sent Events (SSE) support for `xHttpClient`. It provides `xHttpClientGetSse()` and `xHttpClientDoSse()` which subscribe to SSE endpoints and parse the event stream according to the [W3C SSE specification](https://html.spec.whatwg.org/multipage/server-sent-events.html). Each parsed event is delivered to a callback as it arrives, enabling real-time streaming — ideal for LLM API integration.
+`sse.c` implements Server-Sent Events (SSE) support for `xHttpClient`. It provides `xHttpClientGetSse()` and `xHttpClientDoSse()` which subscribe to SSE endpoints and parse the event stream according to the [W3C SSE specification](https://html.spec.whatwg.org/multipage/server-sent-events.html). Each parsed event is delivered to a callback as it arrives, enabling real-time streaming — ideal for LLM API integration.
 
 ## Design Philosophy
 

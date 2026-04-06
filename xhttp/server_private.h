@@ -12,6 +12,7 @@
 #include "transport.h"
 #include <stddef.h>
 #include <stdint.h>
+#include <xbase/base.h>
 #include <xbase/event.h>
 #include <xbase/socket.h>
 #include <xbuf/buf.h>
@@ -35,14 +36,14 @@
  *   segments[1] = { .text = NULL,    .param = "id"  }
  *   segments[2] = { .text = "posts", .param = NULL  }
  */
-struct xHttpRouteSegment_ {
+XDEF_STRUCT(xHttpRouteSegment_) {
   const char *text;  /**< Static text, or NULL for a param segment  */
   const char *param; /**< Param name (e.g. "id"), or NULL for static */
 };
 
 /* ───────────────────── Route entry ───────────────────── */
 
-struct xHttpRoute_ {
+XDEF_STRUCT(xHttpRoute_) {
   const char                *method; /**< HTTP method, or NULL for any method */
   const char                *path;   /**< Original pattern string             */
   struct xHttpRouteSegment_ *segments; /**< Pre-parsed segments             */
@@ -56,7 +57,7 @@ struct xHttpRoute_ {
 
 #define XHTTP_MAX_PARAMS 8
 
-struct xHttpParam_ {
+XDEF_STRUCT(xHttpParam_) {
   const char *name;      /**< Param name (points into route segment)  */
   const char *value;     /**< Param value (points into request URL)   */
   size_t      value_len; /**< Length of value (not NUL-terminated)  */
@@ -69,7 +70,7 @@ struct xHttpStream_;
 
 /* ───────────────────── Response header entry ───────────────────── */
 
-struct xHttpHeader_ {
+XDEF_STRUCT(xHttpHeader_) {
   char                *key;
   char                *value;
   struct xHttpHeader_ *next;
@@ -77,7 +78,7 @@ struct xHttpHeader_ {
 
 /* ───────────────────── Response writer ───────────────────── */
 
-struct xHttpResponseWriter_ {
+XDEF_STRUCT(xHttpResponseWriter_) {
   int                  status_code;  /**< HTTP status code (default 200)  */
   struct xHttpHeader_ *headers;      /**< Response header linked list     */
   struct xHttpHeader_ *headers_tail; /**< Tail for O(1) append            */
@@ -92,7 +93,7 @@ struct xHttpResponseWriter_ {
  * Abstract protocol handler interface (vtable).
  * Allows transparent switching between HTTP/1.1 (llhttp) and HTTP/2 (nghttp2).
  */
-typedef struct xHttpProto_ {
+XDEF_STRUCT(xHttpProto) {
   /* Data ingestion */
   int (*on_data)(struct xHttpConn_ *conn, const char *buf, size_t len);
   /* Connection lifecycle */
@@ -108,7 +109,7 @@ typedef struct xHttpProto_ {
   int (*write_data)(struct xHttpStream_ *stream, const char *data, size_t len);
   int (*end_stream)(struct xHttpStream_ *stream);
   void *state; /**< Opaque protocol state (e.g. xHttpProtoH1*) */
-} xHttpProto;
+};
 
 /* ───────────────────── Stream (per-request state) ───────────────────── */
 
@@ -117,7 +118,7 @@ typedef struct xHttpProto_ {
  * HTTP/1.1: one implicit stream per connection (stream_id = 0).
  * HTTP/2:   multiple concurrent streams per connection.
  */
-struct xHttpStream_ {
+XDEF_STRUCT(xHttpStream_) {
   struct xHttpConn_ *conn;      /**< Back-pointer to the connection   */
   int32_t            stream_id; /**< Stream ID (0 for H1)             */
 
@@ -140,7 +141,7 @@ struct xHttpStream_ {
 
 /* ───────────────────── Connection ───────────────────── */
 
-struct xHttpConn_ {
+XDEF_STRUCT(xHttpConn_) {
   struct xHttpServer_ *server;    /**< Back-pointer to the server      */
   xSocket              sock;      /**< Async socket handle              */
   xIOBuffer            read_buf;  /**< Read buffer                      */
@@ -169,7 +170,7 @@ struct xHttpConn_ {
 
 /* ───────────────────── Server ───────────────────── */
 
-struct xHttpServer_ {
+XDEF_STRUCT(xHttpServer_) {
   xEventLoop loop;        /**< Event loop                       */
   xSocket    listen_sock; /**< Listening socket                  */
   int        listen_fd;   /**< Listening socket fd (raw)         */

@@ -104,11 +104,11 @@ void xHttpTlsCtxDestroyOpenSSL(void *ctx) {
 
 /* ───────────────────── Per-connection TLS state ───────────────────── */
 
-typedef struct {
+XDEF_STRUCT(xHttpTlsOpenSSL_) {
   SSL *ssl;
   int  fd;
   char alpn_result[16]; /**< Cached ALPN negotiation result */
-} xHttpTlsOpenSSL_;
+};
 
 /* ───────────────────── Transport vtable callbacks ───────────────────── */
 

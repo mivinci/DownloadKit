@@ -22,12 +22,12 @@
 
 /* ─────────────────── Per-connection TLS state ─────────────────── */
 
-typedef struct {
+XDEF_STRUCT(xTlsClient_) {
   SSL     *ssl;
   SSL_CTX *ctx;  /**< Owned by this transport (one CTX per conn) */
   int      fd;
   char     alpn_result[16];
-} xTlsClient_;
+};
 
 /* ─────────────────── Transport vtable callbacks ─────────────────── */
 

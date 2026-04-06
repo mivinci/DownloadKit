@@ -51,7 +51,7 @@
 
 /* ─────────── Per-connection TLS client state ─────────── */
 
-typedef struct {
+XDEF_STRUCT(xTlsClientMbed_) {
   mbedtls_ssl_context  ssl;
   mbedtls_ssl_config   conf;
   mbedtls_x509_crt     ca_cert;
@@ -65,7 +65,7 @@ typedef struct {
   int  has_ca;
   int  has_client_cert;
   char alpn_result[16];
-} xTlsClientMbed_;
+};
 
 /* ─────────── Custom I/O callbacks ─────────── */
 

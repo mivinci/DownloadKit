@@ -75,12 +75,12 @@ static int is_control_opcode(uint8_t opcode) {
 void xWsFrameParserInit(xWsFrameParser *parser,
                         int expect_masked) {
   memset(parser, 0, sizeof(*parser));
-  parser->phase = XWS_PARSE_HEADER;
+  parser->phase = xWsFrameParserPhase_Header;
   parser->expect_masked = expect_masked;
 }
 
 void xWsFrameParserReset(xWsFrameParser *parser) {
-  parser->phase        = XWS_PARSE_HEADER;
+  parser->phase        = xWsFrameParserPhase_Header;
   parser->payload_read = 0;
   memset(&parser->frame, 0, sizeof(parser->frame));
 }
@@ -90,7 +90,7 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
   xWsFrame *f = &parser->frame;
 
   /* Phase: HEADER — read 2-byte base header */
-  if (parser->phase == XWS_PARSE_HEADER) {
+  if (parser->phase == xWsFrameParserPhase_Header) {
     uint8_t hdr[2];
     if (!io_peek(io, hdr, 2)) return xWsFrameResult_NeedMore;
 
@@ -120,14 +120,14 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
     if (len7 < 126) {
       f->payload_len = len7;
       xIOBufferConsume(io, 2);
-      parser->phase = f->masked ? XWS_PARSE_MASK
-                                : XWS_PARSE_PAYLOAD;
+      parser->phase = f->masked ? xWsFrameParserPhase_Mask
+                                : xWsFrameParserPhase_Payload;
     } else if (len7 == 126) {
       xIOBufferConsume(io, 2);
-      parser->phase = XWS_PARSE_LEN16;
+      parser->phase = xWsFrameParserPhase_Len16;
     } else { /* len7 == 127 */
       xIOBufferConsume(io, 2);
-      parser->phase = XWS_PARSE_LEN64;
+      parser->phase = xWsFrameParserPhase_Len64;
     }
 
     /* Control frame validation */
@@ -139,17 +139,17 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
   }
 
   /* Phase: LEN16 — read 2-byte extended length */
-  if (parser->phase == XWS_PARSE_LEN16) {
+  if (parser->phase == xWsFrameParserPhase_Len16) {
     uint8_t buf[2];
     if (!io_peek(io, buf, 2)) return xWsFrameResult_NeedMore;
     f->payload_len = ((uint64_t)buf[0] << 8) | buf[1];
     xIOBufferConsume(io, 2);
-    parser->phase = f->masked ? XWS_PARSE_MASK
-                              : XWS_PARSE_PAYLOAD;
+    parser->phase = f->masked ? xWsFrameParserPhase_Mask
+                              : xWsFrameParserPhase_Payload;
   }
 
   /* Phase: LEN64 — read 8-byte extended length */
-  if (parser->phase == XWS_PARSE_LEN64) {
+  if (parser->phase == xWsFrameParserPhase_Len64) {
     uint8_t buf[8];
     if (!io_peek(io, buf, 8)) return xWsFrameResult_NeedMore;
     f->payload_len = 0;
@@ -159,20 +159,20 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
     /* MSB must be 0 (RFC 6455 §5.2) */
     if (f->payload_len >> 63) return xWsFrameResult_Error;
     xIOBufferConsume(io, 8);
-    parser->phase = f->masked ? XWS_PARSE_MASK
-                              : XWS_PARSE_PAYLOAD;
+    parser->phase = f->masked ? xWsFrameParserPhase_Mask
+                              : xWsFrameParserPhase_Payload;
   }
 
   /* Phase: MASK — read 4-byte masking key */
-  if (parser->phase == XWS_PARSE_MASK) {
+  if (parser->phase == xWsFrameParserPhase_Mask) {
     if (!io_peek(io, f->masking_key, 4))
       return xWsFrameResult_NeedMore;
     xIOBufferConsume(io, 4);
-    parser->phase = XWS_PARSE_PAYLOAD;
+    parser->phase = xWsFrameParserPhase_Payload;
   }
 
   /* Phase: PAYLOAD — read payload data */
-  if (parser->phase == XWS_PARSE_PAYLOAD) {
+  if (parser->phase == xWsFrameParserPhase_Payload) {
     if (f->payload_len == 0) {
       f->payload = NULL;
       goto done;

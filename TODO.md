@@ -63,7 +63,7 @@ DNS → TCP/UDP → TLS 是建立网络连接的完整链路，放在同一模�
 - 基于 `xSocket` + `xTcpListener` 接受连接
 - 内置 HTTP/1.1 请求解析（可以用 llhttp 或自己写一个轻量 parser）
 - 路由 + handler 回调模型
-- 接口风格类似：`xHttpServerCreate(loop)` → `xHttpServerRoute(server, "GET", "/path", handler)` → `xHttpServerListen(server, ":8080")`
+- 接口风格类似：`xHttpServerCreate(loop)` → `xHttpServerRoute(server, "GET /path", handler)` → `xHttpServerListen(server, ":8080")`
 
 ## 4. xlog 增强 — 异步日志 ✅
 

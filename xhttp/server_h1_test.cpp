@@ -73,24 +73,24 @@ TEST_F(HttpServerTest, SetMaxBodySize) {
 static void dummy_handler(xHttpResponseWriter, const xHttpRequest *, void *) {}
 
 TEST_F(HttpServerTest, RouteRegistration) {
-  EXPECT_EQ(xHttpServerRoute(server, "GET", "/test", dummy_handler, nullptr),
+  EXPECT_EQ(xHttpServerRoute(server, "GET /test", dummy_handler, nullptr),
             xErrno_Ok);
-  EXPECT_EQ(xHttpServerRoute(server, nullptr, "/any", dummy_handler, nullptr),
+  EXPECT_EQ(xHttpServerRoute(server, "/any", dummy_handler, nullptr),
             xErrno_Ok);
 }
 
 TEST_F(HttpServerTest, RouteNullPathReturnsError) {
-  EXPECT_EQ(xHttpServerRoute(server, "GET", nullptr, dummy_handler, nullptr),
+  EXPECT_EQ(xHttpServerRoute(server, nullptr, dummy_handler, nullptr),
             xErrno_InvalidArg);
 }
 
 TEST_F(HttpServerTest, RouteNullHandlerReturnsError) {
-  EXPECT_EQ(xHttpServerRoute(server, "GET", "/test", nullptr, nullptr),
+  EXPECT_EQ(xHttpServerRoute(server, "GET /test", nullptr, nullptr),
             xErrno_InvalidArg);
 }
 
 TEST_F(HttpServerTest, RouteNullServerReturnsError) {
-  EXPECT_EQ(xHttpServerRoute(nullptr, "GET", "/test", dummy_handler, nullptr),
+  EXPECT_EQ(xHttpServerRoute(nullptr, "GET /test", dummy_handler, nullptr),
             xErrno_InvalidArg);
 }
 
@@ -113,7 +113,7 @@ static void echo_handler(xHttpResponseWriter writer, const xHttpRequest *req,
 
 TEST_F(HttpServerTest, BasicGetRequest) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/hello", echo_handler, &ctx);
+  xHttpServerRoute(server, "GET /hello", echo_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -155,7 +155,7 @@ static void body_echo_handler(xHttpResponseWriter writer,
 
 TEST_F(HttpServerTest, PostRequestWithBody) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "POST", "/echo", body_echo_handler, &ctx);
+  xHttpServerRoute(server, "POST /echo", body_echo_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -186,7 +186,7 @@ TEST_F(HttpServerTest, PostRequestWithBody) {
 /* ───────────────────── 404 Not Found ───────────────────── */
 
 TEST_F(HttpServerTest, NotFoundResponse) {
-  xHttpServerRoute(server, "GET", "/exists", dummy_handler, nullptr);
+  xHttpServerRoute(server, "GET /exists", dummy_handler, nullptr);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -207,7 +207,7 @@ TEST_F(HttpServerTest, NotFoundResponse) {
 /* ───────────────────── 405 Method Not Allowed ───────────────────── */
 
 TEST_F(HttpServerTest, MethodNotAllowedResponse) {
-  xHttpServerRoute(server, "GET", "/only-get", dummy_handler, nullptr);
+  xHttpServerRoute(server, "GET /only-get", dummy_handler, nullptr);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -231,7 +231,7 @@ TEST_F(HttpServerTest, MethodNotAllowedResponse) {
 
 TEST_F(HttpServerTest, KeepAliveConnectionReuse) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/ka", echo_handler, &ctx);
+  xHttpServerRoute(server, "GET /ka", echo_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -265,7 +265,7 @@ TEST_F(HttpServerTest, DefaultResponseWhenHandlerDoesNotSend) {
     /* Handler does nothing — server should auto-send 200 OK */
   };
 
-  xHttpServerRoute(server, "GET", "/noop", (xHttpHandlerFunc)noop_handler,
+  xHttpServerRoute(server, "GET /noop", (xHttpHandlerFunc)noop_handler,
                    nullptr);
   listen_and_pump();
 
@@ -287,7 +287,7 @@ TEST_F(HttpServerTest, DefaultResponseWhenHandlerDoesNotSend) {
 /* ───────────────────── Bad request (parse error) ───────────────────── */
 
 TEST_F(HttpServerTest, BadRequestOnParseError) {
-  xHttpServerRoute(server, "GET", "/test", dummy_handler, nullptr);
+  xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -309,7 +309,7 @@ TEST_F(HttpServerTest, BadRequestOnParseError) {
 
 TEST_F(HttpServerTest, HeaderTooLargeReturns431) {
   xHttpServerSetMaxHeaderSize(server, 128);
-  xHttpServerRoute(server, "GET", "/test", dummy_handler, nullptr);
+  xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -337,7 +337,7 @@ TEST_F(HttpServerTest, HeaderTooLargeReturns431) {
 
 TEST_F(HttpServerTest, BodyTooLargeReturns413) {
   xHttpServerSetMaxBodySize(server, 32);
-  xHttpServerRoute(server, "POST", "/test", dummy_handler, nullptr);
+  xHttpServerRoute(server, "POST /test", dummy_handler, nullptr);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -364,7 +364,7 @@ TEST_F(HttpServerTest, BodyTooLargeReturns413) {
 /* ───────────────────── Client disconnect (half-close) ───────────────────── */
 
 TEST_F(HttpServerTest, ClientDisconnectDoesNotCrash) {
-  xHttpServerRoute(server, "GET", "/test", dummy_handler, nullptr);
+  xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -384,7 +384,7 @@ TEST_F(HttpServerTest, ClientDisconnectDoesNotCrash) {
 
 TEST_F(HttpServerTest, NullMethodMatchesAll) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, nullptr, "/any", echo_handler, &ctx);
+  xHttpServerRoute(server, "/any", echo_handler, &ctx);
   listen_and_pump();
 
   /* Test with GET */
@@ -421,7 +421,7 @@ TEST_F(HttpServerTest, NullMethodMatchesAll) {
  */
 
 TEST_F(HttpServerTest, DestroyWithActiveConnections) {
-  xHttpServerRoute(server, "GET", "/test", dummy_handler, nullptr);
+  xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
   listen_and_pump();
 
   /* Open a connection but don't send anything */
@@ -456,7 +456,7 @@ static void stream_handler(xHttpResponseWriter writer, const xHttpRequest *req,
 
 TEST_F(HttpServerTest, StreamingResponse) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/stream", stream_handler, &ctx);
+  xHttpServerRoute(server, "GET /stream", stream_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -497,7 +497,7 @@ static void stream_no_end_handler(xHttpResponseWriter writer,
 
 TEST_F(HttpServerTest, StreamingAutoEnd) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/stream-auto", stream_no_end_handler, &ctx);
+  xHttpServerRoute(server, "GET /stream-auto", stream_no_end_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -534,7 +534,7 @@ static void write_then_send_handler(xHttpResponseWriter writer,
 
 TEST_F(HttpServerTest, WriteAndSendMutuallyExclusive) {
   HandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/mix", write_then_send_handler, &ctx);
+  xHttpServerRoute(server, "GET /mix", write_then_send_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -572,7 +572,7 @@ static void param_handler(xHttpResponseWriter writer, const xHttpRequest *req,
 
 TEST_F(HttpServerTest, ParamRouteBasic) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/users/:id", param_handler, &ctx);
+  xHttpServerRoute(server, "GET /users/:id", param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -594,7 +594,7 @@ TEST_F(HttpServerTest, ParamRouteBasic) {
 
 TEST_F(HttpServerTest, ParamRouteStringId) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/users/:id", param_handler, &ctx);
+  xHttpServerRoute(server, "GET /users/:id", param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -635,7 +635,7 @@ static void multi_param_handler(xHttpResponseWriter writer,
 
 TEST_F(HttpServerTest, ParamRouteMultipleParams) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/users/:id/:action", multi_param_handler,
+  xHttpServerRoute(server, "GET /users/:id/:action", multi_param_handler,
                    &ctx);
   listen_and_pump();
 
@@ -660,7 +660,7 @@ TEST_F(HttpServerTest, ParamRouteMultipleParams) {
 
 TEST_F(HttpServerTest, ParamRouteExtraSegments404) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/users/:id", param_handler, &ctx);
+  xHttpServerRoute(server, "GET /users/:id", param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -695,7 +695,7 @@ static void missing_param_handler(xHttpResponseWriter writer,
 
 TEST_F(HttpServerTest, ParamRouteNonexistentParam) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/items/:id", missing_param_handler, &ctx);
+  xHttpServerRoute(server, "GET /items/:id", missing_param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -720,8 +720,8 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
   ParamHandlerCtx param_ctx;
 
   /* Register static route first (first match wins) */
-  xHttpServerRoute(server, "GET", "/users/me", echo_handler, &static_ctx);
-  xHttpServerRoute(server, "GET", "/users/:id", param_handler, &param_ctx);
+  xHttpServerRoute(server, "GET /users/me", echo_handler, &static_ctx);
+  xHttpServerRoute(server, "GET /users/:id", param_handler, &param_ctx);
   listen_and_pump();
 
   /* /users/me should match the static route */
@@ -757,7 +757,7 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
 
 TEST_F(HttpServerTest, ParamRouteMethodNotAllowed) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET", "/items/:id", param_handler, &ctx);
+  xHttpServerRoute(server, "GET /items/:id", param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);

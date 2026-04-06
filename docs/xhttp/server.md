@@ -12,7 +12,7 @@
 
 3. **Automatic Protocol Detection** — On each new connection, the server inspects the first bytes of incoming data. If the 24-byte HTTP/2 connection preface (`PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n`) is detected, the connection is upgraded to HTTP/2; otherwise, HTTP/1.1 is used. This enables h2c (cleartext HTTP/2) via Prior Knowledge — ideal for internal service-to-service communication.
 
-4. **First-Match Routing** — Routes are registered as (method, path) pairs and matched in registration order. Path patterns support both exact segments and `:param` segments (e.g. `/users/:id`). This keeps the routing logic simple and predictable.
+4. **First-Match Routing** — Routes are registered as pattern strings (e.g. `"GET /users/:id"` or `"/any"`) and matched in registration order. If the pattern starts with `/`, it matches any HTTP method; otherwise the first token is the method. Path patterns support both exact segments and `:param` segments.
 
 5. **Writer-Based Response API** — Handlers receive an `xHttpResponseWriter` handle to set status, headers, and body. The response is serialized into an [`xIOBuffer`](../xbuf/io.md) and flushed asynchronously, with backpressure handled automatically.
 
@@ -138,7 +138,7 @@ sequenceDiagram
 Routes are stored in a singly-linked list and matched in registration order (first match wins):
 
 1. **Path match** — Segment-by-segment comparison. Static segments require exact match; `:param` segments match any non-empty string and capture the value.
-2. **Method match** — Case-insensitive comparison (`strcasecmp`). A `NULL` method matches any HTTP method.
+2. **Method match** — Case-insensitive comparison (`strcasecmp`). A pattern without a method prefix (e.g. `"/any"`) matches any HTTP method.
 3. **Fallback** — If the path matches but no method matches → 405 Method Not Allowed. If no path matches → 404 Not Found.
 4. **Parameter access** — Inside a handler, call `xHttpRequestParam(req, "id", &len)` to retrieve the captured value.
 
@@ -268,7 +268,7 @@ All pointers are valid only for the duration of the handler callback.
 
 | Function | Signature | Description |
 | --- | --- | --- |
-| `xHttpServerRoute` | `xErrno xHttpServerRoute(xHttpServer server, const char *method, const char *path, xHttpHandlerFunc handler, void *arg)` | Register a route. `method` may be `NULL` to match all methods. `path` supports `:param` segments (e.g. `/users/:id`). First match wins. |
+| `xHttpServerRoute` | `xErrno xHttpServerRoute(xHttpServer server, const char *pattern, xHttpHandlerFunc handler, void *arg)` | Register a route. `pattern` combines method and path: `"GET /users/:id"` matches only GET; `"/users/:id"` matches all methods. Path supports `:param` segments. First match wins. |
 
 ### Request Parameters
 
@@ -328,7 +328,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
     xHttpServer server = xHttpServerCreate(loop);
 
-    xHttpServerRoute(server, "GET", "/hello", on_hello, NULL);
+    xHttpServerRoute(server, "GET /hello", on_hello, NULL);
     xHttpServerListen(server, "0.0.0.0", 8080);
 
     printf("Listening on :8080\n");
@@ -368,7 +368,7 @@ int main(void) {
 
     xHttpServerSetMaxBodySize(server, 4 * 1024 * 1024); /* 4 MiB */
 
-    xHttpServerRoute(server, "POST", "/echo", on_echo, NULL);
+    xHttpServerRoute(server, "POST /echo", on_echo, NULL);
 
     xHttpServerListen(server, NULL, 9090);
     xEventLoopRun(loop);
@@ -401,7 +401,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
     xHttpServer server = xHttpServerCreate(loop);
 
-    xHttpServerRoute(server, "GET", "/events", on_events, NULL);
+    xHttpServerRoute(server, "GET /events", on_events, NULL);
 
     xHttpServerListen(server, NULL, 8080);
     printf("SSE server on :8080/events\n");
@@ -438,7 +438,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
     xHttpServer server = xHttpServerCreate(loop);
 
-    xHttpServerRoute(server, "GET", "/users/:id", on_get_user, NULL);
+    xHttpServerRoute(server, "GET /users/:id", on_get_user, NULL);
 
     xHttpServerListen(server, NULL, 8080);
     printf("REST API on :8080\n");
@@ -467,7 +467,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
     xHttpServer server = xHttpServerCreate(loop);
 
-    xHttpServerRoute(server, "GET", "/hello", on_hello, NULL);
+    xHttpServerRoute(server, "GET /hello", on_hello, NULL);
 
     // TLS configuration
     xHttpTlsServerConf tls = {
@@ -502,7 +502,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
     xHttpServer server = xHttpServerCreate(loop);
 
-    xHttpServerRoute(server, "GET", "/secure", on_secure, NULL);
+    xHttpServerRoute(server, "GET /secure", on_secure, NULL);
 
     // Require client certificates
     xHttpTlsServerConf tls = {
@@ -538,7 +538,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
     xHttpServer server = xHttpServerCreate(loop);
 
-    xHttpServerRoute(server, "GET", "/hello", on_hello, NULL);
+    xHttpServerRoute(server, "GET /hello", on_hello, NULL);
 
     // Serve HTTP on port 8080
     xHttpServerListen(server, "0.0.0.0", 8080);
@@ -593,8 +593,8 @@ int main(void) {
 
     AppState state = { .counter = 0 };
 
-    xHttpServerRoute(server, "POST", "/count", on_count, &state);
-    xHttpServerRoute(server, "GET",  "/health", on_health, NULL);
+    xHttpServerRoute(server, "POST /count", on_count, &state);
+    xHttpServerRoute(server, "GET /health", on_health, NULL);
 
     xHttpServerListen(server, NULL, 8080);
     xEventLoopRun(loop);

@@ -99,21 +99,29 @@ XCAPI(void) xHttpServerDestroy(xHttpServer server);
 /* ── Routing ───────────────────────────────────────────────────────────── */
 
 /**
- * @brief Register a route (method + path → handler).
+ * @brief Register a route (pattern → handler).
+ *
+ * The @p pattern string combines an optional HTTP method and a path,
+ * following the Go `http.HandleFunc` convention:
+ *
+ *   - `"GET /users/:id"` — matches only GET requests to `/users/:id`.
+ *   - `"/users/:id"`     — matches **all** HTTP methods to `/users/:id`.
+ *
+ * If the pattern starts with `'/'`, it matches any method.  Otherwise the
+ * first space-delimited token is taken as the method and the remainder as
+ * the path.
  *
  * Routes are matched in registration order (first match wins).
  * Must be called before xHttpServerListen().
  *
  * @param server   The HTTP server (must not be NULL).
- * @param method   HTTP method to match (e.g. "GET"), or NULL to match all.
- * @param path     URL path to match (exact match, must not be NULL).
+ * @param pattern  Method + path pattern (must not be NULL, see above).
  * @param handler  Handler callback (must not be NULL).
  * @param arg      User argument forwarded to @p handler.
  * @return         xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpServerRoute(xHttpServer server, const char *method,
-                               const char *path, xHttpHandlerFunc handler,
-                               void *arg);
+XCAPI(xErrno) xHttpServerRoute(xHttpServer server, const char *pattern,
+                               xHttpHandlerFunc handler, void *arg);
 
 /**
  * @brief Look up a path parameter by name.

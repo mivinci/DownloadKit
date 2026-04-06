@@ -149,8 +149,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  xHttpServerRoute(server, "GET", "/", index_handler, NULL);
-  xHttpServerRoute(server, "GET", "/ws", ws_handler, NULL);
+  xHttpServerRoute(server, "GET /", index_handler, NULL);
+  xHttpServerRoute(server, "GET /ws", ws_handler, NULL);
 
   xErrno err = xHttpServerListen(server, "0.0.0.0", port);
   if (err != xErrno_Ok) {

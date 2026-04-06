@@ -272,7 +272,7 @@ static void tls_hello_handler(xHttpResponseWriter w, const xHttpRequest *req,
 }
 
 TEST_F(HttpServerTlsTest, BasicTlsConnection) {
-  xHttpServerRoute(server, "GET", "/hello", tls_hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /hello", tls_hello_handler, nullptr);
   listen_tls_and_start();
 
   TlsConn conn = connect_tls("http/1.1");
@@ -293,7 +293,7 @@ TEST_F(HttpServerTlsTest, BasicTlsConnection) {
 /* ── ALPN negotiation: http/1.1 ───────────────────────────────────────── */
 
 TEST_F(HttpServerTlsTest, AlpnNegotiatesH1) {
-  xHttpServerRoute(server, "GET", "/alpn", tls_hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /alpn", tls_hello_handler, nullptr);
   listen_tls_and_start();
 
   TlsConn conn = connect_tls("http/1.1");
@@ -337,7 +337,7 @@ TEST_F(HttpServerTlsTest, InvalidKeyPathReturnsError) {
 /* ── Simultaneous HTTP and HTTPS ──────────────────────────────────────── */
 
 TEST_F(HttpServerTlsTest, SimultaneousHttpAndHttps) {
-  xHttpServerRoute(server, "GET", "/dual", tls_hello_handler, nullptr);
+  xHttpServerRoute(server, "GET /dual", tls_hello_handler, nullptr);
 
   /* Start plain HTTP */
   xErrno err = xHttpServerListen(server, "127.0.0.1", port);

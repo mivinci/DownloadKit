@@ -265,7 +265,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
     xHttpServer server = xHttpServerCreate(loop);
 
-    xHttpServerRoute(server, "GET", "/secure", on_secure, NULL);
+    xHttpServerRoute(server, "GET /secure", on_secure, NULL);
 
     xHttpTlsServerConf tls = {
         .cert_file     = "server.pem",

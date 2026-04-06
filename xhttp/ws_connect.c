@@ -37,21 +37,21 @@
  * ═══════════════════════════════════════════════════════════════════
  */
 
-typedef enum {
-  XWS_PHASE_DNS,
-  XWS_PHASE_TCP_CONNECT,
-  XWS_PHASE_TLS_HANDSHAKE,
-  XWS_PHASE_HTTP_UPGRADE_WRITE,
-  XWS_PHASE_HTTP_UPGRADE_READ,
-  XWS_PHASE_DONE,
-} xWsConnectPhase;
+XDEF_ENUM(xWsConnectPhase){
+  xWsConnectPhase_Dns,
+  xWsConnectPhase_TcpConnect,
+  xWsConnectPhase_TlsHandshake,
+  xWsConnectPhase_HttpUpgradeWrite,
+  xWsConnectPhase_HttpUpgradeRead,
+  xWsConnectPhase_Done,
+};
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Connector state
  * ═══════════════════════════════════════════════════════════════════
  */
 
-typedef struct {
+XDEF_STRUCT(xWsConnector) {
   xEventLoop     loop;
   xWsCallbacks   callbacks;
   void          *user_arg;
@@ -91,7 +91,7 @@ typedef struct {
 
   /* Current phase */
   xWsConnectPhase phase;
-} xWsConnector;
+};
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Forward declarations
@@ -181,7 +181,7 @@ static void connector_dns_cb(xDnsResult *result, void *arg) {
   }
 
   c->dns_result = result;
-  c->phase = XWS_PHASE_TCP_CONNECT;
+  c->phase = xWsConnectPhase_TcpConnect;
   connector_do_tcp_connect(c);
 }
 
@@ -212,7 +212,7 @@ static void connector_do_tcp_connect(xWsConnector *c) {
   if (ret == 0) {
     /* Connected immediately (unlikely for TCP) */
     if (c->use_tls) {
-      c->phase = XWS_PHASE_TLS_HANDSHAKE;
+      c->phase = xWsConnectPhase_TlsHandshake;
       connector_do_tls_handshake(c);
     } else {
       connector_do_http_upgrade(c);
@@ -268,7 +268,7 @@ static void connector_do_tls_handshake(xWsConnector *c) {
  */
 
 static void connector_do_http_upgrade(xWsConnector *c) {
-  c->phase = XWS_PHASE_HTTP_UPGRADE_WRITE;
+  c->phase = xWsConnectPhase_HttpUpgradeWrite;
 
   /* Build the Upgrade request */
   if (xWsClientBuildUpgradeRequest(&c->write_buf, &c->url,
@@ -290,7 +290,7 @@ static void connector_do_http_upgrade(xWsConnector *c) {
 }
 
 static void connector_on_writable(xWsConnector *c) {
-  if (c->phase == XWS_PHASE_TCP_CONNECT) {
+  if (c->phase == xWsConnectPhase_TcpConnect) {
     /* TCP connect completed: check for errors */
     int err = 0;
     socklen_t errlen = sizeof(err);
@@ -301,7 +301,7 @@ static void connector_on_writable(xWsConnector *c) {
     }
 
     if (c->use_tls) {
-      c->phase = XWS_PHASE_TLS_HANDSHAKE;
+      c->phase = xWsConnectPhase_TlsHandshake;
       connector_do_tls_handshake(c);
     } else {
       connector_do_http_upgrade(c);
@@ -309,7 +309,7 @@ static void connector_on_writable(xWsConnector *c) {
     return;
   }
 
-  if (c->phase == XWS_PHASE_TLS_HANDSHAKE) {
+  if (c->phase == xWsConnectPhase_TlsHandshake) {
     int result = c->transport.handshake(c->transport.ctx);
     switch (result) {
     case xHttpTransportResult_Done:
@@ -328,7 +328,7 @@ static void connector_on_writable(xWsConnector *c) {
     return;
   }
 
-  if (c->phase == XWS_PHASE_HTTP_UPGRADE_WRITE) {
+  if (c->phase == xWsConnectPhase_HttpUpgradeWrite) {
     /* Flush the Upgrade request */
     while (!xIOBufferEmpty(&c->write_buf)) {
       struct iovec iov[16];
@@ -349,7 +349,7 @@ static void connector_on_writable(xWsConnector *c) {
     }
 
     /* Request fully sent: switch to reading response */
-    c->phase = XWS_PHASE_HTTP_UPGRADE_READ;
+    c->phase = xWsConnectPhase_HttpUpgradeRead;
     c->resp_len = 0;
     xSocketSetMask(c->loop, c->sock, xEvent_Read);
     return;
@@ -357,7 +357,7 @@ static void connector_on_writable(xWsConnector *c) {
 }
 
 static void connector_on_readable(xWsConnector *c) {
-  if (c->phase == XWS_PHASE_TLS_HANDSHAKE) {
+  if (c->phase == xWsConnectPhase_TlsHandshake) {
     int result = c->transport.handshake(c->transport.ctx);
     switch (result) {
     case xHttpTransportResult_Done:
@@ -376,7 +376,7 @@ static void connector_on_readable(xWsConnector *c) {
     return;
   }
 
-  if (c->phase == XWS_PHASE_HTTP_UPGRADE_READ) {
+  if (c->phase == xWsConnectPhase_HttpUpgradeRead) {
     /* Read response data */
     size_t space = sizeof(c->resp_buf) - c->resp_len - 1;
     if (space == 0) {
@@ -417,7 +417,7 @@ static void connector_on_readable(xWsConnector *c) {
     }
 
     /* Success! Create the xWsConn in client mode */
-    c->phase = XWS_PHASE_DONE;
+    c->phase = xWsConnectPhase_Done;
 
     /* Cancel timeout */
     if (c->timer) {
@@ -551,7 +551,7 @@ xErrno xWsConnect(xEventLoop loop,
   c->use_tls   = use_tls;
   c->tls_conf  = conf->tls;
   c->headers   = conf->headers;
-  c->phase     = XWS_PHASE_DNS;
+  c->phase     = xWsConnectPhase_Dns;
 
   xIOBufferInit(&c->write_buf);
 

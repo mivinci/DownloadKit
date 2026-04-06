@@ -12,6 +12,7 @@
 #include "transport.h"
 #include "ws_deflate.h"
 #include "ws_frame.h"
+#include <xbase/base.h>
 #include <xbase/event.h>
 #include <xbase/socket.h>
 #include <xbuf/io.h>
@@ -23,16 +24,16 @@ struct xHttpServer_;
 
 /* ───────────────────── Close state machine ───────────────────── */
 
-typedef enum {
-  XWS_OPEN = 0,       /**< Normal operating state              */
-  XWS_CLOSE_SENT,     /**< We sent Close, waiting for peer     */
-  XWS_CLOSE_RECEIVED, /**< Peer sent Close, we replied         */
-  XWS_CLOSED,         /**< Connection fully closed              */
-} xWsCloseState;
+XDEF_ENUM(xWsCloseState){
+  xWsCloseState_Open          = 0, /**< Normal operating state          */
+  xWsCloseState_CloseSent,         /**< We sent Close, waiting for peer */
+  xWsCloseState_CloseReceived,     /**< Peer sent Close, we replied     */
+  xWsCloseState_Closed,            /**< Connection fully closed         */
+};
 
 /* ───────────────────── WebSocket connection ───────────────────── */
 
-struct xWsConn_ {
+XDEF_STRUCT(xWsConn_) {
   struct xHttpServer_ *server; /**< Back-pointer to the server       */
   xEventLoop           loop;   /**< Event loop                       */
   xSocket              sock;   /**< Async socket handle               */

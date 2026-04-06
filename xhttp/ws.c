@@ -59,7 +59,7 @@ struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server,
 
   xWsFrameParserInit(&conn->parser, server ? 1 : 0);
 
-  conn->close_state = XWS_OPEN;
+  conn->close_state = xWsCloseState_Open;
   conn->in_fragment = 0;
   conn->is_client   = (server == NULL) ? 1 : 0;
   conn->writing     = 0;
@@ -152,9 +152,9 @@ void xWsConnDestroy(struct xWsConn_ *conn) {
 
 void xWsConnClose(struct xWsConn_ *conn, uint16_t code,
                   const char *reason, size_t len) {
-  if (conn->close_state != XWS_OPEN) return;
+  if (conn->close_state != xWsCloseState_Open) return;
 
-  conn->close_state = XWS_CLOSE_SENT;
+  conn->close_state = xWsCloseState_CloseSent;
   conn->close_code  = code;
 
   xWsFrameEncodeClose(&conn->write_buf, code, reason, len,
@@ -178,7 +178,7 @@ xErrno xWsSend(xWsConn handle, xWsOpcode opcode,
                const void *payload, size_t len) {
   struct xWsConn_ *conn = (struct xWsConn_ *)handle;
   if (!conn) return xErrno_InvalidArg;
-  if (conn->close_state != XWS_OPEN) return xErrno_InvalidState;
+  if (conn->close_state != xWsCloseState_Open) return xErrno_InvalidState;
 
   uint8_t op = (opcode == xWsOpcode_Text)
                  ? XWS_OPCODE_TEXT : XWS_OPCODE_BINARY;
@@ -262,7 +262,7 @@ static void ws_try_flush(struct xWsConn_ *conn) {
 
     /* If we're in CLOSE_RECEIVED state and write buffer is
      * drained, we can destroy the connection */
-    if (conn->close_state == XWS_CLOSE_RECEIVED) {
+    if (conn->close_state == xWsCloseState_CloseReceived) {
       ws_fire_close(conn, conn->close_code,
                     conn->close_reason,
                     conn->close_reason_len);
@@ -277,8 +277,8 @@ static void ws_try_flush(struct xWsConn_ *conn) {
 
 static void ws_fire_close(struct xWsConn_ *conn, uint16_t code,
                           const char *reason, size_t len) {
-  if (conn->close_state == XWS_CLOSED) return;
-  conn->close_state = XWS_CLOSED;
+  if (conn->close_state == xWsCloseState_Closed) return;
+  conn->close_state = xWsCloseState_Closed;
 
   if (conn->callbacks.on_close) {
     conn->callbacks.on_close((xWsConn)conn, code, reason, len,
@@ -301,7 +301,7 @@ static void ws_idle_timeout(void *arg) {
   struct xWsConn_ *conn = (struct xWsConn_ *)arg;
   conn->idle_timer = NULL;
 
-  if (conn->close_state == XWS_OPEN) {
+  if (conn->close_state == xWsCloseState_Open) {
     /* Send Close frame with 1001 Going Away */
     xWsConnClose(conn, XWS_CLOSE_GOING_AWAY, NULL, 0);
   } else {
@@ -362,9 +362,9 @@ static void ws_process_frame(struct xWsConn_ *conn,
       }
     }
 
-    if (conn->close_state == XWS_OPEN) {
+    if (conn->close_state == xWsCloseState_Open) {
       /* Peer initiated close: echo the Close frame */
-      conn->close_state = XWS_CLOSE_RECEIVED;
+      conn->close_state = xWsCloseState_CloseReceived;
       conn->close_code  = code;
       if (reason_len > 0) {
         conn->close_reason = (char *)malloc(reason_len);
@@ -377,7 +377,7 @@ static void ws_process_frame(struct xWsConn_ *conn,
                           reason_len, conn->is_client);
       ws_try_flush(conn);
       /* Connection will be destroyed after flush completes */
-    } else if (conn->close_state == XWS_CLOSE_SENT) {
+    } else if (conn->close_state == xWsCloseState_CloseSent) {
       /* We sent Close, peer responded: done */
       ws_fire_close(conn, code, reason, reason_len);
     }
@@ -519,7 +519,7 @@ static void ws_on_event(xSocket sock, xEventMask mask, void *arg) {
   struct xWsConn_ *conn = (struct xWsConn_ *)arg;
   (void)sock;
 
-  if (conn->close_state == XWS_CLOSED) goto destroy;
+  if (conn->close_state == xWsCloseState_Closed) goto destroy;
 
   /* Timeout */
   if (mask & xEvent_Timeout) {
@@ -532,7 +532,7 @@ static void ws_on_event(xSocket sock, xEventMask mask, void *arg) {
   /* Writable: flush pending data */
   if (mask & xEvent_Write) {
     ws_try_flush(conn);
-    if (conn->close_state == XWS_CLOSED) goto destroy;
+    if (conn->close_state == xWsCloseState_Closed) goto destroy;
   }
 
   /* Readable: read data and parse frames */
@@ -553,7 +553,7 @@ static void ws_on_event(xSocket sock, xEventMask mask, void *arg) {
     ws_reset_idle_timer(conn);
 
     /* Parse frames */
-    while (conn->close_state != XWS_CLOSED) {
+    while (conn->close_state != xWsCloseState_Closed) {
       xWsFrameResult result = xWsFrameParse(
         &conn->parser, &conn->read_buf);
 
@@ -574,7 +574,7 @@ static void ws_on_event(xSocket sock, xEventMask mask, void *arg) {
       xWsConnClose(conn, XWS_CLOSE_PROTOCOL_ERR, NULL, 0);
       break;
     }
-    if (conn->close_state == XWS_CLOSED) goto destroy;
+    if (conn->close_state == xWsCloseState_Closed) goto destroy;
   }
 
   return;

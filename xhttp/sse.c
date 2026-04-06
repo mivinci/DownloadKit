@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * client_sse.c - SSE (Server-Sent Events) support for xHttpClient
+ * sse.c - SSE (Server-Sent Events) support for xHttpClient
  *
  * Implements xHttpClientGetSse() using the W3C SSE specification:
  * https://html.spec.whatwg.org/multipage/server-sent-events.html
@@ -20,7 +20,7 @@
 
 /* ───────────────────── SSE parser ───────────────────────────────────── */
 
-struct xSseParser_ {
+XDEF_STRUCT(xSseParser_) {
   xBuffer buf;   /* raw incoming data                    */
   size_t  pos;   /* parse position within buf            */
   int     error; /* allocation failure occurred          */
@@ -129,7 +129,7 @@ static void parse_sse_field(struct xSseParser_ *p, char *line, size_t len) {
 }
 
 /* Forward declaration */
-struct xSseReq_;
+XDEF_STRUCT(xSseReq_);
 
 /*
  * Feed raw data into the parser. Dispatches complete events via on_event.
@@ -201,7 +201,7 @@ static int sse_parser_feed(struct xSseParser_ *p, const char *data, size_t len,
 
 /* ───────────────────── SSE request ──────────────────────────────────── */
 
-struct xSseReq_ {
+XDEF_STRUCT(xSseReq_) {
   struct xHttpReq_   base;
   xSseEventFunc      on_event;
   xSseDoneFunc       on_done;

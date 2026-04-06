@@ -12,12 +12,13 @@
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xbase/base.h>
 #include <xbuf/buf.h>
 #include <xhttp/client.h>
 
 /* ───────────────────── Per-socket context ───────────────────── */
 
-struct xHttpSocketCtx_ {
+XDEF_STRUCT(xHttpSocketCtx_) {
   xEventSource src;    /* event source handle from xEventAdd */
   int          fd;     /* the socket file descriptor         */
   void        *client; /* back-pointer to xHttpClient_       */
@@ -33,14 +34,14 @@ struct xHttpReq_;
  * Different request types (oneshot HTTP, SSE, WebSocket) implement
  * their own handlers.
  */
-struct xHttpReqVtable {
+XDEF_STRUCT(xHttpReqVtable) {
   void (*on_done)(struct xHttpReq_ *req, CURLcode result);
   void (*on_cleanup)(struct xHttpReq_ *req);
 };
 
 /* ───────────────────── Per-request context ───────────────────── */
 
-struct xHttpReq_ {
+XDEF_STRUCT(xHttpReq_) {
   const struct xHttpReqVtable *vt;     /**< vtable for polymorphism      */
   CURL                        *easy;   /* curl easy handle            */
   struct xHttpClient_         *client; /* back-pointer to client      */
@@ -55,10 +56,9 @@ struct xHttpReq_ {
   char              *post_data;   /* copy of POST body (owned)   */
   struct curl_slist *req_headers; /* custom request headers      */
 };
-
 /* ───────────────────── Client internal structure ───────────────────── */
 
-struct xHttpClient_ {
+XDEF_STRUCT(xHttpClient_) {
   CURLM       *multi;    /* curl multi handle                   */
   xEventLoop   loop;     /* the event loop we are bound to      */
   xEventTimer  timer;    /* current curl timeout timer, or NULL */

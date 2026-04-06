@@ -132,12 +132,12 @@ Protocol violations (e.g., new message mid-fragment) result in a Close frame wit
 ### Close State Machine
 
 ```c
-typedef enum {
-    XWS_OPEN,           // Normal operating state
-    XWS_CLOSE_SENT,     // We sent Close, waiting for peer
-    XWS_CLOSE_RECEIVED, // Peer sent Close, we replied
-    XWS_CLOSED,         // Connection fully closed
-} xWsCloseState;
+XDEF_ENUM(xWsCloseState){
+    xWsCloseState_Open,          // Normal operating state
+    xWsCloseState_CloseSent,     // We sent Close, waiting for peer
+    xWsCloseState_CloseReceived, // Peer sent Close, we replied
+    xWsCloseState_Closed,        // Connection fully closed
+};
 ```
 
 - **Server-initiated close:** `xWsClose()` sends a Close frame and transitions to `CLOSE_SENT`. A 5-second timer waits for the peer's Close response.

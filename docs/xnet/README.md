@@ -2,30 +2,15 @@
 
 ## Introduction
 
-**xnet** is xKit's networking utility module, providing three
-foundational components for network programming: a lightweight
-URL parser, an asynchronous DNS resolver, and shared TLS
-configuration types. These building blocks are used internally
-by higher-level modules like xhttp, and are also available for
-direct use in application code.
+**xnet** is xKit's networking utility module, providing three foundational components for network programming: a lightweight URL parser, an asynchronous DNS resolver, and shared TLS configuration types. These building blocks are used internally by higher-level modules like xhttp, and are also available for direct use in application code.
 
 ## Design Philosophy
 
-1. **Zero-Copy URL Parsing** — `xUrlParse()` makes a single
-   internal copy of the input string. All component fields
-   (scheme, host, port, etc.) are pointer+length pairs
-   referencing this copy, avoiding per-field allocations.
+1. **Zero-Copy URL Parsing** — `xUrlParse()` makes a single internal copy of the input string. All component fields (scheme, host, port, etc.) are pointer+length pairs referencing this copy, avoiding per-field allocations.
 
-2. **Async DNS via Thread-Pool Offload** — DNS resolution
-   uses `getaddrinfo()` offloaded to the event loop's thread
-   pool. The callback is always invoked on the event loop
-   thread, keeping the async programming model consistent
-   with the rest of xKit.
+2. **Async DNS via Thread-Pool Offload** — DNS resolution uses `getaddrinfo()` offloaded to the event loop's thread pool. The callback is always invoked on the event loop thread, keeping the async programming model consistent with the rest of xKit.
 
-3. **Shared TLS Types** — `xTlsClientConf` and
-   `xTlsServerConf` are plain data structures shared across
-   modules. They decouple TLS configuration from any specific
-   TLS backend (OpenSSL, mbedTLS).
+3. **Shared TLS Types** — `xTlsClientConf` and `xTlsServerConf` are plain data structures shared across modules. They decouple TLS configuration from any specific TLS backend (OpenSSL, mbedTLS).
 
 ## Architecture
 
@@ -132,14 +117,6 @@ static void tls_example(void) {
 
 ## Relationship with Other Modules
 
-- **xbase** — The DNS resolver depends on
-  [`xEventLoop`](../xbase/event.md) for thread-pool offload
-  and uses [`atomic.h`](../xbase/atomic.md) for the
-  cancellation flag.
-- **xhttp** — The HTTP client uses `xUrl` for URL parsing,
-  `xDnsResolve` for hostname resolution, and `xTlsClientConf`
-  / `xTlsServerConf` for TLS configuration. See the
-  [TLS Deployment Guide](../xhttp/tls.md) for end-to-end
-  examples.
-- **WebSocket** — The WebSocket client uses `xUrl` to parse
-  `ws://` and `wss://` URLs during the handshake.
+- **xbase** — The DNS resolver depends on [`xEventLoop`](../xbase/event.md) for thread-pool offload and uses [`atomic.h`](../xbase/atomic.md) for the cancellation flag.
+- **xhttp** — The HTTP client uses `xUrl` for URL parsing, `xDnsResolve` for hostname resolution, and `xTlsClientConf` / `xTlsServerConf` for TLS configuration. See the [TLS Deployment Guide](../xhttp/tls.md) for end-to-end examples.
+- **WebSocket** — The WebSocket client uses `xUrl` to parse `ws://` and `wss://` URLs during the handshake.

@@ -58,7 +58,7 @@ TEST_F(TaskTest, CreateAndDestroy) {
 
 TEST_F(TaskTest, ThreadsCount) {
   /* Lazy-loading: no thread created until first task */
-  EXPECT_EQ(xTaskGroupThreads(g), 0);
+  EXPECT_EQ(xTaskGroupThreads(g), (size_t)0);
 
   /* Submit one task — thread should be spawned */
   xTask t = xTaskSubmit(g, noop, nullptr);
@@ -66,11 +66,11 @@ TEST_F(TaskTest, ThreadsCount) {
   xTaskWait(t, nullptr);
 
   /* At least one thread should have been created */
-  EXPECT_GE(xTaskGroupThreads(g), 1);
+  EXPECT_GE(xTaskGroupThreads(g), (size_t)1);
 }
 
 TEST_F(TaskTest, PendingInitiallyZero) {
-  EXPECT_EQ(xTaskGroupPending(g), 0);
+  EXPECT_EQ(xTaskGroupPending(g), (size_t)0);
 }
 
 /* ========== Single Task ========== */
@@ -126,7 +126,7 @@ TEST_F(TaskTest, GroupWait) {
 
   EXPECT_EQ(xTaskGroupWait(g), xErrno_Ok);
   EXPECT_EQ(counter.value.load(), N);
-  EXPECT_EQ(xTaskGroupPending(g), 0);
+  EXPECT_EQ(xTaskGroupPending(g), (size_t)0);
 }
 
 TEST_F(TaskTest, PendingCount) {
@@ -154,12 +154,12 @@ TEST_F(TaskTest, PendingCount) {
   }
 
   /* Pending should be 6 (1 running + 5 queued) */
-  EXPECT_EQ(xTaskGroupPending(single), 6);
+  EXPECT_EQ(xTaskGroupPending(single), (size_t)6);
 
   /* Unblock the worker */
   unblock.store(true, std::memory_order_release);
   xTaskGroupWait(single);
-  EXPECT_EQ(xTaskGroupPending(single), 0);
+  EXPECT_EQ(xTaskGroupPending(single), (size_t)0);
 
   xTaskGroupDestroy(single);
 }
@@ -237,12 +237,12 @@ TEST(TaskGroupAuto, ZeroThreadsAutoDetect) {
   xTaskGroup g = xTaskGroupCreate(nullptr);
   ASSERT_NE(g, nullptr);
   /* Lazy-loading: threads are created on demand */
-  EXPECT_EQ(xTaskGroupThreads(g), 0);
+  EXPECT_EQ(xTaskGroupThreads(g), (size_t)0);
 
   xTask t = xTaskSubmit(g, noop, nullptr);
   ASSERT_NE(t, nullptr);
   xTaskWait(t, nullptr);
-  EXPECT_GE(xTaskGroupThreads(g), 1);
+  EXPECT_GE(xTaskGroupThreads(g), (size_t)1);
   xTaskGroupDestroy(g);
 }
 

@@ -128,7 +128,7 @@ TEST_F(LogTest, MessageTruncation) {
   xLog(false, "%s", long_msg.c_str());
 
   /* Message should be truncated to XLOG_BUF_SIZE - 1 */
-  EXPECT_EQ(captured.msg.size(), XLOG_BUF_SIZE - 1);
+  EXPECT_EQ(captured.msg.size(), (size_t)(XLOG_BUF_SIZE - 1));
   EXPECT_EQ(captured.count, 1);
 
   /* All characters should be 'A' */

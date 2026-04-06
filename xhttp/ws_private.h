@@ -10,6 +10,7 @@
 #define XHTTP_WS_PRIVATE_H
 
 #include "transport.h"
+#include "ws_deflate.h"
 #include "ws_frame.h"
 #include <xbase/event.h>
 #include <xbase/socket.h>
@@ -48,6 +49,7 @@ struct xWsConn_ {
   xIOBuffer frag_buf;     /**< Accumulated fragment payload      */
   uint8_t   frag_opcode;  /**< Opcode of the first fragment      */
   int       in_fragment;  /**< Whether we are mid-fragmented msg */
+  int       frag_compressed; /**< RSV1 was set on first fragment */
 
   /* Close handshake state */
   xWsCloseState close_state;
@@ -64,7 +66,14 @@ struct xWsConn_ {
   void        *user_arg;
 
   /* Connection state */
-  int writing; /**< Whether we are flushing writes     */
+  int is_client; /**< Non-zero for client-side connection */
+  int writing;   /**< Whether we are flushing writes      */
+
+#ifdef XHTTP_WS_DEFLATE
+  /* permessage-deflate state */
+  xWsDeflateParams deflate_params;
+  xWsDeflateCtx   *deflate_ctx;
+#endif
 
   /* Doubly-linked list of WS connections on the server */
   struct xWsConn_ *prev;

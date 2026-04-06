@@ -202,7 +202,7 @@ static void on_done(int curl_code, void *arg) {
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xHttpClient client = xHttpClientCreate(loop);
+    xHttpClient client = xHttpClientCreate(loop, NULL);
 
     xHttpClientGetSse(client, "https://example.com/events",
                       on_event, on_done, NULL);
@@ -245,7 +245,7 @@ static void on_done(int curl_code, void *arg) {
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xHttpClient client = xHttpClientCreate(loop);
+    xHttpClient client = xHttpClientCreate(loop, NULL);
 
     const char *body =
         "{"

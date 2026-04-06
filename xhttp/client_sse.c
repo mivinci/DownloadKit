@@ -380,11 +380,11 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
     curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
   }
-  if (c->tls_ca_path) curl_easy_setopt(easy, CURLOPT_CAINFO, c->tls_ca_path);
-  if (c->tls_client_cert)
-    curl_easy_setopt(easy, CURLOPT_SSLCERT, c->tls_client_cert);
-  if (c->tls_client_key)
-    curl_easy_setopt(easy, CURLOPT_SSLKEY, c->tls_client_key);
+  if (c->tls_ca) curl_easy_setopt(easy, CURLOPT_CAINFO, c->tls_ca);
+  if (c->tls_cert)
+    curl_easy_setopt(easy, CURLOPT_SSLCERT, c->tls_cert);
+  if (c->tls_key)
+    curl_easy_setopt(easy, CURLOPT_SSLKEY, c->tls_key);
   if (c->tls_key_password)
     curl_easy_setopt(easy, CURLOPT_KEYPASSWD, c->tls_key_password);
 

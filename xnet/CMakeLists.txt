@@ -1,0 +1,11 @@
+file(GLOB_RECURSE XNET_HEADERS "*.h")
+file(GLOB_RECURSE XNET_SOURCES "*.c")
+add_library(xnet SHARED ${XNET_SOURCES} ${XNET_HEADERS})
+target_link_libraries(xnet PUBLIC xbase)
+
+if(XK_BUILD_TESTS)
+  file(GLOB_RECURSE XNET_TEST_SOURCES "*_test.cpp")
+  add_executable(xnet_test ${XNET_TEST_SOURCES})
+  target_link_libraries(xnet_test PRIVATE xnet GTest::gtest GTest::gtest_main)
+  add_test(NAME xnet_test COMMAND xnet_test)
+endif()

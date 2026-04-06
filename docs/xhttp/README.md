@@ -4,8 +4,8 @@
 
 **xhttp** is xKit's HTTP module, providing both a fully asynchronous HTTP **client** and **server**, all powered by xbase's event loop.
 
-- The **client** uses libcurl's multi-socket API for non-blocking HTTP requests and SSE streaming — ideal for integrating with REST APIs and LLM streaming endpoints. Supports TLS configuration including custom CA certificates, mutual TLS (mTLS), and certificate verification control via `xHttpTlsClientConf`.
-- The **server** uses an `xHttpProto` vtable interface for protocol-abstracted parsing, supporting both HTTP/1.1 (llhttp) and HTTP/2 (nghttp2, h2c Prior Knowledge) on the same port. TLS listeners are supported via `xHttpServerListenTls` with `xHttpTlsServerConf`. Single-threaded, event-driven connection handling — ideal for building lightweight HTTP services and APIs.
+- The **client** uses libcurl's multi-socket API for non-blocking HTTP requests and SSE streaming — ideal for integrating with REST APIs and LLM streaming endpoints. Supports TLS configuration including custom CA certificates, mutual TLS (mTLS), and certificate verification control via `xTlsClientConf`.
+- The **server** uses an `xHttpProto` vtable interface for protocol-abstracted parsing, supporting both HTTP/1.1 (llhttp) and HTTP/2 (nghttp2, h2c Prior Knowledge) on the same port. TLS listeners are supported via `xHttpServerListenTls` with `xTlsServerConf`. Single-threaded, event-driven connection handling — ideal for building lightweight HTTP services and APIs.
 - **WebSocket** support is built into the server via `xWsUpgrade()`. Call it inside a regular HTTP handler to perform the RFC 6455 upgrade handshake; the library then handles frame codec, ping/pong, fragment reassembly, and close negotiation automatically.
 
 ## Design Philosophy
@@ -28,7 +28,7 @@ graph TD
 
     subgraph "xhttp"
         CLIENT["xHttpClient"]
-        TLS_CLI["TLS Config<br/>(xHttpTlsClientConf)"]
+        TLS_CLI["TLS Config<br/>(xTlsClientConf)"]
         ONESHOT["Oneshot Request<br/>(GET/POST/Do)"]
         SSE["SSE Request<br/>(GetSse/DoSse)"]
         PARSER["SSE Parser<br/>(W3C spec)"]
@@ -48,7 +48,7 @@ graph TD
 
     APP -->|"xHttpClientGet/Post/Do"| ONESHOT
     APP -->|"xHttpClientGetSse/DoSse"| SSE
-    APP -->|"xHttpClientSetTls"| TLS_CLI
+    APP -->|"xHttpClientConf.tls"| TLS_CLI
     SSE --> PARSER
     ONESHOT --> CLIENT
     SSE --> CLIENT
@@ -95,7 +95,7 @@ static void on_response(const xHttpResponse *resp, void *arg) {
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xHttpClient client = xHttpClientCreate(loop);
+    xHttpClient client = xHttpClientCreate(loop, NULL);
 
     xHttpClientGet(client, "https://httpbin.org/get", on_response, NULL);
 

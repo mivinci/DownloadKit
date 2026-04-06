@@ -21,9 +21,9 @@ extern "C" {
  */
 
 TEST_F(HttpServerTest, ListenTLS_NullServerReturnsError) {
-  xHttpTlsServerConf config = {};
-  config.cert_file          = "/tmp/cert.pem";
-  config.key_file           = "/tmp/key.pem";
+  xTlsServerConf config = {};
+  config.cert          = "/tmp/cert.pem";
+  config.key           = "/tmp/key.pem";
   EXPECT_EQ(xHttpServerListenTls(nullptr, "127.0.0.1", port, &config),
             xErrno_InvalidArg);
 }
@@ -34,17 +34,17 @@ TEST_F(HttpServerTest, ListenTLS_NullConfigReturnsError) {
 }
 
 TEST_F(HttpServerTest, ListenTLS_NullCertFileReturnsError) {
-  xHttpTlsServerConf config = {};
-  config.cert_file          = nullptr;
-  config.key_file           = "/tmp/key.pem";
+  xTlsServerConf config = {};
+  config.cert          = nullptr;
+  config.key           = "/tmp/key.pem";
   EXPECT_EQ(xHttpServerListenTls(server, "127.0.0.1", port, &config),
             xErrno_InvalidArg);
 }
 
 TEST_F(HttpServerTest, ListenTLS_NullKeyFileReturnsError) {
-  xHttpTlsServerConf config = {};
-  config.cert_file          = "/tmp/cert.pem";
-  config.key_file           = nullptr;
+  xTlsServerConf config = {};
+  config.cert          = "/tmp/cert.pem";
+  config.key           = nullptr;
   EXPECT_EQ(xHttpServerListenTls(server, "127.0.0.1", port, &config),
             xErrno_InvalidArg);
 }
@@ -130,10 +130,10 @@ protected:
 
   /** Start TLS listening and start the event loop thread. */
   void listen_tls_and_start() {
-    xHttpTlsServerConf config = {};
-    config.cert_file          = cert_path.c_str();
-    config.key_file           = key_path.c_str();
-    config.verify_client      = 0;
+    xTlsServerConf config = {};
+    config.cert          = cert_path.c_str();
+    config.key           = key_path.c_str();
+    config.verify_peer      = 0;
 
     xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &config);
     ASSERT_EQ(err, xErrno_Ok) << "Failed to listen TLS on port " << tls_port;
@@ -315,20 +315,20 @@ TEST_F(HttpServerTlsTest, AlpnNegotiatesH1) {
 /* ── Invalid certificate path ─────────────────────────────────────────── */
 
 TEST_F(HttpServerTlsTest, InvalidCertPathReturnsError) {
-  xHttpTlsServerConf config = {};
-  config.cert_file          = "/nonexistent/cert.pem";
-  config.key_file           = key_path.c_str();
-  config.verify_client      = 0;
+  xTlsServerConf config = {};
+  config.cert          = "/nonexistent/cert.pem";
+  config.key           = key_path.c_str();
+  config.verify_peer      = 0;
 
   xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &config);
   EXPECT_EQ(err, xErrno_SysError);
 }
 
 TEST_F(HttpServerTlsTest, InvalidKeyPathReturnsError) {
-  xHttpTlsServerConf config = {};
-  config.cert_file          = cert_path.c_str();
-  config.key_file           = "/nonexistent/key.pem";
-  config.verify_client      = 0;
+  xTlsServerConf config = {};
+  config.cert          = cert_path.c_str();
+  config.key           = "/nonexistent/key.pem";
+  config.verify_peer      = 0;
 
   xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &config);
   EXPECT_EQ(err, xErrno_SysError);
@@ -380,9 +380,9 @@ TEST_F(HttpServerTlsTest, SimultaneousHttpAndHttps) {
 #else /* No TLS backend */
 
 TEST_F(HttpServerTest, ListenTLS_NoBackendReturnsNotSupported) {
-  xHttpTlsServerConf config = {};
-  config.cert_file          = "/tmp/cert.pem";
-  config.key_file           = "/tmp/key.pem";
+  xTlsServerConf config = {};
+  config.cert          = "/tmp/cert.pem";
+  config.key           = "/tmp/key.pem";
   EXPECT_EQ(xHttpServerListenTls(server, "127.0.0.1", port, &config),
             xErrno_NotSupported);
 }

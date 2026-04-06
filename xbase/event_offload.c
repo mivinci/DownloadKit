@@ -43,7 +43,8 @@ xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn,
   if (!loop || !work_fn) return xErrno_InvalidArg;
 
   if (!group) {
-    group = xTaskGroupGlobal();
+    group = ((struct xEventLoop_ *)loop)->task_group;
+    if (!group) group = xTaskGroupGlobal();
     if (!group) return xErrno_InvalidState;
   }
 

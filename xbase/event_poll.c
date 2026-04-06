@@ -102,14 +102,19 @@ static void pfd_rebuild(struct xEventLoopPoll_ *loop) {
 /* ───────────────────── Public API ───────────────────── */
 
 xEventLoop xEventLoopCreate(void) {
+  return xEventLoopCreateWithGroup(NULL);
+}
+
+xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   struct xEventLoopPoll_ *loop =
     (struct xEventLoopPoll_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
-  loop->base.wake_rfd   = -1;
-  loop->base.wake_wfd   = -1;
-  loop->base.stopped    = 0;
-  loop->base.timer_heap = NULL;
+  loop->base.wake_rfd     = -1;
+  loop->base.wake_wfd     = -1;
+  loop->base.stopped      = 0;
+  loop->base.timer_heap   = NULL;
+  loop->base.task_group   = group;
   source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;

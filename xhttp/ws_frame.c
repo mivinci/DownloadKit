@@ -11,6 +11,25 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __linux__
+#include <sys/random.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
+/* ───────────────── Random bytes for masking key ───────────────── */
+
+static void ws_random_bytes(uint8_t *buf, size_t len) {
+#ifdef __linux__
+  /* getrandom(2) is available on Linux 3.17+ */
+  (void)getrandom(buf, len, 0);
+#else
+  /* arc4random_buf is available on macOS / BSD */
+  arc4random_buf(buf, len);
+#endif
+}
+
 /* ───────────────────── Helpers ───────────────────── */
 
 /** Read exactly @p n bytes from the IOBuffer into @p out.
@@ -53,9 +72,11 @@ static int is_control_opcode(uint8_t opcode) {
 
 /* ───────────────────── Parser ───────────────────── */
 
-void xWsFrameParserInit(xWsFrameParser *parser) {
+void xWsFrameParserInit(xWsFrameParser *parser,
+                        int expect_masked) {
   memset(parser, 0, sizeof(*parser));
   parser->phase = XWS_PARSE_HEADER;
+  parser->expect_masked = expect_masked;
 }
 
 void xWsFrameParserReset(xWsFrameParser *parser) {
@@ -74,14 +95,25 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
     if (!io_peek(io, hdr, 2)) return xWsFrameResult_NeedMore;
 
     f->fin    = (hdr[0] >> 7) & 1;
+    f->rsv1   = (hdr[0] >> 6) & 1;
     f->opcode = hdr[0] & 0x0F;
     f->masked = (hdr[1] >> 7) & 1;
 
-    /* RSV bits must be 0 (no extensions) */
-    if (hdr[0] & 0x70) return xWsFrameResult_Error;
+    /* RSV2 and RSV3 must always be 0 */
+    if (hdr[0] & 0x30) return xWsFrameResult_Error;
 
-    /* Client frames MUST be masked (RFC 6455 §5.1) */
-    if (!f->masked) return xWsFrameResult_Error;
+    /* RSV1 is only allowed when permessage-deflate is active,
+     * and only on data frames (not control frames). */
+    if (f->rsv1) {
+      if (!parser->allow_rsv1 || is_control_opcode(f->opcode))
+        return xWsFrameResult_Error;
+    }
+
+    /* Validate mask bit against expected mode (RFC 6455 §5.1):
+     * Server mode: client frames MUST be masked.
+     * Client mode: server frames MUST NOT be masked. */
+    if ((int)f->masked != parser->expect_masked)
+      return xWsFrameResult_Error;
 
     uint8_t len7 = hdr[1] & 0x7F;
 
@@ -183,9 +215,6 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
   return xWsFrameResult_NeedMore;
 
 done:
-  /* Validate: client frames MUST be masked (RFC 6455 §5.1) */
-  if (!f->masked) return xWsFrameResult_Error;
-
   /* Control frame payload must be <= 125 bytes */
   if (is_control_opcode(f->opcode) && f->payload_len > 125) {
     free(f->payload);
@@ -199,44 +228,76 @@ done:
 /* ───────────────────── Encoder ───────────────────── */
 
 int xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode,
-                   const void *payload, size_t payload_len) {
-  /* Build header (max 10 bytes for server: no mask) */
-  uint8_t hdr[10];
+                   const void *payload, size_t payload_len,
+                   int masked) {
+  return xWsFrameEncodeEx(io, fin, 0, opcode, payload,
+                          payload_len, masked);
+}
+
+int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1,
+                     uint8_t opcode, const void *payload,
+                     size_t payload_len, int masked) {
+  /* Build header (max 14 bytes: 10 header + 4 mask key) */
+  uint8_t hdr[14];
   size_t  hdr_len = 0;
 
-  hdr[0] = (uint8_t)((fin ? 0x80 : 0x00) | (opcode & 0x0F));
+  hdr[0] = (uint8_t)((fin ? 0x80 : 0x00) |
+                     (rsv1 ? 0x40 : 0x00) |
+                     (opcode & 0x0F));
+
+  uint8_t mask_bit = masked ? 0x80 : 0x00;
 
   if (payload_len < 126) {
-    hdr[1]  = (uint8_t)payload_len;
+    hdr[1]  = mask_bit | (uint8_t)payload_len;
     hdr_len = 2;
   } else if (payload_len <= 0xFFFF) {
-    hdr[1]  = 126;
+    hdr[1]  = mask_bit | 126;
     hdr[2]  = (uint8_t)(payload_len >> 8);
     hdr[3]  = (uint8_t)(payload_len);
     hdr_len = 4;
   } else {
-    hdr[1] = 127;
+    hdr[1] = mask_bit | 127;
     for (int i = 0; i < 8; i++) {
       hdr[2 + i] = (uint8_t)(payload_len >> (56 - i * 8));
     }
     hdr_len = 10;
   }
 
-  /* Server frames: MASK bit = 0 (already 0 from above) */
+  /* Append masking key if masked */
+  uint8_t masking_key[4];
+  if (masked) {
+    ws_random_bytes(masking_key, 4);
+    memcpy(hdr + hdr_len, masking_key, 4);
+    hdr_len += 4;
+  }
 
   if (xIOBufferAppend(io, hdr, hdr_len) != xErrno_Ok)
     return -1;
 
   if (payload_len > 0 && payload) {
-    if (xIOBufferAppend(io, payload, payload_len) != xErrno_Ok)
-      return -1;
+    if (masked) {
+      /* XOR-encode payload before appending */
+      uint8_t *tmp = (uint8_t *)malloc(payload_len);
+      if (!tmp) return -1;
+      memcpy(tmp, payload, payload_len);
+      unmask_payload(tmp, payload_len, masking_key);
+      int rc = (xIOBufferAppend(io, tmp, payload_len)
+                != xErrno_Ok) ? -1 : 0;
+      free(tmp);
+      if (rc < 0) return -1;
+    } else {
+      if (xIOBufferAppend(io, payload, payload_len)
+          != xErrno_Ok)
+        return -1;
+    }
   }
 
   return 0;
 }
 
 int xWsFrameEncodeClose(xIOBuffer *io, uint16_t code,
-                        const char *reason, size_t len) {
+                        const char *reason, size_t len,
+                        int masked) {
   /* Close frame payload: 2-byte status code + optional reason */
   size_t payload_len = 2 + len;
   uint8_t *payload = (uint8_t *)malloc(payload_len);
@@ -249,7 +310,7 @@ int xWsFrameEncodeClose(xIOBuffer *io, uint16_t code,
   }
 
   int ret = xWsFrameEncode(io, 1, XWS_OPCODE_CLOSE,
-                           payload, payload_len);
+                           payload, payload_len, masked);
   free(payload);
   return ret;
 }

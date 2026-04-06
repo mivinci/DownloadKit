@@ -58,6 +58,7 @@ typedef enum {
  */
 typedef struct {
   uint8_t  fin;            /**< FIN bit (1 = final fragment)     */
+  uint8_t  rsv1;           /**< RSV1 bit (1 = compressed, PMD)   */
   uint8_t  opcode;         /**< Frame opcode (4 bits)            */
   uint8_t  masked;         /**< MASK bit                         */
   uint8_t  masking_key[4]; /**< Masking key (if masked)          */
@@ -85,6 +86,20 @@ typedef struct {
 
   xWsFrame frame;           /**< Frame being assembled            */
   size_t   payload_read;    /**< Bytes of payload read so far     */
+
+  /**
+   * Whether incoming frames are expected to be masked.
+   * Server mode (expect_masked=1): reject unmasked frames.
+   * Client mode (expect_masked=0): reject masked frames.
+   */
+  int expect_masked;
+
+  /**
+   * Whether RSV1 bit is allowed (permessage-deflate).
+   * When 0, any RSV bit set causes a protocol error.
+   * When 1, RSV1 is permitted on data frames.
+   */
+  int allow_rsv1;
 } xWsFrameParser;
 
 /* ───────────────────── API ───────────────────── */
@@ -92,9 +107,12 @@ typedef struct {
 /**
  * Initialize a frame parser for first use.
  *
- * @param parser  Parser state to initialize.
+ * @param parser         Parser state to initialize.
+ * @param expect_masked  1 for server mode (expect masked frames),
+ *                       0 for client mode (expect unmasked).
  */
-void xWsFrameParserInit(xWsFrameParser *parser);
+void xWsFrameParserInit(xWsFrameParser *parser,
+                        int expect_masked);
 
 /**
  * Reset the parser for the next frame (after a successful parse).
@@ -127,28 +145,54 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser, xIOBuffer *io);
 /**
  * Encode a WebSocket frame and append it to the I/O buffer.
  *
- * Server frames are never masked (RFC 6455 §5.1).
+ * When @p masked is non-zero, a random 4-byte masking key is
+ * generated and the payload is XOR-encoded per RFC 6455 §5.3.
+ * Client frames MUST be masked; server frames MUST NOT.
  *
  * @param io           Output I/O buffer.
  * @param fin          FIN bit (1 for non-fragmented or final fragment).
  * @param opcode       Frame opcode.
  * @param payload      Payload data, or NULL if payload_len == 0.
  * @param payload_len  Payload length in bytes.
+ * @param masked       Non-zero to mask the frame (client mode).
  * @return 0 on success, -1 on error (OOM).
  */
 int xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode,
-                   const void *payload, size_t payload_len);
+                   const void *payload, size_t payload_len,
+                   int masked);
+
+/**
+ * Encode a WebSocket frame with RSV1 bit set (compressed).
+ *
+ * Same as xWsFrameEncode but sets the RSV1 bit in the header
+ * for permessage-deflate compressed messages.
+ *
+ * @param io           Output I/O buffer.
+ * @param fin          FIN bit.
+ * @param rsv1         RSV1 bit (1 for compressed).
+ * @param opcode       Frame opcode.
+ * @param payload      Payload data.
+ * @param payload_len  Payload length in bytes.
+ * @param masked       Non-zero to mask the frame.
+ * @return 0 on success, -1 on error.
+ */
+int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1,
+                     uint8_t opcode, const void *payload,
+                     size_t payload_len, int masked);
 
 /**
  * Encode a Close frame with a status code and optional reason.
  *
  * @param io      Output I/O buffer.
- * @param code    Close status code (network byte order handled internally).
+ * @param code    Close status code (network byte order handled
+ *                internally).
  * @param reason  Optional reason string, or NULL.
  * @param len     Length of reason in bytes.
+ * @param masked  Non-zero to mask the frame (client mode).
  * @return 0 on success, -1 on error.
  */
 int xWsFrameEncodeClose(xIOBuffer *io, uint16_t code,
-                        const char *reason, size_t len);
+                        const char *reason, size_t len,
+                        int masked);
 
 #endif /* XHTTP_WS_FRAME_H */

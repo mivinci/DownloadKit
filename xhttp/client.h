@@ -14,7 +14,6 @@
 #define XHTTP_CLIENT_H
 
 #include <stddef.h>
-#include <stdint.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
 #include <xbase/event.h>
@@ -92,18 +91,32 @@ XDEF_STRUCT(xHttpRequestConf) {
  */
 typedef xTlsClientConf xHttpTlsClientConf;
 
+/**
+ * @brief Configuration for creating an HTTP client.
+ *
+ * Zero-initialize for defaults (no TLS, HTTP/1.1).
+ * Pass NULL to xHttpClientCreate() for the same defaults.
+ */
+XDEF_STRUCT(xHttpClientConf) {
+  const xTlsClientConf *tls;          /**< TLS config, or NULL         */
+  xHttpVersion          http_version; /**< Default HTTP version (0=H1) */
+};
+
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
 
 /**
  * @brief Create an HTTP client bound to an event loop.
  *
  * Initialises a curl multi handle and registers socket/timer callbacks
- * with the given event loop.
+ * with the given event loop. If @p conf is not NULL, the client is
+ * configured with the given TLS and HTTP version settings.
  *
  * @param loop  The event loop (must not be NULL).
+ * @param conf  Client configuration, or NULL for defaults.
  * @return      A new client handle, or NULL on failure.
  */
-XCAPI(xHttpClient) xHttpClientCreate(xEventLoop loop);
+XCAPI(xHttpClient) xHttpClientCreate(xEventLoop loop,
+                                     const xHttpClientConf *conf);
 
 /**
  * @brief Destroy an HTTP client and release all resources.
@@ -115,32 +128,7 @@ XCAPI(xHttpClient) xHttpClientCreate(xEventLoop loop);
  */
 XCAPI(void) xHttpClientDestroy(xHttpClient client);
 
-/**
- * @brief Set the default HTTP version for all requests on this client.
- *
- * Requests that specify a non-zero http_version in xHttpRequestConf
- * will override this default. Convenience helpers (Get, Post) and
- * SSE helpers (GetSse) use this default.
- *
- * @param client  The HTTP client.
- * @param ver     The HTTP version to use by default.
- */
-XCAPI(void) xHttpClientSetHttpVersion(xHttpClient client, xHttpVersion ver);
 
-/**
- * @brief Configure TLS settings for all requests on this client.
- *
- * The client copies the strings from @p conf, so the caller may free
- * them after this call returns. Passing NULL resets to defaults
- * (system CA, verification enabled, no client certificate).
- *
- * Must be called before any requests are submitted.
- *
- * @param client  The HTTP client.
- * @param conf    TLS configuration, or NULL to reset to defaults.
- */
-XCAPI(void) xHttpClientSetTls(xHttpClient              client,
-                              const xTlsClientConf    *conf);
 
 /* ── Convenience request helpers ───────────────────────────────────────── */
 

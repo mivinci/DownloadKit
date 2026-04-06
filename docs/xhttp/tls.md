@@ -136,10 +136,15 @@ xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 
 ```c
 xTlsClientConf tls = {0};
-tls.ca = "ca.pem";  // or "server.pem" for self-signed
-xHttpClientSetTls(client, &tls);
+tls.ca = "ca.pem";
+xHttpClientConf conf = {.tls = &tls};
+xHttpClient client =
+    xHttpClientCreate(loop, &conf);
 
-xHttpClientGet(client, "https://localhost:8443/hello", on_response, NULL);
+xHttpClientGet(
+    client,
+    "https://localhost:8443/hello",
+    on_response, NULL);
 ```
 
 **Client (skip verification — development only):**
@@ -147,7 +152,9 @@ xHttpClientGet(client, "https://localhost:8443/hello", on_response, NULL);
 ```c
 xTlsClientConf tls = {0};
 tls.skip_verify = 1;
-xHttpClientSetTls(client, &tls);
+xHttpClientConf conf = {.tls = &tls};
+xHttpClient client =
+    xHttpClientCreate(loop, &conf);
 ```
 
 ### 2. Mutual TLS (mTLS)
@@ -185,12 +192,17 @@ xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 
 ```c
 xTlsClientConf tls = {0};
-tls.ca     = "ca.pem";         // verify server cert
-tls.cert = "client.pem";     // present client cert
-tls.key  = "client-key.pem"; // client private key
-xHttpClientSetTls(client, &tls);
+tls.ca   = "ca.pem";
+tls.cert = "client.pem";
+tls.key  = "client-key.pem";
+xHttpClientConf conf = {.tls = &tls};
+xHttpClient client =
+    xHttpClientCreate(loop, &conf);
 
-xHttpClientGet(client, "https://localhost:8443/secure", on_response, NULL);
+xHttpClientGet(
+    client,
+    "https://localhost:8443/secure",
+    on_response, NULL);
 ```
 
 ### 3. HTTP + HTTPS on Different Ports
@@ -303,13 +315,14 @@ static void on_response(const xHttpResponse *resp, void *arg) {
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xHttpClient client = xHttpClientCreate(loop);
 
     xTlsClientConf tls = {0};
-    tls.ca     = "ca.pem";
+    tls.ca   = "ca.pem";
     tls.cert = "client.pem";
     tls.key  = "client-key.pem";
-    xHttpClientSetTls(client, &tls);
+    xHttpClientConf conf = {.tls = &tls};
+    xHttpClient client =
+        xHttpClientCreate(loop, &conf);
 
     xHttpClientGet(client, "https://localhost:8443/secure",
                    on_response, NULL);
@@ -388,6 +401,7 @@ This is transparent to application code — the same routes and handlers work re
 | Item | Description |
 | --- | --- |
 | `xTlsClientConf` | Struct: `ca`, `cert`, `key`, `key_password`, `skip_verify` |
-| `xHttpClientSetTls()` | Configure TLS for all subsequent requests. Pass `NULL` to reset. |
+| `xHttpClientConf` | Struct: `tls` (pointer to `xTlsClientConf`), `http_version` |
+| `xHttpClientCreate()` | Create client with TLS config via `xHttpClientConf`. |
 
 For full API details, see [server.md](server.md#tls-configuration) and [client.md](client.md#tls-configuration).

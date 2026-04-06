@@ -227,6 +227,11 @@ void xHttpServerDestroy(xHttpServer server) {
     r = next;
   }
 
+  /* Free auxiliary data (set by convenience wrappers) */
+  if (s->aux_free) {
+    s->aux_free(s->aux_data);
+  }
+
   free(s);
 }
 

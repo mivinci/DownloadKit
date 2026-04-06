@@ -64,7 +64,7 @@ protected:
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
 
-    client = xHttpClientCreate(loop);
+    client = xHttpClientCreate(loop, nullptr);
     ASSERT_NE(client, nullptr);
   }
 
@@ -80,7 +80,7 @@ TEST(HttpClientLifecycle, CreateAndDestroy) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xHttpClient c = xHttpClientCreate(loop);
+  xHttpClient c = xHttpClientCreate(loop, nullptr);
   ASSERT_NE(c, nullptr);
 
   /* Destroy immediately — no requests in flight */
@@ -89,7 +89,7 @@ TEST(HttpClientLifecycle, CreateAndDestroy) {
 }
 
 TEST(HttpClientLifecycle, CreateWithNullLoopReturnsNull) {
-  xHttpClient c = xHttpClientCreate(nullptr);
+  xHttpClient c = xHttpClientCreate(nullptr, nullptr);
   EXPECT_EQ(c, nullptr);
 }
 
@@ -223,7 +223,7 @@ TEST(HttpClientLifecycle, DestroyWithInflightRequests) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xHttpClient c = xHttpClientCreate(loop);
+  xHttpClient c = xHttpClientCreate(loop, nullptr);
   ASSERT_NE(c, nullptr);
 
   std::atomic<bool> cb_called{false};

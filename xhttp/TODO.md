@@ -1,44 +1,5 @@
 # xhttp TODO
 
-## WebSocket Client
-
-Reuse the existing `xHttpClient` to initiate WebSocket connections.
-The public callback API (`xWsCallbacks`, `xWsConn`, `xWsSend`,
-`xWsClose`) is shared with the server side, so user code looks
-the same regardless of direction.
-
-### Proposed API
-
-```c
-XDEF_STRUCT(xWsConnectConf) {
-  const char  *url;
-  const char **headers;     // extra headers (NULL-terminated)
-  int          timeout_ms;
-};
-
-XCAPI(xErrno) xHttpClientConnectWs(xHttpClient client,
-                                   const xWsConnectConf *conf,
-                                   const xWsCallbacks *callbacks,
-                                   void *arg);
-```
-
-- `conf` carries connection parameters (URL, extra headers, timeout).
-  TLS is inherited from the `xHttpClient` instance (`xHttpClientConf`).
-- `callbacks` + `arg` are kept as separate arguments, symmetric with the
-  server-side `xWsUpgrade(writer, req, callbacks, arg)`.
-- Under the hood, the implementation performs the HTTP/1.1 Upgrade
-  handshake, then hijacks the connection for WebSocket framing.
-
-### Implementation Notes
-
-- Reuse the server-side `xWsFrame*` codec and `xIOBuffer`.
-- Client frames must set the MASK bit (RFC 6455 §5.3); add masking
-  support to `xWsFrameEncode`.
-- Manual HTTP/1.1 Upgrade handshake + 101 response parsing.
-- Estimated ~800–1000 lines of new code.
-
----
-
 ## HTTP/2 Support
 
 ### Current Status
@@ -109,22 +70,14 @@ struct xHttpStream_ {
 | Flow control | None                    | Built-in per-stream flow control  |
 | SSE          | chunked transfer        | DATA frames on a stream           |
 
-### Implementation Roadmap
+### Status
 
-1. ~~**Step 1 (low cost)**: Extract llhttp-related fields from `xHttpConn_` behind an `xHttpProto`
-   interface. Minimal change, no impact on existing functionality.~~ ✅ **Done** — `xHttpProto`
-   vtable defined in `server_private.h`, HTTP/1.1 handler isolated in `proto_h1.c`.
-2. ~~**Step 2**: Add TLS support (OpenSSL/BoringSSL) with ALPN negotiation, or support h2c
-   (cleartext HTTP/2) first for internal service-to-service communication.~~ ✅ **Done** — h2c
-   (cleartext HTTP/2) via Prior Knowledge supported. Protocol auto-detection in `server.c`
-   inspects the first bytes for the HTTP/2 connection preface.
-3. ~~**Step 3**: Integrate nghttp2, implement the HTTP/2 protocol handler, and plug it into
-   the `xHttpProto` interface.~~ ✅ **Done** — HTTP/2 protocol handler implemented in
-   `proto_h2.c` using nghttp2, with stream multiplexing, HPACK header compression,
-   and deferred dispatch. H1 and H2 coexist on the same port.
-
-Upper-layer APIs (routing, SSE, ResponseWriter) should require zero changes — user code
-works transparently with both HTTP/1.1 and HTTP/2.
+✅ **Complete** — `xHttpProto` vtable in
+`server_private.h`, HTTP/1.1 in `proto_h1.c`,
+HTTP/2 in `proto_h2.c` (nghttp2). H1 and H2
+coexist on the same port with auto-detection.
+Upper-layer APIs (routing, SSE, ResponseWriter)
+work transparently with both protocols.
 
 ---
 

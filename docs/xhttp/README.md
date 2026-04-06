@@ -48,7 +48,7 @@ graph TD
 
     APP -->|"xHttpClientGet/Post/Do"| ONESHOT
     APP -->|"xHttpClientGetSse/DoSse"| SSE
-    APP -->|"xHttpClientSetTls"| TLS_CLI
+    APP -->|"xHttpClientConf.tls"| TLS_CLI
     SSE --> PARSER
     ONESHOT --> CLIENT
     SSE --> CLIENT
@@ -95,7 +95,7 @@ static void on_response(const xHttpResponse *resp, void *arg) {
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xHttpClient client = xHttpClientCreate(loop);
+    xHttpClient client = xHttpClientCreate(loop, NULL);
 
     xHttpClientGet(client, "https://httpbin.org/get", on_response, NULL);
 

@@ -248,37 +248,6 @@ static void on_timeout(void *arg) {
 
 /* ── Lifecycle: Create / Destroy ───────────────────────────────────────── */
 
-xHttpClient xHttpClientCreate(xEventLoop loop) {
-  if (!loop) return NULL;
-
-  struct xHttpClient_ *c =
-    (struct xHttpClient_ *)calloc(1, sizeof(struct xHttpClient_));
-  if (!c) return NULL;
-
-  c->multi = curl_multi_init();
-  if (!c->multi) {
-    free(c);
-    return NULL;
-  }
-
-  c->loop     = loop;
-  c->timer    = NULL;
-  c->http_ver = xHttpVersion_Default;
-
-  curl_multi_setopt(c->multi, CURLMOPT_SOCKETFUNCTION, socket_callback);
-  curl_multi_setopt(c->multi, CURLMOPT_SOCKETDATA, c);
-  curl_multi_setopt(c->multi, CURLMOPT_TIMERFUNCTION, timer_callback);
-  curl_multi_setopt(c->multi, CURLMOPT_TIMERDATA, c);
-
-  return (xHttpClient)c;
-}
-
-void xHttpClientSetHttpVersion(xHttpClient client, xHttpVersion ver) {
-  if (!client) return;
-  struct xHttpClient_ *c = (struct xHttpClient_ *)client;
-  c->http_ver            = ver;
-}
-
 /* ── Helper: duplicate a string or return NULL ─────────────────────────── */
 
 static char *xstrdup_(const char *s) {
@@ -301,10 +270,8 @@ static void tls_conf_free(struct xHttpClient_ *c) {
   c->tls_skip_verify  = 0;
 }
 
-void xHttpClientSetTls(xHttpClient client, const xTlsClientConf *conf) {
-  if (!client) return;
-  struct xHttpClient_ *c = (struct xHttpClient_ *)client;
-
+static void apply_tls_conf(struct xHttpClient_ *c,
+                           const xTlsClientConf *conf) {
   /* Free any previous TLS config */
   tls_conf_free(c);
 
@@ -315,6 +282,38 @@ void xHttpClientSetTls(xHttpClient client, const xTlsClientConf *conf) {
   c->tls_key   = xstrdup_(conf->key);
   c->tls_key_password = xstrdup_(conf->key_password);
   c->tls_skip_verify  = conf->skip_verify;
+}
+
+xHttpClient xHttpClientCreate(xEventLoop loop, const xHttpClientConf *conf) {
+  if (!loop) return NULL;
+
+  struct xHttpClient_ *c =
+    (struct xHttpClient_ *)calloc(1, sizeof(struct xHttpClient_));
+  if (!c) return NULL;
+
+  c->multi = curl_multi_init();
+  if (!c->multi) {
+    free(c);
+    return NULL;
+  }
+
+  c->loop     = loop;
+  c->timer    = NULL;
+  c->http_ver = xHttpVersion_Default;
+
+  curl_multi_setopt(c->multi, CURLMOPT_SOCKETFUNCTION, socket_callback);
+  curl_multi_setopt(c->multi, CURLMOPT_SOCKETDATA, c);
+  curl_multi_setopt(c->multi, CURLMOPT_TIMERFUNCTION, timer_callback);
+  curl_multi_setopt(c->multi, CURLMOPT_TIMERDATA, c);
+
+  if (conf) {
+    if (conf->tls)
+      apply_tls_conf(c, conf->tls);
+    if (conf->http_version != xHttpVersion_Default)
+      c->http_ver = conf->http_version;
+  }
+
+  return (xHttpClient)c;
 }
 
 /**

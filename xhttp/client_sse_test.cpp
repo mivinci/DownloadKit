@@ -148,7 +148,7 @@ protected:
   void SetUp() override {
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
-    client = xHttpClientCreate(loop);
+    client = xHttpClientCreate(loop, nullptr);
     ASSERT_NE(client, nullptr);
   }
 
@@ -418,7 +418,7 @@ TEST(SseLifecycle, DestroyWithInflightSse) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xHttpClient c = xHttpClientCreate(loop);
+  xHttpClient c = xHttpClientCreate(loop, nullptr);
   ASSERT_NE(c, nullptr);
 
   /* Server that delays before sending — simulates a long-lived stream */

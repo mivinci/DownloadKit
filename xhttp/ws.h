@@ -7,8 +7,9 @@
  *
  * Provides a callback-driven WebSocket interface.
  *
- * Server: Call xWsUpgrade() inside a regular HTTP handler to
- * perform the WebSocket upgrade handshake.
+ * Server: Call xWsServe() for a one-line WebSocket-only server,
+ * or call xWsUpgrade() inside a regular HTTP handler to perform
+ * the WebSocket upgrade handshake alongside other HTTP routes.
  *
  * Client: Call xWsConnect() with a ws:// or wss:// URL to
  * initiate an asynchronous WebSocket connection.
@@ -28,6 +29,7 @@
 
 /* Forward declarations (avoid circular include with server.h) */
 XDEF_HANDLE(xHttpResponseWriter);
+XDEF_HANDLE(xHttpServer);
 typedef struct xHttpRequest xHttpRequest;
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
@@ -220,5 +222,31 @@ XCAPI(xErrno) xWsConnect(xEventLoop loop,
                          const xWsConnectConf *conf,
                          const xWsCallbacks *callbacks,
                          void *arg);
+
+/* ── Convenience: WebSocket-only server ─────────────────────────────── */
+
+/**
+ * @brief Create a WebSocket-only HTTP server.
+ *
+ * Convenience function that creates an HTTP server, registers a
+ * catch-all route that upgrades every incoming request to WebSocket,
+ * and starts listening on the given address and port.
+ *
+ * The returned handle can be used with xHttpServerDestroy() for
+ * cleanup, or with xHttpServerRoute() to add extra HTTP endpoints
+ * (e.g. a health-check page).
+ *
+ * @param loop       Event loop (must not be NULL).
+ * @param host       Bind address (e.g. "0.0.0.0"), or NULL.
+ * @param port       Port number to listen on.
+ * @param callbacks  WebSocket event callbacks (must not be NULL).
+ * @param arg        User argument forwarded to all callbacks.
+ * @return           The server handle, or NULL on failure.
+ */
+XCAPI(xHttpServer) xWsServe(xEventLoop loop,
+                             const char *host,
+                             uint16_t port,
+                             const xWsCallbacks *callbacks,
+                             void *arg);
 
 #endif /* XHTTP_WS_H */

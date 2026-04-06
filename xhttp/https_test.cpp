@@ -91,26 +91,32 @@ static void pump_until_count(xEventLoop loop, std::atomic<int> &count,
  */
 
 TEST(HttpsClientConfig, SetTlsNullClientDoesNotCrash) {
-  xTlsClientConf conf = {};
-  conf.skip_verify        = 1;
-  /* Should not crash */
-  xHttpClientSetTls(nullptr, &conf);
+  /* With the new API, TLS is set at creation time.
+   * Creating with NULL loop should return NULL — no crash. */
+  xHttpClientConf conf = {};
+  xTlsClientConf  tls  = {};
+  tls.skip_verify      = 1;
+  conf.tls             = &tls;
+  xHttpClient c = xHttpClientCreate(nullptr, &conf);
+  EXPECT_EQ(c, nullptr);
 }
 
 TEST(HttpsClientConfig, SetTlsNullConfResetsToDefaults) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xHttpClient client = xHttpClientCreate(loop);
+  /* Create with TLS config */
+  xTlsClientConf  tls  = {};
+  tls.ca               = "/tmp/ca.pem";
+  tls.skip_verify      = 1;
+  xHttpClientConf conf = {};
+  conf.tls             = &tls;
+  xHttpClient client = xHttpClientCreate(loop, &conf);
   ASSERT_NE(client, nullptr);
 
-  /* Set some TLS config */
-  xTlsClientConf conf = {};
-  conf.ca            = "/tmp/ca.pem";
-  conf.skip_verify        = 1;
-  xHttpClientSetTls(client, &conf);
-
-  /* Reset to defaults */
-  xHttpClientSetTls(client, nullptr);
+  /* Recreate with defaults (NULL conf) */
+  xHttpClientDestroy(client);
+  client = xHttpClientCreate(loop, nullptr);
+  ASSERT_NE(client, nullptr);
 
   /* Should not crash on subsequent use */
   xHttpClientDestroy(client);
@@ -120,21 +126,26 @@ TEST(HttpsClientConfig, SetTlsNullConfResetsToDefaults) {
 TEST(HttpsClientConfig, SetTlsWithAllFields) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xHttpClient client = xHttpClientCreate(loop);
+
+  xTlsClientConf tls = {};
+  tls.ca              = "/tmp/ca.pem";
+  tls.cert            = "/tmp/client.pem";
+  tls.key             = "/tmp/client-key.pem";
+  tls.key_password    = "secret";
+  tls.skip_verify     = 0;
+  xHttpClientConf conf = {};
+  conf.tls             = &tls;
+  xHttpClient client = xHttpClientCreate(loop, &conf);
   ASSERT_NE(client, nullptr);
 
-  xTlsClientConf conf = {};
-  conf.ca            = "/tmp/ca.pem";
-  conf.cert        = "/tmp/client.pem";
-  conf.key         = "/tmp/client-key.pem";
-  conf.key_password       = "secret";
-  conf.skip_verify        = 0;
-  xHttpClientSetTls(client, &conf);
-
-  /* Overwrite with different config */
-  xTlsClientConf conf2 = {};
-  conf2.skip_verify        = 1;
-  xHttpClientSetTls(client, &conf2);
+  /* Overwrite with different config by recreating */
+  xHttpClientDestroy(client);
+  xTlsClientConf tls2 = {};
+  tls2.skip_verify     = 1;
+  xHttpClientConf conf2 = {};
+  conf2.tls             = &tls2;
+  client = xHttpClientCreate(loop, &conf2);
+  ASSERT_NE(client, nullptr);
 
   xHttpClientDestroy(client);
   xEventLoopDestroy(loop);
@@ -271,7 +282,7 @@ protected:
     /* ── Client setup ── */
     client_loop = xEventLoopCreate();
     ASSERT_NE(client_loop, nullptr);
-    client = xHttpClientCreate(client_loop);
+    client = xHttpClientCreate(client_loop, nullptr);
     ASSERT_NE(client, nullptr);
   }
 
@@ -322,18 +333,30 @@ protected:
     return "https://localhost:" + std::to_string(tls_port) + path;
   }
 
+  /** Create (or recreate) the client with the given TLS config. */
+  void create_client(const xTlsClientConf *tls) {
+    if (client) {
+      xHttpClientDestroy(client);
+      client = nullptr;
+    }
+    xHttpClientConf conf = {};
+    conf.tls             = tls;
+    client = xHttpClientCreate(client_loop, &conf);
+    ASSERT_NE(client, nullptr);
+  }
+
   /** Configure client to skip TLS verification (for self-signed certs). */
   void client_skip_verify() {
-    xTlsClientConf conf = {};
-    conf.skip_verify        = 1;
-    xHttpClientSetTls(client, &conf);
+    xTlsClientConf tls = {};
+    tls.skip_verify    = 1;
+    create_client(&tls);
   }
 
   /** Configure client with a specific CA path. */
   void client_set_ca(const std::string &ca) {
-    xTlsClientConf conf = {};
-    conf.ca            = ca.c_str();
-    xHttpClientSetTls(client, &conf);
+    xTlsClientConf tls = {};
+    tls.ca             = ca.c_str();
+    create_client(&tls);
   }
 };
 
@@ -469,8 +492,9 @@ TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
   listen_tls_and_start();
 
   /* Default TLS config: verify enabled, system CA bundle.
-   * Self-signed cert won't be in system CA → handshake should fail. */
-  xHttpClientSetTls(client, nullptr); /* reset to defaults */
+   * Self-signed cert won't be in system CA → handshake should fail.
+   * Recreate client with no TLS config (defaults). */
+  create_client(nullptr);
 
   RespCtx ctx;
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
@@ -491,9 +515,9 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
   listen_tls_and_start();
 
   /* Point to a non-existent CA file */
-  xTlsClientConf conf = {};
-  conf.ca            = "/tmp/nonexistent_ca_xhttps_test.pem";
-  xHttpClientSetTls(client, &conf);
+  xTlsClientConf tls = {};
+  tls.ca             = "/tmp/nonexistent_ca_xhttps_test.pem";
+  create_client(&tls);
 
   RespCtx ctx;
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
@@ -633,7 +657,7 @@ protected:
     /* Client setup */
     client_loop = xEventLoopCreate();
     ASSERT_NE(client_loop, nullptr);
-    client = xHttpClientCreate(client_loop);
+    client = xHttpClientCreate(client_loop, nullptr);
     ASSERT_NE(client, nullptr);
 
     /* Clean up temp files */
@@ -691,11 +715,15 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Client provides cert + key + CA */
-  xTlsClientConf cli_conf = {};
-  cli_conf.ca            = ca_cert.c_str();
-  cli_conf.cert        = client_cert.c_str();
-  cli_conf.key         = client_key.c_str();
-  xHttpClientSetTls(client, &cli_conf);
+  xTlsClientConf cli_tls = {};
+  cli_tls.ca             = ca_cert.c_str();
+  cli_tls.cert           = client_cert.c_str();
+  cli_tls.key            = client_key.c_str();
+  xHttpClientConf cli_conf = {};
+  cli_conf.tls             = &cli_tls;
+  xHttpClientDestroy(client);
+  client = xHttpClientCreate(client_loop, &cli_conf);
+  ASSERT_NE(client, nullptr);
 
   RespCtx ctx;
   err = xHttpClientGet(client, url("/secure").c_str(), on_resp, &ctx);
@@ -725,9 +753,13 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Client provides CA but NO client cert */
-  xTlsClientConf cli_conf = {};
-  cli_conf.ca            = ca_cert.c_str();
-  xHttpClientSetTls(client, &cli_conf);
+  xTlsClientConf cli_tls = {};
+  cli_tls.ca             = ca_cert.c_str();
+  xHttpClientConf cli_conf = {};
+  cli_conf.tls             = &cli_tls;
+  xHttpClientDestroy(client);
+  client = xHttpClientCreate(client_loop, &cli_conf);
+  ASSERT_NE(client, nullptr);
 
   RespCtx ctx;
   err = xHttpClientGet(client, url("/secure").c_str(), on_resp, &ctx);
@@ -834,7 +866,11 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   listen_tls_and_start();
 
   /* First request: skip verify → should succeed */
-  client_skip_verify();
+  {
+    xTlsClientConf tls = {};
+    tls.skip_verify    = 1;
+    create_client(&tls);
+  }
 
   RespCtx ctx1;
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx1);
@@ -845,7 +881,7 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   EXPECT_EQ(ctx1.status_code, 200);
 
   /* Reset to defaults (verify enabled) → self-signed should fail */
-  xHttpClientSetTls(client, nullptr);
+  create_client(nullptr);
 
   RespCtx ctx2;
   err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx2);

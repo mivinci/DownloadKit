@@ -202,7 +202,7 @@ int main() {
     return 1;
   }
 
-  xHttpClient client = xHttpClientCreate(loop);
+  xHttpClient client = xHttpClientCreate(loop, nullptr);
   if (!client) {
     fprintf(stderr, "Failed to create HTTP client\n");
     xEventLoopDestroy(loop);

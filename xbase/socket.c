@@ -240,6 +240,17 @@ xErrno xSocketSetTimeout(xSocket sock, int read_timeout_ms,
   return xErrno_Ok;
 }
 
+/* ───────────────────── Callback ───────────────────── */
+
+xErrno xSocketSetCallback(xSocket sock, xSocketFunc callback,
+                          void *userp) {
+  if (!sock || !callback) return xErrno_InvalidArg;
+  struct xSocket_ *s = (struct xSocket_ *)sock;
+  s->callback = callback;
+  s->userp    = userp;
+  return xErrno_Ok;
+}
+
 /* ───────────────────── Query ───────────────────── */
 
 int xSocketFd(xSocket sock) {

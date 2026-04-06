@@ -1,0 +1,154 @@
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * ws_frame.h - WebSocket frame codec (RFC 6455 §5)
+ *
+ * Provides incremental frame parsing from an xIOBuffer and frame
+ * encoding for server-to-client transmission.
+ */
+
+#ifndef XHTTP_WS_FRAME_H
+#define XHTTP_WS_FRAME_H
+
+#include <stddef.h>
+#include <stdint.h>
+#include <xbuf/io.h>
+
+/* ───────────────────── Opcodes (RFC 6455 §5.2) ───────────────────── */
+
+#define XWS_OPCODE_CONTINUATION 0x0
+#define XWS_OPCODE_TEXT         0x1
+#define XWS_OPCODE_BINARY       0x2
+#define XWS_OPCODE_CLOSE        0x8
+#define XWS_OPCODE_PING         0x9
+#define XWS_OPCODE_PONG         0xA
+
+/* ───────────────────── Close status codes ───────────────────── */
+
+#define XWS_CLOSE_NORMAL        1000
+#define XWS_CLOSE_GOING_AWAY    1001
+#define XWS_CLOSE_PROTOCOL_ERR  1002
+#define XWS_CLOSE_UNSUPPORTED   1003
+#define XWS_CLOSE_NO_STATUS     1005
+#define XWS_CLOSE_ABNORMAL      1006
+
+/* ───────────────────── Parse result ───────────────────── */
+
+/**
+ * Return values for xWsFrameParse().
+ */
+typedef enum {
+  /** A complete frame was parsed and consumed from the buffer. */
+  xWsFrameResult_Ok = 0,
+  /** Not enough data in the buffer; call again after more I/O. */
+  xWsFrameResult_NeedMore = 1,
+  /** Protocol error detected (caller should send Close 1002). */
+  xWsFrameResult_Error = -1,
+} xWsFrameResult;
+
+/* ───────────────────── Frame structure ───────────────────── */
+
+/**
+ * Represents a single parsed WebSocket frame.
+ *
+ * After a successful xWsFrameParse(), the payload points to a
+ * heap-allocated buffer that the caller must free().
+ */
+typedef struct {
+  uint8_t  fin;            /**< FIN bit (1 = final fragment)     */
+  uint8_t  opcode;         /**< Frame opcode (4 bits)            */
+  uint8_t  masked;         /**< MASK bit                         */
+  uint8_t  masking_key[4]; /**< Masking key (if masked)          */
+  uint64_t payload_len;    /**< Payload length in bytes          */
+  uint8_t *payload;        /**< Payload data (heap, caller frees)*/
+} xWsFrame;
+
+/* ───────────────────── Parse state machine ───────────────────── */
+
+/**
+ * Incremental frame parser state.
+ *
+ * Maintains parsing progress across multiple I/O reads.
+ * Initialize with xWsFrameParserInit() before first use.
+ */
+typedef struct {
+  /** Internal parsing phase */
+  enum {
+    XWS_PARSE_HEADER = 0,   /**< Reading 2-byte base header      */
+    XWS_PARSE_LEN16,        /**< Reading 2-byte extended length   */
+    XWS_PARSE_LEN64,        /**< Reading 8-byte extended length   */
+    XWS_PARSE_MASK,          /**< Reading 4-byte masking key       */
+    XWS_PARSE_PAYLOAD,       /**< Reading payload data             */
+  } phase;
+
+  xWsFrame frame;           /**< Frame being assembled            */
+  size_t   payload_read;    /**< Bytes of payload read so far     */
+} xWsFrameParser;
+
+/* ───────────────────── API ───────────────────── */
+
+/**
+ * Initialize a frame parser for first use.
+ *
+ * @param parser  Parser state to initialize.
+ */
+void xWsFrameParserInit(xWsFrameParser *parser);
+
+/**
+ * Reset the parser for the next frame (after a successful parse).
+ *
+ * Does NOT free the previous frame's payload — the caller owns it.
+ *
+ * @param parser  Parser state to reset.
+ */
+void xWsFrameParserReset(xWsFrameParser *parser);
+
+/**
+ * Attempt to parse a complete frame from the I/O buffer.
+ *
+ * On xWsFrameResult_Ok, the parsed frame is available in
+ * parser->frame. The consumed bytes are removed from @p io.
+ * The caller is responsible for freeing parser->frame.payload.
+ *
+ * On xWsFrameResult_NeedMore, no data is consumed; the caller
+ * should read more data and call again.
+ *
+ * On xWsFrameResult_Error, a protocol violation was detected.
+ * The caller should send a Close frame with status 1002.
+ *
+ * @param parser  Parser state (must be initialized).
+ * @param io      I/O buffer containing incoming data.
+ * @return Parse result.
+ */
+xWsFrameResult xWsFrameParse(xWsFrameParser *parser, xIOBuffer *io);
+
+/**
+ * Encode a WebSocket frame and append it to the I/O buffer.
+ *
+ * Server frames are never masked (RFC 6455 §5.1).
+ *
+ * @param io           Output I/O buffer.
+ * @param fin          FIN bit (1 for non-fragmented or final fragment).
+ * @param opcode       Frame opcode.
+ * @param payload      Payload data, or NULL if payload_len == 0.
+ * @param payload_len  Payload length in bytes.
+ * @return 0 on success, -1 on error (OOM).
+ */
+int xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode,
+                   const void *payload, size_t payload_len);
+
+/**
+ * Encode a Close frame with a status code and optional reason.
+ *
+ * @param io      Output I/O buffer.
+ * @param code    Close status code (network byte order handled internally).
+ * @param reason  Optional reason string, or NULL.
+ * @param len     Length of reason in bytes.
+ * @return 0 on success, -1 on error.
+ */
+int xWsFrameEncodeClose(xIOBuffer *io, uint16_t code,
+                        const char *reason, size_t len);
+
+#endif /* XHTTP_WS_FRAME_H */

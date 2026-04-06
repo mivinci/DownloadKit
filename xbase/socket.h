@@ -116,6 +116,20 @@ XCAPI(xErrno) xSocketSetMask(xEventLoop loop, xSocket sock, xEventMask mask);
 XCAPI(xErrno) xSocketSetTimeout(xSocket sock, int read_timeout_ms,
                                 int write_timeout_ms);
 
+/**
+ * @brief Replace the callback and user data for a socket.
+ *
+ * Allows changing the event handler after creation, e.g. when
+ * transferring socket ownership (WebSocket upgrade).
+ *
+ * @param sock      Socket handle (must not be NULL).
+ * @param callback  New callback (must not be NULL).
+ * @param userp     New user data.
+ * @return          xErrno_Ok on success.
+ */
+XCAPI(xErrno) xSocketSetCallback(xSocket sock, xSocketFunc callback,
+                                 void *userp);
+
 /* ───────────────────── Query ───────────────────── */
 
 /**

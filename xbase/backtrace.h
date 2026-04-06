@@ -49,4 +49,22 @@ XCAPI(int) xBacktrace(char *buf, size_t size);
  */
 XCAPI(int) xBacktraceSkip(int skip, char *buf, size_t size);
 
+/**
+ * @brief Register signal handlers that print a backtrace on crash.
+ *
+ * Installs handlers for SIGSEGV, SIGABRT, and SIGBUS.  When any of
+ * these signals is received the handler prints the signal name and a
+ * full stack trace to stderr, then re-raises the signal with the
+ * default handler so that a core dump can still be produced.
+ *
+ * Typical usage — call once at the beginning of main():
+ * @code
+ *   int main(void) {
+ *       xPrintBacktraceOnCrash();
+ *       // ...
+ *   }
+ * @endcode
+ */
+XCAPI(void) xPrintBacktraceOnCrash(void);
+
 #endif // XBASE_BACKTRACE_H

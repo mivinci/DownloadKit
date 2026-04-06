@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * ws_handshake.c - WebSocket upgrade handshake (RFC 6455 §4.2)
+ * ws_handshake_server.c - WebSocket upgrade handshake (RFC 6455 §4.2)
  */
 
 #include "server_private.h"
@@ -181,16 +181,49 @@ xErrno xWsUpgrade(xHttpResponseWriter writer,
   xWsBase64Encode(sha1_digest, XWS_SHA1_DIGEST_SIZE,
                   accept_value, sizeof(accept_value));
 
+#ifdef XHTTP_WS_DEFLATE
+  /* 3b. Check for permessage-deflate extension offer */
+  xWsDeflateParams deflate_params;
+  memset(&deflate_params, 0, sizeof(deflate_params));
+  int has_deflate = 0;
+  {
+    size_t ext_len;
+    const char *ext_val = find_header(
+      req->headers, req->headers_len,
+      "Sec-WebSocket-Extensions", &ext_len);
+    if (ext_val && ext_len > 0) {
+      has_deflate = (xWsDeflateParseOffer(
+        ext_val, ext_len, &deflate_params) == 0);
+    }
+  }
+#endif
+
   /* 4. Send 101 Switching Protocols response */
-  char response[512];
+  char ext_resp_hdr[256];
+  ext_resp_hdr[0] = '\0';
+#ifdef XHTTP_WS_DEFLATE
+  if (has_deflate) {
+    char ext_val[192];
+    if (xWsDeflateBuildServerResponse(&deflate_params,
+                                      ext_val,
+                                      sizeof(ext_val)) > 0) {
+      snprintf(ext_resp_hdr, sizeof(ext_resp_hdr),
+               "Sec-WebSocket-Extensions: %s\r\n", ext_val);
+    }
+  }
+#endif
+
+  char response[768];
   int resp_len = snprintf(
     response, sizeof(response),
     "HTTP/1.1 101 Switching Protocols\r\n"
     "Upgrade: websocket\r\n"
     "Connection: Upgrade\r\n"
     "Sec-WebSocket-Accept: %s\r\n"
+    "%s"
     "\r\n",
-    accept_value);
+    accept_value,
+    ext_resp_hdr);
 
   if (resp_len < 0 || (size_t)resp_len >= sizeof(response)) {
     xHttpConnSendError(conn, 500, "Internal Server Error");
@@ -232,6 +265,17 @@ xErrno xWsUpgrade(xHttpResponseWriter writer,
   if (!xIOBufferEmpty(&conn->read_buf)) {
     xIOBufferAppendIOBuffer(&ws->read_buf, &conn->read_buf);
   }
+
+#ifdef XHTTP_WS_DEFLATE
+  /* Initialize deflate context if negotiated */
+  if (has_deflate && deflate_params.enabled) {
+    ws->deflate_params = deflate_params;
+    ws->deflate_ctx = xWsDeflateCreate(&deflate_params, 0);
+    if (ws->deflate_ctx) {
+      ws->parser.allow_rsv1 = 1;
+    }
+  }
+#endif
 
   /* NOTE: conn is NOT freed here. xHttpConnHijack() already
    * removed it from the server's connection list and destroyed

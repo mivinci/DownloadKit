@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * transport_tls_openssl.c - OpenSSL TLS transport implementation
+ * transport_tls_server_openssl.c - OpenSSL TLS transport implementation
  */
 
 #ifdef XK_HAS_OPENSSL

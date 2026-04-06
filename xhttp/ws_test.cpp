@@ -165,7 +165,7 @@ TEST(WsFrame, ParseTextFrame) {
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
   xWsFrameParser parser;
-  xWsFrameParserInit(&parser);
+  xWsFrameParserInit(&parser, 1);
 
   xWsFrameResult result = xWsFrameParse(&parser, &io);
   ASSERT_EQ(result, xWsFrameResult_Ok);
@@ -190,7 +190,7 @@ TEST(WsFrame, ParseBinaryFrame) {
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
   xWsFrameParser parser;
-  xWsFrameParserInit(&parser);
+  xWsFrameParserInit(&parser, 1);
 
   xWsFrameResult result = xWsFrameParse(&parser, &io);
   ASSERT_EQ(result, xWsFrameResult_Ok);
@@ -213,7 +213,7 @@ TEST(WsFrame, ParseEmptyFrame) {
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
   xWsFrameParser parser;
-  xWsFrameParserInit(&parser);
+  xWsFrameParserInit(&parser, 1);
 
   xWsFrameResult result = xWsFrameParse(&parser, &io);
   ASSERT_EQ(result, xWsFrameResult_Ok);
@@ -236,7 +236,7 @@ TEST(WsFrame, ParseMediumPayload) {
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
   xWsFrameParser parser;
-  xWsFrameParserInit(&parser);
+  xWsFrameParserInit(&parser, 1);
 
   xWsFrameResult result = xWsFrameParse(&parser, &io);
   ASSERT_EQ(result, xWsFrameResult_Ok);
@@ -260,7 +260,7 @@ TEST(WsFrame, ParseCloseFrame) {
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
   xWsFrameParser parser;
-  xWsFrameParserInit(&parser);
+  xWsFrameParserInit(&parser, 1);
 
   xWsFrameResult result = xWsFrameParse(&parser, &io);
   ASSERT_EQ(result, xWsFrameResult_Ok);
@@ -286,7 +286,7 @@ TEST(WsFrame, ParsePingFrame) {
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
   xWsFrameParser parser;
-  xWsFrameParserInit(&parser);
+  xWsFrameParserInit(&parser, 1);
 
   xWsFrameResult result = xWsFrameParse(&parser, &io);
   ASSERT_EQ(result, xWsFrameResult_Ok);
@@ -307,7 +307,7 @@ TEST(WsFrame, RejectUnmaskedClientFrame) {
   xIOBufferAppend(&io, "Hello", 5);
 
   xWsFrameParser parser;
-  xWsFrameParserInit(&parser);
+  xWsFrameParserInit(&parser, 1);
 
   xWsFrameResult result = xWsFrameParse(&parser, &io);
   EXPECT_EQ(result, xWsFrameResult_Error);
@@ -327,7 +327,7 @@ TEST(WsFrame, RejectFragmentedControlFrame) {
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
   xWsFrameParser parser;
-  xWsFrameParserInit(&parser);
+  xWsFrameParserInit(&parser, 1);
 
   xWsFrameResult result = xWsFrameParse(&parser, &io);
   EXPECT_EQ(result, xWsFrameResult_Error);
@@ -344,7 +344,7 @@ TEST(WsFrame, NeedMore) {
   xIOBufferAppend(&io, partial, 1);
 
   xWsFrameParser parser;
-  xWsFrameParserInit(&parser);
+  xWsFrameParserInit(&parser, 1);
 
   xWsFrameResult result = xWsFrameParse(&parser, &io);
   EXPECT_EQ(result, xWsFrameResult_NeedMore);
@@ -356,7 +356,8 @@ TEST(WsFrame, EncodeTextFrame) {
   xIOBuffer io;
   xIOBufferInit(&io);
 
-  int ret = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT, "Hello", 5);
+  int ret = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT, "Hello", 5,
+                           0);
   ASSERT_EQ(ret, 0);
 
   /* Server frame: FIN=1, TEXT, no mask, len=5 */
@@ -377,7 +378,7 @@ TEST(WsFrame, EncodeCloseFrame) {
   xIOBuffer io;
   xIOBufferInit(&io);
 
-  int ret = xWsFrameEncodeClose(&io, 1000, "bye", 3);
+  int ret = xWsFrameEncodeClose(&io, 1000, "bye", 3, 0);
   ASSERT_EQ(ret, 0);
 
   size_t total = xIOBufferLen(&io);

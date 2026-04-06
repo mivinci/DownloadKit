@@ -185,7 +185,8 @@ typedef enum {
 | --- | --- |
 | `ws.h` | Public API (types, callbacks, functions) |
 | `ws.c` | Connection lifecycle, I/O, frame dispatch |
-| `ws_handshake.c` | Upgrade handshake (RFC 6455 §4.2) |
+| `ws_handshake_server.c` | Server upgrade handshake (RFC 6455 §4.2) |
+| `ws_handshake_client.h/c` | Client upgrade handshake |
 | `ws_frame.h/c` | Frame codec (parse + encode) |
 | `ws_crypto.h` | SHA-1 + Base64 interface |
 | `ws_crypto_openssl.c` | OpenSSL backend |

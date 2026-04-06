@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * transport_tls_mbedtls.c - mbedTLS transport implementation
+ * transport_tls_server_mbedtls.c - mbedTLS transport implementation
  */
 
 #ifdef XK_HAS_MBEDTLS

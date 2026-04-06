@@ -383,7 +383,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
     xHttpServer srv = xHttpServerCreate(loop);
 
-    xHttpServerRoute(srv, "GET", "/ws",
+    xHttpServerRoute(srv, "GET /ws",
                      ws_handler, NULL);
     xHttpServerListen(srv, "0.0.0.0", 8080);
 

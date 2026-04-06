@@ -538,7 +538,8 @@ protected:
   WsTestCtx ws_ctx;
 
   void SetUpWsRoute(const std::string &path = "/ws") {
-    xErrno err = xHttpServerRoute(server, "GET", path.c_str(),
+    std::string pattern = "GET " + path;
+    xErrno err = xHttpServerRoute(server, pattern.c_str(),
                                   ws_upgrade_handler, &ws_ctx);
     ASSERT_EQ(err, xErrno_Ok);
   }

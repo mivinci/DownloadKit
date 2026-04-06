@@ -152,6 +152,7 @@ The self-pipe approach avoids `signalfd`'s requirement to block signals in all t
 | Function | Signature | Thread Safety |
 | --- | --- | --- |
 | `xEventLoopCreate` | `xEventLoop xEventLoopCreate(void)` | Not thread-safe |
+| `xEventLoopCreateWithGroup` | `xEventLoop xEventLoopCreateWithGroup(xTaskGroup group)` | Not thread-safe |
 | `xEventLoopDestroy` | `void xEventLoopDestroy(xEventLoop loop)` | Not thread-safe |
 | `xEventLoopRun` | `void xEventLoopRun(xEventLoop loop)` | Not thread-safe (call from one thread) |
 | `xEventLoopStop` | `void xEventLoopStop(xEventLoop loop)` | **Thread-safe** |

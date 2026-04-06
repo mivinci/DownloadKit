@@ -43,6 +43,7 @@ Server-side TLS configuration.
 | --- | --- | --- |
 | `0` | None | No client certificate requested |
 | `1` | Optional | Request client cert, allow without |
+| `2` | Required | Require valid client certificate, reject without |
 
 ### One-Way TLS (Client Verifies Server)
 

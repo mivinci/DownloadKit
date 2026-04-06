@@ -17,9 +17,9 @@
 
 /* ───────────────────── Plain TCP context ───────────────────── */
 
-typedef struct {
+XDEF_STRUCT(xHttpTransportPlain_) {
   int fd; /**< File descriptor for the connection */
-} xHttpTransportPlain_;
+};
 
 /* ───────────────────── vtable callbacks ───────────────────── */
 

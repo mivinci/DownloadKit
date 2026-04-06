@@ -14,6 +14,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <xbase/base.h>
 #include <xbuf/io.h>
 
 /* ───────────────────── Opcodes (RFC 6455 §5.2) ───────────────────── */
@@ -39,14 +40,14 @@
 /**
  * Return values for xWsFrameParse().
  */
-typedef enum {
+XDEF_ENUM(xWsFrameResult){
   /** A complete frame was parsed and consumed from the buffer. */
   xWsFrameResult_Ok = 0,
   /** Not enough data in the buffer; call again after more I/O. */
   xWsFrameResult_NeedMore = 1,
   /** Protocol error detected (caller should send Close 1002). */
   xWsFrameResult_Error = -1,
-} xWsFrameResult;
+};
 
 /* ───────────────────── Frame structure ───────────────────── */
 
@@ -56,7 +57,7 @@ typedef enum {
  * After a successful xWsFrameParse(), the payload points to a
  * heap-allocated buffer that the caller must free().
  */
-typedef struct {
+XDEF_STRUCT(xWsFrame) {
   uint8_t  fin;            /**< FIN bit (1 = final fragment)     */
   uint8_t  rsv1;           /**< RSV1 bit (1 = compressed, PMD)   */
   uint8_t  opcode;         /**< Frame opcode (4 bits)            */
@@ -64,9 +65,20 @@ typedef struct {
   uint8_t  masking_key[4]; /**< Masking key (if masked)          */
   uint64_t payload_len;    /**< Payload length in bytes          */
   uint8_t *payload;        /**< Payload data (heap, caller frees)*/
-} xWsFrame;
+};
 
 /* ───────────────────── Parse state machine ───────────────────── */
+
+/**
+ * Internal parsing phase for the frame parser.
+ */
+XDEF_ENUM(xWsFrameParserPhase){
+  xWsFrameParserPhase_Header  = 0, /**< Reading 2-byte base header    */
+  xWsFrameParserPhase_Len16,       /**< Reading 2-byte extended length*/
+  xWsFrameParserPhase_Len64,       /**< Reading 8-byte extended length*/
+  xWsFrameParserPhase_Mask,        /**< Reading 4-byte masking key    */
+  xWsFrameParserPhase_Payload,     /**< Reading payload data          */
+};
 
 /**
  * Incremental frame parser state.
@@ -74,15 +86,8 @@ typedef struct {
  * Maintains parsing progress across multiple I/O reads.
  * Initialize with xWsFrameParserInit() before first use.
  */
-typedef struct {
-  /** Internal parsing phase */
-  enum {
-    XWS_PARSE_HEADER = 0,   /**< Reading 2-byte base header      */
-    XWS_PARSE_LEN16,        /**< Reading 2-byte extended length   */
-    XWS_PARSE_LEN64,        /**< Reading 8-byte extended length   */
-    XWS_PARSE_MASK,          /**< Reading 4-byte masking key       */
-    XWS_PARSE_PAYLOAD,       /**< Reading payload data             */
-  } phase;
+XDEF_STRUCT(xWsFrameParser) {
+  xWsFrameParserPhase phase;       /**< Internal parsing phase        */
 
   xWsFrame frame;           /**< Frame being assembled            */
   size_t   payload_read;    /**< Bytes of payload read so far     */
@@ -100,7 +105,7 @@ typedef struct {
    * When 1, RSV1 is permitted on data frames.
    */
   int allow_rsv1;
-} xWsFrameParser;
+};
 
 /* ───────────────────── API ───────────────────── */
 

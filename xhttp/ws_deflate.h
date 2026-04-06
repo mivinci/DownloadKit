@@ -16,6 +16,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <xbase/base.h>
 
 /* ───────────────── Negotiated parameters ───────────────── */
 
@@ -25,13 +26,13 @@
  * Populated during the WebSocket handshake and used to
  * configure the zlib streams.
  */
-typedef struct {
+XDEF_STRUCT(xWsDeflateParams) {
   int enabled;                  /**< Extension negotiated     */
   int server_no_context_takeover; /**< Server resets deflate  */
   int client_no_context_takeover; /**< Client resets deflate  */
   int server_max_window_bits;   /**< Server LZ77 window size  */
   int client_max_window_bits;   /**< Client LZ77 window size  */
-} xWsDeflateParams;
+};
 
 /* ───────────────── Deflate context ───────────────── */
 

@@ -54,7 +54,7 @@ static const char *alpn_protos[] = {"h2", "http/1.1", NULL};
 
 /* ───────────────────── TLS context (server-level) ───────────────────── */
 
-typedef struct {
+XDEF_STRUCT(xHttpTlsCtxMbedTLS_) {
   mbedtls_ssl_config conf;
   mbedtls_x509_crt   cert;
   mbedtls_pk_context pkey;
@@ -64,7 +64,7 @@ typedef struct {
   mbedtls_ctr_drbg_context ctr_drbg;
 #endif
   int has_ca;
-} xHttpTlsCtxMbedTLS_;
+};
 
 void *xHttpTlsCtxCreateMbedTLS(const xTlsServerConf *config) {
   xHttpTlsCtxMbedTLS_ *ctx =
@@ -196,11 +196,11 @@ void xHttpTlsCtxDestroyMbedTLS(void *ctx) {
 
 /* ───────────────────── Per-connection TLS state ───────────────────── */
 
-typedef struct {
+XDEF_STRUCT(xHttpTlsMbedTLS_) {
   mbedtls_ssl_context ssl;
   mbedtls_net_context net;
   int                 fd;
-} xHttpTlsMbedTLS_;
+};
 
 /* ───────────────────── Custom I/O callbacks for mbedTLS ─────────────────────
  */

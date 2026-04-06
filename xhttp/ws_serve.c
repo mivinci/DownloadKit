@@ -15,10 +15,10 @@
 
 /* ── Internal state for the catch-all upgrade handler ──── */
 
-typedef struct {
+XDEF_STRUCT(xWsServeCtx) {
   xWsCallbacks callbacks;
   void        *user_arg;
-} xWsServeCtx;
+};
 
 static void ws_serve_handler(xHttpResponseWriter w,
                              const xHttpRequest *req,

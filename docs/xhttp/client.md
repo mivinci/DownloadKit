@@ -313,7 +313,7 @@ int main(void) {
    for development environments with self-signed
    certs.
 
-3. **LLM API Calls** — Use `xHttpClientDoSse()` with POST method and JSON body to stream responses from OpenAI, Anthropic, or other LLM APIs. See [client_sse.md](client_sse.md) for a complete example.
+3. **LLM API Calls** — Use `xHttpClientDoSse()` with POST method and JSON body to stream responses from OpenAI, Anthropic, or other LLM APIs. See [sse.md](sse.md) for a complete example.
 
 4. **Health Checks / Monitoring** — Periodically poll HTTP endpoints using timer-driven GET requests within the event loop.
 

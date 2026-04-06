@@ -28,7 +28,7 @@ static const uint8_t DEFLATE_TAIL[] = {0x00, 0x00, 0xFF, 0xFF};
 
 /* ───────────────── Context structure ───────────────── */
 
-struct xWsDeflateCtx_ {
+XDEF_STRUCT(xWsDeflateCtx_) {
   z_stream deflate_strm;   /* Compression stream   */
   z_stream inflate_strm;   /* Decompression stream */
   int deflate_init;        /* deflate_strm initialized */

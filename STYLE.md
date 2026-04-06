@@ -35,7 +35,7 @@ cmake/          # CMake 辅助模块
 | ------ | ---------- | ------ |
 | 公共头文件 | `<module>.h` | `event.h`, `timer.h`, `time.h` |
 | 私有头文件 | `<module>_private.h` | `event_private.h`, `client_private.h` |
-| 实现文件 | `<module>.c` 或 `<module>_<variant>.c` | `event_kqueue.c`, `event_epoll.c`, `client_sse.c` |
+| 实现文件 | `<module>.c` 或 `<module>_<variant>.c` | `event_kqueue.c`, `event_epoll.c` |
 | 测试文件 | `<module>_test.cpp` | `heap_test.cpp`, `timer_test.cpp` |
 
 ### 2.3 文件头注释

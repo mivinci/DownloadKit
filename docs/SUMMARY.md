@@ -29,7 +29,7 @@
   - [HTTP Server](xhttp/server.md)
   - [WebSocket Server](xhttp/ws_server.md)
   - [WebSocket Client](xhttp/ws_client.md)
-  - [SSE Streaming](xhttp/client_sse.md)
+- [SSE Streaming](xhttp/sse.md)
   - [TLS Deployment Guide](xhttp/tls.md)
 - [xlog — Async Logging](xlog/README.md)
   - [Async Logger](xlog/logger.md)

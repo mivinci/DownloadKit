@@ -161,13 +161,18 @@ graph LR
     XHTTP -->|"I/O buffers"| XBUF
     XLOG -->|"event loop + MPSC queue"| XBASE
     XBUF -.->|"no dependency"| XBASE
+    XNET["xnet"]
+    XNET -->|"event loop + thread pool + atomic"| XBASE
+    XHTTP -->|"URL + DNS + TLS config"| XNET
 
     style XBASE fill:#4a90d9,color:#fff
     style XBUF fill:#50b86c,color:#fff
     style XHTTP fill:#f5a623,color:#fff
     style XLOG fill:#e74c3c,color:#fff
+    style XNET fill:#e74c3c,color:#fff
 ```
 
 - **xbuf** — Buffer module. `xIOBuffer` uses xbase's `atomic.h` for lock-free block pool management. xhttp uses both xbase and xbuf together.
 - **xhttp** — The async HTTP client is built on top of xbase's event loop (`xEventLoop`) and timer infrastructure, and uses xbuf for response buffering.
+- **xnet** — The networking primitives module. The async DNS resolver uses xbase's event loop for thread-pool offload (`xEventLoopSubmit`) and `atomic.h` for the cancellation flag.
 - **xlog** — The async logger uses xbase's event loop for timer-based flushing and the MPSC queue for lock-free log message passing from application threads to the logger thread.

@@ -140,7 +140,7 @@ Returns a `xDnsQuery` handle, or `NULL` on invalid arguments.
 #include <xbase/event.h>
 #include <xnet/dns.h>
 
-static void on_resolve(xDnsResult *result, void *arg) {
+static void on_resolved(xDnsResult *result, void *arg) {
     xEventLoop loop = (xEventLoop)arg;
 
     if (result->error != xErrno_Ok) {

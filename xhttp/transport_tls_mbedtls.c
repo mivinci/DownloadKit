@@ -66,7 +66,7 @@ typedef struct {
   int has_ca;
 } xHttpTlsCtxMbedTLS_;
 
-void *xHttpTlsCtxCreateMbedTLS(const xHttpTlsServerConf *config) {
+void *xHttpTlsCtxCreateMbedTLS(const xTlsServerConf *config) {
   xHttpTlsCtxMbedTLS_ *ctx =
     (xHttpTlsCtxMbedTLS_ *)calloc(1, sizeof(xHttpTlsCtxMbedTLS_));
   if (!ctx) return NULL;
@@ -108,25 +108,25 @@ void *xHttpTlsCtxCreateMbedTLS(const xHttpTlsServerConf *config) {
   XK_MBEDTLS_SET_MIN_TLS12(&ctx->conf);
 
   /* Load certificate */
-  ret = mbedtls_x509_crt_parse_file(&ctx->cert, config->cert_file);
+  ret = mbedtls_x509_crt_parse_file(&ctx->cert, config->cert);
   if (ret != 0) {
     xLog(false, "xhttp: failed to load certificate: %s (ret=-0x%04x)",
-         config->cert_file, -ret);
+         config->cert, -ret);
     goto fail;
   }
 
   /* Load private key */
 #if MBEDTLS_VERSION_NUMBER >= 0x04000000
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key_file, NULL);
+  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL);
 #elif MBEDTLS_VERSION_NUMBER >= 0x03000000
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key_file, NULL,
+  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL,
                                  mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
 #else
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key_file, NULL);
+  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL);
 #endif
   if (ret != 0) {
     xLog(false, "xhttp: failed to load private key: %s (ret=-0x%04x)",
-         config->key_file, -ret);
+         config->key, -ret);
     goto fail;
   }
 
@@ -138,11 +138,11 @@ void *xHttpTlsCtxCreateMbedTLS(const xHttpTlsServerConf *config) {
   }
 
   /* Load CA certificate for client verification (optional) */
-  if (config->ca_file) {
-    ret = mbedtls_x509_crt_parse_file(&ctx->ca_cert, config->ca_file);
+  if (config->ca) {
+    ret = mbedtls_x509_crt_parse_file(&ctx->ca_cert, config->ca);
     if (ret != 0) {
       xLog(false, "xhttp: failed to load CA certificate: %s (ret=-0x%04x)",
-           config->ca_file, -ret);
+           config->ca, -ret);
       goto fail;
     }
     mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->ca_cert, NULL);
@@ -150,9 +150,9 @@ void *xHttpTlsCtxCreateMbedTLS(const xHttpTlsServerConf *config) {
   }
 
   /* Client verification mode */
-  if (config->verify_client == 2) {
+  if (config->verify_peer == 2) {
     mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-  } else if (config->verify_client == 1) {
+  } else if (config->verify_peer == 1) {
     mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
   } else {
     mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);

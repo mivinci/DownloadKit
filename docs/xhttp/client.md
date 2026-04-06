@@ -147,7 +147,7 @@ All pointers are valid only during the callback. The library manages their lifet
 | `xSseEvent` | SSE event data delivered to the event callback |
 | `xSseEventFunc` | `int (*)(const xSseEvent *ev, void *arg)` — return 0 to continue, non-zero to close |
 | `xSseDoneFunc` | `void (*)(int curl_code, void *arg)` |
-| `xHttpTlsClientConf` | TLS configuration for the client (CA path, client cert/key, skip verify) |
+| `xTlsClientConf` | TLS configuration for the client (CA path, client cert/key, skip verify) |
 
 ### Lifecycle
 
@@ -160,15 +160,15 @@ All pointers are valid only during the callback. The library manages their lifet
 
 | Function | Signature | Description | Thread Safety |
 | --- | --- | --- | --- |
-| `xHttpClientSetTls` | `void xHttpClientSetTls(xHttpClient client, const xHttpTlsClientConf *conf)` | Configure TLS options for all subsequent requests. Pass `NULL` to reset to defaults. | Not thread-safe |
+| `xHttpClientSetTls` | `void xHttpClientSetTls(xHttpClient client, const xTlsClientConf *conf)` | Configure TLS options for all subsequent requests. Pass `NULL` to reset to defaults. | Not thread-safe |
 
-#### `xHttpTlsClientConf` Fields
+#### `xTlsClientConf` Fields
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `ca_path` | `const char *` | Path to a CA certificate file for server verification. When set, the system CA bundle is bypassed. |
-| `client_cert` | `const char *` | Path to a client certificate file (PEM) for mutual TLS (mTLS). |
-| `client_key` | `const char *` | Path to the client private key file (PEM) for mTLS. |
+| `ca` | `const char *` | Path to a CA certificate file for server verification. When set, the system CA bundle is bypassed. |
+| `cert` | `const char *` | Path to a client certificate file (PEM) for mutual TLS (mTLS). |
+| `key` | `const char *` | Path to the client private key file (PEM) for mTLS. |
 | `key_password` | `const char *` | Passphrase for an encrypted client private key. |
 | `skip_verify` | `int` | If non-zero, skip server certificate verification (useful for self-signed certs in development). |
 
@@ -242,15 +242,15 @@ int main(void) {
     xHttpClient client = xHttpClientCreate(loop);
 
     // Option 1: Skip certificate verification (development only)
-    xHttpTlsClientConf tls = {0};
+    xTlsClientConf tls = {0};
     tls.skip_verify = 1;
     xHttpClientSetTls(client, &tls);
 
     // Option 2: Custom CA + mutual TLS
-    xHttpTlsClientConf mtls = {0};
-    mtls.ca_path     = "/path/to/ca.pem";
-    mtls.client_cert = "/path/to/client.pem";
-    mtls.client_key  = "/path/to/client-key.pem";
+    xTlsClientConf mtls = {0};
+    mtls.ca     = "/path/to/ca.pem";
+    mtls.cert = "/path/to/client.pem";
+    mtls.key  = "/path/to/client-key.pem";
     xHttpClientSetTls(client, &mtls);
 
     xHttpClientGet(client, "https://secure.example.com/api",

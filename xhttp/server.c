@@ -1318,10 +1318,10 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg);
 #endif
 
 xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
-                            const xHttpTlsServerConf *config) {
+                            const xTlsServerConf *config) {
   if (!server) return xErrno_InvalidArg;
   if (!config) return xErrno_InvalidArg;
-  if (!config->cert_file || !config->key_file) return xErrno_InvalidArg;
+  if (!config->cert || !config->key) return xErrno_InvalidArg;
 
 #if !defined(XK_HAS_OPENSSL) && !defined(XK_HAS_MBEDTLS)
   (void)host;

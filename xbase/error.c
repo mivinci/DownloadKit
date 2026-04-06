@@ -19,6 +19,9 @@ static const char *xErrnoStrings[] = {
   [xErrno_AlreadyExists] = "already exists",
   [xErrno_Cancelled]     = "cancelled",
   [xErrno_NotSupported]  = "not supported",
+  [xErrno_DnsNotFound]   = "dns: hostname not found",
+  [xErrno_DnsTempFail]   = "dns: temporary failure",
+  [xErrno_DnsError]      = "dns: resolution error",
 };
 
 const char *xstrerror(xErrno err) {

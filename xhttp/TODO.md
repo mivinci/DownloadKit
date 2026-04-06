@@ -2,81 +2,40 @@
 
 ## WebSocket Client
 
-Two candidate approaches for adding a WS client to xhttp.
-Both share the same public callback API (`xWsCallbacks`,
-`xWsConn`, `xWsSend`, `xWsClose`), so switching the
-underlying implementation is transparent to users.
+Reuse the existing `xHttpClient` to initiate WebSocket connections.
+The public callback API (`xWsCallbacks`, `xWsConn`, `xWsSend`,
+`xWsClose`) is shared with the server side, so user code looks
+the same regardless of direction.
 
-### Option A — libcurl (reuse xHttpClient)
-
-Leverage the existing `xHttpClient` + curl multi-socket
-architecture, similar to `client_sse.c`.
-
-- curl ≥ 7.86 exposes `CURLWS_*` / `CURLOPT_CONNECT_ONLY=2`
-- Add a new `xHttpReqVtable` (`ws_vtable`) for WS requests
-- ~300 lines of new code
-
-#### Proposed API (Option A)
+### Proposed API
 
 ```c
-XCAPI(xErrno) xHttpClientWs(xHttpClient client,
-                            const char *url,
-                            const xWsCallbacks *cbs,
-                            void *arg);
-
-XCAPI(xErrno) xHttpClientDoWs(xHttpClient client,
-                              const xHttpRequestConf *conf,
-                              const xWsCallbacks *cbs,
-                              void *arg);
-```
-
-| Pros | Cons |
-| ---- | ---- |
-| Reuses xHttpClient lifecycle / TLS | curl ≥ 7.86 required |
-| Consistent with SSE client style | curl WS API is experimental |
-| Proxy / redirect / auth for free | Limited frame-level control |
-| Small code footprint (~300 LOC) | |
-
-### Option B — Native (reuse server frame codec)
-
-Manage TCP + TLS directly via `xSocket` / `xEventLoop` /
-`xHttpTransport`; reuse the server-side `xWsFrame*` codec
-and `xIOBuffer`.
-
-- Manual HTTP/1.1 Upgrade handshake + 101 parsing
-- Need to add masking to `xWsFrameEncode` (RFC 6455)
-- ~800–1000 lines of new code
-
-#### Proposed API (Option B)
-
-```c
-XDEF_HANDLE(xWsClient);
-
-XDEF_STRUCT(xWsClientConf) {
-  const char               *url;
-  const xWsCallbacks       *callbacks;
-  void                     *arg;
-  const char              **headers;
-  const xHttpTlsClientConf *tls;
-  int                       timeout_ms;
+XDEF_STRUCT(xWsConnectConf) {
+  const char  *url;
+  const char **headers;     // extra headers (NULL-terminated)
+  int          timeout_ms;
 };
 
-XCAPI(xWsClient) xWsClientCreate(xEventLoop loop);
-XCAPI(void)      xWsClientDestroy(xWsClient client);
-XCAPI(xErrno)    xWsClientConnect(xWsClient client,
-                                  const xWsClientConf *conf);
+XCAPI(xErrno) xHttpClientConnectWs(xHttpClient client,
+                                   const xWsConnectConf *conf,
+                                   const xWsCallbacks *callbacks,
+                                   void *arg);
 ```
 
-| Pros | Cons |
-| ---- | ---- |
-| Zero external deps, embedded-friendly | ~800-1000 LOC |
-| Full frame-level control | DNS / TCP / TLS / Upgrade by hand |
-| Shares codec with server side | No HTTP proxy support |
-| Stable — no experimental API | Masking support needed |
+- `conf` carries connection parameters (URL, extra headers, timeout).
+  TLS is inherited from the `xHttpClient` instance (`xHttpClientConf`).
+- `callbacks` + `arg` are kept as separate arguments, symmetric with the
+  server-side `xWsUpgrade(writer, req, callbacks, arg)`.
+- Under the hood, the implementation performs the HTTP/1.1 Upgrade
+  handshake, then hijacks the connection for WebSocket framing.
 
-### Decision
+### Implementation Notes
 
-TBD — discuss which approach to take first.
+- Reuse the server-side `xWsFrame*` codec and `xIOBuffer`.
+- Client frames must set the MASK bit (RFC 6455 §5.3); add masking
+  support to `xWsFrameEncode`.
+- Manual HTTP/1.1 Upgrade handshake + 101 response parsing.
+- Estimated ~800–1000 lines of new code.
 
 ---
 

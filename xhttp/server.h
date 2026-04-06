@@ -18,6 +18,7 @@
 #include <xbase/base.h>
 #include <xbase/error.h>
 #include <xbase/event.h>
+#include <xnet/tls.h>
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
 
@@ -255,14 +256,9 @@ XCAPI(xErrno) xHttpServerSetMaxBodySize(xHttpServer server, size_t max_size);
 /* ── TLS ───────────────────────────────────────────────────────────────── */
 
 /**
- * @brief TLS configuration for xHttpServerListenTls().
+ * @brief Backward-compatible alias for xTlsServerConf (defined in xnet/tls.h).
  */
-XDEF_STRUCT(xHttpTlsServerConf) {
-  const char *cert_file; /**< Path to PEM certificate file (required)   */
-  const char *key_file;  /**< Path to PEM private key file (required)   */
-  const char *ca_file;   /**< Path to CA certificate file (optional)    */
-  int verify_client; /**< Client verification: 0=none, 1=optional, 2=required */
-};
+typedef xTlsServerConf xHttpTlsServerConf;
 
 /**
  * @brief Start listening for HTTPS connections with TLS.
@@ -280,12 +276,12 @@ XDEF_STRUCT(xHttpTlsServerConf) {
  * @param server  The HTTP server (must not be NULL).
  * @param host    Bind address (e.g. "0.0.0.0"), or NULL for INADDR_ANY.
  * @param port    Port number to listen on.
- * @param config  TLS configuration (must not be NULL, cert_file and
- *                key_file must not be NULL).
+ * @param config  TLS configuration (must not be NULL, cert and
+ *                key must not be NULL).
  * @return        xErrno_Ok on success, or an error code.
  */
 XCAPI(xErrno) xHttpServerListenTls(xHttpServer server, const char *host,
                                    uint16_t                  port,
-                                   const xHttpTlsServerConf *config);
+                                   const xTlsServerConf *config);
 
 #endif /* XHTTP_SERVER_H */

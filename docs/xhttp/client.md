@@ -18,35 +18,35 @@
 
 ```mermaid
 graph TD
-    subgraph "xHttpClient Internal"
-        MULTI["curl_multi handle"]
-        TIMER_CB["timer_callback<br/>(CURLMOPT_TIMERFUNCTION)"]
-        SOCKET_CB["socket_callback<br/>(CURLMOPT_SOCKETFUNCTION)"]
-        CHECK["check_multi_info()"]
+    subgraph xHttpClientInternal[xHttpClient Internal]
+        MULTI[curl multi handle]
+        TIMER_CB[timer callback - CURLMOPT TIMERFUNCTION]
+        SOCKET_CB[socket callback - CURLMOPT SOCKETFUNCTION]
+        CHECK[check multi info]
     end
 
-    subgraph "Per-Request"
-        REQ["xHttpReq_"]
-        EASY["curl_easy handle"]
-        BODY["xBuffer (body)"]
-        HDR["xBuffer (headers)"]
-        VT["vtable<br/>(oneshot or SSE)"]
+    subgraph PerRequest[Per Request]
+        REQ[xHttpReq]
+        EASY[curl easy handle]
+        BODY[xBuffer body]
+        HDR[xBuffer headers]
+        VT[vtable - oneshot or SSE]
     end
 
-    subgraph "xbase Event Loop"
-        LOOP["xEventLoop"]
-        FD_EVT["FD events"]
-        TIMER_EVT["Timer events"]
+    subgraph xbaseEventLoop[xbase Event Loop]
+        LOOP[xEventLoop]
+        FD_EVT[FD events]
+        TIMER_EVT[Timer events]
     end
 
     SOCKET_CB --> FD_EVT
     TIMER_CB --> TIMER_EVT
     FD_EVT --> LOOP
     TIMER_EVT --> LOOP
-    LOOP -->|"fd ready"| CHECK
-    LOOP -->|"timeout"| CHECK
+    LOOP -->|fd ready| CHECK
+    LOOP -->|timeout| CHECK
     CHECK --> VT
-    VT -->|"on_done"| APP["User Callback"]
+    VT -->|on done| APP[User Callback]
 
     REQ --> EASY
     REQ --> BODY
@@ -65,21 +65,21 @@ graph TD
 sequenceDiagram
     participant App as Application
     participant Client as xHttpClient
-    participant Curl as "curl_multi"
-    participant Loop as xEventLoop
+    participant Curl as CurlMulti
+    participant L as xEventLoop
 
-    App->>Client: xHttpClientGet(url, cb)
-    Client->>Curl: curl_multi_add_handle(easy)
-    Curl->>Client: socket_callback(fd, POLL_IN)
-    Client->>Loop: xEventAdd(fd, Read)
-    Note over Loop: Event loop polls...
-    Loop->>Client: fd_ready_callback(fd, Read)
-    Client->>Curl: curl_multi_socket_action(fd)
-    Curl->>Client: write_callback(data)
-    Client->>Client: xBufferAppend(body_buf, data)
+    App->>Client: xHttpClientGet url cb
+    Client->>Curl: curl multi add handle
+    Curl->>Client: socket callback fd POLL IN
+    Client->>L: xEventAdd fd Read
+    Note over L: Event loop polls
+    L->>Client: fd ready callback
+    Client->>Curl: curl multi socket action
+    Curl->>Client: write callback data
+    Client->>Client: xBufferAppend body buf data
     Note over Curl: Transfer complete
-    Client->>Client: check_multi_info()
-    Client->>App: on_response(resp)
+    Client->>Client: check multi info
+    Client->>App: on response resp
 ```
 
 ### Socket Callback Flow

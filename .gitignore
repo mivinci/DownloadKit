@@ -51,3 +51,7 @@ cmake-build-*
 book
 tmp
 .codebuddy
+
+# mdbook-mermaid generated files
+docs/mermaid.min.js
+docs/mermaid-init.js

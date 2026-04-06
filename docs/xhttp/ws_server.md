@@ -2,46 +2,21 @@
 
 ## Introduction
 
-`ws.h` provides a callback-driven WebSocket interface
-integrated with the xhttp server. For pure WebSocket
-services, call `xWsServe()` to create a server in one
-line. For mixed HTTP + WebSocket endpoints, call
-`xWsUpgrade()` inside a regular HTTP handler to perform
-the RFC 6455 upgrade handshake. The library handles
-frame codec, ping/pong, fragment reassembly, and close
-negotiation automatically.
+`ws.h` provides a callback-driven WebSocket interface integrated with the xhttp server. For pure WebSocket services, call `xWsServe()` to create a server in one line. For mixed HTTP + WebSocket endpoints, call `xWsUpgrade()` inside a regular HTTP handler to perform the RFC 6455 upgrade handshake. The library handles frame codec, ping/pong, fragment reassembly, and close negotiation automatically.
 
-All callbacks are dispatched on the event loop thread —
-no locks or thread pools required.
+All callbacks are dispatched on the event loop thread — no locks or thread pools required.
 
 ## Design Philosophy
 
-1. **Handler-Initiated Upgrade** — WebSocket connections
-   start as regular HTTP requests. The user calls
-   `xWsUpgrade()` inside an `xHttpHandlerFunc` to perform
-   the upgrade. This keeps routing unified: WebSocket
-   endpoints are just HTTP routes.
+1. **Handler-Initiated Upgrade** — WebSocket connections start as regular HTTP requests. The user calls `xWsUpgrade()` inside an `xHttpHandlerFunc` to perform the upgrade. This keeps routing unified: WebSocket endpoints are just HTTP routes.
 
-2. **Callback-Driven I/O** — Three optional callbacks
-   (`on_open`, `on_message`, `on_close`) cover the full
-   connection lifecycle. The library handles all framing,
-   masking, and control frames internally.
+2. **Callback-Driven I/O** — Three optional callbacks (`on_open`, `on_message`, `on_close`) cover the full connection lifecycle. The library handles all framing, masking, and control frames internally.
 
-3. **Automatic Protocol Handling** — Ping/pong is answered
-   automatically. Fragmented messages are reassembled before
-   delivery. Close handshake follows RFC 6455 §5.5.1 with
-   a 5-second timeout for the peer's response.
+3. **Automatic Protocol Handling** — Ping/pong is answered automatically. Fragmented messages are reassembled before delivery. Close handshake follows RFC 6455 §5.5.1 with a 5-second timeout for the peer's response.
 
-4. **Connection Hijacking** — On successful upgrade, the
-   HTTP connection's socket and transport layer are
-   transferred to a new `xWsConn` object. The HTTP
-   connection is destroyed; the WebSocket connection takes
-   full ownership of the file descriptor.
+4. **Connection Hijacking** — On successful upgrade, the HTTP connection's socket and transport layer are transferred to a new `xWsConn` object. The HTTP connection is destroyed; the WebSocket connection takes full ownership of the file descriptor.
 
-5. **Pluggable Crypto Backend** — The handshake requires
-   SHA-1 and Base64 for `Sec-WebSocket-Accept` computation.
-   The crypto backend is selected at compile time: OpenSSL,
-   Mbed TLS, or a built-in implementation.
+5. **Pluggable Crypto Backend** — The handshake requires SHA-1 and Base64 for `Sec-WebSocket-Accept` computation. The crypto backend is selected at compile time: OpenSSL, Mbed TLS, or a built-in implementation.
 
 ## Architecture
 
@@ -133,10 +108,7 @@ stateDiagram-v2
 
 ### Frame Processing
 
-When data arrives on the socket, the incremental frame
-parser (`xWsFrameParser`) extracts complete frames from
-the `xIOBuffer`. Each frame is processed based on its
-opcode:
+When data arrives on the socket, the incremental frame parser (`xWsFrameParser`) extracts complete frames from the `xIOBuffer`. Each frame is processed based on its opcode:
 
 | Opcode | Handling |
 | --- | --- |
@@ -151,14 +123,11 @@ opcode:
 
 Fragmented messages are reassembled transparently:
 
-1. First fragment (FIN=0, opcode=Text/Binary) starts
-   accumulation in `frag_buf`.
+1. First fragment (FIN=0, opcode=Text/Binary) starts accumulation in `frag_buf`.
 2. Continuation frames (opcode=0x0) append to `frag_buf`.
-3. Final fragment (FIN=1, opcode=0x0) triggers reassembly
-   and delivers the complete message via `on_message`.
+3. Final fragment (FIN=1, opcode=0x0) triggers reassembly and delivers the complete message via `on_message`.
 
-Protocol violations (e.g., new message mid-fragment)
-result in a Close frame with status 1002.
+Protocol violations (e.g., new message mid-fragment) result in a Close frame with status 1002.
 
 ### Close State Machine
 
@@ -171,16 +140,9 @@ typedef enum {
 } xWsCloseState;
 ```
 
-- **Server-initiated close:** `xWsClose()` sends a Close
-  frame and transitions to `CLOSE_SENT`. A 5-second timer
-  waits for the peer's Close response.
-- **Peer-initiated close:** The peer's Close frame is
-  echoed back, transitioning to `CLOSE_RECEIVED`. After
-  the echo is flushed, `on_close` fires and the connection
-  is destroyed.
-- **Idle timeout:** After the configured idle period with
-  no data, a Close frame with code 1001 (Going Away) is
-  sent.
+- **Server-initiated close:** `xWsClose()` sends a Close frame and transitions to `CLOSE_SENT`. A 5-second timer waits for the peer's Close response.
+- **Peer-initiated close:** The peer's Close frame is echoed back, transitioning to `CLOSE_RECEIVED`. After the echo is flushed, `on_close` fires and the connection is destroyed.
+- **Idle timeout:** After the configured idle period with no data, a Close frame with code 1001 (Going Away) is sent.
 
 ### Internal File Structure
 
@@ -189,7 +151,6 @@ typedef enum {
 | `ws.h` | Public API (types, callbacks, functions) |
 | `ws.c` | Connection lifecycle, I/O, frame dispatch |
 | `ws_handshake_server.c` | Server upgrade handshake (RFC 6455 §4.2) |
-| `ws_handshake_client.h/c` | Client upgrade handshake |
 | `ws_frame.h/c` | Frame codec (parse + encode) |
 | `ws_crypto.h` | SHA-1 + Base64 interface |
 | `ws_crypto_openssl.c` | OpenSSL backend |
@@ -213,12 +174,10 @@ typedef enum {
 #### xWsOnOpenFunc
 
 ```c
-typedef void (*xWsOnOpenFunc)(
-    xWsConn conn, void *arg);
+typedef void (*xWsOnOpenFunc)(xWsConn conn, void *arg);
 ```
 
-Called when the WebSocket connection is established.
-`conn` is valid until `on_close` returns.
+Called when the WebSocket connection is established. `conn` is valid until `on_close` returns.
 
 #### xWsOnMessageFunc
 
@@ -229,9 +188,7 @@ typedef void (*xWsOnMessageFunc)(
     void *arg);
 ```
 
-Called when a complete message is received. Fragmented
-messages are reassembled before delivery. `payload` is
-valid only during the callback.
+Called when a complete message is received. Fragmented messages are reassembled before delivery. `payload` is valid only during the callback.
 
 #### xWsOnCloseFunc
 
@@ -242,8 +199,7 @@ typedef void (*xWsOnCloseFunc)(
     void *arg);
 ```
 
-Called when the connection is closed (clean or abnormal).
-After this callback returns, `conn` is invalid.
+Called when the connection is closed (clean or abnormal). After this callback returns, `conn` is invalid.
 
 ### xWsCallbacks
 
@@ -275,11 +231,7 @@ xHttpServer xWsServe(
     void *arg);
 ```
 
-Convenience function that creates an HTTP server, registers
-a catch-all route that upgrades every incoming request to
-WebSocket, and starts listening. Returns the server handle
-for later cleanup via `xHttpServerDestroy()`, or `NULL` on
-failure.
+Convenience function that creates an HTTP server, registers a catch-all route that upgrades every incoming request to WebSocket, and starts listening. Returns the server handle for later cleanup via `xHttpServerDestroy()`, or `NULL` on failure.
 
 **Parameters:**
 
@@ -301,14 +253,9 @@ xErrno xWsUpgrade(
     void *arg);
 ```
 
-Call inside an `xHttpHandlerFunc` to upgrade the HTTP
-connection to WebSocket. On success, the handler **must
-return immediately** — the HTTP connection has been
-hijacked.
+Call inside an `xHttpHandlerFunc` to upgrade the HTTP connection to WebSocket. On success, the handler **must return immediately** — the HTTP connection has been hijacked.
 
-On failure (bad headers, wrong method), an HTTP error
-response (400/405) is sent automatically and a non-Ok
-error code is returned.
+On failure (bad headers, wrong method), an HTTP error response (400/405) is sent automatically and a non-Ok error code is returned.
 
 **Parameters:**
 
@@ -327,8 +274,7 @@ xErrno xWsSend(
     const void *payload, size_t len);
 ```
 
-Send a message over the WebSocket connection. The payload
-is framed and queued for asynchronous transmission.
+Send a message over the WebSocket connection. The payload is framed and queued for asynchronous transmission.
 
 **Parameters:**
 
@@ -337,8 +283,7 @@ is framed and queued for asynchronous transmission.
 - `payload` — Message data.
 - `len` — Payload length in bytes.
 
-**Returns:** `xErrno_Ok` on success,
-`xErrno_InvalidState` if the connection is closing.
+**Returns:** `xErrno_Ok` on success, `xErrno_InvalidState` if the connection is closing.
 
 #### xWsClose
 
@@ -346,9 +291,7 @@ is framed and queued for asynchronous transmission.
 xErrno xWsClose(xWsConn conn, uint16_t code);
 ```
 
-Initiate a graceful close. Sends a Close frame with the
-given status code. The connection remains open until the
-peer responds or a 5-second timeout expires.
+Initiate a graceful close. Sends a Close frame with the given status code. The connection remains open until the peer responds or a 5-second timeout expires.
 
 **Parameters:**
 
@@ -381,26 +324,16 @@ peer responds or a 5-second timeout expires.
 static void on_open(xWsConn conn, void *arg) {
     (void)arg;
     const char *hi = "Welcome!";
-    xWsSend(conn, xWsOpcode_Text,
-            hi, strlen(hi));
+    xWsSend(conn, xWsOpcode_Text, hi, strlen(hi));
 }
 
-static void on_message(xWsConn conn,
-                       xWsOpcode op,
-                       const void *data,
-                       size_t len,
-                       void *arg) {
+static void on_message(xWsConn conn, xWsOpcode op, const void *data, size_t len, void *arg) {
     (void)arg;
     xWsSend(conn, op, data, len);
 }
 
-static void on_close(xWsConn conn,
-                     uint16_t code,
-                     const char *reason,
-                     size_t len,
-                     void *arg) {
-    (void)conn; (void)reason;
-    (void)len; (void)arg;
+static void on_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) {
+    (void)conn; (void)reason; (void)len; (void)arg;
     printf("closed: %u\n", code);
 }
 
@@ -413,9 +346,7 @@ static const xWsCallbacks ws_cbs = {
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
 
-    xHttpServer srv = xWsServe(
-        loop, "0.0.0.0", 8080,
-        &ws_cbs, NULL);
+    xHttpServer srv = xWsServe(loop, "0.0.0.0", 8080, &ws_cbs, NULL);
     if (!srv) return 1;
 
     printf("ws://localhost:8080/\n");
@@ -438,24 +369,17 @@ int main(void) {
 
 static const xWsCallbacks ws_cbs = { ... };
 
-static void ws_handler(
-    xHttpResponseWriter w,
-    const xHttpRequest *req,
-    void *arg) {
+static void ws_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
     (void)arg;
     xWsUpgrade(w, req, &ws_cbs, NULL);
 }
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xHttpServer srv =
-        xHttpServerCreate(loop);
+    xHttpServer srv = xHttpServerCreate(loop);
 
-    xHttpServerRoute(
-        srv, "GET /ws",
-        ws_handler, NULL);
-    xHttpServerListen(
-        srv, "0.0.0.0", 8080);
+    xHttpServerRoute(srv, "GET /ws", ws_handler, NULL);
+    xHttpServerListen(srv, "0.0.0.0", 8080);
 
     printf("ws://localhost:8080/ws\n");
     xEventLoopRun(loop);
@@ -476,25 +400,18 @@ typedef struct {
 
 static void on_open(xWsConn conn, void *arg) {
     Session *s = (Session *)arg;
-    snprintf(s->username, sizeof(s->username),
-             "user_%p", (void *)conn);
+    snprintf(s->username, sizeof(s->username), "user_%p", (void *)conn);
     s->msg_count = 0;
 }
 
-static void on_message(xWsConn conn, xWsOpcode op,
-                       const void *data, size_t len,
-                       void *arg) {
+static void on_message(xWsConn conn, xWsOpcode op, const void *data, size_t len, void *arg) {
     Session *s = (Session *)arg;
     s->msg_count++;
-    printf("[%s] msg #%d: %.*s\n",
-           s->username, s->msg_count,
-           (int)len, (const char *)data);
+    printf("[%s] msg #%d: %.*s\n", s->username, s->msg_count, (int)len, (const char *)data);
     xWsSend(conn, op, data, len);
 }
 
-static void ws_handler(xHttpResponseWriter w,
-                       const xHttpRequest *req,
-                       void *arg) {
+static void ws_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
     (void)arg;
     Session *s = calloc(1, sizeof(Session));
     xWsCallbacks cbs = {
@@ -509,12 +426,9 @@ static void ws_handler(xHttpResponseWriter w,
 ### Graceful Server-Initiated Close
 
 ```c
-static void on_message(xWsConn conn, xWsOpcode op,
-                       const void *data, size_t len,
-                       void *arg) {
+static void on_message(xWsConn conn, xWsOpcode op, const void *data, size_t len, void *arg) {
     (void)op; (void)arg;
-    if (len == 4 &&
-        memcmp(data, "quit", 4) == 0) {
+    if (len == 4 && memcmp(data, "quit", 4) == 0) {
         xWsClose(conn, 1000); // normal close
         return;
     }
@@ -542,22 +456,12 @@ ws.send('Hello, server!');
 
 ## Best Practices
 
-- **Return immediately after `xWsUpgrade()`.** On success,
-  the HTTP connection is hijacked. Do not call any
-  `xHttpResponse*` functions afterward.
-- **Don't block in callbacks.** All callbacks run on the
-  event loop thread. Blocking delays all other I/O.
-- **Copy payload if needed.** The `payload` pointer in
-  `on_message` is valid only during the callback. Copy
-  the data if you need it later.
-- **Use `xWsClose()` for graceful shutdown.** Avoid
-  dropping connections without a Close handshake.
-- **Handle `on_close` for cleanup.** Free per-connection
-  resources in `on_close`, as the `xWsConn` handle
-  becomes invalid after the callback returns.
-- **Idle timeout is inherited.** The WebSocket connection
-  inherits the HTTP server's `idle_timeout_ms` setting.
-  Adjust it via `xHttpServerSetIdleTimeout()` if needed.
+- **Return immediately after `xWsUpgrade()`.** On success, the HTTP connection is hijacked. Do not call any `xHttpResponse*` functions afterward.
+- **Don't block in callbacks.** All callbacks run on the event loop thread. Blocking delays all other I/O.
+- **Copy payload if needed.** The `payload` pointer in `on_message` is valid only during the callback. Copy the data if you need it later.
+- **Use `xWsClose()` for graceful shutdown.** Avoid dropping connections without a Close handshake.
+- **Handle `on_close` for cleanup.** Free per-connection resources in `on_close`, as the `xWsConn` handle becomes invalid after the callback returns.
+- **Idle timeout is inherited.** The WebSocket connection inherits the HTTP server's `idle_timeout_ms` setting. Adjust it via `xHttpServerSetIdleTimeout()` if needed.
 
 ## Comparison with Other Libraries
 
@@ -572,9 +476,4 @@ ws.send('Hello, server!');
 | Language | C99 | C | C++ |
 | Dependencies | xbase only | OpenSSL | None |
 
-**Key Differentiator:** xhttp's WebSocket implementation
-is unique in its handler-initiated upgrade pattern. Instead
-of a separate WebSocket server, you register a normal HTTP
-route and call `xWsUpgrade()` inside the handler. This
-keeps routing, middleware, and mixed HTTP+WS endpoints
-unified under a single server instance.
+**Key Differentiator:** xhttp's WebSocket server is unique in its handler-initiated upgrade pattern. Instead of a separate WebSocket server, you register a normal HTTP route and call `xWsUpgrade()` inside the handler. This keeps routing, middleware, and mixed HTTP+WS endpoints unified under a single server instance.

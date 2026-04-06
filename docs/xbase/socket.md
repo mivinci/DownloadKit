@@ -73,15 +73,15 @@ This ensures idle timers are always reset transparently, without requiring the u
 sequenceDiagram
     participant App
     participant Socket as xSocket
-    participant Loop as xEventLoop
+    participant L as xEventLoop
     participant Timer as Timer Heap
 
     App->>Socket: xSocketSetTimeout(sock, 5000, 3000)
     Socket->>Timer: arm read timer (5s)
     Socket->>Timer: arm write timer (3s)
 
-    Note over Loop: Data arrives on fd
-    Loop->>Socket: trampoline(fd, xEvent_Read)
+    Note over L: Data arrives on fd
+    L->>Socket: trampoline(fd, xEvent_Read)
     Socket->>Timer: cancel + re-arm read timer (5s)
     Socket->>App: callback(sock, xEvent_Read)
 

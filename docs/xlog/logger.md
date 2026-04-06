@@ -92,7 +92,7 @@ sequenceDiagram
     participant App as Application Thread
     participant Pool as Entry Freelist
     participant Queue as MPSC Queue
-    participant Loop as Event Loop Thread
+    participant L as Event Loop Thread
     participant File as Log File
 
     App->>Pool: entry_alloc()
@@ -101,11 +101,11 @@ sequenceDiagram
     App->>Queue: xMpscPush(entry)
     Note over App: "Optional: write(pipe_wfd, 1) for Notify/Mixed"
 
-    Loop->>Queue: "xMpscPop() (timer or pipe callback)"
-    Queue-->>Loop: xLogEntry_
-    Loop->>File: "fwrite(entry->buf)"
-    Loop->>Pool: entry_free(entry)
-    Loop->>File: fflush()
+    L->>Queue: "xMpscPop() (timer or pipe callback)"
+    Queue-->>L: xLogEntry_
+    L->>File: "fwrite(entry->buf)"
+    L->>Pool: entry_free(entry)
+    L->>File: fflush()
 ```
 
 ### Log Entry Structure

@@ -252,7 +252,11 @@ static void ws_fire_close(struct xWsConn_ *conn, uint16_t code,
                              conn->user_arg);
   }
 
-  xWsConnDestroy(conn);
+  /* NOTE: Do NOT call xWsConnDestroy here.
+   * The caller (ws_on_event) may still reference `conn` after
+   * this function returns (e.g. when both Write and Read events
+   * fire in the same epoll iteration, or during the frame-parse
+   * loop). Destruction is deferred to the end of ws_on_event. */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -270,6 +274,11 @@ static void ws_idle_timeout(void *arg) {
   } else {
     /* Timeout waiting for peer's Close response */
     ws_fire_close(conn, conn->close_code, NULL, 0);
+    /* When called directly as a timer callback (not via ws_on_event),
+     * we must destroy the connection here since ws_fire_close no
+     * longer does it. When called from ws_on_event's Timeout branch,
+     * the caller checks close_state and handles destroy via goto. */
+    xWsConnDestroy(conn);
   }
 }
 
@@ -423,17 +432,20 @@ static void ws_on_event(xSocket sock, xEventMask mask, void *arg) {
   struct xWsConn_ *conn = (struct xWsConn_ *)arg;
   (void)sock;
 
-  if (conn->close_state == XWS_CLOSED) return;
+  if (conn->close_state == XWS_CLOSED) goto destroy;
 
   /* Timeout */
   if (mask & xEvent_Timeout) {
     ws_idle_timeout(conn);
+    /* ws_idle_timeout handles its own destroy when needed,
+     * so we must not fall through to the destroy label. */
     return;
   }
 
   /* Writable: flush pending data */
   if (mask & xEvent_Write) {
     ws_try_flush(conn);
+    if (conn->close_state == XWS_CLOSED) goto destroy;
   }
 
   /* Readable: read data and parse frames */
@@ -443,11 +455,11 @@ static void ws_on_event(xSocket sock, xEventMask mask, void *arg) {
                                   conn->transport.ctx);
     if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
       ws_fire_close(conn, XWS_CLOSE_ABNORMAL, NULL, 0);
-      return;
+      goto destroy;
     }
     if (n == 0) {
       ws_fire_close(conn, XWS_CLOSE_ABNORMAL, NULL, 0);
-      return;
+      goto destroy;
     }
 
     /* Reset idle timer on data received */
@@ -475,5 +487,11 @@ static void ws_on_event(xSocket sock, xEventMask mask, void *arg) {
       xWsConnClose(conn, XWS_CLOSE_PROTOCOL_ERR, NULL, 0);
       break;
     }
+    if (conn->close_state == XWS_CLOSED) goto destroy;
   }
+
+  return;
+
+destroy:
+  xWsConnDestroy(conn);
 }

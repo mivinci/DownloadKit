@@ -14,7 +14,7 @@ graph TD
     end
 
     subgraph "High-Level Modules"
-        XHTTP["xhttp<br/>Async HTTP Client"]
+        XHTTP["xhttp<br/>HTTP Client &amp; Server"]
         XLOG["xlog<br/>Async Logging"]
     end
 
@@ -72,14 +72,17 @@ Three buffer types for different I/O patterns — linear, ring, and block-chain.
 | [ring.h](xbuf/ring.md) | Fixed-size ring buffer with power-of-2 mask indexing |
 | [io.h](xbuf/io.md) | Reference-counted block-chain I/O buffer with zero-copy split/cut |
 
-### [xhttp](xhttp/index.html) — Async HTTP Client
+### [xhttp](xhttp/index.html) — Async HTTP Client & Server
 
-Non-blocking HTTP client powered by libcurl multi-socket API + xEventLoop, with built-in SSE streaming.
+Full-featured async HTTP framework: libcurl-powered client with SSE streaming, event-driven server with HTTP/1.1 & HTTP/2 (h2c), TLS support (OpenSSL / mbedTLS), and RFC 6455 WebSocket.
 
 | Sub-Module | Description |
 | --- | --- |
 | [client.h](xhttp/client.md) | Async HTTP client (GET / POST / PUT / DELETE / PATCH / HEAD) |
 | [client_sse.c](xhttp/client_sse.md) | SSE streaming client with W3C-compliant event parsing |
+| [server.h](xhttp/server.md) | Event-driven HTTP server with HTTP/1.1 and HTTP/2 (h2c) |
+| [ws.h](xhttp/websocket.md) | RFC 6455 WebSocket server with per-frame streaming |
+| [transport.h](xhttp/tls.md) | Pluggable TLS transport layer (OpenSSL / mbedTLS / plain) |
 
 ### [xlog](xlog/index.html) — Async Logging
 
@@ -100,6 +103,9 @@ High-performance async logger with MPSC queue, three flush modes, and file rotat
 | Run tasks on a thread pool | [xbase/task.h](xbase/task.md) |
 | Make async HTTP requests | [xhttp/client.h](xhttp/client.md) |
 | Stream LLM API responses (SSE) | [xhttp/client_sse.c](xhttp/client_sse.md) |
+| Build an HTTP server | [xhttp/server.h](xhttp/server.md) |
+| Add WebSocket support | [xhttp/ws.h](xhttp/websocket.md) |
+| Enable TLS (HTTPS) | [xhttp/transport.h](xhttp/tls.md) |
 | Add async logging | [xlog/logger.h](xlog/logger.md) |
 | Manage object lifecycles | [xbase/memory.h](xbase/memory.md) |
 | Choose the right buffer type | [xbuf overview](xbuf/index.html) |
@@ -112,7 +118,7 @@ Level 0 (no deps)     : atomic.h, error.h, time.h
 Level 1 (atomic only) : heap.h, mpsc.h
 Level 2 (Level 0-1)   : memory.h, log.h, backtrace.h, buf.h, ring.h
 Level 3 (Level 0-2)   : event.h, io.h
-Level 4 (event loop)  : timer.h, task.h, socket.h, logger.h, client.h
+Level 4 (event loop)  : timer.h, task.h, socket.h, logger.h, client.h, server.h, ws.h
 ```
 
 ## Module Dependency Graph
@@ -149,6 +155,8 @@ graph BT
         SOCKET["socket.h"]
         LOGGER["logger.h"]
         CLIENT["client.h"]
+        SERVER["server.h"]
+        WS["ws.h"]
     end
 
     HEAP --> ATOMIC
@@ -168,9 +176,14 @@ graph BT
     LOGGER --> LOG
     CLIENT --> EVENT
     CLIENT --> BUF
+    SERVER --> SOCKET
+    SERVER --> BUF
+    WS --> SERVER
 
     style EVENT fill:#50b86c,color:#fff
     style CLIENT fill:#f5a623,color:#fff
+    style SERVER fill:#f5a623,color:#fff
+    style WS fill:#f5a623,color:#fff
     style LOGGER fill:#9b59b6,color:#fff
 ```
 

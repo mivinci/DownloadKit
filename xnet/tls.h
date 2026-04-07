@@ -20,34 +20,38 @@
 XDEF_HANDLE(xTlsCtx);
 
 /**
- * @brief TLS configuration for client-side connections.
+ * @brief Unified TLS configuration for both client and server.
  *
- * Controls how a client verifies the server's TLS certificate and
- * optionally presents a client certificate for mutual TLS (mTLS).
+ * Controls certificate loading, peer verification, and optional ALPN
+ * negotiation. Used by TCP connectors, TCP listeners, HTTP clients,
+ * HTTP servers, and WebSocket clients.
  *
- * Zero-initialize for defaults: system CA bundle, peer and host
- * verification enabled, no client certificate.
+ * Zero-initialize for secure defaults: system CA bundle, peer
+ * verification enabled, no client/server certificate, no ALPN.
+ *
+ * Server-side usage:
+ *   - `cert` and `key` are required (server certificate + private key).
+ *   - `ca` is optional (for client certificate verification / mTLS).
+ *   - `alpn` is optional (e.g. {"h2", "http/1.1", NULL}).
+ *
+ * Client-side usage:
+ *   - `cert` and `key` are optional (for mutual TLS / mTLS).
+ *   - `ca` overrides the system CA bundle.
+ *   - `key_password` provides the private key passphrase.
  */
-XDEF_STRUCT(xTlsClientConf) {
-  const char *ca;           /**< Path to CA cert file (NULL = system default) */
-  const char *cert;         /**< Path to client certificate (NULL = none)     */
-  const char *key;          /**< Path to client private key (NULL = none)     */
-  const char *key_password; /**< Private key password (NULL = none)           */
-  int         skip_verify;  /**< If non-zero, skip peer & host verification   */
+XDEF_STRUCT(xTlsConf) {
+  const char  *cert;         /**< Path to PEM certificate file (NULL = none)       */
+  const char  *key;          /**< Path to PEM private key file (NULL = none)       */
+  const char  *ca;           /**< Path to CA cert file (NULL = system default)     */
+  const char  *key_password; /**< Private key password (NULL = none)               */
+  const char **alpn;         /**< NULL-terminated ALPN protocol list (NULL = none) */
+  int          skip_verify;  /**< If non-zero, skip peer & host verification       */
 };
 
 /**
- * @brief TLS configuration for server-side listeners.
- *
- * Provides the certificate, private key, and optional CA for client
- * verification. Used by any server that needs to accept TLS connections.
+ * @brief Backward-compatible aliases for the unified xTlsConf.
  */
-XDEF_STRUCT(xTlsServerConf) {
-  const char  *cert;        /**< Path to PEM certificate file (required)      */
-  const char  *key;         /**< Path to PEM private key file (required)      */
-  const char  *ca;          /**< Path to CA certificate file (optional)       */
-  const char **alpn;        /**< NULL-terminated ALPN protocol list (optional) */
-  int          verify_peer; /**< Peer verification: 0=none, 1=optional, 2=required */
-};
+typedef xTlsConf xTlsClientConf;
+typedef xTlsConf xTlsServerConf;
 
 #endif /* XNET_TLS_H */

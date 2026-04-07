@@ -68,7 +68,7 @@ XDEF_STRUCT(xTlsCtxMbedTLS_) {
   const char **alpn_list; /**< Borrowed pointer to user's ALPN list */
 };
 
-xTlsCtx xTlsCtxCreate(const xTlsServerConf *config) {
+xTlsCtx xTlsCtxCreate(const xTlsConf *config) {
   if (!config || !config->cert || !config->key) return NULL;
 
   xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)calloc(1, sizeof(xTlsCtxMbedTLS_));
@@ -153,13 +153,11 @@ xTlsCtx xTlsCtxCreate(const xTlsServerConf *config) {
     ctx->has_ca = 1;
   }
 
-  /* Client verification mode */
-  if (config->verify_peer == 2) {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-  } else if (config->verify_peer == 1) {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
-  } else {
+  /* Peer verification mode */
+  if (config->skip_verify) {
     mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
+  } else {
+    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
   }
 
   /* Configure ALPN (parameterized) */
@@ -421,7 +419,7 @@ void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-int xTransportTlsClientInit(xTransport *transport, const xTlsClientConf *conf,
+int xTransportTlsClientInit(xTransport *transport, const xTlsConf *conf,
                             const char *hostname, int fd) {
   if (!transport) return -1;
 

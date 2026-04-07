@@ -5,7 +5,7 @@
  *
  * https_test.cpp - HTTPS integration tests (xhttp client + server TLS)
  *
- * Tests the xHttpClient TLS configuration (xTlsClientConf) against
+ * Tests the xHttpClient TLS configuration (xTlsConf) against
  * the xHttpServer TLS listener, covering:
  *   - Client TLS config API (parameter validation)
  *   - HTTPS GET / POST / Do / SSE
@@ -94,7 +94,7 @@ TEST(HttpsClientConfig, SetTlsNullClientDoesNotCrash) {
   /* With the new API, TLS is set at creation time.
    * Creating with NULL loop should return NULL — no crash. */
   xHttpClientConf conf = {};
-  xTlsClientConf  tls  = {};
+  xTlsConf  tls  = {};
   tls.skip_verify      = 1;
   conf.tls             = &tls;
   xHttpClient c = xHttpClientCreate(nullptr, &conf);
@@ -105,7 +105,7 @@ TEST(HttpsClientConfig, SetTlsNullConfResetsToDefaults) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
   /* Create with TLS config */
-  xTlsClientConf  tls  = {};
+  xTlsConf  tls  = {};
   tls.ca               = "/tmp/ca.pem";
   tls.skip_verify      = 1;
   xHttpClientConf conf = {};
@@ -127,7 +127,7 @@ TEST(HttpsClientConfig, SetTlsWithAllFields) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xTlsClientConf tls = {};
+  xTlsConf tls = {};
   tls.ca              = "/tmp/ca.pem";
   tls.cert            = "/tmp/client.pem";
   tls.key             = "/tmp/client-key.pem";
@@ -140,7 +140,7 @@ TEST(HttpsClientConfig, SetTlsWithAllFields) {
 
   /* Overwrite with different config by recreating */
   xHttpClientDestroy(client);
-  xTlsClientConf tls2 = {};
+  xTlsConf tls2 = {};
   tls2.skip_verify     = 1;
   xHttpClientConf conf2 = {};
   conf2.tls             = &tls2;
@@ -316,10 +316,10 @@ protected:
 
   /** Start TLS server and background event loop. */
   void listen_tls_and_start(int verify_client = 0) {
-    xTlsServerConf config = {};
+  xTlsConf config = {};
     config.cert          = cert_path.c_str();
     config.key           = key_path.c_str();
-    config.verify_peer      = verify_client;
+    if (verify_client == 0) config.skip_verify = 1;
     if (verify_client > 0) config.ca = ca_cert_path.c_str();
 
     xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &config);
@@ -334,7 +334,7 @@ protected:
   }
 
   /** Create (or recreate) the client with the given TLS config. */
-  void create_client(const xTlsClientConf *tls) {
+  void create_client(const xTlsConf *tls) {
     if (client) {
       xHttpClientDestroy(client);
       client = nullptr;
@@ -347,14 +347,14 @@ protected:
 
   /** Configure client to skip TLS verification (for self-signed certs). */
   void client_skip_verify() {
-    xTlsClientConf tls = {};
+    xTlsConf tls = {};
     tls.skip_verify    = 1;
     create_client(&tls);
   }
 
   /** Configure client with a specific CA path. */
   void client_set_ca(const std::string &ca) {
-    xTlsClientConf tls = {};
+    xTlsConf tls = {};
     tls.ca             = ca.c_str();
     create_client(&tls);
   }
@@ -515,7 +515,7 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
   listen_tls_and_start();
 
   /* Point to a non-existent CA file */
-  xTlsClientConf tls = {};
+  xTlsConf tls = {};
   tls.ca             = "/tmp/nonexistent_ca_xhttps_test.pem";
   create_client(&tls);
 
@@ -703,11 +703,10 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
   xHttpServerRoute(server, "GET /secure", echo_handler, nullptr);
 
   /* Server requires client certificate (verify_client = 2) */
-  xTlsServerConf srv_conf = {};
+  xTlsConf srv_conf = {};
   srv_conf.cert          = server_cert.c_str();
   srv_conf.key           = server_key.c_str();
   srv_conf.ca            = ca_cert.c_str();
-  srv_conf.verify_peer      = 2; /* required */
 
   xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &srv_conf);
   ASSERT_EQ(err, xErrno_Ok);
@@ -715,7 +714,7 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Client provides cert + key + CA */
-  xTlsClientConf cli_tls = {};
+  xTlsConf cli_tls = {};
   cli_tls.ca             = ca_cert.c_str();
   cli_tls.cert           = client_cert.c_str();
   cli_tls.key            = client_key.c_str();
@@ -741,11 +740,10 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
   xHttpServerRoute(server, "GET /secure", echo_handler, nullptr);
 
   /* Server requires client certificate */
-  xTlsServerConf srv_conf = {};
+  xTlsConf srv_conf = {};
   srv_conf.cert          = server_cert.c_str();
   srv_conf.key           = server_key.c_str();
   srv_conf.ca            = ca_cert.c_str();
-  srv_conf.verify_peer      = 2; /* required */
 
   xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &srv_conf);
   ASSERT_EQ(err, xErrno_Ok);
@@ -753,7 +751,7 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Client provides CA but NO client cert */
-  xTlsClientConf cli_tls = {};
+  xTlsConf cli_tls = {};
   cli_tls.ca             = ca_cert.c_str();
   xHttpClientConf cli_conf = {};
   cli_conf.tls             = &cli_tls;
@@ -867,7 +865,7 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
 
   /* First request: skip verify → should succeed */
   {
-    xTlsClientConf tls = {};
+    xTlsConf tls = {};
     tls.skip_verify    = 1;
     create_client(&tls);
   }

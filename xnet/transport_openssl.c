@@ -58,7 +58,7 @@ static int alpn_select_cb(SSL *ssl, const unsigned char **out,
  * ═══════════════════════════════════════════════════════════════════
  */
 
-xTlsCtx xTlsCtxCreate(const xTlsServerConf *conf) {
+xTlsCtx xTlsCtxCreate(const xTlsConf *conf) {
   if (!conf || !conf->cert || !conf->key) return NULL;
 
   SSL_CTX *ssl_ctx = SSL_CTX_new(TLS_server_method());
@@ -96,14 +96,12 @@ xTlsCtx xTlsCtxCreate(const xTlsServerConf *conf) {
     }
   }
 
-  /* Client verification mode */
-  if (conf->verify_peer == 2) {
+  /* Peer verification mode */
+  if (conf->skip_verify) {
+    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
+  } else {
     SSL_CTX_set_verify(ssl_ctx,
                        SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
-  } else if (conf->verify_peer == 1) {
-    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
-  } else {
-    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
   }
 
   /* Allocate wrapper */
@@ -327,7 +325,7 @@ void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-int xTransportTlsClientInit(xTransport *transport, const xTlsClientConf *conf,
+int xTransportTlsClientInit(xTransport *transport, const xTlsConf *conf,
                             const char *hostname, int fd) {
   if (!transport) return -1;
 

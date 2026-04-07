@@ -225,7 +225,7 @@ static void tls_client_mbed_destroy(void *ctx) {
 /* ─────────── Public API ─────────── */
 
 int xHttpTlsClientTransportInit(xHttpTransport *transport,
-                                const xTlsClientConf *conf,
+                                const xTlsConf *conf,
                                 const char *hostname,
                                 int fd) {
   if (!transport) return -1;

@@ -30,7 +30,7 @@
  * @return 0 on success, -1 on error.
  */
 int xHttpTlsClientTransportInit(xHttpTransport *transport,
-                                const xTlsClientConf *conf,
+                                const xTlsConf *conf,
                                 const char *hostname,
                                 int fd);
 

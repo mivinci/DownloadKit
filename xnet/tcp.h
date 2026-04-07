@@ -145,7 +145,7 @@ XCAPI(xTransport) xTcpConnTakeTransport(xTcpConn conn);
  * @brief Configuration for xTcpConnect.
  */
 XDEF_STRUCT(xTcpConnectConf) {
-  const xTlsClientConf *tls; /**< TLS config, or NULL for plain TCP     */
+  const xTlsConf *tls;       /**< TLS config, or NULL for plain TCP     */
   int timeout_ms;            /**< Connect timeout in ms (0 = default 10s) */
   int nodelay;               /**< Set TCP_NODELAY if non-zero             */
   int keepalive;             /**< Set SO_KEEPALIVE if non-zero            */

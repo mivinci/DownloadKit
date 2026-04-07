@@ -41,7 +41,7 @@ static int alpn_select_cb(SSL *ssl, const unsigned char **out,
 
 /* ───────────────────── TLS context (server-level) ───────────────────── */
 
-void *xHttpTlsCtxCreateOpenSSL(const xTlsServerConf *config) {
+void *xHttpTlsCtxCreateOpenSSL(const xTlsConf *config) {
   SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
   if (!ctx) {
     xLog(false, "xhttp: SSL_CTX_new failed");
@@ -78,14 +78,12 @@ void *xHttpTlsCtxCreateOpenSSL(const xTlsServerConf *config) {
     }
   }
 
-  /* Client verification mode */
-  if (config->verify_peer == 2) {
+  /* Peer verification mode */
+  if (config->skip_verify) {
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+  } else {
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
                        NULL);
-  } else if (config->verify_peer == 1) {
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
-  } else {
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
   }
 
   /* Configure ALPN */

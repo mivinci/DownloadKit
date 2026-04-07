@@ -66,7 +66,7 @@ XDEF_STRUCT(xHttpTlsCtxMbedTLS_) {
   int has_ca;
 };
 
-void *xHttpTlsCtxCreateMbedTLS(const xTlsServerConf *config) {
+void *xHttpTlsCtxCreateMbedTLS(const xTlsConf *config) {
   xHttpTlsCtxMbedTLS_ *ctx =
     (xHttpTlsCtxMbedTLS_ *)calloc(1, sizeof(xHttpTlsCtxMbedTLS_));
   if (!ctx) return NULL;
@@ -149,13 +149,11 @@ void *xHttpTlsCtxCreateMbedTLS(const xTlsServerConf *config) {
     ctx->has_ca = 1;
   }
 
-  /* Client verification mode */
-  if (config->verify_peer == 2) {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-  } else if (config->verify_peer == 1) {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
-  } else {
+  /* Peer verification mode */
+  if (config->skip_verify) {
     mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
+  } else {
+    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
   }
 
   /* Configure ALPN */

@@ -1323,7 +1323,7 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg);
 #endif
 
 xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
-                            const xTlsServerConf *config) {
+                            const xTlsConf *config) {
   if (!server) return xErrno_InvalidArg;
   if (!config) return xErrno_InvalidArg;
   if (!config->cert || !config->key) return xErrno_InvalidArg;

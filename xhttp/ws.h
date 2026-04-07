@@ -183,7 +183,7 @@ XDEF_STRUCT(xWsConnectConf) {
    * NULL = use defaults (system CA, verify enabled).
    * Ignored for ws:// URLs.
    */
-  const xTlsClientConf *tls;
+  const xTlsConf *tls;
 
   /**
    * Extra HTTP headers for the Upgrade request.

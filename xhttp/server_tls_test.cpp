@@ -21,7 +21,7 @@ extern "C" {
  */
 
 TEST_F(HttpServerTest, ListenTLS_NullServerReturnsError) {
-  xTlsServerConf config = {};
+  xTlsConf config = {};
   config.cert          = "/tmp/cert.pem";
   config.key           = "/tmp/key.pem";
   EXPECT_EQ(xHttpServerListenTls(nullptr, "127.0.0.1", port, &config),
@@ -34,7 +34,7 @@ TEST_F(HttpServerTest, ListenTLS_NullConfigReturnsError) {
 }
 
 TEST_F(HttpServerTest, ListenTLS_NullCertFileReturnsError) {
-  xTlsServerConf config = {};
+  xTlsConf config = {};
   config.cert          = nullptr;
   config.key           = "/tmp/key.pem";
   EXPECT_EQ(xHttpServerListenTls(server, "127.0.0.1", port, &config),
@@ -42,7 +42,7 @@ TEST_F(HttpServerTest, ListenTLS_NullCertFileReturnsError) {
 }
 
 TEST_F(HttpServerTest, ListenTLS_NullKeyFileReturnsError) {
-  xTlsServerConf config = {};
+  xTlsConf config = {};
   config.cert          = "/tmp/cert.pem";
   config.key           = nullptr;
   EXPECT_EQ(xHttpServerListenTls(server, "127.0.0.1", port, &config),
@@ -130,10 +130,10 @@ protected:
 
   /** Start TLS listening and start the event loop thread. */
   void listen_tls_and_start() {
-    xTlsServerConf config = {};
+    xTlsConf config = {};
     config.cert          = cert_path.c_str();
     config.key           = key_path.c_str();
-    config.verify_peer      = 0;
+    config.skip_verify      = 1;
 
     xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &config);
     ASSERT_EQ(err, xErrno_Ok) << "Failed to listen TLS on port " << tls_port;
@@ -315,20 +315,20 @@ TEST_F(HttpServerTlsTest, AlpnNegotiatesH1) {
 /* ── Invalid certificate path ─────────────────────────────────────────── */
 
 TEST_F(HttpServerTlsTest, InvalidCertPathReturnsError) {
-  xTlsServerConf config = {};
+  xTlsConf config = {};
   config.cert          = "/nonexistent/cert.pem";
   config.key           = key_path.c_str();
-  config.verify_peer      = 0;
+  config.skip_verify      = 1;
 
   xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &config);
   EXPECT_EQ(err, xErrno_SysError);
 }
 
 TEST_F(HttpServerTlsTest, InvalidKeyPathReturnsError) {
-  xTlsServerConf config = {};
+  xTlsConf config = {};
   config.cert          = cert_path.c_str();
   config.key           = "/nonexistent/key.pem";
-  config.verify_peer      = 0;
+  config.skip_verify      = 1;
 
   xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &config);
   EXPECT_EQ(err, xErrno_SysError);

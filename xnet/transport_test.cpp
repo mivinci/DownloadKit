@@ -128,7 +128,7 @@ TEST(TlsCtxTest, CreateWithNullConfReturnsNull) {
 }
 
 TEST(TlsCtxTest, CreateWithInvalidCertReturnsNull) {
-  xTlsServerConf conf = {};
+  xTlsConf conf = {};
   conf.cert           = "/nonexistent/cert.pem";
   conf.key            = "/nonexistent/key.pem";
   xTlsCtx ctx         = xTlsCtxCreate(&conf);
@@ -147,7 +147,7 @@ TEST(TlsCtxTest, ClientInitWithInvalidConfFails) {
   ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
   /* Client init with bad CA path should fail */
-  xTlsClientConf conf = {};
+  xTlsConf conf = {};
   conf.ca             = "/nonexistent/ca.pem";
   conf.skip_verify    = 0;
   int ret = xTransportTlsClientInit(&t, &conf, "example.com", fds[0]);

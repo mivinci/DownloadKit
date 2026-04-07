@@ -271,7 +271,7 @@ static void tls_conf_free(struct xHttpClient_ *c) {
 }
 
 static void apply_tls_conf(struct xHttpClient_ *c,
-                           const xTlsClientConf *conf) {
+                           const xTlsConf *conf) {
   /* Free any previous TLS config */
   tls_conf_free(c);
 

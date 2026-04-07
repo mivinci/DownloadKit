@@ -90,10 +90,10 @@ XDEF_STRUCT(xTransport) {
  * Loads the certificate, private key, and optional CA. The returned
  * context is shared across all connections accepted by a listener.
  *
- * @param conf  TLS server configuration (must not be NULL).
+ * @param conf  TLS configuration (must not be NULL).
  * @return      TLS context handle, or NULL on failure.
  */
-XCAPI(xTlsCtx) xTlsCtxCreate(const xTlsServerConf *conf);
+XCAPI(xTlsCtx) xTlsCtxCreate(const xTlsConf *conf);
 
 /**
  * @brief Destroy a server-level TLS context.

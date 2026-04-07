@@ -61,7 +61,7 @@ XDEF_STRUCT(xWsConnector) {
   int            use_tls;
 
   /* TLS config (may be NULL) */
-  const xTlsClientConf *tls_conf;
+  const xTlsConf *tls_conf;
 
   /* Extra headers */
   const char    *headers;

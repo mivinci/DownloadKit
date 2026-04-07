@@ -152,6 +152,81 @@ void xTlsCtxDestroy(xTlsCtx raw) {
   free(ctx);
 }
 
+int xTlsCtxReload(xTlsCtx raw, const xTlsConf *conf) {
+  if (!raw || !conf || !conf->cert || !conf->key) return -1;
+
+  xTlsCtxOpenSSL_ *ctx = (xTlsCtxOpenSSL_ *)raw;
+  SSL_CTX *ssl_ctx = ctx->ssl_ctx;
+
+  /* Load new certificate */
+  if (SSL_CTX_use_certificate_chain_file(ssl_ctx, conf->cert) != 1) {
+    xLog(false, "xnet: reload: failed to load certificate: %s", conf->cert);
+    return -1;
+  }
+
+  /* Load new private key */
+  if (SSL_CTX_use_PrivateKey_file(ssl_ctx, conf->key, SSL_FILETYPE_PEM) != 1) {
+    xLog(false, "xnet: reload: failed to load private key: %s", conf->key);
+    return -1;
+  }
+
+  /* Verify private key matches certificate */
+  if (SSL_CTX_check_private_key(ssl_ctx) != 1) {
+    xLog(false, "xnet: reload: private key does not match certificate");
+    return -1;
+  }
+
+  /* Reload CA certificate (optional) */
+  if (conf->ca) {
+    if (SSL_CTX_load_verify_locations(ssl_ctx, conf->ca, NULL) != 1) {
+      xLog(false, "xnet: reload: failed to load CA certificate: %s", conf->ca);
+      return -1;
+    }
+  }
+
+  /* Update verification mode */
+  if (conf->skip_verify) {
+    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
+  } else {
+    SSL_CTX_set_verify(ssl_ctx,
+                       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+  }
+
+  /* Update ALPN if provided */
+  if (conf->alpn) {
+    size_t total = 0;
+    for (const char **p = conf->alpn; *p; p++) {
+      size_t slen = strlen(*p);
+      if (slen > 255) continue;
+      total += 1 + slen;
+    }
+    if (total > 0) {
+      unsigned char *new_wire = (unsigned char *)malloc(total);
+      if (new_wire) {
+        unsigned char *dst = new_wire;
+        for (const char **p = conf->alpn; *p; p++) {
+          size_t slen = strlen(*p);
+          if (slen > 255) continue;
+          *dst++ = (unsigned char)slen;
+          memcpy(dst, *p, slen);
+          dst += slen;
+        }
+        free(ctx->alpn_wire);
+        ctx->alpn_wire     = new_wire;
+        ctx->alpn_wire_len = total;
+      }
+    }
+  }
+
+  return 0;
+}
+
+void *xTlsCtxGetNative_(xTlsCtx raw) {
+  if (!raw) return NULL;
+  xTlsCtxOpenSSL_ *ctx = (xTlsCtxOpenSSL_ *)raw;
+  return ctx->ssl_ctx;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
  *  Per-connection TLS state (shared by server and client)
  * ═══════════════════════════════════════════════════════════════════

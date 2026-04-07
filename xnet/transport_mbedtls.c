@@ -200,6 +200,89 @@ void xTlsCtxDestroy(xTlsCtx raw) {
   free(ctx);
 }
 
+int xTlsCtxReload(xTlsCtx raw, const xTlsConf *config) {
+  if (!raw || !config || !config->cert || !config->key) return -1;
+
+  xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)raw;
+  int ret;
+
+  /* Reload certificate: free old, parse new */
+  mbedtls_x509_crt new_cert;
+  mbedtls_x509_crt_init(&new_cert);
+  ret = mbedtls_x509_crt_parse_file(&new_cert, config->cert);
+  if (ret != 0) {
+    xLog(false, "xnet: reload: failed to load certificate: %s (ret=-0x%04x)",
+         config->cert, -ret);
+    mbedtls_x509_crt_free(&new_cert);
+    return -1;
+  }
+
+  /* Reload private key: free old, parse new */
+  mbedtls_pk_context new_pkey;
+  mbedtls_pk_init(&new_pkey);
+#if MBEDTLS_VERSION_NUMBER >= 0x04000000
+  ret = mbedtls_pk_parse_keyfile(&new_pkey, config->key, NULL);
+#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
+  ret = mbedtls_pk_parse_keyfile(&new_pkey, config->key, NULL,
+                                 mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
+#else
+  ret = mbedtls_pk_parse_keyfile(&new_pkey, config->key, NULL);
+#endif
+  if (ret != 0) {
+    xLog(false, "xnet: reload: failed to load private key: %s (ret=-0x%04x)",
+         config->key, -ret);
+    mbedtls_x509_crt_free(&new_cert);
+    mbedtls_pk_free(&new_pkey);
+    return -1;
+  }
+
+  /* Swap in the new cert and key */
+  mbedtls_x509_crt_free(&ctx->cert);
+  mbedtls_pk_free(&ctx->pkey);
+  ctx->cert = new_cert;
+  ctx->pkey = new_pkey;
+
+  /* Re-bind own cert to the config */
+  ret = mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->cert, &ctx->pkey);
+  if (ret != 0) {
+    xLog(false, "xnet: reload: mbedtls_ssl_conf_own_cert failed: -0x%04x",
+         -ret);
+    return -1;
+  }
+
+  /* Reload CA certificate (optional) */
+  if (config->ca) {
+    mbedtls_x509_crt new_ca;
+    mbedtls_x509_crt_init(&new_ca);
+    ret = mbedtls_x509_crt_parse_file(&new_ca, config->ca);
+    if (ret != 0) {
+      xLog(false, "xnet: reload: failed to load CA: %s (ret=-0x%04x)",
+           config->ca, -ret);
+      mbedtls_x509_crt_free(&new_ca);
+      return -1;
+    }
+    if (ctx->has_ca) mbedtls_x509_crt_free(&ctx->ca_cert);
+    ctx->ca_cert = new_ca;
+    ctx->has_ca  = 1;
+    mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->ca_cert, NULL);
+  }
+
+  /* Update verification mode */
+  if (config->skip_verify) {
+    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
+  } else {
+    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+  }
+
+  return 0;
+}
+
+void *xTlsCtxGetNative_(xTlsCtx raw) {
+  if (!raw) return NULL;
+  xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)raw;
+  return &ctx->conf;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
  *  Custom I/O callbacks for mbedTLS
  * ═══════════════════════════════════════════════════════════════════

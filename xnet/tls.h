@@ -54,4 +54,53 @@ XDEF_STRUCT(xTlsConf) {
 typedef xTlsConf xTlsClientConf;
 typedef xTlsConf xTlsServerConf;
 
+/* ───────────────────── TLS context management ───────────────────── */
+
+/**
+ * @brief Create a server-level TLS context.
+ *
+ * Loads the certificate, private key, and optional CA. The returned
+ * context is shared across all connections accepted by a listener.
+ *
+ * @param conf  TLS configuration (must not be NULL).
+ * @return      TLS context handle, or NULL on failure.
+ */
+XCAPI(xTlsCtx) xTlsCtxCreate(const xTlsConf *conf);
+
+/**
+ * @brief Destroy a server-level TLS context.
+ *
+ * Releases all resources associated with the context.
+ * Safe to call with NULL (no-op).
+ *
+ * @param ctx  TLS context returned by xTlsCtxCreate(), or NULL.
+ */
+XCAPI(void) xTlsCtxDestroy(xTlsCtx ctx);
+
+/**
+ * @brief Hot-reload certificates for an existing TLS context.
+ *
+ * Atomically replaces the certificate, private key, and optional CA
+ * in the given context. Existing connections are not affected; only
+ * new connections will use the updated certificates.
+ *
+ * @param ctx   TLS context to reload (must not be NULL).
+ * @param conf  New TLS configuration (must not be NULL, cert and
+ *              key must not be NULL).
+ * @return      0 on success, -1 on failure (context unchanged).
+ */
+XCAPI(int) xTlsCtxReload(xTlsCtx ctx, const xTlsConf *conf);
+
+/**
+ * @brief Get the native TLS context pointer (internal use only).
+ *
+ * Returns the underlying SSL_CTX* (OpenSSL) or mbedtls_ssl_config*
+ * (mbedTLS) from the opaque xTlsCtx handle. This is intended for
+ * internal use by xhttp to create per-connection SSL objects.
+ *
+ * @param ctx  TLS context handle (must not be NULL).
+ * @return     Native TLS context pointer, or NULL.
+ */
+XCAPI(void *) xTlsCtxGetNative_(xTlsCtx ctx);
+
 #endif /* XNET_TLS_H */

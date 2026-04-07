@@ -19,87 +19,6 @@
 #include <sys/uio.h>
 #include <xbase/log.h>
 
-/* ───────────────────── ALPN callback ───────────────────── */
-
-static const unsigned char alpn_protos[] = {
-  2, 'h', '2', 8, 'h', 't', 't', 'p', '/', '1', '.', '1',
-};
-
-static int alpn_select_cb(SSL *ssl, const unsigned char **out,
-                          unsigned char *outlen, const unsigned char *in,
-                          unsigned int inlen, void *arg) {
-  (void)ssl;
-  (void)arg;
-
-  if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_protos,
-                            sizeof(alpn_protos), in,
-                            inlen) != OPENSSL_NPN_NEGOTIATED) {
-    return SSL_TLSEXT_ERR_NOACK;
-  }
-  return SSL_TLSEXT_ERR_OK;
-}
-
-/* ───────────────────── TLS context (server-level) ───────────────────── */
-
-void *xHttpTlsCtxCreateOpenSSL(const xTlsConf *config) {
-  SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
-  if (!ctx) {
-    xLog(false, "xhttp: SSL_CTX_new failed");
-    return NULL;
-  }
-
-  /* Set minimum TLS version to 1.2 */
-  SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
-
-  /* Load certificate */
-  if (SSL_CTX_use_certificate_chain_file(ctx, config->cert) != 1) {
-    xLog(false, "xhttp: failed to load certificate: %s", config->cert);
-    goto fail;
-  }
-
-  /* Load private key */
-  if (SSL_CTX_use_PrivateKey_file(ctx, config->key, SSL_FILETYPE_PEM) !=
-      1) {
-    xLog(false, "xhttp: failed to load private key: %s", config->key);
-    goto fail;
-  }
-
-  /* Verify private key matches certificate */
-  if (SSL_CTX_check_private_key(ctx) != 1) {
-    xLog(false, "xhttp: private key does not match certificate");
-    goto fail;
-  }
-
-  /* Load CA certificate for client verification (optional) */
-  if (config->ca) {
-    if (SSL_CTX_load_verify_locations(ctx, config->ca, NULL) != 1) {
-      xLog(false, "xhttp: failed to load CA certificate: %s", config->ca);
-      goto fail;
-    }
-  }
-
-  /* Peer verification mode */
-  if (config->skip_verify) {
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
-  } else {
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
-                       NULL);
-  }
-
-  /* Configure ALPN */
-  SSL_CTX_set_alpn_select_cb(ctx, alpn_select_cb, NULL);
-
-  return ctx;
-
-fail:
-  SSL_CTX_free(ctx);
-  return NULL;
-}
-
-void xHttpTlsCtxDestroyOpenSSL(void *ctx) {
-  if (ctx) SSL_CTX_free((SSL_CTX *)ctx);
-}
-
 /* ───────────────────── Per-connection TLS state ───────────────────── */
 
 XDEF_STRUCT(xHttpTlsOpenSSL_) {
@@ -229,9 +148,12 @@ static void openssl_destroy(void *ctx) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-void xHttpTlsTransportInitOpenSSL(xHttpTransport *transport, void *tls_ctx,
+void xHttpTlsTransportInitOpenSSL(xHttpTransport *transport, xTlsCtx tls_ctx,
                                   int fd) {
   if (!transport || !tls_ctx) return;
+
+  SSL_CTX *ssl_ctx = (SSL_CTX *)xTlsCtxGetNative_(tls_ctx);
+  if (!ssl_ctx) return;
 
   xHttpTlsOpenSSL_ *t = (xHttpTlsOpenSSL_ *)calloc(1, sizeof(xHttpTlsOpenSSL_));
   if (!t) {
@@ -244,7 +166,7 @@ void xHttpTlsTransportInitOpenSSL(xHttpTransport *transport, void *tls_ctx,
     return;
   }
 
-  SSL *ssl = SSL_new((SSL_CTX *)tls_ctx);
+  SSL *ssl = SSL_new(ssl_ctx);
   if (!ssl) {
     free(t);
     transport->read      = NULL;

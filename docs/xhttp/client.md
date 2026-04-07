@@ -148,7 +148,7 @@ All pointers are valid only during the callback. The library manages their lifet
 | `xSseEvent` | SSE event data delivered to the event callback |
 | `xSseEventFunc` | `int (*)(const xSseEvent *ev, void *arg)` — return 0 to continue, non-zero to close |
 | `xSseDoneFunc` | `void (*)(int curl_code, void *arg)` |
-| `xTlsClientConf` | TLS configuration for the client (CA path, client cert/key, skip verify) |
+| `xTlsConf` | TLS configuration for the client (CA path, client cert/key, skip verify) |
 
 ### Lifecycle
 
@@ -160,11 +160,11 @@ All pointers are valid only during the callback. The library manages their lifet
 ### TLS Configuration
 
 TLS is configured at client creation time via
-`xHttpClientConf`. The `xTlsClientConf` fields are
+`xHttpClientConf`. The `xTlsConf` fields are
 deep-copied internally; the caller does not need to
 keep them alive after creation.
 
-#### `xTlsClientConf` Fields
+#### `xTlsConf` Fields (Client)
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -244,7 +244,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
 
     // Skip certificate verification (dev only)
-    xTlsClientConf tls = {0};
+    xTlsConf tls = {0};
     tls.skip_verify = 1;
     xHttpClientConf conf = {.tls = &tls};
     xHttpClient client =

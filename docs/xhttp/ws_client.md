@@ -154,7 +154,7 @@ A configurable timeout (default 10 seconds) covers the entire connection process
 ```c
 struct xWsConnectConf {
     const char *url;              // ws:// or wss:// URL (required)
-    const xTlsClientConf *tls;   // TLS config for wss:// (NULL = defaults)
+    const xTlsConf *tls;   // TLS config for wss:// (NULL = defaults)
     const char *headers;          // Extra HTTP headers (NULL = none)
     int timeout_ms;               // Connect timeout (0 = 10000 ms)
 };
@@ -279,7 +279,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
 
     // Skip certificate verification (dev only)
-    xTlsClientConf tls = {0};
+    xTlsConf tls = {0};
     tls.skip_verify = 1;
 
     xWsConnectConf conf = {0};

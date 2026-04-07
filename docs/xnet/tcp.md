@@ -114,7 +114,7 @@ graph LR
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `tls` | `const xTlsClientConf *` | `NULL` | TLS config; `NULL` for plain TCP |
+| `tls` | `const xTlsConf *` | `NULL` | TLS config; `NULL` for plain TCP |
 | `timeout_ms` | `int` | `10000` | Connect timeout in milliseconds |
 | `nodelay` | `int` | `0` | Set `TCP_NODELAY` if non-zero |
 | `keepalive` | `int` | `0` | Set `SO_KEEPALIVE` if non-zero |
@@ -273,7 +273,7 @@ static void on_tls_connected(xTcpConn conn, xErrno err, void *arg) {
 }
 
 void connect_tls(xEventLoop loop) {
-    xTlsClientConf tls = {0};
+    xTlsConf tls = {0};
     tls.ca = "/etc/ssl/certs/ca-certificates.crt";
 
     xTcpConnectConf conf = {0};
@@ -290,7 +290,7 @@ void connect_tls(xEventLoop loop) {
 #include <xnet/transport.h>
 
 void start_tls_server(xEventLoop loop) {
-    xTlsServerConf tls_conf = {
+    xTlsConf tls_conf = {
         .cert = "server.pem",
         .key  = "server-key.pem",
     };

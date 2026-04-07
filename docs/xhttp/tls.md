@@ -125,7 +125,7 @@ sequenceDiagram
 **Server:**
 
 ```c
-xTlsServerConf tls = {
+xTlsConf tls = {
     .cert = "server.pem",
     .key  = "server-key.pem",
 };
@@ -135,7 +135,7 @@ xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 **Client (with CA verification):**
 
 ```c
-xTlsClientConf tls = {0};
+xTlsConf tls = {0};
 tls.ca = "ca.pem";
 xHttpClientConf conf = {.tls = &tls};
 xHttpClient client =
@@ -150,7 +150,7 @@ xHttpClientGet(
 **Client (skip verification — development only):**
 
 ```c
-xTlsClientConf tls = {0};
+xTlsConf tls = {0};
 tls.skip_verify = 1;
 xHttpClientConf conf = {.tls = &tls};
 xHttpClient client =
@@ -179,11 +179,10 @@ sequenceDiagram
 **Server:**
 
 ```c
-xTlsServerConf tls = {
+xTlsConf tls = {
     .cert     = "server.pem",
     .key      = "server-key.pem",
     .ca       = "ca.pem",       // CA to verify client certs
-    .verify_peer = 2,              // 0=none, 1=optional, 2=required
 };
 xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 ```
@@ -191,7 +190,7 @@ xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 **Client:**
 
 ```c
-xTlsClientConf tls = {0};
+xTlsConf tls = {0};
 tls.ca   = "ca.pem";
 tls.cert = "client.pem";
 tls.key  = "client-key.pem";
@@ -214,7 +213,7 @@ A single `xHttpServer` can serve both cleartext HTTP and HTTPS simultaneously:
 xHttpServerListen(server, "0.0.0.0", 8080);
 
 // HTTPS on port 8443
-xTlsServerConf tls = {
+xTlsConf tls = {
     .cert = "server.pem",
     .key  = "server-key.pem",
 };
@@ -279,11 +278,10 @@ int main(void) {
 
     xHttpServerRoute(server, "GET /secure", on_secure, NULL);
 
-    xTlsServerConf tls = {
+    xTlsConf tls = {
         .cert     = "server.pem",
         .key      = "server-key.pem",
         .ca       = "ca.pem",
-        .verify_peer = 2,  // require client certificate
     };
     xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 
@@ -316,7 +314,7 @@ static void on_response(const xHttpResponse *resp, void *arg) {
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
 
-    xTlsClientConf tls = {0};
+    xTlsConf tls = {0};
     tls.ca   = "ca.pem";
     tls.cert = "client.pem";
     tls.key  = "client-key.pem";
@@ -350,13 +348,12 @@ curl --cacert ca.pem \
      https://localhost:8443/secure
 ```
 
-## `verify_peer` Modes
+## `skip_verify` Behavior
 
-| Value | Mode | Behavior |
-| --- | --- | --- |
-| `0` | None | Server does not request a client certificate. |
-| `1` | Optional | Server requests a client certificate but allows connections without one. |
-| `2` | Required | Server requires a valid client certificate; handshake fails otherwise. |
+| Value | Behavior |
+| --- | --- |
+| `0` (default) | Peer verification enabled. Server verifies client cert (if `ca` is set); client verifies server cert. |
+| non-zero | All peer verification disabled. **Development only.** |
 
 ## ALPN and HTTP/2 over TLS
 
@@ -372,7 +369,7 @@ This is transparent to application code — the same routes and handlers work re
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `xErrno_NotSupported` from `ListenTls` | No TLS backend compiled | Rebuild with `XK_TLS_BACKEND=openssl` |
-| Client gets `curl_code != 0`, `status_code == 0` | TLS handshake failed | Check cert paths, CA trust, and `verify_peer` settings |
+| Client gets `curl_code != 0`, `status_code == 0` | TLS handshake failed | Check cert paths, CA trust, and `skip_verify` settings |
 | Self-signed cert rejected | Client verifies against system CA bundle | Set `ca` to the self-signed cert, or use `skip_verify = 1` for dev |
 | mTLS handshake fails | Client didn't provide cert, or cert not signed by server's `ca` | Ensure client cert is signed by the same CA specified in server's `ca` |
 | "wrong CA path" error | `ca` points to non-existent file | Verify the file path exists and is readable |
@@ -383,7 +380,7 @@ This is transparent to application code — the same routes and handlers work re
 1. **Never use `skip_verify` in production.** It disables all certificate validation, making the connection vulnerable to MITM attacks.
 2. **Keep private keys secure.** `ca-key.pem`, `server-key.pem`, and `client-key.pem` should have restricted file permissions (`chmod 600`).
 3. **Use short-lived certificates.** Set reasonable expiry (`-days`) and rotate certificates before they expire.
-4. **Use `verify_peer = 2` for mTLS.** Mode `1` (optional) allows unauthenticated clients through — only use it during migration.
+4. **For mTLS, set `ca` on the server side.** Verification is enabled by default (`skip_verify = 0`), so the server will require a valid client certificate when `ca` is set.
 5. **Don't deploy the CA private key.** Only `ca.pem` (the public certificate) needs to be distributed. Keep `ca-key.pem` offline or in a secure vault.
 6. **Match CN/SAN to hostname.** The server certificate's Common Name (or Subject Alternative Name) should match the hostname clients use to connect.
 
@@ -393,15 +390,15 @@ This is transparent to application code — the same routes and handlers work re
 
 | Item | Description |
 | --- | --- |
-| `xTlsServerConf` | Struct: `cert`, `key`, `ca`, `verify_peer` |
+| `xTlsConf` | Struct: `cert`, `key`, `ca`, `key_password`, `alpn`, `skip_verify` |
 | `xHttpServerListenTls()` | Start HTTPS listener with TLS config |
 
 ### Client Side
 
 | Item | Description |
 | --- | --- |
-| `xTlsClientConf` | Struct: `ca`, `cert`, `key`, `key_password`, `skip_verify` |
-| `xHttpClientConf` | Struct: `tls` (pointer to `xTlsClientConf`), `http_version` |
+| `xTlsConf` | Struct: `cert`, `key`, `ca`, `key_password`, `alpn`, `skip_verify` |
+| `xHttpClientConf` | Struct: `tls` (pointer to `xTlsConf`), `http_version` |
 | `xHttpClientCreate()` | Create client with TLS config via `xHttpClientConf`. |
 
 For full API details, see [server.md](server.md#tls-configuration) and [client.md](client.md#tls-configuration).

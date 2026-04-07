@@ -61,7 +61,7 @@ XDEF_STRUCT(xTransport) {
 void xTransportPlainInit(xTransport *t, int fd);
 
 // TLS transport (compile-time backend selection)
-int  xTransportTlsClientInit(xTransport *t, const xTlsClientConf *conf,
+int  xTransportTlsClientInit(xTransport *t, const xTlsConf *conf,
                               const char *hostname, int fd);
 int  xTransportTlsServerInit(xTransport *t, xTlsCtx tls_ctx, int fd);
 ```
@@ -78,7 +78,7 @@ int  xTransportTlsServerInit(xTransport *t, xTlsCtx tls_ctx, int fd);
 
 - **Zero-cost for plain TCP** — the plain implementation is just a thin wrapper around `read(2)` / `writev(2)`, no virtual dispatch overhead beyond the function pointer call
 - **Compile-time TLS backend** — `XK_TLS_BACKEND` selects OpenSSL or mbedTLS at build time, same as today
-- **Composable** — `xTcpConnect()` optionally accepts a `xTlsClientConf*`; if non-NULL, the returned connection's transport is TLS, otherwise plain
+- **Composable** — `xTcpConnect()` optionally accepts a `xTlsConf*`; if non-NULL, the returned connection's transport is TLS, otherwise plain
 - **ALPN-aware** — the `alpn()` callback enables automatic HTTP/2 vs HTTP/1.1 detection after TLS handshake, which xhttp already relies on
 
 ---
@@ -128,7 +128,7 @@ void xTcpListenerDestroy(xTcpListener ln);
 
 - The connector should compose with `xDnsResolve` internally, so the user just passes a hostname string
 - Connection timeout should reuse `xSocket`'s idle-timeout mechanism where possible
-- TLS upgrade can be layered on top: connect returns an `xTransport`; if `xTlsClientConf` is provided, the transport is automatically TLS
+- TLS upgrade can be layered on top: connect returns an `xTransport`; if `xTlsConf` is provided, the transport is automatically TLS
 
 ---
 

@@ -10,6 +10,7 @@
 
 #include "server_private.h"
 #include "transport_private.h"
+#include "../xnet/tls_private.h"
 
 /* mbedTLS 3.x+ provides build_info.h; mbedTLS 2.x uses version.h */
 #if __has_include(<mbedtls/build_info.h>)
@@ -165,7 +166,7 @@ void xHttpTlsTransportInitMbedTLS(xHttpTransport *transport, xTlsCtx tls_ctx,
                                   int fd) {
   if (!transport || !tls_ctx) return;
 
-  mbedtls_ssl_config *server_conf = (mbedtls_ssl_config *)xTlsCtxGetNative_(tls_ctx);
+  mbedtls_ssl_config *server_conf = (mbedtls_ssl_config *)xTlsCtxGetNative(tls_ctx);
   if (!server_conf) return;
 
   xHttpTlsMbedTLS_ *t = (xHttpTlsMbedTLS_ *)calloc(1, sizeof(xHttpTlsMbedTLS_));

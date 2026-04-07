@@ -9,6 +9,7 @@
 #ifdef XK_HAS_OPENSSL
 
 #include "transport_private.h"
+#include "../xnet/tls_private.h"
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -152,7 +153,7 @@ void xHttpTlsTransportInitOpenSSL(xHttpTransport *transport, xTlsCtx tls_ctx,
                                   int fd) {
   if (!transport || !tls_ctx) return;
 
-  SSL_CTX *ssl_ctx = (SSL_CTX *)xTlsCtxGetNative_(tls_ctx);
+  SSL_CTX *ssl_ctx = (SSL_CTX *)xTlsCtxGetNative(tls_ctx);
   if (!ssl_ctx) return;
 
   xHttpTlsOpenSSL_ *t = (xHttpTlsOpenSSL_ *)calloc(1, sizeof(xHttpTlsOpenSSL_));

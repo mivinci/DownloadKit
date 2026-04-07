@@ -6,12 +6,12 @@
  * tls_openssl.c - OpenSSL TLS context management
  *
  * Implements xTlsCtxCreate / xTlsCtxDestroy / xTlsCtxReload /
- * xTlsCtxGetNative_ for the OpenSSL backend.
+ * xTlsCtxGetNative for the OpenSSL backend.
  */
 
 #ifdef XK_HAS_OPENSSL
 
-#include <xnet/tls.h>
+#include "tls_private.h"
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -218,7 +218,7 @@ int xTlsCtxReload(xTlsCtx raw, const xTlsConf *conf) {
   return 0;
 }
 
-void *xTlsCtxGetNative_(xTlsCtx raw) {
+void *xTlsCtxGetNative(xTlsCtx raw) {
   if (!raw) return NULL;
   xTlsCtxOpenSSL_ *ctx = (xTlsCtxOpenSSL_ *)raw;
   return ctx->ssl_ctx;

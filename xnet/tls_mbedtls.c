@@ -6,12 +6,12 @@
  * tls_mbedtls.c - mbedTLS TLS context management
  *
  * Implements xTlsCtxCreate / xTlsCtxDestroy / xTlsCtxReload /
- * xTlsCtxGetNative_ for the mbedTLS backend.
+ * xTlsCtxGetNative for the mbedTLS backend.
  */
 
 #ifdef XK_HAS_MBEDTLS
 
-#include <xnet/tls.h>
+#include "tls_private.h"
 
 /* mbedTLS 3.x+ provides build_info.h; mbedTLS 2.x uses version.h */
 #if __has_include(<mbedtls/build_info.h>)
@@ -272,7 +272,7 @@ int xTlsCtxReload(xTlsCtx raw, const xTlsConf *config) {
   return 0;
 }
 
-void *xTlsCtxGetNative_(xTlsCtx raw) {
+void *xTlsCtxGetNative(xTlsCtx raw) {
   if (!raw) return NULL;
   xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)raw;
   return &ctx->conf;

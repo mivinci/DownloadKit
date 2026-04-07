@@ -91,16 +91,4 @@ XCAPI(void) xTlsCtxDestroy(xTlsCtx ctx);
  */
 XCAPI(int) xTlsCtxReload(xTlsCtx ctx, const xTlsConf *conf);
 
-/**
- * @brief Get the native TLS context pointer (internal use only).
- *
- * Returns the underlying SSL_CTX* (OpenSSL) or mbedtls_ssl_config*
- * (mbedTLS) from the opaque xTlsCtx handle. This is intended for
- * internal use by xhttp to create per-connection SSL objects.
- *
- * @param ctx  TLS context handle (must not be NULL).
- * @return     Native TLS context pointer, or NULL.
- */
-XCAPI(void *) xTlsCtxGetNative_(xTlsCtx ctx);
-
 #endif /* XNET_TLS_H */

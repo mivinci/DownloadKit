@@ -12,6 +12,7 @@
 #ifndef XNET_TRANSPORT_PRIVATE_H
 #define XNET_TRANSPORT_PRIVATE_H
 
+#include "tls_private.h"
 #include "transport.h"
 
 /* ───────────────────── Plain TCP transport ───────────────────── */

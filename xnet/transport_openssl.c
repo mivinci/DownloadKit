@@ -150,7 +150,7 @@ static void openssl_destroy(void *ctx) {
 void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
   if (!transport || !tls_ctx) return;
 
-  SSL_CTX *ssl_ctx = (SSL_CTX *)xTlsCtxGetNative_(tls_ctx);
+  SSL_CTX *ssl_ctx = (SSL_CTX *)xTlsCtxGetNative(tls_ctx);
   if (!ssl_ctx) return;
 
   xTlsOpenSSL_ *t = (xTlsOpenSSL_ *)calloc(1, sizeof(xTlsOpenSSL_));

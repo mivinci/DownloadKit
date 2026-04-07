@@ -223,7 +223,7 @@ static void mbed_destroy(void *ctx) {
 void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
   if (!transport || !tls_ctx) return;
 
-  mbedtls_ssl_config *server_conf = (mbedtls_ssl_config *)xTlsCtxGetNative_(tls_ctx);
+  mbedtls_ssl_config *server_conf = (mbedtls_ssl_config *)xTlsCtxGetNative(tls_ctx);
   if (!server_conf) return;
 
   xTlsMbedTLS_ *t = (xTlsMbedTLS_ *)calloc(1, sizeof(xTlsMbedTLS_));

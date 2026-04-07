@@ -178,7 +178,7 @@ XDEF_STRUCT(xHttpServer_) {
   /* TLS listening socket (separate port) */
   xSocket tls_listen_sock; /**< TLS listening socket              */
   int     tls_listen_fd;   /**< TLS listening socket fd (raw)     */
-  void   *tls_ctx;         /**< Opaque TLS context (SSL_CTX* etc) */
+  xTlsCtx tls_ctx;         /**< TLS context from xTlsCtxCreate()  */
 
   /* Routes */
   struct xHttpRoute_ *routes;      /**< Head of route linked list         */

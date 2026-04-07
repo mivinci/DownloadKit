@@ -30,15 +30,11 @@ void xHttpTransportPlainInit(xHttpTransport *transport, int fd);
 /* ───────────────────── TLS backends ───────────────────── */
 
 #if defined(XK_HAS_OPENSSL)
-void *xHttpTlsCtxCreateOpenSSL(const xTlsServerConf *config);
-void  xHttpTlsCtxDestroyOpenSSL(void *ctx);
-void  xHttpTlsTransportInitOpenSSL(xHttpTransport *transport, void *tls_ctx,
-                                   int fd);
+void xHttpTlsTransportInitOpenSSL(xHttpTransport *transport, xTlsCtx tls_ctx,
+                                  int fd);
 #elif defined(XK_HAS_MBEDTLS)
-void *xHttpTlsCtxCreateMbedTLS(const xTlsServerConf *config);
-void  xHttpTlsCtxDestroyMbedTLS(void *ctx);
-void  xHttpTlsTransportInitMbedTLS(xHttpTransport *transport, void *tls_ctx,
-                                   int fd);
+void xHttpTlsTransportInitMbedTLS(xHttpTransport *transport, xTlsCtx tls_ctx,
+                                  int fd);
 #endif
 
 #endif /* XHTTP_TRANSPORT_PRIVATE_H */

@@ -82,27 +82,4 @@ XDEF_STRUCT(xTransport) {
   void *ctx; /**< Opaque transport state (e.g. SSL*, fd wrapper) */
 };
 
-/* ───────────────────── TLS context management ───────────────────── */
-
-/**
- * @brief Create a server-level TLS context.
- *
- * Loads the certificate, private key, and optional CA. The returned
- * context is shared across all connections accepted by a listener.
- *
- * @param conf  TLS server configuration (must not be NULL).
- * @return      Opaque TLS context, or NULL on failure.
- */
-XCAPI(void *) xTlsCtxCreate(const xTlsServerConf *conf);
-
-/**
- * @brief Destroy a server-level TLS context.
- *
- * Releases all resources associated with the context.
- * Safe to call with NULL (no-op).
- *
- * @param ctx  TLS context returned by xTlsCtxCreate(), or NULL.
- */
-XCAPI(void) xTlsCtxDestroy(void *ctx);
-
 #endif /* XNET_TRANSPORT_H */

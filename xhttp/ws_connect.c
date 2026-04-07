@@ -61,7 +61,14 @@ XDEF_STRUCT(xWsConnector) {
   int            use_tls;
 
   /* TLS config (may be NULL) */
-  const xTlsClientConf *tls_conf;
+  const xTlsConf *tls_conf;
+
+  /* Pre-created TLS context from conf (may be NULL) */
+  xTlsCtx        conf_tls_ctx;
+
+  /* Resolved TLS context (set during handshake) */
+  xTlsCtx        tls_ctx;
+  int             owns_tls_ctx;
 
   /* Extra headers */
   const char    *headers;
@@ -137,6 +144,10 @@ static void connector_destroy(xWsConnector *c) {
   if (c->sock) {
     xSocketDestroy(c->loop, c->sock);
     c->sock = NULL;
+  }
+  if (c->owns_tls_ctx && c->tls_ctx) {
+    xTlsCtxDestroy(c->tls_ctx);
+    c->tls_ctx = NULL;
   }
   xIOBufferDeinit(&c->write_buf);
   xUrlFree(&c->url);
@@ -231,6 +242,28 @@ static void connector_do_tcp_connect(xWsConnector *c) {
  */
 
 static void connector_do_tls_handshake(xWsConnector *c) {
+  /* Resolve TLS context: prefer tls_ctx, fall back to creating from tls conf */
+  if (!c->tls_ctx) {
+    if (c->conf_tls_ctx) {
+      c->tls_ctx      = c->conf_tls_ctx;
+      c->owns_tls_ctx = 0;
+    } else {
+      /* Create from tls_conf (or defaults if NULL) */
+      xTlsConf defaults;
+      const xTlsConf *conf = c->tls_conf;
+      if (!conf) {
+        memset(&defaults, 0, sizeof(defaults));
+        conf = &defaults;
+      }
+      c->tls_ctx = xTlsCtxCreate(conf);
+      if (!c->tls_ctx) {
+        connector_fail(c, XWS_CLOSE_ABNORMAL);
+        return;
+      }
+      c->owns_tls_ctx = 1;
+    }
+  }
+
   /* Extract hostname as NUL-terminated string */
   char hostname[256];
   size_t hlen = c->url.host_len;
@@ -238,7 +271,7 @@ static void connector_do_tls_handshake(xWsConnector *c) {
   memcpy(hostname, c->url.host, hlen);
   hostname[hlen] = '\0';
 
-  if (xHttpTlsClientTransportInit(&c->transport, c->tls_conf,
+  if (xHttpTlsClientTransportInit(&c->transport, c->tls_ctx,
                                   hostname, c->fd) < 0) {
     connector_fail(c, XWS_CLOSE_ABNORMAL);
     return;
@@ -549,8 +582,9 @@ xErrno xWsConnect(xEventLoop loop,
   c->user_arg  = arg;
   c->url       = url; /* Transfer ownership */
   c->use_tls   = use_tls;
-  c->tls_conf  = conf->tls;
-  c->headers   = conf->headers;
+  c->tls_conf     = conf->tls;
+  c->conf_tls_ctx  = conf->tls_ctx;
+  c->headers       = conf->headers;
   c->phase     = xWsConnectPhase_Dns;
 
   xIOBufferInit(&c->write_buf);

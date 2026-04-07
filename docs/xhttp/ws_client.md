@@ -137,6 +137,9 @@ A configurable timeout (default 10 seconds) covers the entire connection process
 | `ws_connect.c` | Async connection state machine |
 | `ws_handshake_client.h/c` | Build Upgrade request, validate 101 response |
 | `ws_crypto.h` | SHA-1 + Base64 for `Sec-WebSocket-Accept` |
+| `transport_tls_client.h` | TLS client transport init (shared `xTlsCtx` → per-connection SSL) |
+| `transport_tls_client_openssl.c` | OpenSSL TLS client transport implementation |
+| `transport_tls_client_mbedtls.c` | mbedTLS TLS client transport implementation |
 
 ## API Reference
 
@@ -154,7 +157,8 @@ A configurable timeout (default 10 seconds) covers the entire connection process
 ```c
 struct xWsConnectConf {
     const char *url;              // ws:// or wss:// URL (required)
-    const xTlsClientConf *tls;   // TLS config for wss:// (NULL = defaults)
+    const xTlsConf *tls;         // TLS config for wss:// (NULL = defaults)
+    xTlsCtx tls_ctx;             // Pre-created shared TLS context (priority over tls)
     const char *headers;          // Extra HTTP headers (NULL = none)
     int timeout_ms;               // Connect timeout (0 = 10000 ms)
 };
@@ -163,7 +167,8 @@ struct xWsConnectConf {
 | Field | Description |
 | --- | --- |
 | `url` | WebSocket URL. Must start with `ws://` or `wss://`. Required. |
-| `tls` | TLS configuration for `wss://` connections. `NULL` uses system CA with verification enabled. Ignored for `ws://`. |
+| `tls` | TLS configuration for `wss://` connections. `NULL` uses system CA with verification enabled. Ignored for `ws://`. Ignored when `tls_ctx` is set. |
+| `tls_ctx` | Pre-created shared TLS context from `xTlsCtxCreate()`. Takes priority over `tls`. The caller retains ownership and must keep it alive for the lifetime of the connection. `NULL` = create from `tls` (or use defaults). |
 | `headers` | Extra HTTP headers appended to the Upgrade request. Format: `"Key: Value\r\nKey2: Value2\r\n"`. `NULL` for none. |
 | `timeout_ms` | Timeout for the entire connection process in milliseconds. `0` uses the default (10000 ms). |
 
@@ -279,7 +284,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
 
     // Skip certificate verification (dev only)
-    xTlsClientConf tls = {0};
+    xTlsConf tls = {0};
     tls.skip_verify = 1;
 
     xWsConnectConf conf = {0};
@@ -296,6 +301,49 @@ int main(void) {
     xWsConnect(loop, &conf, &cbs, NULL);
 
     xEventLoopRun(loop);
+    xEventLoopDestroy(loop);
+    return 0;
+}
+```
+
+### Shared TLS Context (Multiple Connections)
+
+When creating many `wss://` connections (e.g. reconnect loops or connection pools), use a shared `xTlsCtx` to avoid reloading certificates on every connection:
+
+```c
+#include <xbase/event.h>
+#include <xhttp/ws.h>
+#include <xnet/tls.h>
+
+static void on_open(xWsConn conn, void *arg) { /* ... */ }
+static void on_message(xWsConn conn, xWsOpcode op, const void *data, size_t len, void *arg) { /* ... */ }
+static void on_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) { /* ... */ }
+
+int main(void) {
+    xEventLoop loop = xEventLoopCreate();
+
+    // Create a shared TLS context once
+    xTlsConf tls = {0};
+    tls.ca = "ca.pem";
+    xTlsCtx ctx = xTlsCtxCreate(&tls);
+
+    // All connections share the same ctx
+    xWsConnectConf conf = {0};
+    conf.url = "wss://echo.example.com/ws";
+    conf.tls_ctx = ctx;  // shared, not copied
+
+    xWsCallbacks cbs = {
+        .on_open    = on_open,
+        .on_message = on_message,
+        .on_close   = on_close,
+    };
+
+    xWsConnect(loop, &conf, &cbs, NULL);
+
+    xEventLoopRun(loop);
+
+    // Destroy ctx after all connections are closed
+    xTlsCtxDestroy(ctx);
     xEventLoopDestroy(loop);
     return 0;
 }
@@ -360,3 +408,5 @@ static void on_open(xWsConn conn, void *arg) {
 | Dependencies | xbase + xnet | OpenSSL | None | None |
 
 **Key Differentiator:** xhttp's WebSocket client runs entirely on the xbase event loop with zero blocking calls. The multi-phase connection (DNS → TCP → TLS → Upgrade) is a single async state machine. Combined with the shared `xWsConn` model, client and server code use identical APIs for sending, receiving, and closing — making bidirectional WebSocket applications straightforward.
+
+**TLS Context Sharing:** For `wss://` connections, the client supports a shared `xTlsCtx` (via `conf.tls_ctx`) that avoids reloading certificates and re-creating the SSL context on every connection. This is the same pattern used by `xTcpConnect` and `xTcpListener`, providing consistent TLS context management across all xKit networking APIs.

@@ -256,9 +256,9 @@ XCAPI(xErrno) xHttpServerSetMaxBodySize(xHttpServer server, size_t max_size);
 /* ── TLS ───────────────────────────────────────────────────────────────── */
 
 /**
- * @brief Backward-compatible alias for xTlsServerConf (defined in xnet/tls.h).
+ * @brief Backward-compatible alias for xTlsConf (defined in xnet/tls.h).
  */
-typedef xTlsServerConf xHttpTlsServerConf;
+typedef xTlsConf xHttpTlsServerConf;
 
 /**
  * @brief Start listening for HTTPS connections with TLS.
@@ -282,6 +282,6 @@ typedef xTlsServerConf xHttpTlsServerConf;
  */
 XCAPI(xErrno) xHttpServerListenTls(xHttpServer server, const char *host,
                                    uint16_t                  port,
-                                   const xTlsServerConf *config);
+                                   const xTlsConf *config);
 
 #endif /* XHTTP_SERVER_H */

@@ -18,7 +18,7 @@
 
 6. **Defensive Limits** — Configurable limits on header size (default 8 KiB), body size (default 1 MiB), and idle timeout (default 60 s) protect against slow clients and oversized payloads. Violations produce appropriate 4xx error responses.
 
-7. **Pluggable TLS** — TLS support is provided via `xHttpServerListenTls()` with `xTlsServerConf`. The TLS backend (OpenSSL or Mbed TLS) is selected at compile time via `XK_TLS_BACKEND`. ALPN negotiation automatically selects HTTP/1.1 or HTTP/2 over TLS. Mutual TLS (mTLS) is supported via the `verify_peer` option.
+7. **Pluggable TLS** — TLS support is provided via `xHttpServerListenTls()` with `xTlsConf`. The TLS backend (OpenSSL or Mbed TLS) is selected at compile time via `XK_TLS_BACKEND`. ALPN negotiation automatically selects HTTP/1.1 or HTTP/2 over TLS. Mutual TLS (mTLS) is supported when `ca` is set (verification is enabled by default).
 
 ## Architecture
 
@@ -240,7 +240,7 @@ Each connection has an idle timeout (default 60 s). If no data is received withi
 | `xHttpResponseWriter` | Opaque handle to a response writer (valid only during handler) |
 | `xHttpRequest` | Request data delivered to the handler callback |
 | `xHttpHandlerFunc` | `void (*)(xHttpResponseWriter writer, const xHttpRequest *req, void *arg)` |
-| `xTlsServerConf` | TLS configuration for HTTPS listeners (cert, key, CA, client verification) |
+| `xTlsConf` | TLS configuration for HTTPS listeners (cert, key, CA, skip_verify) |
 
 ### xHttpRequest Fields
 
@@ -261,7 +261,7 @@ All pointers are valid only for the duration of the handler callback.
 | --- | --- | --- |
 | `xHttpServerCreate` | `xHttpServer xHttpServerCreate(xEventLoop loop)` | Create a server bound to an event loop. |
 | `xHttpServerListen` | `xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port)` | Start listening on the given address and port. |
-| `xHttpServerListenTls` | `xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port, const xTlsServerConf *config)` | Start listening for HTTPS connections with TLS. ALPN selects H1/H2. Can coexist with `Listen` on a different port. Returns `xErrno_NotSupported` if no TLS backend was compiled. |
+| `xHttpServerListenTls` | `xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port, const xTlsConf *config)` | Start listening for HTTPS connections with TLS. ALPN selects H1/H2. Can coexist with `Listen` on a different port. Returns `xErrno_NotSupported` if no TLS backend was compiled. |
 | `xHttpServerDestroy` | `void xHttpServerDestroy(xHttpServer server)` | Destroy server, close all connections, free all routes. |
 
 ### Route Registration
@@ -298,16 +298,16 @@ All configuration functions must be called **before** `xHttpServerListen()` / `x
 
 ### TLS Configuration
 
-#### `xTlsServerConf` Fields
+#### `xTlsConf` Fields (Server)
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `cert` | `const char *` | Path to PEM certificate file (**required**). |
 | `key` | `const char *` | Path to PEM private key file (**required**). |
 | `ca` | `const char *` | Path to CA certificate file for client verification (optional). |
-| `verify_peer` | `int` | Client certificate verification mode: `0` = none (default), `1` = optional, `2` = required. |
+| `skip_verify` | `int` | If non-zero, skip peer verification. Default `0` (verify enabled). |
 
-When `verify_peer` is set to `2` (required), the server performs mutual TLS (mTLS) — clients must present a valid certificate signed by the CA specified in `ca`.
+When `ca` is set and `skip_verify` is `0` (default), the server performs mutual TLS (mTLS) — clients must present a valid certificate signed by the specified CA.
 
 ## Usage Examples
 
@@ -470,7 +470,7 @@ int main(void) {
     xHttpServerRoute(server, "GET /hello", on_hello, NULL);
 
     // TLS configuration
-    xTlsServerConf tls = {
+    xTlsConf tls = {
         .cert = "/path/to/server.pem",
         .key  = "/path/to/server-key.pem",
     };
@@ -505,11 +505,10 @@ int main(void) {
     xHttpServerRoute(server, "GET /secure", on_secure, NULL);
 
     // Require client certificates
-    xTlsServerConf tls = {
+    xTlsConf tls = {
         .cert     = "/path/to/server.pem",
         .key      = "/path/to/server-key.pem",
         .ca       = "/path/to/ca.pem",
-        .verify_peer = 2,  // required
     };
     xHttpServerListenTls(server, "0.0.0.0", 8443, &tls);
 
@@ -544,7 +543,7 @@ int main(void) {
     xHttpServerListen(server, "0.0.0.0", 8080);
 
     // Serve HTTPS on port 8443
-    xTlsServerConf tls = {
+    xTlsConf tls = {
         .cert = "/path/to/server.pem",
         .key  = "/path/to/server-key.pem",
     };
@@ -612,7 +611,7 @@ int main(void) {
 - **Don't mix `Send` and `Write`.** `xHttpResponseSend()` is for one-shot responses; `xHttpResponseWrite()` is for streaming. They are mutually exclusive — calling one after the other returns `xErrno_InvalidState`.
 - **Configure limits before listening.** `SetIdleTimeout`, `SetMaxHeaderSize`, and `SetMaxBodySize` must be called before `xHttpServerListen()` / `xHttpServerListenTls()`.
 - **Register routes before listening.** Routes should be set up before the server starts accepting connections.
-- **Use `xHttpServerListenTls()` for HTTPS.** Provide valid PEM certificate and key files. For mTLS, set `ca` and `verify_peer = 2`.
+- **Use `xHttpServerListenTls()` for HTTPS.** Provide valid PEM certificate and key files. For mTLS, set `ca` (verification is enabled by default).
 - **Serve HTTP and HTTPS on different ports.** Call both `xHttpServerListen()` and `xHttpServerListenTls()` on the same server instance to support both protocols simultaneously.
 - **Destroy server before event loop.** `xHttpServerDestroy()` closes all connections and frees all resources.
 - **Copy data you need to keep.** `xHttpRequest` pointers (`url`, `headers`, `body`) are only valid during the handler callback.

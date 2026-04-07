@@ -4,11 +4,18 @@
  * found in the LICENSE file.
  *
  * transport_tls_client_openssl.c - OpenSSL TLS client transport
+ *
+ * Per-connection SSL object using a shared SSL_CTX from xTlsCtx.
  */
 
 #ifdef XK_HAS_OPENSSL
 
 #include "transport_tls_client.h"
+
+#include <xnet/tls.h>
+
+/* Internal: get native SSL_CTX* from opaque xTlsCtx handle */
+extern void *xTlsCtxGetNative(xTlsCtx ctx);
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -23,10 +30,9 @@
 /* ─────────────────── Per-connection TLS state ─────────────────── */
 
 XDEF_STRUCT(xTlsClient_) {
-  SSL     *ssl;
-  SSL_CTX *ctx;  /**< Owned by this transport (one CTX per conn) */
-  int      fd;
-  char     alpn_result[16];
+  SSL  *ssl;
+  int   fd;
+  char  alpn_result[16];
 };
 
 /* ─────────────────── Transport vtable callbacks ─────────────────── */
@@ -131,76 +137,29 @@ static void tls_client_destroy(void *ctx) {
     ERR_clear_error();
     SSL_free(t->ssl);
   }
-  if (t->ctx) SSL_CTX_free(t->ctx);
+  /* SSL_CTX is owned by the shared xTlsCtx — do NOT free it */
   free(t);
 }
 
 /* ─────────────────── Public API ─────────────────── */
 
 int xHttpTlsClientTransportInit(xHttpTransport *transport,
-                                const xTlsClientConf *conf,
+                                xTlsCtx tls_ctx,
                                 const char *hostname,
                                 int fd) {
-  if (!transport) return -1;
+  if (!transport || !tls_ctx) return -1;
 
-  SSL_CTX     *ctx = NULL;
-  SSL         *ssl = NULL;
-  xTlsClient_ *t  = NULL;
+  SSL_CTX *ssl_ctx = (SSL_CTX *)xTlsCtxGetNative(tls_ctx);
+  if (!ssl_ctx) return -1;
 
-  /* Create per-connection SSL_CTX (client method) */
-  ctx = SSL_CTX_new(TLS_client_method());
-  if (!ctx) {
-    xLog(false, "xhttp: SSL_CTX_new(client) failed");
-    return -1;
-  }
-
-  SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
-
-  int skip_verify = conf ? conf->skip_verify : 0;
-
-  if (!skip_verify) {
-    /* Load CA certificates */
-    if (conf && conf->ca) {
-      if (SSL_CTX_load_verify_locations(ctx, conf->ca, NULL)
-          != 1) {
-        xLog(false, "xhttp: failed to load CA: %s", conf->ca);
-        goto fail;
-      }
-    } else {
-      /* Use system default CA store */
-      SSL_CTX_set_default_verify_paths(ctx);
-    }
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
-  } else {
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
-  }
-
-  /* Load client certificate for mTLS (optional) */
-  if (conf && conf->cert) {
-    if (SSL_CTX_use_certificate_chain_file(ctx, conf->cert)
-        != 1) {
-      xLog(false, "xhttp: failed to load client cert: %s",
-           conf->cert);
-      goto fail;
-    }
-  }
-  if (conf && conf->key) {
-    if (SSL_CTX_use_PrivateKey_file(ctx, conf->key,
-                                    SSL_FILETYPE_PEM) != 1) {
-      xLog(false, "xhttp: failed to load client key: %s",
-           conf->key);
-      goto fail;
-    }
-  }
-
-  /* Create SSL object */
-  ssl = SSL_new(ctx);
-  if (!ssl) goto fail;
+  SSL *ssl = SSL_new(ssl_ctx);
+  if (!ssl) return -1;
 
   SSL_set_fd(ssl, fd);
   SSL_set_connect_state(ssl);
 
   /* SNI + hostname verification */
+  int skip_verify = (SSL_CTX_get_verify_mode(ssl_ctx) == SSL_VERIFY_NONE);
   if (hostname && !skip_verify) {
     SSL_set_tlsext_host_name(ssl, hostname);
     SSL_set1_host(ssl, hostname);
@@ -210,11 +169,13 @@ int xHttpTlsClientTransportInit(xHttpTransport *transport,
   }
 
   /* Allocate per-connection state */
-  t = (xTlsClient_ *)calloc(1, sizeof(xTlsClient_));
-  if (!t) goto fail_ssl;
+  xTlsClient_ *t = (xTlsClient_ *)calloc(1, sizeof(xTlsClient_));
+  if (!t) {
+    SSL_free(ssl);
+    return -1;
+  }
 
   t->ssl            = ssl;
-  t->ctx            = ctx;
   t->fd             = fd;
   t->alpn_result[0] = '\0';
 
@@ -226,12 +187,6 @@ int xHttpTlsClientTransportInit(xHttpTransport *transport,
   transport->ctx       = t;
 
   return 0;
-
-fail_ssl:
-  SSL_free(ssl);
-fail:
-  if (ctx) SSL_CTX_free(ctx);
-  return -1;
 }
 
 #endif /* XK_HAS_OPENSSL */

@@ -11,6 +11,7 @@
 #include <cstring>
 
 extern "C" {
+#include "tls_private.h"
 #include "transport_private.h"
 #include <xnet/transport.h>
 }

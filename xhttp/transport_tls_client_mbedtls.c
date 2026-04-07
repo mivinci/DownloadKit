@@ -24,6 +24,7 @@ extern void *xTlsCtxGetNative(xTlsCtx ctx);
 #include <mbedtls/version.h>
 #endif
 #include <mbedtls/error.h>
+#include <mbedtls/net_sockets.h>
 #include <mbedtls/ssl.h>
 
 #include <errno.h>

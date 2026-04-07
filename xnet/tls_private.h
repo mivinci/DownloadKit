@@ -23,4 +23,12 @@
  */
 void *xTlsCtxGetNative(xTlsCtx ctx);
 
+/**
+ * @brief Check if the TLS context is in server mode.
+ *
+ * @param ctx  TLS context handle (must not be NULL).
+ * @return     Non-zero if server mode, 0 if client mode.
+ */
+int xTlsCtxIsServer(xTlsCtx ctx);
+
 #endif /* XNET_TLS_PRIVATE_H */

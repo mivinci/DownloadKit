@@ -46,7 +46,7 @@
 #include <xbase/log.h>
 
 /* ═══════════════════════════════════════════════════════════════════
- *  TLS context (server-level)
+ *  TLS context (server + client)
  * ═══════════════════════════════════════════════════════════════════
  */
 
@@ -60,11 +60,15 @@ XDEF_STRUCT(xTlsCtxMbedTLS_) {
   mbedtls_ctr_drbg_context ctr_drbg;
 #endif
   int          has_ca;
+  int          is_server;
   const char **alpn_list; /**< Borrowed pointer to user's ALPN list */
 };
 
 xTlsCtx xTlsCtxCreate(const xTlsConf *config) {
-  if (!config || !config->cert || !config->key) return NULL;
+  if (!config) return NULL;
+
+  /* Determine mode: server if cert+key provided, client otherwise */
+  int is_server = (config->cert && config->key) ? 1 : 0;
 
   xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)calloc(1, sizeof(xTlsCtxMbedTLS_));
   if (!ctx) return NULL;
@@ -74,6 +78,7 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *config) {
   mbedtls_pk_init(&ctx->pkey);
   mbedtls_x509_crt_init(&ctx->ca_cert);
   ctx->has_ca    = 0;
+  ctx->is_server = is_server;
   ctx->alpn_list = NULL;
 
   int ret;
@@ -90,10 +95,11 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *config) {
   }
 #endif
 
-  /* Configure as TLS server */
-  ret = mbedtls_ssl_config_defaults(&ctx->conf, MBEDTLS_SSL_IS_SERVER,
-                                    MBEDTLS_SSL_TRANSPORT_STREAM,
-                                    MBEDTLS_SSL_PRESET_DEFAULT);
+  /* Configure as TLS server or client */
+  ret = mbedtls_ssl_config_defaults(
+    &ctx->conf,
+    is_server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
+    MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
   if (ret != 0) {
     xLog(false, "xnet: mbedtls_ssl_config_defaults failed: -0x%04x", -ret);
     goto fail;
@@ -106,53 +112,132 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *config) {
   /* Set minimum TLS version to 1.2 */
   XK_MBEDTLS_SET_MIN_TLS12(&ctx->conf);
 
-  /* Load certificate */
-  ret = mbedtls_x509_crt_parse_file(&ctx->cert, config->cert);
-  if (ret != 0) {
-    xLog(false, "xnet: failed to load certificate: %s (ret=-0x%04x)",
-         config->cert, -ret);
-    goto fail;
-  }
+  if (is_server) {
+    /* ── Server mode ── */
 
-  /* Load private key */
-#if MBEDTLS_VERSION_NUMBER >= 0x04000000
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL);
-#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL,
-                                 mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
-#else
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL);
-#endif
-  if (ret != 0) {
-    xLog(false, "xnet: failed to load private key: %s (ret=-0x%04x)",
-         config->key, -ret);
-    goto fail;
-  }
-
-  /* Set own certificate and key */
-  ret = mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->cert, &ctx->pkey);
-  if (ret != 0) {
-    xLog(false, "xnet: mbedtls_ssl_conf_own_cert failed: -0x%04x", -ret);
-    goto fail;
-  }
-
-  /* Load CA certificate for client verification (optional) */
-  if (config->ca) {
-    ret = mbedtls_x509_crt_parse_file(&ctx->ca_cert, config->ca);
+    /* Load certificate */
+    ret = mbedtls_x509_crt_parse_file(&ctx->cert, config->cert);
     if (ret != 0) {
-      xLog(false, "xnet: failed to load CA certificate: %s (ret=-0x%04x)",
-           config->ca, -ret);
+      xLog(false, "xnet: failed to load certificate: %s (ret=-0x%04x)",
+           config->cert, -ret);
       goto fail;
     }
-    mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->ca_cert, NULL);
-    ctx->has_ca = 1;
-  }
 
-  /* Peer verification mode */
-  if (config->skip_verify) {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
+    /* Load private key */
+#if MBEDTLS_VERSION_NUMBER >= 0x04000000
+    ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL);
+#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
+    ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL,
+                                   mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
+#else
+    ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL);
+#endif
+    if (ret != 0) {
+      xLog(false, "xnet: failed to load private key: %s (ret=-0x%04x)",
+           config->key, -ret);
+      goto fail;
+    }
+
+    /* Set own certificate and key */
+    ret = mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->cert, &ctx->pkey);
+    if (ret != 0) {
+      xLog(false, "xnet: mbedtls_ssl_conf_own_cert failed: -0x%04x", -ret);
+      goto fail;
+    }
+
+    /* Load CA certificate for client verification (optional) */
+    if (config->ca) {
+      ret = mbedtls_x509_crt_parse_file(&ctx->ca_cert, config->ca);
+      if (ret != 0) {
+        xLog(false, "xnet: failed to load CA certificate: %s (ret=-0x%04x)",
+             config->ca, -ret);
+        goto fail;
+      }
+      mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->ca_cert, NULL);
+      ctx->has_ca = 1;
+    }
+
+    /* Peer verification mode */
+    if (config->skip_verify) {
+      mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
+    } else {
+      mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    }
   } else {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    /* ── Client mode ── */
+
+    if (!config->skip_verify) {
+      /* Load CA certificates */
+      mbedtls_x509_crt_init(&ctx->ca_cert);
+      if (config->ca) {
+        ret = mbedtls_x509_crt_parse_file(&ctx->ca_cert, config->ca);
+        if (ret != 0) {
+          xLog(false, "xnet: failed to load CA: %s (ret=-0x%04x)", config->ca,
+               -ret);
+          goto fail;
+        }
+      } else {
+        /* Load system default CA bundle */
+        static const char *ca_paths[] = {
+          "/etc/ssl/certs/ca-certificates.crt",
+          "/etc/pki/tls/certs/ca-bundle.crt",
+          "/usr/local/share/certs/ca-root-nss.crt",
+          "/etc/ssl/cert.pem",
+          NULL,
+        };
+        int loaded = 0;
+        for (int i = 0; ca_paths[i]; i++) {
+          ret = mbedtls_x509_crt_parse_file(&ctx->ca_cert, ca_paths[i]);
+          if (ret == 0) {
+            loaded = 1;
+            break;
+          }
+        }
+        if (!loaded) {
+          ret = mbedtls_x509_crt_parse_path(&ctx->ca_cert, "/etc/ssl/certs");
+          if (ret == 0) loaded = 1;
+        }
+        if (!loaded) {
+          xLog(false, "xnet: no system CA bundle found for mbedTLS client");
+        }
+      }
+      mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->ca_cert, NULL);
+      ctx->has_ca = 1;
+      mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    } else {
+      mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
+    }
+
+    /* Load client certificate for mTLS (optional) */
+    if (config->cert && config->key) {
+      ret = mbedtls_x509_crt_parse_file(&ctx->cert, config->cert);
+      if (ret != 0) {
+        xLog(false, "xnet: failed to load client cert: %s (ret=-0x%04x)",
+             config->cert, -ret);
+        goto fail;
+      }
+
+      const char *pwd = config->key_password;
+#if MBEDTLS_VERSION_NUMBER >= 0x04000000
+      ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, pwd);
+#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
+      ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, pwd,
+                                     mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
+#else
+      ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, pwd);
+#endif
+      if (ret != 0) {
+        xLog(false, "xnet: failed to load client key: %s (ret=-0x%04x)",
+             config->key, -ret);
+        goto fail;
+      }
+
+      ret = mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->cert, &ctx->pkey);
+      if (ret != 0) {
+        xLog(false, "xnet: mbedtls_ssl_conf_own_cert failed: -0x%04x", -ret);
+        goto fail;
+      }
+    }
   }
 
   /* Configure ALPN (parameterized) */
@@ -276,6 +361,12 @@ void *xTlsCtxGetNative(xTlsCtx raw) {
   if (!raw) return NULL;
   xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)raw;
   return &ctx->conf;
+}
+
+int xTlsCtxIsServer(xTlsCtx raw) {
+  if (!raw) return 0;
+  xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)raw;
+  return ctx->is_server;
 }
 
 #endif /* XK_HAS_MBEDTLS */

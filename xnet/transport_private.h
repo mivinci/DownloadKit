@@ -12,7 +12,6 @@
 #ifndef XNET_TRANSPORT_PRIVATE_H
 #define XNET_TRANSPORT_PRIVATE_H
 
-#include "tls_private.h"
 #include "transport.h"
 
 /* ───────────────────── Plain TCP transport ───────────────────── */
@@ -43,15 +42,16 @@ void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd);
 
 /**
  * Initialize a TLS client transport for the given file descriptor.
- * Creates a per-connection SSL_CTX + SSL in connect mode.
+ * Uses the shared TLS context to create a per-connection SSL object
+ * in connect mode.
  *
  * @param transport  Transport to initialize (must not be NULL).
- * @param conf       TLS client configuration, or NULL for defaults.
+ * @param tls_ctx    Client TLS context from xTlsCtxCreate() (must not be NULL).
  * @param hostname   Server hostname for SNI and verification.
  * @param fd         File descriptor for the TCP connection.
  * @return           0 on success, -1 on error.
  */
-int xTransportTlsClientInit(xTransport *transport, const xTlsConf *conf,
+int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx,
                             const char *hostname, int fd);
 
 #endif /* XNET_TRANSPORT_PRIVATE_H */

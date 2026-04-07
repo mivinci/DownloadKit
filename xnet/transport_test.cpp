@@ -146,19 +146,33 @@ TEST(TlsCtxTest, ClientInitWithInvalidConfFails) {
   int fds[2];
   ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
-  /* Client init with bad CA path should fail */
+  /* Client init with bad CA path should fail at ctx creation */
   xTlsConf conf = {};
   conf.ca             = "/nonexistent/ca.pem";
   conf.skip_verify    = 0;
-  int ret = xTransportTlsClientInit(&t, &conf, "example.com", fds[0]);
+  xTlsCtx ctx = xTlsCtxCreate(&conf);
   /* Depending on backend, this may or may not fail (system CA fallback) */
-  /* Just ensure it doesn't crash */
-  if (ret == 0 && t.destroy) {
-    t.destroy(t.ctx);
+  if (ctx) {
+    int ret = xTransportTlsClientInit(&t, ctx, "example.com", fds[0]);
+    /* Just ensure it doesn't crash */
+    if (ret == 0 && t.destroy) {
+      t.destroy(t.ctx);
+    }
+    xTlsCtxDestroy(ctx);
   }
 
   close(fds[0]);
   close(fds[1]);
+}
+
+TEST(TlsCtxTest, ClientCtxCreateWithDefaults) {
+  /* Create a client TLS context with default settings (no cert/key) */
+  xTlsConf conf = {};
+  conf.skip_verify = 1;
+  xTlsCtx ctx = xTlsCtxCreate(&conf);
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_EQ(xTlsCtxIsServer(ctx), 0);
+  xTlsCtxDestroy(ctx);
 }
 
 #endif /* XK_HAS_OPENSSL || XK_HAS_MBEDTLS */

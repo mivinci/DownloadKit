@@ -12,10 +12,14 @@
 #include <xbase/base.h>
 
 /**
- * @brief Opaque handle to a server-level TLS context.
+ * @brief Opaque handle to a TLS context.
  *
- * Created by xTlsCtxCreate(), shared across all connections accepted
- * by a listener. Destroyed by xTlsCtxDestroy().
+ * Created by xTlsCtxCreate(), shared across all connections on a
+ * listener or connector. Destroyed by xTlsCtxDestroy().
+ *
+ * Automatically selects server or client mode based on the
+ * configuration: if cert and key are provided, server mode is used;
+ * otherwise, client mode is used.
  */
 XDEF_HANDLE(xTlsCtx);
 
@@ -57,10 +61,15 @@ typedef xTlsConf xTlsServerConf;
 /* ───────────────────── TLS context management ───────────────────── */
 
 /**
- * @brief Create a server-level TLS context.
+ * @brief Create a TLS context.
  *
- * Loads the certificate, private key, and optional CA. The returned
- * context is shared across all connections accepted by a listener.
+ * Loads the certificate, private key, and optional CA. The mode
+ * (server or client) is determined automatically:
+ *   - If conf->cert and conf->key are both non-NULL, server mode.
+ *   - Otherwise, client mode.
+ *
+ * The returned context is shared across all connections on a
+ * listener or connector.
  *
  * @param conf  TLS configuration (must not be NULL).
  * @return      TLS context handle, or NULL on failure.
@@ -68,7 +77,7 @@ typedef xTlsConf xTlsServerConf;
 XCAPI(xTlsCtx) xTlsCtxCreate(const xTlsConf *conf);
 
 /**
- * @brief Destroy a server-level TLS context.
+ * @brief Destroy a TLS context.
  *
  * Releases all resources associated with the context.
  * Safe to call with NULL (no-op).

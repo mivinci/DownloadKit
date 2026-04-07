@@ -11,6 +11,7 @@
 
 #ifdef XK_HAS_MBEDTLS
 
+#include "tls_private.h"
 #include "transport_private.h"
 
 /* mbedTLS 3.x+ provides build_info.h; mbedTLS 2.x uses version.h */
@@ -270,147 +271,32 @@ void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-int xTransportTlsClientInit(xTransport *transport, const xTlsConf *conf,
+int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx,
                             const char *hostname, int fd) {
-  if (!transport) return -1;
+  if (!transport || !tls_ctx) return -1;
+
+  mbedtls_ssl_config *client_conf =
+    (mbedtls_ssl_config *)xTlsCtxGetNative(tls_ctx);
+  if (!client_conf) return -1;
 
   xTlsMbedTLS_ *t = (xTlsMbedTLS_ *)calloc(1, sizeof(xTlsMbedTLS_));
   if (!t) return -1;
 
   t->fd = fd;
 
-  /* Allocate per-connection config */
-  t->owned_conf = (mbedtls_ssl_config *)calloc(1, sizeof(mbedtls_ssl_config));
-  if (!t->owned_conf) goto fail;
-  mbedtls_ssl_config_init(t->owned_conf);
+  /* No owned resources — the shared xTlsCtx owns everything */
+  t->owned_conf        = NULL;
+  t->owned_ca          = NULL;
+  t->owned_client_cert = NULL;
+  t->owned_client_key  = NULL;
+#if MBEDTLS_VERSION_NUMBER < 0x04000000
+  t->owned_entropy  = NULL;
+  t->owned_ctr_drbg = NULL;
+#endif
 
   mbedtls_ssl_init(&t->ssl);
 
-  int ret;
-
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  t->owned_entropy =
-    (mbedtls_entropy_context *)calloc(1, sizeof(mbedtls_entropy_context));
-  t->owned_ctr_drbg =
-    (mbedtls_ctr_drbg_context *)calloc(1, sizeof(mbedtls_ctr_drbg_context));
-  if (!t->owned_entropy || !t->owned_ctr_drbg) goto fail;
-
-  mbedtls_entropy_init(t->owned_entropy);
-  mbedtls_ctr_drbg_init(t->owned_ctr_drbg);
-  ret = mbedtls_ctr_drbg_seed(t->owned_ctr_drbg, mbedtls_entropy_func,
-                              t->owned_entropy, NULL, 0);
-  if (ret != 0) {
-    xLog(false, "xnet: mbedtls_ctr_drbg_seed failed: -0x%04x", -ret);
-    goto fail;
-  }
-#endif
-
-  /* Configure as TLS client */
-  ret = mbedtls_ssl_config_defaults(t->owned_conf, MBEDTLS_SSL_IS_CLIENT,
-                                    MBEDTLS_SSL_TRANSPORT_STREAM,
-                                    MBEDTLS_SSL_PRESET_DEFAULT);
-  if (ret != 0) {
-    xLog(false, "xnet: mbedtls_ssl_config_defaults failed: -0x%04x", -ret);
-    goto fail;
-  }
-
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  mbedtls_ssl_conf_rng(t->owned_conf, mbedtls_ctr_drbg_random,
-                       t->owned_ctr_drbg);
-#endif
-
-  /* Set minimum TLS version to 1.2 */
-  XK_MBEDTLS_SET_MIN_TLS12(t->owned_conf);
-
-  int skip_verify = conf ? conf->skip_verify : 0;
-
-  if (!skip_verify) {
-    /* Load CA certificates */
-    t->owned_ca = (mbedtls_x509_crt *)calloc(1, sizeof(mbedtls_x509_crt));
-    if (!t->owned_ca) goto fail;
-    mbedtls_x509_crt_init(t->owned_ca);
-
-    if (conf && conf->ca) {
-      ret = mbedtls_x509_crt_parse_file(t->owned_ca, conf->ca);
-      if (ret != 0) {
-        xLog(false, "xnet: failed to load CA: %s (ret=-0x%04x)", conf->ca,
-             -ret);
-        goto fail;
-      }
-    } else {
-      /* Load system default CA bundle */
-      static const char *ca_paths[] = {
-        "/etc/ssl/certs/ca-certificates.crt",
-        "/etc/pki/tls/certs/ca-bundle.crt",
-        "/usr/local/share/certs/ca-root-nss.crt",
-        "/etc/ssl/cert.pem",
-        NULL,
-      };
-      int loaded = 0;
-      for (int i = 0; ca_paths[i]; i++) {
-        ret = mbedtls_x509_crt_parse_file(t->owned_ca, ca_paths[i]);
-        if (ret == 0) {
-          loaded = 1;
-          break;
-        }
-      }
-      if (!loaded) {
-        ret = mbedtls_x509_crt_parse_path(t->owned_ca, "/etc/ssl/certs");
-        if (ret == 0) loaded = 1;
-      }
-      if (!loaded) {
-        xLog(false, "xnet: no system CA bundle found for mbedTLS client");
-      }
-    }
-    mbedtls_ssl_conf_ca_chain(t->owned_conf, t->owned_ca, NULL);
-    mbedtls_ssl_conf_authmode(t->owned_conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-  } else {
-    mbedtls_ssl_conf_authmode(t->owned_conf, MBEDTLS_SSL_VERIFY_NONE);
-  }
-
-  /* Load client certificate for mTLS (optional) */
-  if (conf && conf->cert && conf->key) {
-    t->owned_client_cert =
-      (mbedtls_x509_crt *)calloc(1, sizeof(mbedtls_x509_crt));
-    t->owned_client_key =
-      (mbedtls_pk_context *)calloc(1, sizeof(mbedtls_pk_context));
-    if (!t->owned_client_cert || !t->owned_client_key) goto fail;
-
-    mbedtls_x509_crt_init(t->owned_client_cert);
-    mbedtls_pk_init(t->owned_client_key);
-
-    ret = mbedtls_x509_crt_parse_file(t->owned_client_cert, conf->cert);
-    if (ret != 0) {
-      xLog(false, "xnet: failed to load client cert: %s (ret=-0x%04x)",
-           conf->cert, -ret);
-      goto fail;
-    }
-
-    const char *pwd = conf->key_password;
-#if MBEDTLS_VERSION_NUMBER >= 0x04000000
-    ret = mbedtls_pk_parse_keyfile(t->owned_client_key, conf->key, pwd);
-#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
-    ret = mbedtls_pk_parse_keyfile(t->owned_client_key, conf->key, pwd,
-                                   mbedtls_ctr_drbg_random, t->owned_ctr_drbg);
-#else
-    ret = mbedtls_pk_parse_keyfile(t->owned_client_key, conf->key, pwd);
-#endif
-    if (ret != 0) {
-      xLog(false, "xnet: failed to load client key: %s (ret=-0x%04x)",
-           conf->key, -ret);
-      goto fail;
-    }
-
-    ret = mbedtls_ssl_conf_own_cert(t->owned_conf, t->owned_client_cert,
-                                    t->owned_client_key);
-    if (ret != 0) {
-      xLog(false, "xnet: mbedtls_ssl_conf_own_cert failed: -0x%04x", -ret);
-      goto fail;
-    }
-  }
-
-  /* Set up SSL context */
-  ret = mbedtls_ssl_setup(&t->ssl, t->owned_conf);
+  int ret = mbedtls_ssl_setup(&t->ssl, client_conf);
   if (ret != 0) {
     xLog(false, "xnet: mbedtls_ssl_setup failed: -0x%04x", -ret);
     goto fail;
@@ -440,32 +326,6 @@ int xTransportTlsClientInit(xTransport *transport, const xTlsConf *conf,
 
 fail:
   mbedtls_ssl_free(&t->ssl);
-  if (t->owned_client_cert) {
-    mbedtls_x509_crt_free(t->owned_client_cert);
-    free(t->owned_client_cert);
-  }
-  if (t->owned_client_key) {
-    mbedtls_pk_free(t->owned_client_key);
-    free(t->owned_client_key);
-  }
-  if (t->owned_ca) {
-    mbedtls_x509_crt_free(t->owned_ca);
-    free(t->owned_ca);
-  }
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  if (t->owned_ctr_drbg) {
-    mbedtls_ctr_drbg_free(t->owned_ctr_drbg);
-    free(t->owned_ctr_drbg);
-  }
-  if (t->owned_entropy) {
-    mbedtls_entropy_free(t->owned_entropy);
-    free(t->owned_entropy);
-  }
-#endif
-  if (t->owned_conf) {
-    mbedtls_ssl_config_free(t->owned_conf);
-    free(t->owned_conf);
-  }
   free(t);
   return -1;
 }

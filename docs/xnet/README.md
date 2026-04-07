@@ -10,7 +10,7 @@
 
 2. **Async DNS via Thread-Pool Offload** — DNS resolution uses `getaddrinfo()` offloaded to the event loop's thread pool. The callback is always invoked on the event loop thread, keeping the async programming model consistent with the rest of xKit.
 
-3. **Shared TLS Types** — `xTlsClientConf` and `xTlsServerConf` are plain data structures shared across modules. They decouple TLS configuration from any specific TLS backend (OpenSSL, mbedTLS).
+3. **Shared TLS Types** — `xTlsConf` is a plain data structure shared across modules. It decouples TLS configuration from any specific TLS backend (OpenSSL, mbedTLS).
 
 4. **Async TCP with Transport Abstraction** — `xTcpConnect` chains DNS → connect → optional TLS handshake into a single async operation. `xTcpConn` wraps an `xSocket` + `xTransport` vtable, providing `Recv`/`Send`/`SendIov` helpers that work transparently over plain TCP or TLS.
 
@@ -21,7 +21,7 @@ graph TD
     subgraph "xnet Module"
         URL["xUrl<br/>URL Parser<br/>url.h"]
         DNS["xDnsResolve<br/>Async DNS<br/>dns.h"]
-        TLS["xTlsClientConf / xTlsServerConf<br/>TLS Config Types<br/>tls.h"]
+        TLS["xTlsConf<br/>TLS Config Types<br/>tls.h"]
         TCP["xTcpConn / xTcpConnect / xTcpListener<br/>Async TCP<br/>tcp.h"]
     end
 
@@ -62,7 +62,7 @@ graph TD
 | --- | --- | --- | --- |
 | `url.h` | `xUrl` | Lightweight URL parser | [url.md](url.md) |
 | `dns.h` | `xDnsResolve` | Async DNS resolution | [dns.md](dns.md) |
-| `tls.h` | `xTlsClientConf` / `xTlsServerConf` | Shared TLS config types | [tls.md](tls.md) |
+| `tls.h` | `xTlsConf` | Shared TLS config types | [tls.md](tls.md) |
 | `tcp.h` | `xTcpConn` / `xTcpConnect` / `xTcpListener` | Async TCP connection, connector & listener | [tcp.md](tcp.md) |
 
 ## Quick Start
@@ -111,10 +111,10 @@ static void dns_example(xEventLoop loop) {
 
 // 3. TLS configuration
 static void tls_example(void) {
-    xTlsClientConf client_tls = {0};
+    xTlsConf client_tls = {0};
     client_tls.ca = "ca.pem";
 
-    xTlsServerConf server_tls = {
+    xTlsConf server_tls = {
         .cert = "server.pem",
         .key  = "server-key.pem",
     };
@@ -126,5 +126,5 @@ static void tls_example(void) {
 ## Relationship with Other Modules
 
 - **xbase** — The DNS resolver depends on [`xEventLoop`](../xbase/event.md) for thread-pool offload and uses [`atomic.h`](../xbase/atomic.md) for the cancellation flag.
-- **xhttp** — The HTTP client uses `xUrl` for URL parsing, `xDnsResolve` for hostname resolution, and `xTlsClientConf` / `xTlsServerConf` for TLS configuration. See the [TLS Deployment Guide](../xhttp/tls.md) for end-to-end examples.
-- **WebSocket** — The WebSocket client uses `xUrl` to parse `ws://` and `wss://` URLs during the handshake.
+- **xhttp** — The HTTP client uses `xUrl` for URL parsing, `xDnsResolve` for hostname resolution, and `xTlsConf` for TLS configuration. The WebSocket client supports both `xTlsConf` and a shared `xTlsCtx` for `wss://` connections. See the [TLS Deployment Guide](../xhttp/tls.md) for end-to-end examples.
+- **WebSocket** — The WebSocket client uses `xUrl` to parse `ws://` and `wss://` URLs, and optionally accepts a shared `xTlsCtx` to avoid per-connection TLS context creation.

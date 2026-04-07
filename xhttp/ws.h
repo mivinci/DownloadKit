@@ -183,7 +183,16 @@ XDEF_STRUCT(xWsConnectConf) {
    * NULL = use defaults (system CA, verify enabled).
    * Ignored for ws:// URLs.
    */
-  const xTlsClientConf *tls;
+  const xTlsConf *tls;
+
+  /**
+   * Pre-created TLS context for wss:// connections.
+   * Takes priority over @c tls. When set, the context is
+   * shared (not owned) — the caller must keep it alive for
+   * the lifetime of the connection.
+   * NULL = create from @c tls (or use defaults).
+   */
+  xTlsCtx tls_ctx;
 
   /**
    * Extra HTTP headers for the Upgrade request.

@@ -53,6 +53,10 @@ XDEF_STRUCT(xTcpConnector_) {
   char           *host;
   uint16_t        port;
 
+  /* TLS context (shared or auto-created) */
+  xTlsCtx  tls_ctx;
+  int      owns_tls_ctx; /**< Non-zero if we created tls_ctx internally */
+
   /* DNS */
   xDnsQuery   dns_query;
   xDnsResult *dns_result;
@@ -121,6 +125,10 @@ static void connector_destroy(xTcpConnector_ *c) {
   if (c->sock) {
     xSocketDestroy(c->loop, c->sock);
     c->sock = NULL;
+  }
+  if (c->owns_tls_ctx && c->tls_ctx) {
+    xTlsCtxDestroy(c->tls_ctx);
+    c->tls_ctx = NULL;
   }
   free(c->host);
   free(c);
@@ -235,7 +243,7 @@ static void connector_do_tcp_connect(xTcpConnector_ *c) {
   int ret = connect(c->fd, (struct sockaddr *)&addr->addr, addr->addrlen);
   if (ret == 0) {
     /* Connected immediately (unlikely for TCP) */
-    if (c->conf.tls) {
+    if (c->conf.tls || c->conf.tls_ctx) {
       c->phase = xTcpConnectPhase_TlsHandshake;
       connector_do_tls_handshake(c);
     } else {
@@ -259,7 +267,22 @@ static void connector_do_tcp_connect(xTcpConnector_ *c) {
  */
 
 static void connector_do_tls_handshake(xTcpConnector_ *c) {
-  if (xTransportTlsClientInit(&c->transport, c->conf.tls, c->host, c->fd) < 0) {
+  /* Resolve TLS context: prefer tls_ctx, fall back to creating from tls conf */
+  if (!c->tls_ctx) {
+    if (c->conf.tls_ctx) {
+      c->tls_ctx      = c->conf.tls_ctx;
+      c->owns_tls_ctx = 0;
+    } else if (c->conf.tls) {
+      c->tls_ctx = xTlsCtxCreate(c->conf.tls);
+      if (!c->tls_ctx) {
+        connector_fail(c, xErrno_SysError);
+        return;
+      }
+      c->owns_tls_ctx = 1;
+    }
+  }
+
+  if (xTransportTlsClientInit(&c->transport, c->tls_ctx, c->host, c->fd) < 0) {
     connector_fail(c, xErrno_SysError);
     return;
   }
@@ -298,7 +321,7 @@ static void connector_on_writable(xTcpConnector_ *c) {
       return;
     }
 
-    if (c->conf.tls) {
+    if (c->conf.tls || c->conf.tls_ctx) {
       c->phase = xTcpConnectPhase_TlsHandshake;
       connector_do_tls_handshake(c);
     } else {

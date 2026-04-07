@@ -10,7 +10,9 @@ xnet currently provides three components:
 | --- | --- | --- |
 | `url.h` | URL Parser | ✅ Done |
 | `dns.h` | Async DNS Resolver | ✅ Done |
-| `tls.h` | TLS Configuration Types | ✅ Done |
+| `tls.h` | TLS Configuration Types + Context Management | ✅ Done |
+| `transport.h` | Unified I/O Transport (Plain / TLS) | ✅ Done |
+| `tcp.h` | Async TCP Connector & Listener | ✅ Done |
 
 The following protocols are planned to be built on top of `xbase/socket.h` (async socket abstraction) and integrated into the xnet module.
 
@@ -61,9 +63,9 @@ XDEF_STRUCT(xTransport) {
 void xTransportPlainInit(xTransport *t, int fd);
 
 // TLS transport (compile-time backend selection)
-int  xTransportTlsClientInit(xTransport *t, const xTlsClientConf *conf,
+int  xTransportTlsClientInit(xTransport *t, xTlsCtx tls_ctx,
                               const char *hostname, int fd);
-int  xTransportTlsServerInit(xTransport *t, void *tls_ctx, int fd);
+int  xTransportTlsServerInit(xTransport *t, xTlsCtx tls_ctx, int fd);
 ```
 
 ### Migration Path
@@ -78,7 +80,7 @@ int  xTransportTlsServerInit(xTransport *t, void *tls_ctx, int fd);
 
 - **Zero-cost for plain TCP** — the plain implementation is just a thin wrapper around `read(2)` / `writev(2)`, no virtual dispatch overhead beyond the function pointer call
 - **Compile-time TLS backend** — `XK_TLS_BACKEND` selects OpenSSL or mbedTLS at build time, same as today
-- **Composable** — `xTcpConnect()` optionally accepts a `xTlsClientConf*`; if non-NULL, the returned connection's transport is TLS, otherwise plain
+- **Composable** — `xTcpConnect()` optionally accepts a `xTlsConf*`; if non-NULL, the returned connection's transport is TLS, otherwise plain
 - **ALPN-aware** — the `alpn()` callback enables automatic HTTP/2 vs HTTP/1.1 detection after TLS handshake, which xhttp already relies on
 
 ---
@@ -128,7 +130,7 @@ void xTcpListenerDestroy(xTcpListener ln);
 
 - The connector should compose with `xDnsResolve` internally, so the user just passes a hostname string
 - Connection timeout should reuse `xSocket`'s idle-timeout mechanism where possible
-- TLS upgrade can be layered on top: connect returns an `xTransport`; if `xTlsClientConf` is provided, the transport is automatically TLS
+- TLS upgrade can be layered on top: connect returns an `xTransport`; if `xTlsConf` is provided, the transport is automatically TLS
 
 ---
 
@@ -164,7 +166,7 @@ void xUdpSocketDestroy(xUdpSocket sock);
 - After connecting, use `xUdpSend()` / `xUdpRecv()` (no address per call)
 - Reduces per-packet overhead and enables ICMP error delivery for the connected peer
 
-### Use Cases
+### UDP Use Cases
 
 - DNS resolver (could optionally use UDP transport instead of thread-pool `getaddrinfo`)
 - QUIC transport (future)
@@ -214,7 +216,7 @@ void xIcmpPingDestroy(xIcmpPing ping);
 | Linux (fallback) | `SOCK_RAW` + `IPPROTO_ICMP` | `CAP_NET_RAW` or root |
 | macOS | `SOCK_DGRAM` + `IPPROTO_ICMP` (unprivileged) | No special privilege |
 
-### Use Cases
+### ICMP Use Cases
 
 - Network health monitoring
 - Latency measurement

@@ -114,10 +114,13 @@ graph LR
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `tls` | `const xTlsClientConf *` | `NULL` | TLS config; `NULL` for plain TCP |
+| `tls_ctx` | `xTlsCtx` | `NULL` | Pre-created shared TLS context (preferred); `NULL` for plain TCP or auto-create from `tls` |
+| `tls` | `const xTlsConf *` | `NULL` | TLS config for auto-created ctx; ignored when `tls_ctx` is set; `NULL` for plain TCP |
 | `timeout_ms` | `int` | `10000` | Connect timeout in milliseconds |
 | `nodelay` | `int` | `0` | Set `TCP_NODELAY` if non-zero |
 | `keepalive` | `int` | `0` | Set `SO_KEEPALIVE` if non-zero |
+
+**TLS context resolution order:** `tls_ctx` (shared, not owned) → auto-create from `tls` → defaults (system CA, verify enabled). When `tls_ctx` is provided, the connector does not create or destroy the context — the caller retains ownership.
 
 #### xTcpConnectFunc
 
@@ -138,7 +141,7 @@ On success: `conn` is valid, `err` is `xErrno_Ok`. On failure: `conn` is `NULL`,
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `tls_ctx` | `void *` | `NULL` | TLS context from `xTlsCtxCreate()`; `NULL` for plain TCP |
+| `tls_ctx` | `xTlsCtx` | `NULL` | TLS context from `xTlsCtxCreate()`; `NULL` for plain TCP |
 | `backlog` | `int` | `128` | `listen()` backlog |
 | `reuseport` | `int` | `0` | Set `SO_REUSEPORT` if non-zero |
 
@@ -257,7 +260,7 @@ int main(void) {
 }
 ```
 
-### TLS Client
+### TLS Client (auto-create context)
 
 ```c
 #include <xnet/tcp.h>
@@ -273,13 +276,43 @@ static void on_tls_connected(xTcpConn conn, xErrno err, void *arg) {
 }
 
 void connect_tls(xEventLoop loop) {
-    xTlsClientConf tls = {0};
+    xTlsConf tls = {0};
     tls.ca = "/etc/ssl/certs/ca-certificates.crt";
 
     xTcpConnectConf conf = {0};
     conf.tls = &tls;
 
     xTcpConnect(loop, "example.com", 443, &conf, on_tls_connected, loop);
+}
+```
+
+### TLS Client (shared context)
+
+When making many connections to the same server, share a `xTlsCtx` to avoid reloading certificates each time:
+
+```c
+#include <xnet/tcp.h>
+#include <xnet/tls.h>
+
+static void on_connected(xTcpConn conn, xErrno err, void *arg) {
+    if (err != xErrno_Ok) { /* handle error */ return; }
+    /* ... use conn ... */
+}
+
+void connect_with_shared_ctx(xEventLoop loop) {
+    // Create once, reuse for all connections
+    xTlsConf tls = {0};
+    tls.ca = "ca.pem";
+    xTlsCtx ctx = xTlsCtxCreate(&tls);
+
+    xTcpConnectConf conf = {0};
+    conf.tls_ctx = ctx;  // shared, not owned by connector
+
+    xTcpConnect(loop, "example.com", 443, &conf, on_connected, loop);
+    xTcpConnect(loop, "example.com", 443, &conf, on_connected, loop);
+
+    // ... later, after all connections are closed ...
+    xTlsCtxDestroy(ctx);
 }
 ```
 
@@ -290,11 +323,11 @@ void connect_tls(xEventLoop loop) {
 #include <xnet/transport.h>
 
 void start_tls_server(xEventLoop loop) {
-    xTlsServerConf tls_conf = {
+    xTlsConf tls_conf = {
         .cert = "server.pem",
         .key  = "server-key.pem",
     };
-    void *tls_ctx = xTlsCtxCreate(&tls_conf);
+    xTlsCtx tls_ctx = xTlsCtxCreate(&tls_conf);
 
     xTcpListenerConf conf = {0};
     conf.tls_ctx = tls_ctx;

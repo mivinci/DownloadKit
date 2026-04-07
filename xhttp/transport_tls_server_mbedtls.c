@@ -10,6 +10,7 @@
 
 #include "server_private.h"
 #include "transport_private.h"
+#include "../xnet/tls_private.h"
 
 /* mbedTLS 3.x+ provides build_info.h; mbedTLS 2.x uses version.h */
 #if __has_include(<mbedtls/build_info.h>)
@@ -19,27 +20,7 @@
 #endif
 #include <mbedtls/error.h>
 #include <mbedtls/net_sockets.h>
-#include <mbedtls/pk.h>
 #include <mbedtls/ssl.h>
-#include <mbedtls/x509_crt.h>
-
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-/* mbedTLS 2.x/3.x: manual RNG management required */
-#include <mbedtls/ctr_drbg.h>
-#include <mbedtls/entropy.h>
-#endif
-
-/* mbedTLS version compatibility */
-#if MBEDTLS_VERSION_NUMBER >= 0x03000000
-/* mbedTLS 3.x/4.x */
-#define XK_MBEDTLS_SET_MIN_TLS12(conf) \
-  mbedtls_ssl_conf_min_tls_version((conf), MBEDTLS_SSL_VERSION_TLS1_2)
-#else
-/* mbedTLS 2.x */
-#define XK_MBEDTLS_SET_MIN_TLS12(conf)                              \
-  mbedtls_ssl_conf_min_version((conf), MBEDTLS_SSL_MAJOR_VERSION_3, \
-                               MBEDTLS_SSL_MINOR_VERSION_3)
-#endif
 
 #include <errno.h>
 #include <stdlib.h>
@@ -47,152 +28,6 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <xbase/log.h>
-
-/* ───────────────────── ALPN protocol list ───────────────────── */
-
-static const char *alpn_protos[] = {"h2", "http/1.1", NULL};
-
-/* ───────────────────── TLS context (server-level) ───────────────────── */
-
-XDEF_STRUCT(xHttpTlsCtxMbedTLS_) {
-  mbedtls_ssl_config conf;
-  mbedtls_x509_crt   cert;
-  mbedtls_pk_context pkey;
-  mbedtls_x509_crt   ca_cert;
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  mbedtls_entropy_context  entropy;
-  mbedtls_ctr_drbg_context ctr_drbg;
-#endif
-  int has_ca;
-};
-
-void *xHttpTlsCtxCreateMbedTLS(const xTlsServerConf *config) {
-  xHttpTlsCtxMbedTLS_ *ctx =
-    (xHttpTlsCtxMbedTLS_ *)calloc(1, sizeof(xHttpTlsCtxMbedTLS_));
-  if (!ctx) return NULL;
-
-  mbedtls_ssl_config_init(&ctx->conf);
-  mbedtls_x509_crt_init(&ctx->cert);
-  mbedtls_pk_init(&ctx->pkey);
-  mbedtls_x509_crt_init(&ctx->ca_cert);
-  ctx->has_ca = 0;
-
-  int ret;
-
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  /* mbedTLS 2.x/3.x: seed the random number generator manually */
-  mbedtls_entropy_init(&ctx->entropy);
-  mbedtls_ctr_drbg_init(&ctx->ctr_drbg);
-  ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func,
-                              &ctx->entropy, NULL, 0);
-  if (ret != 0) {
-    xLog(false, "xhttp: mbedtls_ctr_drbg_seed failed: -0x%04x", -ret);
-    goto fail;
-  }
-#endif
-
-  /* Configure as TLS server */
-  ret = mbedtls_ssl_config_defaults(&ctx->conf, MBEDTLS_SSL_IS_SERVER,
-                                    MBEDTLS_SSL_TRANSPORT_STREAM,
-                                    MBEDTLS_SSL_PRESET_DEFAULT);
-  if (ret != 0) {
-    xLog(false, "xhttp: mbedtls_ssl_config_defaults failed: -0x%04x", -ret);
-    goto fail;
-  }
-
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  mbedtls_ssl_conf_rng(&ctx->conf, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
-#endif
-
-  /* Set minimum TLS version to 1.2 */
-  XK_MBEDTLS_SET_MIN_TLS12(&ctx->conf);
-
-  /* Load certificate */
-  ret = mbedtls_x509_crt_parse_file(&ctx->cert, config->cert);
-  if (ret != 0) {
-    xLog(false, "xhttp: failed to load certificate: %s (ret=-0x%04x)",
-         config->cert, -ret);
-    goto fail;
-  }
-
-  /* Load private key */
-#if MBEDTLS_VERSION_NUMBER >= 0x04000000
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL);
-#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL,
-                                 mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
-#else
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL);
-#endif
-  if (ret != 0) {
-    xLog(false, "xhttp: failed to load private key: %s (ret=-0x%04x)",
-         config->key, -ret);
-    goto fail;
-  }
-
-  /* Set own certificate and key */
-  ret = mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->cert, &ctx->pkey);
-  if (ret != 0) {
-    xLog(false, "xhttp: mbedtls_ssl_conf_own_cert failed: -0x%04x", -ret);
-    goto fail;
-  }
-
-  /* Load CA certificate for client verification (optional) */
-  if (config->ca) {
-    ret = mbedtls_x509_crt_parse_file(&ctx->ca_cert, config->ca);
-    if (ret != 0) {
-      xLog(false, "xhttp: failed to load CA certificate: %s (ret=-0x%04x)",
-           config->ca, -ret);
-      goto fail;
-    }
-    mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->ca_cert, NULL);
-    ctx->has_ca = 1;
-  }
-
-  /* Client verification mode */
-  if (config->verify_peer == 2) {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-  } else if (config->verify_peer == 1) {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
-  } else {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
-  }
-
-  /* Configure ALPN */
-  ret = mbedtls_ssl_conf_alpn_protocols(&ctx->conf, alpn_protos);
-  if (ret != 0) {
-    xLog(false, "xhttp: mbedtls_ssl_conf_alpn_protocols failed: -0x%04x", -ret);
-    goto fail;
-  }
-
-  return ctx;
-
-fail:
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  mbedtls_ctr_drbg_free(&ctx->ctr_drbg);
-  mbedtls_entropy_free(&ctx->entropy);
-#endif
-  mbedtls_pk_free(&ctx->pkey);
-  mbedtls_x509_crt_free(&ctx->cert);
-  mbedtls_x509_crt_free(&ctx->ca_cert);
-  mbedtls_ssl_config_free(&ctx->conf);
-  free(ctx);
-  return NULL;
-}
-
-void xHttpTlsCtxDestroyMbedTLS(void *ctx) {
-  if (!ctx) return;
-  xHttpTlsCtxMbedTLS_ *c = (xHttpTlsCtxMbedTLS_ *)ctx;
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  mbedtls_ctr_drbg_free(&c->ctr_drbg);
-  mbedtls_entropy_free(&c->entropy);
-#endif
-  mbedtls_pk_free(&c->pkey);
-  mbedtls_x509_crt_free(&c->cert);
-  if (c->has_ca) mbedtls_x509_crt_free(&c->ca_cert);
-  mbedtls_ssl_config_free(&c->conf);
-  free(c);
-}
 
 /* ───────────────────── Per-connection TLS state ───────────────────── */
 
@@ -327,11 +162,12 @@ static void mbedtls_transport_destroy(void *ctx) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-void xHttpTlsTransportInitMbedTLS(xHttpTransport *transport, void *tls_ctx,
+void xHttpTlsTransportInitMbedTLS(xHttpTransport *transport, xTlsCtx tls_ctx,
                                   int fd) {
   if (!transport || !tls_ctx) return;
 
-  xHttpTlsCtxMbedTLS_ *server_ctx = (xHttpTlsCtxMbedTLS_ *)tls_ctx;
+  mbedtls_ssl_config *server_conf = (mbedtls_ssl_config *)xTlsCtxGetNative(tls_ctx);
+  if (!server_conf) return;
 
   xHttpTlsMbedTLS_ *t = (xHttpTlsMbedTLS_ *)calloc(1, sizeof(xHttpTlsMbedTLS_));
   if (!t) {
@@ -347,7 +183,7 @@ void xHttpTlsTransportInitMbedTLS(xHttpTransport *transport, void *tls_ctx,
   mbedtls_ssl_init(&t->ssl);
   t->fd = fd;
 
-  int ret = mbedtls_ssl_setup(&t->ssl, &server_ctx->conf);
+  int ret = mbedtls_ssl_setup(&t->ssl, server_conf);
   if (ret != 0) {
     xLog(false, "xhttp: mbedtls_ssl_setup failed: -0x%04x", -ret);
     mbedtls_ssl_free(&t->ssl);

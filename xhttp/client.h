@@ -87,9 +87,9 @@ XDEF_STRUCT(xHttpRequestConf) {
 };
 
 /**
- * @brief Backward-compatible alias for xTlsClientConf (defined in xnet/tls.h).
+ * @brief Backward-compatible alias for xTlsConf (defined in xnet/tls.h).
  */
-typedef xTlsClientConf xHttpTlsClientConf;
+typedef xTlsConf xHttpTlsClientConf;
 
 /**
  * @brief Configuration for creating an HTTP client.
@@ -98,7 +98,7 @@ typedef xTlsClientConf xHttpTlsClientConf;
  * Pass NULL to xHttpClientCreate() for the same defaults.
  */
 XDEF_STRUCT(xHttpClientConf) {
-  const xTlsClientConf *tls;          /**< TLS config, or NULL         */
+  const xTlsConf *tls;          /**< TLS config, or NULL         */
   xHttpVersion          http_version; /**< Default HTTP version (0=H1) */
 };
 

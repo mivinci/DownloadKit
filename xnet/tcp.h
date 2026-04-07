@@ -145,7 +145,8 @@ XCAPI(xTransport) xTcpConnTakeTransport(xTcpConn conn);
  * @brief Configuration for xTcpConnect.
  */
 XDEF_STRUCT(xTcpConnectConf) {
-  const xTlsClientConf *tls; /**< TLS config, or NULL for plain TCP     */
+  xTlsCtx         tls_ctx;   /**< Shared TLS context (preferred), or NULL */
+  const xTlsConf *tls;       /**< TLS config for auto-created ctx, or NULL */
   int timeout_ms;            /**< Connect timeout in ms (0 = default 10s) */
   int nodelay;               /**< Set TCP_NODELAY if non-zero             */
   int keepalive;             /**< Set SO_KEEPALIVE if non-zero            */
@@ -195,7 +196,7 @@ XDEF_HANDLE(xTcpListener);
  * @brief Configuration for xTcpListener.
  */
 XDEF_STRUCT(xTcpListenerConf) {
-  void *tls_ctx;   /**< TLS context from xTlsCtxCreate(), or NULL       */
+  xTlsCtx tls_ctx; /**< TLS context from xTlsCtxCreate(), or NULL       */
   int   backlog;   /**< listen() backlog (0 = default 128)               */
   int   reuseport; /**< Set SO_REUSEPORT if non-zero                    */
 };

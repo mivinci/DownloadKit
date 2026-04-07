@@ -1,8 +1,10 @@
 file(GLOB_RECURSE XNET_HEADERS "*.h")
 file(GLOB_RECURSE XNET_SOURCES "*.c")
 list(FILTER XNET_HEADERS EXCLUDE REGEX "_test")
-# Exclude TLS transport sources from default GLOB;
+# Exclude TLS backend sources from default GLOB;
 # they are added conditionally below
+list(FILTER XNET_SOURCES EXCLUDE REGEX "tls_openssl")
+list(FILTER XNET_SOURCES EXCLUDE REGEX "tls_mbedtls")
 list(FILTER XNET_SOURCES EXCLUDE REGEX "transport_openssl")
 list(FILTER XNET_SOURCES EXCLUDE REGEX "transport_mbedtls")
 add_library(xnet SHARED ${XNET_SOURCES} ${XNET_HEADERS})
@@ -20,6 +22,7 @@ elseif(XK_TLS_BACKEND STREQUAL "openssl")
   find_package(OpenSSL REQUIRED)
   target_compile_definitions(xnet PUBLIC XK_HAS_OPENSSL)
   target_sources(xnet PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tls_openssl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/transport_openssl.c)
   target_link_libraries(xnet PRIVATE OpenSSL::SSL OpenSSL::Crypto)
   message(STATUS "xnet: TLS backend = OpenSSL (forced)")
@@ -28,6 +31,7 @@ elseif(XK_TLS_BACKEND STREQUAL "mbedtls")
   set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
   target_compile_definitions(xnet PUBLIC XK_HAS_MBEDTLS)
   target_sources(xnet PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tls_mbedtls.c
     ${CMAKE_CURRENT_SOURCE_DIR}/transport_mbedtls.c)
   target_include_directories(xnet BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
   target_link_libraries(xnet PRIVATE MbedTLS::MbedTLS)
@@ -37,6 +41,7 @@ elseif(XK_TLS_BACKEND STREQUAL "auto")
   if(OpenSSL_FOUND)
     target_compile_definitions(xnet PUBLIC XK_HAS_OPENSSL)
     target_sources(xnet PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/tls_openssl.c
       ${CMAKE_CURRENT_SOURCE_DIR}/transport_openssl.c)
     target_link_libraries(xnet PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     message(STATUS "xnet: TLS backend = OpenSSL (auto-detected)")
@@ -46,6 +51,7 @@ elseif(XK_TLS_BACKEND STREQUAL "auto")
       set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
       target_compile_definitions(xnet PUBLIC XK_HAS_MBEDTLS)
       target_sources(xnet PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tls_mbedtls.c
         ${CMAKE_CURRENT_SOURCE_DIR}/transport_mbedtls.c)
       target_include_directories(xnet BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
       target_link_libraries(xnet PRIVATE MbedTLS::MbedTLS)

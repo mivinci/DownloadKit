@@ -208,11 +208,7 @@ void xHttpServerDestroy(xHttpServer server) {
 
   /* Destroy TLS context */
   if (s->tls_ctx) {
-#if defined(XK_HAS_OPENSSL)
-    xHttpTlsCtxDestroyOpenSSL(s->tls_ctx);
-#elif defined(XK_HAS_MBEDTLS)
-    xHttpTlsCtxDestroyMbedTLS(s->tls_ctx);
-#endif
+    xTlsCtxDestroy(s->tls_ctx);
     s->tls_ctx = NULL;
   }
 
@@ -1323,7 +1319,7 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg);
 #endif
 
 xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
-                            const xTlsServerConf *config) {
+                            const xTlsConf *config) {
   if (!server) return xErrno_InvalidArg;
   if (!config) return xErrno_InvalidArg;
   if (!config->cert || !config->key) return xErrno_InvalidArg;
@@ -1335,22 +1331,17 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
 #else
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
 
-  /* Create TLS context */
-#if defined(XK_HAS_OPENSSL)
-  void *tls_ctx = xHttpTlsCtxCreateOpenSSL(config);
-#elif defined(XK_HAS_MBEDTLS)
-  void *tls_ctx = xHttpTlsCtxCreateMbedTLS(config);
-#endif
+  /* Create TLS context with HTTP ALPN */
+  static const char *http_alpn[] = {"h2", "http/1.1", NULL};
+  xTlsConf tls_conf = *config;
+  if (!tls_conf.alpn) tls_conf.alpn = http_alpn;
+  xTlsCtx tls_ctx = xTlsCtxCreate(&tls_conf);
   if (!tls_ctx) return xErrno_SysError;
 
   /* Create listening socket */
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) {
-#if defined(XK_HAS_OPENSSL)
-    xHttpTlsCtxDestroyOpenSSL(tls_ctx);
-#elif defined(XK_HAS_MBEDTLS)
-    xHttpTlsCtxDestroyMbedTLS(tls_ctx);
-#endif
+    xTlsCtxDestroy(tls_ctx);
     return xErrno_SysError;
   }
 
@@ -1367,11 +1358,7 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
   if (host) {
     if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
       close(fd);
-#if defined(XK_HAS_OPENSSL)
-      xHttpTlsCtxDestroyOpenSSL(tls_ctx);
-#elif defined(XK_HAS_MBEDTLS)
-      xHttpTlsCtxDestroyMbedTLS(tls_ctx);
-#endif
+      xTlsCtxDestroy(tls_ctx);
       return xErrno_InvalidArg;
     }
   } else {
@@ -1380,21 +1367,13 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
 
   if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
     close(fd);
-#if defined(XK_HAS_OPENSSL)
-    xHttpTlsCtxDestroyOpenSSL(tls_ctx);
-#elif defined(XK_HAS_MBEDTLS)
-    xHttpTlsCtxDestroyMbedTLS(tls_ctx);
-#endif
+    xTlsCtxDestroy(tls_ctx);
     return xErrno_SysError;
   }
 
   if (listen(fd, SOMAXCONN) < 0) {
     close(fd);
-#if defined(XK_HAS_OPENSSL)
-    xHttpTlsCtxDestroyOpenSSL(tls_ctx);
-#elif defined(XK_HAS_MBEDTLS)
-    xHttpTlsCtxDestroyMbedTLS(tls_ctx);
-#endif
+    xTlsCtxDestroy(tls_ctx);
     return xErrno_SysError;
   }
 
@@ -1403,11 +1382,7 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
     xSocketCreateFromFd(s->loop, fd, xEvent_Read, on_tls_listen_event, s);
   if (!sock) {
     close(fd);
-#if defined(XK_HAS_OPENSSL)
-    xHttpTlsCtxDestroyOpenSSL(tls_ctx);
-#elif defined(XK_HAS_MBEDTLS)
-    xHttpTlsCtxDestroyMbedTLS(tls_ctx);
-#endif
+    xTlsCtxDestroy(tls_ctx);
     return xErrno_SysError;
   }
 
@@ -1465,6 +1440,8 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg) {
     xHttpTlsTransportInitOpenSSL(&conn->transport, s->tls_ctx, client_fd);
 #elif defined(XK_HAS_MBEDTLS)
     xHttpTlsTransportInitMbedTLS(&conn->transport, s->tls_ctx, client_fd);
+#else
+    (void)s;
 #endif
 
     /* Initialize protocol handler */

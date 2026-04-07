@@ -73,30 +73,26 @@ void *xTlsCtxCreate(const xTlsServerConf *conf) {
   /* Load certificate */
   if (SSL_CTX_use_certificate_chain_file(ssl_ctx, conf->cert) != 1) {
     xLog(false, "xnet: failed to load certificate: %s", conf->cert);
-    SSL_CTX_free(ssl_ctx);
-    return NULL;
+    goto fail;
   }
 
   /* Load private key */
   if (SSL_CTX_use_PrivateKey_file(ssl_ctx, conf->key, SSL_FILETYPE_PEM) != 1) {
     xLog(false, "xnet: failed to load private key: %s", conf->key);
-    SSL_CTX_free(ssl_ctx);
-    return NULL;
+    goto fail;
   }
 
   /* Verify private key matches certificate */
   if (SSL_CTX_check_private_key(ssl_ctx) != 1) {
     xLog(false, "xnet: private key does not match certificate");
-    SSL_CTX_free(ssl_ctx);
-    return NULL;
+    goto fail;
   }
 
   /* Load CA certificate for client verification (optional) */
   if (conf->ca) {
     if (SSL_CTX_load_verify_locations(ssl_ctx, conf->ca, NULL) != 1) {
       xLog(false, "xnet: failed to load CA certificate: %s", conf->ca);
-      SSL_CTX_free(ssl_ctx);
-      return NULL;
+      goto fail;
     }
   }
 
@@ -112,10 +108,7 @@ void *xTlsCtxCreate(const xTlsServerConf *conf) {
 
   /* Allocate wrapper */
   xTlsCtxOpenSSL_ *ctx = (xTlsCtxOpenSSL_ *)calloc(1, sizeof(xTlsCtxOpenSSL_));
-  if (!ctx) {
-    SSL_CTX_free(ssl_ctx);
-    return NULL;
-  }
+  if (!ctx) goto fail;
   ctx->ssl_ctx       = ssl_ctx;
   ctx->alpn_wire     = NULL;
   ctx->alpn_wire_len = 0;
@@ -147,6 +140,10 @@ void *xTlsCtxCreate(const xTlsServerConf *conf) {
   }
 
   return ctx;
+
+fail:
+  SSL_CTX_free(ssl_ctx);
+  return NULL;
 }
 
 void xTlsCtxDestroy(void *raw) {
@@ -334,8 +331,12 @@ int xTransportTlsClientInit(xTransport *transport, const xTlsClientConf *conf,
                             const char *hostname, int fd) {
   if (!transport) return -1;
 
+  SSL_CTX      *ctx = NULL;
+  SSL          *ssl = NULL;
+  xTlsOpenSSL_ *t   = NULL;
+
   /* Create per-connection SSL_CTX (client method) */
-  SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
+  ctx = SSL_CTX_new(TLS_client_method());
   if (!ctx) {
     xLog(false, "xnet: SSL_CTX_new(client) failed");
     return -1;
@@ -350,8 +351,7 @@ int xTransportTlsClientInit(xTransport *transport, const xTlsClientConf *conf,
     if (conf && conf->ca) {
       if (SSL_CTX_load_verify_locations(ctx, conf->ca, NULL) != 1) {
         xLog(false, "xnet: failed to load CA: %s", conf->ca);
-        SSL_CTX_free(ctx);
-        return -1;
+        goto fail;
       }
     } else {
       /* Use system default CA store */
@@ -366,24 +366,19 @@ int xTransportTlsClientInit(xTransport *transport, const xTlsClientConf *conf,
   if (conf && conf->cert) {
     if (SSL_CTX_use_certificate_chain_file(ctx, conf->cert) != 1) {
       xLog(false, "xnet: failed to load client cert: %s", conf->cert);
-      SSL_CTX_free(ctx);
-      return -1;
+      goto fail;
     }
   }
   if (conf && conf->key) {
     if (SSL_CTX_use_PrivateKey_file(ctx, conf->key, SSL_FILETYPE_PEM) != 1) {
       xLog(false, "xnet: failed to load client key: %s", conf->key);
-      SSL_CTX_free(ctx);
-      return -1;
+      goto fail;
     }
   }
 
   /* Create SSL object */
-  SSL *ssl = SSL_new(ctx);
-  if (!ssl) {
-    SSL_CTX_free(ctx);
-    return -1;
-  }
+  ssl = SSL_new(ctx);
+  if (!ssl) goto fail;
 
   SSL_set_fd(ssl, fd);
   SSL_set_connect_state(ssl);
@@ -398,12 +393,8 @@ int xTransportTlsClientInit(xTransport *transport, const xTlsClientConf *conf,
   }
 
   /* Allocate per-connection state */
-  xTlsOpenSSL_ *t = (xTlsOpenSSL_ *)calloc(1, sizeof(xTlsOpenSSL_));
-  if (!t) {
-    SSL_free(ssl);
-    SSL_CTX_free(ctx);
-    return -1;
-  }
+  t = (xTlsOpenSSL_ *)calloc(1, sizeof(xTlsOpenSSL_));
+  if (!t) goto fail_ssl;
 
   t->ssl            = ssl;
   t->owned_ctx      = ctx; /* Client owns its SSL_CTX */
@@ -418,6 +409,12 @@ int xTransportTlsClientInit(xTransport *transport, const xTlsClientConf *conf,
   transport->ctx       = t;
 
   return 0;
+
+fail_ssl:
+  SSL_free(ssl);
+fail:
+  if (ctx) SSL_CTX_free(ctx);
+  return -1;
 }
 
 #endif /* XK_HAS_OPENSSL */

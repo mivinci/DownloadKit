@@ -401,4 +401,13 @@ This is transparent to application code — the same routes and handlers work re
 | `xHttpClientConf` | Struct: `tls` (pointer to `xTlsConf`), `http_version` |
 | `xHttpClientCreate()` | Create client with TLS config via `xHttpClientConf`. |
 
+### WebSocket Client Side
+
+| Item | Description |
+| --- | --- |
+| `xTlsConf` | Struct: `cert`, `key`, `ca`, `key_password`, `alpn`, `skip_verify` |
+| `xTlsCtx` | Opaque shared TLS context from `xTlsCtxCreate()` |
+| `xWsConnectConf` | Struct: `tls` (pointer to `xTlsConf`), `tls_ctx` (shared context, priority over `tls`) |
+| `xWsConnect()` | Initiate async WebSocket connection with optional TLS. |
+
 For full API details, see [server.md](server.md#tls-configuration) and [client.md](client.md#tls-configuration).

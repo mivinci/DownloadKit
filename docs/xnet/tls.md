@@ -33,7 +33,7 @@ Unified TLS configuration for both client and server.
 
 ### xTlsCtx
 
-Opaque handle to a server-level TLS context. Created by `xTlsCtxCreate()`, shared across all connections accepted by a listener. Destroyed by `xTlsCtxDestroy()`. Supports certificate hot-reload via `xTlsCtxReload()`.
+Opaque handle to a shared TLS context. Created by `xTlsCtxCreate()`, used by both server-side listeners (`xTcpListenerConf.tls_ctx`) and client-side connectors (`xTcpConnectConf.tls_ctx`, `xWsConnectConf.tls_ctx`). Shared across all connections that use the same context. Destroyed by `xTlsCtxDestroy()`. Supports certificate hot-reload via `xTlsCtxReload()`.
 
 ### xTlsCtxCreate
 
@@ -41,9 +41,9 @@ Opaque handle to a server-level TLS context. Created by `xTlsCtxCreate()`, share
 xTlsCtx xTlsCtxCreate(const xTlsConf *conf);
 ```
 
-Create a server-level TLS context. Loads the certificate, private key, optional CA, and optional ALPN list. The returned context is shared across all connections accepted by a listener.
+Create a shared TLS context. Loads the certificate (if provided), private key (if provided), optional CA, and optional ALPN list. The returned context can be shared across all connections that use the same TLS configuration.
 
-- `conf` — TLS configuration (must not be NULL, `cert` and `key` must not be NULL).
+- `conf` — TLS configuration (must not be NULL). For server-side use, `cert` and `key` are required. For client-side use, only `ca` (or defaults) is needed.
 - Returns a TLS context handle, or `NULL` on failure.
 
 ### xTlsCtxDestroy
@@ -52,7 +52,7 @@ Create a server-level TLS context. Loads the certificate, private key, optional 
 void xTlsCtxDestroy(xTlsCtx ctx);
 ```
 
-Destroy a server-level TLS context and release all resources. Safe to call with `NULL` (no-op).
+Destroy a shared TLS context and release all resources. Safe to call with `NULL` (no-op). Must only be called after all connections using this context have been closed.
 
 ### xTlsCtxReload
 
@@ -66,7 +66,7 @@ Hot-reload certificates for an existing TLS context. Atomically replaces the cer
 - `conf` — New TLS configuration (must not be NULL, `cert` and `key` must not be NULL).
 - Returns `0` on success, `-1` on failure (context unchanged).
 
-**Example: Certificate hot-reload**
+#### Example: Certificate hot-reload
 
 ```c
 // Initial setup
@@ -151,8 +151,8 @@ xHttpClient client = xHttpClientCreate(loop, &conf);
 
 ## Relationship with Other Modules
 
-- **xnet** — `xTlsCtxCreate()` / `xTlsCtxDestroy()` / `xTlsCtxReload()` are declared in `tls.h` and implemented in the TLS backend files (`transport_openssl.c`, `transport_mbedtls.c`). The TCP listener uses `xTlsCtx` via `xTcpListenerConf.tls_ctx`.
-- **xhttp** — The HTTP server calls `xTlsCtxCreate()` internally when `xHttpServerListenTls()` is invoked, automatically setting ALPN to `{"h2", "http/1.1"}`. The HTTP client and WebSocket client consume `xTlsConf` directly. See the [TLS Deployment Guide](../xhttp/tls.md) for end-to-end examples.
+- **xnet** — `xTlsCtxCreate()` / `xTlsCtxDestroy()` / `xTlsCtxReload()` are declared in `tls.h` and implemented in the TLS backend files (`transport_openssl.c`, `transport_mbedtls.c`). The TCP listener uses `xTlsCtx` via `xTcpListenerConf.tls_ctx`, and the TCP connector uses it via `xTcpConnectConf.tls_ctx`.
+- **xhttp** — The HTTP server calls `xTlsCtxCreate()` internally when `xHttpServerListenTls()` is invoked, automatically setting ALPN to `{"h2", "http/1.1"}`. The HTTP client uses libcurl for TLS management and consumes `xTlsConf` directly. The WebSocket client supports both `xTlsConf` (auto-creates a context) and a pre-created `xTlsCtx` (shared across connections) via `xWsConnectConf.tls_ctx`. See the [TLS Deployment Guide](../xhttp/tls.md) for end-to-end examples.
 
 ## Security Notes
 

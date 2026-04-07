@@ -126,5 +126,5 @@ static void tls_example(void) {
 ## Relationship with Other Modules
 
 - **xbase** — The DNS resolver depends on [`xEventLoop`](../xbase/event.md) for thread-pool offload and uses [`atomic.h`](../xbase/atomic.md) for the cancellation flag.
-- **xhttp** — The HTTP client uses `xUrl` for URL parsing, `xDnsResolve` for hostname resolution, and `xTlsConf` for TLS configuration. See the [TLS Deployment Guide](../xhttp/tls.md) for end-to-end examples.
-- **WebSocket** — The WebSocket client uses `xUrl` to parse `ws://` and `wss://` URLs during the handshake.
+- **xhttp** — The HTTP client uses `xUrl` for URL parsing, `xDnsResolve` for hostname resolution, and `xTlsConf` for TLS configuration. The WebSocket client supports both `xTlsConf` and a shared `xTlsCtx` for `wss://` connections. See the [TLS Deployment Guide](../xhttp/tls.md) for end-to-end examples.
+- **WebSocket** — The WebSocket client uses `xUrl` to parse `ws://` and `wss://` URLs, and optionally accepts a shared `xTlsCtx` to avoid per-connection TLS context creation.

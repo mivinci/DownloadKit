@@ -38,7 +38,7 @@ static uint16_t get_free_port() {
     return 0;
   }
   socklen_t len = sizeof(addr);
-  getsockname(fd, (struct sockaddr *)&addr, &len);
+  (void)getsockname(fd, (struct sockaddr *)&addr, &len);
   uint16_t port = ntohs(addr.sin_port);
   close(fd);
   return port;
@@ -237,7 +237,7 @@ TEST_F(TcpTest, ConnectTimeout) {
   ASSERT_EQ(bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)), 0);
 
   socklen_t alen = sizeof(addr);
-  getsockname(listen_fd, (struct sockaddr *)&addr, &alen);
+  (void)getsockname(listen_fd, (struct sockaddr *)&addr, &alen);
   uint16_t port = ntohs(addr.sin_port);
 
   /* Listen with backlog=1 */
@@ -246,24 +246,21 @@ TEST_F(TcpTest, ConnectTimeout) {
   /* Fill the backlog with a dummy connection */
   int dummy_fd = socket(AF_INET, SOCK_STREAM, 0);
   ASSERT_GE(dummy_fd, 0);
-  connect(dummy_fd, (struct sockaddr *)&addr, sizeof(addr));
+  int err = connect(dummy_fd, (struct sockaddr *)&addr, sizeof(addr));
+  (void)err;
 
   /* Another dummy to overflow */
   int dummy_fd2 = socket(AF_INET, SOCK_STREAM, 0);
   ASSERT_GE(dummy_fd2, 0);
-  connect(dummy_fd2, (struct sockaddr *)&addr, sizeof(addr));
+  err = connect(dummy_fd2, (struct sockaddr *)&addr, sizeof(addr));
+  (void)err;
 
   /* Now try to connect with a short timeout - should timeout */
   xTcpConnectConf conf = {};
   conf.timeout_ms      = 500;
 
-  char port_str[8];
-  snprintf(port_str, sizeof(port_str), "%u", port);
-
-  xErrno err =
-    xTcpConnect(loop, "127.0.0.1", port, &conf, timeout_connect_cb, &ctx);
+  err = xTcpConnect(loop, "127.0.0.1", port, &conf, timeout_connect_cb, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
-
   RunUntilDone(ctx.done, 5000);
 
   EXPECT_TRUE(ctx.done.load());

@@ -10,6 +10,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/uio.h>
 
 /* ───────────────────── Internal constructor ───────────────────── */
 
@@ -33,6 +34,28 @@ xSocket xTcpConnSocket(xTcpConn conn) {
   if (!conn) return NULL;
   xTcpConn_ *c = (xTcpConn_ *)conn;
   return c->sock;
+}
+
+ssize_t xTcpConnRecv(xTcpConn conn, void *buf, size_t len) {
+  if (!conn) return -1;
+  xTcpConn_ *c = (xTcpConn_ *)conn;
+  if (!c->transport.read) return -1;
+  return c->transport.read(c->transport.ctx, buf, len);
+}
+
+ssize_t xTcpConnSend(xTcpConn conn, const char *buf, size_t len) {
+  if (!conn) return -1;
+  xTcpConn_ *c = (xTcpConn_ *)conn;
+  if (!c->transport.writev) return -1;
+  struct iovec iov = {.iov_base = (void *)buf, .iov_len = len};
+  return c->transport.writev(c->transport.ctx, &iov, 1);
+}
+
+ssize_t xTcpConnSendIov(xTcpConn conn, const struct iovec *iov, int iovcnt) {
+  if (!conn) return -1;
+  xTcpConn_ *c = (xTcpConn_ *)conn;
+  if (!c->transport.writev) return -1;
+  return c->transport.writev(c->transport.ctx, iov, iovcnt);
 }
 
 void xTcpConnClose(xEventLoop loop, xTcpConn conn) {

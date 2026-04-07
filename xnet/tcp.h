@@ -15,6 +15,7 @@
 
 #include <stdint.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
 #include <xbase/event.h>
@@ -24,6 +25,17 @@
 
 /* ═══════════════════════════════════════════════════════════════════
  *  xTcpConn — connection resource wrapper
+ *
+ *  Design note: unlike xWsCallbacks, we intentionally do NOT provide
+ *  a callback-based API (e.g. on_data / on_close) at the TCP layer.
+ *  WebSocket callbacks work well because the protocol defines message
+ *  boundaries, close handshakes, and ping/pong — the library does
+ *  real work before invoking user code. Raw TCP is a byte stream with
+ *  no framing; an on_data callback would still deliver arbitrary
+ *  fragments, leaving the user to reassemble and parse — no better
+ *  than calling xTcpConnRecv directly. Instead, we keep xTcpConn as
+ *  a thin resource wrapper and provide Recv / Send / SendIov helpers
+ *  so users can drive I/O from their own event callbacks.
  * ═══════════════════════════════════════════════════════════════════
  */
 
@@ -47,6 +59,49 @@ XCAPI(xTransport *) xTcpConnTransport(xTcpConn conn);
  * @return      The xSocket, or NULL if conn is NULL.
  */
 XCAPI(xSocket) xTcpConnSocket(xTcpConn conn);
+
+/**
+ * @brief Receive data from a TCP connection.
+ *
+ * Reads up to @p len bytes into @p buf. Semantics match read(2):
+ * returns bytes read, 0 on EOF (peer closed), -1 on error.
+ * For TLS connections, decryption is handled transparently.
+ *
+ * @param conn  Connection handle (must not be NULL).
+ * @param buf   Buffer to read into.
+ * @param len   Maximum number of bytes to read.
+ * @return      Bytes read, 0 on EOF, or -1 on error (errno set).
+ */
+XCAPI(ssize_t) xTcpConnRecv(xTcpConn conn, void *buf, size_t len);
+
+/**
+ * @brief Send data over a TCP connection.
+ *
+ * Writes up to @p len bytes from @p buf. Semantics match write(2):
+ * returns bytes written, or -1 on error.
+ * For TLS connections, encryption is handled transparently.
+ *
+ * @param conn  Connection handle (must not be NULL).
+ * @param buf   Data to send.
+ * @param len   Number of bytes to send.
+ * @return      Bytes written, or -1 on error (errno set).
+ */
+XCAPI(ssize_t) xTcpConnSend(xTcpConn conn, const char *buf, size_t len);
+
+/**
+ * @brief Send scattered data over a TCP connection.
+ *
+ * Writes data from multiple buffers using scatter-gather I/O.
+ * Semantics match writev(2): returns total bytes written, or -1 on error.
+ * For TLS connections, encryption is handled transparently.
+ *
+ * @param conn    Connection handle (must not be NULL).
+ * @param iov     Array of I/O vectors.
+ * @param iovcnt  Number of vectors in @p iov.
+ * @return        Total bytes written, or -1 on error (errno set).
+ */
+XCAPI(ssize_t) xTcpConnSendIov(xTcpConn conn, const struct iovec *iov,
+                               int iovcnt);
 
 /**
  * @brief Close a TCP connection and release all resources.

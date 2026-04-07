@@ -3,10 +3,10 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * transport_mbedtls.c - mbedTLS TLS transport implementation
+ * transport_mbedtls.c - mbedTLS per-connection TLS transport
  *
  * Provides both server-side and client-side TLS transport using mbedTLS.
- * ALPN is parameterized (not hardcoded) for the server context.
+ * TLS context management (xTlsCtxCreate etc.) lives in tls_mbedtls.c.
  */
 
 #ifdef XK_HAS_MBEDTLS
@@ -49,239 +49,6 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <xbase/log.h>
-
-/* ═══════════════════════════════════════════════════════════════════
- *  TLS context (server-level)
- * ═══════════════════════════════════════════════════════════════════
- */
-
-XDEF_STRUCT(xTlsCtxMbedTLS_) {
-  mbedtls_ssl_config conf;
-  mbedtls_x509_crt   cert;
-  mbedtls_pk_context pkey;
-  mbedtls_x509_crt   ca_cert;
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  mbedtls_entropy_context  entropy;
-  mbedtls_ctr_drbg_context ctr_drbg;
-#endif
-  int          has_ca;
-  const char **alpn_list; /**< Borrowed pointer to user's ALPN list */
-};
-
-xTlsCtx xTlsCtxCreate(const xTlsConf *config) {
-  if (!config || !config->cert || !config->key) return NULL;
-
-  xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)calloc(1, sizeof(xTlsCtxMbedTLS_));
-  if (!ctx) return NULL;
-
-  mbedtls_ssl_config_init(&ctx->conf);
-  mbedtls_x509_crt_init(&ctx->cert);
-  mbedtls_pk_init(&ctx->pkey);
-  mbedtls_x509_crt_init(&ctx->ca_cert);
-  ctx->has_ca    = 0;
-  ctx->alpn_list = NULL;
-
-  int ret;
-
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  /* mbedTLS 2.x/3.x: seed the random number generator manually */
-  mbedtls_entropy_init(&ctx->entropy);
-  mbedtls_ctr_drbg_init(&ctx->ctr_drbg);
-  ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func,
-                              &ctx->entropy, NULL, 0);
-  if (ret != 0) {
-    xLog(false, "xnet: mbedtls_ctr_drbg_seed failed: -0x%04x", -ret);
-    goto fail;
-  }
-#endif
-
-  /* Configure as TLS server */
-  ret = mbedtls_ssl_config_defaults(&ctx->conf, MBEDTLS_SSL_IS_SERVER,
-                                    MBEDTLS_SSL_TRANSPORT_STREAM,
-                                    MBEDTLS_SSL_PRESET_DEFAULT);
-  if (ret != 0) {
-    xLog(false, "xnet: mbedtls_ssl_config_defaults failed: -0x%04x", -ret);
-    goto fail;
-  }
-
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  mbedtls_ssl_conf_rng(&ctx->conf, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
-#endif
-
-  /* Set minimum TLS version to 1.2 */
-  XK_MBEDTLS_SET_MIN_TLS12(&ctx->conf);
-
-  /* Load certificate */
-  ret = mbedtls_x509_crt_parse_file(&ctx->cert, config->cert);
-  if (ret != 0) {
-    xLog(false, "xnet: failed to load certificate: %s (ret=-0x%04x)",
-         config->cert, -ret);
-    goto fail;
-  }
-
-  /* Load private key */
-#if MBEDTLS_VERSION_NUMBER >= 0x04000000
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL);
-#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL,
-                                 mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
-#else
-  ret = mbedtls_pk_parse_keyfile(&ctx->pkey, config->key, NULL);
-#endif
-  if (ret != 0) {
-    xLog(false, "xnet: failed to load private key: %s (ret=-0x%04x)",
-         config->key, -ret);
-    goto fail;
-  }
-
-  /* Set own certificate and key */
-  ret = mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->cert, &ctx->pkey);
-  if (ret != 0) {
-    xLog(false, "xnet: mbedtls_ssl_conf_own_cert failed: -0x%04x", -ret);
-    goto fail;
-  }
-
-  /* Load CA certificate for client verification (optional) */
-  if (config->ca) {
-    ret = mbedtls_x509_crt_parse_file(&ctx->ca_cert, config->ca);
-    if (ret != 0) {
-      xLog(false, "xnet: failed to load CA certificate: %s (ret=-0x%04x)",
-           config->ca, -ret);
-      goto fail;
-    }
-    mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->ca_cert, NULL);
-    ctx->has_ca = 1;
-  }
-
-  /* Peer verification mode */
-  if (config->skip_verify) {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
-  } else {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-  }
-
-  /* Configure ALPN (parameterized) */
-  if (config->alpn) {
-    ret = mbedtls_ssl_conf_alpn_protocols(&ctx->conf, config->alpn);
-    if (ret != 0) {
-      xLog(false, "xnet: mbedtls_ssl_conf_alpn_protocols failed: -0x%04x",
-           -ret);
-      goto fail;
-    }
-    ctx->alpn_list = config->alpn;
-  }
-
-  return (xTlsCtx)ctx;
-
-fail:
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  mbedtls_ctr_drbg_free(&ctx->ctr_drbg);
-  mbedtls_entropy_free(&ctx->entropy);
-#endif
-  mbedtls_pk_free(&ctx->pkey);
-  mbedtls_x509_crt_free(&ctx->cert);
-  mbedtls_x509_crt_free(&ctx->ca_cert);
-  mbedtls_ssl_config_free(&ctx->conf);
-  free(ctx);
-  return NULL;
-}
-
-void xTlsCtxDestroy(xTlsCtx raw) {
-  if (!raw) return;
-  xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)raw;
-#if MBEDTLS_VERSION_NUMBER < 0x04000000
-  mbedtls_ctr_drbg_free(&ctx->ctr_drbg);
-  mbedtls_entropy_free(&ctx->entropy);
-#endif
-  mbedtls_pk_free(&ctx->pkey);
-  mbedtls_x509_crt_free(&ctx->cert);
-  if (ctx->has_ca) mbedtls_x509_crt_free(&ctx->ca_cert);
-  mbedtls_ssl_config_free(&ctx->conf);
-  free(ctx);
-}
-
-int xTlsCtxReload(xTlsCtx raw, const xTlsConf *config) {
-  if (!raw || !config || !config->cert || !config->key) return -1;
-
-  xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)raw;
-  int ret;
-
-  /* Reload certificate: free old, parse new */
-  mbedtls_x509_crt new_cert;
-  mbedtls_x509_crt_init(&new_cert);
-  ret = mbedtls_x509_crt_parse_file(&new_cert, config->cert);
-  if (ret != 0) {
-    xLog(false, "xnet: reload: failed to load certificate: %s (ret=-0x%04x)",
-         config->cert, -ret);
-    mbedtls_x509_crt_free(&new_cert);
-    return -1;
-  }
-
-  /* Reload private key: free old, parse new */
-  mbedtls_pk_context new_pkey;
-  mbedtls_pk_init(&new_pkey);
-#if MBEDTLS_VERSION_NUMBER >= 0x04000000
-  ret = mbedtls_pk_parse_keyfile(&new_pkey, config->key, NULL);
-#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
-  ret = mbedtls_pk_parse_keyfile(&new_pkey, config->key, NULL,
-                                 mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
-#else
-  ret = mbedtls_pk_parse_keyfile(&new_pkey, config->key, NULL);
-#endif
-  if (ret != 0) {
-    xLog(false, "xnet: reload: failed to load private key: %s (ret=-0x%04x)",
-         config->key, -ret);
-    mbedtls_x509_crt_free(&new_cert);
-    mbedtls_pk_free(&new_pkey);
-    return -1;
-  }
-
-  /* Swap in the new cert and key */
-  mbedtls_x509_crt_free(&ctx->cert);
-  mbedtls_pk_free(&ctx->pkey);
-  ctx->cert = new_cert;
-  ctx->pkey = new_pkey;
-
-  /* Re-bind own cert to the config */
-  ret = mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->cert, &ctx->pkey);
-  if (ret != 0) {
-    xLog(false, "xnet: reload: mbedtls_ssl_conf_own_cert failed: -0x%04x",
-         -ret);
-    return -1;
-  }
-
-  /* Reload CA certificate (optional) */
-  if (config->ca) {
-    mbedtls_x509_crt new_ca;
-    mbedtls_x509_crt_init(&new_ca);
-    ret = mbedtls_x509_crt_parse_file(&new_ca, config->ca);
-    if (ret != 0) {
-      xLog(false, "xnet: reload: failed to load CA: %s (ret=-0x%04x)",
-           config->ca, -ret);
-      mbedtls_x509_crt_free(&new_ca);
-      return -1;
-    }
-    if (ctx->has_ca) mbedtls_x509_crt_free(&ctx->ca_cert);
-    ctx->ca_cert = new_ca;
-    ctx->has_ca  = 1;
-    mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->ca_cert, NULL);
-  }
-
-  /* Update verification mode */
-  if (config->skip_verify) {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
-  } else {
-    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-  }
-
-  return 0;
-}
-
-void *xTlsCtxGetNative_(xTlsCtx raw) {
-  if (!raw) return NULL;
-  xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)raw;
-  return &ctx->conf;
-}
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Custom I/O callbacks for mbedTLS
@@ -456,7 +223,8 @@ static void mbed_destroy(void *ctx) {
 void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
   if (!transport || !tls_ctx) return;
 
-  xTlsCtxMbedTLS_ *server_ctx = (xTlsCtxMbedTLS_ *)tls_ctx;
+  mbedtls_ssl_config *server_conf = (mbedtls_ssl_config *)xTlsCtxGetNative_(tls_ctx);
+  if (!server_conf) return;
 
   xTlsMbedTLS_ *t = (xTlsMbedTLS_ *)calloc(1, sizeof(xTlsMbedTLS_));
   if (!t) {
@@ -472,7 +240,7 @@ void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
   mbedtls_ssl_init(&t->ssl);
   t->fd = fd;
 
-  int ret = mbedtls_ssl_setup(&t->ssl, &server_ctx->conf);
+  int ret = mbedtls_ssl_setup(&t->ssl, server_conf);
   if (ret != 0) {
     xLog(false, "xnet: mbedtls_ssl_setup failed: -0x%04x", -ret);
     mbedtls_ssl_free(&t->ssl);

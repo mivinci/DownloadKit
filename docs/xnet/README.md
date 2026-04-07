@@ -12,6 +12,8 @@
 
 3. **Shared TLS Types** — `xTlsClientConf` and `xTlsServerConf` are plain data structures shared across modules. They decouple TLS configuration from any specific TLS backend (OpenSSL, mbedTLS).
 
+4. **Async TCP with Transport Abstraction** — `xTcpConnect` chains DNS → connect → optional TLS handshake into a single async operation. `xTcpConn` wraps an `xSocket` + `xTransport` vtable, providing `Recv`/`Send`/`SendIov` helpers that work transparently over plain TCP or TLS.
+
 ## Architecture
 
 ```mermaid
@@ -20,6 +22,7 @@ graph TD
         URL["xUrl<br/>URL Parser<br/>url.h"]
         DNS["xDnsResolve<br/>Async DNS<br/>dns.h"]
         TLS["xTlsClientConf / xTlsServerConf<br/>TLS Config Types<br/>tls.h"]
+        TCP["xTcpConn / xTcpConnect / xTcpListener<br/>Async TCP<br/>tcp.h"]
     end
 
     subgraph "xbase Infrastructure"
@@ -37,16 +40,20 @@ graph TD
     DNS --> EV
     DNS --> POOL
     DNS --> ATOMIC
+    TCP --> EV
+    TCP --> DNS
+    TCP --> TLS
 
     HTTP_C --> URL
-    HTTP_C --> DNS
-    HTTP_C --> TLS
-    HTTP_S --> TLS
+    HTTP_C --> TCP
+    HTTP_S --> TCP
     WS --> URL
+    WS --> TCP
 
     style URL fill:#4a90d9,color:#fff
     style DNS fill:#50b86c,color:#fff
     style TLS fill:#f5a623,color:#fff
+    style TCP fill:#e74c3c,color:#fff
 ```
 
 ## Sub-Module Overview
@@ -56,6 +63,7 @@ graph TD
 | `url.h` | `xUrl` | Lightweight URL parser | [url.md](url.md) |
 | `dns.h` | `xDnsResolve` | Async DNS resolution | [dns.md](dns.md) |
 | `tls.h` | `xTlsClientConf` / `xTlsServerConf` | Shared TLS config types | [tls.md](tls.md) |
+| `tcp.h` | `xTcpConn` / `xTcpConnect` / `xTcpListener` | Async TCP connection, connector & listener | [tcp.md](tcp.md) |
 
 ## Quick Start
 

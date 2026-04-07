@@ -143,8 +143,12 @@ int xHttpTlsClientTransportInit(xHttpTransport *transport,
                                 int fd) {
   if (!transport) return -1;
 
+  SSL_CTX     *ctx = NULL;
+  SSL         *ssl = NULL;
+  xTlsClient_ *t  = NULL;
+
   /* Create per-connection SSL_CTX (client method) */
-  SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
+  ctx = SSL_CTX_new(TLS_client_method());
   if (!ctx) {
     xLog(false, "xhttp: SSL_CTX_new(client) failed");
     return -1;
@@ -160,8 +164,7 @@ int xHttpTlsClientTransportInit(xHttpTransport *transport,
       if (SSL_CTX_load_verify_locations(ctx, conf->ca, NULL)
           != 1) {
         xLog(false, "xhttp: failed to load CA: %s", conf->ca);
-        SSL_CTX_free(ctx);
-        return -1;
+        goto fail;
       }
     } else {
       /* Use system default CA store */
@@ -178,8 +181,7 @@ int xHttpTlsClientTransportInit(xHttpTransport *transport,
         != 1) {
       xLog(false, "xhttp: failed to load client cert: %s",
            conf->cert);
-      SSL_CTX_free(ctx);
-      return -1;
+      goto fail;
     }
   }
   if (conf && conf->key) {
@@ -187,17 +189,13 @@ int xHttpTlsClientTransportInit(xHttpTransport *transport,
                                     SSL_FILETYPE_PEM) != 1) {
       xLog(false, "xhttp: failed to load client key: %s",
            conf->key);
-      SSL_CTX_free(ctx);
-      return -1;
+      goto fail;
     }
   }
 
   /* Create SSL object */
-  SSL *ssl = SSL_new(ctx);
-  if (!ssl) {
-    SSL_CTX_free(ctx);
-    return -1;
-  }
+  ssl = SSL_new(ctx);
+  if (!ssl) goto fail;
 
   SSL_set_fd(ssl, fd);
   SSL_set_connect_state(ssl);
@@ -212,12 +210,8 @@ int xHttpTlsClientTransportInit(xHttpTransport *transport,
   }
 
   /* Allocate per-connection state */
-  xTlsClient_ *t = (xTlsClient_ *)calloc(1, sizeof(xTlsClient_));
-  if (!t) {
-    SSL_free(ssl);
-    SSL_CTX_free(ctx);
-    return -1;
-  }
+  t = (xTlsClient_ *)calloc(1, sizeof(xTlsClient_));
+  if (!t) goto fail_ssl;
 
   t->ssl            = ssl;
   t->ctx            = ctx;
@@ -232,6 +226,12 @@ int xHttpTlsClientTransportInit(xHttpTransport *transport,
   transport->ctx       = t;
 
   return 0;
+
+fail_ssl:
+  SSL_free(ssl);
+fail:
+  if (ctx) SSL_CTX_free(ctx);
+  return -1;
 }
 
 #endif /* XK_HAS_OPENSSL */

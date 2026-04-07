@@ -25,6 +25,7 @@ XDEF_ENUM(xErrno){
   xErrno_DnsNotFound,   /**< DNS: hostname does not exist               */
   xErrno_DnsTempFail,   /**< DNS: temporary failure, try again later    */
   xErrno_DnsError,      /**< DNS: unrecoverable resolution error        */
+  xErrno_Timeout,       /**< Operation timed out                        */
 };
 
 /**

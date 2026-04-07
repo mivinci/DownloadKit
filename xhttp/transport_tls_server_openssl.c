@@ -54,31 +54,27 @@ void *xHttpTlsCtxCreateOpenSSL(const xTlsServerConf *config) {
   /* Load certificate */
   if (SSL_CTX_use_certificate_chain_file(ctx, config->cert) != 1) {
     xLog(false, "xhttp: failed to load certificate: %s", config->cert);
-    SSL_CTX_free(ctx);
-    return NULL;
+    goto fail;
   }
 
   /* Load private key */
   if (SSL_CTX_use_PrivateKey_file(ctx, config->key, SSL_FILETYPE_PEM) !=
       1) {
     xLog(false, "xhttp: failed to load private key: %s", config->key);
-    SSL_CTX_free(ctx);
-    return NULL;
+    goto fail;
   }
 
   /* Verify private key matches certificate */
   if (SSL_CTX_check_private_key(ctx) != 1) {
     xLog(false, "xhttp: private key does not match certificate");
-    SSL_CTX_free(ctx);
-    return NULL;
+    goto fail;
   }
 
   /* Load CA certificate for client verification (optional) */
   if (config->ca) {
     if (SSL_CTX_load_verify_locations(ctx, config->ca, NULL) != 1) {
       xLog(false, "xhttp: failed to load CA certificate: %s", config->ca);
-      SSL_CTX_free(ctx);
-      return NULL;
+      goto fail;
     }
   }
 
@@ -96,6 +92,10 @@ void *xHttpTlsCtxCreateOpenSSL(const xTlsServerConf *config) {
   SSL_CTX_set_alpn_select_cb(ctx, alpn_select_cb, NULL);
 
   return ctx;
+
+fail:
+  SSL_CTX_free(ctx);
+  return NULL;
 }
 
 void xHttpTlsCtxDestroyOpenSSL(void *ctx) {

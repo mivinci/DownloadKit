@@ -35,10 +35,11 @@ XDEF_STRUCT(xTlsClientConf) {
  * verification. Used by any server that needs to accept TLS connections.
  */
 XDEF_STRUCT(xTlsServerConf) {
-  const char *cert;         /**< Path to PEM certificate file (required)      */
-  const char *key;          /**< Path to PEM private key file (required)      */
-  const char *ca;           /**< Path to CA certificate file (optional)       */
-  int         verify_peer;  /**< Peer verification: 0=none, 1=optional, 2=required */
+  const char  *cert;        /**< Path to PEM certificate file (required)      */
+  const char  *key;         /**< Path to PEM private key file (required)      */
+  const char  *ca;          /**< Path to CA certificate file (optional)       */
+  const char **alpn;        /**< NULL-terminated ALPN protocol list (optional) */
+  int          verify_peer; /**< Peer verification: 0=none, 1=optional, 2=required */
 };
 
 #endif /* XNET_TLS_H */

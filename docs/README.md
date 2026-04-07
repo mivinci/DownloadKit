@@ -19,7 +19,7 @@ graph TD
     end
 
     subgraph "Networking Layer"
-        XNET["xnet<br/>URL / DNS / TLS Config"]
+        XNET["xnet<br/>URL / DNS / TLS Config / TCP"]
     end
 
     subgraph "Buffer Layer"
@@ -89,6 +89,7 @@ Shared networking utilities: URL parser, async DNS resolver, and TLS configurati
 | [url.h](xnet/url.md) | Lightweight URL parser with zero-copy component extraction |
 | [dns.h](xnet/dns.md) | Async DNS resolution via thread-pool offload |
 | [tls.h](xnet/tls.md) | Shared TLS configuration types (client & server) |
+| [tcp.h](xnet/tcp.md) | Async TCP connection, connector & listener with optional TLS |
 
 ### [xhttp](xhttp/index.html) — Async HTTP Client & Server & WebSocket
 
@@ -127,6 +128,8 @@ High-performance async logger with MPSC queue, three flush modes, and file rotat
 | Connect as WebSocket client | [xhttp/ws.h](xhttp/ws_client.md) |
 | Parse a URL | [xnet/url.h](xnet/url.md) |
 | Resolve DNS asynchronously | [xnet/dns.h](xnet/dns.md) |
+| Make async TCP connections | [xnet/tcp.h](xnet/tcp.md) |
+| Build a TCP server | [xnet/tcp.h](xnet/tcp.md) |
 | Configure TLS | [xnet/tls.h](xnet/tls.md) |
 | Enable TLS (HTTPS) | [xhttp/transport.h](xhttp/tls.md) |
 | Add async logging | [xlog/logger.h](xlog/logger.md) |
@@ -141,7 +144,7 @@ Level 0 (no deps)     : atomic.h, error.h, time.h
 Level 1 (atomic only) : heap.h, mpsc.h
 Level 2 (Level 0-1)   : memory.h, log.h, backtrace.h, buf.h, ring.h
 Level 3 (Level 0-2)   : event.h, io.h, url.h, tls.h
-Level 4 (event loop)  : timer.h, task.h, socket.h, dns.h, logger.h, client.h, server.h, ws.h
+Level 4 (event loop)  : timer.h, task.h, socket.h, dns.h, tcp.h, logger.h, client.h, server.h, ws.h
 ```
 
 ## Module Dependency Graph
@@ -179,6 +182,7 @@ graph BT
         TASK["task.h"]
         SOCKET["socket.h"]
         DNS["dns.h"]
+        TCP["tcp.h"]
         LOGGER["logger.h"]
         CLIENT["client.h"]
         SERVER["server.h"]
@@ -198,6 +202,10 @@ graph BT
     TASK --> EVENT
     SOCKET --> EVENT
     DNS --> EVENT
+    TCP --> EVENT
+    TCP --> DNS
+    TCP --> SOCKET
+    TCP --> TLS_CONF
     LOGGER --> EVENT
     LOGGER --> MPSC
     LOGGER --> LOG
@@ -215,6 +223,7 @@ graph BT
     style EVENT fill:#50b86c,color:#fff
     style URL fill:#e74c3c,color:#fff
     style DNS fill:#e74c3c,color:#fff
+    style TCP fill:#e74c3c,color:#fff
     style TLS_CONF fill:#e74c3c,color:#fff
     style CLIENT fill:#f5a623,color:#fff
     style SERVER fill:#f5a623,color:#fff

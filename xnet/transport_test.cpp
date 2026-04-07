@@ -123,7 +123,7 @@ TEST_F(PlainTransportTest, NullTransportIsSafe) {
 #if defined(XK_HAS_OPENSSL) || defined(XK_HAS_MBEDTLS)
 
 TEST(TlsCtxTest, CreateWithNullConfReturnsNull) {
-  void *ctx = xTlsCtxCreate(nullptr);
+  xTlsCtx ctx = xTlsCtxCreate(nullptr);
   EXPECT_EQ(ctx, nullptr);
 }
 
@@ -131,7 +131,7 @@ TEST(TlsCtxTest, CreateWithInvalidCertReturnsNull) {
   xTlsServerConf conf = {};
   conf.cert           = "/nonexistent/cert.pem";
   conf.key            = "/nonexistent/key.pem";
-  void *ctx           = xTlsCtxCreate(&conf);
+  xTlsCtx ctx         = xTlsCtxCreate(&conf);
   EXPECT_EQ(ctx, nullptr);
 }
 

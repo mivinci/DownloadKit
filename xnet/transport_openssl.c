@@ -58,7 +58,7 @@ static int alpn_select_cb(SSL *ssl, const unsigned char **out,
  * ═══════════════════════════════════════════════════════════════════
  */
 
-void *xTlsCtxCreate(const xTlsServerConf *conf) {
+xTlsCtx xTlsCtxCreate(const xTlsServerConf *conf) {
   if (!conf || !conf->cert || !conf->key) return NULL;
 
   SSL_CTX *ssl_ctx = SSL_CTX_new(TLS_server_method());
@@ -139,14 +139,14 @@ void *xTlsCtxCreate(const xTlsServerConf *conf) {
     SSL_CTX_set_alpn_select_cb(ssl_ctx, alpn_select_cb, ctx);
   }
 
-  return ctx;
+  return (xTlsCtx)ctx;
 
 fail:
   SSL_CTX_free(ssl_ctx);
   return NULL;
 }
 
-void xTlsCtxDestroy(void *raw) {
+void xTlsCtxDestroy(xTlsCtx raw) {
   if (!raw) return;
   xTlsCtxOpenSSL_ *ctx = (xTlsCtxOpenSSL_ *)raw;
   if (ctx->ssl_ctx) SSL_CTX_free(ctx->ssl_ctx);
@@ -278,7 +278,7 @@ static void openssl_destroy(void *ctx) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-void xTransportTlsServerInit(xTransport *transport, void *tls_ctx, int fd) {
+void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
   if (!transport || !tls_ctx) return;
 
   xTlsCtxOpenSSL_ *server_ctx = (xTlsCtxOpenSSL_ *)tls_ctx;

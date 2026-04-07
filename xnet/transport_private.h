@@ -36,7 +36,7 @@ void xTransportPlainInit(xTransport *transport, int fd);
  * @param tls_ctx    Server TLS context from xTlsCtxCreate() (must not be NULL).
  * @param fd         File descriptor for the accepted connection.
  */
-void xTransportTlsServerInit(xTransport *transport, void *tls_ctx, int fd);
+void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd);
 
 /* ───────────────────── TLS client transport ───────────────────── */
 

@@ -63,7 +63,7 @@ void xTransportPlainInit(xTransport *t, int fd);
 // TLS transport (compile-time backend selection)
 int  xTransportTlsClientInit(xTransport *t, const xTlsClientConf *conf,
                               const char *hostname, int fd);
-int  xTransportTlsServerInit(xTransport *t, void *tls_ctx, int fd);
+int  xTransportTlsServerInit(xTransport *t, xTlsCtx tls_ctx, int fd);
 ```
 
 ### Migration Path

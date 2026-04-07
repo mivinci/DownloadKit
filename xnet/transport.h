@@ -91,9 +91,9 @@ XDEF_STRUCT(xTransport) {
  * context is shared across all connections accepted by a listener.
  *
  * @param conf  TLS server configuration (must not be NULL).
- * @return      Opaque TLS context, or NULL on failure.
+ * @return      TLS context handle, or NULL on failure.
  */
-XCAPI(void *) xTlsCtxCreate(const xTlsServerConf *conf);
+XCAPI(xTlsCtx) xTlsCtxCreate(const xTlsServerConf *conf);
 
 /**
  * @brief Destroy a server-level TLS context.
@@ -103,6 +103,6 @@ XCAPI(void *) xTlsCtxCreate(const xTlsServerConf *conf);
  *
  * @param ctx  TLS context returned by xTlsCtxCreate(), or NULL.
  */
-XCAPI(void) xTlsCtxDestroy(void *ctx);
+XCAPI(void) xTlsCtxDestroy(xTlsCtx ctx);
 
 #endif /* XNET_TRANSPORT_H */

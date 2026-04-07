@@ -195,7 +195,7 @@ XDEF_HANDLE(xTcpListener);
  * @brief Configuration for xTcpListener.
  */
 XDEF_STRUCT(xTcpListenerConf) {
-  void *tls_ctx;   /**< TLS context from xTlsCtxCreate(), or NULL       */
+  xTlsCtx tls_ctx; /**< TLS context from xTlsCtxCreate(), or NULL       */
   int   backlog;   /**< listen() backlog (0 = default 128)               */
   int   reuseport; /**< Set SO_REUSEPORT if non-zero                    */
 };

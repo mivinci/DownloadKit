@@ -35,7 +35,7 @@ XDEF_STRUCT(xTcpListener_) {
   xEventLoop       loop;
   xSocket          listen_sock;
   int              listen_fd;
-  void            *tls_ctx; /**< NULL for plain TCP */
+  xTlsCtx          tls_ctx; /**< NULL for plain TCP */
   xTcpListenerFunc callback;
   void            *user_arg;
 };

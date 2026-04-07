@@ -12,6 +12,14 @@
 #include <xbase/base.h>
 
 /**
+ * @brief Opaque handle to a server-level TLS context.
+ *
+ * Created by xTlsCtxCreate(), shared across all connections accepted
+ * by a listener. Destroyed by xTlsCtxDestroy().
+ */
+XDEF_HANDLE(xTlsCtx);
+
+/**
  * @brief TLS configuration for client-side connections.
  *
  * Controls how a client verifies the server's TLS certificate and

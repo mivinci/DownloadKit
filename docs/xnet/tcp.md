@@ -138,7 +138,7 @@ On success: `conn` is valid, `err` is `xErrno_Ok`. On failure: `conn` is `NULL`,
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `tls_ctx` | `void *` | `NULL` | TLS context from `xTlsCtxCreate()`; `NULL` for plain TCP |
+| `tls_ctx` | `xTlsCtx` | `NULL` | TLS context from `xTlsCtxCreate()`; `NULL` for plain TCP |
 | `backlog` | `int` | `128` | `listen()` backlog |
 | `reuseport` | `int` | `0` | Set `SO_REUSEPORT` if non-zero |
 
@@ -294,7 +294,7 @@ void start_tls_server(xEventLoop loop) {
         .cert = "server.pem",
         .key  = "server-key.pem",
     };
-    void *tls_ctx = xTlsCtxCreate(&tls_conf);
+    xTlsCtx tls_ctx = xTlsCtxCreate(&tls_conf);
 
     xTcpListenerConf conf = {0};
     conf.tls_ctx = tls_ctx;

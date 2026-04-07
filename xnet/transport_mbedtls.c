@@ -68,7 +68,7 @@ XDEF_STRUCT(xTlsCtxMbedTLS_) {
   const char **alpn_list; /**< Borrowed pointer to user's ALPN list */
 };
 
-void *xTlsCtxCreate(const xTlsServerConf *config) {
+xTlsCtx xTlsCtxCreate(const xTlsServerConf *config) {
   if (!config || !config->cert || !config->key) return NULL;
 
   xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)calloc(1, sizeof(xTlsCtxMbedTLS_));
@@ -173,7 +173,7 @@ void *xTlsCtxCreate(const xTlsServerConf *config) {
     ctx->alpn_list = config->alpn;
   }
 
-  return ctx;
+  return (xTlsCtx)ctx;
 
 fail:
 #if MBEDTLS_VERSION_NUMBER < 0x04000000
@@ -188,7 +188,7 @@ fail:
   return NULL;
 }
 
-void xTlsCtxDestroy(void *raw) {
+void xTlsCtxDestroy(xTlsCtx raw) {
   if (!raw) return;
   xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)raw;
 #if MBEDTLS_VERSION_NUMBER < 0x04000000
@@ -372,7 +372,7 @@ static void mbed_destroy(void *ctx) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-void xTransportTlsServerInit(xTransport *transport, void *tls_ctx, int fd) {
+void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
   if (!transport || !tls_ctx) return;
 
   xTlsCtxMbedTLS_ *server_ctx = (xTlsCtxMbedTLS_ *)tls_ctx;

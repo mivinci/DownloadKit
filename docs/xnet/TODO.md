@@ -10,7 +10,9 @@ xnet currently provides three components:
 | --- | --- | --- |
 | `url.h` | URL Parser | ✅ Done |
 | `dns.h` | Async DNS Resolver | ✅ Done |
-| `tls.h` | TLS Configuration Types | ✅ Done |
+| `tls.h` | TLS Configuration Types + Context Management | ✅ Done |
+| `transport.h` | Unified I/O Transport (Plain / TLS) | ✅ Done |
+| `tcp.h` | Async TCP Connector & Listener | ✅ Done |
 
 The following protocols are planned to be built on top of `xbase/socket.h` (async socket abstraction) and integrated into the xnet module.
 

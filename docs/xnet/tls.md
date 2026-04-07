@@ -2,7 +2,7 @@
 
 ## Introduction
 
-`tls.h` defines `xTlsConf`, the unified TLS configuration structure shared across xKit modules. It controls certificate loading, peer verification, and optional ALPN negotiation for both client-side and server-side TLS. `xTlsCtx` is an opaque handle to a server-level TLS context created from `xTlsConf`. These are plain data types with no behavior — the actual TLS handshake is handled by the TLS backend (OpenSSL or mbedTLS) in the transport layer.
+`tls.h` defines `xTlsConf`, the unified TLS configuration structure shared across xKit modules, and `xTlsCtx`, the opaque handle to a server-level TLS context. It controls certificate loading, peer verification, and optional ALPN negotiation for both client-side and server-side TLS. These are the central TLS abstractions — the actual TLS handshake is handled by the TLS backend (OpenSSL or mbedTLS) in the transport layer.
 
 ## Design Philosophy
 
@@ -33,7 +33,60 @@ Unified TLS configuration for both client and server.
 
 ### xTlsCtx
 
-Opaque handle to a server-level TLS context. Created by `xTlsCtxCreate()`, shared across all connections accepted by a listener. Destroyed by `xTlsCtxDestroy()`.
+Opaque handle to a server-level TLS context. Created by `xTlsCtxCreate()`, shared across all connections accepted by a listener. Destroyed by `xTlsCtxDestroy()`. Supports certificate hot-reload via `xTlsCtxReload()`.
+
+### xTlsCtxCreate
+
+```c
+xTlsCtx xTlsCtxCreate(const xTlsConf *conf);
+```
+
+Create a server-level TLS context. Loads the certificate, private key, optional CA, and optional ALPN list. The returned context is shared across all connections accepted by a listener.
+
+- `conf` — TLS configuration (must not be NULL, `cert` and `key` must not be NULL).
+- Returns a TLS context handle, or `NULL` on failure.
+
+### xTlsCtxDestroy
+
+```c
+void xTlsCtxDestroy(xTlsCtx ctx);
+```
+
+Destroy a server-level TLS context and release all resources. Safe to call with `NULL` (no-op).
+
+### xTlsCtxReload
+
+```c
+int xTlsCtxReload(xTlsCtx ctx, const xTlsConf *conf);
+```
+
+Hot-reload certificates for an existing TLS context. Atomically replaces the certificate, private key, and optional CA. Existing connections are **not** affected; only new connections will use the updated certificates.
+
+- `ctx` — TLS context to reload (must not be NULL).
+- `conf` — New TLS configuration (must not be NULL, `cert` and `key` must not be NULL).
+- Returns `0` on success, `-1` on failure (context unchanged).
+
+**Example: Certificate hot-reload**
+
+```c
+// Initial setup
+xTlsConf tls = {
+    .cert = "server.pem",
+    .key  = "server-key.pem",
+    .alpn = (const char *[]){"h2", "http/1.1", NULL},
+};
+xTlsCtx ctx = xTlsCtxCreate(&tls);
+
+// ... later, when certificates are renewed ...
+xTlsConf new_tls = {
+    .cert = "server-new.pem",
+    .key  = "server-key-new.pem",
+    .alpn = (const char *[]){"h2", "http/1.1", NULL},
+};
+if (xTlsCtxReload(ctx, &new_tls) == 0) {
+    // New connections will use the updated certificates
+}
+```
 
 ### One-Way TLS (Client Verifies Server)
 
@@ -98,8 +151,8 @@ xHttpClient client = xHttpClientCreate(loop, &conf);
 
 ## Relationship with Other Modules
 
-- **xhttp** — The HTTP client and server consume `xTlsConf` via `xHttpClientConf.tls` (at creation time) and `xHttpServerListenTls()`. See the [TLS Deployment Guide](../xhttp/tls.md) for end-to-end examples including certificate generation.
-- **xhttp transport layer** — The actual TLS handshake implementation lives in `xhttp/transport_tls_*.c`, supporting both OpenSSL and mbedTLS backends.
+- **xnet** — `xTlsCtxCreate()` / `xTlsCtxDestroy()` / `xTlsCtxReload()` are declared in `tls.h` and implemented in the TLS backend files (`transport_openssl.c`, `transport_mbedtls.c`). The TCP listener uses `xTlsCtx` via `xTcpListenerConf.tls_ctx`.
+- **xhttp** — The HTTP server calls `xTlsCtxCreate()` internally when `xHttpServerListenTls()` is invoked, automatically setting ALPN to `{"h2", "http/1.1"}`. The HTTP client and WebSocket client consume `xTlsConf` directly. See the [TLS Deployment Guide](../xhttp/tls.md) for end-to-end examples.
 
 ## Security Notes
 

@@ -5,9 +5,8 @@
  *
  * transport_tls_client.h - TLS client transport initialization
  *
- * Creates a TLS transport configured for client-side connections
- * (SSL_set_connect_state). Used by the WebSocket client to
- * establish wss:// connections.
+ * Creates a per-connection SSL object using a shared TLS context.
+ * Used by the WebSocket client to establish wss:// connections.
  */
 
 #ifndef XHTTP_TRANSPORT_TLS_CLIENT_H
@@ -19,18 +18,17 @@
 /**
  * Initialize a TLS client transport for the given fd.
  *
- * Creates an SSL_CTX + SSL object in connect mode. If @p conf
- * is NULL, a default configuration is used (system CA, peer
- * verification enabled).
+ * Uses the shared @p tls_ctx to create a per-connection SSL object
+ * in connect mode. The context is NOT owned by the transport.
  *
  * @param transport  Transport to initialize (must not be NULL).
- * @param conf       TLS client configuration, or NULL for defaults.
+ * @param tls_ctx    Shared TLS context from xTlsCtxCreate() (must not be NULL).
  * @param hostname   Server hostname for SNI and verification.
  * @param fd         File descriptor for the TCP connection.
  * @return 0 on success, -1 on error.
  */
 int xHttpTlsClientTransportInit(xHttpTransport *transport,
-                                const xTlsConf *conf,
+                                xTlsCtx tls_ctx,
                                 const char *hostname,
                                 int fd);
 

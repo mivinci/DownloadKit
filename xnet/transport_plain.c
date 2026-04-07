@@ -50,8 +50,7 @@ static void plain_destroy(void *ctx) {
 void xTransportPlainInit(xTransport *transport, int fd) {
   if (!transport) return;
 
-  xTransportPlain_ *p =
-    (xTransportPlain_ *)malloc(sizeof(xTransportPlain_));
+  xTransportPlain_ *p = (xTransportPlain_ *)malloc(sizeof(xTransportPlain_));
   if (!p) {
     /* Fallback: zero out the transport so callers can detect failure */
     transport->read      = NULL;

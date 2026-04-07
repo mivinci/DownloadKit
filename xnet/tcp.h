@@ -91,9 +91,9 @@ XCAPI(xTransport) xTcpConnTakeTransport(xTcpConn conn);
  */
 XDEF_STRUCT(xTcpConnectConf) {
   const xTlsClientConf *tls; /**< TLS config, or NULL for plain TCP     */
-  int timeout_ms;             /**< Connect timeout in ms (0 = default 10s) */
-  int nodelay;                /**< Set TCP_NODELAY if non-zero             */
-  int keepalive;              /**< Set SO_KEEPALIVE if non-zero            */
+  int timeout_ms;            /**< Connect timeout in ms (0 = default 10s) */
+  int nodelay;               /**< Set TCP_NODELAY if non-zero             */
+  int keepalive;             /**< Set SO_KEEPALIVE if non-zero            */
 };
 
 /**
@@ -123,8 +123,8 @@ typedef void (*xTcpConnectFunc)(xTcpConn conn, xErrno err, void *arg);
  * @return          xErrno_Ok on success, or an error code.
  */
 XCAPI(xErrno) xTcpConnect(xEventLoop loop, const char *host, uint16_t port,
-                          const xTcpConnectConf *conf,
-                          xTcpConnectFunc callback, void *arg);
+                          const xTcpConnectConf *conf, xTcpConnectFunc callback,
+                          void *arg);
 
 /* ═══════════════════════════════════════════════════════════════════
  *  xTcpListener — async TCP listener
@@ -140,8 +140,8 @@ XDEF_HANDLE(xTcpListener);
  * @brief Configuration for xTcpListener.
  */
 XDEF_STRUCT(xTcpListenerConf) {
-  void *tls_ctx;  /**< TLS context from xTlsCtxCreate(), or NULL       */
-  int   backlog;  /**< listen() backlog (0 = default 128)               */
+  void *tls_ctx;   /**< TLS context from xTlsCtxCreate(), or NULL       */
+  int   backlog;   /**< listen() backlog (0 = default 128)               */
   int   reuseport; /**< Set SO_REUSEPORT if non-zero                    */
 };
 
@@ -155,8 +155,8 @@ XDEF_STRUCT(xTcpListenerConf) {
  * @param arg       User-provided argument from xTcpListenerCreate().
  */
 typedef void (*xTcpListenerFunc)(xTcpListener listener, xTcpConn conn,
-                                const struct sockaddr *addr, socklen_t addrlen,
-                                void *arg);
+                                 const struct sockaddr *addr, socklen_t addrlen,
+                                 void *arg);
 
 /**
  * @brief Create a TCP listener.
@@ -173,7 +173,7 @@ typedef void (*xTcpListenerFunc)(xTcpListener listener, xTcpConn conn,
  * @return          A listener handle, or NULL on failure.
  */
 XCAPI(xTcpListener) xTcpListenerCreate(xEventLoop loop, const char *host,
-                                       uint16_t port,
+                                       uint16_t                port,
                                        const xTcpListenerConf *conf,
                                        xTcpListenerFunc callback, void *arg);
 

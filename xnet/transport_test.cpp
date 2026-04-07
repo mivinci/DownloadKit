@@ -9,11 +9,10 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
-#include <string>
 
 extern "C" {
-#include <xnet/transport.h>
 #include "transport_private.h"
+#include <xnet/transport.h>
 }
 
 #include <sys/socket.h>
@@ -27,7 +26,7 @@ extern "C" {
 
 class PlainTransportTest : public ::testing::Test {
 protected:
-  int fds[2] = {-1, -1};
+  int        fds[2] = {-1, -1};
   xTransport t;
 
   void SetUp() override {
@@ -58,12 +57,12 @@ TEST_F(PlainTransportTest, ReadWrite) {
 
   /* Write through the peer fd */
   const char *msg = "hello transport";
-  ssize_t nw = write(fds[1], msg, strlen(msg));
+  ssize_t     nw  = write(fds[1], msg, strlen(msg));
   ASSERT_GT(nw, 0);
 
   /* Read through the transport */
-  char buf[64] = {};
-  ssize_t nr = t.read(t.ctx, buf, sizeof(buf));
+  char    buf[64] = {};
+  ssize_t nr      = t.read(t.ctx, buf, sizeof(buf));
   ASSERT_EQ(nr, nw);
   EXPECT_STREQ(buf, msg);
 }
@@ -74,19 +73,19 @@ TEST_F(PlainTransportTest, Writev) {
 
   /* Write through the transport using scatter-gather */
   struct iovec iov[2];
-  const char *part1 = "hello ";
-  const char *part2 = "world";
-  iov[0].iov_base = (void *)part1;
-  iov[0].iov_len  = strlen(part1);
-  iov[1].iov_base = (void *)part2;
-  iov[1].iov_len  = strlen(part2);
+  const char  *part1 = "hello ";
+  const char  *part2 = "world";
+  iov[0].iov_base    = (void *)part1;
+  iov[0].iov_len     = strlen(part1);
+  iov[1].iov_base    = (void *)part2;
+  iov[1].iov_len     = strlen(part2);
 
   ssize_t nw = t.writev(t.ctx, iov, 2);
   ASSERT_GT(nw, 0);
 
   /* Read from the peer fd */
-  char buf[64] = {};
-  ssize_t nr = read(fds[1], buf, sizeof(buf));
+  char    buf[64] = {};
+  ssize_t nr      = read(fds[1], buf, sizeof(buf));
   ASSERT_EQ(nr, nw);
   EXPECT_STREQ(buf, "hello world");
 }
@@ -102,11 +101,11 @@ TEST_F(PlainTransportTest, DestroyDoesNotCloseFd) {
 
   /* The fd should still be valid (write should succeed) */
   const char *msg = "still alive";
-  ssize_t nw = write(fds[0], msg, strlen(msg));
+  ssize_t     nw  = write(fds[0], msg, strlen(msg));
   EXPECT_GT(nw, 0);
 
-  char buf[64] = {};
-  ssize_t nr = read(fds[1], buf, sizeof(buf));
+  char    buf[64] = {};
+  ssize_t nr      = read(fds[1], buf, sizeof(buf));
   EXPECT_EQ(nr, nw);
   EXPECT_STREQ(buf, msg);
 }
@@ -130,9 +129,9 @@ TEST(TlsCtxTest, CreateWithNullConfReturnsNull) {
 
 TEST(TlsCtxTest, CreateWithInvalidCertReturnsNull) {
   xTlsServerConf conf = {};
-  conf.cert = "/nonexistent/cert.pem";
-  conf.key  = "/nonexistent/key.pem";
-  void *ctx = xTlsCtxCreate(&conf);
+  conf.cert           = "/nonexistent/cert.pem";
+  conf.key            = "/nonexistent/key.pem";
+  void *ctx           = xTlsCtxCreate(&conf);
   EXPECT_EQ(ctx, nullptr);
 }
 
@@ -149,8 +148,8 @@ TEST(TlsCtxTest, ClientInitWithInvalidConfFails) {
 
   /* Client init with bad CA path should fail */
   xTlsClientConf conf = {};
-  conf.ca = "/nonexistent/ca.pem";
-  conf.skip_verify = 0;
+  conf.ca             = "/nonexistent/ca.pem";
+  conf.skip_verify    = 0;
   int ret = xTransportTlsClientInit(&t, &conf, "example.com", fds[0]);
   /* Depending on backend, this may or may not fail (system CA fallback) */
   /* Just ensure it doesn't crash */

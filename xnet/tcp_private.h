@@ -10,7 +10,6 @@
 #define XNET_TCP_PRIVATE_H
 
 #include "tcp.h"
-#include "transport_private.h"
 
 /**
  * @brief Internal representation of xTcpConn.

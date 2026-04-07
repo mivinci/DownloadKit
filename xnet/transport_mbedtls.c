@@ -71,8 +71,7 @@ XDEF_STRUCT(xTlsCtxMbedTLS_) {
 void *xTlsCtxCreate(const xTlsServerConf *config) {
   if (!config || !config->cert || !config->key) return NULL;
 
-  xTlsCtxMbedTLS_ *ctx =
-    (xTlsCtxMbedTLS_ *)calloc(1, sizeof(xTlsCtxMbedTLS_));
+  xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)calloc(1, sizeof(xTlsCtxMbedTLS_));
   if (!ctx) return NULL;
 
   mbedtls_ssl_config_init(&ctx->conf);
@@ -212,10 +211,10 @@ XDEF_STRUCT(xTlsMbedTLS_) {
   mbedtls_ssl_context ssl;
   int                 fd;
   /* Client-only fields (NULL/zero for server) */
-  mbedtls_ssl_config  *owned_conf;
-  mbedtls_x509_crt    *owned_ca;
-  mbedtls_x509_crt    *owned_client_cert;
-  mbedtls_pk_context  *owned_client_key;
+  mbedtls_ssl_config *owned_conf;
+  mbedtls_x509_crt   *owned_ca;
+  mbedtls_x509_crt   *owned_client_cert;
+  mbedtls_pk_context *owned_client_key;
 #if MBEDTLS_VERSION_NUMBER < 0x04000000
   mbedtls_entropy_context  *owned_entropy;
   mbedtls_ctr_drbg_context *owned_ctr_drbg;
@@ -501,7 +500,10 @@ int xTransportTlsClientInit(xTransport *transport, const xTlsClientConf *conf,
       int loaded = 0;
       for (int i = 0; ca_paths[i]; i++) {
         ret = mbedtls_x509_crt_parse_file(t->owned_ca, ca_paths[i]);
-        if (ret == 0) { loaded = 1; break; }
+        if (ret == 0) {
+          loaded = 1;
+          break;
+        }
       }
       if (!loaded) {
         ret = mbedtls_x509_crt_parse_path(t->owned_ca, "/etc/ssl/certs");

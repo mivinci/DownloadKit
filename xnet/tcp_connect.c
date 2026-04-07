@@ -10,6 +10,7 @@
  */
 
 #include "tcp_private.h"
+#include "transport_private.h"
 
 #include <errno.h>
 #include <netinet/tcp.h>
@@ -43,28 +44,28 @@ XDEF_ENUM(xTcpConnectPhase_){
  */
 
 XDEF_STRUCT(xTcpConnector_) {
-  xEventLoop       loop;
-  xTcpConnectFunc  callback;
-  void            *user_arg;
+  xEventLoop      loop;
+  xTcpConnectFunc callback;
+  void           *user_arg;
 
   /* Config */
-  xTcpConnectConf  conf;
-  char            *host;
-  uint16_t         port;
+  xTcpConnectConf conf;
+  char           *host;
+  uint16_t        port;
 
   /* DNS */
-  xDnsQuery        dns_query;
-  xDnsResult      *dns_result;
+  xDnsQuery   dns_query;
+  xDnsResult *dns_result;
 
   /* Socket */
-  xSocket          sock;
-  int              fd;
+  xSocket sock;
+  int     fd;
 
   /* Transport */
-  xTransport       transport;
+  xTransport transport;
 
   /* Timeout */
-  xEventTimer      timer;
+  xEventTimer timer;
 
   /* Current phase */
   xTcpConnectPhase_ phase;
@@ -145,7 +146,7 @@ static void connector_succeed(xTcpConnector_ *c) {
   /* Transfer socket and transport to xTcpConn */
   xSocket    sock      = c->sock;
   xTransport transport = c->transport;
-  c->sock = NULL;
+  c->sock              = NULL;
   memset(&c->transport, 0, sizeof(c->transport));
 
   xTcpConn conn = xTcpConnCreate_(sock, transport);
@@ -173,7 +174,7 @@ static void connector_succeed(xTcpConnector_ *c) {
 
 static void connector_timeout_cb(void *arg) {
   xTcpConnector_ *c = (xTcpConnector_ *)arg;
-  c->timer = NULL;
+  c->timer          = NULL;
   connector_fail(c, xErrno_Timeout);
 }
 
@@ -184,7 +185,7 @@ static void connector_timeout_cb(void *arg) {
 
 static void connector_dns_cb(xDnsResult *result, void *arg) {
   xTcpConnector_ *c = (xTcpConnector_ *)arg;
-  c->dns_query = NULL;
+  c->dns_query      = NULL;
 
   if (result->error != xErrno_Ok || !result->addrs) {
     xErrno err = result->error != xErrno_Ok ? result->error : xErrno_DnsError;
@@ -194,7 +195,7 @@ static void connector_dns_cb(xDnsResult *result, void *arg) {
   }
 
   c->dns_result = result;
-  c->phase = xTcpConnectPhase_TcpConnect;
+  c->phase      = xTcpConnectPhase_TcpConnect;
   connector_do_tcp_connect(c);
 }
 
@@ -207,8 +208,8 @@ static void connector_do_tcp_connect(xTcpConnector_ *c) {
   xDnsAddr *addr = c->dns_result->addrs;
 
   /* Create socket */
-  c->sock = xSocketCreate(c->loop, addr->family, SOCK_STREAM, 0,
-                          xEvent_Write, connector_sock_cb, c);
+  c->sock = xSocketCreate(c->loop, addr->family, SOCK_STREAM, 0, xEvent_Write,
+                          connector_sock_cb, c);
   if (!c->sock) {
     connector_fail(c, xErrno_SysError);
     return;
@@ -244,8 +245,7 @@ static void connector_do_tcp_connect(xTcpConnector_ *c) {
  */
 
 static void connector_do_tls_handshake(xTcpConnector_ *c) {
-  if (xTransportTlsClientInit(&c->transport, c->conf.tls, c->host,
-                              c->fd) < 0) {
+  if (xTransportTlsClientInit(&c->transport, c->conf.tls, c->host, c->fd) < 0) {
     connector_fail(c, xErrno_SysError);
     return;
   }
@@ -344,7 +344,7 @@ static void connector_sock_cb(xSocket sock, xEventMask mask, void *arg) {
   (void)sock;
 
   if (mask & xEvent_Write) connector_on_writable(c);
-  if (mask & xEvent_Read)  connector_on_readable(c);
+  if (mask & xEvent_Read) connector_on_readable(c);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -381,10 +381,10 @@ xErrno xTcpConnect(xEventLoop loop, const char *host, uint16_t port,
   }
 
   /* Set timeout */
-  int timeout_ms = c->conf.timeout_ms > 0 ? c->conf.timeout_ms
-                                           : XTCP_DEFAULT_TIMEOUT_MS;
-  c->timer = xEventLoopTimerAfter(loop, connector_timeout_cb, c,
-                                  (uint64_t)timeout_ms);
+  int timeout_ms =
+    c->conf.timeout_ms > 0 ? c->conf.timeout_ms : XTCP_DEFAULT_TIMEOUT_MS;
+  c->timer =
+    xEventLoopTimerAfter(loop, connector_timeout_cb, c, (uint64_t)timeout_ms);
 
   /* Start DNS resolution */
   char port_str[8];
@@ -395,8 +395,7 @@ xErrno xTcpConnect(xEventLoop loop, const char *host, uint16_t port,
   hints.ai_family   = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
 
-  c->dns_query = xDnsResolve(loop, host, port_str, &hints,
-                             connector_dns_cb, c);
+  c->dns_query = xDnsResolve(loop, host, port_str, &hints, connector_dns_cb, c);
   if (!c->dns_query) {
     connector_destroy(c);
     return xErrno_SysError;

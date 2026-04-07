@@ -57,9 +57,9 @@ void xTcpConnClose(xEventLoop loop, xTcpConn conn) {
 
 xSocket xTcpConnTakeSocket(xTcpConn conn) {
   if (!conn) return NULL;
-  xTcpConn_ *c = (xTcpConn_ *)conn;
-  xSocket sock = c->sock;
-  c->sock = NULL;
+  xTcpConn_ *c    = (xTcpConn_ *)conn;
+  xSocket    sock = c->sock;
+  c->sock         = NULL;
   return sock;
 }
 

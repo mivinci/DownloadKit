@@ -10,6 +10,7 @@
  */
 
 #include "tcp_private.h"
+#include "transport_private.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -31,10 +32,10 @@
  */
 
 XDEF_STRUCT(xTcpListener_) {
-  xEventLoop      loop;
-  xSocket         listen_sock;
-  int             listen_fd;
-  void           *tls_ctx;     /**< NULL for plain TCP */
+  xEventLoop       loop;
+  xSocket          listen_sock;
+  int              listen_fd;
+  void            *tls_ctx; /**< NULL for plain TCP */
   xTcpListenerFunc callback;
   void            *user_arg;
 };
@@ -102,11 +103,11 @@ static void pending_conn_on_event(xSocket sock, xEventMask mask, void *arg) {
   switch (result) {
   case xTransportResult_Done: {
     /* Handshake complete: create xTcpConn and deliver */
-    xSocket    s = pc->sock;
-    xTransport t = pc->transport;
-    struct sockaddr_storage addr = pc->addr;
-    socklen_t addrlen = pc->addrlen;
-    xTcpListener_ *listener = pc->listener;
+    xSocket                 s        = pc->sock;
+    xTransport              t        = pc->transport;
+    struct sockaddr_storage addr     = pc->addr;
+    socklen_t               addrlen  = pc->addrlen;
+    xTcpListener_          *listener = pc->listener;
 
     /* Prevent pending_conn_destroy from closing these */
     pc->sock = NULL;
@@ -123,9 +124,8 @@ static void pending_conn_on_event(xSocket sock, xEventMask mask, void *arg) {
 
     free(pc);
 
-    listener->callback((xTcpListener)listener, conn,
-                       (struct sockaddr *)&addr, addrlen,
-                       listener->user_arg);
+    listener->callback((xTcpListener)listener, conn, (struct sockaddr *)&addr,
+                       addrlen, listener->user_arg);
     break;
   }
   case xTransportResult_WantRead:
@@ -156,8 +156,8 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
   for (;;) {
     struct sockaddr_storage client_addr;
     socklen_t               addr_len = sizeof(client_addr);
-    int client_fd = accept(l->listen_fd, (struct sockaddr *)&client_addr,
-                           &addr_len);
+    int                     client_fd =
+      accept(l->listen_fd, (struct sockaddr *)&client_addr, &addr_len);
     if (client_fd < 0) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) break;
       if (errno == EMFILE || errno == ENFILE) {
@@ -192,9 +192,9 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
       }
 
       /* Create xSocket for the accepted fd */
-      pc->sock = xSocketCreateFromFd(l->loop, client_fd,
-                                     xEvent_Read | xEvent_Write,
-                                     pending_conn_on_event, pc);
+      pc->sock =
+        xSocketCreateFromFd(l->loop, client_fd, xEvent_Read | xEvent_Write,
+                            pending_conn_on_event, pc);
       if (!pc->sock) {
         if (pc->transport.destroy) pc->transport.destroy(pc->transport.ctx);
         close(client_fd);
@@ -209,7 +209,7 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
         /* Handshake completed immediately (unlikely) */
         xSocket    s = pc->sock;
         xTransport t = pc->transport;
-        pc->sock = NULL;
+        pc->sock     = NULL;
         memset(&pc->transport, 0, sizeof(pc->transport));
 
         xTcpConn conn = xTcpConnCreate_(s, t);
@@ -220,9 +220,8 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
           continue;
         }
         free(pc);
-        l->callback((xTcpListener)l, conn,
-                     (struct sockaddr *)&client_addr, addr_len,
-                     l->user_arg);
+        l->callback((xTcpListener)l, conn, (struct sockaddr *)&client_addr,
+                    addr_len, l->user_arg);
         break;
       }
       case xTransportResult_WantRead:
@@ -246,8 +245,7 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
         continue;
       }
 
-      xSocket client_sock = xSocketCreateFromFd(l->loop, client_fd,
-                                                xEvent_Read,
+      xSocket client_sock = xSocketCreateFromFd(l->loop, client_fd, xEvent_Read,
                                                 noop_sock_cb, NULL);
       if (!client_sock) {
         if (transport.destroy) transport.destroy(transport.ctx);
@@ -262,9 +260,8 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
         continue;
       }
 
-      l->callback((xTcpListener)l, conn,
-                   (struct sockaddr *)&client_addr, addr_len,
-                   l->user_arg);
+      l->callback((xTcpListener)l, conn, (struct sockaddr *)&client_addr,
+                  addr_len, l->user_arg);
     }
   }
 }
@@ -322,8 +319,8 @@ xTcpListener xTcpListenerCreate(xEventLoop loop, const char *host,
     return NULL;
   }
 
-  int backlog = (conf && conf->backlog > 0) ? conf->backlog
-                                            : XTCP_DEFAULT_BACKLOG;
+  int backlog =
+    (conf && conf->backlog > 0) ? conf->backlog : XTCP_DEFAULT_BACKLOG;
   if (listen(fd, backlog) < 0) {
     xLog(false, "xnet: listen() failed: %s", strerror(errno));
     close(fd);
@@ -344,8 +341,8 @@ xTcpListener xTcpListenerCreate(xEventLoop loop, const char *host,
   l->user_arg  = arg;
 
   /* Register with event loop */
-  l->listen_sock = xSocketCreateFromFd(loop, fd, xEvent_Read,
-                                       listener_on_event, l);
+  l->listen_sock =
+    xSocketCreateFromFd(loop, fd, xEvent_Read, listener_on_event, l);
   if (!l->listen_sock) {
     close(fd);
     free(l);

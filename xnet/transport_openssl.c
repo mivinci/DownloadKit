@@ -33,7 +33,7 @@
  */
 XDEF_STRUCT(xTlsCtxOpenSSL_) {
   SSL_CTX       *ssl_ctx;
-  unsigned char *alpn_wire;    /**< Wire-encoded ALPN list, or NULL */
+  unsigned char *alpn_wire; /**< Wire-encoded ALPN list, or NULL */
   size_t         alpn_wire_len;
 };
 
@@ -43,12 +43,11 @@ static int alpn_select_cb(SSL *ssl, const unsigned char **out,
   (void)ssl;
   xTlsCtxOpenSSL_ *ctx = (xTlsCtxOpenSSL_ *)arg;
 
-  if (!ctx->alpn_wire || ctx->alpn_wire_len == 0)
-    return SSL_TLSEXT_ERR_NOACK;
+  if (!ctx->alpn_wire || ctx->alpn_wire_len == 0) return SSL_TLSEXT_ERR_NOACK;
 
-  if (SSL_select_next_proto((unsigned char **)out, outlen,
-                            ctx->alpn_wire, (unsigned int)ctx->alpn_wire_len,
-                            in, inlen) != OPENSSL_NPN_NEGOTIATED) {
+  if (SSL_select_next_proto((unsigned char **)out, outlen, ctx->alpn_wire,
+                            (unsigned int)ctx->alpn_wire_len, in,
+                            inlen) != OPENSSL_NPN_NEGOTIATED) {
     return SSL_TLSEXT_ERR_NOACK;
   }
   return SSL_TLSEXT_ERR_OK;
@@ -104,8 +103,7 @@ void *xTlsCtxCreate(const xTlsServerConf *conf) {
   /* Client verification mode */
   if (conf->verify_peer == 2) {
     SSL_CTX_set_verify(ssl_ctx,
-                       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
-                       NULL);
+                       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
   } else if (conf->verify_peer == 1) {
     SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
   } else {
@@ -113,13 +111,12 @@ void *xTlsCtxCreate(const xTlsServerConf *conf) {
   }
 
   /* Allocate wrapper */
-  xTlsCtxOpenSSL_ *ctx =
-    (xTlsCtxOpenSSL_ *)calloc(1, sizeof(xTlsCtxOpenSSL_));
+  xTlsCtxOpenSSL_ *ctx = (xTlsCtxOpenSSL_ *)calloc(1, sizeof(xTlsCtxOpenSSL_));
   if (!ctx) {
     SSL_CTX_free(ssl_ctx);
     return NULL;
   }
-  ctx->ssl_ctx      = ssl_ctx;
+  ctx->ssl_ctx       = ssl_ctx;
   ctx->alpn_wire     = NULL;
   ctx->alpn_wire_len = 0;
 

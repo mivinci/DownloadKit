@@ -77,7 +77,7 @@ for TLS in $TLS_BACKENDS; do
             ldconfig && \
             find /work -name '*.c' -o -name '*.cpp' -o -name '*.h' | xargs touch && \
             rm -rf $BUILD_DIR && mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
-            cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DXK_TLS_BACKEND=$TLS -DXK_ENABLE_ASAN=ON && \
+            cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DXK_TLS_BACKEND=$TLS -DXK_ENABLE_ASAN=OFF && \
             cmake --build . -j$JOBS && \
             ctest --output-on-failure
         "

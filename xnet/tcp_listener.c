@@ -109,6 +109,11 @@ static void pending_conn_on_event(xSocket sock, xEventMask mask, void *arg) {
     socklen_t               addrlen  = pc->addrlen;
     xTcpListener_          *listener = pc->listener;
 
+    /* Detach pending-conn callback before transferring ownership.
+     * Prevents use-after-free if a stale event fires after pc is freed. */
+    xSocketSetCallback(s, noop_sock_cb, NULL);
+    xSocketSetMask(listener->loop, s, 0);
+
     /* Prevent pending_conn_destroy from closing these */
     pc->sock = NULL;
     memset(&pc->transport, 0, sizeof(pc->transport));
@@ -209,6 +214,11 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
         /* Handshake completed immediately (unlikely) */
         xSocket    s = pc->sock;
         xTransport t = pc->transport;
+
+        /* Detach pending-conn callback before transferring ownership. */
+        xSocketSetCallback(s, noop_sock_cb, NULL);
+        xSocketSetMask(l->loop, s, 0);
+
         pc->sock     = NULL;
         memset(&pc->transport, 0, sizeof(pc->transport));
 

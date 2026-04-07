@@ -87,6 +87,13 @@ static void connector_do_tls_handshake(xTcpConnector_ *c);
 static void connector_on_writable(xTcpConnector_ *c);
 static void connector_on_readable(xTcpConnector_ *c);
 
+/* No-op callback to detach connector from socket before ownership transfer */
+static void noop_sock_cb(xSocket sock, xEventMask mask, void *arg) {
+  (void)sock;
+  (void)mask;
+  (void)arg;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
  *  Cleanup
  * ═══════════════════════════════════════════════════════════════════
@@ -142,6 +149,13 @@ static void connector_succeed(xTcpConnector_ *c) {
     xEventLoopTimerCancel(c->loop, c->timer);
     c->timer = NULL;
   }
+
+  /* Detach connector callback before transferring ownership.
+   * The socket still references connector_sock_cb(arg=c), but c will
+   * be freed below.  Replace with a no-op to prevent use-after-free
+   * if the event loop dispatches a stale event in the same iteration. */
+  xSocketSetCallback(c->sock, noop_sock_cb, NULL);
+  xSocketSetMask(c->loop, c->sock, 0);
 
   /* Transfer socket and transport to xTcpConn */
   xSocket    sock      = c->sock;

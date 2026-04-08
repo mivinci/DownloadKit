@@ -47,3 +47,14 @@ if(XK_BUILD_TESTS)
   target_link_libraries(xbase_test PRIVATE xbase GTest::gtest GTest::gtest_main)
   add_test(NAME xbase_test COMMAND xbase_test)
 endif()
+
+if(XK_BUILD_BENCHMARKS)
+  file(GLOB XBASE_BENCH_SOURCES "*_bench.cpp")
+  foreach(src ${XBASE_BENCH_SOURCES})
+    get_filename_component(name ${src} NAME_WE)
+    xk_add_benchmark(${name}
+      SOURCES ${src}
+      LIBS    xbase
+    )
+  endforeach()
+endif()

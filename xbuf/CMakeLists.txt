@@ -14,3 +14,14 @@ if(XK_BUILD_TESTS)
     add_test(NAME xbuf_test COMMAND xbuf_test)
   endif()
 endif()
+
+if(XK_BUILD_BENCHMARKS)
+  file(GLOB XBUF_BENCH_SOURCES "*_bench.cpp")
+  foreach(src ${XBUF_BENCH_SOURCES})
+    get_filename_component(name ${src} NAME_WE)
+    xk_add_benchmark(${name}
+      SOURCES ${src}
+      LIBS    xbuf
+    )
+  endforeach()
+endif()

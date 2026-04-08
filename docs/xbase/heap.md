@@ -186,3 +186,29 @@ int main(void) {
 | **Thread Safety** | Not thread-safe | Not thread-safe | Not thread-safe | Not thread-safe |
 
 **Key Differentiator:** xbase's heap provides built-in index tracking via the `setidx` callback, enabling O(log n) removal and priority updates — features that `std::priority_queue` lacks entirely. This makes it ideal for timer implementations where cancellation is a common operation.
+
+## Benchmark
+
+> Environment: Apple M3 Pro, 36 GB RAM, macOS 26.4, Release build (`-O2`).
+> Source: [`xbase/heap_bench.cpp`](https://github.com/mivinci/xKit/blob/main/xbase/heap_bench.cpp)
+
+| Benchmark | N | Time (ns) | CPU (ns) | Throughput |
+| --- | ---: | ---: | ---: | --- |
+| `BM_Heap_Push` | 8 | 983 | 987 | 8.1 M items/s |
+| `BM_Heap_Push` | 64 | 1,694 | 1,699 | 37.7 M items/s |
+| `BM_Heap_Push` | 512 | 8,722 | 8,725 | 58.7 M items/s |
+| `BM_Heap_Push` | 4,096 | 56,854 | 56,853 | 72.0 M items/s |
+| `BM_Heap_Pop` | 8 | 1,020 | 1,024 | 7.8 M items/s |
+| `BM_Heap_Pop` | 64 | 2,807 | 2,809 | 22.8 M items/s |
+| `BM_Heap_Pop` | 512 | 26,334 | 26,337 | 19.4 M items/s |
+| `BM_Heap_Pop` | 4,096 | 297,382 | 297,325 | 13.8 M items/s |
+| `BM_Heap_Remove` | 8 | 1,015 | 1,020 | 7.8 M items/s |
+| `BM_Heap_Remove` | 64 | 1,808 | 1,811 | 35.3 M items/s |
+| `BM_Heap_Remove` | 512 | 8,914 | 8,903 | 57.5 M items/s |
+| `BM_Heap_Remove` | 4,096 | 68,017 | 68,016 | 60.2 M items/s |
+
+**Key Observations:**
+
+- **Push** throughput scales well with heap size — amortized cost per element decreases as batch size grows, reaching 72M items/s at N=4096.
+- **Pop** is more expensive than push at large N due to the sift-down operation traversing more levels. At N=4096, pop throughput drops to ~14M items/s.
+- **Remove** (random index removal) performs comparably to push, thanks to the O(log n) index-tracked removal. This validates the `setidx` callback design for timer cancellation workloads.

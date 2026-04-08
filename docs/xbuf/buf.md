@@ -209,3 +209,25 @@ void handle_connection(int sockfd) {
 | **Handle invalidation** | Caller updates via `*bufp` | GC handles | Borrow checker | Iterator invalidation |
 
 **Key Differentiator:** xBuffer's single-allocation layout (flexible array member) eliminates one level of pointer indirection compared to typical buffer implementations. The compact-before-grow strategy minimizes reallocation frequency for append-consume workloads.
+
+## Benchmark
+
+> Environment: Apple M3 Pro, 36 GB RAM, macOS 26.4, Release build (`-O2`).
+> Source: [`xbuf/buf_bench.cpp`](https://github.com/mivinci/xKit/blob/main/xbuf/buf_bench.cpp)
+
+| Benchmark | Chunk Size | Time (ns) | CPU (ns) | Throughput |
+| --- | ---: | ---: | ---: | --- |
+| `BM_Buffer_Append` | 16 | 4,776 | 4,776 | 3.1 GiB/s |
+| `BM_Buffer_Append` | 64 | 4,400 | 4,400 | 13.5 GiB/s |
+| `BM_Buffer_Append` | 256 | 7,892 | 7,892 | 30.2 GiB/s |
+| `BM_Buffer_Append` | 1,024 | 21,834 | 21,811 | 43.7 GiB/s |
+| `BM_Buffer_Append` | 4,096 | 91,029 | 90,958 | 41.9 GiB/s |
+| `BM_Buffer_AppendConsume` | 64 | 4,999 | 4,999 | 11.9 GiB/s |
+| `BM_Buffer_AppendConsume` | 256 | 8,241 | 8,240 | 28.9 GiB/s |
+| `BM_Buffer_AppendConsume` | 1,024 | 22,859 | 22,859 | 41.7 GiB/s |
+
+**Key Observations:**
+
+- **Append throughput** peaks at ~44 GiB/s for 1KB chunks, limited by `memcpy` bandwidth and reallocation overhead.
+- **AppendConsume** (interleaved append + consume) achieves comparable throughput to pure append, validating the compact-before-grow strategy — consumed space is reclaimed without reallocation.
+- Small chunks (16B) show lower throughput due to per-call overhead dominating the `memcpy` cost.

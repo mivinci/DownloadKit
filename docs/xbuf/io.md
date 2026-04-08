@@ -355,3 +355,33 @@ void handle_data(int sockfd) {
 | **Language** | C99 | C++ | Java | Go |
 
 **Key Differentiator:** xbuf's `xIOBuffer` combines brpc-style block-chain architecture with a lock-free Treiber stack block pool and inline ref optimization. The zero-copy `Cut` and `AppendIOBuffer` operations make it ideal for protocol parsing and data pipeline scenarios in C.
+
+## Benchmark
+
+> Environment: Apple M3 Pro, 36 GB RAM, macOS 26.4, Release build (`-O2`).
+> Source: [`xbuf/io_bench.cpp`](https://github.com/mivinci/xKit/blob/main/xbuf/io_bench.cpp)
+
+| Benchmark | Size | Time (ns) | CPU (ns) | Throughput |
+| --- | ---: | ---: | ---: | --- |
+| `BM_IOBuffer_Append` | 64 | 3,720 | 3,720 | 16.0 GiB/s |
+| `BM_IOBuffer_Append` | 256 | 7,569 | 7,568 | 31.5 GiB/s |
+| `BM_IOBuffer_Append` | 1,024 | 22,341 | 22,340 | 42.7 GiB/s |
+| `BM_IOBuffer_Append` | 4,096 | 79,796 | 79,794 | 47.8 GiB/s |
+| `BM_IOBuffer_Append` | 8,192 | 187,167 | 187,165 | 40.8 GiB/s |
+| `BM_IOBuffer_AppendConsume` | 64 | 5,230 | 5,230 | 11.4 GiB/s |
+| `BM_IOBuffer_AppendConsume` | 256 | 8,232 | 8,232 | 29.0 GiB/s |
+| `BM_IOBuffer_AppendConsume` | 1,024 | 23,040 | 23,040 | 41.4 GiB/s |
+| `BM_IOBuffer_Cut` | 8,192 | 167 | 167 | 45.6 GiB/s |
+| `BM_IOBuffer_Cut` | 65,536 | 1,651 | 1,651 | 37.0 GiB/s |
+| `BM_IOBuffer_Cut` | 262,144 | 8,122 | 8,122 | 30.1 GiB/s |
+| `BM_IOBuffer_AppendIOBuffer` | 1,024 | 3,196 | 3,196 | 29.8 GiB/s |
+| `BM_IOBuffer_AppendIOBuffer` | 4,096 | 9,307 | 9,307 | 41.0 GiB/s |
+| `BM_IOBuffer_AppendIOBuffer` | 8,192 | 17,604 | 17,602 | 43.3 GiB/s |
+| `BM_IOBuffer_BlockPool` | — | 8.91 | 8.89 | — |
+
+**Key Observations:**
+
+- **Append** peaks at ~48 GiB/s for 4KB chunks. The slight drop at 8KB reflects block boundary crossing overhead.
+- **Cut** (zero-copy split) is extremely fast — 167ns for 8KB — because it only manipulates reference metadata, not data. This validates the block-chain architecture for protocol parsing.
+- **AppendIOBuffer** (zero-copy concatenation) achieves ~43 GiB/s, confirming that block ownership transfer avoids data copies.
+- **BlockPool** acquire/release cycle takes ~9ns, showing the lock-free Treiber stack's efficiency for block recycling.

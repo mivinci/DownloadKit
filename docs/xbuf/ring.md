@@ -251,3 +251,24 @@ void event_loop_handler(int sockfd) {
 | **Language** | C99 | C (kernel) | C++ | C |
 
 **Key Differentiator:** xbuf's ring buffer combines the power-of-two bitmask optimization (like `kfifo`) with scatter-gather I/O helpers (`readv`/`writev`) in a single-allocation design. It's purpose-built for event-driven network programming where fixed memory budgets and efficient syscalls are essential.
+
+## Benchmark
+
+> Environment: Apple M3 Pro, 36 GB RAM, macOS 26.4, Release build (`-O2`).
+> Source: [`xbuf/ring_bench.cpp`](https://github.com/mivinci/xKit/blob/main/xbuf/ring_bench.cpp)
+
+| Benchmark | Size | Time (ns) | CPU (ns) | Throughput |
+| --- | ---: | ---: | ---: | --- |
+| `BM_Ring_WriteRead` | 64 | 6.05 | 6.05 | 19.7 GiB/s |
+| `BM_Ring_WriteRead` | 256 | 16.8 | 16.8 | 28.4 GiB/s |
+| `BM_Ring_WriteRead` | 1,024 | 27.4 | 27.4 | 69.6 GiB/s |
+| `BM_Ring_WriteRead` | 4,096 | 99.2 | 99.2 | 76.9 GiB/s |
+| `BM_Ring_Throughput` | 4,096 | 225 | 225 | 17.0 GiB/s |
+| `BM_Ring_Throughput` | 16,384 | 806 | 806 | 18.9 GiB/s |
+| `BM_Ring_Throughput` | 65,536 | 3,198 | 3,198 | 19.1 GiB/s |
+
+**Key Observations:**
+
+- **WriteRead** (single write + read cycle) achieves up to ~77 GiB/s at 4KB chunks, demonstrating the efficiency of the bitmask-based wrap-around and `memcpy` for larger transfers.
+- **Throughput** (sustained writes until full) stabilizes at ~19 GiB/s regardless of capacity, showing consistent performance as the ring scales.
+- The ring buffer's zero-overhead indexing (bitmask instead of modulo) keeps per-operation cost extremely low — just 6ns for a 64-byte write+read cycle.

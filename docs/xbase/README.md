@@ -93,6 +93,7 @@ graph TD
 | [`heap.h`](heap.md) | [heap.md](heap.md) | Generic min-heap with O(log n) insert/remove, used internally by the timer subsystem |
 | [`mpsc.h`](mpsc.md) | [mpsc.md](mpsc.md) | Lock-free multi-producer / single-consumer intrusive queue |
 | [`atomic.h`](atomic.md) | [atomic.md](atomic.md) | Compiler-portable atomic operations (GCC/Clang `__atomic` builtins) |
+| [`io.h`](io.md) | [io.md](io.md) | Abstract I/O interfaces (Reader, Writer, Seeker, Closer) with convenience helpers (xReadFull, xReadAll, xWritev, etc.) |
 | `time.h` | — | Time utilities: `xMonoMs()` (monotonic) and `xWallMs()` (wall-clock) in milliseconds |
 
 ## How to Choose
@@ -111,6 +112,7 @@ graph TD
 | Pass messages between threads lock-free | [`mpsc.h`](mpsc.md) — intrusive MPSC queue |
 | Perform atomic read-modify-write | [`atomic.h`](atomic.md) — macro wrappers over compiler builtins |
 | Get current time in milliseconds | `time.h` — `xMonoMs()` for elapsed time, `xWallMs()` for wall-clock |
+| Read/write through abstract I/O interfaces | [`io.h`](io.md) — `xReader` / `xWriter` + helpers like `xReadFull`, `xReadAll` |
 
 ## Quick Start
 

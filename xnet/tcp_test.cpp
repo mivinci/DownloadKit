@@ -14,6 +14,7 @@
 #include <thread>
 
 extern "C" {
+#include <xbase/io.h>
 #include <xnet/tcp.h>
 #include <xnet/transport.h>
 }
@@ -423,4 +424,113 @@ TEST_F(TcpTest, ListenerDestroyStopsAccept) {
 TEST_F(TcpTest, ListenerDestroyNull) {
   /* Should not crash */
   xTcpListenerDestroy(nullptr);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  xTcpConnReader / xTcpConnWriter adapter tests
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+TEST(TcpConnTest, ReaderWriterNullSafe) {
+  xReader r = xTcpConnReader(nullptr);
+  EXPECT_EQ(r.read, nullptr);
+  EXPECT_EQ(r.ctx, nullptr);
+
+  xWriter w = xTcpConnWriter(nullptr);
+  EXPECT_EQ(w.writev, nullptr);
+  EXPECT_EQ(w.ctx, nullptr);
+}
+
+struct AdapterCtx {
+  std::atomic<bool> connect_done{false};
+  std::atomic<bool> accept_done{false};
+  xTcpConn          client_conn{nullptr};
+  xTcpConn          server_conn{nullptr};
+  xErrno            connect_err{xErrno_Unknown};
+};
+
+static void adapter_connect_cb(xTcpConn conn, xErrno err, void *arg) {
+  auto *ctx        = static_cast<AdapterCtx *>(arg);
+  ctx->client_conn = conn;
+  ctx->connect_err = err;
+  ctx->connect_done.store(true, std::memory_order_release);
+}
+
+static void adapter_accept_cb(xTcpListener listener, xTcpConn conn,
+                               const struct sockaddr *addr, socklen_t addrlen,
+                               void *arg) {
+  (void)listener;
+  (void)addr;
+  (void)addrlen;
+  auto *ctx        = static_cast<AdapterCtx *>(arg);
+  ctx->server_conn = conn;
+  ctx->accept_done.store(true, std::memory_order_release);
+}
+
+TEST_F(TcpTest, ReaderWriterAdapterLoopback) {
+  AdapterCtx ctx;
+
+  uint16_t port = get_free_port();
+  ASSERT_GT(port, 0);
+
+  xTcpListenerConf lconf = {};
+  xTcpListener listener  = xTcpListenerCreate(loop, "127.0.0.1", port, &lconf,
+                                              adapter_accept_cb, &ctx);
+  ASSERT_NE(listener, nullptr);
+
+  xErrno err =
+    xTcpConnect(loop, "127.0.0.1", port, nullptr, adapter_connect_cb, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  std::thread runner([&]() { xEventLoopRun(loop); });
+
+  auto deadline = std::chrono::steady_clock::now() + ms(10000);
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (ctx.connect_done.load() && ctx.accept_done.load()) break;
+    sleep_ms(10);
+  }
+
+  ASSERT_TRUE(ctx.connect_done.load());
+  ASSERT_TRUE(ctx.accept_done.load());
+  ASSERT_EQ(ctx.connect_err, xErrno_Ok);
+  ASSERT_NE(ctx.client_conn, nullptr);
+  ASSERT_NE(ctx.server_conn, nullptr);
+
+  /* Get adapters */
+  xWriter client_w = xTcpConnWriter(ctx.client_conn);
+  xReader server_r = xTcpConnReader(ctx.server_conn);
+  ASSERT_NE(client_w.writev, nullptr);
+  ASSERT_NE(server_r.read, nullptr);
+
+  /* Write via xWrite (adapter), read via xRead (adapter) */
+  const char *msg = "adapter test";
+  ssize_t     nw  = xWrite(client_w, msg, strlen(msg));
+  EXPECT_GT(nw, 0);
+
+  sleep_ms(50);
+
+  char    buf[64] = {};
+  ssize_t nr      = xRead(server_r, buf, sizeof(buf));
+  EXPECT_EQ(nr, nw);
+  EXPECT_STREQ(buf, msg);
+
+  /* Verify adapter behavior matches direct API */
+  const char *msg2 = "direct compare";
+  nw = xTcpConnSend(ctx.client_conn, msg2, strlen(msg2));
+  EXPECT_GT(nw, 0);
+
+  sleep_ms(50);
+
+  memset(buf, 0, sizeof(buf));
+  nr = xRead(server_r, buf, sizeof(buf));
+  EXPECT_EQ(nr, nw);
+  EXPECT_STREQ(buf, msg2);
+
+  /* Clean up */
+  xTcpConnClose(loop, ctx.client_conn);
+  xTcpConnClose(loop, ctx.server_conn);
+  xTcpListenerDestroy(listener);
+
+  xEventLoopStop(loop);
+  runner.join();
 }

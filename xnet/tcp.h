@@ -19,6 +19,7 @@
 #include <xbase/base.h>
 #include <xbase/error.h>
 #include <xbase/event.h>
+#include <xbase/io.h>
 #include <xbase/socket.h>
 #include <xnet/tls.h>
 #include <xnet/transport.h>
@@ -135,6 +136,30 @@ XCAPI(xSocket) xTcpConnTakeSocket(xTcpConn conn);
  * @return      Copy of the xTransport (all fields zero if conn is NULL).
  */
 XCAPI(xTransport) xTcpConnTakeTransport(xTcpConn conn);
+
+/**
+ * @brief Get an xReader adapter for the connection.
+ *
+ * Returns an xReader whose read function and context are taken from the
+ * connection's internal xTransport. Reading through the returned xReader
+ * is equivalent to calling xTcpConnRecv.
+ *
+ * @param conn  Connection handle (must not be NULL).
+ * @return      An xReader bound to the connection's transport.
+ */
+XCAPI(xReader) xTcpConnReader(xTcpConn conn);
+
+/**
+ * @brief Get an xWriter adapter for the connection.
+ *
+ * Returns an xWriter whose writev function and context are taken from the
+ * connection's internal xTransport. Writing through the returned xWriter
+ * is equivalent to calling xTcpConnSendIov.
+ *
+ * @param conn  Connection handle (must not be NULL).
+ * @return      An xWriter bound to the connection's transport.
+ */
+XCAPI(xWriter) xTcpConnWriter(xTcpConn conn);
 
 /* ═══════════════════════════════════════════════════════════════════
  *  xTcpConnect — async TCP connector

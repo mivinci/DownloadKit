@@ -8,7 +8,7 @@
  * Maps transport read/writev directly to read(2)/writev(2) syscalls.
  */
 
-#include "transport_private.h"
+#include "transport.h"
 
 #include <errno.h>
 #include <stdlib.h>

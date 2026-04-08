@@ -9,8 +9,7 @@
  * HTTP Upgrade → xWsConn creation, all fully asynchronous.
  */
 
-#include "transport_private.h"
-#include "transport_tls_client.h"
+#include <xnet/transport_private.h>
 #include "ws_handshake_client.h"
 #include "ws_private.h"
 
@@ -82,7 +81,7 @@ XDEF_STRUCT(xWsConnector) {
   int            fd;
 
   /* Transport */
-  xHttpTransport transport;
+  xTransport transport;
 
   /* Timeout */
   xEventTimer    timer;
@@ -271,7 +270,7 @@ static void connector_do_tls_handshake(xWsConnector *c) {
   memcpy(hostname, c->url.host, hlen);
   hostname[hlen] = '\0';
 
-  if (xHttpTlsClientTransportInit(&c->transport, c->tls_ctx,
+  if (xTransportTlsClientInit(&c->transport, c->tls_ctx,
                                   hostname, c->fd) < 0) {
     connector_fail(c, XWS_CLOSE_ABNORMAL);
     return;
@@ -280,13 +279,13 @@ static void connector_do_tls_handshake(xWsConnector *c) {
   /* Drive the handshake */
   int result = c->transport.handshake(c->transport.ctx);
   switch (result) {
-  case xHttpTransportResult_Done:
+  case xTransportResult_Done:
     connector_do_http_upgrade(c);
     break;
-  case xHttpTransportResult_WantRead:
+  case xTransportResult_WantRead:
     xSocketSetMask(c->loop, c->sock, xEvent_Read);
     break;
-  case xHttpTransportResult_WantWrite:
+  case xTransportResult_WantWrite:
     xSocketSetMask(c->loop, c->sock, xEvent_Write);
     break;
   default:
@@ -315,7 +314,7 @@ static void connector_do_http_upgrade(xWsConnector *c) {
 
   /* Set up plain transport if not using TLS */
   if (!c->use_tls) {
-    xHttpTransportPlainInit(&c->transport, c->fd);
+    xTransportPlainInit(&c->transport, c->fd);
   }
 
   /* Try to write immediately */
@@ -345,13 +344,13 @@ static void connector_on_writable(xWsConnector *c) {
   if (c->phase == xWsConnectPhase_TlsHandshake) {
     int result = c->transport.handshake(c->transport.ctx);
     switch (result) {
-    case xHttpTransportResult_Done:
+    case xTransportResult_Done:
       connector_do_http_upgrade(c);
       break;
-    case xHttpTransportResult_WantRead:
+    case xTransportResult_WantRead:
       xSocketSetMask(c->loop, c->sock, xEvent_Read);
       break;
-    case xHttpTransportResult_WantWrite:
+    case xTransportResult_WantWrite:
       xSocketSetMask(c->loop, c->sock, xEvent_Write);
       break;
     default:
@@ -393,13 +392,13 @@ static void connector_on_readable(xWsConnector *c) {
   if (c->phase == xWsConnectPhase_TlsHandshake) {
     int result = c->transport.handshake(c->transport.ctx);
     switch (result) {
-    case xHttpTransportResult_Done:
+    case xTransportResult_Done:
       connector_do_http_upgrade(c);
       break;
-    case xHttpTransportResult_WantRead:
+    case xTransportResult_WantRead:
       xSocketSetMask(c->loop, c->sock, xEvent_Read);
       break;
-    case xHttpTransportResult_WantWrite:
+    case xTransportResult_WantWrite:
       xSocketSetMask(c->loop, c->sock, xEvent_Write);
       break;
     default:
@@ -460,7 +459,7 @@ static void connector_on_readable(xWsConnector *c) {
 
     /* Transfer ownership of socket and transport */
     xSocket sock = c->sock;
-    xHttpTransport transport = c->transport;
+    xTransport transport = c->transport;
     xEventLoop loop = c->loop;
     xWsCallbacks cbs = c->callbacks;
     void *arg = c->user_arg;

@@ -102,6 +102,8 @@ graph LR
 | `xTcpConnSocket` | `xSocket xTcpConnSocket(xTcpConn conn)` | Get the underlying socket handle |
 | `xTcpConnTakeSocket` | `xSocket xTcpConnTakeSocket(xTcpConn conn)` | Extract socket ownership (conn no longer owns it) |
 | `xTcpConnTakeTransport` | `xTransport xTcpConnTakeTransport(xTcpConn conn)` | Extract transport ownership (conn no longer owns it) |
+| `xTcpConnReader` | `xReader xTcpConnReader(xTcpConn conn)` | Get an `xReader` adapter bound to the connection's transport (see [io.h](../xbase/io.md)) |
+| `xTcpConnWriter` | `xWriter xTcpConnWriter(xTcpConn conn)` | Get an `xWriter` adapter bound to the connection's transport (see [io.h](../xbase/io.md)) |
 | `xTcpConnClose` | `void xTcpConnClose(xEventLoop loop, xTcpConn conn)` | Close connection and free all resources |
 
 ### xTcpConnect — Async Connector

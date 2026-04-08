@@ -51,66 +51,66 @@ graph TD
 
 ## Module Index
 
-### [xbase](xbase/index.html) — Core Primitives
+### [xbase](modules/xbase/index.html) — Core Primitives
 
 The foundation of xKit. Provides event loop, timers, tasks, async sockets, memory management, and lock-free data structures.
 
 | Sub-Module | Description |
 | --- | --- |
-| [event.h](xbase/event.md) | Cross-platform event loop — kqueue (macOS) / epoll (Linux) / poll (fallback) |
-| [timer.h](xbase/timer.md) | Monotonic timer with Push (thread-pool) and Poll (lock-free MPSC) fire modes |
-| [task.h](xbase/task.md) | N:M task model — lightweight tasks multiplexed onto a thread pool |
-| [socket.h](xbase/socket.md) | Async socket abstraction with idle-timeout support |
-| [memory.h](xbase/memory.md) | Reference-counted allocation with vtable-driven lifecycle |
-| [error.h](xbase/error.md) | Unified error codes and human-readable messages |
-| [heap.h](xbase/heap.md) | Min-heap with index tracking (used by timer subsystem) |
-| [mpsc.h](xbase/mpsc.md) | Lock-free multi-producer / single-consumer queue |
-| [atomic.h](xbase/atomic.md) | Compiler-portable atomic operations (GCC/Clang builtins) |
-| [log.h](xbase/log.md) | Per-thread callback-based logging with optional backtrace |
-| [backtrace.h](xbase/backtrace.md) | Platform-adaptive stack trace (libunwind > execinfo > stub) |
+| [event.h](modules/xbase/event.md) | Cross-platform event loop — kqueue (macOS) / epoll (Linux) / poll (fallback) |
+| [timer.h](modules/xbase/timer.md) | Monotonic timer with Push (thread-pool) and Poll (lock-free MPSC) fire modes |
+| [task.h](modules/xbase/task.md) | N:M task model — lightweight tasks multiplexed onto a thread pool |
+| [socket.h](modules/xbase/socket.md) | Async socket abstraction with idle-timeout support |
+| [memory.h](modules/xbase/memory.md) | Reference-counted allocation with vtable-driven lifecycle |
+| [error.h](modules/xbase/error.md) | Unified error codes and human-readable messages |
+| [heap.h](modules/xbase/heap.md) | Min-heap with index tracking (used by timer subsystem) |
+| [mpsc.h](modules/xbase/mpsc.md) | Lock-free multi-producer / single-consumer queue |
+| [atomic.h](modules/xbase/atomic.md) | Compiler-portable atomic operations (GCC/Clang builtins) |
+| [log.h](modules/xbase/log.md) | Per-thread callback-based logging with optional backtrace |
+| [backtrace.h](modules/xbase/backtrace.md) | Platform-adaptive stack trace (libunwind > execinfo > stub) |
 | `time.h` | Time utilities: `xMonoMs()` (monotonic) and `xWallMs()` (wall-clock) |
 
-### [xbuf](xbuf/index.html) — Buffer Primitives
+### [xbuf](modules/xbuf/index.html) — Buffer Primitives
 
 Three buffer types for different I/O patterns — linear, ring, and block-chain.
 
 | Sub-Module | Description |
 | --- | --- |
-| [buf.h](xbuf/buf.md) | Linear auto-growing byte buffer with 2× expansion |
-| [ring.h](xbuf/ring.md) | Fixed-size ring buffer with power-of-2 mask indexing |
-| [io.h](xbuf/io.md) | Reference-counted block-chain I/O buffer with zero-copy split/cut |
+| [buf.h](modules/xbuf/buf.md) | Linear auto-growing byte buffer with 2× expansion |
+| [ring.h](modules/xbuf/ring.md) | Fixed-size ring buffer with power-of-2 mask indexing |
+| [io.h](modules/xbuf/io.md) | Reference-counted block-chain I/O buffer with zero-copy split/cut |
 
-### [xnet](xnet/index.html) — Networking Primitives
+### [xnet](modules/xnet/index.html) — Networking Primitives
 
 Shared networking utilities: URL parser, async DNS resolver, and TLS configuration types used by higher-level modules.
 
 | Sub-Module | Description |
 | --- | --- |
-| [url.h](xnet/url.md) | Lightweight URL parser with zero-copy component extraction |
-| [dns.h](xnet/dns.md) | Async DNS resolution via thread-pool offload |
-| [tls.h](xnet/tls.md) | Shared TLS configuration types (client & server) |
-| [tcp.h](xnet/tcp.md) | Async TCP connection, connector & listener with optional TLS |
+| [url.h](modules/xnet/url.md) | Lightweight URL parser with zero-copy component extraction |
+| [dns.h](modules/xnet/dns.md) | Async DNS resolution via thread-pool offload |
+| [tls.h](modules/xnet/tls.md) | Shared TLS configuration types (client & server) |
+| [tcp.h](modules/xnet/tcp.md) | Async TCP connection, connector & listener with optional TLS |
 
-### [xhttp](xhttp/index.html) — Async HTTP Client & Server & WebSocket
+### [xhttp](modules/xhttp/index.html) — Async HTTP Client & Server & WebSocket
 
 Full-featured async HTTP framework: libcurl-powered client with SSE streaming, event-driven server with HTTP/1.1 & HTTP/2 (h2c), TLS support (OpenSSL / mbedTLS), and RFC 6455 WebSocket (server & client).
 
 | Sub-Module | Description |
 | --- | --- |
-| [client.h](xhttp/client.md) | Async HTTP client (GET / POST / PUT / DELETE / PATCH / HEAD) |
-| [sse.c](xhttp/sse.md) | SSE streaming client with W3C-compliant event parsing |
-| [server.h](xhttp/server.md) | Event-driven HTTP server with HTTP/1.1 and HTTP/2 (h2c) |
-| [ws.h](xhttp/ws_server.md) | RFC 6455 WebSocket server with handler-initiated upgrade |
-| [ws.h](xhttp/ws_client.md) | RFC 6455 WebSocket client with async connect |
-| [transport.h](xhttp/tls.md) | Pluggable TLS transport layer (OpenSSL / mbedTLS / plain) |
+| [client.h](modules/xhttp/client.md) | Async HTTP client (GET / POST / PUT / DELETE / PATCH / HEAD) |
+| [sse.c](modules/xhttp/sse.md) | SSE streaming client with W3C-compliant event parsing |
+| [server.h](modules/xhttp/server.md) | Event-driven HTTP server with HTTP/1.1 and HTTP/2 (h2c) |
+| [ws.h](modules/xhttp/ws_server.md) | RFC 6455 WebSocket server with handler-initiated upgrade |
+| [ws.h](modules/xhttp/ws_client.md) | RFC 6455 WebSocket client with async connect |
+| [transport.h](modules/xhttp/tls.md) | Pluggable TLS transport layer (OpenSSL / mbedTLS / plain) |
 
-### [xlog](xlog/index.html) — Async Logging
+### [xlog](modules/xlog/index.html) — Async Logging
 
 High-performance async logger with MPSC queue, three flush modes, and file rotation.
 
 | Sub-Module | Description |
 | --- | --- |
-| [logger.h](xlog/logger.md) | Async logger with Timer / Notify / Mixed modes and `XLOG_*` macros |
+| [logger.h](modules/xlog/logger.md) | Async logger with Timer / Notify / Mixed modes and `XLOG_*` macros |
 
 ### [bench](bench/) — End-to-End Benchmarks
 
@@ -118,7 +118,9 @@ End-to-end benchmark results comparing xKit against other frameworks in real-wor
 
 | Benchmark | Description |
 | --- | --- |
-| [HTTP Server](bench/http_server.md) | xKit single-threaded HTTP/1.1 server vs Go `net/http` — GET/POST throughput and latency |
+| [HTTP/1.1 Server](bench/http_server.md) | xKit single-threaded HTTP/1.1 server vs Go `net/http` — GET/POST throughput and latency |
+| [HTTP/2 Server](bench/http2_server.md) | xKit single-threaded HTTP/2 (h2c) server vs Go `net/http` h2c — GET/POST throughput and latency |
+| [HTTPS Server](bench/https_server.md) | xKit single-threaded HTTPS (TLS 1.3) server vs Go `net/http` — GET/POST throughput and latency |
 
 ## Quick Navigation Guide
 
@@ -126,26 +128,26 @@ End-to-end benchmark results comparing xKit against other frameworks in real-wor
 
 | I want to... | Start here |
 | --- | --- |
-| Build an event-driven server | [xbase/event.h](xbase/event.md) → [xbase/socket.h](xbase/socket.md) |
-| Schedule timers | [xbase/timer.h](xbase/timer.md) |
-| Run tasks on a thread pool | [xbase/task.h](xbase/task.md) |
-| Make async HTTP requests | [xhttp/client.h](xhttp/client.md) |
-| Stream LLM API responses (SSE) | [xhttp/sse.c](xhttp/sse.md) |
-| Build an HTTP server | [xhttp/server.h](xhttp/server.md) |
-| Add WebSocket server | [xhttp/ws.h](xhttp/ws_server.md) |
-| Connect as WebSocket client | [xhttp/ws.h](xhttp/ws_client.md) |
-| Parse a URL | [xnet/url.h](xnet/url.md) |
-| Resolve DNS asynchronously | [xnet/dns.h](xnet/dns.md) |
-| Make async TCP connections | [xnet/tcp.h](xnet/tcp.md) |
-| Build a TCP server | [xnet/tcp.h](xnet/tcp.md) |
-| Configure TLS | [xnet/tls.h](xnet/tls.md) |
-| Enable TLS (HTTPS) | [xhttp/transport.h](xhttp/tls.md) |
-| Add async logging | [xlog/logger.h](xlog/logger.md) |
-| Manage object lifecycles | [xbase/memory.h](xbase/memory.md) |
-| Choose the right buffer type | [xbuf overview](xbuf/index.html) |
-| Build a lock-free producer/consumer pipeline | [xbase/mpsc.h](xbase/mpsc.md) |
-| See micro-benchmark results | Each module doc has a **Benchmark** section (e.g. [mpsc.h](xbase/mpsc.md#benchmark)) |
-| See HTTP server benchmark | [HTTP Server Benchmark](bench/http_server.md) |
+| Build an event-driven server | [xbase/event.h](modules/xbase/event.md) → [xbase/socket.h](modules/xbase/socket.md) |
+| Schedule timers | [xbase/timer.h](modules/xbase/timer.md) |
+| Run tasks on a thread pool | [xbase/task.h](modules/xbase/task.md) |
+| Make async HTTP requests | [xhttp/client.h](modules/xhttp/client.md) |
+| Stream LLM API responses (SSE) | [xhttp/sse.c](modules/xhttp/sse.md) |
+| Build an HTTP server | [xhttp/server.h](modules/xhttp/server.md) |
+| Add WebSocket server | [xhttp/ws.h](modules/xhttp/ws_server.md) |
+| Connect as WebSocket client | [xhttp/ws.h](modules/xhttp/ws_client.md) |
+| Parse a URL | [xnet/url.h](modules/xnet/url.md) |
+| Resolve DNS asynchronously | [xnet/dns.h](modules/xnet/dns.md) |
+| Make async TCP connections | [xnet/tcp.h](modules/xnet/tcp.md) |
+| Build a TCP server | [xnet/tcp.h](modules/xnet/tcp.md) |
+| Configure TLS | [xnet/tls.h](modules/xnet/tls.md) |
+| Enable TLS (HTTPS) | [xhttp/transport.h](modules/xhttp/tls.md) |
+| Add async logging | [xlog/logger.h](modules/xlog/logger.md) |
+| Manage object lifecycles | [xbase/memory.h](modules/xbase/memory.md) |
+| Choose the right buffer type | [xbuf overview](modules/xbuf/index.html) |
+| Build a lock-free producer/consumer pipeline | [xbase/mpsc.h](modules/xbase/mpsc.md) |
+| See micro-benchmark results | Each module doc has a **Benchmark** section (e.g. [mpsc.h](modules/xbase/mpsc.md#benchmark)) |
+| See HTTP server benchmarks | [HTTP/1.1](bench/http_server.md) · [HTTP/2](bench/http2_server.md) · [HTTPS](bench/https_server.md) |
 
 ### By Dependency Level
 
@@ -256,13 +258,15 @@ See the project [README](../README.md) for full build instructions, prerequisite
 
 ## Benchmark
 
-Micro-benchmark results are included in each module's documentation page (see the **Benchmark** section at the bottom of each page, e.g. [mpsc.h](xbase/mpsc.md#benchmark), [buf.h](xbuf/buf.md#benchmark)).
+Micro-benchmark results are included in each module's documentation page (see the **Benchmark** section at the bottom of each page, e.g. [mpsc.h](modules/xbase/mpsc.md#benchmark), [buf.h](modules/xbuf/buf.md#benchmark)).
 
 End-to-end benchmarks:
 
 | Benchmark | Description |
 | --- | --- |
-| [HTTP Server](bench/http_server.md) | xKit vs Go `net/http` — 152K req/s single-threaded, +15~60% faster across all scenarios |
+| [HTTP/1.1 Server](bench/http_server.md) | xKit vs Go `net/http` — 152K req/s single-threaded, +15~60% faster across all scenarios |
+| [HTTP/2 Server](bench/http2_server.md) | xKit vs Go h2c — single-threaded HTTP/2 (h2c) throughput comparison |
+| [HTTPS Server](bench/https_server.md) | xKit vs Go HTTPS — single-threaded TLS 1.3 throughput comparison |
 
 ## License
 

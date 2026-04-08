@@ -9,7 +9,7 @@
 #include "proto_h1.h"
 #include "proto_h2.h"
 #include "server_private.h"
-#include <xnet/transport.h>
+#include <xnet/transport_internal.h>
 
 #include <arpa/inet.h>
 #include <errno.h>

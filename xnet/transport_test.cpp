@@ -14,7 +14,7 @@ extern "C" {
 #if defined(XK_HAS_OPENSSL) || defined(XK_HAS_MBEDTLS)
 #include "tls_private.h"
 #endif
-#include "transport_private.h"
+#include "transport_internal.h"
 #include <xnet/transport.h>
 }
 

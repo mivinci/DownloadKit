@@ -209,3 +209,21 @@ int main(void) {
 | **Language** | C99 | C/C++ | C++11 | C (kernel) |
 
 **Key Differentiator:** xbase's MPSC queue is minimal and intrusive — zero allocation overhead, wait-free push, and carefully chosen memory orderings. It's designed specifically for the single-consumer patterns found in event loops and timer systems.
+
+## Benchmark
+
+> Environment: Apple M3 Pro, 36 GB RAM, macOS 26.4, Release build (`-O2`).
+> Source: [`xbase/mpsc_bench.cpp`](https://github.com/mivinci/xKit/blob/main/xbase/mpsc_bench.cpp)
+
+| Benchmark | Time (ns) | CPU (ns) | Iterations | Throughput |
+| --- | ---: | ---: | ---: | --- |
+| `BM_Mpsc_SingleProducer` | 3,712 | 3,712 | 187,897 | 275.9 M items/s |
+| `BM_Mpsc_MultiProducer/2` | 609,432 | 87,797 | 8,075 | 227.8 M items/s |
+| `BM_Mpsc_MultiProducer/4` | 1,327,965 | 148,356 | 4,768 | 269.6 M items/s |
+| `BM_Mpsc_MultiProducer/8` | 4,466,805 | 292,260 | 1,000 | 273.7 M items/s |
+
+**Key Observations:**
+
+- **Single-producer push/pop** achieves ~276M items/s, demonstrating the minimal overhead of the lock-free algorithm.
+- **Multi-producer scaling** maintains ~270M items/s aggregate throughput even with 8 concurrent producers, showing excellent scalability. The wall-clock time increases due to thread synchronization overhead, but per-CPU throughput remains stable.
+- The gap between wall-clock time and CPU time in multi-producer benchmarks reflects the cost of thread creation and barrier synchronization, not the queue operations themselves.

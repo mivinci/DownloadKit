@@ -37,7 +37,8 @@
   - [Logger](xlog/logger.md)
 
 - [Benchmark](bench/README.md)
-  - [HTTP Server](bench/http_server.md)
+  - [HTTP/1.1 Server](bench/http_server.md)
+  - [HTTP/2 Server](bench/http2_server.md)
 
 ---
 

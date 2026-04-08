@@ -3,10 +3,11 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * transport_private.h - Internal transport initialization functions
+ * transport_private.h - Private transport initialization functions
  *
- * These functions are used only within the xnet module (e.g. tcp_connect.c,
- * tcp_listener.c) and should not be exposed in the public transport.h header.
+ * This header is intended for cross-module use within the xKit project
+ * (e.g. xhttp consuming xnet). It is NOT part of the public API and
+ * should not be included by external users.
  */
 
 #ifndef XNET_TRANSPORT_PRIVATE_H
@@ -14,7 +15,7 @@
 
 #include "transport.h"
 
-/* ───────────────────── Plain TCP transport ───────────────────── */
+/* ───────────────────── Transport initialization ───────────────────── */
 
 /**
  * Initialize a Plain TCP transport for the given file descriptor.
@@ -26,8 +27,6 @@
  */
 void xTransportPlainInit(xTransport *transport, int fd);
 
-/* ───────────────────── TLS server transport ───────────────────── */
-
 /**
  * Initialize a TLS server transport for the given file descriptor.
  * Creates an SSL object in accept mode using the shared server TLS context.
@@ -37,8 +36,6 @@ void xTransportPlainInit(xTransport *transport, int fd);
  * @param fd         File descriptor for the accepted connection.
  */
 void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd);
-
-/* ───────────────────── TLS client transport ───────────────────── */
 
 /**
  * Initialize a TLS client transport for the given file descriptor.

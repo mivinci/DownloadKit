@@ -9,7 +9,7 @@
 #ifndef XHTTP_WS_PRIVATE_H
 #define XHTTP_WS_PRIVATE_H
 
-#include "transport.h"
+#include <xnet/transport.h>
 #include "ws_deflate.h"
 #include "ws_frame.h"
 #include <xbase/base.h>
@@ -41,7 +41,7 @@ XDEF_STRUCT(xWsConn_) {
   xIOBuffer            write_buf; /**< Outgoing data buffer           */
 
   /* Transport layer (transferred from HTTP connection) */
-  xHttpTransport transport;
+  xTransport transport;
 
   /* Frame parser */
   xWsFrameParser parser;
@@ -101,7 +101,7 @@ XDEF_STRUCT(xWsConn_) {
 struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server,
                                 xEventLoop loop,
                                 xSocket sock,
-                                xHttpTransport transport,
+                                xTransport transport,
                                 const xWsCallbacks *callbacks,
                                 void *arg,
                                 int timeout_ms);

@@ -236,7 +236,7 @@ xErrno xWsUpgrade(xHttpResponseWriter writer,
 
   /* 5. Hijack the connection */
   xSocket        hijacked_sock      = conn->sock;
-  xHttpTransport hijacked_transport = conn->transport;
+  xTransport     hijacked_transport = conn->transport;
 
   /* Prevent xHttpConnHijack from destroying these */
   conn->sock = NULL;

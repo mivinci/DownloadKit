@@ -11,7 +11,9 @@
 #include <cstring>
 
 extern "C" {
+#if defined(XK_HAS_OPENSSL) || defined(XK_HAS_MBEDTLS)
 #include "tls_private.h"
+#endif
 #include "transport_private.h"
 #include <xnet/transport.h>
 }
@@ -130,9 +132,9 @@ TEST(TlsCtxTest, CreateWithNullConfReturnsNull) {
 
 TEST(TlsCtxTest, CreateWithInvalidCertReturnsNull) {
   xTlsConf conf = {};
-  conf.cert           = "/nonexistent/cert.pem";
-  conf.key            = "/nonexistent/key.pem";
-  xTlsCtx ctx         = xTlsCtxCreate(&conf);
+  conf.cert     = "/nonexistent/cert.pem";
+  conf.key      = "/nonexistent/key.pem";
+  xTlsCtx ctx   = xTlsCtxCreate(&conf);
   EXPECT_EQ(ctx, nullptr);
 }
 
@@ -148,10 +150,10 @@ TEST(TlsCtxTest, ClientInitWithInvalidConfFails) {
   ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
   /* Client init with bad CA path should fail at ctx creation */
-  xTlsConf conf = {};
-  conf.ca             = "/nonexistent/ca.pem";
-  conf.skip_verify    = 0;
-  xTlsCtx ctx = xTlsCtxCreate(&conf);
+  xTlsConf conf    = {};
+  conf.ca          = "/nonexistent/ca.pem";
+  conf.skip_verify = 0;
+  xTlsCtx ctx      = xTlsCtxCreate(&conf);
   /* Depending on backend, this may or may not fail (system CA fallback) */
   if (ctx) {
     int ret = xTransportTlsClientInit(&t, ctx, "example.com", fds[0]);
@@ -168,9 +170,9 @@ TEST(TlsCtxTest, ClientInitWithInvalidConfFails) {
 
 TEST(TlsCtxTest, ClientCtxCreateWithDefaults) {
   /* Create a client TLS context with default settings (no cert/key) */
-  xTlsConf conf = {};
+  xTlsConf conf    = {};
   conf.skip_verify = 1;
-  xTlsCtx ctx = xTlsCtxCreate(&conf);
+  xTlsCtx ctx      = xTlsCtxCreate(&conf);
   ASSERT_NE(ctx, nullptr);
   EXPECT_EQ(xTlsCtxIsServer(ctx), 0);
   xTlsCtxDestroy(ctx);

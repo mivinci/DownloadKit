@@ -34,9 +34,18 @@ cmake/          # CMake 辅助模块
 | 类型 | 命名规则 | 示例 |
 | ------ | ---------- | ------ |
 | 公共头文件 | `<module>.h` | `event.h`, `timer.h`, `time.h` |
-| 私有头文件 | `<module>_private.h` | `event_private.h`, `client_private.h` |
+| 私有头文件 | `<module>_private.h` | `transport_private.h`, `event_private.h` |
 | 实现文件 | `<module>.c` 或 `<module>_<variant>.c` | `event_kqueue.c`, `event_epoll.c` |
 | 测试文件 | `<module>_test.cpp` | `heap_test.cpp`, `timer_test.cpp` |
+
+**头文件可见性层级：**
+
+| 层级 | 后缀 | 可见范围 | 典型内容 |
+| ------ | ------ | ------ | ------ |
+| public | `<module>.h` | 外部用户 + 项目内所有模块 | 类型定义、枚举、opaque handle |
+| private | `<module>_private.h` | 项目内部（同模块 + 跨模块均可） | 内部结构体字段、工厂/初始化函数等不对外发布的接口 |
+
+`private` 头文件 include 对应的 `public` 头文件，形成单向依赖链：`private → public`。
 
 ### 2.3 文件头注释
 

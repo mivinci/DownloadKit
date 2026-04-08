@@ -9,7 +9,7 @@
 #include "proto_h1.h"
 #include "proto_h2.h"
 #include "server_private.h"
-#include "transport_private.h"
+#include <xnet/transport_private.h>
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -305,7 +305,7 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
     conn->handshake_done = 1; /* Plain TCP: no handshake needed */
 
     /* Initialize transport layer (Plain TCP) */
-    xHttpTransportPlainInit(&conn->transport, client_fd);
+    xTransportPlainInit(&conn->transport, client_fd);
 
     /* Initialize protocol handler (also creates the implicit stream) */
     conn_init_parser(conn);
@@ -555,17 +555,17 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
   if (!conn->handshake_done && conn->transport.handshake) {
     int hs = conn->transport.handshake(conn->transport.ctx);
     switch (hs) {
-    case xHttpTransportResult_Done:
+    case xTransportResult_Done:
       conn->handshake_done = 1;
       break;
-    case xHttpTransportResult_WantRead:
+    case xTransportResult_WantRead:
       xSocketSetMask(conn->server->loop, conn->sock, xEvent_Read);
       return;
-    case xHttpTransportResult_WantWrite:
+    case xTransportResult_WantWrite:
       xSocketSetMask(conn->server->loop, conn->sock,
                      xEvent_Read | xEvent_Write);
       return;
-    case xHttpTransportResult_Error:
+    case xTransportResult_Error:
     default:
       xLog(false, "xhttp: TLS handshake failed");
       xHttpConnClose(conn);
@@ -1436,13 +1436,7 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg) {
     conn->handshake_done = 0; /* TLS: handshake required */
 
     /* Initialize TLS transport */
-#if defined(XK_HAS_OPENSSL)
-    xHttpTlsTransportInitOpenSSL(&conn->transport, s->tls_ctx, client_fd);
-#elif defined(XK_HAS_MBEDTLS)
-    xHttpTlsTransportInitMbedTLS(&conn->transport, s->tls_ctx, client_fd);
-#else
-    (void)s;
-#endif
+    xTransportTlsServerInit(&conn->transport, s->tls_ctx, client_fd);
 
     /* Initialize protocol handler */
     conn_init_parser(conn);

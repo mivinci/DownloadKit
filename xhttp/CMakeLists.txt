@@ -1,9 +1,9 @@
 file(GLOB_RECURSE XHTTP_HEADERS "*.h")
 file(GLOB_RECURSE XHTTP_SOURCES "*.c")
 list(FILTER XHTTP_HEADERS EXCLUDE REGEX "_test")
-# Exclude TLS and WS crypto backend sources from default GLOB;
-# they are added conditionally below
-list(FILTER XHTTP_SOURCES EXCLUDE REGEX "transport_tls_")
+# Exclude transport (now provided by xnet), WS crypto backend, and WS deflate
+# sources from default GLOB; crypto/deflate are added conditionally below.
+list(FILTER XHTTP_SOURCES EXCLUDE REGEX "transport_")
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_crypto_")
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_deflate")
 add_library(xhttp SHARED ${XHTTP_SOURCES} ${XHTTP_HEADERS})
@@ -56,8 +56,6 @@ elseif(XK_TLS_BACKEND STREQUAL "openssl")
   find_package(OpenSSL REQUIRED)
   target_compile_definitions(xhttp PUBLIC XK_HAS_OPENSSL)
   target_sources(xhttp PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_server_openssl.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_client_openssl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_openssl.c)
   target_link_libraries(xhttp PRIVATE OpenSSL::SSL OpenSSL::Crypto)
   message(STATUS "xhttp: TLS backend = OpenSSL (forced)")
@@ -66,8 +64,6 @@ elseif(XK_TLS_BACKEND STREQUAL "mbedtls")
   set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
   target_compile_definitions(xhttp PUBLIC XK_HAS_MBEDTLS)
   target_sources(xhttp PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_server_mbedtls.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_client_mbedtls.c
     ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_mbedtls.c)
   target_include_directories(xhttp BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
   target_link_libraries(xhttp PRIVATE MbedTLS::MbedTLS)
@@ -77,8 +73,6 @@ elseif(XK_TLS_BACKEND STREQUAL "auto")
   if(OpenSSL_FOUND)
     target_compile_definitions(xhttp PUBLIC XK_HAS_OPENSSL)
     target_sources(xhttp PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_server_openssl.c
-      ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_client_openssl.c
       ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_openssl.c)
     target_link_libraries(xhttp PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     message(STATUS "xhttp: TLS backend = OpenSSL (auto-detected)")
@@ -88,8 +82,6 @@ elseif(XK_TLS_BACKEND STREQUAL "auto")
       set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
       target_compile_definitions(xhttp PUBLIC XK_HAS_MBEDTLS)
       target_sources(xhttp PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_server_mbedtls.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/transport_tls_client_mbedtls.c
         ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_mbedtls.c)
       target_include_directories(xhttp BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
       target_link_libraries(xhttp PRIVATE MbedTLS::MbedTLS)

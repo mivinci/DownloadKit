@@ -41,23 +41,20 @@ static void client_on_open(xWsConn conn, void *arg) {
 }
 
 static void client_on_message(xWsConn conn, xWsOpcode opcode,
-                              const void *payload, size_t len,
-                              void *arg) {
+                              const void *payload, size_t len, void *arg) {
   (void)conn;
   auto *ctx = (WsClientCtx *)arg;
   ctx->message_count++;
   ctx->last_opcode = opcode;
   if (payload && len > 0) {
-    ctx->last_message =
-      std::string((const char *)payload, len);
+    ctx->last_message = std::string((const char *)payload, len);
   } else {
     ctx->last_message.clear();
   }
 }
 
-static void client_on_close(xWsConn conn, uint16_t code,
-                            const char *reason, size_t len,
-                            void *arg) {
+static void client_on_close(xWsConn conn, uint16_t code, const char *reason,
+                            size_t len, void *arg) {
   (void)conn;
   (void)reason;
   (void)len;
@@ -85,17 +82,16 @@ static void server_on_open(xWsConn conn, void *arg) {
 }
 
 static void server_on_message(xWsConn conn, xWsOpcode opcode,
-                              const void *payload, size_t len,
-                              void *arg) {
+                              const void *payload, size_t len, void *arg) {
   auto *ctx = (WsServerCtx *)arg;
   ctx->message_count++;
   /* Echo back */
   xWsSend(conn, opcode, payload, len);
 }
 
-static void server_on_close(xWsConn conn, uint16_t code,
-                            const char *reason, size_t len,
-                            void *arg) {
+static void server_on_close(xWsConn conn, uint16_t code, const char *reason,
+                            size_t len, void *arg) {
+  (void)code;
   (void)conn;
   (void)reason;
   (void)len;
@@ -103,14 +99,13 @@ static void server_on_close(xWsConn conn, uint16_t code,
   ctx->close_count++;
 }
 
-static void ws_echo_handler(xHttpResponseWriter writer,
-                            const xHttpRequest *req,
+static void ws_echo_handler(xHttpResponseWriter writer, const xHttpRequest *req,
                             void *arg) {
   WsServerCtx *ctx = (WsServerCtx *)arg;
   xWsCallbacks cbs = {};
-  cbs.on_open    = server_on_open;
-  cbs.on_message = server_on_message;
-  cbs.on_close   = server_on_close;
+  cbs.on_open      = server_on_open;
+  cbs.on_message   = server_on_message;
+  cbs.on_close     = server_on_close;
   xWsUpgrade(writer, req, &cbs, ctx);
 }
 
@@ -126,9 +121,8 @@ protected:
 
   void SetUpEchoServer(const std::string &path = "/ws") {
     std::string pattern = "GET " + path;
-    xErrno err = xHttpServerRoute(server, pattern.c_str(),
-                                  ws_echo_handler,
-                                  &server_ctx);
+    xErrno      err =
+      xHttpServerRoute(server, pattern.c_str(), ws_echo_handler, &server_ctx);
     ASSERT_EQ(err, xErrno_Ok);
   }
 };
@@ -147,12 +141,12 @@ TEST_F(WsConnectTest, ConnectAndEcho) {
   snprintf(url, sizeof(url), "ws://127.0.0.1:%u/ws", port);
 
   xWsConnectConf conf = {};
-  conf.url = url;
+  conf.url            = url;
 
   xWsCallbacks cbs = {};
-  cbs.on_open    = client_on_open;
-  cbs.on_message = client_on_message;
-  cbs.on_close   = client_on_close;
+  cbs.on_open      = client_on_open;
+  cbs.on_message   = client_on_message;
+  cbs.on_close     = client_on_close;
 
   xErrno err = xWsConnect(loop, &conf, &cbs, &client_ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -166,13 +160,11 @@ TEST_F(WsConnectTest, ConnectAndEcho) {
 
   /* Send a message */
   const char *msg = "Hello from client!";
-  err = xWsSend(client_ctx.conn, xWsOpcode_Text,
-                msg, strlen(msg));
+  err             = xWsSend(client_ctx.conn, xWsOpcode_Text, msg, strlen(msg));
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Pump until echo received */
-  for (int i = 0; i < 100 && client_ctx.message_count == 0;
-       i++) {
+  for (int i = 0; i < 100 && client_ctx.message_count == 0; i++) {
     pump_loop(loop, 10);
   }
   EXPECT_EQ(client_ctx.message_count.load(), 1);
@@ -181,8 +173,7 @@ TEST_F(WsConnectTest, ConnectAndEcho) {
 
   /* Close gracefully */
   xWsClose(client_ctx.conn, 1000);
-  for (int i = 0; i < 100 && client_ctx.close_count == 0;
-       i++) {
+  for (int i = 0; i < 100 && client_ctx.close_count == 0; i++) {
     pump_loop(loop, 10);
   }
   EXPECT_GE(client_ctx.close_count.load(), 1);
@@ -196,12 +187,12 @@ TEST_F(WsConnectTest, ConnectBinaryMessage) {
   snprintf(url, sizeof(url), "ws://127.0.0.1:%u/ws", port);
 
   xWsConnectConf conf = {};
-  conf.url = url;
+  conf.url            = url;
 
   xWsCallbacks cbs = {};
-  cbs.on_open    = client_on_open;
-  cbs.on_message = client_on_message;
-  cbs.on_close   = client_on_close;
+  cbs.on_open      = client_on_open;
+  cbs.on_message   = client_on_message;
+  cbs.on_close     = client_on_close;
 
   xErrno err = xWsConnect(loop, &conf, &cbs, &client_ctx);
   ASSERT_EQ(err, xErrno_Ok);
@@ -212,12 +203,10 @@ TEST_F(WsConnectTest, ConnectBinaryMessage) {
 
   /* Send binary data */
   uint8_t data[] = {0x00, 0x01, 0x02, 0xFF, 0xFE};
-  err = xWsSend(client_ctx.conn, xWsOpcode_Binary,
-                data, sizeof(data));
+  err = xWsSend(client_ctx.conn, xWsOpcode_Binary, data, sizeof(data));
   ASSERT_EQ(err, xErrno_Ok);
 
-  for (int i = 0; i < 100 && client_ctx.message_count == 0;
-       i++)
+  for (int i = 0; i < 100 && client_ctx.message_count == 0; i++)
     pump_loop(loop, 10);
   EXPECT_EQ(client_ctx.message_count.load(), 1);
   EXPECT_EQ(client_ctx.last_opcode, xWsOpcode_Binary);
@@ -230,11 +219,11 @@ TEST_F(WsConnectTest, ConnectBinaryMessage) {
 
 TEST_F(WsConnectTest, InvalidUrl) {
   xWsConnectConf conf = {};
-  conf.url = "not-a-url";
+  conf.url            = "not-a-url";
 
   xWsCallbacks cbs = {};
-  cbs.on_open  = client_on_open;
-  cbs.on_close = client_on_close;
+  cbs.on_open      = client_on_open;
+  cbs.on_close     = client_on_close;
 
   xErrno err = xWsConnect(loop, &conf, &cbs, &client_ctx);
   EXPECT_NE(err, xErrno_Ok);
@@ -243,19 +232,19 @@ TEST_F(WsConnectTest, InvalidUrl) {
 
 TEST_F(WsConnectTest, NullUrl) {
   xWsConnectConf conf = {};
-  conf.url = nullptr;
+  conf.url            = nullptr;
 
   xWsCallbacks cbs = {};
-  xErrno err = xWsConnect(loop, &conf, &cbs, &client_ctx);
+  xErrno       err = xWsConnect(loop, &conf, &cbs, &client_ctx);
   EXPECT_EQ(err, xErrno_InvalidArg);
 }
 
 TEST_F(WsConnectTest, WrongScheme) {
   xWsConnectConf conf = {};
-  conf.url = "http://127.0.0.1:8080/ws";
+  conf.url            = "http://127.0.0.1:8080/ws";
 
   xWsCallbacks cbs = {};
-  cbs.on_close = client_on_close;
+  cbs.on_close     = client_on_close;
 
   xErrno err = xWsConnect(loop, &conf, &cbs, &client_ctx);
   EXPECT_EQ(err, xErrno_InvalidArg);
@@ -266,23 +255,21 @@ TEST_F(WsConnectTest, ConnectionRefused) {
   uint16_t dead_port = find_free_port();
 
   char url[128];
-  snprintf(url, sizeof(url), "ws://127.0.0.1:%u/ws",
-           dead_port);
+  snprintf(url, sizeof(url), "ws://127.0.0.1:%u/ws", dead_port);
 
   xWsConnectConf conf = {};
-  conf.url        = url;
-  conf.timeout_ms = 2000;
+  conf.url            = url;
+  conf.timeout_ms     = 2000;
 
   xWsCallbacks cbs = {};
-  cbs.on_open  = client_on_open;
-  cbs.on_close = client_on_close;
+  cbs.on_open      = client_on_open;
+  cbs.on_close     = client_on_close;
 
   xErrno err = xWsConnect(loop, &conf, &cbs, &client_ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Pump until on_close fires (connection refused) */
-  for (int i = 0; i < 200 && client_ctx.close_count == 0;
-       i++) {
+  for (int i = 0; i < 200 && client_ctx.close_count == 0; i++) {
     pump_loop(loop, 10);
   }
   EXPECT_EQ(client_ctx.open_count.load(), 0);
@@ -297,12 +284,12 @@ TEST_F(WsConnectTest, ConnectWithPath) {
   snprintf(url, sizeof(url), "ws://127.0.0.1:%u/chat", port);
 
   xWsConnectConf conf = {};
-  conf.url = url;
+  conf.url            = url;
 
   xWsCallbacks cbs = {};
-  cbs.on_open    = client_on_open;
-  cbs.on_message = client_on_message;
-  cbs.on_close   = client_on_close;
+  cbs.on_open      = client_on_open;
+  cbs.on_message   = client_on_message;
+  cbs.on_close     = client_on_close;
 
   xErrno err = xWsConnect(loop, &conf, &cbs, &client_ctx);
   ASSERT_EQ(err, xErrno_Ok);

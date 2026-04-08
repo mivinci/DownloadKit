@@ -9,7 +9,7 @@
 #ifndef XHTTP_SERVER_PRIVATE_H
 #define XHTTP_SERVER_PRIVATE_H
 
-#include "transport.h"
+#include <xnet/transport.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <xbase/base.h>
@@ -148,7 +148,7 @@ XDEF_STRUCT(xHttpConn_) {
   xIOBuffer            write_buf; /**< Write buffer                     */
 
   /* Transport layer (vtable) */
-  xHttpTransport transport;      /**< Transport I/O interface          */
+  xTransport transport;          /**< Transport I/O interface          */
   int            handshake_done; /**< Whether TLS handshake is complete */
 
   /* Protocol handler (vtable) */

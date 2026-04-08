@@ -144,7 +144,7 @@ End-to-end benchmark results comparing xKit against other frameworks in real-wor
 | Manage object lifecycles | [xbase/memory.h](xbase/memory.md) |
 | Choose the right buffer type | [xbuf overview](xbuf/index.html) |
 | Build a lock-free producer/consumer pipeline | [xbase/mpsc.h](xbase/mpsc.md) |
-| See micro-benchmark results | [Benchmark (README)](https://github.com/mivinci/xKit#benchmark) |
+| See micro-benchmark results | Each module doc has a **Benchmark** section (e.g. [mpsc.h](xbase/mpsc.md#benchmark)) |
 | See HTTP server benchmark | [HTTP Server Benchmark](bench/http_server.md) |
 
 ### By Dependency Level
@@ -256,9 +256,9 @@ See the project [README](../README.md) for full build instructions, prerequisite
 
 ## Benchmark
 
-For micro-benchmark results, see the [Benchmark section](https://github.com/mivinci/xKit#benchmark) in the project README.
+Micro-benchmark results are included in each module's documentation page (see the **Benchmark** section at the bottom of each page, e.g. [mpsc.h](xbase/mpsc.md#benchmark), [buf.h](xbuf/buf.md#benchmark)).
 
-For end-to-end benchmarks:
+End-to-end benchmarks:
 
 | Benchmark | Description |
 | --- | --- |

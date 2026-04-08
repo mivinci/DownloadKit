@@ -9,6 +9,7 @@ message(STATUS "xKit: Building ${XK_VERSION}")
 
 option(XK_BUILD_XKIT "Build xKit" ON)
 option(XK_BUILD_TESTS "Build xKit tests" ON)
+option(XK_BUILD_BENCHMARKS "Build xKit benchmarks" OFF)
 option(XK_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 
 add_compile_options(-Wall -Wextra)
@@ -25,6 +26,10 @@ if(XK_BUILD_TESTS)
   find_package(GTest REQUIRED)
 endif()
 
+if(XK_BUILD_BENCHMARKS)
+  find_package(GBenchmark REQUIRED)
+endif()
+
 include_directories(${CMAKE_SOURCE_DIR})
 
 add_subdirectory(xbase)
@@ -39,4 +44,8 @@ if(Libcurl_FOUND)
   add_subdirectory(examples)
 else()
   message(STATUS "xKit: libcurl not found, skipping xhttp module")
+endif()
+
+if(XK_BUILD_BENCHMARKS)
+  add_subdirectory(bench)
 endif()

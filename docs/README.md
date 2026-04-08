@@ -136,6 +136,7 @@ High-performance async logger with MPSC queue, three flush modes, and file rotat
 | Manage object lifecycles | [xbase/memory.h](xbase/memory.md) |
 | Choose the right buffer type | [xbuf overview](xbuf/index.html) |
 | Build a lock-free producer/consumer pipeline | [xbase/mpsc.h](xbase/mpsc.md) |
+| See benchmark results | [Benchmark (README)](https://github.com/mivinci/xKit#benchmark) |
 
 ### By Dependency Level
 
@@ -244,6 +245,10 @@ ctest --test-dir build --output-on-failure --parallel 4
 
 See the project [README](../README.md) for full build instructions, prerequisites, and container-based Linux testing.
 
+## Benchmark
+
+For micro-benchmark and end-to-end HTTP server benchmark results (including xKit vs Go `net/http` comparison), see the [Benchmark section](https://github.com/mivinci/xKit#benchmark) in the project README.
+
 ## License
 
-[MIT](../LICENSE) © 2025-present Leo X. and xKit contributors
+[MIT](https://github.com/mivinci/xKit/blob/main/LICENSE) © 2025-present Leo X. and xKit contributors

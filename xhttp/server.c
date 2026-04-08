@@ -576,27 +576,15 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
   /* Readable: read data and feed to parser */
   if (mask & xEvent_Read) {
     /*
-     * NOTE: We intentionally read only one chunk per event instead of
-     * draining the socket until EAGAIN. A full drain loop would be the
-     * textbook approach for edge-triggered I/O, but the current
-     * downstream code has two issues that make it unsafe:
+     * Edge-triggered drain loop: we must read until EAGAIN to ensure
+     * no data is left unread (kqueue EV_CLEAR / epoll EPOLLET won't
+     * re-notify for data already in the socket buffer).
      *
-     *  1. Memory: all data is linearized into a malloc'd buffer before
-     *     being fed to the parser, so draining a large request body
-     *     would cause peak memory usage of ~2× body size.
-     *
-     *  2. Consumption: xIOBufferConsume() discards the entire read_buf
-     *     after on_data(), but the parser (llhttp / nghttp2) may only
-     *     consume a portion of it (e.g. H1 pipelining, partial H2
-     *     frames). Draining amplifies this data-loss risk.
-     *
-     * Until the feed path is refactored to parse incrementally (read a
-     * chunk → feed → consume only what was parsed → repeat), we keep
-     * the single-read approach. This means a request whose body exceeds
-     * XIOBUFFER_BLOCK_SIZE (8 KB) may require multiple event-loop
-     * iterations to be fully received under edge-triggered mode.
+     * Each iteration reads one chunk (up to XIOBUFFER_BLOCK_SIZE),
+     * linearizes it, feeds it to the parser, and consumes it.  This
+     * keeps peak memory at ~1 block regardless of body size.
      */
-    {
+    for (;;) {
       /* Read through transport layer directly into IOBuffer (zero-copy).
        * xIOBufferReadWith reuses tail-block space or acquires a new block,
        * then invokes the transport read callback with the block's data
@@ -613,14 +601,15 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
         xHttpConnClose(conn);
         return;
       }
-      /* n > 0: got data; n < 0 with EAGAIN: no new data, but may have
-       * buffered data from a previous read — fall through to feed. */
-    }
 
-    /* Feed accumulated data to protocol handler */
-    size_t buf_len = xIOBufferLen(&conn->read_buf);
-    if (buf_len > 0) {
-      /* Protocol auto-detection */
+      /* Feed accumulated data to protocol handler */
+      size_t buf_len = xIOBufferLen(&conn->read_buf);
+      if (buf_len == 0) {
+        /* n < 0 with EAGAIN and no buffered data: wait for next event */
+        return;
+      }
+
+      /* Protocol auto-detection (first data on connection) */
       if (!conn->proto_detected) {
         /* TLS connections: use ALPN negotiation result */
         if (conn->transport.alpn) {
@@ -707,8 +696,12 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
         return;
       }
 
-      /* rc == 0: need more data, continue */
-    }
+      /* rc == 0: need more data, loop to read next chunk */
+      if (n < 0) {
+        /* EAGAIN: no more data available right now, wait for next event */
+        return;
+      }
+    } /* end for(;;) drain loop */
   }
 }
 
@@ -821,7 +814,7 @@ static int route_match(const struct xHttpRoute_ *route, const char *url,
     if (*p == '\0') return 0; /* URL has fewer segments than route */
 
     const char *seg_start = p;
-    while (*p && *p != '/')
+    while (*p && *p != '/' && *p != '?')
       p++;
     size_t seg_len = (size_t)(p - seg_start);
 
@@ -846,8 +839,8 @@ static int route_match(const struct xHttpRoute_ *route, const char *url,
       p++; /* skip slashes between segments */
   }
 
-  /* URL must have no trailing segments */
-  if (*p != '\0') return 0;
+  /* URL must have no trailing segments (query string is OK) */
+  if (*p != '\0' && *p != '?') return 0;
 
   return 1;
 }

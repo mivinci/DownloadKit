@@ -123,21 +123,18 @@ container system start
 
 ## Benchmark
 
-### Test Environment
+All benchmarks run on Apple M3 Pro (12 cores, 36 GB), macOS 26.4, Clang 17, Release (`-O2`).
 
-| Item | Value |
-| ---- | ----- |
-| CPU | Apple M3 Pro (12 cores) |
-| Memory | 36 GB |
-| L1d Cache | 64 KiB per core |
-| L2 Cache | 4 MiB per core |
-| OS | macOS 26.4 (Darwin) |
-| Compiler | Apple Clang 17.0.0 |
-| Build | Release (`-O2`) |
+### Highlights
 
-### Micro-Benchmark Results
+| Category | Highlight |
+| -------- | --------- |
+| MPSC Queue | **94.4 M ops/s** single-producer; 68–70 M ops/s multi-producer |
+| RingBuffer | **73.3 GiB/s** write+read (4 KiB chunks) |
+| IOBuffer | **44.8 GiB/s** append (4 KiB), zero-copy cut at 26.1 GiB/s |
+| HTTP Server | **152 K req/s** single-threaded, +15–60% faster than Go `net/http` |
 
-Build and run:
+### Run Benchmarks
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DXK_BUILD_BENCHMARKS=ON
@@ -145,125 +142,11 @@ cmake --build build --parallel
 ./scripts/run_micro_bench.sh
 ```
 
-#### xbase — MPSC Queue
+### Full Results
 
-| Benchmark | Time | Throughput |
-| --------- | ---- | ---------- |
-| SingleProducer (1024 batch) | 10.9 μs | **94.4 M ops/s** |
-| MultiProducer / 2 threads | 926 μs | 67.2 M ops/s |
-| MultiProducer / 4 threads | 1.7 ms | 69.8 M ops/s |
-| MultiProducer / 8 threads | 5.3 ms | 68.4 M ops/s |
-
-#### xbase — Event Loop
-
-| Benchmark | Time |
-| --------- | ---- |
-| Create / Destroy | 2.7 μs |
-| Wake Latency | 854 ns |
-| Pipe Add / Del | 1.2 μs |
-
-#### xbase — Timer
-
-| Benchmark | 10 timers | 100 timers | 1000 timers |
-| --------- | --------- | ---------- | ----------- |
-| Submit Batch | 1.9 μs (5.3 M/s) | 12.6 μs (8.0 M/s) | 126 μs (8.0 M/s) |
-| Fire & Poll | 3.5 μs (2.9 M/s) | 17.7 μs (5.7 M/s) | 140 μs (7.2 M/s) |
-| Submit / Cancel (single) | 117 ns | — | — |
-
-#### xbase — Heap
-
-| Benchmark | 8 | 64 | 512 | 4096 |
-| --------- | - | -- | --- | ---- |
-| Push | 1.1 μs (7.2 M/s) | 2.6 μs (24.7 M/s) | 15.2 μs (33.8 M/s) | 117 μs (35.0 M/s) |
-| Pop | 1.2 μs (6.7 M/s) | 5.3 μs (12.2 M/s) | 59 μs (8.7 M/s) | 677 μs (6.1 M/s) |
-| Remove | 1.3 μs (6.0 M/s) | 3.3 μs (19.7 M/s) | 20.7 μs (24.7 M/s) | 169 μs (24.3 M/s) |
-
-#### xbase — Memory
-
-| Benchmark | 16 B | 64 B | 256 B | 1 KiB | 4 KiB |
-| --------- | ---- | ---- | ----- | ----- | ----- |
-| xAlloc + xRelease | 28.0 ns | 26.6 ns | 25.8 ns | 25.3 ns | 29.3 ns |
-| malloc + free | 17.3 ns | 20.2 ns | 20.5 ns | 24.3 ns | 17.3 ns |
-| Retain / Release | 4.78 ns | — | — | — | — |
-
-#### xbuf — Buffer
-
-| Benchmark | 16 B | 64 B | 256 B | 1 KiB | 4 KiB |
-| --------- | ---- | ---- | ----- | ----- | ----- |
-| Append | 1.6 GiB/s | 6.8 GiB/s | 20.8 GiB/s | 37.1 GiB/s | 40.4 GiB/s |
-| Append + Consume | — | 5.5 GiB/s | 17.5 GiB/s | 35.3 GiB/s | — |
-
-#### xbuf — RingBuffer
-
-| Benchmark | 64 B | 256 B | 1 KiB | 4 KiB |
-| --------- | ---- | ----- | ----- | ----- |
-| Write + Read | 7.6 GiB/s | 22.2 GiB/s | 50.9 GiB/s | **73.3 GiB/s** |
-
-| Throughput (bulk) | 4 KiB | 16 KiB | 64 KiB |
-| ----------------- | ----- | ------ | ------ |
-| Write + Read | 7.6 GiB/s | 8.2 GiB/s | 8.3 GiB/s |
-
-#### xbuf — IOBuffer
-
-| Benchmark | 64 B | 256 B | 1 KiB | 4 KiB | 8 KiB |
-| --------- | ---- | ----- | ----- | ----- | ----- |
-| Append | 6.6 GiB/s | 19.5 GiB/s | 35.9 GiB/s | 44.8 GiB/s | 40.7 GiB/s |
-| Append + Consume | 3.7 GiB/s | 12.5 GiB/s | 27.1 GiB/s | — | — |
-| Cut (zero-copy) | — | — | — | — | 26.1 GiB/s |
-| Append IOBuffer | — | — | 18.2 GiB/s | 37.5 GiB/s | 42.6 GiB/s |
-| Block Pool (acquire/release) | 10.2 ns | — | — | — | — |
-
-### End-to-End HTTP Server Benchmark
-
-**xKit** single-threaded event-loop HTTP/1.1 server (`bench/http_bench_server.cpp`) vs **Go** `net/http` multi-goroutine server (`bench/http_bench_server.go`), tested with [wrk](https://github.com/wg/wrk) (4 threads, 10 s duration, 100 connections unless noted).
-
-```bash
-# xKit
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DXK_BUILD_BENCHMARKS=ON
-cmake --build build --parallel
-./build/bench/http_bench_server 8080
-
-# Go
-go build -o build/bench/go_http_bench bench/http_bench_server.go
-./build/bench/go_http_bench 8081
-
-# Benchmark
-wrk -t4 -c100 -d10s http://127.0.0.1:8080/ping
-```
-
-#### GET /ping (4-byte "pong" response)
-
-| Connections | xKit Req/s | Go Req/s | xKit Latency | Go Latency | Δ |
-| ----------- | ---------- | -------- | ------------ | ---------- | - |
-| 50 | **151,935** | 128,639 | 315 μs | 365 μs | xKit +18% |
-| 100 | **152,316** | 128,915 | 658 μs | 761 μs | xKit +18% |
-| 200 | **151,007** | 128,162 | 1.33 ms | 1.55 ms | xKit +18% |
-| 500 | **155,486** | 125,471 | 3.20 ms | 3.96 ms | xKit +24% |
-
-#### GET /echo (variable response size)
-
-| Response Size | xKit Req/s | Go Req/s | xKit Latency | Go Latency | Δ |
-| ------------- | ---------- | -------- | ------------ | ---------- | - |
-| 64 B | **150,592** | 127,432 | 666 μs | 771 μs | xKit +18% |
-| 256 B | **146,487** | 126,907 | 682 μs | 774 μs | xKit +15% |
-| 1 KiB | **144,831** | 125,729 | 689 μs | 785 μs | xKit +15% |
-| 4 KiB | **141,511** | 91,886 | 707 μs | 1.08 ms | xKit +54% |
-
-#### POST /echo (echo request body)
-
-| Body Size | xKit Req/s | Go Req/s | xKit Transfer/s | Go Transfer/s | Δ |
-| --------- | ---------- | -------- | --------------- | ------------- | - |
-| 1 KiB | **141,495** | 122,584 | 152.35 MB/s | 133.51 MB/s | xKit +15% |
-| 4 KiB | **133,935** | 83,512 | 536.60 MB/s | 337.13 MB/s | xKit +60% |
-| 16 KiB | **82,231** | 53,828 | **1.26 GB/s** | 848.10 MB/s | xKit +53% |
-| 64 KiB | **35,908** | 31,124 | **2.20 GB/s** | 1.90 GB/s | xKit +15% |
-
-> **Notes:**
->
-> - xKit uses a single-threaded event loop; Go `net/http` uses goroutine-per-connection with the full Go runtime.
-> - Both built with full optimizations (xKit: `-O2` Release; Go: default compiler optimizations).
-> - xKit dominates across **all** scenarios — GET /ping, GET /echo (all sizes), and POST /echo.
-> - The largest advantage appears in medium-to-large payloads (GET 4 KiB: +54%, POST 4 KiB: +60%).
+- **Micro-benchmarks** — detailed tables are in each module's documentation:
+  [mpsc.h](https://le0.me/xKit/xbase/mpsc.html#benchmark) · [event.h](https://le0.me/xKit/xbase/event.html#benchmark) · [timer.h](https://le0.me/xKit/xbase/timer.html#benchmark) · [heap.h](https://le0.me/xKit/xbase/heap.html#benchmark) · [memory.h](https://le0.me/xKit/xbase/memory.html#benchmark) · [buf.h](https://le0.me/xKit/xbuf/buf.html#benchmark) · [ring.h](https://le0.me/xKit/xbuf/ring.html#benchmark) · [io.h](https://le0.me/xKit/xbuf/io.html#benchmark)
+- **End-to-end** — [HTTP Server Benchmark](https://le0.me/xKit/bench/http_server.html) (xKit vs Go `net/http`)
 
 ## License
 

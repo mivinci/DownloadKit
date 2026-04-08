@@ -40,7 +40,7 @@ static void ws_reset_idle_timer(struct xWsConn_ *conn);
 struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server,
                                 xEventLoop loop,
                                 xSocket sock,
-                                xHttpTransport transport,
+                                xTransport transport,
                                 const xWsCallbacks *callbacks,
                                 void *arg,
                                 int timeout_ms) {

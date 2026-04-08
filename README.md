@@ -134,6 +134,7 @@ All benchmarks run on Apple M3 Pro (12 cores, 36 GB), macOS 26.4, Clang 17, Rele
 | IOBuffer | **44.8 GiB/s** append (4 KiB), zero-copy cut at 26.1 GiB/s |
 | HTTP/1.1 Server | **152 K req/s** single-threaded, +15–60% faster than Go `net/http` |
 | HTTP/2 Server | **576 K req/s** single-threaded h2c, +15–405% faster than Go `net/http` + `x/net/http2` |
+| HTTPS Server | **512 K req/s** HTTPS/2, TLS-bound parity on HTTPS/1.1, +209–278% on HTTPS/2 |
 
 ### Run Benchmarks
 
@@ -147,7 +148,7 @@ cmake --build build --parallel
 
 - **Micro-benchmarks** — detailed tables are in each module's documentation:
   [mpsc.h](https://le0.me/xKit/xbase/mpsc.html#benchmark) · [event.h](https://le0.me/xKit/xbase/event.html#benchmark) · [timer.h](https://le0.me/xKit/xbase/timer.html#benchmark) · [heap.h](https://le0.me/xKit/xbase/heap.html#benchmark) · [memory.h](https://le0.me/xKit/xbase/memory.html#benchmark) · [buf.h](https://le0.me/xKit/xbuf/buf.html#benchmark) · [ring.h](https://le0.me/xKit/xbuf/ring.html#benchmark) · [io.h](https://le0.me/xKit/xbuf/io.html#benchmark)
-- **End-to-end** — [HTTP/1.1 Server Benchmark](https://le0.me/xKit/bench/http_server.html) · [HTTP/2 Server Benchmark](https://le0.me/xKit/bench/http2_server.html) (xKit vs Go)
+- **End-to-end** — [HTTP/1.1 Server Benchmark](https://le0.me/xKit/bench/http_server.html) · [HTTP/2 Server Benchmark](https://le0.me/xKit/bench/http2_server.html) · [HTTPS Server Benchmark](https://le0.me/xKit/bench/https_server.html) (xKit vs Go)
 
 ## License
 

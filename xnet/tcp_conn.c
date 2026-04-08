@@ -95,3 +95,23 @@ xTransport xTcpConnTakeTransport(xTcpConn conn) {
   memset(&c->transport, 0, sizeof(c->transport));
   return t;
 }
+
+/* ───────────────────── I/O adapters ───────────────────── */
+
+xReader xTcpConnReader(xTcpConn conn) {
+  xReader r = {NULL, NULL};
+  if (!conn) return r;
+  xTcpConn_ *c = (xTcpConn_ *)conn;
+  r.read       = c->transport.read;
+  r.ctx        = c->transport.ctx;
+  return r;
+}
+
+xWriter xTcpConnWriter(xTcpConn conn) {
+  xWriter w = {NULL, NULL};
+  if (!conn) return w;
+  xTcpConn_ *c = (xTcpConn_ *)conn;
+  w.writev     = c->transport.writev;
+  w.ctx        = c->transport.ctx;
+  return w;
+}

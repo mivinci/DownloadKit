@@ -132,7 +132,8 @@ All benchmarks run on Apple M3 Pro (12 cores, 36 GB), macOS 26.4, Clang 17, Rele
 | MPSC Queue | **94.4 M ops/s** single-producer; 68–70 M ops/s multi-producer |
 | RingBuffer | **73.3 GiB/s** write+read (4 KiB chunks) |
 | IOBuffer | **44.8 GiB/s** append (4 KiB), zero-copy cut at 26.1 GiB/s |
-| HTTP Server | **152 K req/s** single-threaded, +15–60% faster than Go `net/http` |
+| HTTP/1.1 Server | **152 K req/s** single-threaded, +15–60% faster than Go `net/http` |
+| HTTP/2 Server | **576 K req/s** single-threaded h2c, +15–405% faster than Go `net/http` + `x/net/http2` |
 
 ### Run Benchmarks
 
@@ -146,7 +147,7 @@ cmake --build build --parallel
 
 - **Micro-benchmarks** — detailed tables are in each module's documentation:
   [mpsc.h](https://le0.me/xKit/xbase/mpsc.html#benchmark) · [event.h](https://le0.me/xKit/xbase/event.html#benchmark) · [timer.h](https://le0.me/xKit/xbase/timer.html#benchmark) · [heap.h](https://le0.me/xKit/xbase/heap.html#benchmark) · [memory.h](https://le0.me/xKit/xbase/memory.html#benchmark) · [buf.h](https://le0.me/xKit/xbuf/buf.html#benchmark) · [ring.h](https://le0.me/xKit/xbuf/ring.html#benchmark) · [io.h](https://le0.me/xKit/xbuf/io.html#benchmark)
-- **End-to-end** — [HTTP Server Benchmark](https://le0.me/xKit/bench/http_server.html) (xKit vs Go `net/http`)
+- **End-to-end** — [HTTP/1.1 Server Benchmark](https://le0.me/xKit/bench/http_server.html) · [HTTP/2 Server Benchmark](https://le0.me/xKit/bench/http2_server.html) (xKit vs Go)
 
 ## License
 

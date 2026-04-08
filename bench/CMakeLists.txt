@@ -16,4 +16,8 @@ if(Libcurl_FOUND)
   add_executable(http_bench_server http_bench_server.cpp)
   target_link_libraries(http_bench_server PRIVATE xhttp xnet xbase)
   target_compile_options(http_bench_server PRIVATE -Wno-error)
+
+  add_executable(https_bench_server https_bench_server.cpp)
+  target_link_libraries(https_bench_server PRIVATE xhttp xnet xbase)
+  target_compile_options(https_bench_server PRIVATE -Wno-error)
 endif()

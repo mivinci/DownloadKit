@@ -36,6 +36,9 @@
 - [xlog — Async Logging](xlog/README.md)
   - [Logger](xlog/logger.md)
 
+- [Benchmark](bench/README.md)
+  - [HTTP Server](bench/http_server.md)
+
 ---
 
 - [TODO](todo/README.md)

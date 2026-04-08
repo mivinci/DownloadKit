@@ -55,3 +55,6 @@ tmp
 # mdbook-mermaid generated files
 docs/mermaid.min.js
 docs/mermaid-init.js
+
+# Benchmark results
+bench_results

@@ -228,3 +228,24 @@ int main(void) {
 | **Dependencies** | heap.h, mpsc.h, task.h | Linux kernel | POSIX RT library | libuv |
 
 **Key Differentiator:** xbase's timer provides a unique dual-mode design (push/poll) that lets you choose between concurrent execution and single-threaded polling without changing your callback code. The poll mode's lock-free MPSC queue makes it ideal for integration with custom event loops.
+
+## Benchmark
+
+> Environment: Apple M3 Pro, 36 GB RAM, macOS 26.4, Release build (`-O2`).
+> Source: [`xbase/timer_bench.cpp`](https://github.com/mivinci/xKit/blob/main/xbase/timer_bench.cpp)
+
+| Benchmark | N | Time (ns) | CPU (ns) | Throughput |
+| --- | ---: | ---: | ---: | --- |
+| `BM_Timer_SubmitCancel` | — | 149 | 121 | — |
+| `BM_Timer_SubmitBatch` | 10 | 1,811 | 1,687 | 5.9 M items/s |
+| `BM_Timer_SubmitBatch` | 100 | 11,474 | 9,406 | 10.6 M items/s |
+| `BM_Timer_SubmitBatch` | 1,000 | 110,112 | 86,699 | 11.5 M items/s |
+| `BM_Timer_FirePoll` | 10 | 3,395 | 3,394 | 2.9 M items/s |
+| `BM_Timer_FirePoll` | 100 | 16,897 | 15,534 | 6.4 M items/s |
+| `BM_Timer_FirePoll` | 1,000 | 120,411 | 101,190 | 9.9 M items/s |
+
+**Key Observations:**
+
+- **Submit+Cancel** cycle takes ~121ns CPU time, reflecting the cost of one heap push + one heap remove. Fast enough for high-frequency timer management.
+- **Batch submit** throughput improves with batch size (5.9M → 11.5M items/s), showing good amortization of per-operation overhead.
+- **Fire+Poll** is slower than submit alone because it includes the MPSC queue transfer and callback invocation. At N=1000, it still achieves ~10M timer fires/s.

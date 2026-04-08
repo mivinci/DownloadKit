@@ -319,3 +319,20 @@ int main(void) {
 | **Design Goal** | Minimal building block | Full-featured framework | Minimal + performant | Cross-platform framework |
 
 **Key Differentiator:** xbase's event loop is intentionally minimal — it provides the essential primitives (I/O, timers, signals, thread-pool offload) without buffered I/O, DNS resolution, or HTTP parsing. This makes it ideal as a foundation layer for higher-level libraries (like xhttp) rather than a standalone application framework.
+
+## Benchmark
+
+> Environment: Apple M3 Pro, 36 GB RAM, macOS 26.4, Release build (`-O2`), kqueue backend.
+> Source: [`xbase/event_bench.cpp`](https://github.com/mivinci/xKit/blob/main/xbase/event_bench.cpp)
+
+| Benchmark | Time (ns) | CPU (ns) | Iterations |
+| --- | ---: | ---: | ---: |
+| `BM_EventLoop_CreateDestroy` | 2,663 | 2,663 | 264,113 |
+| `BM_EventLoop_WakeLatency` | 854 | 854 | 814,901 |
+| `BM_EventLoop_PipeAddDel` | 1,107 | 1,107 | 627,088 |
+
+**Key Observations:**
+
+- **Create/Destroy** takes ~2.7µs, reflecting the cost of kqueue fd creation and internal structure allocation. Acceptable for long-lived event loops.
+- **Wake latency** is ~854ns per wake+wait cycle, demonstrating efficient cross-thread notification via the internal wake mechanism.
+- **Add/Del cycle** (register + unregister a pipe fd) takes ~1.1µs, showing low overhead for dynamic fd management — important for short-lived connections.

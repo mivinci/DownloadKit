@@ -9,7 +9,7 @@
  * HTTP Upgrade → xWsConn creation, all fully asynchronous.
  */
 
-#include <xnet/transport_internal.h>
+#include <xnet/transport_private.h>
 #include "ws_handshake_client.h"
 #include "ws_private.h"
 

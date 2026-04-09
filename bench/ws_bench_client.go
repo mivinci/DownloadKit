@@ -21,10 +21,13 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"math"
+	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -76,6 +79,11 @@ func main() {
 	dialer := websocket.Dialer{
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
+	}
+
+	// Enable TLS with InsecureSkipVerify for wss:// benchmarks
+	if strings.HasPrefix(*url, "wss://") {
+		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
 	readyWg.Add(*conns)
@@ -188,5 +196,6 @@ func formatBytes(bytesPerSec float64) string {
 	return fmt.Sprintf("%.2f %s", v, units[idx])
 }
 
-// Suppress unused import
+// Suppress unused imports
 var _ = math.MaxFloat64
+var _ http.Request

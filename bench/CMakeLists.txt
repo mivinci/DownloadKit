@@ -24,4 +24,8 @@ if(Libcurl_FOUND)
   add_executable(ws_bench_server ws_bench_server.cpp)
   target_link_libraries(ws_bench_server PRIVATE xhttp xnet xbase)
   target_compile_options(ws_bench_server PRIVATE -Wno-error)
+
+  add_executable(wss_bench_server wss_bench_server.cpp)
+  target_link_libraries(wss_bench_server PRIVATE xhttp xnet xbase)
+  target_compile_options(wss_bench_server PRIVATE -Wno-error)
 endif()

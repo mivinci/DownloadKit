@@ -112,15 +112,13 @@ static void *worker_loop(void *arg) {
     /* Execute the task */
     void *result = task->fn(task->arg);
 
-    /* Mark done and wake waiters */
-    pthread_mutex_lock(&task->lock);
-    task->done   = true;
-    task->result = result;
-    pthread_cond_broadcast(&task->cond);
-    pthread_mutex_unlock(&task->lock);
-
-    /* Append to done list so xTaskGroupDestroy can free it
-     * if nobody calls xTaskWait(). */
+    /* Append to done list BEFORE marking done.
+     *
+     * xTaskWait() blocks until task->done is true, then frees the task.
+     * If we broadcast first and append second, xTaskWait() on another
+     * thread can free the task while we still touch task->next here —
+     * a heap-use-after-free.  By appending first (under qlock), the
+     * task is safely on the done list before anyone can free it. */
     pthread_mutex_lock(&g->qlock);
     task->next = NULL;
     if (g->done_tail) {
@@ -131,7 +129,16 @@ static void *worker_loop(void *arg) {
     g->done_tail = task;
     pthread_mutex_unlock(&g->qlock);
 
-    /* Update counters and wake GroupWait if all done */
+    /* Now mark done and wake waiters — safe because we no longer
+     * touch the task after the broadcast. */
+    pthread_mutex_lock(&task->lock);
+    task->done   = true;
+    task->result = result;
+    pthread_cond_broadcast(&task->cond);
+    pthread_mutex_unlock(&task->lock);
+
+    /* Update counters and wake GroupWait if all done.
+     * These use group-level atomics, not the task pointer. */
     atomic_fetch_add(&g->done_count, 1);
     if (atomic_fetch_sub(&g->pending, 1) == 1) {
       pthread_mutex_lock(&g->qlock);

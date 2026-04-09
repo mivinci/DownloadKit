@@ -59,3 +59,4 @@ docs/mermaid-init.js
 
 # Benchmark results
 bench_results
+*.pem

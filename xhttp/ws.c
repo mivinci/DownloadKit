@@ -535,18 +535,31 @@ static void ws_on_event(xSocket sock, xEventMask mask, void *arg) {
     if (conn->close_state == xWsCloseState_Closed) goto destroy;
   }
 
-  /* Readable: read data and parse frames */
+  /* Readable: read data and parse frames.
+   *
+   * Edge-triggered drain loop: we must read until EAGAIN to ensure
+   * no data is left unread (kqueue EV_CLEAR / epoll EPOLLET won't
+   * re-notify for data already in the socket buffer).  This is
+   * critical for TLS where SSL_read may return one record at a time
+   * while the underlying socket has multiple records buffered. */
   if (mask & xEvent_Read) {
-    ssize_t n = xIOBufferReadWith(&conn->read_buf,
-                                  conn->transport.read,
-                                  conn->transport.ctx);
-    if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-      ws_fire_close(conn, XWS_CLOSE_ABNORMAL, NULL, 0);
-      goto destroy;
-    }
-    if (n == 0) {
-      ws_fire_close(conn, XWS_CLOSE_ABNORMAL, NULL, 0);
-      goto destroy;
+    for (;;) {
+      ssize_t n = xIOBufferReadWith(&conn->read_buf,
+                                    conn->transport.read,
+                                    conn->transport.ctx);
+      if (n < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          /* No more data available right now; parse what we have
+           * and wait for next event. */
+          break;
+        }
+        ws_fire_close(conn, XWS_CLOSE_ABNORMAL, NULL, 0);
+        goto destroy;
+      }
+      if (n == 0) {
+        ws_fire_close(conn, XWS_CLOSE_ABNORMAL, NULL, 0);
+        goto destroy;
+      }
     }
 
     /* Reset idle timer on data received */

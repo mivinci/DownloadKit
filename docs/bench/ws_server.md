@@ -205,28 +205,26 @@ The same echo benchmark repeated over TLS (wss://) to measure the impact of encr
 
 | Message Size | xKit Msg/s | gorilla Msg/s | nhooyr Msg/s | gobwas Msg/s |
 | ---: | ---: | ---: | ---: | ---: |
-| 64 B | **186,068** | 180,426 | 133,218 | 142,187 |
+| 64 B | **165,952** | 180,923 | 128,983 | 141,951 |
 | 256 B | 174,475 | **178,725** | 131,257 | 141,520 |
 | 1 KiB | 149,246 | **172,198** | 127,026 | 135,534 |
-| 4 KiB | 16,352 ⚠️ | **138,882** | 103,923 | 108,895 |
+| 4 KiB | 92,686 | **137,560** | 105,289 | 107,550 |
 
 **Transfer Rate (WSS, send + recv):**
 
 | Message Size | xKit | gorilla | nhooyr | gobwas |
 | ---: | ---: | ---: | ---: | ---: |
-| 64 B | **22.71 MB/s** | 22.02 MB/s | 16.26 MB/s | 17.36 MB/s |
+| 64 B | 20.26 MB/s | **22.09 MB/s** | 15.75 MB/s | 17.33 MB/s |
 | 256 B | 85.19 MB/s | **87.27 MB/s** | 64.09 MB/s | 69.10 MB/s |
 | 1 KiB | 291.50 MB/s | **336.32 MB/s** | 248.10 MB/s | 264.71 MB/s |
-| 4 KiB | 127.75 MB/s ⚠️ | **1.06 GB/s** | 811.90 MB/s | 850.74 MB/s |
-
-> ⚠️ **Note on xKit 4KB WSS:** The xKit 4KB result is anomalous — the benchmark client ran for 60s instead of 10s, suggesting the single-threaded TLS write path saturated and caused client-side goroutines to block on `ReadMessage` past the deadline. The effective throughput during the active period was likely higher, but this result highlights a real limitation of single-threaded TLS for large payloads.
+| 4 KiB | 723.95 MB/s | **1.05 GB/s** | 822.88 MB/s | 840.23 MB/s |
 
 **Analysis:**
 
-- At 64B, xKit and gorilla are nearly tied (186K vs 180K). TLS overhead is minimal for small payloads.
-- At 256B+, **gorilla overtakes xKit** because Go parallelizes TLS encryption across goroutines while xKit serializes it on one thread.
-- The 4KB result reveals the fundamental limitation: xKit's single-threaded OpenSSL cannot keep up with 100 concurrent connections each sending 4KB encrypted payloads. Go's per-goroutine TLS scales linearly with connection count.
-- This is a known trade-off of the single-threaded event loop model. Future work could add a TLS write thread pool or io_uring-based async TLS to address this.
+- At 64B, gorilla leads slightly (181K vs 166K). Go's per-goroutine `crypto/tls` parallelizes encryption across all CPU cores, giving it an advantage even at small payloads.
+- At 256B+, **gorilla maintains its lead** because Go parallelizes TLS encryption across goroutines while xKit serializes it on one thread.
+- At 4KB, xKit achieves 92,686 msg/s — competitive with nhooyr (105K) and gobwas (108K), though gorilla leads at 138K. The single-threaded TLS model is the main bottleneck, but xKit remains within the same order of magnitude as the Go libraries.
+- Future work could add a TLS write thread pool or io_uring-based async TLS to close the gap at larger payloads.
 
 ### WS vs WSS Performance Impact
 
@@ -234,14 +232,14 @@ How much does TLS reduce throughput? (100 connections, 64B)
 
 | Server | WS Msg/s | WSS Msg/s | TLS Overhead |
 | --- | ---: | ---: | --- |
-| xKit | 219,813 | 186,068 | −15% |
-| gorilla | 180,373 | 180,426 | ~0% |
-| nhooyr | 125,386 | 133,218 | +6% ¹ |
-| gobwas | 140,522 | 142,187 | +1% ¹ |
+| xKit | 219,813 | 165,952 | −25% |
+| gorilla | 180,373 | 180,923 | ~0% |
+| nhooyr | 125,386 | 128,983 | +3% ¹ |
+| gobwas | 140,522 | 141,951 | +1% ¹ |
 
 ¹ Slight WSS improvement over WS is within measurement noise and likely due to system load variance between test runs.
 
-**Key Insight:** Go's `crypto/tls` adds virtually zero overhead in this benchmark because TLS operations run in parallel across goroutines. xKit pays a 15% penalty because all TLS encryption/decryption happens on the single event loop thread.
+**Key Insight:** Go's `crypto/tls` adds virtually zero overhead in this benchmark because TLS operations run in parallel across goroutines. xKit pays a 25% penalty because all TLS encryption/decryption happens on the single event loop thread.
 
 ## Summary
 
@@ -262,21 +260,21 @@ How much does TLS reduce throughput? (100 connections, 64B)
     gobwas:    92,203 msg/s   1.08 ms  720 MB/s   (xKit +45%)
 
   WSS — 64B echo (100 conns):
-    xKit:     186,068 msg/s   537 μs
-    gorilla:  180,426 msg/s   554 μs   (xKit +3%)
-    gobwas:   142,187 msg/s   703 μs   (xKit +31%)
-    nhooyr:   133,218 msg/s   750 μs   (xKit +40%)
+    gorilla:  180,923 msg/s   553 μs
+    xKit:     165,952 msg/s   603 μs   (gorilla +9%)
+    gobwas:   141,951 msg/s   704 μs
+    nhooyr:   128,983 msg/s   775 μs
 
   WSS — 4KB echo (100 conns):
-    gorilla:  138,882 msg/s   720 μs   1.06 GB/s
-    gobwas:   108,895 msg/s   918 μs   851 MB/s
-    nhooyr:   103,923 msg/s   962 μs   812 MB/s
-    xKit:      16,352 msg/s   243 μs   128 MB/s  ⚠️ (single-thread TLS bottleneck)
+    gorilla:  137,560 msg/s   728 μs   1.05 GB/s
+    gobwas:   107,550 msg/s   930 μs   840 MB/s
+    nhooyr:   105,289 msg/s   950 μs   823 MB/s
+    xKit:      92,686 msg/s   1.08 ms  724 MB/s   (gorilla +48%)
 
   Peak WS throughput:   xKit 219,850 msg/s  (64B, 50 connections)
   Peak WS transfer:     xKit 1.02 GB/s      (4KB, 100 connections)
   Peak WSS throughput:  xKit 186,513 msg/s  (64B, 50 connections)
-  Peak WSS transfer:    gorilla 1.06 GB/s   (4KB, 100 connections)
+  Peak WSS transfer:    gorilla 1.05 GB/s   (4KB, 100 connections)
 ```
 
 **Key Takeaways:**
@@ -285,7 +283,7 @@ How much does TLS reduce throughput? (100 connections, 64B)
 2. **TLS changes the picture at scale.** At 200+ connections or 1KB+ messages over WSS, gorilla overtakes xKit because Go parallelizes TLS across goroutines while xKit serializes it on one thread.
 3. **xKit's WS throughput is remarkably stable** across connection counts (219K at 50 conns vs 218K at 500 conns — less than 1% variation). WSS shows more degradation (186K → 167K) due to single-threaded TLS.
 4. **gorilla/websocket is the fastest Go library** for both WS and WSS echo workloads.
-5. **The single-threaded TLS bottleneck is the main limitation.** Future work could add a TLS write thread pool or io_uring-based async TLS to close the gap at larger payloads.
+5. **Single-threaded TLS is the main bottleneck for large payloads.** At WSS 4KB, xKit (93K msg/s) trails gorilla (138K msg/s) by ~48%. Future work could add a TLS write thread pool or io_uring-based async TLS to close the gap.
 
 ## Reproducing
 

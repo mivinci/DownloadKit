@@ -63,6 +63,7 @@ cd bench && go build -o ../build/bench/ws_bench_gobwas ws_bench_server_gobwas.go
 The benchmark client (`ws_bench_client.go`) establishes N concurrent WebSocket connections to the server. Each connection runs a synchronous echo loop: send a message → wait for the echo → measure round-trip latency → repeat. The test runs for 10 seconds.
 
 Key parameters:
+
 - **Connections**: 50, 100, 200, 500
 - **Message sizes**: 64B, 256B, 1KB, 4KB
 - **Message type**: Binary

@@ -191,6 +191,9 @@ struct xEventLoop_ {
   /* Lock-free freelist for xEventWork_ (Treiber stack) */
   struct xEventWork_ *work_freelist;
 
+  /* Wake coalescing: only the first writer performs the syscall */
+  int wake_pending;
+
   /* Signal watches (indexed by signal number) */
   struct xSignalWatch_ signal_watches[XK_SIGNAL_MAX];
 };
@@ -325,6 +328,23 @@ static inline void loop_drain_wake(struct xEventLoop_ *loop) {
   char buf[64];
   while (read(loop->wake_rfd, buf, sizeof(buf)) > 0)
     ;
+}
+
+/*
+ * Wake coalescing: use an atomic flag so that only the first caller
+ * after the loop clears the flag actually performs the wake syscall.
+ * Returns 1 if the caller should proceed with the real wake, 0 to skip.
+ */
+static inline int loop_coalesced_wake(struct xEventLoop_ *loop) {
+  return xAtomicXchg(&loop->wake_pending, 1, xAtomicAcqRel) == 0;
+}
+
+/*
+ * Clear the wake-pending flag.  Must be called on the loop thread
+ * *before* draining the done queue to avoid a lost-wake race.
+ */
+static inline void loop_clear_wake_pending(struct xEventLoop_ *loop) {
+  xAtomicStore(&loop->wake_pending, 0, xAtomicRelease);
 }
 
 /*

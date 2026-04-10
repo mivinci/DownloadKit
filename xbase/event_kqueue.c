@@ -89,6 +89,7 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   loop->base.done_tail = NULL;
   loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
+  xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
   if (!loop->base.timer_heap) goto fail;
@@ -221,6 +222,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     /* EVFILT_USER wake event */
     if (events[i].filter == EVFILT_USER &&
         events[i].ident == KQ_WAKE_IDENT) {
+      loop_clear_wake_pending(&loop->base);
       loop_dispatch_done(&loop->base);
       continue;
     }
@@ -308,6 +310,9 @@ xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
 xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopKqueue_ *loop = (struct xEventLoopKqueue_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
+
+  /* Coalesce: skip the syscall if another thread already set the flag. */
+  if (!loop_coalesced_wake(&loop->base)) return xErrno_Ok;
 
   struct kevent ev;
   EV_SET(&ev, KQ_WAKE_IDENT, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);

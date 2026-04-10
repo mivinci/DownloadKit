@@ -107,6 +107,7 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   loop->base.done_tail = NULL;
   loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
+  xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
   if (!loop->base.timer_heap) goto fail;
@@ -267,6 +268,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
       /* Drain the eventfd counter */
       uint64_t val;
       (void)read(loop->base.wake_rfd, &val, sizeof(val));
+      loop_clear_wake_pending(&loop->base);
       loop_dispatch_done(&loop->base);
       continue;
     }
@@ -396,6 +398,9 @@ xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
 xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
+
+  /* Coalesce: skip the syscall if another thread already set the flag. */
+  if (!loop_coalesced_wake(&loop->base)) return xErrno_Ok;
 
   uint64_t val = 1;
   ssize_t  r;

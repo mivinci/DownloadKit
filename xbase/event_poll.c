@@ -120,6 +120,7 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   loop->base.done_tail = NULL;
   loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
+  xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
   if (!loop->base.timer_heap) goto fail;
@@ -242,6 +243,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   /* Check wake pipe (slot 0) */
   if (loop->pollfds[0].revents & POLLIN) {
     loop_drain_wake(&loop->base);
+    loop_clear_wake_pending(&loop->base);
     loop_dispatch_done(&loop->base);
   }
 
@@ -295,6 +297,9 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
+
+  /* Coalesce: skip the syscall if another thread already set the flag. */
+  if (!loop_coalesced_wake(&loop->base)) return xErrno_Ok;
 
   char    c = 1;
   ssize_t r;

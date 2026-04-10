@@ -16,6 +16,7 @@ graph TD
     subgraph "High-Level Modules"
         XHTTP["xhttp<br/>HTTP Client &amp; Server &amp; WebSocket"]
         XLOG["xlog<br/>Async Logging"]
+        XP2P["xp2p<br/>ICE / STUN / TURN"]
     end
 
     subgraph "Networking Layer"
@@ -32,12 +33,15 @@ graph TD
 
     APP --> XHTTP
     APP --> XLOG
+    APP --> XP2P
     APP --> XNET
     APP --> XBUF
     APP --> XBASE
     XHTTP --> XNET
     XHTTP --> XBASE
     XHTTP --> XBUF
+    XP2P --> XNET
+    XP2P --> XBASE
     XNET --> XBASE
     XLOG --> XBASE
     XBUF -->|"atomic.h"| XBASE
@@ -47,6 +51,7 @@ graph TD
     style XNET fill:#e74c3c,color:#fff
     style XHTTP fill:#f5a623,color:#fff
     style XLOG fill:#9b59b6,color:#fff
+    style XP2P fill:#2ecc71,color:#fff
 ```
 
 ## Module Index
@@ -112,6 +117,20 @@ High-performance async logger with MPSC queue, three flush modes, and file rotat
 | --- | --- |
 | [logger.h](modules/xlog/logger.md) | Async logger with Timer / Notify / Mixed modes and `XLOG_*` macros |
 
+### [xp2p](modules/xp2p/index.html) — P2P Connectivity
+
+ICE-based peer-to-peer connectivity with full STUN/TURN client stack, SDP codec, and NAT traversal.
+
+| Sub-Module | Description |
+| --- | --- |
+| [ice_agent.h](modules/xp2p/ice.md) | Full ICE agent — candidate gathering, connectivity checks, nomination, data transport |
+| `stun_msg.h` | STUN message encoding/decoding (RFC 5389) |
+| `stun_attr.h` | STUN attribute encoding/decoding with integrity and fingerprint |
+| `stun_txn.h` | STUN transaction manager with exponential-backoff retransmission |
+| `turn_client.h` | TURN allocation, permissions, channel bindings (RFC 5766) |
+| `sdp.h` | SDP offer/answer encoding and decoding (RFC 4566) |
+| `ice_crypto.h` | Built-in HMAC-SHA1, SHA-1, MD5, CRC-32 (zero external deps) |
+
 ### [bench](bench/) — End-to-End Benchmarks
 
 End-to-end benchmark results comparing xKit against other frameworks in real-world scenarios.
@@ -146,6 +165,8 @@ End-to-end benchmark results comparing xKit against other frameworks in real-wor
 | Manage object lifecycles | [xbase/memory.h](modules/xbase/memory.md) |
 | Choose the right buffer type | [xbuf overview](modules/xbuf/index.html) |
 | Build a lock-free producer/consumer pipeline | [xbase/mpsc.h](modules/xbase/mpsc.md) |
+| Establish P2P connectivity | [xp2p/ice_agent.h](modules/xp2p/ice.md) |
+| Send data peer-to-peer | [xp2p/ice_agent.h](modules/xp2p/ice.md) |
 | See micro-benchmark results | Each module doc has a **Benchmark** section (e.g. [mpsc.h](modules/xbase/mpsc.md#benchmark)) |
 | See HTTP server benchmarks | [HTTP/1.1](bench/http_server.md) · [HTTP/2](bench/http2_server.md) · [HTTPS](bench/https_server.md) |
 
@@ -157,6 +178,7 @@ Level 1 (atomic only) : heap.h, mpsc.h
 Level 2 (Level 0-1)   : memory.h, log.h, backtrace.h, buf.h, ring.h
 Level 3 (Level 0-2)   : event.h, io.h, url.h, tls.h
 Level 4 (event loop)  : timer.h, task.h, socket.h, dns.h, tcp.h, logger.h, client.h, server.h, ws.h
+Level 5 (xbase+xnet) : ice_agent.h, stun_msg.h, turn_client.h, sdp.h
 ```
 
 ## Module Dependency Graph
@@ -201,6 +223,13 @@ graph BT
         WS["ws.h"]
     end
 
+    subgraph "Level 5"
+        ICE_AGENT["ice_agent.h"]
+        STUN_MSG["stun_msg.h"]
+        TURN_CLIENT["turn_client.h"]
+        SDP_["sdp.h"]
+    end
+
     HEAP --> ATOMIC
     MPSC --> ATOMIC
     MEMORY --> ERROR
@@ -231,6 +260,14 @@ graph BT
     SERVER --> TLS_CONF
     WS --> SERVER
     WS --> URL
+    ICE_AGENT --> EVENT
+    ICE_AGENT --> SOCKET
+    ICE_AGENT --> STUN_MSG
+    ICE_AGENT --> TURN_CLIENT
+    ICE_AGENT --> SDP_
+    STUN_MSG --> MEMORY
+    TURN_CLIENT --> STUN_MSG
+    SDP_ --> MEMORY
 
     style EVENT fill:#50b86c,color:#fff
     style URL fill:#e74c3c,color:#fff
@@ -241,6 +278,10 @@ graph BT
     style SERVER fill:#f5a623,color:#fff
     style WS fill:#f5a623,color:#fff
     style LOGGER fill:#9b59b6,color:#fff
+    style ICE_AGENT fill:#2ecc71,color:#fff
+    style STUN_MSG fill:#2ecc71,color:#fff
+    style TURN_CLIENT fill:#2ecc71,color:#fff
+    style SDP_ fill:#2ecc71,color:#fff
 ```
 
 ## Build & Test

@@ -154,9 +154,10 @@ void xEventLoopDestroy(xEventLoop loop_) {
   while (xHeapSize(loop->base.timer_heap) > 0) {
     struct xEventTimer_ *t =
       (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
-    free(t);
+    event_timer_free(&loop->base, t);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
+  event_timer_pool_destroy(&loop->base);
   xHeapDestroy(loop->base.timer_heap);
   pthread_mutex_destroy(&loop->base.timer_mu);
 
@@ -298,21 +299,8 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     dispatched++;
   }
 
-  /* Fire expired timers */
-  pthread_mutex_lock(&loop->base.timer_mu);
-  uint64_t now = xEventLoopNowMs();
-  while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t =
-      (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
-    if (t->deadline > now) break;
-    xHeapPop(loop->base.timer_heap);
-    t->fired = 1;
-    pthread_mutex_unlock(&loop->base.timer_mu);
-    t->fn(t->arg);
-    free(t);
-    pthread_mutex_lock(&loop->base.timer_mu);
-  }
-  pthread_mutex_unlock(&loop->base.timer_mu);
+  /* Fire expired timers (batch pop, single lock acquisition) */
+  loop_fire_expired_timers(&loop->base);
 
   /* Sweep sources marked for deletion during this dispatch batch. */
   source_array_sweep(&loop->base.sources);

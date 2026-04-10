@@ -134,6 +134,7 @@ struct xEventTimer_ {
   void           *arg;
   size_t          heap_idx; /* position in the min-heap     */
   int             fired;    /* 1 after callback has run     */
+  struct xEventTimer_ *next_free; /* freelist link (valid only when pooled) */
 };
 
 static inline int event_timer_cmp(const void *a, const void *b) {
@@ -178,6 +179,12 @@ struct xEventLoop_ {
   pthread_mutex_t timer_mu;
   int             stopped;
 
+  /* Timer struct freelist (protected by timer_mu) */
+  struct xEventTimer_ *timer_free;  /* singly-linked freelist head */
+  size_t               timer_nfree; /* current freelist length     */
+
+#define EVENT_TIMER_POOL_MAX 256 /* max cached timer structs    */
+
   /* Default task group for offload (may be NULL) */
   xTaskGroup task_group;
 
@@ -206,6 +213,113 @@ static inline void loop_close_wake(struct xEventLoop_ *loop) {
   if (loop->wake_rfd >= 0) close(loop->wake_rfd);
   if (loop->wake_wfd >= 0) close(loop->wake_wfd);
 }
+
+/* ───────────────────── Timer pool helpers ───────────────────── */
+
+/*
+ * Allocate a timer struct, preferring the freelist over malloc.
+ * Must be called with timer_mu held.
+ */
+static inline struct xEventTimer_ *event_timer_alloc(struct xEventLoop_ *loop) {
+  struct xEventTimer_ *t = loop->timer_free;
+  if (t) {
+    loop->timer_free = t->next_free;
+    loop->timer_nfree--;
+    memset(t, 0, sizeof(*t));
+    return t;
+  }
+  return (struct xEventTimer_ *)calloc(1, sizeof(struct xEventTimer_));
+}
+
+/*
+ * Return a timer struct to the freelist (or free it if pool is full).
+ * Must be called with timer_mu held.
+ */
+static inline void event_timer_free(struct xEventLoop_ *loop,
+                                    struct xEventTimer_ *t) {
+  if (loop->timer_nfree < EVENT_TIMER_POOL_MAX) {
+    t->next_free     = loop->timer_free;
+    loop->timer_free = t;
+    loop->timer_nfree++;
+  } else {
+    free(t);
+  }
+}
+
+/* Drain the freelist (called during destroy, no lock needed). */
+static inline void event_timer_pool_destroy(struct xEventLoop_ *loop) {
+  struct xEventTimer_ *t = loop->timer_free;
+  while (t) {
+    struct xEventTimer_ *next = t->next_free;
+    free(t);
+    t = next;
+  }
+  loop->timer_free  = NULL;
+  loop->timer_nfree = 0;
+}
+
+/*
+ * Pop all expired timers under a single lock acquisition, then fire
+ * them and return each struct to the pool.  Replaces the per-pop
+ * lock/unlock pattern in all three backends.
+ */
+static inline int loop_fire_expired_timers(struct xEventLoop_ *loop) {
+  /* Scratch buffer on stack; fall back to heap for huge batches. */
+  struct xEventTimer_ *stack_buf[128];
+  struct xEventTimer_ **batch = stack_buf;
+  size_t batch_cap = 128;
+  size_t batch_len = 0;
+
+  pthread_mutex_lock(&loop->timer_mu);
+  uint64_t now = xMonoMs();
+  while (xHeapSize(loop->timer_heap) > 0) {
+    struct xEventTimer_ *t =
+      (struct xEventTimer_ *)xHeapPeek(loop->timer_heap);
+    if (t->deadline > now) break;
+    xHeapPop(loop->timer_heap);
+    t->fired = 1;
+    /* Grow batch if needed */
+    if (batch_len == batch_cap) {
+      size_t newcap = batch_cap * 2;
+      struct xEventTimer_ **heap_buf;
+      if (batch == stack_buf) {
+        heap_buf = (struct xEventTimer_ **)malloc(
+          newcap * sizeof(struct xEventTimer_ *));
+        if (heap_buf) memcpy(heap_buf, stack_buf, batch_len * sizeof(*batch));
+      } else {
+        heap_buf = (struct xEventTimer_ **)realloc(
+          batch, newcap * sizeof(struct xEventTimer_ *));
+      }
+      if (!heap_buf) {
+        /* Out of memory — fire what we have so far, recycle, retry later */
+        break;
+      }
+      batch     = heap_buf;
+      batch_cap = newcap;
+    }
+    batch[batch_len++] = t;
+  }
+  pthread_mutex_unlock(&loop->timer_mu);
+
+  /* Fire callbacks outside the lock */
+  for (size_t i = 0; i < batch_len; i++) {
+    batch[i]->fn(batch[i]->arg);
+  }
+
+  /* Return structs to the pool (re-acquire lock once) */
+  if (batch_len > 0) {
+    pthread_mutex_lock(&loop->timer_mu);
+    for (size_t i = 0; i < batch_len; i++) {
+      event_timer_free(loop, batch[i]);
+    }
+    pthread_mutex_unlock(&loop->timer_mu);
+  }
+
+  if (batch != stack_buf) free(batch);
+  return (int)batch_len;
+}
+
+/* ───────────────────── Wake helpers ───────────────────── */
 
 static inline void loop_drain_wake(struct xEventLoop_ *loop) {
   char buf[64];

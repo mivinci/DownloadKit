@@ -15,9 +15,12 @@ static xEventTimer submit_timer(xEventLoop loop_, xEventTimerFunc fn, void *arg,
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
   if (!loop || !fn) return NULL;
 
-  struct xEventTimer_ *t =
-    (struct xEventTimer_ *)calloc(1, sizeof(struct xEventTimer_));
-  if (!t) return NULL;
+  pthread_mutex_lock(&loop->timer_mu);
+  struct xEventTimer_ *t = event_timer_alloc(loop);
+  if (!t) {
+    pthread_mutex_unlock(&loop->timer_mu);
+    return NULL;
+  }
 
   t->deadline = abs_ms;
   t->fn       = fn;
@@ -25,12 +28,13 @@ static xEventTimer submit_timer(xEventLoop loop_, xEventTimerFunc fn, void *arg,
   t->heap_idx = EVENT_TIMER_INVALID_IDX;
   t->fired    = 0;
 
-  pthread_mutex_lock(&loop->timer_mu);
   xErrno err = xHeapPush(loop->timer_heap, t);
   pthread_mutex_unlock(&loop->timer_mu);
 
   if (err != xErrno_Ok) {
-    free(t);
+    pthread_mutex_lock(&loop->timer_mu);
+    event_timer_free(loop, t);
+    pthread_mutex_unlock(&loop->timer_mu);
     return NULL;
   }
 
@@ -71,8 +75,8 @@ xErrno xEventLoopTimerCancel(xEventLoop loop_, xEventTimer timer_) {
   xHeapRemove(loop->timer_heap, timer->heap_idx);
   timer->heap_idx = EVENT_TIMER_INVALID_IDX;
 
+  event_timer_free(loop, timer);
   pthread_mutex_unlock(&loop->timer_mu);
 
-  free(timer);
   return xErrno_Ok;
 }

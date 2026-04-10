@@ -48,8 +48,7 @@ xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn,
     if (!group) return xErrno_InvalidState;
   }
 
-  struct xEventWork_ *w =
-    (struct xEventWork_ *)calloc(1, sizeof(struct xEventWork_));
+  struct xEventWork_ *w = event_work_alloc((struct xEventLoop_ *)loop);
   if (!w) return xErrno_NoMemory;
 
   w->work_fn = work_fn;
@@ -60,7 +59,7 @@ xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn,
 
   xTask t = xTaskSubmit(group, offload_worker, w);
   if (!t) {
-    free(w);
+    event_work_free((struct xEventLoop_ *)loop, w);
     return xErrno_SysError;
   }
 

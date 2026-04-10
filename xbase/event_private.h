@@ -126,14 +126,14 @@ source_array_find_fd(struct xEventSourceArray_ *s, int fd) {
 
 /* ───────────────────── Builtin timer entry ───────────────────── */
 
-#define EVENT_TIMER_INVALID_IDX ((size_t) - 1)
+#define EVENT_TIMER_INVALID_IDX ((size_t)-1)
 
 struct xEventTimer_ {
-  uint64_t        deadline; /* absolute ms, CLOCK_MONOTONIC */
-  xEventTimerFunc fn;
-  void           *arg;
-  size_t          heap_idx; /* position in the min-heap     */
-  int             fired;    /* 1 after callback has run     */
+  uint64_t             deadline; /* absolute ms, CLOCK_MONOTONIC */
+  xEventTimerFunc      fn;
+  void                *arg;
+  size_t               heap_idx;  /* position in the min-heap     */
+  int                  fired;     /* 1 after callback has run     */
   struct xEventTimer_ *next_free; /* freelist link (valid only when pooled) */
 };
 
@@ -155,10 +155,10 @@ struct xEventWork_ {
   xMpsc     mpsc;    /* intrusive MPSC queue node                */
   xTaskFunc work_fn; /* executed on worker thread                */
   void (*done_fn)(void *arg, void *result); /* executed on loop thread */
-  void      *arg;
-  void      *result;
-  xEventLoop loop;      /* back-pointer to the owning event loop    */
-  xTask      task;      /* handle returned by xTaskSubmit           */
+  void               *arg;
+  void               *result;
+  xEventLoop          loop;      /* back-pointer to the owning event loop    */
+  xTask               task;      /* handle returned by xTaskSubmit           */
   struct xEventWork_ *next_free; /* freelist link (when on the pool) */
 };
 
@@ -238,7 +238,7 @@ static inline struct xEventTimer_ *event_timer_alloc(struct xEventLoop_ *loop) {
  * Return a timer struct to the freelist (or free it if pool is full).
  * Must be called with timer_mu held.
  */
-static inline void event_timer_free(struct xEventLoop_ *loop,
+static inline void event_timer_free(struct xEventLoop_  *loop,
                                     struct xEventTimer_ *t) {
   if (loop->timer_nfree < EVENT_TIMER_POOL_MAX) {
     t->next_free     = loop->timer_free;
@@ -268,22 +268,21 @@ static inline void event_timer_pool_destroy(struct xEventLoop_ *loop) {
  */
 static inline int loop_fire_expired_timers(struct xEventLoop_ *loop) {
   /* Scratch buffer on stack; fall back to heap for huge batches. */
-  struct xEventTimer_ *stack_buf[128];
-  struct xEventTimer_ **batch = stack_buf;
-  size_t batch_cap = 128;
-  size_t batch_len = 0;
+  struct xEventTimer_  *stack_buf[128];
+  struct xEventTimer_ **batch     = stack_buf;
+  size_t                batch_cap = 128;
+  size_t                batch_len = 0;
 
   pthread_mutex_lock(&loop->timer_mu);
   uint64_t now = xMonoMs();
   while (xHeapSize(loop->timer_heap) > 0) {
-    struct xEventTimer_ *t =
-      (struct xEventTimer_ *)xHeapPeek(loop->timer_heap);
+    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPeek(loop->timer_heap);
     if (t->deadline > now) break;
     xHeapPop(loop->timer_heap);
     t->fired = 1;
     /* Grow batch if needed */
     if (batch_len == batch_cap) {
-      size_t newcap = batch_cap * 2;
+      size_t                newcap = batch_cap * 2;
       struct xEventTimer_ **heap_buf;
       if (batch == stack_buf) {
         heap_buf = (struct xEventTimer_ **)malloc(

@@ -156,8 +156,9 @@ struct xEventWork_ {
   void (*done_fn)(void *arg, void *result); /* executed on loop thread */
   void      *arg;
   void      *result;
-  xEventLoop loop; /* back-pointer to the owning event loop    */
-  xTask      task; /* handle returned by xTaskSubmit           */
+  xEventLoop loop;      /* back-pointer to the owning event loop    */
+  xTask      task;      /* handle returned by xTaskSubmit           */
+  struct xEventWork_ *next_free; /* freelist link (when on the pool) */
 };
 
 /* ───────────────────── Loop base ───────────────────── */
@@ -179,6 +180,9 @@ struct xEventLoop_ {
 
   /* Default task group for offload (may be NULL) */
   xTaskGroup task_group;
+
+  /* Lock-free freelist for xEventWork_ (Treiber stack) */
+  struct xEventWork_ *work_freelist;
 
   /* Signal watches (indexed by signal number) */
   struct xSignalWatch_ signal_watches[XK_SIGNAL_MAX];
@@ -209,7 +213,51 @@ static inline void loop_drain_wake(struct xEventLoop_ *loop) {
     ;
 }
 
-/* Dispatch all completed offload work items (call done_fn, then free). */
+/*
+ * Lock-free Treiber stack for xEventWork_ recycling.
+ *
+ * Both alloc and free may be called from any thread:
+ *   - alloc: from the submitting thread (xEventLoopSubmit)
+ *   - free:  from the event-loop thread  (loop_dispatch_done)
+ */
+static inline struct xEventWork_ *
+event_work_alloc(struct xEventLoop_ *loop) {
+  struct xEventWork_ *w;
+  for (;;) {
+    w = xAtomicLoad(&loop->work_freelist, xAtomicAcquire);
+    if (!w) break; /* empty — fall back to calloc */
+    if (xAtomicCasWeak(&loop->work_freelist, &w, w->next_free, xAtomicAcqRel))
+      break;
+  }
+  if (w) {
+    memset(w, 0, sizeof(*w));
+    return w;
+  }
+  return (struct xEventWork_ *)calloc(1, sizeof(struct xEventWork_));
+}
+
+static inline void event_work_free(struct xEventLoop_ *loop,
+                                   struct xEventWork_ *w) {
+  struct xEventWork_ *head;
+  w->next_free = NULL;
+  do {
+    head         = xAtomicLoad(&loop->work_freelist, xAtomicRelaxed);
+    w->next_free = head;
+  } while (
+    !xAtomicCasWeak(&loop->work_freelist, &head, w, xAtomicRelease));
+}
+
+static inline void event_work_pool_destroy(struct xEventLoop_ *loop) {
+  struct xEventWork_ *w = loop->work_freelist;
+  while (w) {
+    struct xEventWork_ *next = w->next_free;
+    free(w);
+    w = next;
+  }
+  loop->work_freelist = NULL;
+}
+
+/* Dispatch all completed offload work items (call done_fn, then recycle). */
 static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
   xMpsc *node;
   while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
@@ -218,7 +266,7 @@ static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
     xTaskWait(w->task, NULL);
     if (w->done_fn) w->done_fn(w->arg, w->result);
     xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
-    free(w);
+    event_work_free(loop, w);
   }
 }
 
@@ -229,7 +277,7 @@ static inline void loop_cleanup_done(struct xEventLoop_ *loop) {
   while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
     struct xEventWork_ *w = xContainerOf(node, struct xEventWork_, mpsc);
     xTaskWait(w->task, NULL);
-    free(w);
+    free(w); /* truly free — loop is being destroyed */
   }
 }
 

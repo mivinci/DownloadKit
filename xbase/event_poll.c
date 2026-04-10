@@ -118,6 +118,7 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;
+  loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
@@ -163,6 +164,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
 
   loop_wait_inflight(&loop->base);
   loop_cleanup_done(&loop->base);
+  event_work_pool_destroy(&loop->base);
 
   /* Close signal pipes */
   for (int i = 0; i < XK_SIGNAL_MAX; i++) {

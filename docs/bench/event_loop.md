@@ -35,7 +35,7 @@ Micro-benchmark comparison of xKit's `xEventLoop` against libuv 1.52.1 across th
 | --- | ---: | ---: | ---: |
 | Time | 879 ns | 415 ns | 2.12× slower |
 
-xKit uses a pipe-based wake mechanism (`write(wake_wfd)` → `read(wake_rfd)` + drain). libuv's `uv_async_t` is faster here — on macOS it uses a similar pipe internally but avoids the drain loop overhead by using a flag-based coalescing approach. The 2× gap suggests room for optimization in xKit's wake path (e.g., using `eventfd` on Linux, or a lighter drain strategy on macOS).
+xKit previously used a pipe-based wake mechanism (`write(wake_wfd)` → `read(wake_rfd)` + drain). This has been replaced with `EVFILT_USER` on kqueue (macOS) and `eventfd` on epoll (Linux) for lower overhead. libuv's `uv_async_t` uses a similar pipe internally but avoids the drain loop overhead by using a flag-based coalescing approach. Re-benchmarking is recommended to measure the improvement.
 
 ### Timer Scheduling
 
@@ -133,4 +133,4 @@ xKit uses a pipe-based wake mechanism (`write(wake_wfd)` → `read(wake_rfd)` + 
 
 4. **Caller-allocated work items**: Allow `xEventLoopSubmitInline(loop, work_t*, ...)` where the caller provides the work struct, eliminating the per-submit malloc — matching libuv's `uv_work_t` model.
 
-5. **Lighter wake mechanism on macOS**: Investigate using `__ulock_wait` / `__ulock_wake` (already used by xNote) instead of the pipe for the event loop wake path. This could halve the wake latency.
+5. ~~**Lighter wake mechanism**~~: ✅ Done — kqueue backend now uses `EVFILT_USER` (zero fd, no pipe) for wake; epoll backend uses `eventfd` (single fd) instead of a pipe pair. Poll backend retains the pipe as a POSIX fallback.

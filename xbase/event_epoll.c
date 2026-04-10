@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -104,6 +105,7 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;
+  loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
@@ -118,14 +120,14 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   loop->epfd = epoll_create1(EPOLL_CLOEXEC);
   if (loop->epfd < 0) goto fail;
 
-  if (loop_init_wake(&loop->base) != 0) goto fail;
-  if (set_nonblock(loop->base.wake_rfd) != 0) goto fail;
-  if (set_nonblock(loop->base.wake_wfd) != 0) goto fail;
+  /* Use eventfd for lightweight wake (single fd, no pipe). */
+  loop->base.wake_rfd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+  if (loop->base.wake_rfd < 0) goto fail;
 
-  /* Register wake pipe read end */
+  /* Register eventfd with epoll (edge-triggered) */
   struct epoll_event ev;
   ev.events  = EPOLLIN | EPOLLET;
-  ev.data.fd = loop->base.wake_rfd; /* use fd for identification */
+  ev.data.fd = loop->base.wake_rfd;
   if (epoll_ctl(loop->epfd, EPOLL_CTL_ADD, loop->base.wake_rfd, &ev) != 0)
     goto fail;
 
@@ -133,7 +135,7 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
 
 fail:
   if (loop->epfd >= 0) close(loop->epfd);
-  loop_close_wake(&loop->base);
+  if (loop->base.wake_rfd >= 0) close(loop->base.wake_rfd);
   source_array_free(&loop->base.sources);
   if (loop->base.timer_heap) {
     xHeapDestroy(loop->base.timer_heap);
@@ -160,6 +162,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
 
   loop_wait_inflight(&loop->base);
   loop_cleanup_done(&loop->base);
+  event_work_pool_destroy(&loop->base);
 
   /* Close any open signal pipes */
   for (int i = 0; i < XK_SIGNAL_MAX; i++) {
@@ -171,7 +174,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
   }
 
   close(loop->epfd);
-  loop_close_wake(&loop->base);
+  if (loop->base.wake_rfd >= 0) close(loop->base.wake_rfd);
   source_array_free(&loop->base.sources);
   free(loop);
 }
@@ -258,9 +261,11 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
      */
     int efd = events[i].data.fd;
 
-    /* Wake pipe — registered with data.fd */
+    /* Wake eventfd — registered with data.fd */
     if (efd == loop->base.wake_rfd) {
-      loop_drain_wake(&loop->base);
+      /* Drain the eventfd counter */
+      uint64_t val;
+      (void)read(loop->base.wake_rfd, &val, sizeof(val));
       loop_dispatch_done(&loop->base);
       continue;
     }
@@ -404,13 +409,15 @@ xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
 
-  char    c = 1;
-  ssize_t r;
+  uint64_t val = 1;
+  ssize_t  r;
   do {
-    r = write(loop->base.wake_wfd, &c, 1);
+    r = write(loop->base.wake_rfd, &val, sizeof(val));
   } while (r < 0 && errno == EINTR);
 
-  return (r == 1 || (r < 0 && errno == EAGAIN)) ? xErrno_Ok : xErrno_SysError;
+  return (r == (ssize_t)sizeof(val) || (r < 0 && errno == EAGAIN))
+           ? xErrno_Ok
+           : xErrno_SysError;
 }
 
 #endif /* XK_HAS_EPOLL */

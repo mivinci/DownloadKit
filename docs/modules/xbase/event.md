@@ -325,14 +325,50 @@ int main(void) {
 > Environment: Apple M3 Pro, 36 GB RAM, macOS 26.4, Release build (`-O2`), kqueue backend.
 > Source: [`xbase/event_bench.cpp`](https://github.com/mivinci/xKit/blob/main/xbase/event_bench.cpp)
 
+### Core Operations
+
 | Benchmark | Time (ns) | CPU (ns) | Iterations |
 | --- | ---: | ---: | ---: |
-| `BM_EventLoop_CreateDestroy` | 2,663 | 2,663 | 264,113 |
-| `BM_EventLoop_WakeLatency` | 854 | 854 | 814,901 |
-| `BM_EventLoop_PipeAddDel` | 1,107 | 1,107 | 627,088 |
+| `BM_EventLoop_CreateDestroy` | 2,773 | 2,773 | 235,725 |
+| `BM_EventLoop_WakeLatency` | 879 | 879 | 786,676 |
+| `BM_EventLoop_PipeAddDel` | 1,181 | 1,181 | 588,033 |
+
+### Timer Scheduling
+
+| Benchmark | Time (ns) | CPU (ns) | Throughput |
+| --- | ---: | ---: | ---: |
+| `BM_EventLoop_TimerSingle` | 974 | 974 | 1.03M items/s |
+| `BM_EventLoop_TimerBatch/10` | 3,794 | 3,794 | 2.64M items/s |
+| `BM_EventLoop_TimerBatch/100` | 31,483 | 31,479 | 3.18M items/s |
+| `BM_EventLoop_TimerBatch/1000` | 318,881 | 318,805 | 3.14M items/s |
+
+### Offload Round-Trip (Submit → Done Callback)
+
+| Benchmark | Time (ns) | CPU (ns) | Throughput |
+| --- | ---: | ---: | ---: |
+| `BM_EventLoop_OffloadSingle` | 6,959 | 4,110 | 243.3k items/s |
+| `BM_EventLoop_OffloadBatch/10` | 18,514 | 15,058 | 664.1k items/s |
+| `BM_EventLoop_OffloadBatch/100` | 82,536 | 66,319 | 1.51M items/s |
+| `BM_EventLoop_OffloadBatch/1000` | 636,981 | 507,346 | 1.97M items/s |
+
+### libuv Baseline Comparison
+
+| Dimension | xKit | libuv | Ratio |
+| --- | ---: | ---: | ---: |
+| **Wake Latency** | 879 ns | 415 ns | 2.12× slower |
+| **Timer (single)** | 974 ns | 1,525 ns (CPU) | **1.57× faster** |
+| **Timer (×10)** | 3,794 ns | 1,836 ns (CPU) | 2.07× slower |
+| **Timer (×100)** | 31,479 ns | 6,037 ns (CPU) | 5.21× slower |
+| **Timer (×1000)** | 318,805 ns | 73,537 ns (CPU) | 4.33× slower |
+| **Offload (single)** | 4,110 ns (CPU) | 3,536 ns (CPU) | 1.16× slower |
+| **Offload (×10)** | 15,058 ns (CPU) | 10,394 ns (CPU) | 1.45× slower |
+| **Offload (×100)** | 66,319 ns (CPU) | 33,966 ns (CPU) | 1.95× slower |
+| **Offload (×1000)** | 507,346 ns (CPU) | 260,302 ns (CPU) | 1.95× slower |
 
 **Key Observations:**
 
-- **Create/Destroy** takes ~2.7µs, reflecting the cost of kqueue fd creation and internal structure allocation. Acceptable for long-lived event loops.
-- **Wake latency** is ~854ns per wake+wait cycle, demonstrating efficient cross-thread notification via the internal wake mechanism.
-- **Add/Del cycle** (register + unregister a pipe fd) takes ~1.1µs, showing low overhead for dynamic fd management — important for short-lived connections.
+- **Create/Destroy** takes ~2.8µs, reflecting the cost of kqueue fd creation and internal structure allocation. Acceptable for long-lived event loops.
+- **Wake latency** is ~879ns per wake+wait cycle. libuv is ~2× faster here, likely due to its use of `uv_async_t` which avoids the pipe read/drain overhead.
+- **Timer (single)** — xKit wins at ~974ns vs libuv's ~1.5µs CPU time, showing that xKit's lightweight timer heap has lower per-timer overhead for the simple case.
+- **Timer (batch)** — libuv scales significantly better under bulk timer load. libuv's timer implementation uses a more optimized heap or batched processing that amortizes overhead at scale. This is an area for future optimization.
+- **Offload round-trip** — libuv is ~1.2–2× faster across all batch sizes. The gap widens with batch size, suggesting libuv's `uv_queue_work` has a more efficient completion notification path. xKit's MPSC queue + wake pipe approach is competitive for single-item offload but has room for improvement in batch throughput.

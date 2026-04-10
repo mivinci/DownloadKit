@@ -39,7 +39,7 @@ xKit uses a pipe-based wake mechanism (`write(wake_wfd)` → `read(wake_rfd)` + 
 
 ### Timer Scheduling
 
-#### xKit
+#### xKit — Timer
 
 | Benchmark | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: |
@@ -48,7 +48,7 @@ xKit uses a pipe-based wake mechanism (`write(wake_wfd)` → `read(wake_rfd)` + 
 | `BM_EventLoop_TimerBatch/100` | 31,483 | 31,479 | 3.18M items/s |
 | `BM_EventLoop_TimerBatch/1000` | 318,881 | 318,805 | 3.14M items/s |
 
-#### libuv
+#### libuv — Timer
 
 | Benchmark | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: |
@@ -57,7 +57,7 @@ xKit uses a pipe-based wake mechanism (`write(wake_wfd)` → `read(wake_rfd)` + 
 | `BM_Libuv_TimerBatch/100` | 17,192 | 6,037 | 16.56M items/s |
 | `BM_Libuv_TimerBatch/1000` | 84,568 | 73,537 | 13.60M items/s |
 
-#### Comparison (CPU time)
+#### Comparison — Timer (CPU time)
 
 | Batch Size | xKit (CPU ns) | libuv (CPU ns) | Ratio |
 | ---: | ---: | ---: | ---: |
@@ -78,7 +78,7 @@ xKit uses a pipe-based wake mechanism (`write(wake_wfd)` → `read(wake_rfd)` + 
 
 ### Offload Round-Trip (Submit → Done Callback)
 
-#### xKit
+#### xKit — Offload
 
 | Benchmark | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: |
@@ -87,7 +87,7 @@ xKit uses a pipe-based wake mechanism (`write(wake_wfd)` → `read(wake_rfd)` + 
 | `BM_EventLoop_OffloadBatch/100` | 82,536 | 66,319 | 1.51M items/s |
 | `BM_EventLoop_OffloadBatch/1000` | 636,981 | 507,346 | 1.97M items/s |
 
-#### libuv
+#### libuv — Offload
 
 | Benchmark | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: |
@@ -96,7 +96,7 @@ xKit uses a pipe-based wake mechanism (`write(wake_wfd)` → `read(wake_rfd)` + 
 | `BM_Libuv_OffloadBatch/100` | 38,978 | 33,966 | 2.94M items/s |
 | `BM_Libuv_OffloadBatch/1000` | 281,770 | 260,302 | 3.84M items/s |
 
-#### Comparison (CPU time)
+#### Comparison — Offload (CPU time)
 
 | Batch Size | xKit (CPU ns) | libuv (CPU ns) | Ratio |
 | ---: | ---: | ---: | ---: |

@@ -28,6 +28,7 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | **[xnet](https://le0.me/xKit/xnet)** | Networking primitives — URL parser, async DNS resolver, shared TLS configuration types |
 | **[xhttp](https://le0.me/xKit/xhttp)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing, WebSocket server & client (RFC 6455) |
 | **[xlog](https://le0.me/xKit/xlog)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
+| **[xp2p](https://le0.me/xKit/xp2p)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
 
 📖 See the **[full documentation](https://le0.me/xKit)** for detailed design, architecture diagrams, API references, and usage examples.
 

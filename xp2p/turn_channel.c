@@ -43,7 +43,7 @@ xErrno xTurnChannelDataDecode(const uint8_t *buf, size_t buf_len,
     return xErrno_InvalidArg;
   }
 
-  if (XTURN_CHANNEL_HEADER_SIZE + *data_len > buf_len) {
+  if (XTURN_CHANNEL_HEADER_SIZE + (size_t)*data_len > buf_len) {
     return xErrno_InvalidArg;
   }
 

@@ -28,13 +28,13 @@ XDEF_HANDLE(xIceAgent);
 /* ───────────────────── Agent States ───────────────────── */
 
 XDEF_ENUM(xIceState){
-  xIceState_New       = 0, /**< Initial state, no activity yet.            */
+  xIceState_New       = 0, /**< Initial state, no activity yet.              */
   xIceState_Gathering = 1, /**< Gathering local candidates. host/srflx/relay */
-  xIceState_Checking  = 2, /**< Performing connectivity checks.            */
-  xIceState_Connected = 3, /**< At least one valid pair found.             */
-  xIceState_Completed = 4, /**< All checks done, nominated pair selected.  */
-  xIceState_Failed    = 5, /**< All checks failed, no valid pair.          */
-  xIceState_Closed    = 6, /**< Agent has been shut down.                  */
+  xIceState_Checking  = 2, /**< Performing connectivity checks.              */
+  xIceState_Connected = 3, /**< At least one valid pair found.               */
+  xIceState_Completed = 4, /**< All checks done, nominated pair selected.    */
+  xIceState_Failed    = 5, /**< All checks failed, no valid pair.            */
+  xIceState_Closed    = 6, /**< Agent has been shut down.                    */
 };
 
 /* ───────────────────── Agent Roles ───────────────────── */

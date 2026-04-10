@@ -1050,15 +1050,25 @@ void xIceAgentDestroy(xIceAgent agent) {
   /* Destroy transaction manager */
   xStunTxnMgrDestroy(&a->txn_mgr);
 
-  /* Close sockets */
-  for (int i = 0; i < a->local_count; i++) {
+  /* Notify Closed state before tearing down sockets, so the callback
+   * still sees a consistent agent. */
+  set_state(a, xIceAgentState_Closed);
+
+  /* Close sockets — only host candidates own their sockets.
+   * srflx / relay candidates share the host socket, so we must not
+   * destroy the same socket twice (double-free → SIGTRAP). */
+  for (int i = 0; i < a->host_count; i++) {
     if (a->local_candidates[i].sock) {
       xSocketDestroy(a->loop, a->local_candidates[i].sock);
       a->local_candidates[i].sock = NULL;
     }
   }
 
-  set_state(a, xIceAgentState_Closed);
+  /* Clear dangling sock pointers on non-host candidates */
+  for (int i = a->host_count; i < a->local_count; i++) {
+    a->local_candidates[i].sock = NULL;
+  }
+
   free(a);
 }
 

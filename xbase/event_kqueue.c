@@ -59,6 +59,9 @@ static int kq_apply(int kqfd, struct xEventSource_ *src, xEventMask mask) {
 
 /* ───────────────────── Kqueue-specific loop data ───────────────────── */
 
+/* Arbitrary ident for the EVFILT_USER wake event (not a real fd). */
+#define KQ_WAKE_IDENT 0xBADC0FFEu
+
 struct xEventLoopKqueue_ {
   struct xEventLoop_ base;
   int                kqfd;
@@ -84,7 +87,9 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;
+  loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
+  xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
   if (!loop->base.timer_heap) goto fail;
@@ -93,20 +98,15 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   loop->kqfd = kqueue();
   if (loop->kqfd < 0) goto fail;
 
-  if (loop_init_wake(&loop->base) != 0) goto fail;
-  if (set_nonblock(loop->base.wake_rfd) != 0) goto fail;
-  if (set_nonblock(loop->base.wake_wfd) != 0) goto fail;
-
-  /* Register wake pipe read end with kqueue (edge-triggered) */
+  /* Register EVFILT_USER for lightweight wake (no pipe needed). */
   struct kevent ev;
-  EV_SET(&ev, loop->base.wake_rfd, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, NULL);
+  EV_SET(&ev, KQ_WAKE_IDENT, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, NULL);
   if (kevent(loop->kqfd, &ev, 1, NULL, 0, NULL) < 0) goto fail;
 
   return (xEventLoop)loop;
 
 fail:
   if (loop->kqfd >= 0) close(loop->kqfd);
-  loop_close_wake(&loop->base);
   source_array_free(&loop->base.sources);
   if (loop->base.timer_heap) {
     xHeapDestroy(loop->base.timer_heap);
@@ -125,17 +125,18 @@ void xEventLoopDestroy(xEventLoop loop_) {
   while (xHeapSize(loop->base.timer_heap) > 0) {
     struct xEventTimer_ *t =
       (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
-    free(t);
+    event_timer_free(&loop->base, t);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
+  event_timer_pool_destroy(&loop->base);
   xHeapDestroy(loop->base.timer_heap);
   pthread_mutex_destroy(&loop->base.timer_mu);
 
   loop_wait_inflight(&loop->base);
   loop_cleanup_done(&loop->base);
+  event_work_pool_destroy(&loop->base);
 
   close(loop->kqfd);
-  loop_close_wake(&loop->base);
   source_array_free(&loop->base.sources);
   free(loop);
 }
@@ -218,9 +219,10 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 
   int dispatched = 0;
   for (int i = 0; i < n; i++) {
-    /* Skip wake pipe */
-    if ((int)events[i].ident == loop->base.wake_rfd) {
-      loop_drain_wake(&loop->base);
+    /* EVFILT_USER wake event */
+    if (events[i].filter == EVFILT_USER &&
+        events[i].ident == KQ_WAKE_IDENT) {
+      loop_clear_wake_pending(&loop->base);
       loop_dispatch_done(&loop->base);
       continue;
     }
@@ -248,21 +250,8 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     dispatched++;
   }
 
-  /* Fire expired timers */
-  pthread_mutex_lock(&loop->base.timer_mu);
-  uint64_t now = xEventLoopNowMs();
-  while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t =
-      (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
-    if (t->deadline > now) break;
-    xHeapPop(loop->base.timer_heap);
-    t->fired = 1;
-    pthread_mutex_unlock(&loop->base.timer_mu);
-    t->fn(t->arg);
-    free(t);
-    pthread_mutex_lock(&loop->base.timer_mu);
-  }
-  pthread_mutex_unlock(&loop->base.timer_mu);
+  /* Fire expired timers (batch pop, single lock acquisition) */
+  loop_fire_expired_timers(&loop->base);
 
   /* Sweep sources marked for deletion during this dispatch batch. */
   source_array_sweep(&loop->base.sources);
@@ -322,13 +311,14 @@ xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopKqueue_ *loop = (struct xEventLoopKqueue_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
 
-  char    c = 1;
-  ssize_t r;
-  do {
-    r = write(loop->base.wake_wfd, &c, 1);
-  } while (r < 0 && errno == EINTR);
+  /* Coalesce: skip the syscall if another thread already set the flag. */
+  if (!loop_coalesced_wake(&loop->base)) return xErrno_Ok;
 
-  return (r == 1 || (r < 0 && errno == EAGAIN)) ? xErrno_Ok : xErrno_SysError;
+  struct kevent ev;
+  EV_SET(&ev, KQ_WAKE_IDENT, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+  if (kevent(loop->kqfd, &ev, 1, NULL, 0, NULL) < 0) return xErrno_SysError;
+
+  return xErrno_Ok;
 }
 
 #endif /* XK_HAS_KQUEUE */

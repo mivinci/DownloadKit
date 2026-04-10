@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -104,7 +105,9 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;
+  loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
+  xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
   if (!loop->base.timer_heap) goto fail;
@@ -118,14 +121,14 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   loop->epfd = epoll_create1(EPOLL_CLOEXEC);
   if (loop->epfd < 0) goto fail;
 
-  if (loop_init_wake(&loop->base) != 0) goto fail;
-  if (set_nonblock(loop->base.wake_rfd) != 0) goto fail;
-  if (set_nonblock(loop->base.wake_wfd) != 0) goto fail;
+  /* Use eventfd for lightweight wake (single fd, no pipe). */
+  loop->base.wake_rfd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+  if (loop->base.wake_rfd < 0) goto fail;
 
-  /* Register wake pipe read end */
+  /* Register eventfd with epoll (edge-triggered) */
   struct epoll_event ev;
   ev.events  = EPOLLIN | EPOLLET;
-  ev.data.fd = loop->base.wake_rfd; /* use fd for identification */
+  ev.data.fd = loop->base.wake_rfd;
   if (epoll_ctl(loop->epfd, EPOLL_CTL_ADD, loop->base.wake_rfd, &ev) != 0)
     goto fail;
 
@@ -133,7 +136,7 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
 
 fail:
   if (loop->epfd >= 0) close(loop->epfd);
-  loop_close_wake(&loop->base);
+  if (loop->base.wake_rfd >= 0) close(loop->base.wake_rfd);
   source_array_free(&loop->base.sources);
   if (loop->base.timer_heap) {
     xHeapDestroy(loop->base.timer_heap);
@@ -152,14 +155,16 @@ void xEventLoopDestroy(xEventLoop loop_) {
   while (xHeapSize(loop->base.timer_heap) > 0) {
     struct xEventTimer_ *t =
       (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
-    free(t);
+    event_timer_free(&loop->base, t);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
+  event_timer_pool_destroy(&loop->base);
   xHeapDestroy(loop->base.timer_heap);
   pthread_mutex_destroy(&loop->base.timer_mu);
 
   loop_wait_inflight(&loop->base);
   loop_cleanup_done(&loop->base);
+  event_work_pool_destroy(&loop->base);
 
   /* Close any open signal pipes */
   for (int i = 0; i < XK_SIGNAL_MAX; i++) {
@@ -171,7 +176,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
   }
 
   close(loop->epfd);
-  loop_close_wake(&loop->base);
+  if (loop->base.wake_rfd >= 0) close(loop->base.wake_rfd);
   source_array_free(&loop->base.sources);
   free(loop);
 }
@@ -258,9 +263,12 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
      */
     int efd = events[i].data.fd;
 
-    /* Wake pipe — registered with data.fd */
+    /* Wake eventfd — registered with data.fd */
     if (efd == loop->base.wake_rfd) {
-      loop_drain_wake(&loop->base);
+      /* Drain the eventfd counter */
+      uint64_t val;
+      (void)read(loop->base.wake_rfd, &val, sizeof(val));
+      loop_clear_wake_pending(&loop->base);
       loop_dispatch_done(&loop->base);
       continue;
     }
@@ -293,21 +301,8 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     dispatched++;
   }
 
-  /* Fire expired timers */
-  pthread_mutex_lock(&loop->base.timer_mu);
-  uint64_t now = xEventLoopNowMs();
-  while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t =
-      (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
-    if (t->deadline > now) break;
-    xHeapPop(loop->base.timer_heap);
-    t->fired = 1;
-    pthread_mutex_unlock(&loop->base.timer_mu);
-    t->fn(t->arg);
-    free(t);
-    pthread_mutex_lock(&loop->base.timer_mu);
-  }
-  pthread_mutex_unlock(&loop->base.timer_mu);
+  /* Fire expired timers (batch pop, single lock acquisition) */
+  loop_fire_expired_timers(&loop->base);
 
   /* Sweep sources marked for deletion during this dispatch batch. */
   source_array_sweep(&loop->base.sources);
@@ -404,13 +399,18 @@ xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
 
-  char    c = 1;
-  ssize_t r;
+  /* Coalesce: skip the syscall if another thread already set the flag. */
+  if (!loop_coalesced_wake(&loop->base)) return xErrno_Ok;
+
+  uint64_t val = 1;
+  ssize_t  r;
   do {
-    r = write(loop->base.wake_wfd, &c, 1);
+    r = write(loop->base.wake_rfd, &val, sizeof(val));
   } while (r < 0 && errno == EINTR);
 
-  return (r == 1 || (r < 0 && errno == EAGAIN)) ? xErrno_Ok : xErrno_SysError;
+  return (r == (ssize_t)sizeof(val) || (r < 0 && errno == EAGAIN))
+           ? xErrno_Ok
+           : xErrno_SysError;
 }
 
 #endif /* XK_HAS_EPOLL */

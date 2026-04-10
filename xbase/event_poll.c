@@ -118,7 +118,9 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   source_array_init(&loop->base.sources);
   loop->base.done_head = NULL;
   loop->base.done_tail = NULL;
+  loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
+  xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);
 
   loop->base.timer_heap = xHeapCreate(event_timer_cmp, event_timer_set_idx, 0);
   if (!loop->base.timer_heap) goto fail;
@@ -155,14 +157,16 @@ void xEventLoopDestroy(xEventLoop loop_) {
   while (xHeapSize(loop->base.timer_heap) > 0) {
     struct xEventTimer_ *t =
       (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
-    free(t);
+    event_timer_free(&loop->base, t);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
+  event_timer_pool_destroy(&loop->base);
   xHeapDestroy(loop->base.timer_heap);
   pthread_mutex_destroy(&loop->base.timer_mu);
 
   loop_wait_inflight(&loop->base);
   loop_cleanup_done(&loop->base);
+  event_work_pool_destroy(&loop->base);
 
   /* Close signal pipes */
   for (int i = 0; i < XK_SIGNAL_MAX; i++) {
@@ -239,6 +243,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   /* Check wake pipe (slot 0) */
   if (loop->pollfds[0].revents & POLLIN) {
     loop_drain_wake(&loop->base);
+    loop_clear_wake_pending(&loop->base);
     loop_dispatch_done(&loop->base);
   }
 
@@ -280,21 +285,8 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     }
   }
 
-  /* Fire expired timers */
-  pthread_mutex_lock(&loop->base.timer_mu);
-  uint64_t now = xEventLoopNowMs();
-  while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t =
-      (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
-    if (t->deadline > now) break;
-    xHeapPop(loop->base.timer_heap);
-    t->fired = 1;
-    pthread_mutex_unlock(&loop->base.timer_mu);
-    t->fn(t->arg);
-    free(t);
-    pthread_mutex_lock(&loop->base.timer_mu);
-  }
-  pthread_mutex_unlock(&loop->base.timer_mu);
+  /* Fire expired timers (batch pop, single lock acquisition) */
+  loop_fire_expired_timers(&loop->base);
 
   /* Sweep sources marked for deletion during this dispatch batch. */
   source_array_sweep(&loop->base.sources);
@@ -305,6 +297,9 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 xErrno xEventWake(xEventLoop loop_) {
   struct xEventLoopPoll_ *loop = (struct xEventLoopPoll_ *)loop_;
   if (!loop) return xErrno_InvalidArg;
+
+  /* Coalesce: skip the syscall if another thread already set the flag. */
+  if (!loop_coalesced_wake(&loop->base)) return xErrno_Ok;
 
   char    c = 1;
   ssize_t r;

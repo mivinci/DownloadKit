@@ -126,14 +126,15 @@ source_array_find_fd(struct xEventSourceArray_ *s, int fd) {
 
 /* ───────────────────── Builtin timer entry ───────────────────── */
 
-#define EVENT_TIMER_INVALID_IDX ((size_t) - 1)
+#define EVENT_TIMER_INVALID_IDX ((size_t)-1)
 
 struct xEventTimer_ {
-  uint64_t        deadline; /* absolute ms, CLOCK_MONOTONIC */
-  xEventTimerFunc fn;
-  void           *arg;
-  size_t          heap_idx; /* position in the min-heap     */
-  int             fired;    /* 1 after callback has run     */
+  uint64_t             deadline; /* absolute ms, CLOCK_MONOTONIC */
+  xEventTimerFunc      fn;
+  void                *arg;
+  size_t               heap_idx;  /* position in the min-heap     */
+  int                  fired;     /* 1 after callback has run     */
+  struct xEventTimer_ *next_free; /* freelist link (valid only when pooled) */
 };
 
 static inline int event_timer_cmp(const void *a, const void *b) {
@@ -154,10 +155,11 @@ struct xEventWork_ {
   xMpsc     mpsc;    /* intrusive MPSC queue node                */
   xTaskFunc work_fn; /* executed on worker thread                */
   void (*done_fn)(void *arg, void *result); /* executed on loop thread */
-  void      *arg;
-  void      *result;
-  xEventLoop loop; /* back-pointer to the owning event loop    */
-  xTask      task; /* handle returned by xTaskSubmit           */
+  void               *arg;
+  void               *result;
+  xEventLoop          loop;      /* back-pointer to the owning event loop    */
+  xTask               task;      /* handle returned by xTaskSubmit           */
+  struct xEventWork_ *next_free; /* freelist link (when on the pool) */
 };
 
 /* ───────────────────── Loop base ───────────────────── */
@@ -177,8 +179,20 @@ struct xEventLoop_ {
   pthread_mutex_t timer_mu;
   int             stopped;
 
+  /* Timer struct freelist (protected by timer_mu) */
+  struct xEventTimer_ *timer_free;  /* singly-linked freelist head */
+  size_t               timer_nfree; /* current freelist length     */
+
+#define EVENT_TIMER_POOL_MAX 256 /* max cached timer structs    */
+
   /* Default task group for offload (may be NULL) */
   xTaskGroup task_group;
+
+  /* Lock-free freelist for xEventWork_ (Treiber stack) */
+  struct xEventWork_ *work_freelist;
+
+  /* Wake coalescing: only the first writer performs the syscall */
+  int wake_pending;
 
   /* Signal watches (indexed by signal number) */
   struct xSignalWatch_ signal_watches[XK_SIGNAL_MAX];
@@ -203,13 +217,180 @@ static inline void loop_close_wake(struct xEventLoop_ *loop) {
   if (loop->wake_wfd >= 0) close(loop->wake_wfd);
 }
 
+/* ───────────────────── Timer pool helpers ───────────────────── */
+
+/*
+ * Allocate a timer struct, preferring the freelist over malloc.
+ * Must be called with timer_mu held.
+ */
+static inline struct xEventTimer_ *event_timer_alloc(struct xEventLoop_ *loop) {
+  struct xEventTimer_ *t = loop->timer_free;
+  if (t) {
+    loop->timer_free = t->next_free;
+    loop->timer_nfree--;
+    memset(t, 0, sizeof(*t));
+    return t;
+  }
+  return (struct xEventTimer_ *)calloc(1, sizeof(struct xEventTimer_));
+}
+
+/*
+ * Return a timer struct to the freelist (or free it if pool is full).
+ * Must be called with timer_mu held.
+ */
+static inline void event_timer_free(struct xEventLoop_  *loop,
+                                    struct xEventTimer_ *t) {
+  if (loop->timer_nfree < EVENT_TIMER_POOL_MAX) {
+    t->next_free     = loop->timer_free;
+    loop->timer_free = t;
+    loop->timer_nfree++;
+  } else {
+    free(t);
+  }
+}
+
+/* Drain the freelist (called during destroy, no lock needed). */
+static inline void event_timer_pool_destroy(struct xEventLoop_ *loop) {
+  struct xEventTimer_ *t = loop->timer_free;
+  while (t) {
+    struct xEventTimer_ *next = t->next_free;
+    free(t);
+    t = next;
+  }
+  loop->timer_free  = NULL;
+  loop->timer_nfree = 0;
+}
+
+/*
+ * Pop all expired timers under a single lock acquisition, then fire
+ * them and return each struct to the pool.  Replaces the per-pop
+ * lock/unlock pattern in all three backends.
+ */
+static inline int loop_fire_expired_timers(struct xEventLoop_ *loop) {
+  /* Scratch buffer on stack; fall back to heap for huge batches. */
+  struct xEventTimer_  *stack_buf[128];
+  struct xEventTimer_ **batch     = stack_buf;
+  size_t                batch_cap = 128;
+  size_t                batch_len = 0;
+
+  pthread_mutex_lock(&loop->timer_mu);
+  uint64_t now = xMonoMs();
+  while (xHeapSize(loop->timer_heap) > 0) {
+    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPeek(loop->timer_heap);
+    if (t->deadline > now) break;
+    xHeapPop(loop->timer_heap);
+    t->fired = 1;
+    /* Grow batch if needed */
+    if (batch_len == batch_cap) {
+      size_t                newcap = batch_cap * 2;
+      struct xEventTimer_ **heap_buf;
+      if (batch == stack_buf) {
+        heap_buf = (struct xEventTimer_ **)malloc(
+          newcap * sizeof(struct xEventTimer_ *));
+        if (heap_buf) memcpy(heap_buf, stack_buf, batch_len * sizeof(*batch));
+      } else {
+        heap_buf = (struct xEventTimer_ **)realloc(
+          batch, newcap * sizeof(struct xEventTimer_ *));
+      }
+      if (!heap_buf) {
+        /* Out of memory — fire what we have so far, recycle, retry later */
+        break;
+      }
+      batch     = heap_buf;
+      batch_cap = newcap;
+    }
+    batch[batch_len++] = t;
+  }
+  pthread_mutex_unlock(&loop->timer_mu);
+
+  /* Fire callbacks outside the lock */
+  for (size_t i = 0; i < batch_len; i++) {
+    batch[i]->fn(batch[i]->arg);
+  }
+
+  /* Return structs to the pool (re-acquire lock once) */
+  if (batch_len > 0) {
+    pthread_mutex_lock(&loop->timer_mu);
+    for (size_t i = 0; i < batch_len; i++) {
+      event_timer_free(loop, batch[i]);
+    }
+    pthread_mutex_unlock(&loop->timer_mu);
+  }
+
+  if (batch != stack_buf) free(batch);
+  return (int)batch_len;
+}
+
+/* ───────────────────── Wake helpers ───────────────────── */
+
 static inline void loop_drain_wake(struct xEventLoop_ *loop) {
   char buf[64];
   while (read(loop->wake_rfd, buf, sizeof(buf)) > 0)
     ;
 }
 
-/* Dispatch all completed offload work items (call done_fn, then free). */
+/*
+ * Wake coalescing: use an atomic flag so that only the first caller
+ * after the loop clears the flag actually performs the wake syscall.
+ * Returns 1 if the caller should proceed with the real wake, 0 to skip.
+ */
+static inline int loop_coalesced_wake(struct xEventLoop_ *loop) {
+  return xAtomicXchg(&loop->wake_pending, 1, xAtomicAcqRel) == 0;
+}
+
+/*
+ * Clear the wake-pending flag.  Must be called on the loop thread
+ * *before* draining the done queue to avoid a lost-wake race.
+ */
+static inline void loop_clear_wake_pending(struct xEventLoop_ *loop) {
+  xAtomicStore(&loop->wake_pending, 0, xAtomicRelease);
+}
+
+/*
+ * Lock-free Treiber stack for xEventWork_ recycling.
+ *
+ * Both alloc and free may be called from any thread:
+ *   - alloc: from the submitting thread (xEventLoopSubmit)
+ *   - free:  from the event-loop thread  (loop_dispatch_done)
+ */
+static inline struct xEventWork_ *
+event_work_alloc(struct xEventLoop_ *loop) {
+  struct xEventWork_ *w;
+  for (;;) {
+    w = xAtomicLoad(&loop->work_freelist, xAtomicAcquire);
+    if (!w) break; /* empty — fall back to calloc */
+    if (xAtomicCasWeak(&loop->work_freelist, &w, w->next_free, xAtomicAcqRel))
+      break;
+  }
+  if (w) {
+    memset(w, 0, sizeof(*w));
+    return w;
+  }
+  return (struct xEventWork_ *)calloc(1, sizeof(struct xEventWork_));
+}
+
+static inline void event_work_free(struct xEventLoop_ *loop,
+                                   struct xEventWork_ *w) {
+  struct xEventWork_ *head;
+  w->next_free = NULL;
+  do {
+    head         = xAtomicLoad(&loop->work_freelist, xAtomicRelaxed);
+    w->next_free = head;
+  } while (
+    !xAtomicCasWeak(&loop->work_freelist, &head, w, xAtomicRelease));
+}
+
+static inline void event_work_pool_destroy(struct xEventLoop_ *loop) {
+  struct xEventWork_ *w = loop->work_freelist;
+  while (w) {
+    struct xEventWork_ *next = w->next_free;
+    free(w);
+    w = next;
+  }
+  loop->work_freelist = NULL;
+}
+
+/* Dispatch all completed offload work items (call done_fn, then recycle). */
 static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
   xMpsc *node;
   while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
@@ -218,7 +399,7 @@ static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
     xTaskWait(w->task, NULL);
     if (w->done_fn) w->done_fn(w->arg, w->result);
     xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
-    free(w);
+    event_work_free(loop, w);
   }
 }
 
@@ -229,7 +410,7 @@ static inline void loop_cleanup_done(struct xEventLoop_ *loop) {
   while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
     struct xEventWork_ *w = xContainerOf(node, struct xEventWork_, mpsc);
     xTaskWait(w->task, NULL);
-    free(w);
+    free(w); /* truly free — loop is being destroyed */
   }
 }
 

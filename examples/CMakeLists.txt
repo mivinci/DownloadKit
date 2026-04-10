@@ -6,3 +6,6 @@ target_link_libraries(ws_echo_server PRIVATE xhttp xbase)
 
 add_executable(ws_client ws_client.cpp)
 target_link_libraries(ws_client PRIVATE xhttp xbase)
+
+add_executable(ice_echo ice_echo.c)
+target_link_libraries(ice_echo PRIVATE xp2p xbase)

@@ -8,7 +8,7 @@ list(FILTER XNET_SOURCES EXCLUDE REGEX "tls_mbedtls")
 list(FILTER XNET_SOURCES EXCLUDE REGEX "transport_openssl")
 list(FILTER XNET_SOURCES EXCLUDE REGEX "transport_mbedtls")
 add_library(xnet SHARED ${XNET_SOURCES} ${XNET_HEADERS})
-target_link_libraries(xnet PUBLIC xbase)
+target_link_libraries(xnet PUBLIC xbase xbuf)
 
 # ── TLS backend detection (mirrors xhttp pattern) ─────────────────────
 # Reuses the XK_TLS_BACKEND cache variable set by xhttp or the user.

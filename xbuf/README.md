@@ -39,14 +39,14 @@ xBufferDestroy(buf);
 
 ## xRingBuffer — 固定大小环形缓冲区
 
-固定容量的环形缓冲区，头部元数据和数据区通过 flexible array member 一次 `malloc` 分配。容量自动向上取整为 2 的幂次以使用位掩码替代取模运算。不会重新分配内存，写满时返回错误。
+固定容量的环形缓冲区，头部元数据和数据区通过 flexible array member 一次 `malloc` 分配。容量自动向上取整为 2 的幂次以使用位掩码替代取模运算。不会重新分配内存，写满时执行部分写入。
 
 ```c
 #include <xbuf/ring.h>
 
 xRingBuffer *rb = xRingBufferCreate(8192);
 
-xRingBufferWrite(rb, data, len);         // 写入，空间不足返回 xErrno_NoMemory
+size_t n = xRingBufferWrite(rb, data, len); // 写入，返回实际写入字节数（空间不足时部分写入）
 size_t n = xRingBufferRead(rb, out, sz); // 读取并消费
 xRingBufferPeek(rb, out, sz);            // 只读不消费
 

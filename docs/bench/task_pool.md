@@ -122,3 +122,75 @@ N producer threads each submit 1,000 tasks concurrently, then GroupWait.
 3. **xNote is a structural improvement.** While the raw latency improvement is modest for single-task round-trips, xNote reduces `struct xTask_` from ~136 bytes to ~48 bytes (−65%), eliminates `pthread_mutex_init`/`pthread_cond_init`/`destroy` calls, and makes the fast path (task already done) a single atomic load.
 
 4. **High-contention concurrent submit shows regression at 8 producers.** The CAS-based xMpsc push can spin under extreme contention. This is a known trade-off — the lock-free path is faster for the common case (2–4 producers) but can degrade under pathological contention. Future work: consider work-stealing queues to eliminate the shared submission queue entirely.
+
+## libuv Baseline Comparison
+
+Comparison against libuv 1.52.1's `uv_queue_work` API. libuv uses a global thread pool (default 4 workers) with `pthread_cond_signal` for precise wake-up. The libuv benchmarks use `uv_run(UV_RUN_ONCE)` to drive the event loop and collect completions.
+
+> **Note on fairness:** libuv's `uv_queue_work` is tightly integrated with its event loop — the after_work_cb fires on the loop thread during `uv_run()`, which avoids cross-thread synchronization for completion notification. xTask's `xTaskWait()` blocks the calling thread with a futex/ulock, which is a different (and more general) synchronization model. The comparison measures end-to-end throughput of "submit work → collect result" regardless of the underlying mechanism.
+
+### SubmitWait — Single-task round-trip (xTask vs libuv)
+
+| | xTask | libuv | Δ |
+| --- | ---: | ---: | --- |
+| Wall time | 5,702 ns | 5,878 ns | xTask **−3.0%** |
+| Throughput | 293.5K ops/s | 289.0K ops/s | xTask **+1.6%** |
+
+> Essentially tied. Both are dominated by the same bottleneck: waking a sleeping worker thread via kernel syscall (ulock_wake / pthread_cond_signal).
+
+### FanOut — Batch submit + barrier (xTask vs libuv)
+
+| Fan-out | xTask (ops/s) | libuv (ops/s) | Δ |
+| ---: | ---: | ---: | --- |
+| 10 | 903.8K | 963.6K | libuv +6.6% |
+| 100 | 2.86M | 3.18M | libuv +11.2% |
+| 1,000 | 3.52M | 5.93M | libuv **+68.5%** |
+| 10,000 | 3.72M | 5.81M | libuv **+56.1%** |
+
+| Fan-out | xTask (wall) | libuv (wall) | Δ |
+| ---: | ---: | ---: | --- |
+| 10 | 15,672 ns | 13,968 ns | libuv **−10.9%** |
+| 100 | 48,985 ns | 36,804 ns | libuv **−24.9%** |
+| 1,000 | 338,617 ns | 191,886 ns | libuv **−43.4%** |
+| 10,000 | 3,017,059 ns | 1,963,693 ns | libuv **−34.9%** |
+
+> libuv is significantly faster at high fan-out. Key differences:
+>
+> 1. **Completion path**: libuv workers post completions to an async handle (pipe/eventfd write), and the loop thread drains them in a single `uv__work_done()` call — no per-task synchronization. xTask workers push to an xMpsc queue and signal xNote per task.
+> 2. **No per-task allocation**: libuv's `uv_work_t` is caller-allocated (stack or embedding struct), while xTask mallocs a `struct xTask_` per submit (mitigated by TLS freelist, but still present on first use).
+> 3. **Batch drain**: libuv's `uv__work_done()` drains all completed work in one loop iteration, amortizing the event-loop overhead. xTask's `xTaskGroupWait()` spins on `pending` with a condvar.
+
+### SubmitWaitBatch — Submit N + wait each (xTask vs libuv)
+
+| Batch | xTask (ops/s) | libuv (ops/s) | Δ |
+| ---: | ---: | ---: | --- |
+| 10 | 860.8K | 968.8K | libuv +12.5% |
+| 100 | 2.32M | 3.30M | libuv **+42.4%** |
+| 1,000 | 3.46M | 4.51M | libuv **+30.2%** |
+
+| Batch | xTask (wall) | libuv (wall) | Δ |
+| ---: | ---: | ---: | --- |
+| 10 | 14,092 ns | 13,909 ns | libuv −1.3% |
+| 100 | 49,749 ns | 35,792 ns | libuv **−28.0%** |
+| 1,000 | 320,438 ns | 242,952 ns | libuv **−24.2%** |
+
+> Same pattern as FanOut. libuv's batch drain and zero-alloc model give it an edge at scale.
+
+### libuv Comparison Summary
+
+| Benchmark | xTask vs libuv | Gap |
+| --- | --- | --- |
+| SubmitWait (single) | **≈ tied** | xTask +1.6% |
+| FanOut/10 | libuv faster | −6.6% |
+| FanOut/1000 | libuv faster | **−68.5%** |
+| FanOut/10000 | libuv faster | **−56.1%** |
+| SubmitWaitBatch/100 | libuv faster | **−42.4%** |
+| SubmitWaitBatch/1000 | libuv faster | **−30.2%** |
+
+### Opportunities for Improvement
+
+1. **Batch drain in GroupWait**: Instead of spinning on `pending` + condvar, drain the xMpsc done-queue in a batch (like libuv's `uv__work_done()`). This would amortize the per-task overhead of xNote signal + atomic decrement.
+
+2. **Caller-allocated tasks**: Allow an `xTaskSubmitInline(group, work_t*, fn)` path where the caller provides the task struct (e.g. embedded in a larger request object), eliminating malloc entirely — matching libuv's `uv_work_t` model.
+
+3. **Coalesced wake**: When multiple tasks complete in rapid succession, coalesce the xNote signals into a single kernel wake (batch futex_wake / ulock_wake). Currently each worker signals independently.

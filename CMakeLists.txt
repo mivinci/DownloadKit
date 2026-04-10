@@ -36,6 +36,7 @@ add_subdirectory(xbase)
 add_subdirectory(xlog)
 add_subdirectory(xbuf)
 add_subdirectory(xnet)
+add_subdirectory(xp2p)
 
 find_package(Libcurl QUIET)
 if(Libcurl_FOUND)

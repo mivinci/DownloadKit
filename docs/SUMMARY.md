@@ -43,6 +43,7 @@
   - [HTTPS Server](bench/https_server.md)
   - [WebSocket Server](bench/ws_server.md)
   - [WSS Async TLS Regression](bench/wss_async_tls_regression.md)
+  - [Event Loop](bench/event_loop.md)
   - [Thread Pool](bench/task_pool.md)
 
 ---

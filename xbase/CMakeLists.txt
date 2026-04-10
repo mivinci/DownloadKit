@@ -59,11 +59,11 @@ if(XK_BUILD_BENCHMARKS)
       LIBS    xbase
     )
 
-    # Link libuv for task_bench baseline comparison
-    if(name STREQUAL "task_bench" AND Libuv_FOUND)
+    # Link libuv for baseline comparison
+    if((name STREQUAL "task_bench" OR name STREQUAL "event_bench") AND Libuv_FOUND)
       target_link_libraries(${name} PRIVATE Libuv::Libuv)
       target_compile_definitions(${name} PRIVATE XK_HAS_LIBUV)
-      message(STATUS "xbase: task_bench will include libuv baseline")
+      message(STATUS "xbase: ${name} will include libuv baseline")
     endif()
   endforeach()
 endif()

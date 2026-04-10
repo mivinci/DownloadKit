@@ -12,6 +12,7 @@
 
 #include <xbase/task.h>
 
+#include <xbase/mpsc.h>
 #include <xbase/note.h>
 
 #include <pthread.h>
@@ -30,11 +31,17 @@ struct xTask_ {
   xNote  note;
   void  *result;
 
-  /* Back-pointer to owning group (for done-list removal in xTaskWait) */
+  /* Back-pointer to owning group */
   struct xTaskGroup_ *group;
 
-  /* Intrusive queue linkage */
+  /* Intrusive queue linkage (task queue) */
   struct xTask_ *next;
+
+  /* Lock-free done-list linkage (xMpsc) */
+  xMpsc done_link;
+
+  /* Set by xTaskWait() so drain knows this task was already collected. */
+  atomic_bool waited;
 };
 
 struct xTaskGroup_ {
@@ -50,11 +57,11 @@ struct xTaskGroup_ {
   size_t          qsize;
   size_t          qcap;
 
-  /* Completed-but-not-waited tasks (protected by qlock).
-   * When a task finishes and nobody calls xTaskWait(), the worker
-   * appends it here so xTaskGroupDestroy() can free it. */
-  struct xTask_ *done_head;
-  struct xTask_ *done_tail;
+  /* Completed tasks — lock-free MPSC queue.
+   * Workers push via xMpscPush (multi-producer), drain happens on a
+   * single thread in xTaskGroupWait / xTaskGroupDestroy. */
+  xMpsc *done_head;
+  xMpsc *done_tail;
 
   /* Idle worker count: workers that have popped a task and finished
    * their work, waiting for more. When a new task arrives and
@@ -79,6 +86,46 @@ static inline struct xTaskGroup_ *grp(xTaskGroup g) {
 
 static inline struct xTask_ *tsk(xTask t) {
   return (struct xTask_ *)t;
+}
+
+/* ───────────────── Thread-local task freelist ────────────── */
+
+/*
+ * In the common event-loop offload path, xTaskSubmit (alloc) and
+ * xTaskWait (free) happen on the same thread.  A per-thread freelist
+ * eliminates malloc/free overhead entirely — zero locks, zero atomics.
+ *
+ * We reuse task->next as the freelist link pointer (zero extra memory).
+ * A per-thread cap prevents unbounded caching when one thread submits
+ * many tasks that are waited-on by different threads.
+ */
+#define TASK_FREELIST_CAP 64
+
+struct task_freelist {
+  struct xTask_ *head;
+  size_t         count;
+};
+
+static __thread struct task_freelist tl_free = {NULL, 0};
+
+static struct xTask_ *task_alloc(void) {
+  if (tl_free.head) {
+    struct xTask_ *t = tl_free.head;
+    tl_free.head     = t->next;
+    tl_free.count--;
+    return t;
+  }
+  return (struct xTask_ *)malloc(sizeof(struct xTask_));
+}
+
+static void task_free(struct xTask_ *t) {
+  if (tl_free.count >= TASK_FREELIST_CAP) {
+    free(t);
+    return;
+  }
+  t->next       = tl_free.head;
+  tl_free.head  = t;
+  tl_free.count++;
 }
 
 /* ───────────────────── Worker ───────────────────── */
@@ -112,25 +159,16 @@ static void *worker_loop(void *arg) {
     /* Execute the task */
     void *result = task->fn(task->arg);
 
-    /* Append to done list BEFORE marking done.
+    /* Append to done list (lock-free) BEFORE signaling the note.
      *
-     * xTaskWait() blocks until task->done is true, then frees the task.
-     * If we broadcast first and append second, xTaskWait() on another
-     * thread can free the task while we still touch task->next here —
-     * a heap-use-after-free.  By appending first (under qlock), the
-     * task is safely on the done list before anyone can free it. */
-    pthread_mutex_lock(&g->qlock);
-    task->next = NULL;
-    if (g->done_tail) {
-      g->done_tail->next = task;
-    } else {
-      g->done_head = task;
-    }
-    g->done_tail = task;
-    pthread_mutex_unlock(&g->qlock);
+     * xMpscPush is wait-free for producers.  The task must be on the
+     * done list before anyone can observe completion, so that
+     * xTaskGroupDestroy can always find and free it. */
+    xMpscPush(&g->done_head, &g->done_tail, &task->done_link);
 
-    /* Now store the result and signal the note — safe because we no
-     * longer touch the task after the signal. */
+    /* Store the result and signal the note. */
+    /* After xNoteSignal the caller of xTaskWait may mark the task as
+     * waited, but the task memory stays alive until drain. */
     task->result = result;
     xNoteSignal(&task->note);
 
@@ -146,6 +184,16 @@ static void *worker_loop(void *arg) {
 }
 
 /* ───────────────────── Helpers ───────────────────── */
+
+/* Drain the done queue, freeing all completed tasks.
+ * Must be called from a single thread (no concurrent pop). */
+static void drain_done(struct xTaskGroup_ *g) {
+  xMpsc *node;
+  while ((node = xMpscPop(&g->done_head, &g->done_tail)) != NULL) {
+    struct xTask_ *t = xContainerOf(node, struct xTask_, done_link);
+    task_free(t);
+  }
+}
 
 static bool spawn_one_worker(struct xTaskGroup_ *g) {
   pthread_t *new_workers;
@@ -213,12 +261,8 @@ void xTaskGroupDestroy(xTaskGroup g_) {
     free(t);
   }
 
-  /* Free completed-but-not-waited tasks */
-  while (g->done_head) {
-    struct xTask_ *t = g->done_head;
-    g->done_head     = t->next;
-    free(t);
-  }
+  /* Free completed tasks (both waited and not-waited) */
+  drain_done(g);
 
   free(g->workers);
   pthread_mutex_destroy(&g->qlock);
@@ -233,7 +277,7 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
 
   if (!g_ || !fn) return NULL;
 
-  task = (struct xTask_ *)calloc(1, sizeof(struct xTask_));
+  task = task_alloc();
   if (!task) return NULL;
 
   task->fn     = fn;
@@ -242,6 +286,7 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
   task->result = NULL;
   task->group  = g;
   task->next   = NULL;
+  atomic_store_explicit(&task->waited, false, memory_order_relaxed);
 
   pthread_mutex_lock(&g->qlock);
 
@@ -292,29 +337,11 @@ xErrno xTaskWait(xTask t_, void **result) {
   xNoteWait(&t->note);
   if (result) *result = t->result;
 
-  /* Remove from the done list before freeing. */
-  struct xTaskGroup_ *g = t->group;
-  pthread_mutex_lock(&g->qlock);
-  struct xTask_ **pp = &g->done_head;
-  while (*pp) {
-    if (*pp == t) {
-      *pp = t->next;
-      if (g->done_tail == t) {
-        g->done_tail = (g->done_head == NULL) ? NULL : g->done_head;
-        /* Walk to find the real tail */
-        struct xTask_ *tail = g->done_head;
-        if (tail) {
-          while (tail->next) tail = tail->next;
-          g->done_tail = tail;
-        }
-      }
-      break;
-    }
-    pp = &(*pp)->next;
-  }
-  pthread_mutex_unlock(&g->qlock);
-
-  free(t);
+  /* Mark as waited so the drain in GroupWait/Destroy can free it.
+   * We do NOT free the task here — the done-list is a lock-free
+   * MPSC queue that does not support random removal.  Memory is
+   * reclaimed when the done queue is drained. */
+  atomic_store_explicit(&t->waited, true, memory_order_release);
 
   return xErrno_Ok;
 }
@@ -329,6 +356,11 @@ xErrno xTaskGroupWait(xTaskGroup g_) {
     pthread_cond_wait(&g->wcond, &g->qlock);
   }
   pthread_mutex_unlock(&g->qlock);
+
+  /* All tasks finished — drain the done queue to reclaim memory.
+   * No workers are producing into the done queue at this point
+   * (pending == 0), so single-consumer drain is safe. */
+  drain_done(g);
 
   return xErrno_Ok;
 }

@@ -47,3 +47,4 @@
 
 - [TODO](todo/README.md)
   - [Removing libcurl](todo/remove_libcurl.md)
+  - [xTaskGroup Work-Stealing](todo/xbase_work_stealing.md)

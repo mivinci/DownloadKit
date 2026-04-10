@@ -37,7 +37,7 @@ TEST(xRingBuffer, WriteRead) {
   xRingBuffer rb = xRingBufferCreate(64);
 
   const char *msg = "hello ring";
-  ASSERT_EQ(xRingBufferWrite(rb, msg, strlen(msg)), xErrno_Ok);
+  ASSERT_EQ(xRingBufferWrite(rb, msg, strlen(msg)), strlen(msg));
   EXPECT_EQ(xRingBufferLen(rb), strlen(msg));
 
   char   out[32] = {};
@@ -55,7 +55,7 @@ TEST(xRingBuffer, WrapAround) {
   /* Fill most of the buffer. */
   char fill[12];
   memset(fill, 'A', sizeof(fill));
-  ASSERT_EQ(xRingBufferWrite(rb, fill, sizeof(fill)), xErrno_Ok);
+  ASSERT_EQ(xRingBufferWrite(rb, fill, sizeof(fill)), sizeof(fill));
 
   /* Consume some to advance tail. */
   char tmp[8];
@@ -63,7 +63,7 @@ TEST(xRingBuffer, WrapAround) {
 
   /* Now write data that wraps around. */
   char wrap[] = "WRAP";
-  ASSERT_EQ(xRingBufferWrite(rb, wrap, 4), xErrno_Ok);
+  ASSERT_EQ(xRingBufferWrite(rb, wrap, 4), 4u);
 
   /* Read everything out. */
   char   out[16] = {};
@@ -80,11 +80,11 @@ TEST(xRingBuffer, Full) {
 
   char data[16];
   memset(data, 'X', (size_t)cap);
-  ASSERT_EQ(xRingBufferWrite(rb, data, cap), xErrno_Ok);
+  ASSERT_EQ(xRingBufferWrite(rb, data, cap), cap);
   EXPECT_TRUE(xRingBufferFull(rb));
 
-  /* Writing more should fail. */
-  EXPECT_EQ(xRingBufferWrite(rb, "a", 1), xErrno_NoMemory);
+  /* Writing more should return 0 (no space). */
+  EXPECT_EQ(xRingBufferWrite(rb, "a", 1), 0u);
 
   xRingBufferDestroy(rb);
 }

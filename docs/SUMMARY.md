@@ -42,6 +42,8 @@
   - [HTTP/2 Server](bench/http2_server.md)
   - [HTTPS Server](bench/https_server.md)
   - [WebSocket Server](bench/ws_server.md)
+  - [WSS Async TLS Regression](bench/wss_async_tls_regression.md)
+  - [Thread Pool](bench/task_pool.md)
 
 ---
 

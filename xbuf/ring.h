@@ -105,12 +105,15 @@ XCAPI(bool) xRingBufferFull(xRingBuffer rb);
 /**
  * @brief Write bytes into the ring buffer.
  *
+ * Writes as many bytes as possible. If the buffer has insufficient
+ * space, a partial write is performed.
+ *
  * @param rb    Ring buffer (must not be NULL).
  * @param data  Source bytes.
  * @param len   Number of bytes to write.
- * @return xErrno_Ok on success, xErrno_NoMemory if not enough space.
+ * @return Number of bytes actually written (may be less than @p len).
  */
-XCAPI(xErrno) xRingBufferWrite(xRingBuffer rb, const void *data, size_t len);
+XCAPI(size_t) xRingBufferWrite(xRingBuffer rb, const void *data, size_t len);
 
 /* ───────────────────── Read ───────────────────── */
 

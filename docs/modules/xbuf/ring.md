@@ -6,7 +6,7 @@
 
 ## Design Philosophy
 
-1. **Fixed Capacity, Zero Reallocation** — Once created, the ring buffer never grows. Writes that exceed capacity return `xErrno_NoMemory`. This makes memory usage predictable and avoids allocation latency spikes.
+1. **Fixed Capacity, Zero Reallocation** — Once created, the ring buffer never grows. Writes that exceed capacity are truncated to the available space (partial write). This makes memory usage predictable and avoids allocation latency spikes.
 
 2. **Power-of-Two Masking** — The internal capacity is always a power of two. Index computation uses `head & mask` instead of `head % cap`, which is significantly faster on most architectures.
 
@@ -104,21 +104,24 @@ This works because `cap` is a power of two: `x % (2^n) == x & (2^n - 1)`.
 flowchart TD
     WRITE["xRingBufferWrite(rb, data, len)"]
     CHECK{"len <= writable?"}
-    FAIL["Return xErrno_NoMemory"]
+    CLAMP["len = writable"]
     POS["pos = head & mask"]
     FIRST["first = cap - pos"]
     WRAP{"len <= first?"}
     SINGLE["memcpy(data+pos, src, len)"]
     SPLIT["memcpy(data+pos, src, first)<br/>memcpy(data, src+first, len-first)"]
-    ADVANCE["head += len"]
+    ADVANCE["head += len<br/>return len"]
+    ZERO["return 0"]
 
     WRITE --> CHECK
-    CHECK -->|No| FAIL
-    CHECK -->|Yes| POS --> FIRST --> WRAP
+    CHECK -->|No| CLAMP --> POS
+    CHECK -->|Yes| POS
+    CHECK -->|writable == 0| ZERO
+    POS --> FIRST --> WRAP
     WRAP -->|Yes| SINGLE --> ADVANCE
     WRAP -->|No| SPLIT --> ADVANCE
 
-    style FAIL fill:#e74c3c,color:#fff
+    style ZERO fill:#e74c3c,color:#fff
     style ADVANCE fill:#50b86c,color:#fff
 ```
 
@@ -158,7 +161,7 @@ flowchart TD
 
 | Function | Signature | Description | Thread Safety |
 | --- | --- | --- | --- |
-| `xRingBufferWrite` | `xErrno xRingBufferWrite(xRingBuffer rb, const void *data, size_t len)` | Write bytes. Returns `xErrno_NoMemory` if full. | Not thread-safe |
+| `xRingBufferWrite` | `size_t xRingBufferWrite(xRingBuffer rb, const void *data, size_t len)` | Write bytes. Returns number of bytes actually written (partial write if full). | Not thread-safe |
 
 ### Read
 
@@ -234,10 +237,10 @@ void event_loop_handler(int sockfd) {
 
 ## Best Practices
 
-- **Choose capacity carefully.** The ring buffer never grows. If you write more than the capacity, the write fails. Size it for your worst-case scenario.
+- **Choose capacity carefully.** The ring buffer never grows. If you write more than the available space, only a partial write is performed. Size it for your worst-case scenario.
 - **Use scatter-gather I/O.** `xRingBufferReadFd`/`WriteFd` use `readv()`/`writev()` to handle wrap-around in a single syscall, avoiding the need to linearize data.
 - **Be aware of power-of-two rounding.** Requesting 1000 bytes gives you 1024. Requesting 1025 gives you 2048. Plan accordingly.
-- **Check `xRingBufferWritable()` before writing** if you want to handle partial writes gracefully.
+- **Check the return value of `xRingBufferWrite()`** to detect partial writes and handle back-pressure.
 
 ## Comparison with Other Libraries
 

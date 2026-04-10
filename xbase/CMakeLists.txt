@@ -49,6 +49,8 @@ if(XK_BUILD_TESTS)
 endif()
 
 if(XK_BUILD_BENCHMARKS)
+  find_package(Libuv QUIET)
+
   file(GLOB XBASE_BENCH_SOURCES "*_bench.cpp")
   foreach(src ${XBASE_BENCH_SOURCES})
     get_filename_component(name ${src} NAME_WE)
@@ -56,5 +58,12 @@ if(XK_BUILD_BENCHMARKS)
       SOURCES ${src}
       LIBS    xbase
     )
+
+    # Link libuv for task_bench baseline comparison
+    if(name STREQUAL "task_bench" AND Libuv_FOUND)
+      target_link_libraries(${name} PRIVATE Libuv::Libuv)
+      target_compile_definitions(${name} PRIVATE XK_HAS_LIBUV)
+      message(STATUS "xbase: task_bench will include libuv baseline")
+    endif()
   endforeach()
 endif()

@@ -42,7 +42,7 @@ static void BM_Ring_Throughput(benchmark::State &state) {
   for (auto _ : state) {
     xRingBuffer rb = xRingBufferCreate(cap);
     int64_t written = 0;
-    while (xRingBufferWrite(rb, data.data(), chunk) == xErrno_Ok) {
+    while (xRingBufferWrite(rb, data.data(), chunk) > 0) {
       written += chunk;
     }
     benchmark::DoNotOptimize(written);

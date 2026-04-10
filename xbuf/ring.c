@@ -112,15 +112,16 @@ bool xRingBufferFull(xRingBuffer rb) {
 
 /* ───────────────────── Write ───────────────────── */
 
-xErrno xRingBufferWrite(xRingBuffer rb, const void *data, size_t len) {
+size_t xRingBufferWrite(xRingBuffer rb, const void *data, size_t len) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  size_t        writable, pos, first, second;
+  size_t        writable, pos, first;
 
-  if (!r) return xErrno_InvalidArg;
-  if (len == 0) return xErrno_Ok;
+  if (!r) return 0;
+  if (len == 0) return 0;
 
   writable = r->cap - (r->head - r->tail);
-  if (len > writable) return xErrno_NoMemory;
+  if (len > writable) len = writable;
+  if (len == 0) return 0;
 
   pos   = r->head & r->mask;
   first = r->cap - pos; /* bytes until wrap */
@@ -129,12 +130,11 @@ xErrno xRingBufferWrite(xRingBuffer rb, const void *data, size_t len) {
     memcpy(r->data + pos, data, len);
   } else {
     memcpy(r->data + pos, data, first);
-    second = len - first;
-    memcpy(r->data, (const char *)data + first, second);
+    memcpy(r->data, (const char *)data + first, len - first);
   }
 
   r->head += len;
-  return xErrno_Ok;
+  return len;
 }
 
 /* ───────────────────── Read ───────────────────── */

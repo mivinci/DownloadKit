@@ -47,12 +47,14 @@ graph TD
 struct xTask_ {
     xTaskFunc       fn;       // User function
     void           *arg;      // User argument
-    pthread_mutex_t lock;     // Protects done/result
-    pthread_cond_t  cond;     // Signals completion
-    bool            done;     // Completion flag
+    xNote           note;     // 4-byte one-shot completion notification
     void           *result;   // Return value of fn
-    struct xTask_  *next;     // Intrusive queue linkage
+    struct xTaskGroup_ *group; // Back-pointer to owning group
+    struct xTask_  *next;     // Intrusive queue linkage (task queue + TLS freelist)
+    xMpsc           done_link; // Lock-free done-list linkage (xMpsc)
+    atomic_bool     waited;   // Set by xTaskWait() so drain knows it was collected
 };
+// sizeof(xTask_) ≈ 48 bytes (down from ~136 bytes with mutex+cond)
 
 struct xTaskGroup_ {
     pthread_t      *workers;      // Dynamic array of worker threads
@@ -62,12 +64,25 @@ struct xTaskGroup_ {
     pthread_cond_t  qcond;        // Wakes idle workers
     struct xTask_  *qhead, *qtail; // FIFO task queue
     size_t          qsize, qcap;  // Current size and capacity
+    xMpsc          *done_head;    // Lock-free MPSC done queue (head)
+    xMpsc          *done_tail;    // Lock-free MPSC done queue (tail)
     size_t          idle;         // Number of idle workers
     atomic_size_t   pending;      // Submitted - finished
     atomic_size_t   done_count;   // Tasks completed
     pthread_cond_t  wcond;        // Dedicated cond for xTaskGroupWait()
     bool            shutdown;     // Shutdown flag
 };
+```
+
+### TLS Freelist
+
+In the common event-loop offload path, `xTaskSubmit()` (alloc) and `xTaskWait()` (free) happen on the same thread. A per-thread freelist eliminates `malloc`/`free` overhead entirely — zero locks, zero atomics. The `task->next` pointer is reused as the freelist link (zero extra memory). A per-thread cap of 64 prevents unbounded caching.
+
+```c
+static __thread struct {
+    struct xTask_ *head;
+    size_t         count;
+} tl_free = {NULL, 0};
 ```
 
 ### Worker Loop
@@ -78,8 +93,9 @@ Each worker thread runs `worker_loop()`:
 2. **Wait** on `qcond` while the queue is empty and not shutting down.
 3. **Dequeue** one task, decrement `idle`.
 4. **Execute** `task->fn(task->arg)`.
-5. **Signal completion** via `pthread_cond_broadcast(&task->cond)`.
-6. **Update counters** — decrement `pending`, signal `wcond` if all tasks are done.
+5. **Push to done queue** via `xMpscPush()` (lock-free, wait-free for producers).
+6. **Signal completion** via `xNoteSignal()` (atomic store + kernel wake).
+7. **Update counters** — decrement `pending`, signal `wcond` if all tasks are done.
 
 ### Task Submission Flow
 
@@ -245,7 +261,7 @@ int main(void) {
 
 ## Best Practices
 
-- **Always call `xTaskWait()` or let `xTaskGroupDestroy()` clean up.** Each `xTaskSubmit()` allocates a task struct with a mutex and condvar. `xTaskWait()` frees them. Leaking task handles leaks resources.
+- **Always call `xTaskWait()` or let `xTaskGroupDestroy()` clean up.** Each `xTaskSubmit()` allocates a task struct (from the TLS freelist or malloc). Task memory is reclaimed when the done queue is drained (during `xTaskGroupWait()` or `xTaskGroupDestroy()`). Leaking task handles leaks resources.
 - **Set `queue_cap` for backpressure.** Without a cap, unbounded submission can exhaust memory. A bounded queue lets you detect overload via NULL returns from `xTaskSubmit()`.
 - **Don't destroy the global group.** `xTaskGroupGlobal()` is managed internally and destroyed at `atexit()`. Passing it to `xTaskGroupDestroy()` is undefined behavior.
 - **Use `xTaskGroupWait()` for barriers, not busy-polling.** It uses a dedicated condition variable and blocks efficiently.

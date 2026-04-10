@@ -12,6 +12,8 @@
 
 #include <xbase/task.h>
 
+#include <xbase/note.h>
+
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -24,11 +26,9 @@ struct xTask_ {
   xTaskFunc fn;
   void     *arg;
 
-  /* Completion notification */
-  pthread_mutex_t lock;
-  pthread_cond_t  cond;
-  bool            done;
-  void           *result;
+  /* Completion notification — lightweight one-shot (4 bytes, no destroy). */
+  xNote  note;
+  void  *result;
 
   /* Back-pointer to owning group (for done-list removal in xTaskWait) */
   struct xTaskGroup_ *group;
@@ -129,13 +129,10 @@ static void *worker_loop(void *arg) {
     g->done_tail = task;
     pthread_mutex_unlock(&g->qlock);
 
-    /* Now mark done and wake waiters — safe because we no longer
-     * touch the task after the broadcast. */
-    pthread_mutex_lock(&task->lock);
-    task->done   = true;
+    /* Now store the result and signal the note — safe because we no
+     * longer touch the task after the signal. */
     task->result = result;
-    pthread_cond_broadcast(&task->cond);
-    pthread_mutex_unlock(&task->lock);
+    xNoteSignal(&task->note);
 
     /* Update counters and wake GroupWait if all done.
      * These use group-level atomics, not the task pointer. */
@@ -213,8 +210,6 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   while (g->qhead) {
     struct xTask_ *t = g->qhead;
     g->qhead         = t->next;
-    pthread_mutex_destroy(&t->lock);
-    pthread_cond_destroy(&t->cond);
     free(t);
   }
 
@@ -222,8 +217,6 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   while (g->done_head) {
     struct xTask_ *t = g->done_head;
     g->done_head     = t->next;
-    pthread_mutex_destroy(&t->lock);
-    pthread_cond_destroy(&t->cond);
     free(t);
   }
 
@@ -245,21 +238,16 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
 
   task->fn     = fn;
   task->arg    = arg;
-  task->done   = false;
+  task->note   = (xNote)X_NOTE_INIT;
   task->result = NULL;
   task->group  = g;
   task->next   = NULL;
-
-  pthread_mutex_init(&task->lock, NULL);
-  pthread_cond_init(&task->cond, NULL);
 
   pthread_mutex_lock(&g->qlock);
 
   /* Check queue capacity */
   if (g->qcap > 0 && g->qsize >= g->qcap) {
     pthread_mutex_unlock(&g->qlock);
-    pthread_mutex_destroy(&task->lock);
-    pthread_cond_destroy(&task->cond);
     free(task);
     return NULL;
   }
@@ -298,19 +286,11 @@ xErrno xTaskWait(xTask t_, void **result) {
 
   if (!t) return xErrno_InvalidArg;
 
-  /* The mutex MUST be held before entering pthread_cond_wait().
-   * Without this lock, the wait/signal pair races with the worker's
-   * broadcast in worker_loop(): the worker may set t->done and call
-   * pthread_cond_broadcast() right before we enter pthread_cond_wait(),
-   * causing us to block forever on a signal that has already been sent.
-   * macOS's pthread implementation happens to tolerate the unlocked case,
-   * but glibc (Linux) deadlocks reliably. */
-  pthread_mutex_lock(&t->lock);
-  while (!t->done) {
-    pthread_cond_wait(&t->cond, &t->lock);
-  }
+  /* Wait for the worker to signal completion.  In the common
+   * event-loop offload path the note is already signaled by the
+   * time we get here, so this is a single atomic load. */
+  xNoteWait(&t->note);
   if (result) *result = t->result;
-  pthread_mutex_unlock(&t->lock);
 
   /* Remove from the done list before freeing. */
   struct xTaskGroup_ *g = t->group;
@@ -334,8 +314,6 @@ xErrno xTaskWait(xTask t_, void **result) {
   }
   pthread_mutex_unlock(&g->qlock);
 
-  pthread_mutex_destroy(&t->lock);
-  pthread_cond_destroy(&t->cond);
   free(t);
 
   return xErrno_Ok;

@@ -96,7 +96,18 @@ fail:
   return false;
 }
 
-/* ───────────────────── Backend Interface ───────────────────── */
+/**
+ * @brief Permissive verify callback for WebRTC DTLS.
+ *
+ * In WebRTC, certificate trust is established via SDP fingerprint
+ * comparison, not via a CA chain. We always return 1 (OK) here and
+ * verify the remote fingerprint ourselves after the handshake.
+ */
+static int dtls_verify_callback(int preverify_ok, X509_STORE_CTX *store_ctx) {
+  (void)preverify_ok;
+  (void)store_ctx;
+  return 1;
+}
 
 static xDtlsBackendCtx *openssl_create(xDtlsRole role, xDtlsSendFn send_fn,
                                         void *send_arg) {
@@ -140,20 +151,12 @@ static xDtlsBackendCtx *openssl_create(xDtlsRole role, xDtlsSendFn send_fn,
                           "ECDHE-ECDSA-CHACHA20-POLY1305");
 
   /* Verify peer certificate (we do fingerprint check ourselves) */
-  SSL_CTX_set_verify(ctx->ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
-                     NULL);
-
-  /* Allow self-signed certificates */
-  SSL_CTX_set_verify_depth(ctx->ssl_ctx, 1);
-
-  /* Custom verify callback that always succeeds (we verify fingerprint
-   * ourselves after handshake) */
-  SSL_CTX_set_cert_verify_callback(ctx->ssl_ctx,
-                                   (int (*)(X509_STORE_CTX *, void *))NULL,
-                                   NULL);
-  /* Actually, use a permissive verify callback */
-  SSL_CTX_set_verify(ctx->ssl_ctx, SSL_VERIFY_PEER,
-                     NULL);
+  /* Use a permissive verify callback that always returns OK.
+   * In WebRTC, certificate trust is established via SDP fingerprint
+   * comparison, not via a CA chain. */
+  SSL_CTX_set_verify(ctx->ssl_ctx,
+                     SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+                     dtls_verify_callback);
 
   /* Create SSL object */
   ctx->ssl = SSL_new(ctx->ssl_ctx);
@@ -176,10 +179,9 @@ static xDtlsBackendCtx *openssl_create(xDtlsRole role, xDtlsSendFn send_fn,
     SSL_set_accept_state(ctx->ssl);
   }
 
-  /* Enable DTLS cookie exchange for server mode */
-  if (role == xDtlsRole_Passive) {
-    SSL_set_options(ctx->ssl, SSL_OP_COOKIE_EXCHANGE);
-  }
+  /* Note: DTLS cookie exchange is NOT enabled here because in WebRTC,
+   * DTLS runs on top of an already-authenticated ICE connection.
+   * ICE provides the DoS protection that cookies would otherwise offer. */
 
   return ctx;
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(xkit)
+project(xKit)
 
 include("cmake/Functions.cmake")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
@@ -10,6 +10,7 @@ message(STATUS "xKit: Building ${XK_VERSION}")
 option(XK_BUILD_XKIT "Build xKit" ON)
 option(XK_BUILD_TESTS "Build xKit tests" ON)
 option(XK_BUILD_BENCHMARKS "Build xKit benchmarks" OFF)
+option(XK_BUILD_EXAMPLES "Build xKit example programs" OFF)
 option(XK_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(XK_ENABLE_DEBUG "Enable verbose debug logging in xKit modules" OFF)
 
@@ -31,21 +32,19 @@ if(XK_BUILD_BENCHMARKS)
   find_package(GBenchmark REQUIRED)
 endif()
 
+find_package(Libcurl REQUIRED)
+
 include_directories(${CMAKE_SOURCE_DIR})
 
 add_subdirectory(xbase)
 add_subdirectory(xlog)
 add_subdirectory(xbuf)
 add_subdirectory(xnet)
+add_subdirectory(xhttp)
 add_subdirectory(xp2p)
 
-find_package(Libcurl QUIET)
-if(Libcurl_FOUND)
-  message(STATUS "xKit: Found libcurl, building xhttp module")
-  add_subdirectory(xhttp)
+if(XK_BUILD_EXAMPLES)
   add_subdirectory(examples)
-else()
-  message(STATUS "xKit: libcurl not found, skipping xhttp module")
 endif()
 
 if(XK_BUILD_BENCHMARKS)

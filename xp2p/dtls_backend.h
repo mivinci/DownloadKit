@@ -210,6 +210,6 @@ static inline void xDtlsFingerprintToStr(const uint8_t *raw, char *out) {
  * @param out  Output buffer (XDTLS_FINGERPRINT_SIZE bytes).
  * @return     xErrno_Ok on success.
  */
-xErrno xDtlsFingerprintFromStr(const char *str, uint8_t *out);
+XCAPI(xErrno) xDtlsFingerprintFromStr(const char *str, uint8_t *out);
 
 #endif /* XP2P_DTLS_BACKEND_H */

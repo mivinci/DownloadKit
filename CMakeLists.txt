@@ -42,6 +42,7 @@ add_subdirectory(xbuf)
 add_subdirectory(xnet)
 add_subdirectory(xhttp)
 add_subdirectory(xp2p)
+add_subdirectory(xfer)
 
 if(XK_BUILD_EXAMPLES)
   add_subdirectory(examples)

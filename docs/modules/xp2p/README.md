@@ -67,6 +67,10 @@ graph TD
 
 | Header | Component | Description | Doc |
 | --- | --- | --- | --- |
+| `peer_connection.h` | `xPeerConnection` | WebRTC PeerConnection — orchestrates ICE + DTLS + SCTP + DataChannel | [pc.md](pc.md) |
+| `datachannel.h` | `xDataChannel` / `xDataChannelMgr` | WebRTC DataChannel (DCEP, RFC 8832) over SCTP streams | [pc.md](pc.md) |
+| `dtls_transport.h` | `xDtlsTransport` | DTLS 1.2 transport with backend-agnostic design (OpenSSL / mbedTLS) | [pc.md](pc.md) |
+| `sctp_transport.h` | `xSctpTransport` | SCTP over DTLS via usrsctp for WebRTC DataChannel | [pc.md](pc.md) |
 | `ice_agent.h` | `xIceAgent` | Full ICE agent — gathering, checks, nomination, data send/recv | [ice.md](ice.md) |
 | `ice_candidate.h` | `xIceCandidate` | Candidate representation and priority calculation (RFC 8445 §5.1.2.1) | — |
 | `ice_pair.h` | `xIcePair` | Candidate pair priority and sorting (RFC 8445 §6.1.2.3) | — |

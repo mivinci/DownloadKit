@@ -45,6 +45,7 @@
 .DS_Store
 .cache
 .idea
+.vscode
 .venv
 build
 build-*

@@ -58,4 +58,16 @@ XCAPI(void) xLogSetCallback(xLogCallback cb, void *userdata);
  */
 XCAPI(void) xLog(bool fatal, const char *fmt, ...);
 
+/**
+ * @brief Debug-only logging macro.
+ *
+ * When XK_ENABLE_DEBUG is defined at compile time, XDEBUG expands to
+ * a non-fatal xLog() call.  Otherwise it compiles to nothing.
+ */
+#ifdef XK_ENABLE_DEBUG
+#define XDEBUG(...) xLog(false, __VA_ARGS__)
+#else
+#define XDEBUG(...) ((void)0)
+#endif
+
 #endif // XBASE_LOG_H

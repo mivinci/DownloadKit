@@ -26,6 +26,7 @@ XDEF_ENUM(xErrno){
   xErrno_DnsTempFail,   /**< DNS: temporary failure, try again later    */
   xErrno_DnsError,      /**< DNS: unrecoverable resolution error        */
   xErrno_Timeout,       /**< Operation timed out                        */
+  xErrno_Again,         /**< Operation would block, try again later     */
 };
 
 /**

@@ -75,6 +75,7 @@ XDEF_STRUCT(xWsConnector) {
   /* DNS */
   xDnsQuery      dns_query;
   xDnsResult    *dns_result;
+  xDnsAddr      *current_addr; /* Current address being tried */
 
   /* Socket */
   xSocket        sock;
@@ -111,6 +112,7 @@ static void connector_sock_cb(xSocket sock, xEventMask mask,
                               void *arg);
 static void connector_timeout_cb(void *arg);
 static void connector_do_tcp_connect(xWsConnector *c);
+static void connector_try_next_addr(xWsConnector *c);
 static void connector_do_tls_handshake(xWsConnector *c);
 static void connector_do_http_upgrade(xWsConnector *c);
 static void connector_on_writable(xWsConnector *c);
@@ -191,6 +193,7 @@ static void connector_dns_cb(xDnsResult *result, void *arg) {
   }
 
   c->dns_result = result;
+  c->current_addr = result->addrs; /* Start with first address */
   c->phase = xWsConnectPhase_TcpConnect;
   connector_do_tcp_connect(c);
 }
@@ -200,8 +203,25 @@ static void connector_dns_cb(xDnsResult *result, void *arg) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
+static void connector_try_next_addr(xWsConnector *c) {
+  /* Destroy the failed socket before trying the next address */
+  if (c->sock) {
+    xSocketDestroy(c->loop, c->sock);
+    c->sock = NULL;
+  }
+
+  /* Advance to next address */
+  c->current_addr = c->current_addr->next;
+  if (!c->current_addr) {
+    /* No more addresses to try */
+    connector_fail(c, XWS_CLOSE_ABNORMAL);
+    return;
+  }
+  connector_do_tcp_connect(c);
+}
+
 static void connector_do_tcp_connect(xWsConnector *c) {
-  xDnsAddr *addr = c->dns_result->addrs;
+  xDnsAddr *addr = c->current_addr;
 
   /* Create socket */
   c->sock = xSocketCreate(c->loop, addr->family,
@@ -209,7 +229,7 @@ static void connector_do_tcp_connect(xWsConnector *c) {
                           xEvent_Write,
                           connector_sock_cb, c);
   if (!c->sock) {
-    connector_fail(c, XWS_CLOSE_ABNORMAL);
+    connector_try_next_addr(c);
     return;
   }
 
@@ -231,7 +251,7 @@ static void connector_do_tcp_connect(xWsConnector *c) {
     /* Normal: wait for writable event */
     /* Socket is already watching xEvent_Write */
   } else {
-    connector_fail(c, XWS_CLOSE_ABNORMAL);
+    connector_try_next_addr(c);
   }
 }
 
@@ -328,7 +348,8 @@ static void connector_on_writable(xWsConnector *c) {
     socklen_t errlen = sizeof(err);
     getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
     if (err != 0) {
-      connector_fail(c, XWS_CLOSE_ABNORMAL);
+      /* Try next address in the list */
+      connector_try_next_addr(c);
       return;
     }
 

@@ -166,6 +166,65 @@ int xIceSdpEncode(const char *ufrag, const char *pwd,
   return pos;
 }
 
+/* ───────────────────── WebRTC SDP Encoding ───────────────────── */
+
+static const char *setup_to_str(xIceSdpSetup setup) {
+  switch (setup) {
+  case xIceSdpSetup_Active:  return "active";
+  case xIceSdpSetup_Passive: return "passive";
+  case xIceSdpSetup_Actpass: return "actpass";
+  default:                   return "actpass";
+  }
+}
+
+int xIceSdpEncodeWebRTC(const char *ufrag, const char *pwd,
+                        const xIceCandidate *candidates, int cand_count,
+                        bool trickle, const char *fingerprint,
+                        xIceSdpSetup setup, const char *mid,
+                        uint16_t sctp_port, char *out, size_t out_cap) {
+  if (!ufrag || !pwd || !fingerprint || !mid || !out) return -1;
+
+  int pos = 0;
+  int n;
+
+  /* Session-level lines */
+  n = snprintf(out + pos, out_cap - pos,
+               "v=0\r\n"
+               "o=- 0 0 IN IP4 0.0.0.0\r\n"
+               "s=-\r\n"
+               "t=0 0\r\n"
+               "a=group:BUNDLE %s\r\n"
+               "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+               "c=IN IP4 0.0.0.0\r\n"
+               "a=mid:%s\r\n"
+               "a=ice-ufrag:%s\r\n"
+               "a=ice-pwd:%s\r\n"
+               "a=fingerprint:%s\r\n"
+               "a=setup:%s\r\n"
+               "a=sctp-port:%u\r\n",
+               mid, mid, ufrag, pwd, fingerprint,
+               setup_to_str(setup), sctp_port);
+  if (n < 0 || pos + n >= (int)out_cap) return -1;
+  pos += n;
+
+  if (trickle) {
+    n = snprintf(out + pos, out_cap - pos, "a=ice-options:trickle\r\n");
+    if (n < 0 || pos + n >= (int)out_cap) return -1;
+    pos += n;
+  }
+
+  /* Candidate lines */
+  for (int i = 0; i < cand_count; i++) {
+    n = xIceSdpEncodeCandidate(&candidates[i], out + pos, out_cap - pos);
+    if (n < 0) return -1;
+    pos += n;
+  }
+
+  return pos;
+}
+
+/* ───────────────────── SDP Decoding ───────────────────── */
+
 xErrno xIceSdpDecode(const char *sdp_str, size_t sdp_len, xIceSdp *out) {
   if (!sdp_str || !out) return xErrno_InvalidArg;
 
@@ -207,6 +266,26 @@ xErrno xIceSdpDecode(const char *sdp_str, size_t sdp_len, xIceSdp *out) {
           out->candidates[out->candidate_count++] = cand;
         }
       }
+    } else if (strncmp(line, "a=fingerprint:", 14) == 0) {
+      strncpy(out->fingerprint, line + 14, XSDP_MAX_FINGERPRINT_LEN - 1);
+    } else if (strncmp(line, "a=setup:", 8) == 0) {
+      const char *val = line + 8;
+      if (strcmp(val, "active") == 0) {
+        out->setup = xIceSdpSetup_Active;
+      } else if (strcmp(val, "passive") == 0) {
+        out->setup = xIceSdpSetup_Passive;
+      } else if (strcmp(val, "actpass") == 0) {
+        out->setup = xIceSdpSetup_Actpass;
+      }
+    } else if (strncmp(line, "a=mid:", 6) == 0) {
+      strncpy(out->mid, line + 6, XSDP_MAX_MID_LEN - 1);
+    } else if (strncmp(line, "a=sctp-port:", 12) == 0) {
+      out->sctp_port = (uint16_t)atoi(line + 12);
+    } else if (strncmp(line, "m=application", 13) == 0) {
+      /* Detect WebRTC media line format */
+      if (strstr(line, "UDP/DTLS/SCTP") || strstr(line, "webrtc-datachannel")) {
+        out->is_webrtc = true;
+      }
     }
 
     if (eol) {
@@ -219,6 +298,11 @@ xErrno xIceSdpDecode(const char *sdp_str, size_t sdp_len, xIceSdp *out) {
   free(buf);
 
   if (!got_ufrag || !got_pwd) {
+    return xErrno_InvalidArg;
+  }
+
+  /* For WebRTC SDP, fingerprint is required */
+  if (out->is_webrtc && out->fingerprint[0] == '\0') {
     return xErrno_InvalidArg;
   }
 

@@ -258,4 +258,15 @@ typedef void (*xIceDtlsInputFn)(const uint8_t *data, size_t len,
 XCAPI(void) xIceAgentSetDtlsInputCallback(xIceAgent agent,
                                            xIceDtlsInputFn fn, void *arg);
 
+/**
+ * @brief Change the ICE agent role (Controlling / Controlled).
+ *
+ * Must be called before connectivity checks start (i.e. before
+ * SetRemoteDescription triggers checks).
+ *
+ * @param agent  Agent handle.
+ * @param role   New role.
+ */
+XCAPI(void) xIceAgentSetRole(xIceAgent agent, xIceRole role);
+
 #endif /* XP2P_ICE_AGENT_H */

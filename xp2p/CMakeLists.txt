@@ -15,6 +15,10 @@ add_library(xp2p SHARED ${XP2P_SOURCES} ${XP2P_HEADERS})
 
 target_link_libraries(xp2p PUBLIC xbase xnet)
 
+if(XK_ENABLE_DEBUG)
+  target_compile_definitions(xp2p PRIVATE XK_ENABLE_DEBUG)
+endif()
+
 message(STATUS "xp2p: P2P module enabled (ICE + STUN + TURN + SDP)")
 
 # ── DTLS / SCTP / DataChannel support ─────────────────────────────────

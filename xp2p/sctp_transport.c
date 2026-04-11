@@ -14,6 +14,9 @@
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+#include <xbase/log.h>
 
 /* ───────────────────── Constants ───────────────────── */
 
@@ -43,8 +46,12 @@ static int sctp_output_cb(void *addr, void *buf, size_t len,
                           uint8_t tos __attribute__((unused)),
                           uint8_t set_df __attribute__((unused))) {
   xSctpTransport_ *t = (xSctpTransport_ *)addr;
-  if (!t || !t->conf.dtls) return -1;
+  if (!t || !t->conf.dtls || !t->sock) {
+    XDEBUG("[sctp] output_cb: transport shutting down, drop %zu bytes", len);
+    return -1;
+  }
 
+  XDEBUG("[sctp] output_cb: sending %zu bytes via DTLS", len);
   xDtlsTransportSend(t->conf.dtls, (const uint8_t *)buf, len);
   return 0;
 }
@@ -57,12 +64,15 @@ static int sctp_recv_cb(struct socket *sock __attribute__((unused)),
                         struct sctp_rcvinfo rcv, int flags, void *ulp_info) {
   xSctpTransport_ *t = (xSctpTransport_ *)ulp_info;
 
-  if (data == NULL || datalen == 0) {
-    /* Notification or empty */
-    if (flags & MSG_NOTIFICATION) {
+  XDEBUG("[sctp] recv_cb: datalen=%zu flags=0x%x", datalen, flags);
+
+  /* Handle SCTP notifications (association changes, stream resets, etc.) */
+  if (flags & MSG_NOTIFICATION) {
+    if (data && datalen > 0) {
       union sctp_notification *notif = (union sctp_notification *)data;
-      if (notif && notif->sn_header.sn_type == SCTP_ASSOC_CHANGE) {
+      if (notif->sn_header.sn_type == SCTP_ASSOC_CHANGE) {
         struct sctp_assoc_change *sac = &notif->sn_assoc_change;
+        XDEBUG("[sctp] ASSOC_CHANGE: state=%d", sac->sac_state);
         if (sac->sac_state == SCTP_COMM_UP) {
           t->connected = true;
           /* Cancel association timer */
@@ -80,8 +90,7 @@ static int sctp_recv_cb(struct socket *sock __attribute__((unused)),
             t->conf.on_state_change((xSctpTransport)t, false, t->conf.ctx);
           }
         }
-      } else if (notif &&
-                 notif->sn_header.sn_type == SCTP_STREAM_RESET_EVENT) {
+      } else if (notif->sn_header.sn_type == SCTP_STREAM_RESET_EVENT) {
         struct sctp_stream_reset_event *ssr = &notif->sn_strreset_event;
         uint16_t num_streams =
           (uint16_t)((ssr->strreset_length -
@@ -94,9 +103,12 @@ static int sctp_recv_cb(struct socket *sock __attribute__((unused)),
           }
         }
       }
-      if (data) free(data);
-      return 1;
     }
+    if (data) free(data);
+    return 1;
+  }
+
+  if (data == NULL || datalen == 0) {
     if (data) free(data);
     return 1;
   }
@@ -203,12 +215,20 @@ void xSctpTransportDestroy(xSctpTransport transport) {
     t->assoc_timer = NULL;
   }
 
+  /* Prevent sctp_output_cb from accessing the DTLS transport
+   * while usrsctp's internal timer thread may still fire. */
+  t->conf.dtls = NULL;
+
   if (t->sock) {
     usrsctp_close(t->sock);
     t->sock = NULL;
   }
 
   usrsctp_deregister_address(t);
+
+  /* Give usrsctp's timer thread a chance to finish any in-flight
+   * callback before we free the memory it references. */
+  usleep(50000); /* 50 ms */
   free(t);
 }
 
@@ -247,8 +267,21 @@ xErrno xSctpTransportStart(xSctpTransport transport) {
       return xErrno_SysError;
     }
   } else {
-    /* Listen for incoming connection */
-    if (usrsctp_listen(t->sock, 1) < 0) {
+    /* Server side: also use connect (not listen/accept).
+     * In WebRTC, SCTP runs over a point-to-point DTLS tunnel,
+     * so both sides simply connect to each other. */
+    struct sockaddr_conn rconn;
+    memset(&rconn, 0, sizeof(rconn));
+    rconn.sconn_family = AF_CONN;
+    rconn.sconn_port   = htons(t->conf.remote_port);
+    rconn.sconn_addr   = t;
+#ifdef HAVE_SCONN_LEN
+    rconn.sconn_len = sizeof(rconn);
+#endif
+
+    int ret =
+      usrsctp_connect(t->sock, (struct sockaddr *)&rconn, sizeof(rconn));
+    if (ret < 0 && errno != EINPROGRESS) {
       return xErrno_SysError;
     }
   }
@@ -280,6 +313,7 @@ xErrno xSctpTransportSend(xSctpTransport transport, uint16_t stream_id,
 
   ssize_t sent = usrsctp_sendv(t->sock, data, len, NULL, 0, &spa,
                                 sizeof(spa), SCTP_SENDV_SPA, 0);
+  XDEBUG("[sctp] sendv: len=%zu sent=%zd errno=%d", len, sent, (sent < 0) ? errno : 0);
   return (sent >= 0) ? xErrno_Ok : xErrno_SysError;
 }
 
@@ -297,14 +331,23 @@ xErrno xSctpTransportCloseStream(xSctpTransport transport,
   if (!transport) return xErrno_InvalidArg;
   xSctpTransport_ *t = (xSctpTransport_ *)transport;
 
-  struct sctp_reset_streams srs;
-  memset(&srs, 0, sizeof(srs));
-  srs.srs_flags           = SCTP_STREAM_RESET_OUTGOING;
-  srs.srs_number_streams  = 1;
-  srs.srs_stream_list[0]  = stream_id;
+  if (!t->sock) return xErrno_InvalidState;
+  if (!t->connected) return xErrno_InvalidState;
+
+  /* sctp_reset_streams uses a flexible array member for srs_stream_list[],
+   * so we must allocate enough space for the base struct + 1 stream ID. */
+  size_t srs_size = sizeof(struct sctp_reset_streams) + sizeof(uint16_t);
+  struct sctp_reset_streams *srs =
+    (struct sctp_reset_streams *)calloc(1, srs_size);
+  if (!srs) return xErrno_NoMemory;
+
+  srs->srs_flags          = SCTP_STREAM_RESET_OUTGOING;
+  srs->srs_number_streams = 1;
+  srs->srs_stream_list[0] = stream_id;
 
   int ret = usrsctp_setsockopt(t->sock, IPPROTO_SCTP, SCTP_RESET_STREAMS,
-                                &srs, sizeof(srs));
+                                srs, (socklen_t)srs_size);
+  free(srs);
   return (ret == 0) ? xErrno_Ok : xErrno_SysError;
 }
 

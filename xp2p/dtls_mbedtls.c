@@ -369,6 +369,60 @@ fail:
   return NULL;
 }
 
+static xErrno mbedtls_backend_set_role(xDtlsBackendCtx *ctx, xDtlsRole role) {
+  if (!ctx) return xErrno_InvalidArg;
+  if (role == ctx->role) return xErrno_Ok;
+
+  ctx->role = role;
+
+  /* Tear down old SSL context but keep cert + pkey */
+  mbedtls_ssl_free(&ctx->ssl);
+  mbedtls_ssl_config_free(&ctx->conf);
+
+  /* Re-initialize */
+  mbedtls_ssl_init(&ctx->ssl);
+  mbedtls_ssl_config_init(&ctx->conf);
+  iobuf_init(&ctx->recv_buf);
+
+  int endpoint = (role == xDtlsRole_Active) ? MBEDTLS_SSL_IS_CLIENT
+                                             : MBEDTLS_SSL_IS_SERVER;
+  int cfg_ret = mbedtls_ssl_config_defaults(&ctx->conf, endpoint,
+                                            MBEDTLS_SSL_TRANSPORT_DATAGRAM,
+                                            MBEDTLS_SSL_PRESET_DEFAULT);
+  if (cfg_ret != 0) return xErrno_SysError;
+
+#if MBEDTLS_VERSION_NUMBER < 0x04000000
+  mbedtls_ssl_conf_rng(&ctx->conf, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
+#endif
+
+#if defined(XP2P_MBEDTLS_HAS_TLS_VERSION_API) && XP2P_MBEDTLS_HAS_TLS_VERSION_API
+  mbedtls_ssl_conf_min_tls_version(&ctx->conf, MBEDTLS_SSL_VERSION_TLS1_2);
+  mbedtls_ssl_conf_max_tls_version(&ctx->conf, MBEDTLS_SSL_VERSION_TLS1_2);
+#elif MBEDTLS_VERSION_NUMBER < 0x03000000
+  mbedtls_ssl_conf_min_version(&ctx->conf, MBEDTLS_SSL_MAJOR_VERSION_3,
+                               MBEDTLS_SSL_MINOR_VERSION_3);
+  mbedtls_ssl_conf_max_version(&ctx->conf, MBEDTLS_SSL_MAJOR_VERSION_3,
+                               MBEDTLS_SSL_MINOR_VERSION_3);
+#endif
+
+  int own_ret = mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->cert, &ctx->pkey);
+  if (own_ret != 0) return xErrno_SysError;
+
+  mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
+  mbedtls_ssl_conf_dtls_cookies(&ctx->conf, NULL, NULL, NULL);
+
+  int setup_ret = mbedtls_ssl_setup(&ctx->ssl, &ctx->conf);
+  if (setup_ret != 0) return xErrno_SysError;
+
+  mbedtls_ssl_set_bio(&ctx->ssl, ctx, mbedtls_send_cb, mbedtls_recv_cb, NULL);
+  mbedtls_ssl_set_timer_cb(&ctx->ssl, &ctx->timer,
+                            mbedtls_timing_set_delay,
+                            mbedtls_timing_get_delay);
+
+  ctx->handshake_done = false;
+  return xErrno_Ok;
+}
+
 static void mbedtls_backend_destroy(xDtlsBackendCtx *ctx) {
   if (!ctx) return;
   mbedtls_ssl_free(&ctx->ssl);
@@ -478,6 +532,7 @@ static const xDtlsBackend g_mbedtls_backend = {
   .name                   = "mbedtls",
   .create                 = mbedtls_create,
   .destroy                = mbedtls_backend_destroy,
+  .set_role               = mbedtls_backend_set_role,
   .get_fingerprint        = mbedtls_get_fingerprint,
   .handshake              = mbedtls_backend_handshake,
   .feed_input             = mbedtls_backend_feed_input,

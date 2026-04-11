@@ -210,6 +210,71 @@ static void openssl_destroy(xDtlsBackendCtx *ctx) {
   free(ctx);
 }
 
+static xErrno openssl_set_role(xDtlsBackendCtx *ctx, xDtlsRole role) {
+  if (!ctx) return xErrno_InvalidArg;
+  if (role == ctx->role) return xErrno_Ok;
+
+  /* Tear down old SSL and SSL_CTX but keep cert + pkey */
+  if (ctx->ssl) {
+    SSL_free(ctx->ssl); /* Also frees attached BIOs */
+    ctx->ssl     = NULL;
+    ctx->bio_in  = NULL;
+    ctx->bio_out = NULL;
+  }
+  if (ctx->ssl_ctx) {
+    SSL_CTX_free(ctx->ssl_ctx);
+    ctx->ssl_ctx = NULL;
+  }
+
+  ctx->role = role;
+
+  /* Rebuild SSL_CTX with the new method */
+  const SSL_METHOD *method;
+  if (role == xDtlsRole_Active) {
+    method = DTLS_client_method();
+  } else {
+    method = DTLS_server_method();
+  }
+
+  ctx->ssl_ctx = SSL_CTX_new(method);
+  if (!ctx->ssl_ctx) return xErrno_SysError;
+
+  SSL_CTX_set_min_proto_version(ctx->ssl_ctx, DTLS1_2_VERSION);
+  SSL_CTX_set_max_proto_version(ctx->ssl_ctx, DTLS1_2_VERSION);
+
+  if (SSL_CTX_use_certificate(ctx->ssl_ctx, ctx->cert) != 1) return xErrno_SysError;
+  if (SSL_CTX_use_PrivateKey(ctx->ssl_ctx, ctx->pkey) != 1) return xErrno_SysError;
+
+  SSL_CTX_set_cipher_list(ctx->ssl_ctx,
+                          "ECDHE-ECDSA-AES128-GCM-SHA256:"
+                          "ECDHE-ECDSA-AES256-GCM-SHA384:"
+                          "ECDHE-ECDSA-CHACHA20-POLY1305");
+
+  SSL_CTX_set_verify(ctx->ssl_ctx,
+                     SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+                     dtls_verify_callback);
+
+  ctx->ssl = SSL_new(ctx->ssl_ctx);
+  if (!ctx->ssl) return xErrno_SysError;
+
+  ctx->bio_in  = BIO_new(BIO_s_mem());
+  ctx->bio_out = BIO_new(BIO_s_mem());
+  if (!ctx->bio_in || !ctx->bio_out) return xErrno_SysError;
+
+  BIO_set_mem_eof_return(ctx->bio_in, -1);
+  BIO_set_mem_eof_return(ctx->bio_out, -1);
+
+  SSL_set_bio(ctx->ssl, ctx->bio_in, ctx->bio_out);
+
+  if (role == xDtlsRole_Active) {
+    SSL_set_connect_state(ctx->ssl);
+  } else {
+    SSL_set_accept_state(ctx->ssl);
+  }
+
+  return xErrno_Ok;
+}
+
 static xErrno openssl_get_fingerprint(xDtlsBackendCtx *ctx, uint8_t *out) {
   if (!ctx || !ctx->cert || !out) return xErrno_InvalidArg;
 
@@ -318,6 +383,7 @@ static const xDtlsBackend g_openssl_backend = {
   .name                   = "openssl",
   .create                 = openssl_create,
   .destroy                = openssl_destroy,
+  .set_role               = openssl_set_role,
   .get_fingerprint        = openssl_get_fingerprint,
   .handshake              = openssl_handshake,
   .feed_input             = openssl_feed_input,

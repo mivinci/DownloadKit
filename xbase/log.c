@@ -60,7 +60,7 @@ void xLog(bool fatal, const char *fmt, ...) {
   if (tl_ctx.cb) {
     tl_ctx.cb(msg, bt_str, tl_ctx.userdata);
   } else {
-    fprintf(stderr, "xLog: %s\n", msg);
+    fprintf(stderr, "%s\n", msg);
     if (bt_str) {
       fprintf(stderr, "xLog fatal backtrace:\n%s", bt_str);
     }

@@ -17,6 +17,8 @@
 #include <string.h>
 #include <sys/socket.h>
 
+#include <xbase/log.h>
+
 /* ───────────────────── Internal Structure ───────────────────── */
 
 XDEF_STRUCT(xPeerConnection_) {
@@ -89,6 +91,10 @@ static void pc_sctp_stream_closed(xSctpTransport transport,
 /* DataChannel callback */
 static void pc_on_remote_datachannel(xDataChannelMgr mgr,
                                      xDataChannel channel, void *arg);
+static void pc_dc_open_wrapper(xDataChannel channel, void *ctx);
+static void pc_dc_message_wrapper(xDataChannel channel, xDataChannelMsgType type,
+                                  const uint8_t *data, size_t len, void *ctx);
+static void pc_dc_close_wrapper(xDataChannel channel, void *ctx);
 
 /* ───────────────────── ICE Callbacks ───────────────────── */
 
@@ -108,18 +114,18 @@ static void on_ice_state_change(xIceAgent agent, xIceState state, void *arg) {
      * The transport was created early to lock in the certificate
      * whose fingerprint was advertised in the SDP. */
     if (!pc->dtls) {
-      fprintf(stderr, "[dtls] ERROR: no DTLS transport at ICE connected\n");
+      XDEBUG("[dtls] ERROR: no DTLS transport at ICE connected");
       set_state(pc, xPeerConnectionState_Failed);
       return;
     }
 
     {
       xDtlsRole role = xDtlsTransportGetRole(pc->dtls);
-      fprintf(stderr, "[dtls] starting handshake role=%s\n",
-              role == xDtlsRole_Active ? "active" : "passive");
+      XDEBUG("[dtls] starting handshake role=%s",
+             role == xDtlsRole_Active ? "active" : "passive");
+      (void)role;
     }
 
-    xIceAgentSetDtlsInputCallback(pc->ice, pc_ice_dtls_input, pc);
     if (xDtlsTransportGetState(pc->dtls) == xDtlsState_New) {
       xDtlsTransportStart(pc->dtls);
     }
@@ -157,6 +163,7 @@ static void pc_ice_dtls_input(const uint8_t *data, size_t len,
                               const struct sockaddr *from, void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)from;
+  XDEBUG("[dtls] received %zu bytes from ICE", len);
   if (pc->dtls) {
     xDtlsTransportFeedInput(pc->dtls, data, len);
   }
@@ -167,7 +174,10 @@ static void pc_ice_dtls_input(const uint8_t *data, size_t len,
  */
 static xErrno pc_dtls_send(const uint8_t *data, size_t len, void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
-  return xIceAgentSend(pc->ice, data, len);
+  xErrno err = xIceAgentSend(pc->ice, data, len);
+  XDEBUG("[dtls] sending %zu bytes via ICE -> %s", len,
+         err == xErrno_Ok ? "ok" : "FAIL");
+  return err;
 }
 
 /* ───────────────────── DTLS Callbacks ───────────────────── */
@@ -176,6 +186,8 @@ static void pc_dtls_state_changed(xDtlsTransport transport, xDtlsState state,
                                   void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)transport;
+
+  XDEBUG("[dtls] state changed to %d (2=connected, 3=failed)", (int)state);
 
   if (state == xDtlsState_Connected) {
     /* DTLS connected — start SCTP */
@@ -209,6 +221,7 @@ static void pc_dtls_data_received(xDtlsTransport transport,
                                   const uint8_t *data, size_t len, void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)transport;
+  XDEBUG("[sctp] feeding %zu bytes from DTLS, sctp=%p", len, (void *)pc->sctp);
   if (pc->sctp) {
     xSctpTransportFeedInput(pc->sctp, data, len);
   }
@@ -227,10 +240,10 @@ static void pc_sctp_state_changed(xSctpTransport transport, bool connected,
     memset(&dc_conf, 0, sizeof(dc_conf));
     dc_conf.sctp       = pc->sctp;
     dc_conf.on_remote_open = pc_on_remote_datachannel;
-    dc_conf.on_open    = pc->conf.on_dc_open;
-    dc_conf.on_message = pc->conf.on_dc_message;
-    dc_conf.on_close   = pc->conf.on_dc_close;
-    dc_conf.ctx        = pc->conf.ctx;
+    dc_conf.on_open    = pc_dc_open_wrapper;
+    dc_conf.on_message = pc_dc_message_wrapper;
+    dc_conf.on_close   = pc_dc_close_wrapper;
+    dc_conf.ctx        = pc;
 
     pc->dc_mgr = xDataChannelMgrCreate(&dc_conf);
 
@@ -263,7 +276,33 @@ static void pc_sctp_stream_closed(xSctpTransport transport,
   }
 }
 
-/* ───────────────────── DataChannel Callback ───────────────────── */
+/* ───────────────────── DataChannel Callback Wrappers ───────────────────── */
+
+/**
+ * @brief Wrapper for user's on_dc_open callback.
+ * The DataChannelMgr ctx is set to `pc`, so we extract the user ctx from it.
+ */
+static void pc_dc_open_wrapper(xDataChannel channel, void *ctx) {
+  xPeerConnection_ *pc = (xPeerConnection_ *)ctx;
+  if (pc->conf.on_dc_open) {
+    pc->conf.on_dc_open(channel, pc->conf.ctx);
+  }
+}
+
+static void pc_dc_message_wrapper(xDataChannel channel, xDataChannelMsgType type,
+                                  const uint8_t *data, size_t len, void *ctx) {
+  xPeerConnection_ *pc = (xPeerConnection_ *)ctx;
+  if (pc->conf.on_dc_message) {
+    pc->conf.on_dc_message(channel, type, data, len, pc->conf.ctx);
+  }
+}
+
+static void pc_dc_close_wrapper(xDataChannel channel, void *ctx) {
+  xPeerConnection_ *pc = (xPeerConnection_ *)ctx;
+  if (pc->conf.on_dc_close) {
+    pc->conf.on_dc_close(channel, pc->conf.ctx);
+  }
+}
 
 static void pc_on_remote_datachannel(xDataChannelMgr mgr,
                                      xDataChannel channel, void *arg) {
@@ -368,6 +407,11 @@ char *xPeerConnectionCreateOffer(xPeerConnection handle) {
     pc->dtls = xDtlsTransportCreate(&dtls_conf);
     if (!pc->dtls) return NULL;
 
+    /* Register DTLS input callback early so incoming DTLS packets
+     * (e.g. ClientHello from the remote peer) are not dropped if
+     * they arrive before ICE transitions to Connected. */
+    xIceAgentSetDtlsInputCallback(pc->ice, pc_ice_dtls_input, pc);
+
     char fp_str[XDTLS_FINGERPRINT_STR_SIZE];
     xErrno fp_err = xDtlsTransportGetFingerprintStr(pc->dtls, fp_str);
     if (fp_err != xErrno_Ok) return NULL;
@@ -437,6 +481,10 @@ char *xPeerConnectionCreateAnswer(xPeerConnection handle) {
 
     pc->dtls = xDtlsTransportCreate(&dtls_conf);
     if (!pc->dtls) return NULL;
+
+    /* Register DTLS input callback early so incoming DTLS packets
+     * are not dropped if they arrive before ICE transitions to Connected. */
+    xIceAgentSetDtlsInputCallback(pc->ice, pc_ice_dtls_input, pc);
 
     char fp_str[XDTLS_FINGERPRINT_STR_SIZE];
     xErrno fp_err = xDtlsTransportGetFingerprintStr(pc->dtls, fp_str);
@@ -519,6 +567,12 @@ xErrno xPeerConnectionSetRemoteDescription(xPeerConnection handle,
       } else {
         pc->dtls_role = xDtlsRole_Active;
       }
+
+      /* Update the DTLS transport role if it was created early during
+       * CreateOffer (before we knew the answerer's setup preference). */
+      if (pc->dtls) {
+        xDtlsTransportSetRole(pc->dtls, pc->dtls_role);
+      }
     } else {
       /* We are answerer */
       if (parsed.setup == xIceSdpSetup_Actpass ||
@@ -531,6 +585,13 @@ xErrno xPeerConnectionSetRemoteDescription(xPeerConnection handle,
   }
 
   pc->remote_set = true;
+
+  /* Set ICE role: offerer is Controlling, answerer is Controlled */
+  if (pc->is_offerer) {
+    xIceAgentSetRole(pc->ice, xIceRole_Controlling);
+  } else {
+    xIceAgentSetRole(pc->ice, xIceRole_Controlled);
+  }
 
   /* Forward ICE-level SDP to the ICE agent */
   return xIceAgentSetRemoteDescription(pc->ice, sdp);
@@ -550,12 +611,21 @@ xDataChannel xPeerConnectionCreateDataChannel(xPeerConnection         handle,
 
   /* If SCTP is ready, create immediately */
   if (pc->dc_mgr) {
-    return xDataChannelCreate(pc->dc_mgr, conf);
+    /* Fill in default callbacks from PeerConnection config */
+    xDataChannelConf filled = *conf;
+    if (!filled.on_open)    { filled.on_open    = pc_dc_open_wrapper;    filled.ctx = pc; }
+    if (!filled.on_message) { filled.on_message = pc_dc_message_wrapper; filled.ctx = pc; }
+    if (!filled.on_close)   { filled.on_close   = pc_dc_close_wrapper;   filled.ctx = pc; }
+    return xDataChannelCreate(pc->dc_mgr, &filled);
   }
 
   /* Otherwise queue for later */
   if (pc->pending_channel_count >= XDC_MAX_CHANNELS) return NULL;
-  pc->pending_channels[pc->pending_channel_count++] = *conf;
+  xDataChannelConf filled = *conf;
+  if (!filled.on_open)    { filled.on_open    = pc_dc_open_wrapper;    filled.ctx = pc; }
+  if (!filled.on_message) { filled.on_message = pc_dc_message_wrapper; filled.ctx = pc; }
+  if (!filled.on_close)   { filled.on_close   = pc_dc_close_wrapper;   filled.ctx = pc; }
+  pc->pending_channels[pc->pending_channel_count++] = filled;
   return NULL; /* Will be created when SCTP connects */
 }
 

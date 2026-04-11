@@ -273,12 +273,38 @@ static void on_dc_message(xDataChannel channel, xDataChannelMsgType type,
   }
 }
 
+/**
+ * @brief Close the DataChannel on the event-loop thread, then schedule
+ *        a delayed stop so the SCTP RESET_STREAMS packet can go out.
+ *
+ * Called via xEventLoopTimerAfter(0) from the stdin thread so that all
+ * SCTP / usrsctp operations stay on the event-loop thread.
+ */
+static void close_dc_on_loop(void *arg) {
+  (void)arg;
+  if (g_dc) {
+    xDataChannelClose(g_dc);
+  }
+  /* Fallback: stop the loop after 2s in case the remote peer
+     never acknowledges the SCTP stream reset. */
+  xEventLoopTimerAfter(g_loop, [](void *) { xEventLoopStop(g_loop); },
+                       nullptr, 2000);
+}
+
 static void on_dc_close(xDataChannel channel, void *arg) {
   (void)channel;
   (void)arg;
   printf("[dc] DataChannel closed\n");
   g_dc_open = false;
   g_dc      = nullptr;
+
+  /* If we initiated the close, delay a bit before stopping so the
+     SCTP RESET_STREAMS packet has time to reach the remote peer
+     through the DTLS/ICE transport. */
+  if (g_done) {
+    xEventLoopTimerAfter(
+      g_loop, [](void *) { xEventLoopStop(g_loop); }, nullptr, 500);
+  }
 }
 
 /* ── WebSocket callbacks (signaling) ───────────────────── */
@@ -442,7 +468,13 @@ static void stdin_thread_func() {
     if (strcmp(line, "quit") == 0) {
       printf("[dc] closing...\n");
       g_done = true;
-      xEventLoopStop(g_loop);
+      if (g_dc_open && g_dc) {
+        /* Schedule the close on the event-loop thread to avoid
+           calling usrsctp from the stdin thread (not thread-safe). */
+        xEventLoopTimerAfter(g_loop, close_dc_on_loop, nullptr, 0);
+      } else {
+        xEventLoopStop(g_loop);
+      }
       break;
     }
 

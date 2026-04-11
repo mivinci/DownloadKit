@@ -9,6 +9,8 @@
 #include "dtls_transport.h"
 #include "dtls_backend.h"
 
+#include <xbase/log.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,31 +77,51 @@ static void drain_decrypted(xDtlsTransport_ *t) {
 static void drive_handshake(xDtlsTransport_ *t) {
   if (t->state != xDtlsState_Connecting) return;
 
-  xErrno err = t->backend->handshake(t->backend_ctx);
+  /*
+   * Loop until the backend returns Again (needs more network data) or
+   * the handshake completes/fails.  This is necessary because the
+   * recv iobuf may contain multiple DTLS records (e.g. retransmitted
+   * ClientHellos that arrived before we started the handshake).  Each
+   * call to handshake() typically consumes one record, so we must
+   * keep driving until the buffer is drained.
+   */
+  for (;;) {
+    xErrno err = t->backend->handshake(t->backend_ctx);
+    XDEBUG("[dtls] drive_handshake: result=%d (0=ok, 1=again)", (int)err);
 
-  if (err == xErrno_Ok) {
-    /* Handshake complete — verify remote fingerprint if requested */
-    if (t->conf.verify_fingerprint) {
-      uint8_t remote_fp[XDTLS_FINGERPRINT_SIZE];
-      xErrno  fp_err =
-        t->backend->get_remote_fingerprint(t->backend_ctx, remote_fp);
-      if (fp_err != xErrno_Ok ||
-          memcmp(remote_fp, t->conf.remote_fingerprint,
-                 XDTLS_FINGERPRINT_SIZE) != 0) {
-        set_state(t, xDtlsState_Failed);
-        return;
+    if (err == xErrno_Ok) {
+      /* Handshake complete — verify remote fingerprint if requested */
+      if (t->conf.verify_fingerprint) {
+        uint8_t remote_fp[XDTLS_FINGERPRINT_SIZE];
+        xErrno  fp_err =
+          t->backend->get_remote_fingerprint(t->backend_ctx, remote_fp);
+        if (fp_err != xErrno_Ok ||
+            memcmp(remote_fp, t->conf.remote_fingerprint,
+                   XDTLS_FINGERPRINT_SIZE) != 0) {
+          set_state(t, xDtlsState_Failed);
+          return;
+        }
       }
+
+      /* Cancel handshake timer */
+      if (t->handshake_timer) {
+        xEventLoopTimerCancel(t->conf.loop, t->handshake_timer);
+        t->handshake_timer = NULL;
+      }
+
+      set_state(t, xDtlsState_Connected);
+      return;
     }
 
-    /* Cancel handshake timer */
-    if (t->handshake_timer) {
-      xEventLoopTimerCancel(t->conf.loop, t->handshake_timer);
-      t->handshake_timer = NULL;
+    if (err == xErrno_Again) {
+      /* Needs more network data — stop driving */
+      return;
     }
 
-    set_state(t, xDtlsState_Connected);
+    /* Any other error — handshake failed */
+    set_state(t, xDtlsState_Failed);
+    return;
   }
-  /* xErrno_Again means handshake still in progress — nothing to do */
 }
 
 /* ───────────────────── Fingerprint String Parser ───────────────────── */
@@ -280,6 +302,28 @@ xDtlsRole xDtlsTransportGetRole(xDtlsTransport transport) {
   if (!transport) return xDtlsRole_Passive;
   xDtlsTransport_ *t = (xDtlsTransport_ *)transport;
   return t->effective_role;
+}
+
+xErrno xDtlsTransportSetRole(xDtlsTransport transport, xDtlsRole role) {
+  if (!transport) return xErrno_InvalidArg;
+  xDtlsTransport_ *t = (xDtlsTransport_ *)transport;
+
+  /* Can only change role before the handshake starts */
+  if (t->state != xDtlsState_New) return xErrno_InvalidArg;
+
+  xDtlsRole effective = role;
+  if (effective == xDtlsRole_Actpass) {
+    effective = xDtlsRole_Passive;
+  }
+
+  if (effective == t->effective_role) return xErrno_Ok;
+
+  /* Use backend set_role to rebuild SSL without regenerating the cert */
+  xErrno err = t->backend->set_role(t->backend_ctx, effective);
+  if (err != xErrno_Ok) return err;
+
+  t->effective_role = effective;
+  return xErrno_Ok;
 }
 
 

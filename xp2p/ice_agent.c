@@ -18,10 +18,12 @@
 
 #include <xnet/dns.h>
 
+#include <xbase/log.h>
+
 #include <arpa/inet.h>
 #include <ifaddrs.h>
-#include <stdio.h>
 #include <net/if.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -178,15 +180,16 @@ static bool sockaddr_equal(const struct sockaddr *a, const struct sockaddr *b) {
 }
 
 /** Format a sockaddr into "ip:port" string, writes into buf (size >= 64). */
-static void sockaddr_to_str(const struct sockaddr *addr, char *buf, size_t len) {
+static void sockaddr_to_str(const struct sockaddr *addr, char *buf,
+                            size_t len) {
   if (addr->sa_family == AF_INET) {
     const struct sockaddr_in *a4 = (const struct sockaddr_in *)addr;
-    char ip[INET_ADDRSTRLEN];
+    char                      ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &a4->sin_addr, ip, sizeof(ip));
     snprintf(buf, len, "%s:%u", ip, ntohs(a4->sin_port));
   } else if (addr->sa_family == AF_INET6) {
     const struct sockaddr_in6 *a6 = (const struct sockaddr_in6 *)addr;
-    char ip[INET6_ADDRSTRLEN];
+    char                       ip[INET6_ADDRSTRLEN];
     inet_ntop(AF_INET6, &a6->sin6_addr, ip, sizeof(ip));
     snprintf(buf, len, "[%s]:%u", ip, ntohs(a6->sin6_port));
   } else {
@@ -284,6 +287,15 @@ static void start_consent(xIceAgent_ *a);
 static void on_check_response(const xStunMsg *msg, const struct sockaddr *from,
                               void *arg);
 
+/**
+ * @brief Send function for connectivity checks — uses the pair's local socket.
+ */
+static xErrno pair_stun_send(const uint8_t *data, size_t len,
+                             const struct sockaddr *addr, void *arg) {
+  xSocket sock = (xSocket)arg;
+  return udp_sendto(sock, data, len, addr);
+}
+
 static xErrno send_check(xIceAgent_ *a, xIcePair *pair) {
   uint8_t msg_buf[512];
   uint8_t txn_id[XSTUN_TXN_ID_SIZE];
@@ -340,9 +352,9 @@ static xErrno send_check(xIceAgent_ *a, xIcePair *pair) {
   ctx->agent = a;
   ctx->pair  = pair;
 
-  xErrno err = xStunTxnMgrSendRaw(&a->txn_mgr, msg_buf, total,
-                                  (struct sockaddr *)&pair->remote->addr,
-                                  agent_stun_send, a, on_check_response, ctx);
+  xErrno err = xStunTxnMgrSendRaw(
+    &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
+    pair_stun_send, pair->local->sock, on_check_response, ctx);
   if (err != xErrno_Ok) {
     free(ctx);
   }
@@ -399,38 +411,66 @@ static void try_nominate(xIceAgent_ *a) {
   if (a->state != xIceAgentState_Checking) return;
   if (a->nominated) return;
 
-  bool any_in_progress = false;
-  bool any_succeeded   = false;
+  bool any_in_progress           = false;
+  bool any_succeeded             = false;
+  bool any_non_prflx_in_progress = false;
   for (int i = 0; i < a->pair_count; i++) {
     if (a->pairs[i].state == xIcePairState_InProgress) {
       any_in_progress = true;
+      if (a->pairs[i].remote->type != xIceCandidateType_Prflx)
+        any_non_prflx_in_progress = true;
     }
     if (a->pairs[i].state == xIcePairState_Succeeded) {
       any_succeeded = true;
     }
   }
 
-  /* All pairs dispatched and at least one succeeded — nominate now. */
+  /* All pairs dispatched and at least one succeeded — nominate now.
+   *
+   * Prefer a pair whose remote candidate is NOT peer-reflexive.  A prflx
+   * remote address is an ephemeral source address observed in an incoming
+   * binding request; the remote peer may not accept DTLS/data on that
+   * address.  Only fall back to a prflx pair if no other succeeded pair
+   * exists. */
   if (any_succeeded && a->check_index >= a->pair_count) {
+    xIcePair *best       = NULL;
+    xIcePair *best_prflx = NULL;
     for (int i = 0; i < a->pair_count; i++) {
-      if (a->pairs[i].state == xIcePairState_Succeeded) {
-        a->nominated          = &a->pairs[i];
-        a->pairs[i].nominated = true;
+      if (a->pairs[i].state != xIcePairState_Succeeded) continue;
+      if (a->pairs[i].remote->type == xIceCandidateType_Prflx) {
+        if (!best_prflx) best_prflx = &a->pairs[i];
+      } else {
+        if (!best) best = &a->pairs[i];
+      }
+    }
 
-        char lstr[64], rstr[64];
-        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr,  lstr, sizeof(lstr));
-        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr, rstr, sizeof(rstr));
-        printf("[ice] nominated pair: %s -> %s\n", lstr, rstr);
+    /* If we only have prflx succeeded pairs but non-prflx pairs are still
+     * in progress, wait for them — they are more likely to produce a
+     * usable nominated path. */
+    if (!best && best_prflx && any_non_prflx_in_progress) {
+      return;
+    }
 
-        set_state(a, xIceAgentState_Connected);
-        start_consent(a);
+    if (!best) best = best_prflx;
 
-        /* Cancel the check timeout — no longer needed */
-        if (a->check_timeout) {
-          xEventLoopTimerCancel(a->loop, a->check_timeout);
-          a->check_timeout = NULL;
-        }
-        break;
+    if (best) {
+      a->nominated    = best;
+      best->nominated = true;
+      
+      char lstr[64], rstr[64];
+      sockaddr_to_str((const struct sockaddr *)&best->local->addr, lstr,
+                      sizeof(lstr));
+      sockaddr_to_str((const struct sockaddr *)&best->remote->addr, rstr,
+                      sizeof(rstr));
+      XDEBUG("[ice] nominated pair: %s -> %s", lstr, rstr);
+
+      set_state(a, xIceAgentState_Connected);
+      start_consent(a);
+
+      /* Cancel the check timeout — no longer needed */
+      if (a->check_timeout) {
+        xEventLoopTimerCancel(a->loop, a->check_timeout);
+        a->check_timeout = NULL;
       }
     }
     return;
@@ -446,9 +486,9 @@ static void on_check_response(const xStunMsg        *msg,
                               const struct sockaddr *from
                               __attribute__((unused)),
                               void *arg) {
-  CheckCtx    *ctx   = (CheckCtx *)arg;
-  xIceAgent_  *agent = ctx->agent;
-  xIcePair    *pair  = ctx->pair;
+  CheckCtx   *ctx   = (CheckCtx *)arg;
+  xIceAgent_ *agent = ctx->agent;
+  xIcePair   *pair  = ctx->pair;
   free(ctx);
 
   if (!msg) {
@@ -471,14 +511,24 @@ static void check_timeout_cb(void *arg) {
   /* Check if we already have a nominated pair */
   if (a->nominated) return;
 
-  /* Check if any pair succeeded */
+  /* Find best succeeded pair, preferring non-prflx remote */
+  xIcePair *best       = NULL;
+  xIcePair *best_prflx = NULL;
   for (int i = 0; i < a->pair_count; i++) {
-    if (a->pairs[i].state == xIcePairState_Succeeded) {
-      a->nominated          = &a->pairs[i];
-      a->pairs[i].nominated = true;
-      set_state(a, xIceAgentState_Connected);
-      return;
+    if (a->pairs[i].state != xIcePairState_Succeeded) continue;
+    if (a->pairs[i].remote->type == xIceCandidateType_Prflx) {
+      if (!best_prflx) best_prflx = &a->pairs[i];
+    } else {
+      if (!best) best = &a->pairs[i];
     }
+  }
+  if (!best) best = best_prflx;
+
+  if (best) {
+    a->nominated    = best;
+    best->nominated = true;
+    set_state(a, xIceAgentState_Connected);
+    return;
   }
 
   set_state(a, xIceAgentState_Failed);
@@ -951,7 +1001,7 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
     }
   }
 
-  /* Peer reflexive candidate */
+  /* Peer reflexive candidate (RFC 8445 §7.2.1.3) */
   if (!known && a->remote_count < XICE_MAX_CANDIDATES) {
     xIceCandidate *prflx = &a->remote_candidates[a->remote_count];
     memset(prflx, 0, sizeof(*prflx));
@@ -963,9 +1013,38 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
     xIceCandidateFoundation(prflx, NULL);
     a->remote_count++;
 
-    /* Re-generate pairs if checking */
+    /* Add new pairs for the prflx candidate without destroying existing
+     * pairs that may already be InProgress / Succeeded.  Calling
+     * generate_pairs() here would reset all pair states and corrupt
+     * outstanding connectivity-check transactions. */
     if (a->state == xIceAgentState_Checking) {
-      generate_pairs(a);
+      for (int l = 0; l < a->local_count && a->pair_count < XICE_MAX_PAIRS;
+           l++) {
+        if (a->local_candidates[l].component_id != prflx->component_id)
+          continue;
+        if (a->local_candidates[l].addr.ss_family != prflx->addr.ss_family)
+          continue;
+
+        xIcePair *pair  = &a->pairs[a->pair_count];
+        pair->local     = &a->local_candidates[l];
+        pair->remote    = prflx;
+        pair->state     = xIcePairState_Frozen;
+        pair->nominated = false;
+
+        uint32_t g_prio, d_prio;
+        if (a->role == xIceAgentRole_Controlling) {
+          g_prio = pair->local->priority;
+          d_prio = pair->remote->priority;
+        } else {
+          g_prio = pair->remote->priority;
+          d_prio = pair->local->priority;
+        }
+        pair->priority = xIcePairPriority(g_prio, d_prio);
+        a->pair_count++;
+      }
+      /* Note: we do NOT re-sort or reset check_index here.  The new
+       * pairs are appended and will be picked up by the pacing timer
+       * when check_index advances to them. */
     }
   }
 
@@ -981,9 +1060,11 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
         a->pairs[i].state     = xIcePairState_Succeeded;
 
         char lstr[64], rstr[64];
-        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr,  lstr, sizeof(lstr));
-        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr, rstr, sizeof(rstr));
-        printf("[ice] nominated pair: %s -> %s\n", lstr, rstr);
+        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr,
+                        sizeof(lstr));
+        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr,
+                        rstr, sizeof(rstr));
+        XDEBUG("[ice] nominated pair: %s -> %s", lstr, rstr);
 
         set_state(a, xIceAgentState_Connected);
         start_consent(a);
@@ -1060,6 +1141,8 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
 
     case XICE_DEMUX_DTLS:
       /* Feed into upper layer (PeerConnection) if DTLS hook is set */
+      XDEBUG("[ice] DTLS packet %zu bytes, dtls_input_fn=%p", len,
+             (void *)a->dtls_input_fn);
       if (a->dtls_input_fn) {
         a->dtls_input_fn(buf, len, from, a->dtls_input_arg);
       }
@@ -1469,7 +1552,14 @@ const xIceCandidate *xIceAgentGetLocalCandidates(xIceAgent agent,
 void xIceAgentSetDtlsInputCallback(xIceAgent agent, xIceDtlsInputFn fn,
                                    void *arg) {
   if (!agent) return;
-  xIceAgent_ *a    = (xIceAgent_ *)agent;
+  xIceAgent_ *a     = (xIceAgent_ *)agent;
   a->dtls_input_fn  = fn;
   a->dtls_input_arg = arg;
+}
+
+void xIceAgentSetRole(xIceAgent agent, xIceRole role) {
+  if (!agent) return;
+  xIceAgent_ *a = (xIceAgent_ *)agent;
+  a->role       = (role == xIceRole_Controlling) ? xIceAgentRole_Controlling
+                                                 : xIceAgentRole_Controlled;
 }

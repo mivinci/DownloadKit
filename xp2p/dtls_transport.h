@@ -175,6 +175,21 @@ XCAPI(xDtlsState) xDtlsTransportGetState(xDtlsTransport transport);
  */
 XCAPI(xDtlsRole) xDtlsTransportGetRole(xDtlsTransport transport);
 
+/**
+ * @brief Change the DTLS role before the handshake starts.
+ *
+ * This is useful when the offerer creates the DTLS transport early (to lock
+ * in the certificate fingerprint for SDP) but the final role is only known
+ * after parsing the remote answer.  The backend context is recreated with
+ * the new role.
+ *
+ * @param transport  Transport handle.
+ * @param role       New role (Active, Passive, or Actpass → Passive).
+ * @return           xErrno_Ok on success, xErrno_InvalidArg if handshake
+ *                   already started.
+ */
+XCAPI(xErrno) xDtlsTransportSetRole(xDtlsTransport transport, xDtlsRole role);
+
 /* ───────────────────── Utility ───────────────────── */
 
 /**

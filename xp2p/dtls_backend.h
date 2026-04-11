@@ -100,6 +100,18 @@ typedef struct xDtlsBackend {
   void (*destroy)(xDtlsBackendCtx *ctx);
 
   /**
+   * @brief Change the DTLS role without regenerating the certificate.
+   *
+   * Rebuilds the SSL context and SSL object with the new role but
+   * reuses the existing certificate and private key.
+   *
+   * @param ctx   Backend context.
+   * @param role  New DTLS role (Active or Passive).
+   * @return      xErrno_Ok on success.
+   */
+  xErrno (*set_role)(xDtlsBackendCtx *ctx, xDtlsRole role);
+
+  /**
    * @brief Get the local certificate's SHA-256 fingerprint.
    *
    * @param ctx  Backend context.

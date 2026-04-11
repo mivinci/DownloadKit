@@ -350,6 +350,7 @@ static xErrno send_check(xIceAgent_ *a, xIcePair *pair) {
 }
 
 static void check_pacing_cb(void *arg);
+static void try_nominate(xIceAgent_ *a);
 
 static void schedule_next_check(xIceAgent_ *a) {
   if (a->state != xIceAgentState_Checking) return;
@@ -377,47 +378,67 @@ static void check_pacing_cb(void *arg) {
     }
   }
 
-  /* All pairs dispatched — check if any succeeded */
-  bool all_done      = true;
-  bool any_succeeded = false;
+  /* All pairs dispatched — try to nominate */
+  try_nominate(a);
+}
+
+/**
+ * @brief Try to nominate the best succeeded pair.
+ *
+ * Called after every pair state change (check response or pacing exhaustion).
+ *
+ * Nomination strategy:
+ *  - If any pair has succeeded AND all pairs have been dispatched
+ *    (check_index >= pair_count), nominate the highest-priority succeeded
+ *    pair immediately.  We do NOT wait for InProgress pairs to finish
+ *    because STUN retransmission timeouts can be very long (~60 s).
+ *  - If all pairs have reached a terminal state (Succeeded / Failed) and
+ *    none succeeded, transition to Failed.
+ */
+static void try_nominate(xIceAgent_ *a) {
+  if (a->state != xIceAgentState_Checking) return;
+  if (a->nominated) return;
+
+  bool any_in_progress = false;
+  bool any_succeeded   = false;
   for (int i = 0; i < a->pair_count; i++) {
     if (a->pairs[i].state == xIcePairState_InProgress) {
-      all_done = false;
+      any_in_progress = true;
     }
     if (a->pairs[i].state == xIcePairState_Succeeded) {
       any_succeeded = true;
     }
   }
 
-  if (all_done) {
-    if (any_succeeded && !a->nominated) {
-      /* Regular nomination: pick the highest-priority succeeded pair.
-       * pairs[] is sorted descending by priority, so the first Succeeded
-       * entry is the best reachable pair. */
-      for (int i = 0; i < a->pair_count; i++) {
-        if (a->pairs[i].state == xIcePairState_Succeeded) {
-          a->nominated          = &a->pairs[i];
-          a->pairs[i].nominated = true;
+  /* All pairs dispatched and at least one succeeded — nominate now. */
+  if (any_succeeded && a->check_index >= a->pair_count) {
+    for (int i = 0; i < a->pair_count; i++) {
+      if (a->pairs[i].state == xIcePairState_Succeeded) {
+        a->nominated          = &a->pairs[i];
+        a->pairs[i].nominated = true;
 
-          char lstr[64], rstr[64];
-          sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr,  lstr, sizeof(lstr));
-          sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr, rstr, sizeof(rstr));
-          printf("[ice] nominated pair: %s -> %s\n", lstr, rstr);
+        char lstr[64], rstr[64];
+        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr,  lstr, sizeof(lstr));
+        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr, rstr, sizeof(rstr));
+        printf("[ice] nominated pair: %s -> %s\n", lstr, rstr);
 
-          set_state(a, xIceAgentState_Connected);
-          start_consent(a);
+        set_state(a, xIceAgentState_Connected);
+        start_consent(a);
 
-          /* Cancel the check timeout — no longer needed */
-          if (a->check_timeout) {
-            xEventLoopTimerCancel(a->loop, a->check_timeout);
-            a->check_timeout = NULL;
-          }
-          break;
+        /* Cancel the check timeout — no longer needed */
+        if (a->check_timeout) {
+          xEventLoopTimerCancel(a->loop, a->check_timeout);
+          a->check_timeout = NULL;
         }
+        break;
       }
-    } else if (!any_succeeded && !a->nominated) {
-      set_state(a, xIceAgentState_Failed);
     }
+    return;
+  }
+
+  /* All pairs finished (none in progress) and none succeeded — fail. */
+  if (!any_in_progress && !any_succeeded) {
+    set_state(a, xIceAgentState_Failed);
   }
 }
 
@@ -425,21 +446,20 @@ static void on_check_response(const xStunMsg        *msg,
                               const struct sockaddr *from
                               __attribute__((unused)),
                               void *arg) {
-  CheckCtx   *ctx  = (CheckCtx *)arg;
-  xIcePair   *pair = ctx->pair;
+  CheckCtx    *ctx   = (CheckCtx *)arg;
+  xIceAgent_  *agent = ctx->agent;
+  xIcePair    *pair  = ctx->pair;
   free(ctx);
 
   if (!msg) {
     /* Timeout */
     pair->state = xIcePairState_Failed;
-    return;
+  } else if (xStunMsgIsSuccessResponse(msg->type)) {
+    pair->state = xIcePairState_Succeeded;
   }
 
-  if (xStunMsgIsSuccessResponse(msg->type)) {
-    pair->state = xIcePairState_Succeeded;
-    /* Nomination is deferred: wait for all checks to complete so we can
-     * pick the highest-priority succeeded pair (Regular Nomination). */
-  }
+  /* A pair finished — check if we can nominate now */
+  try_nominate(agent);
 }
 
 static void check_timeout_cb(void *arg) {

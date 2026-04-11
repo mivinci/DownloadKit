@@ -293,10 +293,10 @@ static xErrno openssl_handshake(xDtlsBackendCtx *ctx) {
   if (!ctx || !ctx->ssl) return xErrno_InvalidArg;
 
   int ret = SSL_do_handshake(ctx->ssl);
-  flush_bio_out(ctx);
 
   if (ret == 1) {
-    /* Handshake complete */
+    /* Handshake complete — flush any remaining output */
+    flush_bio_out(ctx);
     return xErrno_Ok;
   }
 
@@ -306,6 +306,11 @@ static xErrno openssl_handshake(xDtlsBackendCtx *ctx) {
   }
 
   return xErrno_SysError;
+}
+
+static void openssl_flush_output(xDtlsBackendCtx *ctx) {
+  if (!ctx) return;
+  flush_bio_out(ctx);
 }
 
 static xErrno openssl_feed_input(xDtlsBackendCtx *ctx, const uint8_t *data,
@@ -386,6 +391,7 @@ static const xDtlsBackend g_openssl_backend = {
   .set_role               = openssl_set_role,
   .get_fingerprint        = openssl_get_fingerprint,
   .handshake              = openssl_handshake,
+  .flush_output           = openssl_flush_output,
   .feed_input             = openssl_feed_input,
   .encrypt_send           = openssl_encrypt_send,
   .decrypt_read           = openssl_decrypt_read,

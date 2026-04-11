@@ -24,7 +24,6 @@ extern "C" {
 }
 
 #include <cstring>
-#include <string>
 #include <vector>
 
 /* ═══════════════════════════════════════════════════════════

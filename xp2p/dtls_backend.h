@@ -124,7 +124,8 @@ typedef struct xDtlsBackend {
    * @brief Drive the DTLS handshake forward.
    *
    * Called after feeding input data or when the handshake timer fires.
-   * The backend should call send_fn to emit any pending output.
+   * For backends that buffer output (e.g. OpenSSL memory BIO), the
+   * caller must invoke flush_output() after handshake() returns.
    *
    * @param ctx  Backend context.
    * @return     xErrno_Ok if handshake is complete,
@@ -132,6 +133,17 @@ typedef struct xDtlsBackend {
    *             other error on failure.
    */
   xErrno (*handshake)(xDtlsBackendCtx *ctx);
+
+  /**
+   * @brief Flush any buffered output through the send callback.
+   *
+   * Some backends (OpenSSL) buffer encrypted output in a BIO and
+   * require an explicit flush.  Others (mbedTLS) send inline during
+   * handshake() and may set this to NULL.
+   *
+   * @param ctx  Backend context.
+   */
+  void (*flush_output)(xDtlsBackendCtx *ctx);
 
   /**
    * @brief Feed received DTLS record data into the backend.

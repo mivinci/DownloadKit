@@ -32,6 +32,8 @@ XDEF_STRUCT(xDtlsTransport_) {
   uint8_t local_fingerprint[XDTLS_FINGERPRINT_SIZE];
 
   xEventTimer handshake_timer;
+  bool        driving;          /**< Re-entrancy guard for drive_handshake. */
+  bool        feed_while_driving; /**< Data arrived while driving. */
 };
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -78,16 +80,32 @@ static void drive_handshake(xDtlsTransport_ *t) {
   if (t->state != xDtlsState_Connecting) return;
 
   /*
-   * Loop until the backend returns Again (needs more network data) or
-   * the handshake completes/fails.  This is necessary because the
-   * recv iobuf may contain multiple DTLS records (e.g. retransmitted
-   * ClientHellos that arrived before we started the handshake).  Each
-   * call to handshake() typically consumes one record, so we must
-   * keep driving until the buffer is drained.
+   * Re-entrancy guard.  Both OpenSSL and mbedTLS may invoke the send
+   * callback synchronously during handshake() / flush.  In a loopback
+   * test the send callback feeds data directly into the peer, which
+   * calls FeedInput → drive_handshake on the peer, and the peer's
+   * send callback feeds back into *us*, causing unbounded recursion.
+   *
+   * When `driving` is true, FeedInput still writes data into the
+   * backend buffer and sets `feed_while_driving` so the loop below
+   * knows to retry instead of stopping at Again.
    */
+  if (t->driving) return;
+  t->driving = true;
+
   for (;;) {
+    t->feed_while_driving = false;
     xErrno err = t->backend->handshake(t->backend_ctx);
-    XDEBUG("[dtls] drive_handshake: result=%d (0=ok, 1=again)", (int)err);
+
+    /*
+     * Flush any buffered output (e.g. OpenSSL memory BIO).  This is
+     * done while `driving` is still true so that any recursive
+     * FeedInput triggered by the send callback only writes data and
+     * sets feed_while_driving, without re-entering drive_handshake.
+     */
+    if (t->backend->flush_output) {
+      t->backend->flush_output(t->backend_ctx);
+    }
 
     if (err == xErrno_Ok) {
       /* Handshake complete — verify remote fingerprint if requested */
@@ -99,6 +117,7 @@ static void drive_handshake(xDtlsTransport_ *t) {
             memcmp(remote_fp, t->conf.remote_fingerprint,
                    XDTLS_FINGERPRINT_SIZE) != 0) {
           set_state(t, xDtlsState_Failed);
+          t->driving = false;
           return;
         }
       }
@@ -110,16 +129,27 @@ static void drive_handshake(xDtlsTransport_ *t) {
       }
 
       set_state(t, xDtlsState_Connected);
+      t->driving = false;
       return;
     }
 
     if (err == xErrno_Again) {
-      /* Needs more network data — stop driving */
+      /*
+       * If new data arrived while we were inside handshake() (via the
+       * send-callback → peer-FeedInput → peer-handshake → peer-send
+       * → our-FeedInput path), retry immediately instead of waiting
+       * for the next external FeedInput call.
+       */
+      if (t->feed_while_driving) continue;
+
+      /* No new data — stop driving */
+      t->driving = false;
       return;
     }
 
     /* Any other error — handshake failed */
     set_state(t, xDtlsState_Failed);
+    t->driving = false;
     return;
   }
 }
@@ -252,6 +282,11 @@ xErrno xDtlsTransportFeedInput(xDtlsTransport transport, const uint8_t *data,
   /* Feed data into backend */
   xErrno err = t->backend->feed_input(t->backend_ctx, data, len);
   if (err != xErrno_Ok) return err;
+
+  /* Signal the driving loop that new data is available */
+  if (t->driving) {
+    t->feed_while_driving = true;
+  }
 
   /* Drive handshake if still connecting */
   if (t->state == xDtlsState_Connecting) {

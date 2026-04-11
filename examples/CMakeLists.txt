@@ -18,3 +18,6 @@ target_link_libraries(pc_server PRIVATE xhttp xbase)
 
 add_executable(pc_client pc_client.cpp)
 target_link_libraries(pc_client PRIVATE xp2p xhttp xbase)
+
+add_executable(xfer_echo xfer_echo.c)
+target_link_libraries(xfer_echo PRIVATE xfer xbase)

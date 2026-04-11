@@ -11,12 +11,13 @@
  *   {"type":"candidate","candidate":"..."}
  *
  * Usage:
- *   ./pc_client [signal_url] [stun_server]
+ *   ./pc_client [-u signal_url] [-s stun_server] [-6]
  *
  * Examples:
  *   ./pc_client
- *   ./pc_client ws://localhost:8080/signal
- *   ./pc_client ws://localhost:8080/signal stun.l.google.com:19302
+ *   ./pc_client -u ws://localhost:8080/signal
+ *   ./pc_client -u ws://localhost:8080/signal -s stun.l.google.com:19302
+ *   ./pc_client -6
  *
  * Test flow:
  *   1. Start pc_server: ./pc_server 8080
@@ -37,6 +38,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <thread>
+#include <unistd.h>
 
 /* ── Global state ──────────────────────────────────────── */
 
@@ -50,7 +52,8 @@ static std::atomic<bool> g_done{false};
 
 static xDataChannel g_dc = nullptr;
 
-static const char *g_stun_server = "stun.l.google.com:19302";
+static const char *g_stun_server  = "stun.l.google.com:19302";
+static bool        g_enable_ipv6  = false;
 
 /* ── Simple JSON helpers (no dependency) ───────────────── */
 
@@ -290,6 +293,7 @@ static void ws_on_open(xWsConn conn, void *arg) {
   xPeerConnectionConf conf;
   memset(&conf, 0, sizeof(conf));
   conf.stun_server      = g_stun_server;
+  conf.enable_ipv6      = g_enable_ipv6;
   conf.on_state_change  = on_pc_state_change;
   conf.on_ice_candidate = on_ice_candidate;
   conf.on_datachannel   = on_datachannel;
@@ -461,16 +465,30 @@ int main(int argc, char *argv[]) {
   xPrintBacktraceOnCrash();
 
   const char *signal_url = "ws://127.0.0.1:8080/signal";
-  if (argc > 1) {
-    signal_url = argv[1];
-  }
-  if (argc > 2) {
-    g_stun_server = argv[2];
+
+  int opt;
+  while ((opt = getopt(argc, argv, "u:s:6")) != -1) {
+    switch (opt) {
+    case 'u':
+      signal_url = optarg;
+      break;
+    case 's':
+      g_stun_server = optarg;
+      break;
+    case '6':
+      g_enable_ipv6 = true;
+      break;
+    default:
+      fprintf(stderr, "Usage: %s [-u signal_url] [-s stun_server] [-6]\n",
+              argv[0]);
+      return 1;
+    }
   }
 
   printf("=== WebRTC PeerConnection Client ===\n");
   printf("  Signal URL:  %s\n", signal_url);
-  printf("  STUN server: %s\n\n", g_stun_server);
+  printf("  STUN server: %s\n", g_stun_server);
+  printf("  IPv6:        %s\n\n", g_enable_ipv6 ? "enabled" : "disabled");
 
   g_loop = xEventLoopCreate();
   if (!g_loop) {

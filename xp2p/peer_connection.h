@@ -79,6 +79,7 @@ XDEF_STRUCT(xPeerConnectionConf) {
   const char *turn_server;     /**< TURN server "host:port" or NULL.       */
   const char *turn_username;   /**< TURN credential username.              */
   const char *turn_password;   /**< TURN credential password.              */
+  bool        enable_ipv6;    /**< Enable IPv6 candidates (default: false). */
 
   /** SCTP port (0 = default 5000). */
   uint16_t sctp_port;

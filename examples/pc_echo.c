@@ -9,11 +9,12 @@
  *   ICE → DTLS → SCTP → DataChannel (DCEP)
  *
  * Usage:
- *   ./pc_echo [-s stun_server:port]
+ *   ./pc_echo [-s stun_server:port] [-6]
  *
  * Example:
  *   ./pc_echo
  *   ./pc_echo -s stun.l.google.com:19302
+ *   ./pc_echo -6
  */
 
 #include <xbase/event.h>
@@ -34,6 +35,7 @@ static bool g_a_gathering_done = false;
 static bool g_b_gathering_done = false;
 
 static const char *g_stun_server = "stun.l.google.com:19302";
+static bool        g_enable_ipv6 = false;
 
 /* ── Forward declarations ──────────────────────────────── */
 
@@ -159,19 +161,23 @@ static void exchange_sdp(void) {
 int main(int argc, char *argv[]) {
   /* Parse arguments */
   int opt;
-  while ((opt = getopt(argc, argv, "s:")) != -1) {
+  while ((opt = getopt(argc, argv, "s:6")) != -1) {
     switch (opt) {
     case 's':
       g_stun_server = optarg;
       break;
+    case '6':
+      g_enable_ipv6 = true;
+      break;
     default:
-      fprintf(stderr, "Usage: %s [-s stun_server:port]\n", argv[0]);
+      fprintf(stderr, "Usage: %s [-s stun_server:port] [-6]\n", argv[0]);
       return 1;
     }
   }
 
   printf("DataChannel Echo Demo\n");
-  printf("STUN server: %s\n\n", g_stun_server);
+  printf("STUN server: %s\n", g_stun_server);
+  printf("IPv6:        %s\n\n", g_enable_ipv6 ? "enabled" : "disabled");
 
   g_loop = xEventLoopCreate();
 
@@ -179,6 +185,7 @@ int main(int argc, char *argv[]) {
   xPeerConnectionConf conf_a;
   memset(&conf_a, 0, sizeof(conf_a));
   conf_a.stun_server      = g_stun_server;
+  conf_a.enable_ipv6      = g_enable_ipv6;
   conf_a.on_state_change  = on_state_change;
   conf_a.on_ice_candidate = on_ice_candidate;
   conf_a.on_datachannel   = on_datachannel;
@@ -193,6 +200,7 @@ int main(int argc, char *argv[]) {
   xPeerConnectionConf conf_b;
   memset(&conf_b, 0, sizeof(conf_b));
   conf_b.stun_server      = g_stun_server;
+  conf_b.enable_ipv6      = g_enable_ipv6;
   conf_b.on_state_change  = on_state_change;
   conf_b.on_ice_candidate = on_ice_candidate;
   conf_b.on_datachannel   = on_datachannel;

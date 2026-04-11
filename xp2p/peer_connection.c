@@ -319,6 +319,7 @@ xPeerConnection xPeerConnectionCreate(xEventLoop                 loop,
   xIceConf ice_conf;
   memset(&ice_conf, 0, sizeof(ice_conf));
   ice_conf.role            = xIceRole_Controlling; /* Will be set by offer/answer */
+  ice_conf.enable_ipv6     = conf->enable_ipv6;
   ice_conf.stun_server     = conf->stun_server;
   ice_conf.turn_server     = conf->turn_server;
   ice_conf.turn_username   = conf->turn_username;

@@ -103,47 +103,20 @@ static void on_ice_state_change(xIceAgent agent, xIceState state, void *arg) {
 
   case xIceState_Connected:
   case xIceState_Completed:
-    /* ICE connected — create (or reuse) DTLS transport and start handshake.
-     *
-     * The DTLS transport is intentionally NOT created during createOffer
-     * because the final role (Active vs Passive) is only known after
-     * setRemoteDescription.  We cache the local fingerprint string and
-     * create the real transport here with the correct role. */
+    /* ICE connected — reuse the DTLS transport created during
+     * createOffer / createAnswer and start the handshake.
+     * The transport was created early to lock in the certificate
+     * whose fingerprint was advertised in the SDP. */
     if (!pc->dtls) {
-      uint8_t remote_fp[XDTLS_FINGERPRINT_SIZE];
-      bool    verify_fp = false;
-      memset(remote_fp, 0, sizeof(remote_fp));
-      if (pc->remote_fingerprint[0] != '\0') {
-        const char *fp_str = pc->remote_fingerprint;
-        if (strncmp(fp_str, "sha-256 ", 8) == 0) fp_str += 8;
-        if (xDtlsFingerprintFromStr(fp_str, remote_fp) == xErrno_Ok) {
-          verify_fp = true;
-        }
-      }
+      fprintf(stderr, "[dtls] ERROR: no DTLS transport at ICE connected\n");
+      set_state(pc, xPeerConnectionState_Failed);
+      return;
+    }
 
-      xDtlsRole role = pc->dtls_role;
-      if (role == xDtlsRole_Actpass) role = xDtlsRole_Passive;
-
-      fprintf(stderr, "[dtls] creating transport role=%s\n",
+    {
+      xDtlsRole role = xDtlsTransportGetRole(pc->dtls);
+      fprintf(stderr, "[dtls] starting handshake role=%s\n",
               role == xDtlsRole_Active ? "active" : "passive");
-
-      xDtlsTransportConf dtls_conf;
-      memset(&dtls_conf, 0, sizeof(dtls_conf));
-      dtls_conf.loop               = pc->loop;
-      dtls_conf.role               = role;
-      dtls_conf.verify_fingerprint = verify_fp;
-      memcpy(dtls_conf.remote_fingerprint, remote_fp, XDTLS_FINGERPRINT_SIZE);
-      dtls_conf.send_fn         = pc_dtls_send;
-      dtls_conf.send_arg        = pc;
-      dtls_conf.on_state_change = pc_dtls_state_changed;
-      dtls_conf.on_data         = pc_dtls_data_received;
-      dtls_conf.ctx             = pc;
-
-      pc->dtls = xDtlsTransportCreate(&dtls_conf);
-      if (!pc->dtls) {
-        set_state(pc, xPeerConnectionState_Failed);
-        return;
-      }
     }
 
     xIceAgentSetDtlsInputCallback(pc->ice, pc_ice_dtls_input, pc);
@@ -377,23 +350,26 @@ char *xPeerConnectionCreateOffer(xPeerConnection handle) {
     pc->gathering_started = true;
   }
 
-  /* Generate a certificate just to obtain the local fingerprint.
-   * We do NOT keep this transport — the real one will be created in
-   * on_ice_state_change once we know the final DTLS role from the answer. */
-  if (pc->local_fingerprint_str[0] == '\0') {
+  /* Create a DTLS transport early to lock in the certificate.
+   * We use Passive role here (offerer defaults to actpass, and the
+   * answerer almost always picks active, making us passive).
+   * The transport is kept in pc->dtls and reused when ICE connects. */
+  if (!pc->dtls) {
     xDtlsTransportConf dtls_conf;
     memset(&dtls_conf, 0, sizeof(dtls_conf));
-    dtls_conf.loop     = pc->loop;
-    dtls_conf.role     = xDtlsRole_Passive; /* role doesn't matter for cert */
-    dtls_conf.send_fn  = pc_dtls_send;
-    dtls_conf.send_arg = pc;
+    dtls_conf.loop            = pc->loop;
+    dtls_conf.role            = xDtlsRole_Passive;
+    dtls_conf.send_fn         = pc_dtls_send;
+    dtls_conf.send_arg        = pc;
+    dtls_conf.on_state_change = pc_dtls_state_changed;
+    dtls_conf.on_data         = pc_dtls_data_received;
+    dtls_conf.ctx             = pc;
 
-    xDtlsTransport tmp = xDtlsTransportCreate(&dtls_conf);
-    if (!tmp) return NULL;
+    pc->dtls = xDtlsTransportCreate(&dtls_conf);
+    if (!pc->dtls) return NULL;
 
     char fp_str[XDTLS_FINGERPRINT_STR_SIZE];
-    xErrno fp_err = xDtlsTransportGetFingerprintStr(tmp, fp_str);
-    xDtlsTransportDestroy(tmp);
+    xErrno fp_err = xDtlsTransportGetFingerprintStr(pc->dtls, fp_str);
     if (fp_err != xErrno_Ok) return NULL;
 
     snprintf(pc->local_fingerprint_str, sizeof(pc->local_fingerprint_str),
@@ -445,23 +421,25 @@ char *xPeerConnectionCreateAnswer(xPeerConnection handle) {
     pc->gathering_started = true;
   }
 
-  /* Generate a certificate just to obtain the local fingerprint.
-   * The real DTLS transport (with correct role + remote fingerprint) will be
-   * created in on_ice_state_change after ICE connects. */
-  if (pc->local_fingerprint_str[0] == '\0') {
+  /* Create a DTLS transport with the correct role determined from the
+   * remote SDP.  The transport is kept in pc->dtls and reused when ICE
+   * connects, ensuring the certificate fingerprint in the SDP matches. */
+  if (!pc->dtls) {
     xDtlsTransportConf dtls_conf;
     memset(&dtls_conf, 0, sizeof(dtls_conf));
-    dtls_conf.loop     = pc->loop;
-    dtls_conf.role     = xDtlsRole_Passive; /* role doesn't matter for cert */
-    dtls_conf.send_fn  = pc_dtls_send;
-    dtls_conf.send_arg = pc;
+    dtls_conf.loop            = pc->loop;
+    dtls_conf.role            = pc->dtls_role;
+    dtls_conf.send_fn         = pc_dtls_send;
+    dtls_conf.send_arg        = pc;
+    dtls_conf.on_state_change = pc_dtls_state_changed;
+    dtls_conf.on_data         = pc_dtls_data_received;
+    dtls_conf.ctx             = pc;
 
-    xDtlsTransport tmp = xDtlsTransportCreate(&dtls_conf);
-    if (!tmp) return NULL;
+    pc->dtls = xDtlsTransportCreate(&dtls_conf);
+    if (!pc->dtls) return NULL;
 
     char fp_str[XDTLS_FINGERPRINT_STR_SIZE];
-    xErrno fp_err = xDtlsTransportGetFingerprintStr(tmp, fp_str);
-    xDtlsTransportDestroy(tmp);
+    xErrno fp_err = xDtlsTransportGetFingerprintStr(pc->dtls, fp_str);
     if (fp_err != xErrno_Ok) return NULL;
 
     snprintf(pc->local_fingerprint_str, sizeof(pc->local_fingerprint_str),

@@ -23,6 +23,7 @@ static const char *xErrnoStrings[] = {
   [xErrno_DnsTempFail]   = "dns: temporary failure",
   [xErrno_DnsError]      = "dns: resolution error",
   [xErrno_Timeout]       = "operation timed out",
+  [xErrno_Again]         = "try again",
 };
 
 const char *xstrerror(xErrno err) {

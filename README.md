@@ -42,8 +42,9 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | libcurl | ✅ | Enables the **xhttp** client |
 | llhttp | ✅ | HTTP/1.1 parsing for **xhttp** server — `libllhttp-dev` (apt) / `llhttp` (brew) |
 | nghttp2 | ✅ | HTTP/2 support for **xhttp** server — `libnghttp2-dev` (apt) / `nghttp2` (brew) |
-| OpenSSL | ✅ pick one | TLS backend for **xhttp** — `libssl-dev` (apt) / `openssl` (brew) |
-| MbedTLS | ✅ pick one | TLS backend for **xhttp** — `libmbedtls-dev` (apt) / `mbedtls` (brew) |
+| OpenSSL | ✅ pick one | TLS backend for **xhttp** and **xp2p** DTLS — `libssl-dev` (apt) / `openssl` (brew) |
+| MbedTLS | ✅ pick one | TLS backend for **xhttp** and **xp2p** DTLS — `libmbedtls-dev` (apt) / `mbedtls` (brew) |
+| usrsctp | Auto-fetched | User-space SCTP for **xp2p** WebRTC DataChannel — fetched via CMake FetchContent |
 | libunwind | Optional | Better backtraces on Linux |
 
 ## Build
@@ -69,7 +70,7 @@ ctest --test-dir build --output-on-failure --parallel 4
 
 ### TLS backend selection
 
-The **xhttp** module supports two TLS backends. Use `XK_TLS_BACKEND` to choose one at configure time:
+Both **xhttp** and **xp2p** support two TLS backends. Use `XK_TLS_BACKEND` (for xhttp) and `XP2P_TLS_BACKEND` (for xp2p DTLS) to choose at configure time:
 
 | Backend | Value | Extra dependency |
 | ------- | ----- | ---------------- |
@@ -93,6 +94,21 @@ ctest --test-dir build-mbedtls --output-on-failure --parallel 4
 ```
 
 > **Tip:** To test both backends in one go, simply run the above commands sequentially with separate build directories.
+
+### xp2p DTLS configuration
+
+The **xp2p** module supports DTLS + SCTP + DataChannel for WebRTC browser interop. Use `XP2P_TLS_BACKEND` to select the TLS backend and `XP2P_ENABLE_DTLS` to toggle the feature:
+
+```bash
+# OpenSSL backend (default)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXP2P_TLS_BACKEND=openssl
+
+# mbedTLS backend
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXP2P_TLS_BACKEND=mbedtls
+
+# Disable DTLS entirely (pure ICE mode)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXP2P_ENABLE_DTLS=OFF
+```
 
 ### HTTPS integration tests
 

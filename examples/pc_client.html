@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>xp2p PeerConnection Client</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    h1 {
+      text-align: center;
+      color: #00d4ff;
+      margin-bottom: 1.5rem;
+      font-size: 1.8rem;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .card {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      border: 1px solid #0f3460;
+    }
+    .card h2 {
+      color: #00d4ff;
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+    }
+    .status {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .status-new       { background: #333; color: #888; }
+    .status-connecting { background: #1a237e; color: #82b1ff; }
+    .status-connected  { background: #1b5e20; color: #69f0ae; }
+    .status-closed     { background: #b71c1c; color: #ff8a80; }
+    #log {
+      background: #0a0a1a;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.8rem;
+      max-height: 400px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+    .log-info  { color: #82b1ff; }
+    .log-send  { color: #69f0ae; }
+    .log-recv  { color: #ffab40; }
+    .log-error { color: #ff5252; }
+    .log-signal { color: #ce93d8; }
+    button {
+      padding: 0.6rem 1.2rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .btn-success {
+      background: #00e676;
+      color: #0a0a1a;
+    }
+    .btn-success:hover:not(:disabled) { background: #00c853; }
+    .btn-danger {
+      background: #ff5252;
+      color: #fff;
+    }
+    .btn-danger:hover:not(:disabled) { background: #ff1744; }
+    .msg-row {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    .msg-row input {
+      flex: 1;
+      background: #0a0a1a;
+      color: #e0e0e0;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 0.75rem;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85rem;
+    }
+    .msg-row input:focus {
+      outline: none;
+      border-color: #00d4ff;
+    }
+    .status-row {
+      display: flex;
+      gap: 1.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .toggle-row label {
+      font-size: 0.85rem;
+      color: #8892b0;
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 22px;
+    }
+    .toggle input {
+      position: absolute;
+      opacity: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      cursor: pointer;
+      z-index: 2;
+    }
+    .toggle .slider {
+      position: absolute;
+      inset: 0;
+      background: #333;
+      border-radius: 22px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle .slider::before {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 3px;
+      bottom: 3px;
+      background: #888;
+      border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .toggle input:checked + .slider {
+      background: #1b5e20;
+    }
+    .toggle input:checked + .slider::before {
+      transform: translateX(18px);
+      background: #69f0ae;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔗 xp2p PeerConnection Client</h1>
+
+    <!-- Status -->
+    <div class="card">
+      <h2>Status</h2>
+      <div class="status-row">
+        <div>Signal: <span id="wsStatus" class="status status-new">disconnected</span></div>
+        <div>ICE: <span id="iceStatus" class="status status-new">new</span></div>
+        <div>DC: <span id="dcStatus" class="status status-new">new</span></div>
+      </div>
+      <p style="margin-top:1rem; font-size:0.85rem; color:#8892b0;">
+        This page auto-connects to the signaling server via WebSocket.
+        Start <code>pc_client</code> to initiate the WebRTC connection.
+      </p>
+    </div>
+
+    <!-- Connection -->
+    <div class="card">
+      <h2>Connection</h2>
+      <div style="display:flex; align-items:center; gap:1.5rem; flex-wrap:wrap;">
+        <button class="btn-success" id="btnConnect">Connect (Send Offer)</button>
+        <div class="toggle-row" style="margin-top:0;">
+          <span class="toggle">
+            <input type="checkbox" id="ipv6Toggle">
+            <span class="slider"></span>
+          </span>
+          <label for="ipv6Toggle">Enable IPv6</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- DataChannel -->
+    <div class="card">
+      <h2>DataChannel</h2>
+      <div class="msg-row">
+        <input type="text" id="msgInput" placeholder="Type a message..." disabled>
+        <button class="btn-success" id="btnSend" disabled>Send</button>
+        <button class="btn-danger" id="btnClose" disabled>Close</button>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <h2>Log</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    const logEl       = document.getElementById('log');
+    const wsStatusEl  = document.getElementById('wsStatus');
+    const iceStatusEl = document.getElementById('iceStatus');
+    const dcStatusEl  = document.getElementById('dcStatus');
+    const msgInputEl  = document.getElementById('msgInput');
+    const btnSend     = document.getElementById('btnSend');
+    const btnClose    = document.getElementById('btnClose');
+    const btnConnect  = document.getElementById('btnConnect');
+
+    let ws = null;
+    let pc = null;
+    let dc = null;
+    let pendingCandidates = [];
+    const ipv6Toggle = document.getElementById('ipv6Toggle');
+
+    /**
+     * Returns true if the candidate string contains an IPv6 address.
+     * IPv6 candidates have addresses with colons (e.g. "::1", "fe80::1").
+     */
+    function isIPv6Candidate(candidateStr) {
+      /* candidate:... <foundation> <component> <proto> <priority> <addr> <port> ... */
+      const parts = candidateStr.split(/\s+/);
+      /* addr is at index 4 (0-based) in the candidate attribute value */
+      const addr = parts.length > 4 ? parts[4] : '';
+      return addr.includes(':');
+    }
+
+    function log(msg, cls = 'log-info') {
+      const line = document.createElement('div');
+      line.className = cls;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setWsStatus(state) {
+      wsStatusEl.textContent = state;
+      wsStatusEl.className = 'status status-' +
+        (state === 'connected' ? 'connected' :
+         state === 'connecting' ? 'connecting' :
+         'closed');
+    }
+
+    function setIceStatus(state) {
+      iceStatusEl.textContent = state;
+      iceStatusEl.className = 'status status-' +
+        (state === 'connected' || state === 'completed' ? 'connected' :
+         state === 'checking' || state === 'new' ? 'new' :
+         state === 'disconnected' || state === 'failed' || state === 'closed' ? 'closed' :
+         'connecting');
+    }
+
+    function setDcStatus(state) {
+      dcStatusEl.textContent = state;
+      dcStatusEl.className = 'status status-' +
+        (state === 'open' ? 'connected' :
+         state === 'connecting' ? 'connecting' :
+         state === 'closed' || state === 'closing' ? 'closed' : 'new');
+      const isOpen = state === 'open';
+      msgInputEl.disabled = !isOpen;
+      btnSend.disabled    = !isOpen;
+      btnClose.disabled   = !isOpen;
+    }
+
+    /* ── WebSocket signaling ─────────────────────────── */
+
+    function connectSignaling() {
+      const wsUrl = `ws://${location.host}/signal`;
+      log(`Connecting to signaling server: ${wsUrl}`, 'log-signal');
+      setWsStatus('connecting');
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        log('Signaling server connected', 'log-signal');
+        setWsStatus('connected');
+      };
+
+      ws.onmessage = (e) => {
+        let msg;
+        try { msg = JSON.parse(e.data); }
+        catch { log(`Invalid JSON: ${e.data}`, 'log-error'); return; }
+
+        if (msg.type === 'offer') {
+          log('Received SDP offer from remote peer', 'log-signal');
+          handleOffer(msg.sdp);
+        } else if (msg.type === 'answer') {
+          log('Received SDP answer from remote peer', 'log-signal');
+          handleAnswer(msg.sdp);
+        } else if (msg.type === 'candidate') {
+          log(`Received ICE candidate`, 'log-signal');
+          handleCandidate(msg.candidate);
+        } else {
+          log(`Unknown message type: ${msg.type}`, 'log-error');
+        }
+      };
+
+      ws.onclose = (e) => {
+        log(`Signaling server disconnected (code=${e.code})`, 'log-signal');
+        setWsStatus('disconnected');
+        ws = null;
+        /* Reconnect after a delay */
+        setTimeout(connectSignaling, 3000);
+      };
+
+      ws.onerror = () => {
+        log('Signaling server error', 'log-error');
+      };
+    }
+
+    function sendSignal(msg) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      }
+    }
+
+    /* ── PeerConnection ──────────────────────────────── */
+
+    function createPeerConnection() {
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          if (!ipv6Toggle.checked && isIPv6Candidate(e.candidate.candidate)) {
+            log(`Filtered local IPv6 candidate: ${e.candidate.candidate}`, 'log-signal');
+            return;
+          }
+          log(`Local ICE candidate: ${e.candidate.candidate}`);
+          sendSignal({
+            type: 'candidate',
+            candidate: e.candidate.candidate
+          });
+        } else {
+          log('ICE gathering complete');
+        }
+      };
+
+      pc.oniceconnectionstatechange = async () => {
+        const state = pc.iceConnectionState;
+        log(`ICE state: ${state}`);
+        setIceStatus(state);
+
+        if (state === 'connected' || state === 'completed') {
+          try {
+            const stats = await pc.getStats();
+            stats.forEach(report => {
+              if (report.type === 'candidate-pair' && report.nominated && report.state === 'succeeded') {
+                const local  = stats.get(report.localCandidateId);
+                const remote = stats.get(report.remoteCandidateId);
+                if (local && remote) {
+                  const lAddr = `${local.address}:${local.port} (${local.candidateType})`;
+                  const rAddr = `${remote.address}:${remote.port} (${remote.candidateType})`;
+                  log(`[ice] nominated pair: ${lAddr} -> ${rAddr}`, 'log-signal');
+                }
+              }
+            });
+          } catch (err) {
+            log(`Failed to get stats: ${err.message}`, 'log-error');
+          }
+        }
+      };
+
+      pc.ondatachannel = (e) => {
+        log(`Remote DataChannel: "${e.channel.label}"`);
+        setupDataChannel(e.channel);
+      };
+    }
+
+    function setupDataChannel(channel) {
+      dc = channel;
+      setDcStatus('connecting');
+
+      dc.onopen = () => {
+        log('DataChannel open', 'log-send');
+        setDcStatus('open');
+      };
+
+      dc.onmessage = (e) => {
+        log(`Received: ${e.data}`, 'log-recv');
+      };
+
+      dc.onclose = () => {
+        log('DataChannel closed');
+        setDcStatus('closed');
+      };
+
+      dc.onerror = (e) => {
+        log(`DataChannel error: ${e.message || e}`, 'log-error');
+      };
+    }
+
+    /* ── Signaling handlers ──────────────────────────── */
+
+    async function handleOffer(sdp) {
+      try {
+        createPeerConnection();
+
+        await pc.setRemoteDescription({ type: 'offer', sdp });
+        log('Remote description set (offer)');
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        log('Local description set (answer)');
+
+        /* Send answer back via signaling */
+        sendSignal({ type: 'answer', sdp: answer.sdp });
+        log('Sent SDP answer to remote peer', 'log-signal');
+
+        /* Drain any ICE candidates that arrived before the offer */
+        if (pendingCandidates.length > 0) {
+          log(`Adding ${pendingCandidates.length} buffered ICE candidate(s)`);
+          for (const c of pendingCandidates) {
+            await pc.addIceCandidate({ candidate: c, sdpMid: '0' });
+            log(`Added buffered ICE candidate: ${c}`);
+          }
+          pendingCandidates = [];
+        }
+      } catch (err) {
+        log(`Error handling offer: ${err.message}`, 'log-error');
+      }
+    }
+
+    async function handleAnswer(sdp) {
+      try {
+        if (!pc) {
+          log('No PeerConnection for answer', 'log-error');
+          return;
+        }
+        await pc.setRemoteDescription({ type: 'answer', sdp });
+        log('Remote description set (answer)');
+      } catch (err) {
+        log(`Error handling answer: ${err.message}`, 'log-error');
+      }
+    }
+
+    async function handleCandidate(candidate) {
+      try {
+        if (!ipv6Toggle.checked && isIPv6Candidate(candidate)) {
+          log(`Filtered remote IPv6 candidate: ${candidate}`, 'log-signal');
+          return;
+        }
+        if (!pc || !pc.remoteDescription) {
+          log('Buffering ICE candidate (PeerConnection not ready yet)');
+          pendingCandidates.push(candidate);
+          return;
+        }
+        await pc.addIceCandidate({ candidate, sdpMid: '0' });
+        log(`Added remote ICE candidate: ${candidate}`);
+      } catch (err) {
+        log(`Error adding candidate: ${err.message}`, 'log-error');
+      }
+    }
+
+    /* ── UI handlers ─────────────────────────────────── */
+
+    btnConnect.onclick = async () => {
+      try {
+        createPeerConnection();
+
+        const dataChannel = pc.createDataChannel('data');
+        setupDataChannel(dataChannel);
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        log('Local description set (offer)');
+
+        sendSignal({ type: 'offer', sdp: offer.sdp });
+        log('Sent SDP offer to remote peer', 'log-signal');
+      } catch (err) {
+        log(`Error creating offer: ${err.message}`, 'log-error');
+      }
+    };
+
+    btnSend.onclick = () => {
+      const msg = msgInputEl.value.trim();
+      if (!msg || !dc || dc.readyState !== 'open') return;
+      dc.send(msg);
+      log(`Sent: ${msg}`, 'log-send');
+      msgInputEl.value = '';
+    };
+
+    msgInputEl.onkeydown = (e) => {
+      if (e.key === 'Enter') btnSend.click();
+    };
+
+    btnClose.onclick = () => {
+      if (dc) dc.close();
+      if (pc) pc.close();
+      log('Connection closed');
+      setIceStatus('closed');
+      setDcStatus('closed');
+    };
+
+    /* ── Start ───────────────────────────────────────── */
+
+    log('Ready. Connecting to signaling server...');
+    connectSignaling();
+  </script>
+</body>
+</html>

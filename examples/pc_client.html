@@ -166,6 +166,7 @@
     let ws = null;
     let pc = null;
     let dc = null;
+    let pendingCandidates = [];
 
     function log(msg, cls = 'log-info') {
       const line = document.createElement('div');
@@ -350,6 +351,16 @@
         /* Send answer back via signaling */
         sendSignal({ type: 'answer', sdp: answer.sdp });
         log('Sent SDP answer to remote peer', 'log-signal');
+
+        /* Drain any ICE candidates that arrived before the offer */
+        if (pendingCandidates.length > 0) {
+          log(`Adding ${pendingCandidates.length} buffered ICE candidate(s)`);
+          for (const c of pendingCandidates) {
+            await pc.addIceCandidate({ candidate: c, sdpMid: '0' });
+            log(`Added buffered ICE candidate: ${c}`);
+          }
+          pendingCandidates = [];
+        }
       } catch (err) {
         log(`Error handling offer: ${err.message}`, 'log-error');
       }
@@ -370,8 +381,9 @@
 
     async function handleCandidate(candidate) {
       try {
-        if (!pc) {
-          log('No PeerConnection for candidate', 'log-error');
+        if (!pc || !pc.remoteDescription) {
+          log('Buffering ICE candidate (PeerConnection not ready yet)');
+          pendingCandidates.push(candidate);
           return;
         }
         await pc.addIceCandidate({ candidate, sdpMid: '0' });

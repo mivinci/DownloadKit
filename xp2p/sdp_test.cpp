@@ -22,16 +22,16 @@ TEST(SdpTest, EncodeCandidateHost) {
   memset(&cand, 0, sizeof(cand));
   strncpy(cand.foundation, "12345", XICE_FOUNDATION_MAX_LEN);
   cand.component_id = 1;
-  cand.priority = 2130706431;
-  cand.type = xIceCandidateType_Host;
+  cand.priority     = 2130706431;
+  cand.type         = xIceCandidateType_Host;
 
   struct sockaddr_in *a4 = (struct sockaddr_in *)&cand.addr;
-  a4->sin_family = AF_INET;
-  a4->sin_port = htons(5000);
+  a4->sin_family         = AF_INET;
+  a4->sin_port           = htons(5000);
   inet_pton(AF_INET, "192.168.1.100", &a4->sin_addr);
 
   char buf[256];
-  int len = xIceSdpEncodeCandidate(&cand, buf, sizeof(buf));
+  int  len = xIceSdpEncodeCandidate(&cand, buf, sizeof(buf));
   ASSERT_GT(len, 0);
 
   EXPECT_NE(strstr(buf, "a=candidate:12345"), nullptr);
@@ -45,21 +45,21 @@ TEST(SdpTest, EncodeCandidateSrflx) {
   memset(&cand, 0, sizeof(cand));
   strncpy(cand.foundation, "99999", XICE_FOUNDATION_MAX_LEN);
   cand.component_id = 1;
-  cand.priority = 1694498815;
-  cand.type = xIceCandidateType_Srflx;
+  cand.priority     = 1694498815;
+  cand.type         = xIceCandidateType_Srflx;
 
   struct sockaddr_in *a4 = (struct sockaddr_in *)&cand.addr;
-  a4->sin_family = AF_INET;
-  a4->sin_port = htons(3000);
+  a4->sin_family         = AF_INET;
+  a4->sin_port           = htons(3000);
   inet_pton(AF_INET, "203.0.113.5", &a4->sin_addr);
 
   struct sockaddr_in *r4 = (struct sockaddr_in *)&cand.rel_addr;
-  r4->sin_family = AF_INET;
-  r4->sin_port = htons(5000);
+  r4->sin_family         = AF_INET;
+  r4->sin_port           = htons(5000);
   inet_pton(AF_INET, "192.168.1.100", &r4->sin_addr);
 
   char buf[256];
-  int len = xIceSdpEncodeCandidate(&cand, buf, sizeof(buf));
+  int  len = xIceSdpEncodeCandidate(&cand, buf, sizeof(buf));
   ASSERT_GT(len, 0);
 
   EXPECT_NE(strstr(buf, "typ srflx"), nullptr);
@@ -68,7 +68,8 @@ TEST(SdpTest, EncodeCandidateSrflx) {
 }
 
 TEST(SdpTest, DecodeCandidateHost) {
-  const char *line = "a=candidate:12345 1 UDP 2130706431 192.168.1.100 5000 typ host";
+  const char *line =
+    "a=candidate:12345 1 UDP 2130706431 192.168.1.100 5000 typ host";
   xIceCandidate cand;
   ASSERT_EQ(xIceSdpDecodeCandidate(line, &cand), xErrno_Ok);
 
@@ -87,7 +88,8 @@ TEST(SdpTest, DecodeCandidateHost) {
 }
 
 TEST(SdpTest, DecodeCandidateSrflx) {
-  const char *line = "a=candidate:99999 1 UDP 1694498815 203.0.113.5 3000 typ srflx raddr 192.168.1.100 rport 5000";
+  const char *line = "a=candidate:99999 1 UDP 1694498815 203.0.113.5 3000 typ "
+                     "srflx raddr 192.168.1.100 rport 5000";
   xIceCandidate cand;
   ASSERT_EQ(xIceSdpDecodeCandidate(line, &cand), xErrno_Ok);
 
@@ -107,16 +109,16 @@ TEST(SdpTest, CandidateRoundTrip) {
   memset(&orig, 0, sizeof(orig));
   strncpy(orig.foundation, "42", XICE_FOUNDATION_MAX_LEN);
   orig.component_id = 1;
-  orig.priority = 100;
-  orig.type = xIceCandidateType_Host;
+  orig.priority     = 100;
+  orig.type         = xIceCandidateType_Host;
 
   struct sockaddr_in *a4 = (struct sockaddr_in *)&orig.addr;
-  a4->sin_family = AF_INET;
-  a4->sin_port = htons(8080);
+  a4->sin_family         = AF_INET;
+  a4->sin_port           = htons(8080);
   inet_pton(AF_INET, "10.0.0.1", &a4->sin_addr);
 
   char buf[256];
-  int len = xIceSdpEncodeCandidate(&orig, buf, sizeof(buf));
+  int  len = xIceSdpEncodeCandidate(&orig, buf, sizeof(buf));
   ASSERT_GT(len, 0);
 
   xIceCandidate decoded;
@@ -135,30 +137,30 @@ TEST(SdpTest, FullSdpEncodeDecodeRoundTrip) {
   memset(cands, 0, sizeof(cands));
 
   strncpy(cands[0].foundation, "1", XICE_FOUNDATION_MAX_LEN);
-  cands[0].component_id = 1;
-  cands[0].priority = 2130706431;
-  cands[0].type = xIceCandidateType_Host;
+  cands[0].component_id  = 1;
+  cands[0].priority      = 2130706431;
+  cands[0].type          = xIceCandidateType_Host;
   struct sockaddr_in *a0 = (struct sockaddr_in *)&cands[0].addr;
-  a0->sin_family = AF_INET;
-  a0->sin_port = htons(5000);
+  a0->sin_family         = AF_INET;
+  a0->sin_port           = htons(5000);
   inet_pton(AF_INET, "192.168.1.1", &a0->sin_addr);
 
   strncpy(cands[1].foundation, "2", XICE_FOUNDATION_MAX_LEN);
-  cands[1].component_id = 1;
-  cands[1].priority = 1694498815;
-  cands[1].type = xIceCandidateType_Srflx;
+  cands[1].component_id  = 1;
+  cands[1].priority      = 1694498815;
+  cands[1].type          = xIceCandidateType_Srflx;
   struct sockaddr_in *a1 = (struct sockaddr_in *)&cands[1].addr;
-  a1->sin_family = AF_INET;
-  a1->sin_port = htons(3000);
+  a1->sin_family         = AF_INET;
+  a1->sin_port           = htons(3000);
   inet_pton(AF_INET, "203.0.113.5", &a1->sin_addr);
   struct sockaddr_in *r1 = (struct sockaddr_in *)&cands[1].rel_addr;
-  r1->sin_family = AF_INET;
-  r1->sin_port = htons(5000);
+  r1->sin_family         = AF_INET;
+  r1->sin_port           = htons(5000);
   inet_pton(AF_INET, "192.168.1.1", &r1->sin_addr);
 
   char sdp[XSDP_MAX_SIZE];
-  int len = xIceSdpEncode("myufrag", "mysupersecretpassword22",
-                           cands, 2, true, sdp, sizeof(sdp));
+  int  len = xIceSdpEncode("myufrag", "mysupersecretpassword22", cands, 2, true,
+                           sdp, sizeof(sdp));
   ASSERT_GT(len, 0);
 
   xIceSdp parsed;
@@ -178,33 +180,33 @@ TEST(SdpTest, FullSdpEncodeDecodeRoundTrip) {
 
 TEST(SdpTest, DecodeMissingUfragFails) {
   const char *sdp = "v=0\r\na=ice-pwd:password\r\n";
-  xIceSdp parsed;
+  xIceSdp     parsed;
   EXPECT_NE(xIceSdpDecode(sdp, strlen(sdp), &parsed), xErrno_Ok);
 }
 
 TEST(SdpTest, DecodeMissingPwdFails) {
   const char *sdp = "v=0\r\na=ice-ufrag:ufrag\r\n";
-  xIceSdp parsed;
+  xIceSdp     parsed;
   EXPECT_NE(xIceSdpDecode(sdp, strlen(sdp), &parsed), xErrno_Ok);
 }
 
 TEST(SdpTest, DecodeEndOfCandidates) {
   const char *sdp = "v=0\r\n"
-                     "a=ice-ufrag:test\r\n"
-                     "a=ice-pwd:testpassword1234567890\r\n"
-                     "a=end-of-candidates\r\n";
-  xIceSdp parsed;
+                    "a=ice-ufrag:test\r\n"
+                    "a=ice-pwd:testpassword1234567890\r\n"
+                    "a=end-of-candidates\r\n";
+  xIceSdp     parsed;
   ASSERT_EQ(xIceSdpDecode(sdp, strlen(sdp), &parsed), xErrno_Ok);
   EXPECT_TRUE(parsed.end_of_candidates);
 }
 
 TEST(SdpTest, DecodeInvalidCandidateLineSkipped) {
   const char *sdp = "v=0\r\n"
-                     "a=ice-ufrag:test\r\n"
-                     "a=ice-pwd:testpassword1234567890\r\n"
-                     "a=candidate:garbage line\r\n"
-                     "a=candidate:1 1 UDP 100 10.0.0.1 5000 typ host\r\n";
-  xIceSdp parsed;
+                    "a=ice-ufrag:test\r\n"
+                    "a=ice-pwd:testpassword1234567890\r\n"
+                    "a=candidate:garbage line\r\n"
+                    "a=candidate:1 1 UDP 100 10.0.0.1 5000 typ host\r\n";
+  xIceSdp     parsed;
   ASSERT_EQ(xIceSdpDecode(sdp, strlen(sdp), &parsed), xErrno_Ok);
   /* Only the valid candidate should be parsed */
   EXPECT_EQ(parsed.candidate_count, 1);

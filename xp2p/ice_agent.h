@@ -97,7 +97,7 @@ XDEF_STRUCT(xIceConf) {
   xIceOnStateChange on_state_change;
   xIceOnCandidate   on_candidate;
   xIceOnData        on_data;
-  void             *callback_arg; /**< Forwarded to all callbacks.        */
+  void             *ctx; /**< Forwarded to all callbacks.               */
 };
 
 /* ───────────────────── Lifecycle ───────────────────── */

@@ -35,8 +35,7 @@ XDEF_STRUCT(xIcePair) {
  * @param controlled_prio   Priority of the controlled agent's candidate.
  * @return                  Pair priority.
  */
-uint64_t xIcePairPriority(uint32_t controlling_prio,
-                           uint32_t controlled_prio);
+uint64_t xIcePairPriority(uint32_t controlling_prio, uint32_t controlled_prio);
 
 /**
  * @brief Compare two candidate pairs by priority (for qsort).

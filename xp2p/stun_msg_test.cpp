@@ -33,7 +33,7 @@ TEST_F(StunMsgTest, EncodeDecodeRoundTrip) {
   ASSERT_EQ(encoded, XSTUN_HEADER_SIZE);
 
   xStunMsg decoded;
-  xErrno err = xStunMsgDecode(&decoded, buf, encoded);
+  xErrno   err = xStunMsgDecode(&decoded, buf, encoded);
   ASSERT_EQ(err, xErrno_Ok);
   EXPECT_EQ(decoded.type, xStunMsgType_BindingRequest);
   EXPECT_EQ(decoded.length, 0);
@@ -47,17 +47,17 @@ TEST_F(StunMsgTest, EncodeDecodeWithPayload) {
   xStunMsgInit(&msg, xStunMsgType_BindingResponse, txn_id);
 
   /* Simulate some attribute payload */
-  uint8_t attrs[] = {0x00, 0x20, 0x00, 0x08, /* XOR-MAPPED-ADDRESS TLV */
+  uint8_t attrs[] = {0x00, 0x20, 0x00, 0x08,  /* XOR-MAPPED-ADDRESS TLV */
                      0x00, 0x01, 0x21, 0x12,  /* family + xor port     */
                      0x21, 0x12, 0xA4, 0x42}; /* xor address           */
-  msg.attrs = attrs;
-  msg.attrs_len = sizeof(attrs);
+  msg.attrs       = attrs;
+  msg.attrs_len   = sizeof(attrs);
 
   int encoded = xStunMsgEncode(&msg, buf, sizeof(buf));
   ASSERT_EQ(encoded, XSTUN_HEADER_SIZE + (int)sizeof(attrs));
 
   xStunMsg decoded;
-  xErrno err = xStunMsgDecode(&decoded, buf, encoded);
+  xErrno   err = xStunMsgDecode(&decoded, buf, encoded);
   ASSERT_EQ(err, xErrno_Ok);
   EXPECT_EQ(decoded.type, xStunMsgType_BindingResponse);
   EXPECT_EQ(decoded.attrs_len, sizeof(attrs));
@@ -66,8 +66,8 @@ TEST_F(StunMsgTest, EncodeDecodeWithPayload) {
 
 TEST_F(StunMsgTest, DecodeBufferTooSmall) {
   xStunMsg msg;
-  uint8_t small_buf[10] = {0};
-  xErrno err = xStunMsgDecode(&msg, small_buf, sizeof(small_buf));
+  uint8_t  small_buf[10] = {0};
+  xErrno   err           = xStunMsgDecode(&msg, small_buf, sizeof(small_buf));
   EXPECT_NE(err, xErrno_Ok);
 }
 
@@ -81,7 +81,7 @@ TEST_F(StunMsgTest, DecodeInvalidMagicCookie) {
   buf[4] = 0xFF;
 
   xStunMsg decoded;
-  xErrno err = xStunMsgDecode(&decoded, buf, XSTUN_HEADER_SIZE);
+  xErrno   err = xStunMsgDecode(&decoded, buf, XSTUN_HEADER_SIZE);
   EXPECT_NE(err, xErrno_Ok);
 }
 
@@ -94,7 +94,7 @@ TEST_F(StunMsgTest, DecodeFirstTwoBitsNotZero) {
   buf[0] |= 0x80;
 
   xStunMsg decoded;
-  xErrno err = xStunMsgDecode(&decoded, buf, XSTUN_HEADER_SIZE);
+  xErrno   err = xStunMsgDecode(&decoded, buf, XSTUN_HEADER_SIZE);
   EXPECT_NE(err, xErrno_Ok);
 }
 
@@ -107,7 +107,7 @@ TEST_F(StunMsgTest, DecodeLengthExceedsBuffer) {
   xWriteU16BE(buf + 2, 100);
 
   xStunMsg decoded;
-  xErrno err = xStunMsgDecode(&decoded, buf, XSTUN_HEADER_SIZE);
+  xErrno   err = xStunMsgDecode(&decoded, buf, XSTUN_HEADER_SIZE);
   EXPECT_NE(err, xErrno_Ok);
 }
 
@@ -116,7 +116,7 @@ TEST_F(StunMsgTest, EncodeBufferTooSmall) {
   xStunMsgInit(&msg, xStunMsgType_BindingRequest, txn_id);
 
   uint8_t small_buf[10];
-  int result = xStunMsgEncode(&msg, small_buf, sizeof(small_buf));
+  int     result = xStunMsgEncode(&msg, small_buf, sizeof(small_buf));
   EXPECT_EQ(result, -1);
 }
 

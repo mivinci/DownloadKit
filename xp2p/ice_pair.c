@@ -10,10 +10,9 @@
 
 #include <stdlib.h>
 
-uint64_t xIcePairPriority(uint32_t controlling_prio,
-                           uint32_t controlled_prio) {
-  uint64_t g = controlling_prio;
-  uint64_t d = controlled_prio;
+uint64_t xIcePairPriority(uint32_t controlling_prio, uint32_t controlled_prio) {
+  uint64_t g       = controlling_prio;
+  uint64_t d       = controlled_prio;
   uint64_t min_val = (g < d) ? g : d;
   uint64_t max_val = (g > d) ? g : d;
   return ((uint64_t)1 << 32) * min_val + 2 * max_val + (g > d ? 1 : 0);

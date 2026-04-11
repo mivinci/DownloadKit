@@ -136,9 +136,13 @@ static int xp2p_sha256(const uint8_t *input, size_t len, uint8_t *output) {
   psa_status_t status = psa_hash_compute(PSA_ALG_SHA_256, input, len,
                                          output, 32, &hash_len);
   return (status == PSA_SUCCESS && hash_len == 32) ? 0 : -1;
-#else
-  /* mbedTLS 2.x/3.x */
+#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
+  /* mbedTLS 3.x: mbedtls_sha256 returns int */
   return mbedtls_sha256(input, len, output, 0);
+#else
+  /* mbedTLS 2.x: mbedtls_sha256 is deprecated (returns void),
+   * use mbedtls_sha256_ret which returns int. */
+  return mbedtls_sha256_ret(input, len, output, 0);
 #endif
 }
 
@@ -535,6 +539,7 @@ static const xDtlsBackend g_mbedtls_backend = {
   .set_role               = mbedtls_backend_set_role,
   .get_fingerprint        = mbedtls_get_fingerprint,
   .handshake              = mbedtls_backend_handshake,
+  .flush_output           = NULL,
   .feed_input             = mbedtls_backend_feed_input,
   .encrypt_send           = mbedtls_backend_encrypt_send,
   .decrypt_read           = mbedtls_backend_decrypt_read,

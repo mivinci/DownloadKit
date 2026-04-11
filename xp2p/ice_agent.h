@@ -17,6 +17,8 @@
 #include <xbase/error.h>
 #include <xbase/event.h>
 
+#include "ice_candidate.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -213,6 +215,21 @@ XCAPI(const char *) xIceAgentGetPwd(xIceAgent agent);
  * @return       Event loop handle.
  */
 XCAPI(xEventLoop) xIceAgentGetLoop(xIceAgent agent);
+
+/* ───────────────────── Candidate Access ───────────────────── */
+
+/**
+ * @brief Get the array of gathered local candidates.
+ *
+ * Returns a pointer to the internal candidate array. The pointer is
+ * valid as long as the agent is alive.
+ *
+ * @param agent      Agent handle.
+ * @param out_count  Output: number of candidates (may be NULL).
+ * @return           Pointer to internal candidate array, or NULL.
+ */
+XCAPI(const xIceCandidate *) xIceAgentGetLocalCandidates(xIceAgent agent,
+                                                         int      *out_count);
 
 /* ───────────────────── DTLS Input Hook ───────────────────── */
 

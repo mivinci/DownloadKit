@@ -146,7 +146,7 @@ static xErrno dcep_decode_open(const uint8_t *data, size_t len,
   uint16_t label_len = (uint16_t)((data[8] << 8) | data[9]);
   uint16_t proto_len = (uint16_t)((data[10] << 8) | data[11]);
 
-  if (12 + label_len + proto_len > len) return xErrno_InvalidArg;
+  if ((size_t)12 + label_len + proto_len > len) return xErrno_InvalidArg;
 
   if (label_len > 0 && label_len < XDC_MAX_LABEL_LEN) {
     memcpy(out->label, data + 12, label_len);

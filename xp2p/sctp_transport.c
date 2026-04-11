@@ -34,6 +34,7 @@ XDEF_STRUCT(xSctpTransport_) {
   struct socket     *sock;
   bool               connected;
   xEventTimer        assoc_timer;
+  size_t             buffered_amount; /**< Tracked send-buffer usage. */
 };
 
 /* ───────────────────── usrsctp Output Callback ───────────────────── */
@@ -89,6 +90,12 @@ static int sctp_recv_cb(struct socket *sock __attribute__((unused)),
           if (t->conf.on_state_change) {
             t->conf.on_state_change((xSctpTransport)t, false, t->conf.ctx);
           }
+        }
+      } else if (notif->sn_header.sn_type == SCTP_SENDER_DRY_EVENT) {
+        /* All queued data has been sent — reset buffered amount. */
+        t->buffered_amount = 0;
+        if (t->conf.on_buffered_amount_low) {
+          t->conf.on_buffered_amount_low((xSctpTransport)t, t->conf.ctx);
         }
       } else if (notif->sn_header.sn_type == SCTP_STREAM_RESET_EVENT) {
         struct sctp_stream_reset_event *ssr = &notif->sn_strreset_event;
@@ -188,7 +195,7 @@ xSctpTransport xSctpTransportCreate(const xSctpTransportConf *conf) {
   event.se_on       = 1;
 
   uint16_t event_types[] = {SCTP_ASSOC_CHANGE, SCTP_STREAM_RESET_EVENT,
-                            SCTP_SEND_FAILED_EVENT};
+                            SCTP_SEND_FAILED_EVENT, SCTP_SENDER_DRY_EVENT};
   for (size_t i = 0; i < sizeof(event_types) / sizeof(event_types[0]); i++) {
     event.se_type = event_types[i];
     usrsctp_setsockopt(t->sock, IPPROTO_SCTP, SCTP_EVENT, &event,
@@ -314,7 +321,11 @@ xErrno xSctpTransportSend(xSctpTransport transport, uint16_t stream_id,
   ssize_t sent = usrsctp_sendv(t->sock, data, len, NULL, 0, &spa,
                                 sizeof(spa), SCTP_SENDV_SPA, 0);
   XDEBUG("[sctp] sendv: len=%zu sent=%zd errno=%d", len, sent, (sent < 0) ? errno : 0);
-  return (sent >= 0) ? xErrno_Ok : xErrno_SysError;
+  if (sent >= 0) {
+    t->buffered_amount += (size_t)sent;
+    return xErrno_Ok;
+  }
+  return xErrno_SysError;
 }
 
 xErrno xSctpTransportFeedInput(xSctpTransport transport, const uint8_t *data,
@@ -349,6 +360,12 @@ xErrno xSctpTransportCloseStream(xSctpTransport transport,
                                 srs, (socklen_t)srs_size);
   free(srs);
   return (ret == 0) ? xErrno_Ok : xErrno_SysError;
+}
+
+size_t xSctpTransportGetBufferedAmount(xSctpTransport transport) {
+  if (!transport) return 0;
+  xSctpTransport_ *t = (xSctpTransport_ *)transport;
+  return t->buffered_amount;
 }
 
 bool xSctpTransportIsConnected(xSctpTransport transport) {

@@ -87,6 +87,7 @@ static void pc_sctp_data_received(xSctpTransport transport, uint16_t stream_id,
                                   size_t len, void *arg);
 static void pc_sctp_stream_closed(xSctpTransport transport,
                                   uint16_t stream_id, void *arg);
+static void pc_sctp_buffered_amount_low(xSctpTransport transport, void *arg);
 
 /* DataChannel callback */
 static void pc_on_remote_datachannel(xDataChannelMgr mgr,
@@ -201,10 +202,11 @@ static void pc_dtls_state_changed(xDtlsTransport transport, xDtlsState state,
     sctp_conf.is_client   = (pc->dtls_role == xDtlsRole_Active);
     sctp_conf.local_port  = local_port;
     sctp_conf.remote_port = remote_port;
-    sctp_conf.on_state_change = pc_sctp_state_changed;
-    sctp_conf.on_data         = pc_sctp_data_received;
-    sctp_conf.on_stream_close = pc_sctp_stream_closed;
-    sctp_conf.ctx             = pc;
+    sctp_conf.on_state_change       = pc_sctp_state_changed;
+    sctp_conf.on_data                = pc_sctp_data_received;
+    sctp_conf.on_stream_close        = pc_sctp_stream_closed;
+    sctp_conf.on_buffered_amount_low = pc_sctp_buffered_amount_low;
+    sctp_conf.ctx                    = pc;
 
     pc->sctp = xSctpTransportCreate(&sctp_conf);
     if (pc->sctp) {
@@ -273,6 +275,14 @@ static void pc_sctp_stream_closed(xSctpTransport transport,
   (void)transport;
   if (pc->dc_mgr) {
     xDataChannelMgrOnStreamClose(pc->dc_mgr, stream_id);
+  }
+}
+
+static void pc_sctp_buffered_amount_low(xSctpTransport transport, void *arg) {
+  xPeerConnection_ *pc = (xPeerConnection_ *)arg;
+  (void)transport;
+  if (pc->dc_mgr) {
+    xDataChannelMgrOnBufferedAmountLow(pc->dc_mgr);
   }
 }
 
@@ -611,20 +621,25 @@ xDataChannel xPeerConnectionCreateDataChannel(xPeerConnection         handle,
 
   /* If SCTP is ready, create immediately */
   if (pc->dc_mgr) {
-    /* Fill in default callbacks from PeerConnection config */
+    /* Fill in default callbacks from PeerConnection config.
+       Only override ctx if the user didn't set any callbacks at all. */
     xDataChannelConf filled = *conf;
-    if (!filled.on_open)    { filled.on_open    = pc_dc_open_wrapper;    filled.ctx = pc; }
-    if (!filled.on_message) { filled.on_message = pc_dc_message_wrapper; filled.ctx = pc; }
-    if (!filled.on_close)   { filled.on_close   = pc_dc_close_wrapper;   filled.ctx = pc; }
+    bool any_user_cb = filled.on_open || filled.on_message || filled.on_close;
+    if (!filled.on_open)    filled.on_open    = pc_dc_open_wrapper;
+    if (!filled.on_message) filled.on_message = pc_dc_message_wrapper;
+    if (!filled.on_close)   filled.on_close   = pc_dc_close_wrapper;
+    if (!any_user_cb)       filled.ctx        = pc;
     return xDataChannelCreate(pc->dc_mgr, &filled);
   }
 
   /* Otherwise queue for later */
   if (pc->pending_channel_count >= XDC_MAX_CHANNELS) return NULL;
   xDataChannelConf filled = *conf;
-  if (!filled.on_open)    { filled.on_open    = pc_dc_open_wrapper;    filled.ctx = pc; }
-  if (!filled.on_message) { filled.on_message = pc_dc_message_wrapper; filled.ctx = pc; }
-  if (!filled.on_close)   { filled.on_close   = pc_dc_close_wrapper;   filled.ctx = pc; }
+  bool any_user_cb = filled.on_open || filled.on_message || filled.on_close;
+  if (!filled.on_open)    filled.on_open    = pc_dc_open_wrapper;
+  if (!filled.on_message) filled.on_message = pc_dc_message_wrapper;
+  if (!filled.on_close)   filled.on_close   = pc_dc_close_wrapper;
+  if (!any_user_cb)       filled.ctx        = pc;
   pc->pending_channels[pc->pending_channel_count++] = filled;
   return NULL; /* Will be created when SCTP connects */
 }

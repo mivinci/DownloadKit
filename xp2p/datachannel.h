@@ -93,6 +93,16 @@ typedef void (*xDataChannelOnClose)(xDataChannel channel, void *arg);
 typedef void (*xDataChannelOnError)(xDataChannel channel, xErrno err,
                                     void *arg);
 
+/**
+ * @brief Called when the DataChannel's buffered amount drops to or
+ *        below the configured low-water threshold.
+ *
+ * Used for backpressure: pause sending when buffered amount is high,
+ * resume when this callback fires.
+ */
+typedef void (*xDataChannelOnBufferedAmountLow)(xDataChannel channel,
+                                                void *arg);
+
 /* ───────────────────── DataChannel Manager ───────────────────── */
 
 /**
@@ -133,11 +143,12 @@ XDEF_STRUCT(xDataChannelConf) {
   uint16_t max_packet_life_time; /**< Max lifetime ms (0 = reliable).   */
 
   /** Per-channel callbacks (override manager defaults if non-NULL). */
-  xDataChannelOnOpen    on_open;
-  xDataChannelOnMessage on_message;
-  xDataChannelOnClose   on_close;
-  xDataChannelOnError   on_error;
-  void                 *ctx;
+  xDataChannelOnOpen              on_open;
+  xDataChannelOnMessage           on_message;
+  xDataChannelOnClose             on_close;
+  xDataChannelOnError             on_error;
+  xDataChannelOnBufferedAmountLow on_buffered_amount_low;
+  void                           *ctx;
 };
 
 /* ───────────────────── Manager API ───────────────────── */
@@ -223,5 +234,37 @@ XCAPI(xDataChannelState) xDataChannelGetState(xDataChannel channel);
  * @brief Get the SCTP stream ID of a DataChannel.
  */
 XCAPI(uint16_t) xDataChannelGetStreamId(xDataChannel channel);
+
+/**
+ * @brief Get the amount of data buffered for sending on this channel.
+ *
+ * @param channel  DataChannel handle.
+ * @return         Bytes currently buffered.
+ */
+XCAPI(size_t) xDataChannelGetBufferedAmount(xDataChannel channel);
+
+/**
+ * @brief Set the low-water threshold for the buffered amount.
+ *
+ * When the buffered amount drops to or below this value, the
+ * on_buffered_amount_low callback fires.
+ *
+ * @param channel    DataChannel handle.
+ * @param threshold  Threshold in bytes (default 0).
+ */
+XCAPI(void) xDataChannelSetBufferedAmountLowThreshold(xDataChannel channel,
+                                                       size_t threshold);
+
+/**
+ * @brief Notify the DataChannel manager that the SCTP send buffer
+ *        has been drained.
+ *
+ * Should be called from the SCTP transport's on_buffered_amount_low
+ * callback. Resets per-channel buffered amounts and fires any
+ * pending on_buffered_amount_low callbacks.
+ *
+ * @param mgr  Manager handle.
+ */
+XCAPI(void) xDataChannelMgrOnBufferedAmountLow(xDataChannelMgr mgr);
 
 #endif /* XP2P_DATACHANNEL_H */

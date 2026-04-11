@@ -1,5 +1,5 @@
 /*
- * datachannel_echo.c - WebRTC DataChannel loopback echo demo
+ * pc_echo.c - WebRTC DataChannel loopback echo demo
  *
  * Creates two PeerConnections with DTLS + SCTP + DataChannel,
  * exchanges WebRTC SDP between them, and once the DataChannel is open
@@ -9,11 +9,11 @@
  *   ICE → DTLS → SCTP → DataChannel (DCEP)
  *
  * Usage:
- *   ./datachannel_echo [-s stun_server:port]
+ *   ./pc_echo [-s stun_server:port]
  *
  * Example:
- *   ./datachannel_echo
- *   ./datachannel_echo -s stun.l.google.com:19302
+ *   ./pc_echo
+ *   ./pc_echo -s stun.l.google.com:19302
  */
 
 #include <xbase/event.h>
@@ -43,6 +43,7 @@ static void exchange_sdp(void);
 
 static void on_state_change(xPeerConnection pc, xPeerConnectionState state,
                             void *ctx) {
+  (void)pc;
   const char *name = (const char *)ctx;
   const char *state_str;
   switch (state) {
@@ -77,6 +78,7 @@ static void on_ice_candidate(xPeerConnection pc, const char *candidate,
 
 static void on_datachannel(xPeerConnection pc, xDataChannel channel,
                            void *ctx) {
+  (void)pc;
   const char *name = (const char *)ctx;
   printf("[%s] Remote DataChannel opened: label=\"%s\"\n", name,
          xDataChannelGetLabel(channel));
@@ -117,6 +119,7 @@ static void on_dc_message(xDataChannel channel, xDataChannelMsgType type,
 }
 
 static void on_dc_close(xDataChannel channel, void *ctx) {
+  (void)channel;
   const char *name = (const char *)ctx;
   printf("[%s] DataChannel closed\n", name);
 }

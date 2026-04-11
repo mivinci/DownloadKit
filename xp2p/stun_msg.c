@@ -54,7 +54,7 @@ xErrno xStunMsgDecode(xStunMsg *msg, const uint8_t *buf, size_t buf_len) {
   uint32_t cookie = xReadU32BE(buf + 4);
   if (cookie != XSTUN_MAGIC_COOKIE) return xErrno_InvalidArg;
 
-  msg->type = (xStunMsgType)xReadU16BE(buf);
+  msg->type   = (xStunMsgType)xReadU16BE(buf);
   msg->length = xReadU16BE(buf + 2);
 
   /* Validate that the declared length fits in the buffer */

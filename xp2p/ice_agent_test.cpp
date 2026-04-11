@@ -37,10 +37,10 @@ static void pump_loop(xEventLoop loop, int total_ms) {
 
 struct AgentState {
   std::atomic<xIceState> state{xIceState_New};
-  std::string last_candidate;
-  bool gathering_done = false;
-  std::vector<uint8_t> received_data;
-  bool data_received = false;
+  std::string            last_candidate;
+  bool                   gathering_done = false;
+  std::vector<uint8_t>   received_data;
+  bool                   data_received = false;
 };
 
 static void on_state_change(xIceAgent, xIceState state, void *arg) {
@@ -70,13 +70,13 @@ TEST(IceAgentTest, CreateDestroy) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
+  config.role            = xIceRole_Controlling;
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.on_data = on_data;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.on_data         = on_data;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
@@ -108,12 +108,12 @@ TEST(IceAgentTest, GatherProducesHostCandidate) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
+  config.role            = xIceRole_Controlling;
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
@@ -139,12 +139,12 @@ TEST(IceAgentTest, GatherTwiceFails) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
+  config.role            = xIceRole_Controlling;
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
@@ -161,12 +161,12 @@ TEST(IceAgentTest, CreateOfferContainsIceParams) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
+  config.role            = xIceRole_Controlling;
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
@@ -192,26 +192,26 @@ TEST(IceAgentTest, SetRemoteDescriptionParsesCredentials) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlled;
+  config.role            = xIceRole_Controlled;
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
 
   const char *remote_sdp =
-      "v=0\r\n"
-      "o=- 0 0 IN IP4 0.0.0.0\r\n"
-      "s=-\r\n"
-      "t=0 0\r\n"
-      "m=application 9 UDP/ICE 0\r\n"
-      "a=ice-ufrag:remoteufrag\r\n"
-      "a=ice-pwd:remotepassword1234567890\r\n"
-      "a=ice-options:trickle\r\n"
-      "a=candidate:1 1 UDP 2130706431 127.0.0.1 5000 typ host\r\n";
+    "v=0\r\n"
+    "o=- 0 0 IN IP4 0.0.0.0\r\n"
+    "s=-\r\n"
+    "t=0 0\r\n"
+    "m=application 9 UDP/ICE 0\r\n"
+    "a=ice-ufrag:remoteufrag\r\n"
+    "a=ice-pwd:remotepassword1234567890\r\n"
+    "a=ice-options:trickle\r\n"
+    "a=candidate:1 1 UDP 2130706431 127.0.0.1 5000 typ host\r\n";
 
   xErrno err = xIceAgentSetRemoteDescription(agent, remote_sdp);
   EXPECT_EQ(err, xErrno_Ok);
@@ -242,18 +242,18 @@ TEST(IceAgentTest, AddRemoteCandidateWorks) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
+  config.role            = xIceRole_Controlling;
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
 
   xErrno err = xIceAgentAddRemoteCandidate(
-      agent, "candidate:1 1 UDP 2130706431 127.0.0.1 5000 typ host");
+    agent, "candidate:1 1 UDP 2130706431 127.0.0.1 5000 typ host");
   EXPECT_EQ(err, xErrno_Ok);
 
   xIceAgentDestroy(agent);
@@ -311,11 +311,11 @@ TEST(IceAgentTest, FullLocalLoopback) {
   /* Create Controlling agent */
   xIceConf config_ctrl;
   memset(&config_ctrl, 0, sizeof(config_ctrl));
-  config_ctrl.role = xIceRole_Controlling;
+  config_ctrl.role            = xIceRole_Controlling;
   config_ctrl.on_state_change = on_state_change;
-  config_ctrl.on_candidate = on_candidate;
-  config_ctrl.on_data = on_data;
-  config_ctrl.callback_arg = &as_ctrl;
+  config_ctrl.on_candidate    = on_candidate;
+  config_ctrl.on_data         = on_data;
+  config_ctrl.ctx             = &as_ctrl;
 
   xIceAgent ctrl = xIceAgentCreate(loop, &config_ctrl);
   ASSERT_NE(ctrl, nullptr);
@@ -323,11 +323,11 @@ TEST(IceAgentTest, FullLocalLoopback) {
   /* Create Controlled agent */
   xIceConf config_ctld;
   memset(&config_ctld, 0, sizeof(config_ctld));
-  config_ctld.role = xIceRole_Controlled;
+  config_ctld.role            = xIceRole_Controlled;
   config_ctld.on_state_change = on_state_change;
-  config_ctld.on_candidate = on_candidate;
-  config_ctld.on_data = on_data;
-  config_ctld.callback_arg = &as_ctld;
+  config_ctld.on_candidate    = on_candidate;
+  config_ctld.on_data         = on_data;
+  config_ctld.ctx             = &as_ctld;
 
   xIceAgent ctld = xIceAgentCreate(loop, &config_ctld);
   ASSERT_NE(ctld, nullptr);
@@ -388,12 +388,12 @@ TEST(IceAgentTest, TrickleIceAddCandidate) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
+  config.role            = xIceRole_Controlling;
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
@@ -402,22 +402,21 @@ TEST(IceAgentTest, TrickleIceAddCandidate) {
   pump_loop(loop, 100);
 
   /* Set remote description with no candidates */
-  const char *remote_sdp =
-      "v=0\r\n"
-      "o=- 0 0 IN IP4 0.0.0.0\r\n"
-      "s=-\r\n"
-      "t=0 0\r\n"
-      "m=application 9 UDP/ICE 0\r\n"
-      "a=ice-ufrag:trickleufrag\r\n"
-      "a=ice-pwd:tricklepassword1234567890\r\n"
-      "a=ice-options:trickle\r\n";
+  const char *remote_sdp = "v=0\r\n"
+                           "o=- 0 0 IN IP4 0.0.0.0\r\n"
+                           "s=-\r\n"
+                           "t=0 0\r\n"
+                           "m=application 9 UDP/ICE 0\r\n"
+                           "a=ice-ufrag:trickleufrag\r\n"
+                           "a=ice-pwd:tricklepassword1234567890\r\n"
+                           "a=ice-options:trickle\r\n";
 
   EXPECT_EQ(xIceAgentSetRemoteDescription(agent, remote_sdp), xErrno_Ok);
 
   /* Now trickle in a candidate */
   EXPECT_EQ(xIceAgentAddRemoteCandidate(
-      agent, "candidate:1 1 UDP 2130706431 127.0.0.1 9999 typ host"),
-      xErrno_Ok);
+              agent, "candidate:1 1 UDP 2130706431 127.0.0.1 9999 typ host"),
+            xErrno_Ok);
 
   /* Pump to allow checks */
   pump_loop(loop, 2000);
@@ -440,12 +439,12 @@ TEST(IceAgentTest, AllPairsFailLeadsToFailedState) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
+  config.role            = xIceRole_Controlling;
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
@@ -454,15 +453,14 @@ TEST(IceAgentTest, AllPairsFailLeadsToFailedState) {
   pump_loop(loop, 100);
 
   /* Set remote with unreachable candidate */
-  const char *remote_sdp =
-      "v=0\r\n"
-      "o=- 0 0 IN IP4 0.0.0.0\r\n"
-      "s=-\r\n"
-      "t=0 0\r\n"
-      "m=application 9 UDP/ICE 0\r\n"
-      "a=ice-ufrag:failufrag\r\n"
-      "a=ice-pwd:failpassword1234567890ab\r\n"
-      "a=candidate:1 1 UDP 100 192.0.2.1 1 typ host\r\n";
+  const char *remote_sdp = "v=0\r\n"
+                           "o=- 0 0 IN IP4 0.0.0.0\r\n"
+                           "s=-\r\n"
+                           "t=0 0\r\n"
+                           "m=application 9 UDP/ICE 0\r\n"
+                           "a=ice-ufrag:failufrag\r\n"
+                           "a=ice-pwd:failpassword1234567890ab\r\n"
+                           "a=candidate:1 1 UDP 100 192.0.2.1 1 typ host\r\n";
 
   EXPECT_EQ(xIceAgentSetRemoteDescription(agent, remote_sdp), xErrno_Ok);
 
@@ -486,13 +484,13 @@ TEST(IceAgentTest, GatherWithInvalidStunServerStillSucceeds) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
-  config.stun_server = "invalid.example.test:3478";
+  config.role            = xIceRole_Controlling;
+  config.stun_server     = "invalid.example.test:3478";
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
@@ -521,15 +519,15 @@ TEST(IceAgentTest, GatherWithInvalidTurnServerStillSucceeds) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
-  config.turn_server = "invalid.example.test:3478";
-  config.turn_username = "user";
-  config.turn_password = "pass";
+  config.role            = xIceRole_Controlling;
+  config.turn_server     = "invalid.example.test:3478";
+  config.turn_username   = "user";
+  config.turn_password   = "pass";
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
@@ -555,15 +553,15 @@ TEST(IceAgentTest, GatherWithNullTurnCredentialsSkipsTurn) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
-  config.turn_server = "127.0.0.1:3478";
-  config.turn_username = nullptr;
-  config.turn_password = nullptr;
+  config.role            = xIceRole_Controlling;
+  config.turn_server     = "127.0.0.1:3478";
+  config.turn_username   = nullptr;
+  config.turn_password   = nullptr;
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
@@ -590,12 +588,12 @@ TEST(IceAgentTest, ConfWithoutServersGathersHostOnly) {
   ASSERT_NE(loop, nullptr);
 
   AgentState as;
-  xIceConf config;
+  xIceConf   config;
   memset(&config, 0, sizeof(config));
-  config.role = xIceRole_Controlling;
+  config.role            = xIceRole_Controlling;
   config.on_state_change = on_state_change;
-  config.on_candidate = on_candidate;
-  config.callback_arg = &as;
+  config.on_candidate    = on_candidate;
+  config.ctx             = &as;
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);

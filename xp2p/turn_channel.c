@@ -12,7 +12,7 @@
 #include <string.h>
 
 int xTurnChannelDataEncode(uint16_t channel, const uint8_t *data,
-                            uint16_t data_len, uint8_t *out, size_t out_cap) {
+                           uint16_t data_len, uint8_t *out, size_t out_cap) {
   size_t total = XTURN_CHANNEL_HEADER_SIZE + XSTUN_ALIGN4(data_len);
   if (total > out_cap) return -1;
 
@@ -24,19 +24,18 @@ int xTurnChannelDataEncode(uint16_t channel, const uint8_t *data,
   /* Pad to 4-byte boundary */
   size_t padded = XSTUN_ALIGN4(data_len);
   if (padded > data_len) {
-    memset(out + XTURN_CHANNEL_HEADER_SIZE + data_len, 0,
-           padded - data_len);
+    memset(out + XTURN_CHANNEL_HEADER_SIZE + data_len, 0, padded - data_len);
   }
   return (int)total;
 }
 
 xErrno xTurnChannelDataDecode(const uint8_t *buf, size_t buf_len,
-                               uint16_t *channel, const uint8_t **data,
-                               uint16_t *data_len) {
+                              uint16_t *channel, const uint8_t **data,
+                              uint16_t *data_len) {
   if (!buf || !channel || !data || !data_len) return xErrno_InvalidArg;
   if (buf_len < XTURN_CHANNEL_HEADER_SIZE) return xErrno_InvalidArg;
 
-  *channel = xReadU16BE(buf);
+  *channel  = xReadU16BE(buf);
   *data_len = xReadU16BE(buf + 2);
 
   if (*channel < XTURN_CHANNEL_MIN || *channel > XTURN_CHANNEL_MAX) {

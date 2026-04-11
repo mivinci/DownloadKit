@@ -20,16 +20,14 @@ static uint32_t sha1_rotl(uint32_t x, int n) {
   return (x << n) | (x >> (32 - n));
 }
 
-static void sha1_transform(uint32_t state[5],
-                            const uint8_t block[64]) {
+static void sha1_transform(uint32_t state[5], const uint8_t block[64]) {
   uint32_t w[80];
   uint32_t a, b, c, d, e;
 
   for (int i = 0; i < 16; i++) {
     w[i] = ((uint32_t)block[i * 4 + 0] << 24) |
            ((uint32_t)block[i * 4 + 1] << 16) |
-           ((uint32_t)block[i * 4 + 2] << 8) |
-           ((uint32_t)block[i * 4 + 3]);
+           ((uint32_t)block[i * 4 + 2] << 8) | ((uint32_t)block[i * 4 + 3]);
   }
   for (int i = 16; i < 80; i++) {
     w[i] = sha1_rotl(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
@@ -58,11 +56,11 @@ static void sha1_transform(uint32_t state[5],
     }
 
     uint32_t temp = sha1_rotl(a, 5) + f + e + k + w[i];
-    e = d;
-    d = c;
-    c = sha1_rotl(b, 30);
-    b = a;
-    a = temp;
+    e             = d;
+    d             = c;
+    c             = sha1_rotl(b, 30);
+    b             = a;
+    a             = temp;
   }
 
   state[0] += a;
@@ -73,10 +71,8 @@ static void sha1_transform(uint32_t state[5],
 }
 
 void xIceSHA1(const uint8_t *input, size_t len, uint8_t *output) {
-  uint32_t state[5] = {
-    0x67452301, 0xEFCDAB89, 0x98BADCFE,
-    0x10325476, 0xC3D2E1F0
-  };
+  uint32_t state[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476,
+                       0xC3D2E1F0};
 
   size_t i;
   for (i = 0; i + 64 <= len; i += 64) {
@@ -84,7 +80,7 @@ void xIceSHA1(const uint8_t *input, size_t len, uint8_t *output) {
   }
 
   uint8_t block[64];
-  size_t remaining = len - i;
+  size_t  remaining = len - i;
   memcpy(block, input + i, remaining);
   block[remaining++] = 0x80;
 
@@ -97,14 +93,14 @@ void xIceSHA1(const uint8_t *input, size_t len, uint8_t *output) {
   }
 
   uint64_t bits = (uint64_t)len * 8;
-  block[56] = (uint8_t)(bits >> 56);
-  block[57] = (uint8_t)(bits >> 48);
-  block[58] = (uint8_t)(bits >> 40);
-  block[59] = (uint8_t)(bits >> 32);
-  block[60] = (uint8_t)(bits >> 24);
-  block[61] = (uint8_t)(bits >> 16);
-  block[62] = (uint8_t)(bits >> 8);
-  block[63] = (uint8_t)(bits);
+  block[56]     = (uint8_t)(bits >> 56);
+  block[57]     = (uint8_t)(bits >> 48);
+  block[58]     = (uint8_t)(bits >> 40);
+  block[59]     = (uint8_t)(bits >> 32);
+  block[60]     = (uint8_t)(bits >> 24);
+  block[61]     = (uint8_t)(bits >> 16);
+  block[62]     = (uint8_t)(bits >> 8);
+  block[63]     = (uint8_t)(bits);
   sha1_transform(state, block);
 
   for (int j = 0; j < 5; j++) {
@@ -117,9 +113,8 @@ void xIceSHA1(const uint8_t *input, size_t len, uint8_t *output) {
 
 /* ───────────────────── HMAC-SHA1 (RFC 2104) ───────────────────── */
 
-void xIceHmacSHA1(const uint8_t *key, size_t key_len,
-                   const uint8_t *data, size_t data_len,
-                   uint8_t *output) {
+void xIceHmacSHA1(const uint8_t *key, size_t key_len, const uint8_t *data,
+                  size_t data_len, uint8_t *output) {
   uint8_t k[XICE_SHA1_BLOCK_SIZE];
   uint8_t ipad[XICE_SHA1_BLOCK_SIZE];
   uint8_t opad[XICE_SHA1_BLOCK_SIZE];
@@ -141,7 +136,7 @@ void xIceHmacSHA1(const uint8_t *key, size_t key_len,
   }
 
   /* inner hash: SHA1(ipad || data) */
-  size_t inner_len = XICE_SHA1_BLOCK_SIZE + data_len;
+  size_t   inner_len = XICE_SHA1_BLOCK_SIZE + data_len;
   uint8_t *inner_buf = (uint8_t *)malloc(inner_len);
   if (!inner_buf) {
     memset(output, 0, XICE_SHA1_DIGEST_SIZE);
@@ -157,11 +152,9 @@ void xIceHmacSHA1(const uint8_t *key, size_t key_len,
   /* outer hash: SHA1(opad || inner_hash) */
   uint8_t outer_buf[XICE_SHA1_BLOCK_SIZE + XICE_SHA1_DIGEST_SIZE];
   memcpy(outer_buf, opad, XICE_SHA1_BLOCK_SIZE);
-  memcpy(outer_buf + XICE_SHA1_BLOCK_SIZE, inner_hash,
-         XICE_SHA1_DIGEST_SIZE);
+  memcpy(outer_buf + XICE_SHA1_BLOCK_SIZE, inner_hash, XICE_SHA1_DIGEST_SIZE);
 
-  xIceSHA1(outer_buf, XICE_SHA1_BLOCK_SIZE + XICE_SHA1_DIGEST_SIZE,
-            output);
+  xIceSHA1(outer_buf, XICE_SHA1_BLOCK_SIZE + XICE_SHA1_DIGEST_SIZE, output);
 }
 
 /* ───────────────────── CRC-32 ───────────────────── */
@@ -181,7 +174,7 @@ static uint32_t crc32_compute_entry(uint32_t index) {
   return crc;
 }
 
-static int crc32_table_initialized = 0;
+static int      crc32_table_initialized = 0;
 static uint32_t crc32_table[256];
 
 static void crc32_init_table(void) {
@@ -221,27 +214,22 @@ static uint32_t md5_rotl(uint32_t x, int n) {
 }
 
 static const uint32_t md5_T[64] = {
-  0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee,
-  0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
-  0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
-  0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
-  0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa,
-  0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
-  0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
-  0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
-  0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c,
-  0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
-  0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05,
-  0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
-  0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039,
-  0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
-  0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1,
+  0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a,
+  0xa8304613, 0xfd469501, 0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
+  0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821, 0xf61e2562, 0xc040b340,
+  0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+  0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8,
+  0x676f02d9, 0x8d2a4c8a, 0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c,
+  0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70, 0x289b7ec6, 0xeaa127fa,
+  0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+  0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92,
+  0xffeff47d, 0x85845dd1, 0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1,
   0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
 };
 
 static const int md5_s[64] = {
   7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
-  5,  9, 14, 20, 5,  9, 14, 20, 5,  9, 14, 20, 5,  9, 14, 20,
+  5, 9,  14, 20, 5, 9,  14, 20, 5, 9,  14, 20, 5, 9,  14, 20,
   4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
   6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
 };
@@ -249,8 +237,7 @@ static const int md5_s[64] = {
 static void md5_transform(uint32_t state[4], const uint8_t block[64]) {
   uint32_t M[16];
   for (int i = 0; i < 16; i++) {
-    M[i] = (uint32_t)block[i * 4 + 0] |
-           ((uint32_t)block[i * 4 + 1] << 8) |
+    M[i] = (uint32_t)block[i * 4 + 0] | ((uint32_t)block[i * 4 + 1] << 8) |
            ((uint32_t)block[i * 4 + 2] << 16) |
            ((uint32_t)block[i * 4 + 3] << 24);
   }
@@ -259,7 +246,7 @@ static void md5_transform(uint32_t state[4], const uint8_t block[64]) {
 
   for (int i = 0; i < 64; i++) {
     uint32_t f;
-    int g;
+    int      g;
     if (i < 16) {
       f = md5_F(b, c, d);
       g = i;
@@ -275,10 +262,10 @@ static void md5_transform(uint32_t state[4], const uint8_t block[64]) {
     }
 
     uint32_t temp = d;
-    d = c;
-    c = b;
-    b = b + md5_rotl(a + f + md5_T[i] + M[g], md5_s[i]);
-    a = temp;
+    d             = c;
+    c             = b;
+    b             = b + md5_rotl(a + f + md5_T[i] + M[g], md5_s[i]);
+    a             = temp;
   }
 
   state[0] += a;
@@ -296,7 +283,7 @@ void xIceMD5(const uint8_t *input, size_t len, uint8_t *output) {
   }
 
   uint8_t block[64];
-  size_t remaining = len - i;
+  size_t  remaining = len - i;
   memcpy(block, input + i, remaining);
   block[remaining++] = 0x80;
 
@@ -310,14 +297,14 @@ void xIceMD5(const uint8_t *input, size_t len, uint8_t *output) {
 
   /* Length in bits, little-endian */
   uint64_t bits = (uint64_t)len * 8;
-  block[56] = (uint8_t)(bits);
-  block[57] = (uint8_t)(bits >> 8);
-  block[58] = (uint8_t)(bits >> 16);
-  block[59] = (uint8_t)(bits >> 24);
-  block[60] = (uint8_t)(bits >> 32);
-  block[61] = (uint8_t)(bits >> 40);
-  block[62] = (uint8_t)(bits >> 48);
-  block[63] = (uint8_t)(bits >> 56);
+  block[56]     = (uint8_t)(bits);
+  block[57]     = (uint8_t)(bits >> 8);
+  block[58]     = (uint8_t)(bits >> 16);
+  block[59]     = (uint8_t)(bits >> 24);
+  block[60]     = (uint8_t)(bits >> 32);
+  block[61]     = (uint8_t)(bits >> 40);
+  block[62]     = (uint8_t)(bits >> 48);
+  block[63]     = (uint8_t)(bits >> 56);
   md5_transform(state, block);
 
   /* Output in little-endian */

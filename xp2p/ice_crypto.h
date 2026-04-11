@@ -56,9 +56,8 @@ void xIceSHA1(const uint8_t *input, size_t len, uint8_t *output);
  * @param data_len Length of data in bytes.
  * @param output   Output buffer (must be >= XICE_SHA1_DIGEST_SIZE).
  */
-void xIceHmacSHA1(const uint8_t *key, size_t key_len,
-                   const uint8_t *data, size_t data_len,
-                   uint8_t *output);
+void xIceHmacSHA1(const uint8_t *key, size_t key_len, const uint8_t *data,
+                  size_t data_len, uint8_t *output);
 
 /**
  * @brief Compute CRC-32 (ISO 3309 / ITU-T V.42).

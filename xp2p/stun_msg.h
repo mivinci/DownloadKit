@@ -22,11 +22,11 @@
  * encode buffer.
  */
 XDEF_STRUCT(xStunMsg) {
-  xStunMsgType type;                   /**< Message type.              */
-  uint16_t     length;                 /**< Payload length (bytes).    */
-  uint8_t      txn_id[XSTUN_TXN_ID_SIZE]; /**< Transaction ID.       */
-  const uint8_t *attrs;                /**< Pointer to attribute data. */
-  uint16_t     attrs_len;              /**< Length of attribute data.  */
+  xStunMsgType   type;                      /**< Message type.              */
+  uint16_t       length;                    /**< Payload length (bytes).    */
+  uint8_t        txn_id[XSTUN_TXN_ID_SIZE]; /**< Transaction ID.       */
+  const uint8_t *attrs;                     /**< Pointer to attribute data. */
+  uint16_t       attrs_len;                 /**< Length of attribute data.  */
 };
 
 /**

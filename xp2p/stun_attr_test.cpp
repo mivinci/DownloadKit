@@ -17,8 +17,8 @@ extern "C" {
 
 class StunAttrTest : public ::testing::Test {
 protected:
-  uint8_t msg_buf[512];
-  uint8_t txn_id[XSTUN_TXN_ID_SIZE];
+  uint8_t         msg_buf[512];
+  uint8_t         txn_id[XSTUN_TXN_ID_SIZE];
   xStunAttrWriter writer;
 
   void SetUp() override {
@@ -49,11 +49,11 @@ TEST_F(StunAttrTest, XorMappedAddressIPv4RoundTrip) {
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
-  addr.sin_port = htons(12345);
+  addr.sin_port   = htons(12345);
   inet_pton(AF_INET, "192.168.1.100", &addr.sin_addr);
 
-  xErrno err = xStunAttrWriteXorMappedAddress(
-      &writer, (struct sockaddr *)&addr, txn_id);
+  xErrno err =
+    xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr, txn_id);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Decode */
@@ -70,8 +70,7 @@ TEST_F(StunAttrTest, XorMappedAddressIPv4RoundTrip) {
   EXPECT_EQ(attr.type, xStunAttrType_XorMappedAddress);
 
   struct sockaddr_storage out;
-  ASSERT_EQ(xStunAttrDecodeXorMappedAddress(&attr, txn_id, &out),
-            xErrno_Ok);
+  ASSERT_EQ(xStunAttrDecodeXorMappedAddress(&attr, txn_id, &out), xErrno_Ok);
 
   struct sockaddr_in *out4 = (struct sockaddr_in *)&out;
   EXPECT_EQ(out4->sin_family, AF_INET);
@@ -83,11 +82,11 @@ TEST_F(StunAttrTest, XorMappedAddressIPv6RoundTrip) {
   struct sockaddr_in6 addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin6_family = AF_INET6;
-  addr.sin6_port = htons(54321);
+  addr.sin6_port   = htons(54321);
   inet_pton(AF_INET6, "2001:db8::1", &addr.sin6_addr);
 
-  xErrno err = xStunAttrWriteXorMappedAddress(
-      &writer, (struct sockaddr *)&addr, txn_id);
+  xErrno err =
+    xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr, txn_id);
   ASSERT_EQ(err, xErrno_Ok);
 
   size_t total;
@@ -102,8 +101,7 @@ TEST_F(StunAttrTest, XorMappedAddressIPv6RoundTrip) {
   ASSERT_TRUE(xStunAttrIterNext(&iter, &attr));
 
   struct sockaddr_storage out;
-  ASSERT_EQ(xStunAttrDecodeXorMappedAddress(&attr, txn_id, &out),
-            xErrno_Ok);
+  ASSERT_EQ(xStunAttrDecodeXorMappedAddress(&attr, txn_id, &out), xErrno_Ok);
 
   struct sockaddr_in6 *out6 = (struct sockaddr_in6 *)&out;
   EXPECT_EQ(out6->sin6_family, AF_INET6);
@@ -173,7 +171,8 @@ TEST_F(StunAttrTest, UseCandidateZeroLength) {
   EXPECT_EQ(attr.length, 0);
 }
 
-/* ───────────────────── ICE-CONTROLLING / ICE-CONTROLLED ───────────────────── */
+/* ───────────────────── ICE-CONTROLLING / ICE-CONTROLLED ─────────────────────
+ */
 
 TEST_F(StunAttrTest, IceControllingRoundTrip) {
   uint64_t tie = 0x123456789ABCDEF0ULL;
@@ -197,8 +196,7 @@ TEST_F(StunAttrTest, IceControllingRoundTrip) {
 /* ───────────────────── ERROR-CODE ───────────────────── */
 
 TEST_F(StunAttrTest, ErrorCodeRoundTrip) {
-  ASSERT_EQ(xStunAttrWriteErrorCode(&writer, 401, "Unauthorized"),
-            xErrno_Ok);
+  ASSERT_EQ(xStunAttrWriteErrorCode(&writer, 401, "Unauthorized"), xErrno_Ok);
 
   size_t total;
   FinalizeMsg(&total);
@@ -212,9 +210,9 @@ TEST_F(StunAttrTest, ErrorCodeRoundTrip) {
   ASSERT_TRUE(xStunAttrIterNext(&iter, &attr));
   EXPECT_EQ(attr.type, xStunAttrType_ErrorCode);
 
-  int code;
+  int         code;
   const char *reason;
-  size_t reason_len;
+  size_t      reason_len;
   ASSERT_EQ(xStunAttrDecodeErrorCode(&attr, &code, &reason, &reason_len),
             xErrno_Ok);
   EXPECT_EQ(code, 401);
@@ -224,9 +222,9 @@ TEST_F(StunAttrTest, ErrorCodeRoundTrip) {
 /* ───────────────────── MESSAGE-INTEGRITY ───────────────────── */
 
 TEST_F(StunAttrTest, MessageIntegrityWriteAndVerify) {
-  const char *key_str = "test_password";
-  const uint8_t *key = (const uint8_t *)key_str;
-  size_t key_len = strlen(key_str);
+  const char    *key_str = "test_password";
+  const uint8_t *key     = (const uint8_t *)key_str;
+  size_t         key_len = strlen(key_str);
 
   /* Write some attributes first */
   ASSERT_EQ(xStunAttrWritePriority(&writer, 0x12345678), xErrno_Ok);
@@ -253,15 +251,15 @@ TEST_F(StunAttrTest, MessageIntegrityWriteAndVerify) {
   EXPECT_EQ(attr.type, xStunAttrType_MessageIntegrity);
   EXPECT_EQ(attr.length, XSTUN_SHA1_DIGEST_SIZE);
 
-  EXPECT_EQ(xStunAttrVerifyMessageIntegrity(msg_buf, total, &attr,
-                                             key, key_len),
-            xErrno_Ok);
+  EXPECT_EQ(
+    xStunAttrVerifyMessageIntegrity(msg_buf, total, &attr, key, key_len),
+    xErrno_Ok);
 
   /* Verify with wrong key should fail */
   const char *wrong_key = "wrong_password";
   EXPECT_NE(xStunAttrVerifyMessageIntegrity(msg_buf, total, &attr,
-                                             (const uint8_t *)wrong_key,
-                                             strlen(wrong_key)),
+                                            (const uint8_t *)wrong_key,
+                                            strlen(wrong_key)),
             xErrno_Ok);
 }
 
@@ -325,7 +323,8 @@ TEST_F(StunAttrTest, MultipleAttributeIteration) {
   EXPECT_FALSE(xStunAttrIterNext(&iter, &attr));
 }
 
-/* ───────────────────── Comprehension Required/Optional ───────────────────── */
+/* ───────────────────── Comprehension Required/Optional ─────────────────────
+ */
 
 TEST_F(StunAttrTest, ComprehensionRequired) {
   EXPECT_TRUE(xStunAttrIsComprehensionRequired(xStunAttrType_MappedAddress));

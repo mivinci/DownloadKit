@@ -9,3 +9,6 @@ target_link_libraries(ws_client PRIVATE xhttp xbase)
 
 add_executable(ice_echo ice_echo.c)
 target_link_libraries(ice_echo PRIVATE xp2p xbase)
+
+add_executable(datachannel_echo datachannel_echo.c)
+target_link_libraries(datachannel_echo PRIVATE xp2p xbase)

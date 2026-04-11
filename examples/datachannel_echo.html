@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>xp2p DataChannel Echo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    h1 {
+      text-align: center;
+      color: #00d4ff;
+      margin-bottom: 1.5rem;
+      font-size: 1.8rem;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .card {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      border: 1px solid #0f3460;
+    }
+    .card h2 {
+      color: #00d4ff;
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+    }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: #8892b0;
+      margin-bottom: 0.3rem;
+    }
+    textarea, input[type="text"] {
+      width: 100%;
+      background: #0a0a1a;
+      color: #e0e0e0;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 0.75rem;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85rem;
+      resize: vertical;
+    }
+    textarea { min-height: 120px; }
+    textarea:focus, input:focus {
+      outline: none;
+      border-color: #00d4ff;
+    }
+    .btn-row {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 0.6rem 1.2rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      background: #00d4ff;
+      color: #0a0a1a;
+    }
+    .btn-primary:hover:not(:disabled) { background: #00b8d9; }
+    .btn-success {
+      background: #00e676;
+      color: #0a0a1a;
+    }
+    .btn-success:hover:not(:disabled) { background: #00c853; }
+    .btn-danger {
+      background: #ff5252;
+      color: #fff;
+    }
+    .btn-danger:hover:not(:disabled) { background: #ff1744; }
+    .status {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .status-new       { background: #333; color: #888; }
+    .status-connecting { background: #1a237e; color: #82b1ff; }
+    .status-connected  { background: #1b5e20; color: #69f0ae; }
+    .status-closed     { background: #b71c1c; color: #ff8a80; }
+    #log {
+      background: #0a0a1a;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.8rem;
+      max-height: 300px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+    .log-info  { color: #82b1ff; }
+    .log-send  { color: #69f0ae; }
+    .log-recv  { color: #ffab40; }
+    .log-error { color: #ff5252; }
+    .msg-row {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    .msg-row input { flex: 1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔗 xp2p DataChannel Echo</h1>
+
+    <!-- Connection -->
+    <div class="card">
+      <h2>1. Connection</h2>
+      <p style="margin-bottom:1rem; font-size:0.85rem; color:#8892b0;">
+        Paste the SDP offer from xp2p below, then click "Set Remote &amp; Create Answer".
+        Copy the generated answer SDP back to xp2p.
+      </p>
+
+      <label>Remote SDP (from xp2p)</label>
+      <textarea id="remoteSdp" placeholder="Paste SDP offer from xp2p here..."></textarea>
+
+      <div class="btn-row">
+        <button class="btn-primary" id="btnSetRemote">Set Remote &amp; Create Answer</button>
+        <button class="btn-primary" id="btnCreateOffer">Create Offer (browser initiates)</button>
+      </div>
+
+      <label style="margin-top:1rem;">Local SDP (copy to xp2p)</label>
+      <textarea id="localSdp" readonly placeholder="Local SDP will appear here..."></textarea>
+
+      <div style="margin-top:1rem;">
+        ICE: <span id="iceStatus" class="status status-new">new</span>
+        &nbsp;
+        DC: <span id="dcStatus" class="status status-new">new</span>
+      </div>
+    </div>
+
+    <!-- DataChannel -->
+    <div class="card">
+      <h2>2. DataChannel</h2>
+      <div class="msg-row">
+        <input type="text" id="msgInput" placeholder="Type a message..." disabled>
+        <button class="btn-success" id="btnSend" disabled>Send</button>
+        <button class="btn-danger" id="btnClose" disabled>Close</button>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <h2>Log</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    const logEl       = document.getElementById('log');
+    const remoteSdpEl = document.getElementById('remoteSdp');
+    const localSdpEl  = document.getElementById('localSdp');
+    const iceStatusEl = document.getElementById('iceStatus');
+    const dcStatusEl  = document.getElementById('dcStatus');
+    const msgInputEl  = document.getElementById('msgInput');
+    const btnSend     = document.getElementById('btnSend');
+    const btnClose    = document.getElementById('btnClose');
+
+    let pc = null;
+    let dc = null;
+
+    function log(msg, cls = 'log-info') {
+      const line = document.createElement('div');
+      line.className = cls;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setIceStatus(state) {
+      iceStatusEl.textContent = state;
+      iceStatusEl.className = 'status status-' +
+        (state === 'connected' || state === 'completed' ? 'connected' :
+         state === 'checking' || state === 'new' ? 'new' :
+         state === 'disconnected' || state === 'failed' || state === 'closed' ? 'closed' :
+         'connecting');
+    }
+
+    function setDcStatus(state) {
+      dcStatusEl.textContent = state;
+      dcStatusEl.className = 'status status-' +
+        (state === 'open' ? 'connected' :
+         state === 'connecting' ? 'connecting' :
+         state === 'closed' || state === 'closing' ? 'closed' : 'new');
+      const isOpen = state === 'open';
+      msgInputEl.disabled = !isOpen;
+      btnSend.disabled    = !isOpen;
+      btnClose.disabled   = !isOpen;
+    }
+
+    function createPeerConnection() {
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          log(`ICE candidate: ${e.candidate.candidate}`);
+        } else {
+          log('ICE gathering complete');
+          localSdpEl.value = pc.localDescription.sdp;
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        log(`ICE state: ${pc.iceConnectionState}`);
+        setIceStatus(pc.iceConnectionState);
+      };
+
+      pc.ondatachannel = (e) => {
+        log(`Remote DataChannel: "${e.channel.label}"`);
+        setupDataChannel(e.channel);
+      };
+    }
+
+    function setupDataChannel(channel) {
+      dc = channel;
+      setDcStatus('connecting');
+
+      dc.onopen = () => {
+        log('DataChannel open', 'log-send');
+        setDcStatus('open');
+      };
+
+      dc.onmessage = (e) => {
+        log(`Received: ${e.data}`, 'log-recv');
+      };
+
+      dc.onclose = () => {
+        log('DataChannel closed');
+        setDcStatus('closed');
+      };
+
+      dc.onerror = (e) => {
+        log(`DataChannel error: ${e.message || e}`, 'log-error');
+      };
+    }
+
+    // Set remote offer and create answer
+    document.getElementById('btnSetRemote').onclick = async () => {
+      try {
+        const sdp = remoteSdpEl.value.trim();
+        if (!sdp) { log('Please paste remote SDP first', 'log-error'); return; }
+
+        createPeerConnection();
+
+        await pc.setRemoteDescription({ type: 'offer', sdp });
+        log('Remote description set (offer)');
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        log('Local description set (answer)');
+
+        // Wait for ICE gathering to complete for full SDP
+        if (pc.iceGatheringState === 'complete') {
+          localSdpEl.value = pc.localDescription.sdp;
+        }
+      } catch (err) {
+        log(`Error: ${err.message}`, 'log-error');
+      }
+    };
+
+    // Create offer (browser initiates)
+    document.getElementById('btnCreateOffer').onclick = async () => {
+      try {
+        createPeerConnection();
+
+        dc = pc.createDataChannel('echo');
+        setupDataChannel(dc);
+        log('Created DataChannel "echo"');
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        log('Local description set (offer)');
+
+        if (pc.iceGatheringState === 'complete') {
+          localSdpEl.value = pc.localDescription.sdp;
+        }
+      } catch (err) {
+        log(`Error: ${err.message}`, 'log-error');
+      }
+    };
+
+    // Send message
+    btnSend.onclick = () => {
+      const msg = msgInputEl.value.trim();
+      if (!msg || !dc || dc.readyState !== 'open') return;
+      dc.send(msg);
+      log(`Sent: ${msg}`, 'log-send');
+      msgInputEl.value = '';
+    };
+
+    msgInputEl.onkeydown = (e) => {
+      if (e.key === 'Enter') btnSend.click();
+    };
+
+    // Close channel
+    btnClose.onclick = () => {
+      if (dc) dc.close();
+      if (pc) pc.close();
+      log('Connection closed');
+      setIceStatus('closed');
+      setDcStatus('closed');
+    };
+
+    log('Ready. Paste SDP from xp2p or create an offer.');
+  </script>
+</body>
+</html>

@@ -88,6 +88,10 @@ XDEF_STRUCT(xIceAgent_) {
   xDnsQuery turn_dns_query;
   uint16_t  stun_port; /* Parsed port for STUN server */
   uint16_t  turn_port; /* Parsed port for TURN server */
+
+  /* DTLS data input hook — set by xPeerConnection when attached */
+  xIceDtlsInputFn dtls_input_fn;
+  void           *dtls_input_arg;
 };
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -926,7 +930,7 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
   }
 }
 
-/* ───────────────────── UDP Demux ───────────────────── */
+/* ───────────────────── UDP Demux (RFC 7983) ───────────────────── */
 
 static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
   xIceAgent_ *a = (xIceAgent_ *)arg;
@@ -955,9 +959,23 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
     size_t                 len  = (size_t)n;
     const struct sockaddr *from = (const struct sockaddr *)&from_addr;
 
-    /* Demultiplex based on first byte */
-    if (xStunMsgIsStun(buf, len)) {
+    /*
+     * RFC 7983 first-byte demultiplexing:
+     *   [0,   3]   → STUN
+     *   [20,  63]  → DTLS
+     *   [64,  79]  → TURN ChannelData
+     *   [128, 191] → RTP/RTCP (reserved, discard)
+     *   other      → discard
+     */
+    int pkt_type = xIceDemuxClassify(buf[0]);
+
+    switch (pkt_type) {
+    case XICE_DEMUX_STUN: {
       /* STUN message */
+      if (!xStunMsgIsStun(buf, len)) {
+        /* Looks like STUN range but fails validation — discard */
+        continue;
+      }
       xStunMsg msg;
       if (xStunMsgDecode(&msg, buf, len) != xErrno_Ok) continue;
 
@@ -974,21 +992,32 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
         /* Then try STUN transaction manager */
         xStunTxnMgrOnResponse(&a->txn_mgr, &msg, buf, len, from);
       }
-    } else if (xTurnIsChannelData(buf[0])) {
+      break;
+    }
+
+    case XICE_DEMUX_DTLS:
+      /* Feed into upper layer (PeerConnection) if DTLS hook is set */
+      if (a->dtls_input_fn) {
+        a->dtls_input_fn(buf, len, from, a->dtls_input_arg);
+      }
+      /* else: no DTLS consumer attached, silently discard */
+      break;
+
+    case XICE_DEMUX_TURN_CHANNEL:
       /* TURN ChannelData — only if we have a TURN client */
       if (a->turn_client) {
         xTurnClientOnChannelData(a->turn_client, buf, len);
-      } else {
-        /* No TURN client — treat as application data */
-        if (a->conf.on_data) {
-          a->conf.on_data((xIceAgent)a, buf, len, a->conf.ctx);
-        }
       }
-    } else {
-      /* Application data */
-      if (a->conf.on_data) {
-        a->conf.on_data((xIceAgent)a, buf, len, a->conf.ctx);
-      }
+      /* No TURN client — discard (per RFC 7983, this range is TURN only) */
+      break;
+
+    case XICE_DEMUX_RTP:
+      /* RTP/RTCP — reserved for future use, silently discard */
+      break;
+
+    default:
+      /* Unknown range — silently discard */
+      break;
     }
   }
 }
@@ -1047,7 +1076,6 @@ void xIceAgentDestroy(xIceAgent agent) {
   /* Destroy TURN client */
   if (a->turn_client) {
     xTurnClientDestroy(a->turn_client);
-    free(a->turn_client);
   }
 
   /* Destroy transaction manager */
@@ -1334,4 +1362,32 @@ xErrno xIceAgentSend(xIceAgent agent, const uint8_t *data, size_t len) {
 
   return udp_sendto(a->nominated->local->sock, data, len,
                     (const struct sockaddr *)&a->nominated->remote->addr);
+}
+
+/* ───────────────────── Accessors ───────────────────── */
+
+const char *xIceAgentGetUfrag(xIceAgent agent) {
+  if (!agent) return NULL;
+  xIceAgent_ *a = (xIceAgent_ *)agent;
+  return a->ice_ufrag;
+}
+
+const char *xIceAgentGetPwd(xIceAgent agent) {
+  if (!agent) return NULL;
+  xIceAgent_ *a = (xIceAgent_ *)agent;
+  return a->ice_pwd;
+}
+
+xEventLoop xIceAgentGetLoop(xIceAgent agent) {
+  if (!agent) return NULL;
+  xIceAgent_ *a = (xIceAgent_ *)agent;
+  return a->loop;
+}
+
+void xIceAgentSetDtlsInputCallback(xIceAgent agent, xIceDtlsInputFn fn,
+                                   void *arg) {
+  if (!agent) return;
+  xIceAgent_ *a    = (xIceAgent_ *)agent;
+  a->dtls_input_fn  = fn;
+  a->dtls_input_arg = arg;
 }

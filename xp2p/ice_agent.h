@@ -8,9 +8,6 @@
  * Provides ICE-based P2P connectivity. This module handles STUN/TURN
  * NAT traversal, candidate gathering, connectivity checks, and
  * nomination to establish a UDP transport between two peers.
- *
- * The full public API (xIceAgent lifecycle, callbacks, SDP helpers)
- * will be defined as the module implementation progresses.
  */
 
 #ifndef XP2P_ICE_AGENT_H
@@ -20,6 +17,7 @@
 #include <xbase/error.h>
 #include <xbase/event.h>
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /* Forward declarations — full definitions are internal. */
@@ -192,5 +190,55 @@ XCAPI(xErrno) xIceAgentAddRemoteCandidate(xIceAgent   agent,
  * @return       xErrno_Ok on success, xErrno_InvalidState if not connected.
  */
 XCAPI(xErrno) xIceAgentSend(xIceAgent agent, const uint8_t *data, size_t len);
+
+/* ───────────────────── Accessors ───────────────────── */
+
+/**
+ * @brief Get the local ice-ufrag.
+ * @param agent  Agent handle.
+ * @return       Pointer to internal ufrag string (valid while agent lives).
+ */
+XCAPI(const char *) xIceAgentGetUfrag(xIceAgent agent);
+
+/**
+ * @brief Get the local ice-pwd.
+ * @param agent  Agent handle.
+ * @return       Pointer to internal pwd string (valid while agent lives).
+ */
+XCAPI(const char *) xIceAgentGetPwd(xIceAgent agent);
+
+/**
+ * @brief Get the event loop associated with this agent.
+ * @param agent  Agent handle.
+ * @return       Event loop handle.
+ */
+XCAPI(xEventLoop) xIceAgentGetLoop(xIceAgent agent);
+
+/* ───────────────────── DTLS Input Hook ───────────────────── */
+
+struct sockaddr; /* Forward declaration for callback signature */
+
+/**
+ * @brief Callback type for feeding DTLS data into an upper layer.
+ *
+ * When the ICE agent's UDP demux identifies a DTLS packet (RFC 7983),
+ * it invokes this callback so the PeerConnection layer can feed the
+ * data into its DTLS transport.
+ */
+typedef void (*xIceDtlsInputFn)(const uint8_t *data, size_t len,
+                                const struct sockaddr *from, void *arg);
+
+/**
+ * @brief Register a DTLS input callback on the ICE agent.
+ *
+ * The ICE agent will call @p fn whenever a DTLS-range packet arrives
+ * on the nominated pair's socket (RFC 7983 first-byte demux).
+ *
+ * @param agent  Agent handle.
+ * @param fn     Callback function, or NULL to unregister.
+ * @param arg    User-provided context forwarded to @p fn.
+ */
+XCAPI(void) xIceAgentSetDtlsInputCallback(xIceAgent agent,
+                                           xIceDtlsInputFn fn, void *arg);
 
 #endif /* XP2P_ICE_AGENT_H */

@@ -15,6 +15,23 @@
 /** Maximum SDP string length. */
 #define XSDP_MAX_SIZE 4096
 
+/** Maximum fingerprint string length ("sha-256 AA:BB:CC:..."). */
+#define XSDP_MAX_FINGERPRINT_LEN 128
+
+/** Maximum setup role string length. */
+#define XSDP_MAX_SETUP_LEN 16
+
+/** Maximum mid string length. */
+#define XSDP_MAX_MID_LEN 32
+
+/* ───────────────────── SDP Setup Role ───────────────────── */
+
+XDEF_ENUM(xIceSdpSetup){
+  xIceSdpSetup_Active  = 0, /**< a=setup:active  */
+  xIceSdpSetup_Passive = 1, /**< a=setup:passive */
+  xIceSdpSetup_Actpass = 2, /**< a=setup:actpass */
+};
+
 /**
  * @brief Parsed SDP description.
  */
@@ -26,6 +43,13 @@ XDEF_STRUCT(xIceSdp) {
 
   xIceCandidate candidates[XICE_MAX_CANDIDATES];
   int           candidate_count;
+
+  /* WebRTC extensions (populated when media line is UDP/DTLS/SCTP) */
+  bool          is_webrtc;  /**< true if WebRTC SDP format detected.     */
+  char          fingerprint[XSDP_MAX_FINGERPRINT_LEN]; /**< a=fingerprint value (e.g. "sha-256 AA:BB:..."). */
+  xIceSdpSetup  setup;      /**< a=setup role.                           */
+  char          mid[XSDP_MAX_MID_LEN]; /**< a=mid value.                  */
+  uint16_t      sctp_port;  /**< a=sctp-port value (default 5000).       */
 };
 
 /**
@@ -72,5 +96,30 @@ int xIceSdpEncodeCandidate(const xIceCandidate *cand, char *out, size_t cap);
  * @return      xErrno_Ok on success.
  */
 xErrno xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand);
+
+/**
+ * @brief Encode a WebRTC-compatible SDP (with DTLS/SCTP/DataChannel).
+ *
+ * Generates SDP with m=application 9 UDP/DTLS/SCTP webrtc-datachannel,
+ * a=fingerprint, a=setup, a=mid, a=group:BUNDLE, a=sctp-port.
+ *
+ * @param ufrag        Local ice-ufrag.
+ * @param pwd          Local ice-pwd.
+ * @param candidates   Array of local candidates.
+ * @param cand_count   Number of candidates.
+ * @param trickle      Whether to include ice-options:trickle.
+ * @param fingerprint  DTLS fingerprint string (e.g. "sha-256 AA:BB:...").
+ * @param setup        DTLS setup role.
+ * @param mid          Media ID (e.g. "0").
+ * @param sctp_port    SCTP port (e.g. 5000).
+ * @param out          Output buffer.
+ * @param out_cap      Output buffer capacity.
+ * @return             Length of encoded SDP, or -1 on error.
+ */
+int xIceSdpEncodeWebRTC(const char *ufrag, const char *pwd,
+                        const xIceCandidate *candidates, int cand_count,
+                        bool trickle, const char *fingerprint,
+                        xIceSdpSetup setup, const char *mid,
+                        uint16_t sctp_port, char *out, size_t out_cap);
 
 #endif /* XP2P_SDP_H */

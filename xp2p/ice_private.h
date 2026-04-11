@@ -279,4 +279,29 @@ static inline void xWriteU64BE(uint8_t *p, uint64_t v) {
   xWriteU32BE(p + 4, (uint32_t)(v));
 }
 
+/* ───────────────────── RFC 7983 Demux (first-byte ranges) ───────────── */
+
+/**
+ * @brief Classify a UDP packet by its first byte per RFC 7983.
+ *
+ * Returns:
+ *   0 = STUN      [0, 3]
+ *   1 = DTLS      [20, 63]
+ *   2 = TURN ChannelData [64, 79]  (0x40-0x4F, subset of [64,79])
+ *   3 = RTP/RTCP  [128, 191]  (reserved, not implemented)
+ *  -1 = Unknown / discard
+ */
+static inline int xIceDemuxClassify(uint8_t first_byte) {
+  if (first_byte <= 3) return 0;                              /* STUN */
+  if (first_byte >= 20 && first_byte <= 63) return 1;         /* DTLS */
+  if (first_byte >= 64 && first_byte <= 79) return 2;         /* TURN ChannelData */
+  if (first_byte >= 128 && first_byte <= 191) return 3;       /* RTP/RTCP (reserved) */
+  return -1;                                                  /* Unknown */
+}
+
+#define XICE_DEMUX_STUN          0
+#define XICE_DEMUX_DTLS          1
+#define XICE_DEMUX_TURN_CHANNEL  2
+#define XICE_DEMUX_RTP           3
+
 #endif /* XP2P_ICE_PRIVATE_H */

@@ -226,6 +226,9 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  // Set idle timeout to 5 minutes
+  xHttpServerSetIdleTimeout(server, 300000);
+
   xHttpServerRoute(server, "GET /", index_handler, nullptr);
   xHttpServerRoute(server, "GET /signal", ws_handler, nullptr);
 

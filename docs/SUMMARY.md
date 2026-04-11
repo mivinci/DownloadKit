@@ -38,6 +38,7 @@
     - [Logger](modules/xlog/logger.md)
   - [xp2p — P2P Connectivity](modules/xp2p/README.md)
     - [ICE Agent](modules/xp2p/ice.md)
+    - [PeerConnection](modules/xp2p/pc.md)
 
 - [Benchmark](bench/README.md)
   - [HTTP/1.1 Server](bench/http_server.md)

@@ -62,7 +62,7 @@ struct xIceConf {
     xIceOnStateChange on_state_change;  // State change callback
     xIceOnCandidate   on_candidate;     // New candidate callback
     xIceOnData        on_data;          // Data received callback
-    void             *callback_arg;     // Forwarded to all callbacks
+    void             *ctx;              // Forwarded to all callbacks
 };
 ```
 

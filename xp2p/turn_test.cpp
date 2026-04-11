@@ -9,10 +9,10 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include "turn_client.h"
-#include "turn_channel.h"
-#include "stun_msg.h"
 #include "stun_attr.h"
+#include "stun_msg.h"
+#include "turn_channel.h"
+#include "turn_client.h"
 }
 
 #include <arpa/inet.h>
@@ -28,9 +28,9 @@ TEST(TurnChannelTest, EncodeDecodeRoundTrip) {
   /* 4 header + 5 data + 3 padding = 12 */
   EXPECT_EQ(encoded, 12);
 
-  uint16_t channel;
+  uint16_t       channel;
   const uint8_t *out_data;
-  uint16_t out_len;
+  uint16_t       out_len;
   ASSERT_EQ(xTurnChannelDataDecode(buf, encoded, &channel, &out_data, &out_len),
             xErrno_Ok);
   EXPECT_EQ(channel, 0x4001);
@@ -39,22 +39,24 @@ TEST(TurnChannelTest, EncodeDecodeRoundTrip) {
 }
 
 TEST(TurnChannelTest, DecodeInvalidChannel) {
-  uint8_t buf[8] = {0x00, 0x01, 0x00, 0x01, 0xAA, 0, 0, 0};
-  uint16_t channel;
+  uint8_t        buf[8] = {0x00, 0x01, 0x00, 0x01, 0xAA, 0, 0, 0};
+  uint16_t       channel;
   const uint8_t *data;
-  uint16_t data_len;
+  uint16_t       data_len;
   /* Channel 0x0001 is not in valid range */
-  EXPECT_NE(xTurnChannelDataDecode(buf, sizeof(buf), &channel, &data, &data_len),
-            xErrno_Ok);
+  EXPECT_NE(
+    xTurnChannelDataDecode(buf, sizeof(buf), &channel, &data, &data_len),
+    xErrno_Ok);
 }
 
 TEST(TurnChannelTest, DecodeTooShort) {
-  uint8_t buf[2] = {0x40, 0x01};
-  uint16_t channel;
+  uint8_t        buf[2] = {0x40, 0x01};
+  uint16_t       channel;
   const uint8_t *data;
-  uint16_t data_len;
-  EXPECT_NE(xTurnChannelDataDecode(buf, sizeof(buf), &channel, &data, &data_len),
-            xErrno_Ok);
+  uint16_t       data_len;
+  EXPECT_NE(
+    xTurnChannelDataDecode(buf, sizeof(buf), &channel, &data, &data_len),
+    xErrno_Ok);
 }
 
 TEST(TurnChannelTest, IsChannelData) {
@@ -68,23 +70,23 @@ TEST(TurnChannelTest, IsChannelData) {
 TEST(TurnChannelTest, EncodeBufferTooSmall) {
   uint8_t data[10] = {};
   uint8_t buf[8]; /* Too small for 4 + 12 */
-  int encoded = xTurnChannelDataEncode(0x4001, data, 10, buf, sizeof(buf));
+  int     encoded = xTurnChannelDataEncode(0x4001, data, 10, buf, sizeof(buf));
   EXPECT_EQ(encoded, -1);
 }
 
 /* ───────────────────── TURN Client Tests ───────────────────── */
 
 struct TurnSendRecord {
-  uint8_t data[XSTUN_MAX_MSG_SIZE];
-  size_t len;
+  uint8_t                 data[XSTUN_MAX_MSG_SIZE];
+  size_t                  len;
   struct sockaddr_storage dest;
-  int call_count;
+  int                     call_count;
 };
 
 static TurnSendRecord g_turn_send;
 
 static xErrno turn_mock_send(const uint8_t *data, size_t len,
-                              const struct sockaddr *addr, void *arg) {
+                             const struct sockaddr *addr, void *arg) {
   (void)arg;
   if (len > sizeof(g_turn_send.data)) return xErrno_NoMemory;
   memcpy(g_turn_send.data, data, len);
@@ -95,21 +97,21 @@ static xErrno turn_mock_send(const uint8_t *data, size_t len,
 }
 
 struct TurnAllocResult {
-  bool allocated;
-  bool failed;
+  bool     allocated;
+  bool     failed;
   uint32_t lifetime;
 };
 
 static TurnAllocResult g_alloc_result;
 
 static void turn_on_allocated(const struct sockaddr *relayed_addr,
-                               const struct sockaddr *mapped_addr,
-                               uint32_t lifetime, void *arg) {
+                              const struct sockaddr *mapped_addr,
+                              uint32_t lifetime, void *arg) {
   (void)relayed_addr;
   (void)mapped_addr;
   (void)arg;
   g_alloc_result.allocated = true;
-  g_alloc_result.lifetime = lifetime;
+  g_alloc_result.lifetime  = lifetime;
 }
 
 static void turn_on_failed(xErrno err, void *arg) {
@@ -120,8 +122,8 @@ static void turn_on_failed(xErrno err, void *arg) {
 
 class TurnClientTest : public ::testing::Test {
 protected:
-  xEventLoop loop;
-  xTurnClient client;
+  xEventLoop         loop;
+  xTurnClient        client;
   struct sockaddr_in server;
 
   void SetUp() override {
@@ -130,7 +132,7 @@ protected:
 
     memset(&server, 0, sizeof(server));
     server.sin_family = AF_INET;
-    server.sin_port = htons(3478);
+    server.sin_port   = htons(3478);
     inet_pton(AF_INET, "198.51.100.1", &server.sin_addr);
 
     xTurnConfig config;
@@ -138,11 +140,11 @@ protected:
     memcpy(&config.server, &server, sizeof(server));
     strncpy(config.username, "testuser", sizeof(config.username) - 1);
     strncpy(config.password, "testpass", sizeof(config.password) - 1);
-    config.send_fn = turn_mock_send;
-    config.send_arg = NULL;
+    config.send_fn      = turn_mock_send;
+    config.send_arg     = NULL;
     config.on_allocated = turn_on_allocated;
-    config.on_failed = turn_on_failed;
-    config.callback_arg = NULL;
+    config.on_failed    = turn_on_failed;
+    config.ctx          = NULL;
 
     xTurnClientInit(&client, loop, &config);
 
@@ -164,15 +166,14 @@ TEST_F(TurnClientTest, AllocateSendsRequest) {
 
   /* Verify it's an Allocate Request */
   xStunMsg msg;
-  ASSERT_EQ(xStunMsgDecode(&msg, g_turn_send.data, g_turn_send.len),
-            xErrno_Ok);
+  ASSERT_EQ(xStunMsgDecode(&msg, g_turn_send.data, g_turn_send.len), xErrno_Ok);
   EXPECT_EQ(msg.type, xStunMsgType_AllocateRequest);
 
   /* Verify REQUESTED-TRANSPORT attribute */
   xStunAttrIter iter;
   xStunAttrIterInit(&iter, &msg);
   xStunAttr attr;
-  bool found_transport = false;
+  bool      found_transport = false;
   while (xStunAttrIterNext(&iter, &attr)) {
     if (attr.type == xStunAttrType_RequestedTransport) {
       EXPECT_EQ(xReadU32BE(attr.value), XTURN_TRANSPORT_UDP);
@@ -194,7 +195,7 @@ TEST_F(TurnClientTest, ChannelDataSendViaChannel) {
   struct sockaddr_in peer;
   memset(&peer, 0, sizeof(peer));
   peer.sin_family = AF_INET;
-  peer.sin_port = htons(5000);
+  peer.sin_port   = htons(5000);
   inet_pton(AF_INET, "10.0.0.1", &peer.sin_addr);
 
   /* Bind a channel */
@@ -207,8 +208,8 @@ TEST_F(TurnClientTest, ChannelDataSendViaChannel) {
 
   /* Send data — should use ChannelData */
   uint8_t data[] = {0xDE, 0xAD, 0xBE, 0xEF};
-  xErrno err = xTurnClientSendData(&client, (struct sockaddr *)&peer,
-                                    data, sizeof(data));
+  xErrno  err =
+    xTurnClientSendData(&client, (struct sockaddr *)&peer, data, sizeof(data));
   ASSERT_EQ(err, xErrno_Ok);
   EXPECT_EQ(g_turn_send.call_count, 1);
 
@@ -222,20 +223,19 @@ TEST_F(TurnClientTest, SendDataFallbackToIndication) {
   struct sockaddr_in peer;
   memset(&peer, 0, sizeof(peer));
   peer.sin_family = AF_INET;
-  peer.sin_port = htons(5000);
+  peer.sin_port   = htons(5000);
   inet_pton(AF_INET, "10.0.0.1", &peer.sin_addr);
 
   /* No channel bound — should use Send Indication */
   uint8_t data[] = {0x01, 0x02};
-  xErrno err = xTurnClientSendData(&client, (struct sockaddr *)&peer,
-                                    data, sizeof(data));
+  xErrno  err =
+    xTurnClientSendData(&client, (struct sockaddr *)&peer, data, sizeof(data));
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Verify it's a STUN message (Send Indication) */
   EXPECT_TRUE(xStunMsgIsStun(g_turn_send.data, g_turn_send.len));
   xStunMsg msg;
-  ASSERT_EQ(xStunMsgDecode(&msg, g_turn_send.data, g_turn_send.len),
-            xErrno_Ok);
+  ASSERT_EQ(xStunMsgDecode(&msg, g_turn_send.data, g_turn_send.len), xErrno_Ok);
   EXPECT_EQ(msg.type, xStunMsgType_SendIndication);
 }
 
@@ -255,7 +255,7 @@ TEST_F(TurnClientTest, AllocateWith401ThenRetryWithCredentials) {
             xErrno_Ok);
 
   /* Build a 401 error response */
-  uint8_t resp_buf[512];
+  uint8_t  resp_buf[512];
   xStunMsg resp;
   xStunMsgInit(&resp, xStunMsgType_AllocateErrorResponse, req1.txn_id);
   xStunMsgEncode(&resp, resp_buf, sizeof(resp_buf));
@@ -287,8 +287,8 @@ TEST_F(TurnClientTest, AllocateWith401ThenRetryWithCredentials) {
   xStunAttrIter iter;
   xStunAttrIterInit(&iter, &req2);
   xStunAttr attr;
-  bool has_username = false, has_realm = false;
-  bool has_nonce = false, has_integrity = false;
+  bool      has_username = false, has_realm = false;
+  bool      has_nonce = false, has_integrity = false;
   while (xStunAttrIterNext(&iter, &attr)) {
     if (attr.type == xStunAttrType_Username) has_username = true;
     if (attr.type == xStunAttrType_Realm) has_realm = true;
@@ -315,11 +315,10 @@ TEST_F(TurnClientTest, RefreshTimerScheduledOnAllocateSuccess) {
 
   /* Decode request for txn_id */
   xStunMsg req;
-  ASSERT_EQ(xStunMsgDecode(&req, g_turn_send.data, g_turn_send.len),
-            xErrno_Ok);
+  ASSERT_EQ(xStunMsgDecode(&req, g_turn_send.data, g_turn_send.len), xErrno_Ok);
 
   /* Build a success response with RELAYED-ADDRESS and LIFETIME */
-  uint8_t resp_buf[512];
+  uint8_t  resp_buf[512];
   xStunMsg resp;
   xStunMsgInit(&resp, xStunMsgType_AllocateResponse, req.txn_id);
   xStunMsgEncode(&resp, resp_buf, sizeof(resp_buf));
@@ -332,7 +331,7 @@ TEST_F(TurnClientTest, RefreshTimerScheduledOnAllocateSuccess) {
   struct sockaddr_in relay;
   memset(&relay, 0, sizeof(relay));
   relay.sin_family = AF_INET;
-  relay.sin_port = htons(49152);
+  relay.sin_port   = htons(49152);
   inet_pton(AF_INET, "198.51.100.1", &relay.sin_addr);
   xStunAttrWriteXorMappedAddress(&w, (struct sockaddr *)&relay, req.txn_id);
   /* Patch the type to XOR-RELAYED-ADDRESS (0x0016) */

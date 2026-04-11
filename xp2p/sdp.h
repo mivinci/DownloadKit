@@ -21,11 +21,11 @@
 XDEF_STRUCT(xIceSdp) {
   char ice_ufrag[XICE_UFRAG_MAX_LEN];
   char ice_pwd[XICE_PWD_MAX_LEN];
-  bool trickle;                          /**< ice-options:trickle present. */
-  bool end_of_candidates;                /**< a=end-of-candidates present.*/
+  bool trickle;           /**< ice-options:trickle present. */
+  bool end_of_candidates; /**< a=end-of-candidates present.*/
 
   xIceCandidate candidates[XICE_MAX_CANDIDATES];
-  int candidate_count;
+  int           candidate_count;
 };
 
 /**
@@ -41,8 +41,8 @@ XDEF_STRUCT(xIceSdp) {
  * @return            Length of encoded SDP, or -1 on error.
  */
 int xIceSdpEncode(const char *ufrag, const char *pwd,
-                   const xIceCandidate *candidates, int cand_count,
-                   bool trickle, char *out, size_t out_cap);
+                  const xIceCandidate *candidates, int cand_count, bool trickle,
+                  char *out, size_t out_cap);
 
 /**
  * @brief Decode an SDP string.

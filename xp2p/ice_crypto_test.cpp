@@ -31,7 +31,7 @@ TEST(IceCryptoTest, MD5Empty) {
 TEST(IceCryptoTest, MD5Hello) {
   /* MD5("Hello") = 8b1a9953c4611296a827abf8c47804d7 */
   const char *input = "Hello";
-  uint8_t digest[XICE_MD5_DIGEST_SIZE];
+  uint8_t     digest[XICE_MD5_DIGEST_SIZE];
   xIceMD5((const uint8_t *)input, strlen(input), digest);
 
   const uint8_t expected[] = {
@@ -44,7 +44,7 @@ TEST(IceCryptoTest, MD5Hello) {
 TEST(IceCryptoTest, MD5ABCLower) {
   /* MD5("abc") = 900150983cd24fb0d6963f7d28e17f72 */
   const char *input = "abc";
-  uint8_t digest[XICE_MD5_DIGEST_SIZE];
+  uint8_t     digest[XICE_MD5_DIGEST_SIZE];
   xIceMD5((const uint8_t *)input, strlen(input), digest);
 
   const uint8_t expected[] = {
@@ -62,7 +62,7 @@ TEST(IceCryptoTest, MD5LongTermCredential) {
    * MD5("user:example.org:pass") should produce a deterministic hash.
    */
   const char *input = "user:example.org:pass";
-  uint8_t digest[XICE_MD5_DIGEST_SIZE];
+  uint8_t     digest[XICE_MD5_DIGEST_SIZE];
   xIceMD5((const uint8_t *)input, strlen(input), digest);
 
   /* Verify it's non-zero and deterministic */
@@ -72,7 +72,7 @@ TEST(IceCryptoTest, MD5LongTermCredential) {
 
   /* Verify different input produces different hash */
   const char *input2 = "user:example.org:pass2";
-  uint8_t digest3[XICE_MD5_DIGEST_SIZE];
+  uint8_t     digest3[XICE_MD5_DIGEST_SIZE];
   xIceMD5((const uint8_t *)input2, strlen(input2), digest3);
   EXPECT_NE(memcmp(digest, digest3, XICE_MD5_DIGEST_SIZE), 0);
 }

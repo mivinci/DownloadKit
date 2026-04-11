@@ -65,7 +65,7 @@ XDEF_STRUCT(xTurnConfig) {
   xTurnOnAllocated on_allocated; /**< Allocation success callback.  */
   xTurnOnFailed    on_failed;    /**< Allocation failure callback.  */
   xTurnOnData      on_data;      /**< Data received callback.       */
-  void            *callback_arg; /**< User argument for callbacks.  */
+  void            *ctx;          /**< User argument for callbacks.         */
 };
 
 /**

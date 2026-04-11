@@ -100,10 +100,10 @@ XDEF_ENUM(xStunMsgType){
   ((((type) & 0x0010) >> 4) | (((type) & 0x0100) >> 7))
 
 /** STUN message class values. */
-#define XSTUN_CLASS_REQUEST         0x00
-#define XSTUN_CLASS_INDICATION      0x01
-#define XSTUN_CLASS_SUCCESS_RESP    0x02
-#define XSTUN_CLASS_ERROR_RESP      0x03
+#define XSTUN_CLASS_REQUEST      0x00
+#define XSTUN_CLASS_INDICATION   0x01
+#define XSTUN_CLASS_SUCCESS_RESP 0x02
+#define XSTUN_CLASS_ERROR_RESP   0x03
 
 /* ───────────────────── STUN Attribute Types ───────────────────── */
 
@@ -119,8 +119,8 @@ XDEF_ENUM(xStunAttrType){
   xStunAttrType_XorMappedAddress  = 0x0020,
 
   /* ICE attributes */
-  xStunAttrType_Priority      = 0x0024,
-  xStunAttrType_UseCandidate  = 0x0025,
+  xStunAttrType_Priority     = 0x0024,
+  xStunAttrType_UseCandidate = 0x0025,
 
   /* Comprehension-optional (0x8000 - 0xFFFF) */
   xStunAttrType_Software        = 0x8022,
@@ -158,23 +158,18 @@ XDEF_ENUM(xIceCandidateType){
 /* ───────────────────── ICE Candidate Pair States ───────────────────── */
 
 XDEF_ENUM(xIcePairState){
-  xIcePairState_Frozen     = 0,
-  xIcePairState_Waiting    = 1,
-  xIcePairState_InProgress = 2,
-  xIcePairState_Succeeded  = 3,
-  xIcePairState_Failed     = 4,
+  xIcePairState_Frozen = 0,     xIcePairState_Waiting = 1,
+  xIcePairState_InProgress = 2, xIcePairState_Succeeded = 3,
+  xIcePairState_Failed = 4,
 };
 
 /* ───────────────────── ICE Agent States ───────────────────── */
 
 XDEF_ENUM(xIceAgentState){
-  xIceAgentState_New       = 0,
-  xIceAgentState_Gathering = 1,
-  xIceAgentState_Checking  = 2,
-  xIceAgentState_Connected = 3,
-  xIceAgentState_Completed = 4,
-  xIceAgentState_Failed    = 5,
-  xIceAgentState_Closed    = 6,
+  xIceAgentState_New = 0,       xIceAgentState_Gathering = 1,
+  xIceAgentState_Checking = 2,  xIceAgentState_Connected = 3,
+  xIceAgentState_Completed = 4, xIceAgentState_Failed = 5,
+  xIceAgentState_Closed = 6,
 };
 
 /* ───────────────────── ICE Agent Roles ───────────────────── */
@@ -240,8 +235,8 @@ XDEF_ENUM(xIceAgentRole){
 
 /** Maximum candidate foundation length. */
 #define XICE_FOUNDATION_MAX_LEN 32
-#define XICE_UFRAG_MAX_LEN     64
-#define XICE_PWD_MAX_LEN       128
+#define XICE_UFRAG_MAX_LEN      64
+#define XICE_PWD_MAX_LEN        128
 
 /* ───────────────────── Utility Macros ───────────────────── */
 
@@ -255,8 +250,8 @@ static inline uint16_t xReadU16BE(const uint8_t *p) {
 
 /** Read a 32-bit big-endian value from a byte pointer. */
 static inline uint32_t xReadU32BE(const uint8_t *p) {
-  return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 |
-         (uint32_t)p[2] << 8 | (uint32_t)p[3];
+  return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 |
+         (uint32_t)p[3];
 }
 
 /** Read a 64-bit big-endian value from a byte pointer. */

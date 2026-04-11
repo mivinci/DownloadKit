@@ -41,28 +41,28 @@ static void generate_txn_id(uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
 static void txn_retransmit(void *arg);
 
 static void txn_schedule_retransmit(xStunTxn *txn) {
-  txn->timer = xEventLoopTimerAfter(txn->loop, txn_retransmit,
-                                     txn, txn->rto_ms);
+  txn->timer =
+    xEventLoopTimerAfter(txn->loop, txn_retransmit, txn, txn->rto_ms);
 }
 
 static void txn_retransmit(void *arg) {
   xStunTxn *txn = (xStunTxn *)arg;
-  txn->timer = NULL;
+  txn->timer    = NULL;
 
   if (txn->cancelled) return;
 
   if (txn->retransmit_count >= XSTUN_MAX_RETRANSMITS) {
     /* Timeout — invoke callback with NULL */
-    xStunTxnFunc cb = txn->on_complete;
-    void *cb_arg = txn->callback_arg;
-    txn->cancelled = true;
+    xStunTxnFunc cb     = txn->on_complete;
+    void        *cb_arg = txn->ctx;
+    txn->cancelled      = true;
     if (cb) cb(NULL, NULL, cb_arg);
     return;
   }
 
   /* Retransmit */
-  txn->send_fn(txn->msg_buf, txn->msg_len,
-               (const struct sockaddr *)&txn->dest, txn->send_arg);
+  txn->send_fn(txn->msg_buf, txn->msg_len, (const struct sockaddr *)&txn->dest,
+               txn->send_arg);
   txn->retransmit_count++;
   txn->rto_ms *= 2; /* Exponential backoff */
   txn_schedule_retransmit(txn);
@@ -100,8 +100,7 @@ void xStunTxnMgrCancelAll(xStunTxnMgr *mgr) {
   }
 }
 
-static int txn_find(xStunTxnMgr *mgr,
-                     const uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
+static int txn_find(xStunTxnMgr *mgr, const uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
   for (int i = 0; i < mgr->count; i++) {
     if (memcmp(mgr->txns[i]->txn_id, txn_id, XSTUN_TXN_ID_SIZE) == 0) {
       return i;
@@ -112,12 +111,10 @@ static int txn_find(xStunTxnMgr *mgr,
 
 /* ───────────────────── Send ───────────────────── */
 
-xErrno xStunTxnMgrSend(xStunTxnMgr *mgr,
-                         xStunMsgType msg_type,
-                         const uint8_t *attrs, uint16_t attrs_len,
-                         const struct sockaddr *dest,
-                         xStunTxnSendFunc send_fn, void *send_arg,
-                         xStunTxnFunc on_complete, void *cb_arg) {
+xErrno xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type,
+                       const uint8_t *attrs, uint16_t attrs_len,
+                       const struct sockaddr *dest, xStunTxnSendFunc send_fn,
+                       void *send_arg, xStunTxnFunc on_complete, void *cb_arg) {
   if (!mgr || !dest || !send_fn) return xErrno_InvalidArg;
   if (mgr->count >= XSTUN_TXN_MAX) return xErrno_NoMemory;
 
@@ -129,7 +126,7 @@ xErrno xStunTxnMgrSend(xStunTxnMgr *mgr,
   /* Build the STUN message */
   xStunMsg msg;
   xStunMsgInit(&msg, msg_type, txn->txn_id);
-  msg.attrs = attrs;
+  msg.attrs     = attrs;
   msg.attrs_len = attrs_len;
 
   int encoded = xStunMsgEncode(&msg, txn->msg_buf, sizeof(txn->msg_buf));
@@ -147,14 +144,14 @@ xErrno xStunTxnMgrSend(xStunTxnMgr *mgr,
   }
   memcpy(&txn->dest, dest, addr_len);
 
-  txn->on_complete = on_complete;
-  txn->callback_arg = cb_arg;
-  txn->send_fn = send_fn;
-  txn->send_arg = send_arg;
-  txn->loop = mgr->loop;
+  txn->on_complete      = on_complete;
+  txn->ctx              = cb_arg;
+  txn->send_fn          = send_fn;
+  txn->send_arg         = send_arg;
+  txn->loop             = mgr->loop;
   txn->retransmit_count = 0;
-  txn->rto_ms = XSTUN_INITIAL_RTO_MS;
-  txn->cancelled = false;
+  txn->rto_ms           = XSTUN_INITIAL_RTO_MS;
+  txn->cancelled        = false;
 
   /* Send the first request */
   xErrno err = send_fn(txn->msg_buf, txn->msg_len, dest, send_arg);
@@ -170,11 +167,10 @@ xErrno xStunTxnMgrSend(xStunTxnMgr *mgr,
   return xErrno_Ok;
 }
 
-xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr,
-                            const uint8_t *msg_buf, size_t msg_len,
-                            const struct sockaddr *dest,
-                            xStunTxnSendFunc send_fn, void *send_arg,
-                            xStunTxnFunc on_complete, void *cb_arg) {
+xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf,
+                          size_t msg_len, const struct sockaddr *dest,
+                          xStunTxnSendFunc send_fn, void *send_arg,
+                          xStunTxnFunc on_complete, void *cb_arg) {
   if (!mgr || !msg_buf || !dest || !send_fn) return xErrno_InvalidArg;
   if (msg_len < XSTUN_HEADER_SIZE || msg_len > XSTUN_MAX_MSG_SIZE) {
     return xErrno_InvalidArg;
@@ -196,14 +192,14 @@ xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr,
   }
   memcpy(&txn->dest, dest, addr_len);
 
-  txn->on_complete = on_complete;
-  txn->callback_arg = cb_arg;
-  txn->send_fn = send_fn;
-  txn->send_arg = send_arg;
-  txn->loop = mgr->loop;
+  txn->on_complete      = on_complete;
+  txn->ctx              = cb_arg;
+  txn->send_fn          = send_fn;
+  txn->send_arg         = send_arg;
+  txn->loop             = mgr->loop;
   txn->retransmit_count = 0;
-  txn->rto_ms = XSTUN_INITIAL_RTO_MS;
-  txn->cancelled = false;
+  txn->rto_ms           = XSTUN_INITIAL_RTO_MS;
+  txn->cancelled        = false;
 
   xErrno err = send_fn(txn->msg_buf, txn->msg_len, dest, send_arg);
   if (err != xErrno_Ok) {
@@ -219,9 +215,9 @@ xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr,
 /* ───────────────────── Response Handling ───────────────────── */
 
 bool xStunTxnMgrOnResponse(xStunTxnMgr *mgr, const xStunMsg *msg,
-                            const uint8_t *raw_buf __attribute__((unused)),
-                            size_t raw_len __attribute__((unused)),
-                            const struct sockaddr *from) {
+                           const uint8_t *raw_buf __attribute__((unused)),
+                           size_t         raw_len __attribute__((unused)),
+                           const struct sockaddr *from) {
   if (!mgr || !msg) return false;
 
   int idx = txn_find(mgr, msg->txn_id);
@@ -236,9 +232,9 @@ bool xStunTxnMgrOnResponse(xStunTxnMgr *mgr, const xStunMsg *msg,
   }
 
   /* Invoke callback */
-  xStunTxnFunc cb = txn->on_complete;
-  void *cb_arg = txn->callback_arg;
-  txn->cancelled = true;
+  xStunTxnFunc cb     = txn->on_complete;
+  void        *cb_arg = txn->ctx;
+  txn->cancelled      = true;
 
   /* Remove from manager before callback (callback may re-enter) */
   txn_free(mgr, idx);

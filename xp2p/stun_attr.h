@@ -24,9 +24,9 @@
  * attributes can be appended sequentially.
  */
 XDEF_STRUCT(xStunAttrWriter) {
-  uint8_t *buf;     /**< Start of attribute area (after STUN header). */
-  size_t   cap;     /**< Capacity of attribute area.                  */
-  size_t   pos;     /**< Current write position.                      */
+  uint8_t *buf; /**< Start of attribute area (after STUN header). */
+  size_t   cap; /**< Capacity of attribute area.                  */
+  size_t   pos; /**< Current write position.                      */
 };
 
 /**
@@ -46,15 +46,15 @@ void xStunAttrWriterInit(xStunAttrWriter *w, uint8_t *buf, size_t cap);
  * @param txn_id  Transaction ID (needed for IPv6 XOR).
  * @return        xErrno_Ok on success.
  */
-xErrno xStunAttrWriteXorMappedAddress(xStunAttrWriter *w,
-                                       const struct sockaddr *addr,
-                                       const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
+xErrno xStunAttrWriteXorMappedAddress(xStunAttrWriter       *w,
+                                      const struct sockaddr *addr,
+                                      const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
 
 /**
  * @brief Write a MAPPED-ADDRESS attribute.
  */
-xErrno xStunAttrWriteMappedAddress(xStunAttrWriter *w,
-                                    const struct sockaddr *addr);
+xErrno xStunAttrWriteMappedAddress(xStunAttrWriter       *w,
+                                   const struct sockaddr *addr);
 
 /**
  * @brief Write a USERNAME attribute.
@@ -64,9 +64,8 @@ xErrno xStunAttrWriteMappedAddress(xStunAttrWriter *w,
  * @param local_ufrag  Local ice-ufrag.
  * @return            xErrno_Ok on success.
  */
-xErrno xStunAttrWriteUsername(xStunAttrWriter *w,
-                               const char *remote_ufrag,
-                               const char *local_ufrag);
+xErrno xStunAttrWriteUsername(xStunAttrWriter *w, const char *remote_ufrag,
+                              const char *local_ufrag);
 
 /**
  * @brief Write a MESSAGE-INTEGRITY attribute (HMAC-SHA1).
@@ -82,10 +81,8 @@ xErrno xStunAttrWriteUsername(xStunAttrWriter *w,
  * @param key_len  Length of key.
  * @return         xErrno_Ok on success.
  */
-xErrno xStunAttrWriteMessageIntegrity(xStunAttrWriter *w,
-                                       uint8_t *msg_buf,
-                                       const uint8_t *key,
-                                       size_t key_len);
+xErrno xStunAttrWriteMessageIntegrity(xStunAttrWriter *w, uint8_t *msg_buf,
+                                      const uint8_t *key, size_t key_len);
 
 /**
  * @brief Write a FINGERPRINT attribute (CRC-32).
@@ -113,14 +110,12 @@ xErrno xStunAttrWriteUseCandidate(xStunAttrWriter *w);
 /**
  * @brief Write an ICE-CONTROLLING attribute (64-bit tie-breaker).
  */
-xErrno xStunAttrWriteIceControlling(xStunAttrWriter *w,
-                                     uint64_t tie_breaker);
+xErrno xStunAttrWriteIceControlling(xStunAttrWriter *w, uint64_t tie_breaker);
 
 /**
  * @brief Write an ICE-CONTROLLED attribute (64-bit tie-breaker).
  */
-xErrno xStunAttrWriteIceControlled(xStunAttrWriter *w,
-                                    uint64_t tie_breaker);
+xErrno xStunAttrWriteIceControlled(xStunAttrWriter *w, uint64_t tie_breaker);
 
 /**
  * @brief Write an ERROR-CODE attribute.
@@ -131,7 +126,7 @@ xErrno xStunAttrWriteIceControlled(xStunAttrWriter *w,
  * @return        xErrno_Ok on success.
  */
 xErrno xStunAttrWriteErrorCode(xStunAttrWriter *w, int code,
-                                const char *reason);
+                               const char *reason);
 
 /**
  * @brief Write a REALM attribute.
@@ -151,15 +146,14 @@ xErrno xStunAttrWriteLifetime(xStunAttrWriter *w, uint32_t lifetime);
 /**
  * @brief Write a REQUESTED-TRANSPORT attribute.
  */
-xErrno xStunAttrWriteRequestedTransport(xStunAttrWriter *w,
-                                         uint32_t transport);
+xErrno xStunAttrWriteRequestedTransport(xStunAttrWriter *w, uint32_t transport);
 
 /**
  * @brief Write a XOR-PEER-ADDRESS attribute.
  */
-xErrno xStunAttrWriteXorPeerAddress(xStunAttrWriter *w,
-                                     const struct sockaddr *addr,
-                                     const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
+xErrno xStunAttrWriteXorPeerAddress(xStunAttrWriter       *w,
+                                    const struct sockaddr *addr,
+                                    const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
 
 /**
  * @brief Write a CHANNEL-NUMBER attribute.
@@ -169,8 +163,7 @@ xErrno xStunAttrWriteChannelNumber(xStunAttrWriter *w, uint16_t channel);
 /**
  * @brief Write a DATA attribute.
  */
-xErrno xStunAttrWriteData(xStunAttrWriter *w, const uint8_t *data,
-                           size_t len);
+xErrno xStunAttrWriteData(xStunAttrWriter *w, const uint8_t *data, size_t len);
 
 /**
  * @brief Write a SOFTWARE attribute.
@@ -183,18 +176,18 @@ xErrno xStunAttrWriteSoftware(xStunAttrWriter *w, const char *software);
  * @brief Iterator for reading STUN attributes from a decoded message.
  */
 XDEF_STRUCT(xStunAttrIter) {
-  const uint8_t *data;  /**< Attribute payload start. */
-  size_t         len;   /**< Total attribute payload length. */
-  size_t         pos;   /**< Current read position. */
+  const uint8_t *data; /**< Attribute payload start. */
+  size_t         len;  /**< Total attribute payload length. */
+  size_t         pos;  /**< Current read position. */
 };
 
 /**
  * @brief A single parsed STUN attribute.
  */
 XDEF_STRUCT(xStunAttr) {
-  xStunAttrType type;
-  uint16_t      length;       /**< Value length (without padding). */
-  const uint8_t *value;       /**< Pointer into the original buffer. */
+  xStunAttrType  type;
+  uint16_t       length; /**< Value length (without padding). */
+  const uint8_t *value;  /**< Pointer into the original buffer. */
 };
 
 /**
@@ -222,14 +215,14 @@ bool xStunAttrIterNext(xStunAttrIter *iter, xStunAttr *attr);
  * @return        xErrno_Ok on success.
  */
 xErrno xStunAttrDecodeXorMappedAddress(const xStunAttr *attr,
-                                        const uint8_t txn_id[XSTUN_TXN_ID_SIZE],
-                                        struct sockaddr_storage *out);
+                                       const uint8_t txn_id[XSTUN_TXN_ID_SIZE],
+                                       struct sockaddr_storage *out);
 
 /**
  * @brief Decode a MAPPED-ADDRESS attribute value.
  */
-xErrno xStunAttrDecodeMappedAddress(const xStunAttr *attr,
-                                     struct sockaddr_storage *out);
+xErrno xStunAttrDecodeMappedAddress(const xStunAttr         *attr,
+                                    struct sockaddr_storage *out);
 
 /**
  * @brief Decode an ERROR-CODE attribute value.
@@ -241,7 +234,7 @@ xErrno xStunAttrDecodeMappedAddress(const xStunAttr *attr,
  * @return        xErrno_Ok on success.
  */
 xErrno xStunAttrDecodeErrorCode(const xStunAttr *attr, int *code,
-                                 const char **reason, size_t *reason_len);
+                                const char **reason, size_t *reason_len);
 
 /**
  * @brief Verify MESSAGE-INTEGRITY attribute.
@@ -253,11 +246,9 @@ xErrno xStunAttrDecodeErrorCode(const xStunAttr *attr, int *code,
  * @param key_len   Key length.
  * @return          xErrno_Ok if valid, xErrno_InvalidArg if mismatch.
  */
-xErrno xStunAttrVerifyMessageIntegrity(const uint8_t *msg_buf,
-                                        size_t msg_len,
-                                        const xStunAttr *attr,
-                                        const uint8_t *key,
-                                        size_t key_len);
+xErrno xStunAttrVerifyMessageIntegrity(const uint8_t *msg_buf, size_t msg_len,
+                                       const xStunAttr *attr,
+                                       const uint8_t *key, size_t key_len);
 
 /**
  * @brief Verify FINGERPRINT attribute.
@@ -268,7 +259,7 @@ xErrno xStunAttrVerifyMessageIntegrity(const uint8_t *msg_buf,
  * @return          xErrno_Ok if valid, xErrno_InvalidArg if mismatch.
  */
 xErrno xStunAttrVerifyFingerprint(const uint8_t *msg_buf, size_t msg_len,
-                                   const xStunAttr *attr);
+                                  const xStunAttr *attr);
 
 /**
  * @brief Check if an unknown attribute type is comprehension-required.

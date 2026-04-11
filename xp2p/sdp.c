@@ -20,35 +20,33 @@ int xIceSdpEncodeCandidate(const xIceCandidate *cand, char *out, size_t cap) {
 
   char addr_str[INET6_ADDRSTRLEN];
   if (!xSockaddrIP((const struct sockaddr *)&cand->addr, addr_str,
-                    sizeof(addr_str))) {
+                   sizeof(addr_str))) {
     return -1;
   }
-  uint16_t port = xSockaddrPort((const struct sockaddr *)&cand->addr);
+  uint16_t    port     = xSockaddrPort((const struct sockaddr *)&cand->addr);
   const char *type_str = xIceCandidateTypeStr(cand->type);
 
   int written;
   if (cand->type == xIceCandidateType_Srflx ||
       cand->type == xIceCandidateType_Prflx ||
       cand->type == xIceCandidateType_Relay) {
-    char raddr_str[INET6_ADDRSTRLEN];
+    char     raddr_str[INET6_ADDRSTRLEN];
     uint16_t rport = 0;
     if (cand->rel_addr.ss_family != 0) {
       xSockaddrIP((const struct sockaddr *)&cand->rel_addr, raddr_str,
-                   sizeof(raddr_str));
+                  sizeof(raddr_str));
       rport = xSockaddrPort((const struct sockaddr *)&cand->rel_addr);
     } else {
       strncpy(raddr_str, "0.0.0.0", sizeof(raddr_str));
     }
-    written = snprintf(out, cap,
-                       "a=candidate:%s %d UDP %u %s %u typ %s raddr %s rport %u\r\n",
-                       cand->foundation, cand->component_id,
-                       cand->priority, addr_str, port, type_str,
-                       raddr_str, rport);
+    written = snprintf(
+      out, cap, "a=candidate:%s %d UDP %u %s %u typ %s raddr %s rport %u\r\n",
+      cand->foundation, cand->component_id, cand->priority, addr_str, port,
+      type_str, raddr_str, rport);
   } else {
-    written = snprintf(out, cap,
-                       "a=candidate:%s %d UDP %u %s %u typ %s\r\n",
-                       cand->foundation, cand->component_id,
-                       cand->priority, addr_str, port, type_str);
+    written = snprintf(out, cap, "a=candidate:%s %d UDP %u %s %u typ %s\r\n",
+                       cand->foundation, cand->component_id, cand->priority,
+                       addr_str, port, type_str);
   }
 
   if (written < 0 || (size_t)written >= cap) return -1;
@@ -69,32 +67,31 @@ xErrno xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand) {
   }
 
   /* Parse: foundation component transport priority address port */
-  char foundation[XICE_FOUNDATION_MAX_LEN];
-  int component;
-  char transport[8];
+  char         foundation[XICE_FOUNDATION_MAX_LEN];
+  int          component;
+  char         transport[8];
   unsigned int priority;
-  char addr_str[INET6_ADDRSTRLEN];
+  char         addr_str[INET6_ADDRSTRLEN];
   unsigned int port;
 
   int consumed = 0;
-  int n = sscanf(p, "%31s %d %7s %u %45s %u%n",
-                 foundation, &component, transport, &priority,
-                 addr_str, &port, &consumed);
+  int n        = sscanf(p, "%31s %d %7s %u %45s %u%n", foundation, &component,
+                        transport, &priority, addr_str, &port, &consumed);
   if (n < 6) return xErrno_InvalidArg;
 
   strncpy(cand->foundation, foundation, XICE_FOUNDATION_MAX_LEN - 1);
   cand->component_id = component;
-  cand->priority = priority;
+  cand->priority     = priority;
 
   /* Parse address */
-  struct sockaddr_in *a4 = (struct sockaddr_in *)&cand->addr;
+  struct sockaddr_in  *a4 = (struct sockaddr_in *)&cand->addr;
   struct sockaddr_in6 *a6 = (struct sockaddr_in6 *)&cand->addr;
   if (inet_pton(AF_INET, addr_str, &a4->sin_addr) == 1) {
     a4->sin_family = AF_INET;
-    a4->sin_port = htons((uint16_t)port);
+    a4->sin_port   = htons((uint16_t)port);
   } else if (inet_pton(AF_INET6, addr_str, &a6->sin6_addr) == 1) {
     a6->sin6_family = AF_INET6;
-    a6->sin6_port = htons((uint16_t)port);
+    a6->sin6_port   = htons((uint16_t)port);
   } else {
     return xErrno_InvalidArg;
   }
@@ -112,17 +109,17 @@ xErrno xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand) {
   }
 
   /* Parse optional "raddr <addr> rport <port>" */
-  char raddr_str[INET6_ADDRSTRLEN] = {0};
-  unsigned int rport = 0;
+  char         raddr_str[INET6_ADDRSTRLEN] = {0};
+  unsigned int rport                       = 0;
   if (sscanf(p, " raddr %45s rport %u", raddr_str, &rport) == 2) {
-    struct sockaddr_in *r4 = (struct sockaddr_in *)&cand->rel_addr;
+    struct sockaddr_in  *r4 = (struct sockaddr_in *)&cand->rel_addr;
     struct sockaddr_in6 *r6 = (struct sockaddr_in6 *)&cand->rel_addr;
     if (inet_pton(AF_INET, raddr_str, &r4->sin_addr) == 1) {
       r4->sin_family = AF_INET;
-      r4->sin_port = htons((uint16_t)rport);
+      r4->sin_port   = htons((uint16_t)rport);
     } else if (inet_pton(AF_INET6, raddr_str, &r6->sin6_addr) == 1) {
       r6->sin6_family = AF_INET6;
-      r6->sin6_port = htons((uint16_t)rport);
+      r6->sin6_port   = htons((uint16_t)rport);
     }
   }
 
@@ -132,8 +129,8 @@ xErrno xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand) {
 /* ───────────────────── Full SDP ───────────────────── */
 
 int xIceSdpEncode(const char *ufrag, const char *pwd,
-                   const xIceCandidate *candidates, int cand_count,
-                   bool trickle, char *out, size_t out_cap) {
+                  const xIceCandidate *candidates, int cand_count, bool trickle,
+                  char *out, size_t out_cap) {
   if (!ufrag || !pwd || !out) return -1;
 
   int pos = 0;
@@ -181,7 +178,7 @@ xErrno xIceSdpDecode(const char *sdp_str, size_t sdp_len, xIceSdp *out) {
   buf[sdp_len] = '\0';
 
   bool got_ufrag = false;
-  bool got_pwd = false;
+  bool got_pwd   = false;
 
   char *line = buf;
   while (line && *line) {

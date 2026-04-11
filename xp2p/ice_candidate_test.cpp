@@ -39,7 +39,7 @@ TEST(IceCandidateTest, RelayPriorityFormula) {
 }
 
 TEST(IceCandidateTest, PriorityOrdering) {
-  uint32_t host = xIceCandidatePriority(xIceCandidateType_Host, 65535, 1);
+  uint32_t host  = xIceCandidatePriority(xIceCandidateType_Host, 65535, 1);
   uint32_t srflx = xIceCandidatePriority(xIceCandidateType_Srflx, 65535, 1);
   uint32_t prflx = xIceCandidatePriority(xIceCandidateType_Prflx, 65535, 1);
   uint32_t relay = xIceCandidatePriority(xIceCandidateType_Relay, 65535, 1);
@@ -66,11 +66,11 @@ TEST(IceCandidateTest, SameTypeAndBaseGiveSameFoundation) {
   c2.type = xIceCandidateType_Host;
 
   struct sockaddr_in *a1 = (struct sockaddr_in *)&c1.base_addr;
-  a1->sin_family = AF_INET;
+  a1->sin_family         = AF_INET;
   inet_pton(AF_INET, "192.168.1.1", &a1->sin_addr);
 
   struct sockaddr_in *a2 = (struct sockaddr_in *)&c2.base_addr;
-  a2->sin_family = AF_INET;
+  a2->sin_family         = AF_INET;
   inet_pton(AF_INET, "192.168.1.1", &a2->sin_addr);
 
   xIceCandidateFoundation(&c1, NULL);
@@ -88,11 +88,11 @@ TEST(IceCandidateTest, DifferentTypeGivesDifferentFoundation) {
   c2.type = xIceCandidateType_Srflx;
 
   struct sockaddr_in *a1 = (struct sockaddr_in *)&c1.base_addr;
-  a1->sin_family = AF_INET;
+  a1->sin_family         = AF_INET;
   inet_pton(AF_INET, "192.168.1.1", &a1->sin_addr);
 
   struct sockaddr_in *a2 = (struct sockaddr_in *)&c2.base_addr;
-  a2->sin_family = AF_INET;
+  a2->sin_family         = AF_INET;
   inet_pton(AF_INET, "192.168.1.1", &a2->sin_addr);
 
   xIceCandidateFoundation(&c1, NULL);
@@ -112,7 +112,7 @@ TEST(IceCandidateTest, TypeStringRoundTrip) {
   };
 
   for (auto t : types) {
-    const char *str = xIceCandidateTypeStr(t);
+    const char       *str = xIceCandidateTypeStr(t);
     xIceCandidateType parsed;
     ASSERT_EQ(xIceCandidateTypeFromStr(str, &parsed), xErrno_Ok);
     EXPECT_EQ(parsed, t);
@@ -130,7 +130,7 @@ TEST(IceCandidateTest, SockaddrPortIPv4) {
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
-  addr.sin_port = htons(12345);
+  addr.sin_port   = htons(12345);
   EXPECT_EQ(xSockaddrPort((struct sockaddr *)&addr), 12345);
 }
 
@@ -140,7 +140,7 @@ TEST(IceCandidateTest, SockaddrIPv4String) {
   addr.sin_family = AF_INET;
   inet_pton(AF_INET, "10.0.0.1", &addr.sin_addr);
 
-  char buf[64];
+  char        buf[64];
   const char *result = xSockaddrIP((struct sockaddr *)&addr, buf, sizeof(buf));
   ASSERT_NE(result, nullptr);
   EXPECT_STREQ(result, "10.0.0.1");
@@ -175,22 +175,22 @@ TEST(IcePairTest, SortDescending) {
   memset(remotes, 0, sizeof(remotes));
 
   xIcePair pairs[3];
-  pairs[0].local = &locals[0];
-  pairs[0].remote = &remotes[0];
-  pairs[0].priority = 100;
-  pairs[0].state = xIcePairState_Frozen;
+  pairs[0].local     = &locals[0];
+  pairs[0].remote    = &remotes[0];
+  pairs[0].priority  = 100;
+  pairs[0].state     = xIcePairState_Frozen;
   pairs[0].nominated = false;
 
-  pairs[1].local = &locals[1];
-  pairs[1].remote = &remotes[1];
-  pairs[1].priority = 300;
-  pairs[1].state = xIcePairState_Frozen;
+  pairs[1].local     = &locals[1];
+  pairs[1].remote    = &remotes[1];
+  pairs[1].priority  = 300;
+  pairs[1].state     = xIcePairState_Frozen;
   pairs[1].nominated = false;
 
-  pairs[2].local = &locals[2];
-  pairs[2].remote = &remotes[2];
-  pairs[2].priority = 200;
-  pairs[2].state = xIcePairState_Frozen;
+  pairs[2].local     = &locals[2];
+  pairs[2].remote    = &remotes[2];
+  pairs[2].priority  = 200;
+  pairs[2].state     = xIcePairState_Frozen;
   pairs[2].nominated = false;
 
   xIcePairSort(pairs, 3);

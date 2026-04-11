@@ -7,8 +7,8 @@
  */
 
 #include "turn_client.h"
-#include "ice_private.h"
 #include "ice_crypto.h"
+#include "ice_private.h"
 #include "stun_attr.h"
 #include "stun_msg.h"
 
@@ -30,12 +30,12 @@ static size_t sockaddr_size(const struct sockaddr *addr) {
  */
 static void turn_compute_key(const xTurnClient *tc, uint8_t *key,
                              size_t *key_len) {
-  const char *user = tc->config.username;
+  const char *user  = tc->config.username;
   const char *realm = tc->realm;
-  const char *pass = tc->config.password;
-  size_t ulen = strlen(user);
-  size_t rlen = strlen(realm);
-  size_t plen = strlen(pass);
+  const char *pass  = tc->config.password;
+  size_t      ulen  = strlen(user);
+  size_t      rlen  = strlen(realm);
+  size_t      plen  = strlen(pass);
 
   if (rlen == 0) {
     /* No realm yet (first request) — use password directly */
@@ -45,8 +45,8 @@ static void turn_compute_key(const xTurnClient *tc, uint8_t *key,
   }
 
   /* Concatenate "username:realm:password" */
-  size_t total = ulen + 1 + rlen + 1 + plen;
-  uint8_t *buf = (uint8_t *)malloc(total);
+  size_t   total = ulen + 1 + rlen + 1 + plen;
+  uint8_t *buf   = (uint8_t *)malloc(total);
   if (!buf) {
     memcpy(key, pass, plen);
     *key_len = plen;
@@ -86,14 +86,14 @@ void xTurnClientDestroy(xTurnClient *tc) {
 
 /* ───────────────────── Refresh ───────────────────── */
 
-static void on_refresh_response(const xStunMsg *msg,
+static void on_refresh_response(const xStunMsg        *msg,
                                 const struct sockaddr *from
-                                    __attribute__((unused)),
+                                __attribute__((unused)),
                                 void *arg);
 static void schedule_refresh(xTurnClient *tc);
 
 static void refresh_timer_cb(void *arg) {
-  xTurnClient *tc = (xTurnClient *)arg;
+  xTurnClient *tc   = (xTurnClient *)arg;
   tc->refresh_timer = NULL;
 
   if (tc->state != xTurnState_Allocated) return;
@@ -134,14 +134,14 @@ static void refresh_timer_cb(void *arg) {
   xWriteU16BE(msg_buf + 2, (uint16_t)w.pos);
   size_t total = XSTUN_HEADER_SIZE + w.pos;
 
-  xStunTxnMgrSendRaw(
-    &tc->txn_mgr, msg_buf, total, (struct sockaddr *)&tc->config.server,
-    tc->config.send_fn, tc->config.send_arg, on_refresh_response, tc);
+  xStunTxnMgrSendRaw(&tc->txn_mgr, msg_buf, total,
+                     (struct sockaddr *)&tc->config.server, tc->config.send_fn,
+                     tc->config.send_arg, on_refresh_response, tc);
 }
 
-static void on_refresh_response(const xStunMsg *msg,
+static void on_refresh_response(const xStunMsg        *msg,
                                 const struct sockaddr *from
-                                    __attribute__((unused)),
+                                __attribute__((unused)),
                                 void *arg) {
   xTurnClient *tc = (xTurnClient *)arg;
 
@@ -150,7 +150,7 @@ static void on_refresh_response(const xStunMsg *msg,
     tc->state = xTurnState_Failed;
     if (tc->config.on_failed) {
       tc->config.on_failed(msg ? xErrno_SysError : xErrno_Timeout,
-                           tc->config.callback_arg);
+                           tc->config.ctx);
     }
     return;
   }
@@ -180,8 +180,8 @@ static void schedule_refresh(xTurnClient *tc) {
   uint32_t refresh_ms = (tc->lifetime * XTURN_REFRESH_RATIO / 100) * 1000;
   if (refresh_ms == 0) refresh_ms = 1000;
 
-  tc->refresh_timer = xEventLoopTimerAfter(tc->loop, refresh_timer_cb, tc,
-                                            refresh_ms);
+  tc->refresh_timer =
+    xEventLoopTimerAfter(tc->loop, refresh_timer_cb, tc, refresh_ms);
 }
 
 /* ───────────────────── Allocate ───────────────────── */
@@ -243,7 +243,7 @@ static void on_allocate_response(const xStunMsg        *msg,
     /* Timeout */
     tc->state = xTurnState_Failed;
     if (tc->config.on_failed) {
-      tc->config.on_failed(xErrno_Timeout, tc->config.callback_arg);
+      tc->config.on_failed(xErrno_Timeout, tc->config.ctx);
     }
     return;
   }
@@ -281,7 +281,7 @@ static void on_allocate_response(const xStunMsg        *msg,
 
     tc->state = xTurnState_Failed;
     if (tc->config.on_failed) {
-      tc->config.on_failed(xErrno_SysError, tc->config.callback_arg);
+      tc->config.on_failed(xErrno_SysError, tc->config.ctx);
     }
     return;
   }
@@ -313,7 +313,7 @@ static void on_allocate_response(const xStunMsg        *msg,
   if (!got_relayed) {
     tc->state = xTurnState_Failed;
     if (tc->config.on_failed) {
-      tc->config.on_failed(xErrno_InvalidArg, tc->config.callback_arg);
+      tc->config.on_failed(xErrno_InvalidArg, tc->config.ctx);
     }
     return;
   }
@@ -327,7 +327,7 @@ static void on_allocate_response(const xStunMsg        *msg,
     tc->config.on_allocated((struct sockaddr *)&tc->relayed_addr,
                             got_mapped ? (struct sockaddr *)&tc->mapped_addr
                                        : NULL,
-                            tc->lifetime, tc->config.callback_arg);
+                            tc->lifetime, tc->config.ctx);
   }
 }
 
@@ -568,7 +568,7 @@ bool xTurnClientOnMessage(xTurnClient *tc, const xStunMsg *msg,
 
     if (got_peer && ind_data && tc->config.on_data) {
       tc->config.on_data(ind_data, ind_data_len, (struct sockaddr *)&peer_addr,
-                         tc->config.callback_arg);
+                         tc->config.ctx);
     }
     return true;
   }
@@ -592,7 +592,7 @@ bool xTurnClientOnChannelData(xTurnClient *tc, const uint8_t *buf, size_t len) {
       if (tc->config.on_data) {
         tc->config.on_data(data, data_len,
                            (struct sockaddr *)&tc->channels[i].peer,
-                           tc->config.callback_arg);
+                           tc->config.ctx);
       }
       return true;
     }

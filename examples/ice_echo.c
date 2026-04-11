@@ -308,7 +308,7 @@ int main(int argc, char *argv[]) {
   conf_a.on_candidate    = on_candidate;
   conf_a.on_data         = on_data;
   conf_a.enable_ipv6     = g_enable_ipv6;
-  conf_a.callback_arg    = &ctx_a;
+  conf_a.ctx    = &ctx_a;
 
   xIceConf conf_b;
   memset(&conf_b, 0, sizeof(conf_b));
@@ -318,7 +318,7 @@ int main(int argc, char *argv[]) {
   conf_b.on_candidate    = on_candidate;
   conf_b.on_data         = on_data;
   conf_b.enable_ipv6     = g_enable_ipv6;
-  conf_b.callback_arg    = &ctx_b;
+  conf_b.ctx    = &ctx_b;
 
   xIceAgent agent_a = xIceAgentCreate(loop, &conf_a);
   xIceAgent agent_b = xIceAgentCreate(loop, &conf_b);

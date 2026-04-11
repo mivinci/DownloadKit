@@ -22,6 +22,7 @@
 XDEF_STRUCT(xDtlsTransport_) {
   xDtlsTransportConf conf;
   xDtlsState         state;
+  xDtlsRole          effective_role; /**< Resolved role (Active or Passive). */
 
   const xDtlsBackend *backend;
   xDtlsBackendCtx    *backend_ctx;
@@ -164,6 +165,7 @@ xDtlsTransport xDtlsTransportCreate(const xDtlsTransportConf *conf) {
     /* Default to passive when actpass (answerer becomes passive) */
     effective_role = xDtlsRole_Passive;
   }
+  t->effective_role = effective_role;
 
   /* Create backend context (generates self-signed cert) */
   t->backend_ctx =
@@ -272,6 +274,12 @@ xDtlsState xDtlsTransportGetState(xDtlsTransport transport) {
   if (!transport) return xDtlsState_Closed;
   xDtlsTransport_ *t = (xDtlsTransport_ *)transport;
   return t->state;
+}
+
+xDtlsRole xDtlsTransportGetRole(xDtlsTransport transport) {
+  if (!transport) return xDtlsRole_Passive;
+  xDtlsTransport_ *t = (xDtlsTransport_ *)transport;
+  return t->effective_role;
 }
 
 

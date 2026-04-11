@@ -164,6 +164,17 @@ XCAPI(xErrno) xDtlsTransportGetFingerprintStr(xDtlsTransport transport,
  */
 XCAPI(xDtlsState) xDtlsTransportGetState(xDtlsTransport transport);
 
+/**
+ * @brief Get the effective DTLS role (Active or Passive) of this transport.
+ *
+ * Actpass is resolved to Passive at creation time, so this always returns
+ * either xDtlsRole_Active or xDtlsRole_Passive.
+ *
+ * @param transport  Transport handle.
+ * @return           Effective role.
+ */
+XCAPI(xDtlsRole) xDtlsTransportGetRole(xDtlsTransport transport);
+
 /* ───────────────────── Utility ───────────────────── */
 
 /**

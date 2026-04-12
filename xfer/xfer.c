@@ -13,6 +13,7 @@
 #include "xfer_protocol.h"
 #include "xfer_signal.h"
 
+#include <xbase/base58.h>
 #include <xbase/bitmap.h>
 #include <xbase/log.h>
 #include <xcrypto/sha1.h>
@@ -852,7 +853,17 @@ static void on_signal_code(xSignalClient client, const char *code, void *ctx) {
         }
         (void)n;
         xUrlFree(&url);
-        impl->conf.on_code((xTransfer)impl, full_code, impl->conf.ctx);
+
+        /* Base58-encode the full URL for a clean, human-friendly code */
+        char b58_code[XBASE58_ENCODE_MAXLEN(sizeof(full_code))];
+        size_t b58_len = sizeof(b58_code);
+        if (xBase58Encode((const uint8_t *)full_code, strlen(full_code),
+                          b58_code, &b58_len) == 0) {
+          impl->conf.on_code((xTransfer)impl, b58_code, impl->conf.ctx);
+        } else {
+          /* Fallback to raw URL if encoding fails */
+          impl->conf.on_code((xTransfer)impl, full_code, impl->conf.ctx);
+        }
         return;
       }
     }
@@ -1100,12 +1111,32 @@ xErrno xTransferRecvFile(xTransfer xfer, const char *code,
   impl->role = xTransferRole_Receiver;
   strncpy(impl->recv_dest_dir, dest_dir, sizeof(impl->recv_dest_dir) - 1);
 
+  /* Try Base58-decoding the code first. If it decodes to a URL
+     (ws:// or wss://), extract session code and signal server from it.
+     Otherwise treat the raw input as a plain code or URL. */
+  char decoded_buf[512];
+  const char *effective_code = code;
+  {
+    size_t dec_len = sizeof(decoded_buf) - 1;
+    if (xBase58Decode(code, strlen(code),
+                      (uint8_t *)decoded_buf, &dec_len) == 0 &&
+        dec_len > 0) {
+      decoded_buf[dec_len] = '\0';
+      /* Only use decoded result if it looks like a ws(s):// URL */
+      if (strncmp(decoded_buf, "ws://", 5) == 0 ||
+          strncmp(decoded_buf, "wss://", 6) == 0) {
+        effective_code = decoded_buf;
+      }
+    }
+  }
+
   /* Parse code: if it looks like a URL (ws:// or wss://), extract the
      session code from userinfo and rebuild the signaling server URL. */
-  const char *session_code = code;
-  if ((strncmp(code, "ws://", 5) == 0 || strncmp(code, "wss://", 6) == 0)) {
+  const char *session_code = effective_code;
+  if ((strncmp(effective_code, "ws://", 5) == 0 ||
+       strncmp(effective_code, "wss://", 6) == 0)) {
     xUrl url;
-    if (xUrlParse(code, &url) == xErrno_Ok && url.userinfo &&
+    if (xUrlParse(effective_code, &url) == xErrno_Ok && url.userinfo &&
         url.userinfo_len > 0) {
       /* Extract session code from userinfo */
       size_t code_len = url.userinfo_len;
@@ -1150,10 +1181,10 @@ xErrno xTransferRecvFile(xTransfer xfer, const char *code,
       }
     } else {
       xUrlFree(&url);
-      strncpy(impl->code, code, XFER_MAX_CODE_LEN - 1);
+      strncpy(impl->code, effective_code, XFER_MAX_CODE_LEN - 1);
     }
   } else {
-    strncpy(impl->code, code, XFER_MAX_CODE_LEN - 1);
+    strncpy(impl->code, effective_code, XFER_MAX_CODE_LEN - 1);
   }
 
   /* Create PeerConnection */

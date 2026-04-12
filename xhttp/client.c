@@ -95,6 +95,10 @@ static void check_multi_info(struct xHttpClient_ *c) {
 
     if (!req->cleaned) {
       req->cleaned = 1;
+      /* Remove from client's request list */
+      struct xHttpReq_ **pp = &c->reqs;
+      while (*pp && *pp != req) pp = &(*pp)->next;
+      if (*pp) *pp = req->next;
       curl_multi_remove_handle(c->multi, easy);
       curl_easy_cleanup(easy);
       if (req->vt && req->vt->on_cleanup) req->vt->on_cleanup(req);
@@ -340,6 +344,10 @@ static void destroy_req(struct xHttpClient_ *c, CURL *easy,
 
   if (req && !req->cleaned) {
     req->cleaned = 1;
+    /* Remove from client's request list */
+    struct xHttpReq_ **pp = &c->reqs;
+    while (*pp && *pp != req) pp = &(*pp)->next;
+    if (*pp) *pp = req->next;
     curl_multi_remove_handle(c->multi, easy);
     curl_easy_cleanup(easy);
     if (req->vt && req->vt->on_cleanup) req->vt->on_cleanup(req);
@@ -373,19 +381,13 @@ void xHttpClientDestroy(xHttpClient client) {
   }
 
   /*
-   * Forcibly remove any still-running easy handles. We use
-   * curl_multi_remove_handle directly rather than trying to trigger
-   * completion, which avoids reentrant socket_callback issues.
+   * Forcibly remove any still-running easy handles by walking the
+   * client's own request list.  This avoids curl_multi_get_handles()
+   * which requires libcurl >= 7.84.0.
    */
-  CURL **handles = curl_multi_get_handles(c->multi);
-  if (handles) {
-    for (int i = 0; handles[i] != NULL; i++) {
-      CURL             *easy = handles[i];
-      struct xHttpReq_ *req  = NULL;
-      curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
-      destroy_req(c, easy, req, 1);
-    }
-    curl_free(handles);
+  while (c->reqs) {
+    struct xHttpReq_ *req = c->reqs;
+    destroy_req(c, req->easy, req, 1);
   }
 
   curl_multi_cleanup(c->multi);
@@ -435,6 +437,10 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
     free(req);
     return xErrno_Unknown;
   }
+
+  /* Track in client's request list */
+  req->next = c->reqs;
+  c->reqs   = req;
 
   return xErrno_Ok;
 }

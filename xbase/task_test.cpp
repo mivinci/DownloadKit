@@ -141,7 +141,7 @@ TEST_F(TaskTest, PendingCount) {
     return nullptr;
   };
 
-  xTaskGroupConf conf   = {.nthreads = 1};
+  xTaskGroupConf conf   = {.nthreads = 1, .queue_cap = 0};
   xTaskGroup     single = xTaskGroupCreate(&conf);
   ASSERT_NE(single, nullptr);
 

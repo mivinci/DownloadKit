@@ -179,6 +179,7 @@ static bool sockaddr_equal(const struct sockaddr *a, const struct sockaddr *b) {
   return false;
 }
 
+#ifdef XK_ENABLE_DEBUG
 /** Format a sockaddr into "ip:port" string, writes into buf (size >= 64). */
 static void sockaddr_to_str(const struct sockaddr *addr, char *buf,
                             size_t len) {
@@ -196,6 +197,7 @@ static void sockaddr_to_str(const struct sockaddr *addr, char *buf,
     snprintf(buf, len, "(unknown)");
   }
 }
+#endif
 
 /* ───────────────────── Low-level UDP Send ───────────────────── */
 
@@ -390,7 +392,9 @@ static void check_pacing_cb(void *arg) {
     }
   }
 
-  /* All pairs dispatched — try to nominate */
+  /* All pairs dispatched — try to nominate now.  Earlier pairs may already
+   * have succeeded while we were pacing out the remaining checks, so we
+   * can nominate immediately without waiting for the next STUN response. */
   try_nominate(a);
 }
 
@@ -1061,12 +1065,14 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
         a->pairs[i].nominated = true;
         a->pairs[i].state     = xIcePairState_Succeeded;
 
+#ifdef XK_ENABLE_DEBUG
         char lstr[64], rstr[64];
         sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr,
                         sizeof(lstr));
         sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr,
                         rstr, sizeof(rstr));
         XDEBUG("[ice] nominated pair: %s -> %s", lstr, rstr);
+#endif
 
         set_state(a, xIceAgentState_Connected);
         start_consent(a);

@@ -20,6 +20,8 @@ XDEF_STRUCT(xDataChannel_) {
   xDataChannelState state;
   xDataChannelConf  conf;
   xDataChannelMgr   mgr; /* Back-pointer to owning manager */
+  size_t            buffered_amount;               /**< Tracked send-buffer usage. */
+  size_t            buffered_amount_low_threshold;  /**< Low-water mark.            */
 };
 
 XDEF_STRUCT(xDataChannelMgr_) {
@@ -366,8 +368,12 @@ xErrno xDataChannelSendBinary(xDataChannel channel, const uint8_t *data,
   if (ch->state != xDataChannelState_Open) return xErrno_InvalidArg;
 
   uint32_t ppid = (len == 0) ? XSCTP_PPID_BINARY_EMPTY : XSCTP_PPID_BINARY;
-  return xSctpTransportSend(mgr->conf.sctp, ch->stream_id, ppid, data, len,
-                            ch->conf.ordered);
+  xErrno err = xSctpTransportSend(mgr->conf.sctp, ch->stream_id, ppid, data,
+                                  len, ch->conf.ordered);
+  if (err == xErrno_Ok) {
+    ch->buffered_amount += len;
+  }
+  return err;
 }
 
 void xDataChannelClose(xDataChannel channel) {
@@ -397,4 +403,34 @@ uint16_t xDataChannelGetStreamId(xDataChannel channel) {
   if (!channel) return 0;
   xDataChannel_ *ch = (xDataChannel_ *)channel;
   return ch->stream_id;
+}
+
+size_t xDataChannelGetBufferedAmount(xDataChannel channel) {
+  if (!channel) return 0;
+  xDataChannel_ *ch = (xDataChannel_ *)channel;
+  return ch->buffered_amount;
+}
+
+void xDataChannelSetBufferedAmountLowThreshold(xDataChannel channel,
+                                                size_t threshold) {
+  if (!channel) return;
+  xDataChannel_ *ch = (xDataChannel_ *)channel;
+  ch->buffered_amount_low_threshold = threshold;
+}
+
+void xDataChannelMgrOnBufferedAmountLow(xDataChannelMgr mgr_handle) {
+  if (!mgr_handle) return;
+  xDataChannelMgr_ *mgr = (xDataChannelMgr_ *)mgr_handle;
+
+  for (int i = 0; i < mgr->channel_count; i++) {
+    xDataChannel_ *ch = mgr->channels[i];
+    if (!ch || ch->state != xDataChannelState_Open) continue;
+
+    /* Reset buffered amount since SCTP has drained. */
+    ch->buffered_amount = 0;
+
+    if (ch->conf.on_buffered_amount_low) {
+      ch->conf.on_buffered_amount_low((xDataChannel)ch, ch->conf.ctx);
+    }
+  }
 }

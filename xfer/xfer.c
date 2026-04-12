@@ -16,6 +16,7 @@
 #include <xbase/bitmap.h>
 #include <xbase/log.h>
 #include <xcrypto/sha1.h>
+#include <xnet/url.h>
 #include <xp2p/peer_connection.h>
 
 #include <stdio.h>
@@ -75,6 +76,9 @@ XDEF_STRUCT(xTransfer_) {
 
   /* Code for signaling */
   char code[XFER_MAX_CODE_LEN];
+
+  /* Owned copy of signal_server URL (when parsed from code) */
+  char *signal_server_buf;
 
   /* Signaling client (NULL when using manual SDP API) */
   xSignalClient signal;
@@ -791,6 +795,13 @@ static void on_pc_ice_candidate(xPeerConnection pc, const char *candidate,
 
 /* ── Signaling callbacks (used when signal_server is configured) ──── */
 
+/**
+ * @brief Build a full code string: ws://code@host:port/path
+ *
+ * If the signal_server URL is available, the code is embedded as the
+ * userinfo component so the receiver can extract both the session code
+ * and the signaling server address from a single string.
+ */
 static void on_signal_code(xSignalClient client, const char *code, void *ctx) {
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)client;
@@ -799,6 +810,53 @@ static void on_signal_code(xSignalClient client, const char *code, void *ctx) {
   XDEBUG("[xfer] signaling: received code=%s", code);
 
   if (impl->conf.on_code) {
+    /* Build full code: ws://code@host:port/path */
+    if (impl->conf.signal_server) {
+      xUrl url;
+      if (xUrlParse(impl->conf.signal_server, &url) == xErrno_Ok) {
+        /* scheme://code@host[:port][/path] */
+        char full_code[512];
+        int n;
+        if (url.port && url.port_len > 0) {
+          if (url.path && url.path_len > 0) {
+            n = snprintf(full_code, sizeof(full_code),
+                         "%.*s://%s@%.*s:%.*s%.*s",
+                         (int)url.scheme_len, url.scheme,
+                         code,
+                         (int)url.host_len, url.host,
+                         (int)url.port_len, url.port,
+                         (int)url.path_len, url.path);
+          } else {
+            n = snprintf(full_code, sizeof(full_code),
+                         "%.*s://%s@%.*s:%.*s",
+                         (int)url.scheme_len, url.scheme,
+                         code,
+                         (int)url.host_len, url.host,
+                         (int)url.port_len, url.port);
+          }
+        } else {
+          if (url.path && url.path_len > 0) {
+            n = snprintf(full_code, sizeof(full_code),
+                         "%.*s://%s@%.*s%.*s",
+                         (int)url.scheme_len, url.scheme,
+                         code,
+                         (int)url.host_len, url.host,
+                         (int)url.path_len, url.path);
+          } else {
+            n = snprintf(full_code, sizeof(full_code),
+                         "%.*s://%s@%.*s",
+                         (int)url.scheme_len, url.scheme,
+                         code,
+                         (int)url.host_len, url.host);
+          }
+        }
+        (void)n;
+        xUrlFree(&url);
+        impl->conf.on_code((xTransfer)impl, full_code, impl->conf.ctx);
+        return;
+      }
+    }
+    /* Fallback: plain code */
     impl->conf.on_code((xTransfer)impl, code, impl->conf.ctx);
   }
 }
@@ -937,6 +995,10 @@ void xTransferDestroy(xTransfer xfer) {
     xSignalClientDestroy(impl->signal);
     impl->signal = NULL;
   }
+  if (impl->signal_server_buf) {
+    free(impl->signal_server_buf);
+    impl->signal_server_buf = NULL;
+  }
   if (impl->pc) {
     xPeerConnectionDestroy(impl->pc);
     impl->pc = NULL;
@@ -1036,8 +1098,63 @@ xErrno xTransferRecvFile(xTransfer xfer, const char *code,
   if (impl->state != xTransferState_Idle) return xErrno_InvalidState;
 
   impl->role = xTransferRole_Receiver;
-  strncpy(impl->code, code, XFER_MAX_CODE_LEN - 1);
   strncpy(impl->recv_dest_dir, dest_dir, sizeof(impl->recv_dest_dir) - 1);
+
+  /* Parse code: if it looks like a URL (ws:// or wss://), extract the
+     session code from userinfo and rebuild the signaling server URL. */
+  const char *session_code = code;
+  if ((strncmp(code, "ws://", 5) == 0 || strncmp(code, "wss://", 6) == 0)) {
+    xUrl url;
+    if (xUrlParse(code, &url) == xErrno_Ok && url.userinfo &&
+        url.userinfo_len > 0) {
+      /* Extract session code from userinfo */
+      size_t code_len = url.userinfo_len;
+      if (code_len >= XFER_MAX_CODE_LEN) code_len = XFER_MAX_CODE_LEN - 1;
+      memcpy(impl->code, url.userinfo, code_len);
+      impl->code[code_len] = '\0';
+      session_code = impl->code;
+
+      /* Rebuild signal URL without userinfo: scheme://host[:port][/path] */
+      char sig_url[512];
+      if (url.port && url.port_len > 0) {
+        if (url.path && url.path_len > 0) {
+          snprintf(sig_url, sizeof(sig_url), "%.*s://%.*s:%.*s%.*s",
+                   (int)url.scheme_len, url.scheme,
+                   (int)url.host_len, url.host,
+                   (int)url.port_len, url.port,
+                   (int)url.path_len, url.path);
+        } else {
+          snprintf(sig_url, sizeof(sig_url), "%.*s://%.*s:%.*s",
+                   (int)url.scheme_len, url.scheme,
+                   (int)url.host_len, url.host,
+                   (int)url.port_len, url.port);
+        }
+      } else {
+        if (url.path && url.path_len > 0) {
+          snprintf(sig_url, sizeof(sig_url), "%.*s://%.*s%.*s",
+                   (int)url.scheme_len, url.scheme,
+                   (int)url.host_len, url.host,
+                   (int)url.path_len, url.path);
+        } else {
+          snprintf(sig_url, sizeof(sig_url), "%.*s://%.*s",
+                   (int)url.scheme_len, url.scheme,
+                   (int)url.host_len, url.host);
+        }
+      }
+      xUrlFree(&url);
+
+      /* Store owned copy and override signal_server */
+      impl->signal_server_buf = strdup(sig_url);
+      if (impl->signal_server_buf) {
+        impl->conf.signal_server = impl->signal_server_buf;
+      }
+    } else {
+      xUrlFree(&url);
+      strncpy(impl->code, code, XFER_MAX_CODE_LEN - 1);
+    }
+  } else {
+    strncpy(impl->code, code, XFER_MAX_CODE_LEN - 1);
+  }
 
   /* Create PeerConnection */
   xPeerConnectionConf pc_conf;
@@ -1062,7 +1179,8 @@ xErrno xTransferRecvFile(xTransfer xfer, const char *code,
   set_state(impl, xTransferState_WaitingPeer);
 
   /* Connect to signaling server if configured */
-  xErrno sig_err = connect_signaling(impl, xSignalClientRole_Receiver, code);
+  xErrno sig_err = connect_signaling(impl, xSignalClientRole_Receiver,
+                                     session_code);
   if (sig_err != xErrno_Ok) {
     report_error(impl, sig_err, "Failed to connect to signaling server");
     return sig_err;

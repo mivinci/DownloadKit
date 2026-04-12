@@ -14,6 +14,7 @@
  */
 
 #include <xbase/event.h>
+#include <xnet/url.h>
 #include <xfer/xfer.h>
 
 #include <signal.h> /* SIGINT */
@@ -118,10 +119,66 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  /* If code is a full URL (ws://code@host:port/path), the signal_server
+     will be extracted from it automatically by the xfer library.
+     Show the user what we parsed. */
+  const char *display_code = code;
+  const char *display_signal = signal_url;
+  char parsed_code[128] = {0};
+  char parsed_signal[512] = {0};
+
+  if (strncmp(code, "ws://", 5) == 0 || strncmp(code, "wss://", 6) == 0) {
+    xUrl url;
+    if (xUrlParse(code, &url) == xErrno_Ok && url.userinfo &&
+        url.userinfo_len > 0) {
+      /* Extract display code */
+      size_t clen = url.userinfo_len;
+      if (clen >= sizeof(parsed_code)) clen = sizeof(parsed_code) - 1;
+      memcpy(parsed_code, url.userinfo, clen);
+      parsed_code[clen] = '\0';
+      display_code = parsed_code;
+
+      /* Rebuild signal URL for display */
+      if (url.port && url.port_len > 0) {
+        if (url.path && url.path_len > 0) {
+          snprintf(parsed_signal, sizeof(parsed_signal),
+                   "%.*s://%.*s:%.*s%.*s",
+                   (int)url.scheme_len, url.scheme,
+                   (int)url.host_len, url.host,
+                   (int)url.port_len, url.port,
+                   (int)url.path_len, url.path);
+        } else {
+          snprintf(parsed_signal, sizeof(parsed_signal),
+                   "%.*s://%.*s:%.*s",
+                   (int)url.scheme_len, url.scheme,
+                   (int)url.host_len, url.host,
+                   (int)url.port_len, url.port);
+        }
+      } else {
+        if (url.path && url.path_len > 0) {
+          snprintf(parsed_signal, sizeof(parsed_signal),
+                   "%.*s://%.*s%.*s",
+                   (int)url.scheme_len, url.scheme,
+                   (int)url.host_len, url.host,
+                   (int)url.path_len, url.path);
+        } else {
+          snprintf(parsed_signal, sizeof(parsed_signal),
+                   "%.*s://%.*s",
+                   (int)url.scheme_len, url.scheme,
+                   (int)url.host_len, url.host);
+        }
+      }
+      display_signal = parsed_signal;
+      xUrlFree(&url);
+    } else {
+      xUrlFree(&url);
+    }
+  }
+
   printf("xfer Recv\n");
-  printf("Code:    %s\n", code);
+  printf("Code:    %s\n", display_code);
   printf("Dest:    %s\n", dest_dir);
-  printf("Signal:  %s\n", signal_url);
+  printf("Signal:  %s\n", display_signal);
   printf("STUN:    %s\n", stun_server ? stun_server : "(none)");
   printf("IPv6:    %s\n", enable_ipv6 ? "enabled" : "disabled");
 
@@ -161,7 +218,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  printf("Joining session with code: %s\n", code);
+  printf("Joining session with code: %s\n", display_code);
   printf("Waiting for sender...\n\n");
 
   xEventLoopRun(g_loop);

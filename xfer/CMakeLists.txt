@@ -5,7 +5,7 @@ add_library(xfer SHARED ${XFER_SOURCES} ${XFER_HEADERS})
 
 find_package(Cjson REQUIRED)
 
-target_link_libraries(xfer PUBLIC xp2p xhttp xcrypto xbase PRIVATE Cjson::Cjson)
+target_link_libraries(xfer PUBLIC xp2p xhttp xnet xcrypto xbase PRIVATE Cjson::Cjson)
 
 if(XK_ENABLE_DEBUG)
   target_compile_definitions(xfer PRIVATE XK_ENABLE_DEBUG)

@@ -41,6 +41,7 @@
   - [xp2p — P2P Connectivity](modules/xp2p/README.md)
     - [ICE Agent](modules/xp2p/ice.md)
     - [Peer Connection](modules/xp2p/pc.md)
+  - [xfer — P2P File Transfer](modules/xfer/README.md)
 
 - [Benchmark](bench/README.md)
   - [HTTP/1.1 Server](bench/http_server.md)

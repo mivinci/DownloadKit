@@ -30,6 +30,7 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | **[xlog](https://le0.me/xKit/xlog)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
 | **[xcrypto](https://le0.me/xKit/xcrypto)** | Cryptographic primitives — SHA-1 with pluggable backend (OpenSSL / mbedTLS / builtin) |
 | **[xp2p](https://le0.me/xKit/xp2p)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
+| **[xfer](https://le0.me/xKit/xfer)** | P2P file transfer — zero-config send/receive over WebRTC DataChannel with signaling, chunking, SHA-1 verification, and resume support |
 
 📖 See the **[full documentation](https://le0.me/xKit)** for detailed design, architecture diagrams, API references, and usage examples.
 

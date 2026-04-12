@@ -71,7 +71,11 @@ else()
   set(ENABLE_CJSON_TEST    OFF CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
   set(BUILD_SHARED_AND_STATIC_LIBS OFF CACHE BOOL "" FORCE)
+  # cJSON v1.7.18 uses cmake_minimum_required(VERSION 3.0) which is rejected
+  # by CMake ≥ 3.30. Allow the old policy version so FetchContent can proceed.
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
   FetchContent_MakeAvailable(cjson)
+  unset(CMAKE_POLICY_VERSION_MINIMUM)
 
   # Create an alias target matching our naming convention
   if(NOT TARGET Cjson::Cjson)

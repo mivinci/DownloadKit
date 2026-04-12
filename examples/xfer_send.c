@@ -65,9 +65,9 @@ static void on_progress(xTransfer xfer, uint64_t transferred,
 static void on_code(xTransfer xfer, const char *code, void *ctx) {
   (void)xfer;
   (void)ctx;
-  printf("\n══════════════════════════════════════\n");
+  printf("\n═════════════════════════════════════════════════════════\n");
   printf("  Code: %s\n", code);
-  printf("══════════════════════════════════════\n");
+  printf("═════════════════════════════════════════════════════════\n");
   printf("\nShare this code with the receiver.\n");
   printf("Waiting for peer to join...\n\n");
 }

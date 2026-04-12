@@ -859,7 +859,10 @@ static void on_signal_code(xSignalClient client, const char *code, void *ctx) {
         size_t b58_len = sizeof(b58_code);
         if (xBase58Encode((const uint8_t *)full_code, strlen(full_code),
                           b58_code, &b58_len) == 0) {
-          impl->conf.on_code((xTransfer)impl, b58_code, impl->conf.ctx);
+          /* Add xfer_ prefix for easy identification */
+          char prefixed_code[sizeof(b58_code) + 8];
+          snprintf(prefixed_code, sizeof(prefixed_code), "xfer_%s", b58_code);
+          impl->conf.on_code((xTransfer)impl, prefixed_code, impl->conf.ctx);
         } else {
           /* Fallback to raw URL if encoding fails */
           impl->conf.on_code((xTransfer)impl, full_code, impl->conf.ctx);
@@ -1117,8 +1120,12 @@ xErrno xTransferRecvFile(xTransfer xfer, const char *code,
   char decoded_buf[512];
   const char *effective_code = code;
   {
+    /* Strip xfer_ prefix if present */
+    const char *b58_input = code;
+    if (strncmp(code, "xfer_", 5) == 0)
+      b58_input = code + 5;
     size_t dec_len = sizeof(decoded_buf) - 1;
-    if (xBase58Decode(code, strlen(code),
+    if (xBase58Decode(b58_input, strlen(b58_input),
                       (uint8_t *)decoded_buf, &dec_len) == 0 &&
         dec_len > 0) {
       decoded_buf[dec_len] = '\0';

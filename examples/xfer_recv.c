@@ -131,7 +131,11 @@ int main(int argc, char *argv[]) {
   {
     size_t dec_len = sizeof(decoded_url) - 1;
     const char *url_str = NULL;
-    if (xBase58Decode(code, strlen(code),
+    /* Strip xfer_ prefix if present */
+    const char *b58_input = code;
+    if (strncmp(code, "xfer_", 5) == 0)
+      b58_input = code + 5;
+    if (xBase58Decode(b58_input, strlen(b58_input),
                       (uint8_t *)decoded_url, &dec_len) == 0 &&
         dec_len > 0) {
       decoded_url[dec_len] = '\0';

@@ -23,14 +23,14 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 
 | Module | Description |
 | ------ | ----------- |
-| **[xbase](https://le0.me/xKit/xbase)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
-| **[xbuf](https://le0.me/xKit/xbuf)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
-| **[xnet](https://le0.me/xKit/xnet)** | Networking primitives — URL parser, async DNS resolver, shared TLS configuration types |
-| **[xhttp](https://le0.me/xKit/xhttp)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing, WebSocket server & client (RFC 6455) |
-| **[xlog](https://le0.me/xKit/xlog)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
-| **[xcrypto](https://le0.me/xKit/xcrypto)** | Cryptographic primitives — SHA-1 with pluggable backend (OpenSSL / mbedTLS / builtin) |
-| **[xp2p](https://le0.me/xKit/xp2p)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
-| **[xfer](https://le0.me/xKit/xfer)** | P2P file transfer — zero-config send/receive over WebRTC DataChannel with signaling, chunking, SHA-1 verification, and resume support |
+| **[xbase](https://le0.me/xKit/modules/xbase)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
+| **[xbuf](https://le0.me/xKit/modules/xbuf)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
+| **[xnet](https://le0.me/xKit/modules/xnet)** | Networking primitives — URL parser, async DNS resolver, shared TLS configuration types |
+| **[xhttp](https://le0.me/xKit/modules/xhttp)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing, WebSocket server & client (RFC 6455) |
+| **[xlog](https://le0.me/xKit/modules/xlog)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
+| **[xcrypto](https://le0.me/xKit/modules/xcrypto)** | Cryptographic primitives — SHA-1 with pluggable backend (OpenSSL / mbedTLS / builtin) |
+| **[xp2p](https://le0.me/xKit/modules/xp2p)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
+| **[xfer](https://le0.me/xKit/modules/xfer)** | P2P file transfer — zero-config send/receive over WebRTC DataChannel with signaling, chunking, SHA-1 verification, and resume support |
 
 📖 See the **[full documentation](https://le0.me/xKit)** for detailed design, architecture diagrams, API references, and usage examples.
 
@@ -40,7 +40,6 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | ------------ | ---------- | ------- |
 | CMake ≥ 3.14 | ✅ | Build system |
 | C99 compiler | ✅ | GCC or Clang |
-| GoogleTest | For tests | `libgtest-dev` (apt) / `googletest` (brew) |
 | libcurl | ✅ | Enables the **xhttp** client — `libcurl4-openssl-dev` (apt) / `curl` (brew) |
 | llhttp | ✅ | HTTP/1.1 parsing for **xhttp** server — `libllhttp-dev` (apt) / `llhttp` (brew) |
 | nghttp2 | ✅ | HTTP/2 support for **xhttp** server — `libnghttp2-dev` (apt) / `nghttp2` (brew) |
@@ -49,6 +48,7 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | OpenSSL | ✅ pick one | TLS backend for **xhttp** and **xp2p** DTLS — `libssl-dev` (apt) / `openssl` (brew) |
 | MbedTLS | ✅ pick one | TLS backend for **xhttp** and **xp2p** DTLS — `libmbedtls-dev` (apt) / `mbedtls` (brew) |
 | libunwind | Optional | Better backtraces on Linux |
+| GoogleTest | For tests | `libgtest-dev` (apt) / `googletest` (brew) |
 
 ## Build
 

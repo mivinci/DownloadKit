@@ -57,3 +57,4 @@
 - [TODO](todo/README.md)
   - [Removing libcurl](todo/remove_libcurl.md)
   - [xTaskGroup Work-Stealing](todo/xbase_work_stealing.md)
+  - [NAT4 Birthday Attack Traversal](todo/nat4.md)

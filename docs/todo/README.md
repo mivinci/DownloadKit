@@ -2,5 +2,6 @@
 
 Planning and feasibility analysis for future improvements.
 
-- [移除 libcurl 依赖](remove_libcurl.md) — 分析移除 xhttp 对 libcurl 的依赖的可行性、收益与折中方案
-- [xTaskGroup Work-Stealing](xbase_work_stealing.md) — xTaskGroup 任务队列从单锁改为 work-stealing 架构的方案分析
+- [Remove libcurl Dependency](remove_libcurl.md) — Feasibility, benefits, and trade-offs of removing xhttp's dependency on libcurl
+- [xTaskGroup Work-Stealing](xbase_work_stealing.md) — Migrating xTaskGroup's task queue from a single-lock design to a work-stealing architecture
+- [NAT4 Birthday Attack Traversal](nat4.md) — Feasibility analysis of using birthday attack for port prediction to traverse symmetric NAT (NAT4)

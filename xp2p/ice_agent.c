@@ -456,13 +456,15 @@ static void try_nominate(xIceAgent_ *a) {
     if (best) {
       a->nominated    = best;
       best->nominated = true;
-      
+
+#ifdef XK_ENABLE_DEBUG
       char lstr[64], rstr[64];
       sockaddr_to_str((const struct sockaddr *)&best->local->addr, lstr,
                       sizeof(lstr));
       sockaddr_to_str((const struct sockaddr *)&best->remote->addr, rstr,
                       sizeof(rstr));
       XDEBUG("[ice] nominated pair: %s -> %s", lstr, rstr);
+#endif
 
       set_state(a, xIceAgentState_Connected);
       start_consent(a);

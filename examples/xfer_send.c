@@ -15,6 +15,7 @@
  */
 
 #include <xbase/event.h>
+#include <xbase/speed_tracker.h>
 #include <xfer/xfer.h>
 
 #include <signal.h> /* SIGINT */
@@ -25,8 +26,9 @@
 
 /* ── State ─────────────────────────────────────────────── */
 
-static xEventLoop g_loop;
-static xTransfer  g_xfer;
+static xEventLoop    g_loop;
+static xTransfer     g_xfer;
+static xSpeedTracker spd = XSPEED_TRACKER_INIT(0.3);
 
 /* ── Callbacks ─────────────────────────────────────────── */
 
@@ -35,10 +37,18 @@ static void on_state_change(xTransfer xfer, xTransferState state, void *ctx) {
   (void)ctx;
   const char *s;
   switch (state) {
-  case xTransferState_Idle:         s = "Idle";         break;
-  case xTransferState_WaitingPeer:  s = "WaitingPeer";  break;
-  case xTransferState_Connecting:   s = "Connecting";   break;
-  case xTransferState_Transferring: s = "Transferring"; break;
+  case xTransferState_Idle:
+    s = "Idle";
+    break;
+  case xTransferState_WaitingPeer:
+    s = "WaitingPeer";
+    break;
+  case xTransferState_Connecting:
+    s = "Connecting";
+    break;
+  case xTransferState_Transferring:
+    s = "Transferring";
+    break;
   case xTransferState_Done:
     printf("\n[Send] ✅ Transfer complete!\n");
     xEventLoopStop(g_loop);
@@ -47,18 +57,25 @@ static void on_state_change(xTransfer xfer, xTransferState state, void *ctx) {
     printf("\n[Send] ❌ Transfer failed.\n");
     xEventLoopStop(g_loop);
     return;
-  default: s = "Unknown"; break;
+  default:
+    s = "Unknown";
+    break;
   }
   printf("[Send] State: %s\n", s);
 }
 
-static void on_progress(xTransfer xfer, uint64_t transferred,
-                        uint64_t total, void *ctx) {
+static void on_progress(xTransfer xfer, uint64_t transferred, uint64_t total,
+                        void *ctx) {
   (void)xfer;
   (void)ctx;
-  printf("\r[Send] Progress: %llu / %llu bytes (%.1f%%)",
+  char speed_buf[32];
+
+  xSpeedTrackerUpdate(&spd, transferred);
+  xSpeedTrackerFormat(&spd, speed_buf, sizeof(speed_buf));
+
+  printf("\r[Send] Progress: %llu / %llu bytes (%.1f%%)%s   ",
          (unsigned long long)transferred, (unsigned long long)total,
-         total > 0 ? 100.0 * transferred / total : 0.0);
+         total > 0 ? 100.0 * transferred / total : 0.0, speed_buf);
   fflush(stdout);
 }
 
@@ -90,22 +107,31 @@ static void on_sigint(int signo, void *arg) {
 /* ── Main ──────────────────────────────────────────────── */
 
 int main(int argc, char *argv[]) {
-  const char *filepath      = NULL;
-  const char *signal_url    = "ws://127.0.0.1:8080/ws";
-  const char *stun_server   = "stun.l.google.com:19302";
-  bool        enable_ipv6   = false;
+  const char *filepath    = NULL;
+  const char *signal_url  = "ws://127.0.0.1:8080/ws";
+  const char *stun_server = "stun.l.google.com:19302";
+  bool        enable_ipv6 = false;
 
   int opt;
   while ((opt = getopt(argc, argv, "f:u:s:6")) != -1) {
     switch (opt) {
-    case 'f': filepath    = optarg; break;
-    case 'u': signal_url  = optarg; break;
-    case 's': stun_server = optarg; break;
-    case '6': enable_ipv6 = true;   break;
+    case 'f':
+      filepath = optarg;
+      break;
+    case 'u':
+      signal_url = optarg;
+      break;
+    case 's':
+      stun_server = optarg;
+      break;
+    case '6':
+      enable_ipv6 = true;
+      break;
     default:
       fprintf(stderr,
               "Usage: %s -f <file> [-u ws://host:port/ws] "
-              "[-s stun:port] [-6]\n", argv[0]);
+              "[-s stun:port] [-6]\n",
+              argv[0]);
       return 1;
     }
   }
@@ -114,7 +140,8 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Error: -f <file> is required\n");
     fprintf(stderr,
             "Usage: %s -f <file> [-u ws://host:port/ws] "
-            "[-s stun:port] [-6]\n", argv[0]);
+            "[-s stun:port] [-6]\n",
+            argv[0]);
     return 1;
   }
 

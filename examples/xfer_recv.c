@@ -6,7 +6,8 @@
  * a P2P DataChannel.
  *
  * Usage:
- *   ./xfer_recv -c <code> [-d dest_dir] [-u ws://host:port/ws] [-s stun:port] [-6]
+ *   ./xfer_recv -c <code> [-d dest_dir] [-u ws://host:port/ws] [-s stun:port]
+ * [-6]
  *
  * Example:
  *   ./xfer_recv -c AB12CD
@@ -15,8 +16,9 @@
 
 #include <xbase/base58.h>
 #include <xbase/event.h>
-#include <xnet/url.h>
+#include <xbase/speed_tracker.h>
 #include <xfer/xfer.h>
+#include <xnet/url.h>
 
 #include <signal.h> /* SIGINT */
 #include <stdio.h>
@@ -27,8 +29,9 @@
 
 /* ── State ─────────────────────────────────────────────── */
 
-static xEventLoop g_loop;
-static xTransfer  g_xfer;
+static xEventLoop    g_loop;
+static xTransfer     g_xfer;
+static xSpeedTracker spd = XSPEED_TRACKER_INIT(0.3);
 
 /* ── Callbacks ─────────────────────────────────────────── */
 
@@ -37,10 +40,18 @@ static void on_state_change(xTransfer xfer, xTransferState state, void *ctx) {
   (void)ctx;
   const char *s;
   switch (state) {
-  case xTransferState_Idle:         s = "Idle";         break;
-  case xTransferState_WaitingPeer:  s = "WaitingPeer";  break;
-  case xTransferState_Connecting:   s = "Connecting";   break;
-  case xTransferState_Transferring: s = "Transferring"; break;
+  case xTransferState_Idle:
+    s = "Idle";
+    break;
+  case xTransferState_WaitingPeer:
+    s = "WaitingPeer";
+    break;
+  case xTransferState_Connecting:
+    s = "Connecting";
+    break;
+  case xTransferState_Transferring:
+    s = "Transferring";
+    break;
   case xTransferState_Done:
     printf("\n[Recv] ✅ Transfer complete!\n");
     xEventLoopStop(g_loop);
@@ -49,18 +60,25 @@ static void on_state_change(xTransfer xfer, xTransferState state, void *ctx) {
     printf("\n[Recv] ❌ Transfer failed.\n");
     xEventLoopStop(g_loop);
     return;
-  default: s = "Unknown"; break;
+  default:
+    s = "Unknown";
+    break;
   }
   printf("[Recv] State: %s\n", s);
 }
 
-static void on_progress(xTransfer xfer, uint64_t transferred,
-                        uint64_t total, void *ctx) {
+static void on_progress(xTransfer xfer, uint64_t transferred, uint64_t total,
+                        void *ctx) {
   (void)xfer;
   (void)ctx;
-  printf("\r[Recv] Progress: %llu / %llu bytes (%.1f%%)",
+  char speed_buf[32];
+
+  xSpeedTrackerUpdate(&spd, transferred);
+  xSpeedTrackerFormat(&spd, speed_buf, sizeof(speed_buf));
+
+  printf("\r[Recv] Progress: %llu / %llu bytes (%.1f%%)%s   ",
          (unsigned long long)transferred, (unsigned long long)total,
-         total > 0 ? 100.0 * transferred / total : 0.0);
+         total > 0 ? 100.0 * transferred / total : 0.0, speed_buf);
   fflush(stdout);
 }
 
@@ -68,8 +86,8 @@ static void on_file_meta(xTransfer xfer, const char *filename,
                          uint64_t filesize, void *ctx) {
   (void)xfer;
   (void)ctx;
-  printf("[Recv] Incoming file: \"%s\" (%llu bytes)\n",
-         filename, (unsigned long long)filesize);
+  printf("[Recv] Incoming file: \"%s\" (%llu bytes)\n", filename,
+         (unsigned long long)filesize);
 }
 
 static void on_error(xTransfer xfer, xErrno err, const char *msg, void *ctx) {
@@ -90,24 +108,35 @@ static void on_sigint(int signo, void *arg) {
 /* ── Main ──────────────────────────────────────────────── */
 
 int main(int argc, char *argv[]) {
-  const char *code          = NULL;
-  const char *dest_dir      = "/tmp/xfer_recv";
-  const char *signal_url    = "ws://127.0.0.1:8080/ws";
-  const char *stun_server   = "stun.l.google.com:19302";
-  bool        enable_ipv6   = false;
+  const char *code        = NULL;
+  const char *dest_dir    = "/tmp/xfer_recv";
+  const char *signal_url  = "ws://127.0.0.1:8080/ws";
+  const char *stun_server = "stun.l.google.com:19302";
+  bool        enable_ipv6 = false;
 
   int opt;
   while ((opt = getopt(argc, argv, "c:d:u:s:6")) != -1) {
     switch (opt) {
-    case 'c': code        = optarg; break;
-    case 'd': dest_dir    = optarg; break;
-    case 'u': signal_url  = optarg; break;
-    case 's': stun_server = optarg; break;
-    case '6': enable_ipv6 = true;   break;
+    case 'c':
+      code = optarg;
+      break;
+    case 'd':
+      dest_dir = optarg;
+      break;
+    case 'u':
+      signal_url = optarg;
+      break;
+    case 's':
+      stun_server = optarg;
+      break;
+    case '6':
+      enable_ipv6 = true;
+      break;
     default:
       fprintf(stderr,
               "Usage: %s -c <code> [-d dest_dir] [-u ws://host:port/ws] "
-              "[-s stun:port] [-6]\n", argv[0]);
+              "[-s stun:port] [-6]\n",
+              argv[0]);
       return 1;
     }
   }
@@ -116,27 +145,27 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Error: -c <code> is required\n");
     fprintf(stderr,
             "Usage: %s -c <code> [-d dest_dir] [-u ws://host:port/ws] "
-            "[-s stun:port] [-6]\n", argv[0]);
+            "[-s stun:port] [-6]\n",
+            argv[0]);
     return 1;
   }
 
   /* Try Base58-decoding the code, then parse the URL to display
      the session code and signal server separately. */
-  const char *display_code = code;
-  const char *display_signal = signal_url;
-  char decoded_url[512] = {0};
-  char parsed_code[128] = {0};
-  char parsed_signal[512] = {0};
+  const char *display_code       = code;
+  const char *display_signal     = signal_url;
+  char        decoded_url[512]   = {0};
+  char        parsed_code[128]   = {0};
+  char        parsed_signal[512] = {0};
 
   {
-    size_t dec_len = sizeof(decoded_url) - 1;
+    size_t      dec_len = sizeof(decoded_url) - 1;
     const char *url_str = NULL;
     /* Strip xfer_ prefix if present */
     const char *b58_input = code;
-    if (strncmp(code, "xfer_", 5) == 0)
-      b58_input = code + 5;
-    if (xBase58Decode(b58_input, strlen(b58_input),
-                      (uint8_t *)decoded_url, &dec_len) == 0 &&
+    if (strncmp(code, "xfer_", 5) == 0) b58_input = code + 5;
+    if (xBase58Decode(b58_input, strlen(b58_input), (uint8_t *)decoded_url,
+                      &dec_len) == 0 &&
         dec_len > 0) {
       decoded_url[dec_len] = '\0';
       if (strncmp(decoded_url, "ws://", 5) == 0 ||
@@ -145,8 +174,7 @@ int main(int argc, char *argv[]) {
       }
     }
     if (!url_str &&
-        (strncmp(code, "ws://", 5) == 0 ||
-         strncmp(code, "wss://", 6) == 0)) {
+        (strncmp(code, "ws://", 5) == 0 || strncmp(code, "wss://", 6) == 0)) {
       url_str = code;
     }
     if (url_str) {
@@ -157,35 +185,28 @@ int main(int argc, char *argv[]) {
         if (clen >= sizeof(parsed_code)) clen = sizeof(parsed_code) - 1;
         memcpy(parsed_code, url.userinfo, clen);
         parsed_code[clen] = '\0';
-        display_code = parsed_code;
+        display_code      = parsed_code;
 
         if (url.port && url.port_len > 0) {
           if (url.path && url.path_len > 0) {
             snprintf(parsed_signal, sizeof(parsed_signal),
-                     "%.*s://%.*s:%.*s%.*s",
-                     (int)url.scheme_len, url.scheme,
-                     (int)url.host_len, url.host,
-                     (int)url.port_len, url.port,
+                     "%.*s://%.*s:%.*s%.*s", (int)url.scheme_len, url.scheme,
+                     (int)url.host_len, url.host, (int)url.port_len, url.port,
                      (int)url.path_len, url.path);
           } else {
-            snprintf(parsed_signal, sizeof(parsed_signal),
-                     "%.*s://%.*s:%.*s",
-                     (int)url.scheme_len, url.scheme,
-                     (int)url.host_len, url.host,
-                     (int)url.port_len, url.port);
+            snprintf(parsed_signal, sizeof(parsed_signal), "%.*s://%.*s:%.*s",
+                     (int)url.scheme_len, url.scheme, (int)url.host_len,
+                     url.host, (int)url.port_len, url.port);
           }
         } else {
           if (url.path && url.path_len > 0) {
-            snprintf(parsed_signal, sizeof(parsed_signal),
-                     "%.*s://%.*s%.*s",
-                     (int)url.scheme_len, url.scheme,
-                     (int)url.host_len, url.host,
-                     (int)url.path_len, url.path);
+            snprintf(parsed_signal, sizeof(parsed_signal), "%.*s://%.*s%.*s",
+                     (int)url.scheme_len, url.scheme, (int)url.host_len,
+                     url.host, (int)url.path_len, url.path);
           } else {
-            snprintf(parsed_signal, sizeof(parsed_signal),
-                     "%.*s://%.*s",
-                     (int)url.scheme_len, url.scheme,
-                     (int)url.host_len, url.host);
+            snprintf(parsed_signal, sizeof(parsed_signal), "%.*s://%.*s",
+                     (int)url.scheme_len, url.scheme, (int)url.host_len,
+                     url.host);
           }
         }
         display_signal = parsed_signal;

@@ -55,6 +55,7 @@ XDEF_STRUCT(xHttpReq_) {
   xBuffer            header_buf;  /* response headers            */
   char              *post_data;   /* copy of POST body (owned)   */
   struct curl_slist *req_headers; /* custom request headers      */
+  struct xHttpReq_  *next;        /* intrusive list link (client) */
 };
 /* ───────────────────── Client internal structure ───────────────────── */
 
@@ -70,6 +71,8 @@ XDEF_STRUCT(xHttpClient_) {
   char *tls_key;          /* client private key path, or NULL    */
   char *tls_key_password; /* private key password, or NULL       */
   int   tls_skip_verify;  /* skip peer & host verification       */
+
+  struct xHttpReq_ *reqs; /* linked list of in-flight requests   */
 };
 
 #endif /* XHTTP_CLIENT_PRIVATE_H */

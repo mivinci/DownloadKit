@@ -268,9 +268,10 @@ protected:
     tls_port = find_free_port();
     ASSERT_NE(tls_port, 0);
 
-    /* Generate self-signed certificate */
-    cert_path    = "/tmp/xhttps_test_cert.pem";
-    key_path     = "/tmp/xhttps_test_key.pem";
+    /* Generate self-signed certificate (use PID suffix to avoid conflicts) */
+    std::string suffix = std::to_string(getpid());
+    cert_path    = "/tmp/xhttps_test_cert_" + suffix + ".pem";
+    key_path     = "/tmp/xhttps_test_key_" + suffix + ".pem";
     ca_cert_path = cert_path; /* self-signed: CA = cert itself */
 
     std::string cmd = "openssl req -x509 -newkey rsa:2048 -keyout " + key_path +
@@ -610,9 +611,10 @@ protected:
     tls_port = find_free_port();
     ASSERT_NE(tls_port, 0);
 
-    /* Generate CA key + cert */
-    ca_cert            = "/tmp/xhttps_mtls_ca.pem";
-    std::string ca_key = "/tmp/xhttps_mtls_ca_key.pem";
+    /* Generate CA key + cert (use PID suffix to avoid conflicts) */
+    std::string suffix = std::to_string(getpid());
+    ca_cert            = "/tmp/xhttps_mtls_ca_" + suffix + ".pem";
+    std::string ca_key = "/tmp/xhttps_mtls_ca_key_" + suffix + ".pem";
 
     std::string cmd;
     int         ret;
@@ -623,9 +625,9 @@ protected:
     ASSERT_EQ(ret, 0) << "Failed to generate CA certificate";
 
     /* Generate server cert signed by CA */
-    server_cert            = "/tmp/xhttps_mtls_server_cert.pem";
-    server_key             = "/tmp/xhttps_mtls_server_key.pem";
-    std::string server_csr = "/tmp/xhttps_mtls_server.csr";
+    server_cert            = "/tmp/xhttps_mtls_server_cert_" + suffix + ".pem";
+    server_key             = "/tmp/xhttps_mtls_server_key_" + suffix + ".pem";
+    std::string server_csr = "/tmp/xhttps_mtls_server_" + suffix + ".csr";
 
     cmd = "openssl req -newkey rsa:2048 -keyout " + server_key + " -out " +
           server_csr + " -nodes -subj '/CN=localhost' 2>/dev/null";
@@ -639,9 +641,9 @@ protected:
     ASSERT_EQ(ret, 0) << "Failed to sign server certificate";
 
     /* Generate client cert signed by same CA */
-    client_cert            = "/tmp/xhttps_mtls_client_cert.pem";
-    client_key             = "/tmp/xhttps_mtls_client_key.pem";
-    std::string client_csr = "/tmp/xhttps_mtls_client.csr";
+    client_cert            = "/tmp/xhttps_mtls_client_cert_" + suffix + ".pem";
+    client_key             = "/tmp/xhttps_mtls_client_key_" + suffix + ".pem";
+    std::string client_csr = "/tmp/xhttps_mtls_client_" + suffix + ".csr";
 
     cmd = "openssl req -newkey rsa:2048 -keyout " + client_key + " -out " +
           client_csr + " -nodes -subj '/CN=TestClient' 2>/dev/null";
@@ -664,7 +666,8 @@ protected:
     unlink(ca_key.c_str());
     unlink(server_csr.c_str());
     unlink(client_csr.c_str());
-    unlink("/tmp/xhttps_mtls_ca.srl");
+    std::string srl_path = "/tmp/xhttps_mtls_ca_" + suffix + ".srl";
+    unlink(srl_path.c_str());
   }
 
   void TearDown() override {

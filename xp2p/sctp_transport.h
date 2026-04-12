@@ -85,6 +85,14 @@ typedef void (*xSctpOnStreamOpen)(xSctpTransport transport, uint16_t stream_id,
 typedef void (*xSctpOnStreamClose)(xSctpTransport transport,
                                    uint16_t stream_id, void *arg);
 
+/**
+ * @brief Called when the SCTP send buffer has been fully drained.
+ *
+ * Useful for implementing backpressure: pause sending when buffered
+ * amount is high, resume when this callback fires.
+ */
+typedef void (*xSctpOnBufferedAmountLow)(xSctpTransport transport, void *arg);
+
 /* ───────────────────── Configuration ───────────────────── */
 
 XDEF_STRUCT(xSctpTransportConf) {
@@ -95,11 +103,12 @@ XDEF_STRUCT(xSctpTransportConf) {
   uint16_t       remote_port; /**< Remote SCTP port (0 = default 5000). */
 
   /** Callbacks. */
-  xSctpOnStateChange on_state_change;
-  xSctpOnData        on_data;
-  xSctpOnStreamOpen  on_stream_open;
-  xSctpOnStreamClose on_stream_close;
-  void              *ctx;
+  xSctpOnStateChange       on_state_change;
+  xSctpOnData              on_data;
+  xSctpOnStreamOpen        on_stream_open;
+  xSctpOnStreamClose       on_stream_close;
+  xSctpOnBufferedAmountLow on_buffered_amount_low;
+  void                    *ctx;
 
   /** Association timeout in milliseconds (0 = default 10000ms). */
   uint32_t assoc_timeout_ms;
@@ -173,6 +182,17 @@ XCAPI(xErrno) xSctpTransportFeedInput(xSctpTransport transport,
  */
 XCAPI(xErrno) xSctpTransportCloseStream(xSctpTransport transport,
                                          uint16_t       stream_id);
+
+/**
+ * @brief Get the amount of data buffered in the SCTP send queue.
+ *
+ * Queries the usrsctp socket for the current send-buffer usage.
+ * Useful for implementing backpressure / flow control.
+ *
+ * @param transport  Transport handle.
+ * @return           Bytes currently buffered, or 0 on error.
+ */
+XCAPI(size_t) xSctpTransportGetBufferedAmount(xSctpTransport transport);
 
 /**
  * @brief Check if the SCTP association is established.

@@ -28,6 +28,7 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | **[xnet](https://le0.me/xKit/xnet)** | Networking primitives — URL parser, async DNS resolver, shared TLS configuration types |
 | **[xhttp](https://le0.me/xKit/xhttp)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing, WebSocket server & client (RFC 6455) |
 | **[xlog](https://le0.me/xKit/xlog)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
+| **[xcrypto](https://le0.me/xKit/xcrypto)** | Cryptographic primitives — SHA-1 with pluggable backend (OpenSSL / mbedTLS / builtin) |
 | **[xp2p](https://le0.me/xKit/xp2p)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
 
 📖 See the **[full documentation](https://le0.me/xKit)** for detailed design, architecture diagrams, API references, and usage examples.
@@ -39,12 +40,13 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | CMake ≥ 3.14 | ✅ | Build system |
 | C99 compiler | ✅ | GCC or Clang |
 | GoogleTest | For tests | `libgtest-dev` (apt) / `googletest` (brew) |
-| libcurl | ✅ | Enables the **xhttp** client |
+| libcurl | ✅ | Enables the **xhttp** client — `libcurl4-openssl-dev` (apt) / `curl` (brew) |
 | llhttp | ✅ | HTTP/1.1 parsing for **xhttp** server — `libllhttp-dev` (apt) / `llhttp` (brew) |
 | nghttp2 | ✅ | HTTP/2 support for **xhttp** server — `libnghttp2-dev` (apt) / `nghttp2` (brew) |
+| cJSON | ✅ | JSON parsing for **xfer** signaling — `libcjson-dev` (apt) / `cjson` (brew) |
+| usrsctp | ✅ | User-space SCTP for **xp2p** WebRTC DataChannel — `libusrsctp-dev` (apt) / `usrsctp` (brew) |
 | OpenSSL | ✅ pick one | TLS backend for **xhttp** and **xp2p** DTLS — `libssl-dev` (apt) / `openssl` (brew) |
 | MbedTLS | ✅ pick one | TLS backend for **xhttp** and **xp2p** DTLS — `libmbedtls-dev` (apt) / `mbedtls` (brew) |
-| usrsctp | Auto-fetched | User-space SCTP for **xp2p** WebRTC DataChannel — fetched via CMake FetchContent |
 | libunwind | Optional | Better backtraces on Linux |
 
 ## Build

@@ -14,10 +14,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <xbase/compat.h>
 
 /* RFC 6455 §4.2.2: magic GUID for Sec-WebSocket-Accept */
-static const char WS_GUID[] =
-  "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+static const char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /* ───────────────────── Header helpers ───────────────────── */
 
@@ -29,24 +29,23 @@ static const char WS_GUID[] =
  */
 static const char *find_header(const char *headers, size_t headers_len,
                                const char *key, size_t *len) {
-  size_t key_len = strlen(key);
-  const char *p = headers;
-  const char *end = headers + headers_len;
+  size_t      key_len = strlen(key);
+  const char *p       = headers;
+  const char *end     = headers + headers_len;
 
   while (p < end) {
     /* Find end of this header line */
-    const char *eol = (const char *)memmem(p, (size_t)(end - p),
-                                           "\r\n", 2);
+    const char *eol = (const char *)memmem(p, (size_t)(end - p), "\r\n", 2);
     if (!eol) eol = end;
 
     /* Check if this line starts with "key: " */
     size_t line_len = (size_t)(eol - p);
-    if (line_len > key_len + 2 &&
-        strncasecmp(p, key, key_len) == 0 &&
+    if (line_len > key_len + 2 && strncasecmp(p, key, key_len) == 0 &&
         p[key_len] == ':') {
       /* Skip ": " */
       const char *val = p + key_len + 1;
-      while (val < eol && *val == ' ') val++;
+      while (val < eol && *val == ' ')
+        val++;
       *len = (size_t)(eol - val);
       return val;
     }
@@ -64,9 +63,9 @@ static const char *find_header(const char *headers, size_t headers_len,
  */
 static int header_contains_token(const char *value, size_t value_len,
                                  const char *token) {
-  size_t token_len = strlen(token);
-  const char *p = value;
-  const char *end = value + value_len;
+  size_t      token_len = strlen(token);
+  const char *p         = value;
+  const char *end       = value + value_len;
 
   while (p < end) {
     /* Skip whitespace and commas */
@@ -80,8 +79,7 @@ static int header_contains_token(const char *value, size_t value_len,
       tok_end++;
 
     size_t tok_len = (size_t)(tok_end - p);
-    if (tok_len == token_len &&
-        strncasecmp(p, token, token_len) == 0) {
+    if (tok_len == token_len && strncasecmp(p, token, token_len) == 0) {
       return 1;
     }
 
@@ -98,21 +96,18 @@ static int header_contains_token(const char *value, size_t value_len,
  * Called from a regular xHttpHandlerFunc. On success the HTTP
  * connection is hijacked and a new xWsConn is created.
  */
-xErrno xWsUpgrade(xHttpResponseWriter writer,
-                   const xHttpRequest *req,
-                   const xWsCallbacks *callbacks,
-                   void *arg) {
+xErrno xWsUpgrade(xHttpResponseWriter writer, const xHttpRequest *req,
+                  const xWsCallbacks *callbacks, void *arg) {
   if (!writer || !req || !callbacks) return xErrno_InvalidArg;
 
   /* Recover the internal connection from the writer handle.
    * xHttpResponseWriter is a pointer to xHttpResponseWriter_,
    * which contains a back-pointer to the stream, which contains
    * a back-pointer to the connection. */
-  struct xHttpResponseWriter_ *w =
-    (struct xHttpResponseWriter_ *)writer;
-  struct xHttpStream_ *stream = w->stream;
-  struct xHttpConn_   *conn   = stream->conn;
-  struct xHttpServer_ *s      = conn->server;
+  struct xHttpResponseWriter_ *w      = (struct xHttpResponseWriter_ *)writer;
+  struct xHttpStream_         *stream = w->stream;
+  struct xHttpConn_           *conn   = stream->conn;
+  struct xHttpServer_         *s      = conn->server;
 
   /* 1. Method must be GET */
   if (strcmp(req->method, "GET") != 0) {
@@ -124,42 +119,35 @@ xErrno xWsUpgrade(xHttpResponseWriter writer,
   size_t val_len;
 
   /* Upgrade: websocket */
-  const char *upgrade = find_header(req->headers, req->headers_len,
-                                    "Upgrade", &val_len);
-  if (!upgrade || !header_contains_token(upgrade, val_len,
-                                         "websocket")) {
+  const char *upgrade =
+    find_header(req->headers, req->headers_len, "Upgrade", &val_len);
+  if (!upgrade || !header_contains_token(upgrade, val_len, "websocket")) {
     xHttpConnSendError(conn, 400, "Missing Upgrade: websocket");
     return xErrno_InvalidArg;
   }
 
   /* Connection: Upgrade */
-  const char *connection = find_header(req->headers, req->headers_len,
-                                       "Connection", &val_len);
-  if (!connection || !header_contains_token(connection, val_len,
-                                            "Upgrade")) {
-    xHttpConnSendError(conn, 400,
-                       "Missing Connection: Upgrade");
+  const char *connection =
+    find_header(req->headers, req->headers_len, "Connection", &val_len);
+  if (!connection || !header_contains_token(connection, val_len, "Upgrade")) {
+    xHttpConnSendError(conn, 400, "Missing Connection: Upgrade");
     return xErrno_InvalidArg;
   }
 
   /* Sec-WebSocket-Version: 13 */
   const char *version = find_header(req->headers, req->headers_len,
-                                    "Sec-WebSocket-Version",
-                                    &val_len);
-  if (!version || val_len != 2 ||
-      version[0] != '1' || version[1] != '3') {
-    xHttpConnSendError(conn, 400,
-                       "Unsupported WebSocket version");
+                                    "Sec-WebSocket-Version", &val_len);
+  if (!version || val_len != 2 || version[0] != '1' || version[1] != '3') {
+    xHttpConnSendError(conn, 400, "Unsupported WebSocket version");
     return xErrno_InvalidArg;
   }
 
   /* Sec-WebSocket-Key */
-  size_t key_len;
-  const char *ws_key = find_header(req->headers, req->headers_len,
-                                   "Sec-WebSocket-Key", &key_len);
+  size_t      key_len;
+  const char *ws_key =
+    find_header(req->headers, req->headers_len, "Sec-WebSocket-Key", &key_len);
   if (!ws_key || key_len == 0 || key_len > 128) {
-    xHttpConnSendError(conn, 400,
-                       "Missing Sec-WebSocket-Key");
+    xHttpConnSendError(conn, 400, "Missing Sec-WebSocket-Key");
     return xErrno_InvalidArg;
   }
 
@@ -174,12 +162,12 @@ xErrno xWsUpgrade(xHttpResponseWriter writer,
   memcpy(concat + key_len, WS_GUID, sizeof(WS_GUID)); /* includes NUL */
 
   unsigned char sha1_digest[XWS_SHA1_DIGEST_SIZE];
-  xWsSHA1((const unsigned char *)concat,
-          key_len + sizeof(WS_GUID) - 1, sha1_digest);
+  xWsSHA1((const unsigned char *)concat, key_len + sizeof(WS_GUID) - 1,
+          sha1_digest);
 
   char accept_value[64];
-  xWsBase64Encode(sha1_digest, XWS_SHA1_DIGEST_SIZE,
-                  accept_value, sizeof(accept_value));
+  xWsBase64Encode(sha1_digest, XWS_SHA1_DIGEST_SIZE, accept_value,
+                  sizeof(accept_value));
 
 #ifdef XHTTP_WS_DEFLATE
   /* 3b. Check for permessage-deflate extension offer */
@@ -187,13 +175,12 @@ xErrno xWsUpgrade(xHttpResponseWriter writer,
   memset(&deflate_params, 0, sizeof(deflate_params));
   int has_deflate = 0;
   {
-    size_t ext_len;
-    const char *ext_val = find_header(
-      req->headers, req->headers_len,
-      "Sec-WebSocket-Extensions", &ext_len);
+    size_t      ext_len;
+    const char *ext_val = find_header(req->headers, req->headers_len,
+                                      "Sec-WebSocket-Extensions", &ext_len);
     if (ext_val && ext_len > 0) {
-      has_deflate = (xWsDeflateParseOffer(
-        ext_val, ext_len, &deflate_params) == 0);
+      has_deflate =
+        (xWsDeflateParseOffer(ext_val, ext_len, &deflate_params) == 0);
     }
   }
 #endif
@@ -204,8 +191,7 @@ xErrno xWsUpgrade(xHttpResponseWriter writer,
 #ifdef XHTTP_WS_DEFLATE
   if (has_deflate) {
     char ext_val[192];
-    if (xWsDeflateBuildServerResponse(&deflate_params,
-                                      ext_val,
+    if (xWsDeflateBuildServerResponse(&deflate_params, ext_val,
                                       sizeof(ext_val)) > 0) {
       snprintf(ext_resp_hdr, sizeof(ext_resp_hdr),
                "Sec-WebSocket-Extensions: %s\r\n", ext_val);
@@ -214,16 +200,14 @@ xErrno xWsUpgrade(xHttpResponseWriter writer,
 #endif
 
   char response[768];
-  int resp_len = snprintf(
-    response, sizeof(response),
-    "HTTP/1.1 101 Switching Protocols\r\n"
-    "Upgrade: websocket\r\n"
-    "Connection: Upgrade\r\n"
-    "Sec-WebSocket-Accept: %s\r\n"
-    "%s"
-    "\r\n",
-    accept_value,
-    ext_resp_hdr);
+  int  resp_len = snprintf(response, sizeof(response),
+                           "HTTP/1.1 101 Switching Protocols\r\n"
+                            "Upgrade: websocket\r\n"
+                            "Connection: Upgrade\r\n"
+                            "Sec-WebSocket-Accept: %s\r\n"
+                            "%s"
+                            "\r\n",
+                           accept_value, ext_resp_hdr);
 
   if (resp_len < 0 || (size_t)resp_len >= sizeof(response)) {
     xHttpConnSendError(conn, 500, "Internal Server Error");
@@ -235,20 +219,20 @@ xErrno xWsUpgrade(xHttpResponseWriter writer,
   xHttpConnTryFlush(conn);
 
   /* 5. Hijack the connection */
-  xSocket        hijacked_sock      = conn->sock;
-  xTransport     hijacked_transport = conn->transport;
+  xSocket    hijacked_sock      = conn->sock;
+  xTransport hijacked_transport = conn->transport;
 
   /* Prevent xHttpConnHijack from destroying these */
-  conn->sock = NULL;
+  conn->sock              = NULL;
   conn->transport.ctx     = NULL;
   conn->transport.destroy = NULL;
 
   xHttpConnHijack(conn);
 
   /* 6. Create WebSocket connection */
-  struct xWsConn_ *ws = xWsConnCreate(
-    s, s->loop, hijacked_sock, hijacked_transport,
-    callbacks, arg, s->idle_timeout_ms);
+  struct xWsConn_ *ws =
+    xWsConnCreate(s, s->loop, hijacked_sock, hijacked_transport, callbacks, arg,
+                  s->idle_timeout_ms);
 
   if (!ws) {
     /* Failed to create WS conn: clean up */
@@ -270,7 +254,7 @@ xErrno xWsUpgrade(xHttpResponseWriter writer,
   /* Initialize deflate context if negotiated */
   if (has_deflate && deflate_params.enabled) {
     ws->deflate_params = deflate_params;
-    ws->deflate_ctx = xWsDeflateCreate(&deflate_params, 0);
+    ws->deflate_ctx    = xWsDeflateCreate(&deflate_params, 0);
     if (ws->deflate_ctx) {
       ws->parser.allow_rsv1 = 1;
     }

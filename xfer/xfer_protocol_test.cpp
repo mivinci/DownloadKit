@@ -24,7 +24,7 @@ TEST(XferProtocol, EncodeDecodeFileMeta) {
   meta.filename_len = (uint16_t)strlen(meta.filename);
   meta.file_size = 1024 * 1024 * 100ULL; /* 100 MB */
   meta.chunk_size = 64 * 1024;
-  memset(meta.sha256, 0xAB, XFER_SHA256_SIZE);
+  memset(meta.sha1, 0xAB, XFER_SHA1_SIZE);
 
   uint8_t buf[512];
   size_t  len = 0;
@@ -43,7 +43,7 @@ TEST(XferProtocol, EncodeDecodeFileMeta) {
   EXPECT_EQ(decoded.filename_len, meta.filename_len);
   EXPECT_EQ(decoded.file_size, meta.file_size);
   EXPECT_EQ(decoded.chunk_size, meta.chunk_size);
-  EXPECT_EQ(memcmp(decoded.sha256, meta.sha256, XFER_SHA256_SIZE), 0);
+  EXPECT_EQ(memcmp(decoded.sha1, meta.sha1, XFER_SHA1_SIZE), 0);
 }
 
 TEST(XferProtocol, FileMetaBufferTooSmall) {
@@ -103,12 +103,12 @@ TEST(XferProtocol, EncodeDecodeChunkHeader) {
 TEST(XferProtocol, EncodeDecodeFileDone) {
   xTransferFileDone done;
   done.total_chunks = 1600;
-  memset(done.sha256, 0xCD, XFER_SHA256_SIZE);
+  memset(done.sha1, 0xCD, XFER_SHA1_SIZE);
 
   uint8_t buf[64];
   size_t  len = 0;
   ASSERT_EQ(xTransferEncodeFileDone(&done, buf, sizeof(buf), &len), xErrno_Ok);
-  ASSERT_EQ(len, 1u + 4u + XFER_SHA256_SIZE);
+  ASSERT_EQ(len, 1u + 4u + XFER_SHA1_SIZE);
   ASSERT_EQ(buf[0], XFER_MSG_FILE_DONE);
 
   /* Decode (skip type byte) */
@@ -117,13 +117,13 @@ TEST(XferProtocol, EncodeDecodeFileDone) {
   ASSERT_EQ(xTransferDecodeFileDone(buf + 1, len - 1, &decoded), xErrno_Ok);
 
   EXPECT_EQ(decoded.total_chunks, 1600u);
-  EXPECT_EQ(memcmp(decoded.sha256, done.sha256, XFER_SHA256_SIZE), 0);
+  EXPECT_EQ(memcmp(decoded.sha1, done.sha1, XFER_SHA1_SIZE), 0);
 }
 
 TEST(XferProtocol, FileDoneBufferTooSmall) {
   xTransferFileDone done;
   done.total_chunks = 1;
-  memset(done.sha256, 0, XFER_SHA256_SIZE);
+  memset(done.sha1, 0, XFER_SHA1_SIZE);
 
   uint8_t buf[4]; /* Too small */
   size_t  len = 0;

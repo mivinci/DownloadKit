@@ -15,6 +15,7 @@
 
 #include <xbase/bitmap.h>
 #include <xbase/log.h>
+#include <xcrypto/sha1.h>
 #include <xp2p/peer_connection.h>
 
 #include <stdio.h>
@@ -53,7 +54,7 @@ XDEF_STRUCT(xTransfer_) {
   uint32_t send_chunk_size;
   uint32_t send_total_chunks;
   uint32_t send_next_chunk;
-  uint8_t  send_sha256[XFER_SHA256_SIZE];
+  uint8_t  send_sha1[XFER_SHA1_SIZE];
   xBitmap  send_resume_bitmap;  /**< Bitmap from receiver (resume). */
   bool     send_has_resume;     /**< True if FILE_RESUME received.  */
   bool     send_waiting_resume; /**< True if waiting for FILE_RESUME before sending chunks. */
@@ -68,7 +69,7 @@ XDEF_STRUCT(xTransfer_) {
   uint32_t recv_total_chunks;
   uint32_t recv_chunks_received;
   uint64_t recv_bytes_received;
-  uint8_t  recv_sha256[XFER_SHA256_SIZE];
+  uint8_t  recv_sha1[XFER_SHA1_SIZE];
   xBitmap  recv_bitmap;         /**< Tracks which chunks received.  */
   char     recv_bitmap_path[1024]; /**< Path to .bitmap file.       */
 
@@ -80,6 +81,9 @@ XDEF_STRUCT(xTransfer_) {
 
   /* Flow control: true when paused due to backpressure */
   bool send_paused;
+
+  /* True after FILE_DONE is sent; waiting for FILE_ACK from receiver */
+  bool send_waiting_ack;
 };
 
 /* ── Helpers ───────────────────────────────────────────── */
@@ -103,6 +107,33 @@ static void report_progress(xTransfer_ *impl, uint64_t transferred,
   if (impl->conf.on_progress) {
     impl->conf.on_progress((xTransfer)impl, transferred, total, impl->conf.ctx);
   }
+}
+
+/**
+ * @brief Compute SHA-1 of an entire file by streaming through it.
+ *
+ * Reads the file in 64 KiB blocks so arbitrarily large files can be
+ * hashed without loading them entirely into memory.
+ */
+static xErrno compute_file_sha1(const char *path, uint8_t *digest) {
+  FILE *fp = fopen(path, "rb");
+  if (!fp) return xErrno_SysError;
+
+  xSha1Ctx ctx;
+  xSha1Init(&ctx);
+
+  uint8_t buf[65536];
+  size_t  n;
+  while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+    xSha1Update(&ctx, buf, n);
+  }
+  bool err = ferror(fp);
+  fclose(fp);
+
+  if (err) return xErrno_SysError;
+
+  xSha1Final(&ctx, digest);
+  return xErrno_Ok;
 }
 
 /* Extract basename from a file path. */
@@ -210,9 +241,15 @@ static void sender_send_next_chunk(xTransfer_ *impl) {
     uint8_t buf[64];
     size_t  len = 0;
 
+    /* Compute SHA-1 over the entire source file */
+    if (compute_file_sha1(impl->send_filepath, impl->send_sha1) != xErrno_Ok) {
+      report_error(impl, xErrno_SysError, "Failed to compute file SHA-1");
+      return;
+    }
+
     xTransferFileDone done;
     done.total_chunks = impl->send_total_chunks;
-    memcpy(done.sha256, impl->send_sha256, XFER_SHA256_SIZE);
+    memcpy(done.sha1, impl->send_sha1, XFER_SHA1_SIZE);
 
     if (xTransferEncodeFileDone(&done, buf, sizeof(buf), &len) != xErrno_Ok) {
       report_error(impl, xErrno_Unknown, "Failed to encode FILE_DONE");
@@ -220,7 +257,11 @@ static void sender_send_next_chunk(xTransfer_ *impl) {
     }
 
     xDataChannelSendBinary(impl->dc, buf, len);
-    set_state(impl, xTransferState_Done);
+
+    /* Wait for FILE_ACK from receiver before declaring Done.
+       The receiver will verify SHA-1 and reply with an ACK. */
+    impl->send_waiting_ack = true;
+    XDEBUG("[xfer] sender: FILE_DONE sent, waiting for FILE_ACK");
     return;
   }
 
@@ -266,6 +307,15 @@ static void sender_send_next_chunk(xTransfer_ *impl) {
   xErrno err = xDataChannelSendBinary(impl->dc, buf, hdr_len + nread);
   free(buf);
 
+  if (err == xErrno_Again) {
+    /* SCTP send buffer full (EAGAIN): pause and retry later */
+    impl->send_paused = true;
+    xDataChannelSetBufferedAmountLowThreshold(impl->dc,
+                                              XFER_SEND_LOW_WATER_MARK);
+    XDEBUG("[xfer] sender paused: SCTP EAGAIN on chunk %u",
+           impl->send_next_chunk);
+    return;
+  }
   if (err != xErrno_Ok) {
     report_error(impl, err, "Failed to send chunk");
     return;
@@ -321,6 +371,28 @@ static void sender_on_dc_message(xDataChannel channel,
   size_t payload_len = len - 1;
 
   switch (msg_type) {
+  case XFER_MSG_ACK: {
+    if (!impl->send_waiting_ack) {
+      XDEBUG("[xfer] sender: unexpected FILE_ACK, ignoring");
+      break;
+    }
+    impl->send_waiting_ack = false;
+
+    xTransferFileAck ack;
+    if (xTransferDecodeFileAck(payload, payload_len, &ack) != xErrno_Ok) {
+      report_error(impl, xErrno_InvalidArg, "Invalid FILE_ACK");
+      return;
+    }
+
+    if (ack.status == 0) {
+      set_state(impl, xTransferState_Done);
+    } else {
+      report_error(impl, xErrno_Unknown,
+                   "Receiver reported verification failure");
+    }
+    break;
+  }
+
   case XFER_MSG_FILE_RESUME: {
     xTransferFileResume resume;
     if (xTransferDecodeFileResume(payload, payload_len, &resume) !=
@@ -352,6 +424,7 @@ static void sender_on_dc_message(xDataChannel channel,
       impl->send_has_resume = true;
 
       uint32_t already_done = xBitmapCount(&impl->send_resume_bitmap);
+      (void)already_done;
       XDEBUG("[xfer] sender: resume bitmap received, %u/%u chunks done",
              already_done, resume.total_chunks);
     }
@@ -390,7 +463,7 @@ static void sender_on_dc_open(xDataChannel channel, void *ctx) {
   meta.filename_len = (uint16_t)name_len;
   meta.file_size = impl->send_filesize;
   meta.chunk_size = impl->send_chunk_size;
-  memcpy(meta.sha256, impl->send_sha256, XFER_SHA256_SIZE);
+  memcpy(meta.sha1, impl->send_sha1, XFER_SHA1_SIZE);
 
   uint8_t buf[512];
   size_t  len = 0;
@@ -438,7 +511,7 @@ static void receiver_on_dc_message(xDataChannel channel,
     impl->recv_chunk_size = meta.chunk_size;
     impl->recv_total_chunks =
       (uint32_t)((meta.file_size + meta.chunk_size - 1) / meta.chunk_size);
-    memcpy(impl->recv_sha256, meta.sha256, XFER_SHA256_SIZE);
+    memcpy(impl->recv_sha1, meta.sha1, XFER_SHA1_SIZE);
 
     /* Notify callback */
     if (impl->conf.on_file_meta) {
@@ -604,7 +677,43 @@ static void receiver_on_dc_message(xDataChannel channel,
       impl->recv_fp = NULL;
     }
 
-    /* TODO: verify SHA-256 */
+    /* Verify SHA-1: compute hash over the received .part file and compare
+       with the sender's hash.  This is done from the file rather than
+       incrementally so that resume transfers are handled correctly. */
+    {
+      xTransferFileAck ack;
+      memset(&ack, 0, sizeof(ack));
+
+      uint8_t computed[XFER_SHA1_SIZE];
+      if (compute_file_sha1(impl->recv_filepath, computed) != xErrno_Ok) {
+        ack.status = 1;
+        uint8_t ack_buf[4];
+        size_t ack_len = 0;
+        xTransferEncodeFileAck(&ack, ack_buf, sizeof(ack_buf), &ack_len);
+        xDataChannelSendBinary(impl->dc, ack_buf, ack_len);
+        report_error(impl, xErrno_SysError,
+                     "Failed to compute SHA-1 of received file");
+        return;
+      }
+
+      if (memcmp(computed, done.sha1, XFER_SHA1_SIZE) != 0) {
+        ack.status = 1;
+        uint8_t ack_buf[4];
+        size_t ack_len = 0;
+        xTransferEncodeFileAck(&ack, ack_buf, sizeof(ack_buf), &ack_len);
+        xDataChannelSendBinary(impl->dc, ack_buf, ack_len);
+        report_error(impl, xErrno_Unknown, "SHA-1 verification failed");
+        return;
+      }
+      XDEBUG("[xfer] receiver: SHA-1 verification passed");
+
+      /* Send success ACK to sender */
+      ack.status = 0;
+      uint8_t ack_buf[4];
+      size_t ack_len = 0;
+      xTransferEncodeFileAck(&ack, ack_buf, sizeof(ack_buf), &ack_len);
+      xDataChannelSendBinary(impl->dc, ack_buf, ack_len);
+    }
 
     /* Rename .part → final filename */
     char final_path[1024];
@@ -869,7 +978,9 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
                impl->send_chunk_size);
   impl->send_next_chunk = 0;
 
-  /* TODO: compute SHA-256 of the file */
+  /* SHA-1 will be computed incrementally during transfer.
+   * The send_sha1 field in FILE_META is zeroed (computed later). */
+  memset(impl->send_sha1, 0, XFER_SHA1_SIZE);
 
   /* Create PeerConnection */
   xPeerConnectionConf pc_conf;

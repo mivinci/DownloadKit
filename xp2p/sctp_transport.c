@@ -12,6 +12,7 @@
 #include <usrsctp.h>
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -324,6 +325,9 @@ xErrno xSctpTransportSend(xSctpTransport transport, uint16_t stream_id,
   if (sent >= 0) {
     t->buffered_amount += (size_t)sent;
     return xErrno_Ok;
+  }
+  if (errno == EAGAIN || errno == EWOULDBLOCK) {
+    return xErrno_Again;
   }
   return xErrno_SysError;
 }

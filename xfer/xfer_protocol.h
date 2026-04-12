@@ -30,9 +30,9 @@
 #define XFER_MSG_CANCEL 0x06    /**< Cancel transfer.                  */
 #define XFER_MSG_FILE_RESUME 0x07 /**< Resume bitmap (receiver → sender). */
 
-/* ───────────────────── SHA-256 ───────────────────── */
+/* ───────────────────── SHA-1 ───────────────────── */
 
-#define XFER_SHA256_SIZE 32
+#define XFER_SHA1_SIZE 20
 
 /* ───────────────────── Message Header ───────────────────── */
 
@@ -49,17 +49,17 @@
 /**
  * FILE_META message layout:
  *
- *   +------+----------+-----------+----------+----------+----------+
- *   | type | name_len |   name    |  size    | chunk_sz |  sha256  |
- *   | 1B   |   2B     | name_len  |   8B     |   4B     |   32B   |
- *   +------+----------+-----------+----------+----------+----------+
+ *   +------+----------+-----------+----------+----------+--------+
+ *   | type | name_len |   name    |  size    | chunk_sz |  sha1  |
+ *   | 1B   |   2B     | name_len  |   8B     |   4B     |  20B   |
+ *   +------+----------+-----------+----------+----------+--------+
  */
 XDEF_STRUCT(xTransferFileMeta) {
   char     filename[256]; /**< Original filename (no path).  */
   uint16_t filename_len;  /**< Length of filename.            */
   uint64_t file_size;     /**< Total file size in bytes.      */
   uint32_t chunk_size;    /**< Chunk size in bytes.            */
-  uint8_t  sha256[XFER_SHA256_SIZE]; /**< SHA-256 of the file. */
+  uint8_t  sha1[XFER_SHA1_SIZE]; /**< SHA-1 of the file. */
 };
 
 /* ───────────────────── FILE_CHUNK ───────────────────── */
@@ -83,14 +83,30 @@ XDEF_STRUCT(xTransferFileChunk) {
 /**
  * FILE_DONE message layout:
  *
- *   +------+-----------+----------+
- *   | type | total_chk |  sha256  |
- *   | 1B   |    4B     |   32B    |
- *   +------+-----------+----------+
+ *   +------+-----------+--------+
+ *   | type | total_chk |  sha1  |
+ *   | 1B   |    4B     |  20B   |
+ *   +------+-----------+--------+
  */
 XDEF_STRUCT(xTransferFileDone) {
   uint32_t total_chunks;             /**< Total number of chunks sent. */
-  uint8_t  sha256[XFER_SHA256_SIZE]; /**< SHA-256 of the entire file.  */
+  uint8_t  sha1[XFER_SHA1_SIZE]; /**< SHA-1 of the entire file.  */
+};
+
+/* ───────────────────── FILE_ACK ───────────────────── */
+
+/**
+ * FILE_ACK message layout (sent by receiver after FILE_DONE):
+ *
+ *   +------+--------+
+ *   | type | status |
+ *   | 1B   |   1B   |
+ *   +------+--------+
+ *
+ * status: 0 = success, non-zero = failure.
+ */
+XDEF_STRUCT(xTransferFileAck) {
+  uint8_t status; /**< 0 = success, non-zero = failure. */
 };
 
 /* ───────────────────── FILE_RESUME ───────────────────── */
@@ -217,5 +233,29 @@ XCAPI(xErrno) xTransferEncodeFileResume(const xTransferFileResume *resume,
  */
 XCAPI(xErrno) xTransferDecodeFileResume(const uint8_t *data, size_t len,
                                          xTransferFileResume *resume);
+
+/**
+ * @brief Encode a FILE_ACK message into a buffer.
+ *
+ * @param ack   Ack metadata.
+ * @param buf   Output buffer.
+ * @param cap   Buffer capacity.
+ * @param out   Actual encoded length (output).
+ * @return      xErrno_Ok on success.
+ */
+XCAPI(xErrno) xTransferEncodeFileAck(const xTransferFileAck *ack,
+                                      uint8_t *buf, size_t cap,
+                                      size_t *out);
+
+/**
+ * @brief Decode a FILE_ACK message from a buffer.
+ *
+ * @param data  Input buffer (starting after the type byte).
+ * @param len   Length of input.
+ * @param ack   Output ack metadata.
+ * @return      xErrno_Ok on success.
+ */
+XCAPI(xErrno) xTransferDecodeFileAck(const uint8_t *data, size_t len,
+                                      xTransferFileAck *ack);
 
 #endif /* XFER_PROTOCOL_H */

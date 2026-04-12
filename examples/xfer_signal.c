@@ -15,21 +15,17 @@
 #include <xbase/event.h>
 #include <xfer/xfer_signal.h>
 
-#include <signal.h>
+#include <signal.h> /* SIGINT */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-static xEventLoop    g_loop;
-static xSignalServer g_server;
-
-static void on_sigint(int sig) {
-  (void)sig;
+static void on_sigint(int signo, void *arg) {
+  (void)signo;
+  xEventLoop loop = (xEventLoop)arg;
   printf("\nShutting down...\n");
-  if (g_loop) {
-    xEventLoopStop(g_loop);
-  }
+  xEventLoopStop(loop);
 }
 
 int main(int argc, char *argv[]) {
@@ -54,31 +50,31 @@ int main(int argc, char *argv[]) {
   printf("xfer Signaling Server\n");
   printf("Listening on %s:%u\n", host, port);
 
-  signal(SIGINT, on_sigint);
-
-  g_loop = xEventLoopCreate();
-  if (!g_loop) {
+  xEventLoop loop = xEventLoopCreate();
+  if (!loop) {
     fprintf(stderr, "Failed to create event loop\n");
     return 1;
   }
+
+  xEventLoopSignalWatch(loop, SIGINT, on_sigint, loop);
 
   xSignalServerConf conf;
   memset(&conf, 0, sizeof(conf));
   conf.host = host;
   conf.port = port;
 
-  g_server = xSignalServerCreate(g_loop, &conf);
-  if (!g_server) {
+  xSignalServer server = xSignalServerCreate(loop, &conf);
+  if (!server) {
     fprintf(stderr, "Failed to create signaling server\n");
-    xEventLoopDestroy(g_loop);
+    xEventLoopDestroy(loop);
     return 1;
   }
 
   printf("Server started. Press Ctrl+C to stop.\n");
-  xEventLoopRun(g_loop);
+  xEventLoopRun(loop);
 
-  xSignalServerDestroy(g_server);
-  xEventLoopDestroy(g_loop);
+  xSignalServerDestroy(server);
+  xEventLoopDestroy(loop);
 
   printf("Server stopped.\n");
   return 0;

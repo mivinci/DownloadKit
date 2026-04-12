@@ -3,7 +3,9 @@ file(GLOB_RECURSE XFER_SOURCES "*.c")
 
 add_library(xfer SHARED ${XFER_SOURCES} ${XFER_HEADERS})
 
-target_link_libraries(xfer PUBLIC xp2p xbase)
+find_package(Cjson REQUIRED)
+
+target_link_libraries(xfer PUBLIC xp2p xhttp xbase PRIVATE Cjson::Cjson)
 
 if(XK_ENABLE_DEBUG)
   target_compile_definitions(xfer PRIVATE XK_ENABLE_DEBUG)

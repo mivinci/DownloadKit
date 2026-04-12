@@ -20,16 +20,15 @@
  *   ./xfer_echo -r                  # test resume (cancel at 50%)
  */
 
-#include "../xfer/xfer.h"
-
 #include <xbase/event.h>
+#include <xfer/xfer.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 /* ── Constants ─────────────────────────────────────────── */
 
@@ -44,9 +43,9 @@ static xTransfer  g_receiver;
 static bool g_sender_gathering_done   = false;
 static bool g_receiver_gathering_done = false;
 
-static const char *g_stun_server  = NULL;
-static bool        g_enable_ipv6  = false;
-static bool        g_resume_test  = false;
+static const char *g_stun_server = NULL;
+static bool        g_enable_ipv6 = false;
+static bool        g_resume_test = false;
 
 /* File to send */
 static const char *g_send_filepath = NULL;
@@ -76,10 +75,11 @@ static int generate_temp_file(const char *path, size_t size) {
   if (!fp) return -1;
   srand((unsigned)time(NULL));
   uint8_t buf[4096];
-  size_t remaining = size;
+  size_t  remaining = size;
   while (remaining > 0) {
     size_t n = remaining < sizeof(buf) ? remaining : sizeof(buf);
-    for (size_t i = 0; i < n; i++) buf[i] = (uint8_t)(rand() & 0xFF);
+    for (size_t i = 0; i < n; i++)
+      buf[i] = (uint8_t)(rand() & 0xFF);
     fwrite(buf, 1, n, fp);
     remaining -= n;
   }
@@ -97,14 +97,20 @@ static bool files_equal(const char *path_a, const char *path_b) {
     if (fb) fclose(fb);
     return false;
   }
-  bool equal = true;
+  bool    equal = true;
   uint8_t ba[4096], bb[4096];
   while (1) {
     size_t na = fread(ba, 1, sizeof(ba), fa);
     size_t nb = fread(bb, 1, sizeof(bb), fb);
-    if (na != nb) { equal = false; break; }
+    if (na != nb) {
+      equal = false;
+      break;
+    }
     if (na == 0) break;
-    if (memcmp(ba, bb, na) != 0) { equal = false; break; }
+    if (memcmp(ba, bb, na) != 0) {
+      equal = false;
+      break;
+    }
   }
   fclose(fa);
   fclose(fb);
@@ -119,22 +125,36 @@ static void sender_on_state_change(xTransfer xfer, xTransferState state,
   (void)ctx;
   const char *s;
   switch (state) {
-  case xTransferState_Idle:         s = "Idle";         break;
-  case xTransferState_WaitingPeer:  s = "WaitingPeer";  break;
-  case xTransferState_Connecting:   s = "Connecting";    break;
-  case xTransferState_Transferring: s = "Transferring";  break;
-  case xTransferState_Done:         s = "Done";          break;
-  case xTransferState_Failed:       s = "Failed";        break;
-  default:                          s = "Unknown";       break;
+  case xTransferState_Idle:
+    s = "Idle";
+    break;
+  case xTransferState_WaitingPeer:
+    s = "WaitingPeer";
+    break;
+  case xTransferState_Connecting:
+    s = "Connecting";
+    break;
+  case xTransferState_Transferring:
+    s = "Transferring";
+    break;
+  case xTransferState_Done:
+    s = "Done";
+    break;
+  case xTransferState_Failed:
+    s = "Failed";
+    break;
+  default:
+    s = "Unknown";
+    break;
   }
   printf("[Sender] State: %s\n", s);
 }
 
 static void sender_on_progress(xTransfer xfer, uint64_t transferred,
-                                uint64_t total, void *ctx) {
+                               uint64_t total, void *ctx) {
   (void)xfer;
   (void)ctx;
-  g_sender_total = total;
+  g_sender_total    = total;
   g_sender_progress = transferred;
 
   printf("\r[Sender] Progress: %llu / %llu bytes (%.1f%%)",
@@ -151,7 +171,7 @@ static void sender_on_progress(xTransfer xfer, uint64_t transferred,
 }
 
 static void sender_on_error(xTransfer xfer, xErrno err, const char *msg,
-                             void *ctx) {
+                            void *ctx) {
   (void)xfer;
   (void)err;
   (void)ctx;
@@ -159,7 +179,7 @@ static void sender_on_error(xTransfer xfer, xErrno err, const char *msg,
 }
 
 static void sender_on_ice_candidate(xTransfer xfer, const char *candidate,
-                                     void *ctx) {
+                                    void *ctx) {
   (void)xfer;
   (void)ctx;
   if (candidate) {
@@ -181,19 +201,27 @@ static void receiver_on_state_change(xTransfer xfer, xTransferState state,
   (void)ctx;
   const char *s;
   switch (state) {
-  case xTransferState_Idle:         s = "Idle";         break;
-  case xTransferState_WaitingPeer:  s = "WaitingPeer";  break;
-  case xTransferState_Connecting:   s = "Connecting";    break;
-  case xTransferState_Transferring: s = "Transferring";  break;
+  case xTransferState_Idle:
+    s = "Idle";
+    break;
+  case xTransferState_WaitingPeer:
+    s = "WaitingPeer";
+    break;
+  case xTransferState_Connecting:
+    s = "Connecting";
+    break;
+  case xTransferState_Transferring:
+    s = "Transferring";
+    break;
   case xTransferState_Done: {
     printf("[Receiver] State: Done\n");
 
     /* Verify transferred file */
     const char *src = g_send_filepath ? g_send_filepath : g_temp_filepath;
-    char final_path[1024];
+    char        final_path[1024];
     /* The filename is the basename of the source file */
     const char *name = strrchr(src, '/');
-    name = name ? name + 1 : src;
+    name             = name ? name + 1 : src;
     snprintf(final_path, sizeof(final_path), "%s/%s", g_dest_dir, name);
 
     if (files_equal(src, final_path)) {
@@ -205,14 +233,18 @@ static void receiver_on_state_change(xTransfer xfer, xTransferState state,
     xEventLoopStop(g_loop);
     return;
   }
-  case xTransferState_Failed:       s = "Failed";        break;
-  default:                          s = "Unknown";       break;
+  case xTransferState_Failed:
+    s = "Failed";
+    break;
+  default:
+    s = "Unknown";
+    break;
   }
   printf("[Receiver] State: %s\n", s);
 }
 
 static void receiver_on_progress(xTransfer xfer, uint64_t transferred,
-                                  uint64_t total, void *ctx) {
+                                 uint64_t total, void *ctx) {
   (void)xfer;
   (void)ctx;
   printf("\r[Receiver] Progress: %llu / %llu bytes (%.1f%%)",
@@ -222,15 +254,15 @@ static void receiver_on_progress(xTransfer xfer, uint64_t transferred,
 }
 
 static void receiver_on_file_meta(xTransfer xfer, const char *filename,
-                                   uint64_t filesize, void *ctx) {
+                                  uint64_t filesize, void *ctx) {
   (void)xfer;
   (void)ctx;
-  printf("[Receiver] FILE_META: name=\"%s\" size=%llu\n",
-         filename, (unsigned long long)filesize);
+  printf("[Receiver] FILE_META: name=\"%s\" size=%llu\n", filename,
+         (unsigned long long)filesize);
 }
 
 static void receiver_on_error(xTransfer xfer, xErrno err, const char *msg,
-                               void *ctx) {
+                              void *ctx) {
   (void)xfer;
   (void)err;
   (void)ctx;
@@ -238,7 +270,7 @@ static void receiver_on_error(xTransfer xfer, xErrno err, const char *msg,
 }
 
 static void receiver_on_ice_candidate(xTransfer xfer, const char *candidate,
-                                       void *ctx) {
+                                      void *ctx) {
   (void)xfer;
   (void)ctx;
   if (candidate) {
@@ -258,13 +290,20 @@ static void exchange_sdp(void) {
   printf("\n── Exchanging SDP ──\n\n");
 
   char *offer = xTransferCreateOffer(g_sender);
-  if (!offer) { fprintf(stderr, "Failed to create offer\n"); return; }
+  if (!offer) {
+    fprintf(stderr, "Failed to create offer\n");
+    return;
+  }
 
   xTransferSetLocalDescription(g_sender, offer);
   xTransferSetRemoteDescription(g_receiver, offer);
 
   char *answer = xTransferCreateAnswer(g_receiver);
-  if (!answer) { fprintf(stderr, "Failed to create answer\n"); free(offer); return; }
+  if (!answer) {
+    fprintf(stderr, "Failed to create answer\n");
+    free(offer);
+    return;
+  }
 
   xTransferSetLocalDescription(g_receiver, answer);
   xTransferSetRemoteDescription(g_sender, answer);
@@ -277,8 +316,9 @@ static void exchange_sdp(void) {
 
 static void start_transfer(void) {
   printf("\n══ Phase %d %s ══\n\n", g_phase,
-         (g_phase == 1 && g_resume_test) ? "(will cancel at 50%)" :
-         (g_phase == 2) ? "(resume)" : "");
+         (g_phase == 1 && g_resume_test) ? "(will cancel at 50%)"
+         : (g_phase == 2)                ? "(resume)"
+                                         : "");
 
   const char *path = g_send_filepath ? g_send_filepath : g_temp_filepath;
 
@@ -317,8 +357,14 @@ static void start_transfer(void) {
 /* ── Cleanup a transfer round ──────────────────────────── */
 
 static void cleanup_round(void) {
-  if (g_sender)   { xTransferDestroy(g_sender);   g_sender = NULL; }
-  if (g_receiver) { xTransferDestroy(g_receiver); g_receiver = NULL; }
+  if (g_sender) {
+    xTransferDestroy(g_sender);
+    g_sender = NULL;
+  }
+  if (g_receiver) {
+    xTransferDestroy(g_receiver);
+    g_receiver = NULL;
+  }
 }
 
 /* ── Main ──────────────────────────────────────────────── */
@@ -327,11 +373,21 @@ int main(int argc, char *argv[]) {
   int opt;
   while ((opt = getopt(argc, argv, "f:d:rs:6")) != -1) {
     switch (opt) {
-    case 'f': g_send_filepath = optarg; break;
-    case 'd': g_dest_dir = optarg; break;
-    case 'r': g_resume_test = true; break;
-    case 's': g_stun_server = optarg; break;
-    case '6': g_enable_ipv6 = true; break;
+    case 'f':
+      g_send_filepath = optarg;
+      break;
+    case 'd':
+      g_dest_dir = optarg;
+      break;
+    case 'r':
+      g_resume_test = true;
+      break;
+    case 's':
+      g_stun_server = optarg;
+      break;
+    case '6':
+      g_enable_ipv6 = true;
+      break;
     default:
       fprintf(stderr,
               "Usage: %s [-f file] [-d dest_dir] [-r] [-s stun:port] [-6]\n",
@@ -352,8 +408,8 @@ int main(int argc, char *argv[]) {
   if (!g_send_filepath) {
     snprintf(g_temp_filepath, sizeof(g_temp_filepath),
              "/tmp/xfer_echo_test_%d.bin", (int)getpid());
-    printf("Generating temp file: %s (%d bytes)\n",
-           g_temp_filepath, DEFAULT_FILE_SIZE);
+    printf("Generating temp file: %s (%d bytes)\n", g_temp_filepath,
+           DEFAULT_FILE_SIZE);
     if (generate_temp_file(g_temp_filepath, DEFAULT_FILE_SIZE) != 0) {
       fprintf(stderr, "Failed to generate temp file\n");
       return 1;
@@ -374,10 +430,10 @@ int main(int argc, char *argv[]) {
   /* ── Phase 2 (resume) ── */
   if (g_resume_test && g_phase1_done) {
     printf("\n── Simulating restart for resume ──\n");
-    g_phase = 2;
-    g_sender_gathering_done = false;
+    g_phase                   = 2;
+    g_sender_gathering_done   = false;
     g_receiver_gathering_done = false;
-    g_loop = xEventLoopCreate();
+    g_loop                    = xEventLoopCreate();
     start_transfer();
     xEventLoopRun(g_loop);
     cleanup_round();

@@ -21,3 +21,6 @@ target_link_libraries(pc_client PRIVATE xp2p xhttp xbase)
 
 add_executable(xfer_echo xfer_echo.c)
 target_link_libraries(xfer_echo PRIVATE xfer xbase)
+
+add_executable(xfer_signal xfer_signal.c)
+target_link_libraries(xfer_signal PRIVATE xfer xhttp xbase)

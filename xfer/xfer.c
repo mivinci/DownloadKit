@@ -11,6 +11,7 @@
 
 #include "xfer.h"
 #include "xfer_protocol.h"
+#include "xfer_signal.h"
 
 #include <xbase/bitmap.h>
 #include <xbase/log.h>
@@ -73,6 +74,9 @@ XDEF_STRUCT(xTransfer_) {
 
   /* Code for signaling */
   char code[XFER_MAX_CODE_LEN];
+
+  /* Signaling client (NULL when using manual SDP API) */
+  xSignalClient signal;
 
   /* Flow control: true when paused due to backpressure */
   bool send_paused;
@@ -666,9 +670,130 @@ static void on_pc_ice_candidate(xPeerConnection pc, const char *candidate,
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)pc;
 
+  /* Forward candidate via signaling if connected */
+  if (impl->signal && candidate) {
+    xSignalClientSendCandidate(impl->signal, candidate);
+  }
+
   if (impl->conf.on_ice_candidate) {
     impl->conf.on_ice_candidate((xTransfer)impl, candidate, impl->conf.ctx);
   }
+}
+
+/* ── Signaling callbacks (used when signal_server is configured) ──── */
+
+static void on_signal_code(xSignalClient client, const char *code, void *ctx) {
+  xTransfer_ *impl = (xTransfer_ *)ctx;
+  (void)client;
+
+  strncpy(impl->code, code, XFER_MAX_CODE_LEN - 1);
+  XDEBUG("[xfer] signaling: received code=%s", code);
+
+  if (impl->conf.on_code) {
+    impl->conf.on_code((xTransfer)impl, code, impl->conf.ctx);
+  }
+}
+
+static void on_signal_peer_joined(xSignalClient client, void *ctx) {
+  xTransfer_ *impl = (xTransfer_ *)ctx;
+  (void)client;
+
+  XDEBUG("[xfer] signaling: peer joined, starting SDP exchange");
+
+  /* Sender: create offer, set local, send via signaling, gather ICE */
+  char *offer = xPeerConnectionCreateOffer(impl->pc);
+  if (!offer) {
+    report_error(impl, xErrno_Unknown, "Failed to create SDP offer");
+    return;
+  }
+
+  xPeerConnectionSetLocalDescription(impl->pc, offer);
+  xSignalClientSendOffer(impl->signal, offer);
+  free(offer);
+
+  xIceAgentGather(xPeerConnectionGetIceAgent(impl->pc));
+}
+
+static void on_signal_offer(xSignalClient client, const char *sdp, void *ctx) {
+  xTransfer_ *impl = (xTransfer_ *)ctx;
+  (void)client;
+
+  XDEBUG("[xfer] signaling: received SDP offer");
+
+  xPeerConnectionSetRemoteDescription(impl->pc, sdp);
+
+  /* Receiver: create answer, set local, send via signaling, gather ICE */
+  char *answer = xPeerConnectionCreateAnswer(impl->pc);
+  if (!answer) {
+    report_error(impl, xErrno_Unknown, "Failed to create SDP answer");
+    return;
+  }
+
+  xPeerConnectionSetLocalDescription(impl->pc, answer);
+  xSignalClientSendAnswer(impl->signal, answer);
+  free(answer);
+
+  xIceAgentGather(xPeerConnectionGetIceAgent(impl->pc));
+}
+
+static void on_signal_answer(xSignalClient client, const char *sdp,
+                             void *ctx) {
+  xTransfer_ *impl = (xTransfer_ *)ctx;
+  (void)client;
+
+  XDEBUG("[xfer] signaling: received SDP answer");
+  xPeerConnectionSetRemoteDescription(impl->pc, sdp);
+}
+
+static void on_signal_candidate(xSignalClient client, const char *candidate,
+                                void *ctx) {
+  xTransfer_ *impl = (xTransfer_ *)ctx;
+  (void)client;
+
+  XDEBUG("[xfer] signaling: received remote ICE candidate");
+  xIceAgentAddRemoteCandidate(xPeerConnectionGetIceAgent(impl->pc), candidate);
+}
+
+static void on_signal_error(xSignalClient client, xErrno err, const char *msg,
+                            void *ctx) {
+  xTransfer_ *impl = (xTransfer_ *)ctx;
+  (void)client;
+  (void)err;
+
+  report_error(impl, xErrno_Unknown, msg);
+}
+
+/**
+ * @brief Connect to the signaling server (if configured).
+ *
+ * @param impl  Transfer instance.
+ * @param role  Signaling role (sender or receiver).
+ * @param code  Code for joining (receiver only, NULL for sender).
+ * @return      xErrno_Ok on success, or if no signal_server configured.
+ */
+static xErrno connect_signaling(xTransfer_ *impl, xSignalClientRole role,
+                                const char *code) {
+  if (!impl->conf.signal_server) return xErrno_Ok;
+
+  xSignalClientConf sc_conf;
+  memset(&sc_conf, 0, sizeof(sc_conf));
+  sc_conf.url            = impl->conf.signal_server;
+  sc_conf.role           = role;
+  sc_conf.code           = code;
+  sc_conf.on_code        = on_signal_code;
+  sc_conf.on_peer_joined = on_signal_peer_joined;
+  sc_conf.on_offer       = on_signal_offer;
+  sc_conf.on_answer      = on_signal_answer;
+  sc_conf.on_candidate   = on_signal_candidate;
+  sc_conf.on_error       = on_signal_error;
+  sc_conf.ctx            = impl;
+
+  impl->signal = xSignalClientCreate(impl->loop, &sc_conf);
+  if (!impl->signal) {
+    return xErrno_Unknown;
+  }
+
+  return xErrno_Ok;
 }
 
 /* ───────────────────── Public API ───────────────────── */
@@ -698,6 +823,10 @@ void xTransferDestroy(xTransfer xfer) {
   if (impl->recv_fp) {
     fclose(impl->recv_fp);
     impl->recv_fp = NULL;
+  }
+  if (impl->signal) {
+    xSignalClientDestroy(impl->signal);
+    impl->signal = NULL;
   }
   if (impl->pc) {
     xPeerConnectionDestroy(impl->pc);
@@ -778,6 +907,13 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
 
   set_state(impl, xTransferState_WaitingPeer);
 
+  /* Connect to signaling server if configured */
+  xErrno sig_err = connect_signaling(impl, xSignalClientRole_Sender, NULL);
+  if (sig_err != xErrno_Ok) {
+    report_error(impl, sig_err, "Failed to connect to signaling server");
+    return sig_err;
+  }
+
   return xErrno_Ok;
 }
 
@@ -813,6 +949,13 @@ xErrno xTransferRecvFile(xTransfer xfer, const char *code,
   }
 
   set_state(impl, xTransferState_WaitingPeer);
+
+  /* Connect to signaling server if configured */
+  xErrno sig_err = connect_signaling(impl, xSignalClientRole_Receiver, code);
+  if (sig_err != xErrno_Ok) {
+    report_error(impl, sig_err, "Failed to connect to signaling server");
+    return sig_err;
+  }
 
   return xErrno_Ok;
 }

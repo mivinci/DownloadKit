@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
   const char *code          = NULL;
   const char *dest_dir      = "/tmp/xfer_recv";
   const char *signal_url    = "ws://127.0.0.1:8080/ws";
-  const char *stun_server   = NULL;
+  const char *stun_server   = "stun.l.google.com:19302";
   bool        enable_ipv6   = false;
 
   int opt;
@@ -200,7 +200,7 @@ int main(int argc, char *argv[]) {
   printf("Code:    %s\n", display_code);
   printf("Dest:    %s\n", dest_dir);
   printf("Signal:  %s\n", display_signal);
-  printf("STUN:    %s\n", stun_server ? stun_server : "(none)");
+  printf("STUN:    %s\n", stun_server);
   printf("IPv6:    %s\n", enable_ipv6 ? "enabled" : "disabled");
 
   /* Ensure destination directory exists */

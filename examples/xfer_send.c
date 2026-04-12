@@ -92,7 +92,7 @@ static void on_sigint(int signo, void *arg) {
 int main(int argc, char *argv[]) {
   const char *filepath      = NULL;
   const char *signal_url    = "ws://127.0.0.1:8080/ws";
-  const char *stun_server   = NULL;
+  const char *stun_server   = "stun.l.google.com:19302";
   bool        enable_ipv6   = false;
 
   int opt;
@@ -121,7 +121,7 @@ int main(int argc, char *argv[]) {
   printf("xfer Send\n");
   printf("File:    %s\n", filepath);
   printf("Signal:  %s\n", signal_url);
-  printf("STUN:    %s\n", stun_server ? stun_server : "(none)");
+  printf("STUN:    %s\n", stun_server);
   printf("IPv6:    %s\n", enable_ipv6 ? "enabled" : "disabled");
 
   g_loop = xEventLoopCreate();

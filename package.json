@@ -30,8 +30,13 @@
     "example": "examples"
   },
   "scripts": {
-    "build": "cmake -B build -DXK_ENABLE_DEBUG=ON -DXK_BUILD_EXAMPLES=ON && cmake --build build --parallel",
-    "build-openssl": "cmake -B build-openssl -DXK_ENABLE_DEBUG=ON -DXK_BUILD_EXAMPLES=ON -DXK_TLS_BACKEND=openssl && cmake --build build-openssl --parallel",
-    "build-mbedtls": "cmake -B build-mbedtls -DXK_ENABLE_DEBUG=ON -DXK_BUILD_EXAMPLES=ON -DXK_TLS_BACKEND=mbedtls && cmake --build build-mbedtls --parallel"
+    "build": "cmake -B build -DXK_BUILD_EXAMPLES=ON && cmake --build build",
+    "build-openssl": "cmake -B build-openssl -DXK_BUILD_EXAMPLES=ON -DXK_TLS_BACKEND=openssl && cmake --build build-openssl",
+    "build-mbedtls": "cmake -B build-mbedtls -DXK_BUILD_EXAMPLES=ON -DXK_TLS_BACKEND=mbedtls && cmake --build build-mbedtls",
+    "test": "ctest --test-dir build --output-on-failure",
+    "bench": "ctest --test-dir build -L bench --output-on-failure",
+    "build-docs": "mdbook build docs",
+    "serve-docs": "mdbook serve docs --open",
+    "clean": "rm -rf build build-openssl build-mbedtls book"
   }
 }

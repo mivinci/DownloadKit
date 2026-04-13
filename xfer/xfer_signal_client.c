@@ -19,6 +19,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* ── Constants ─────────────────────────────────────────── */
+
+/** Heartbeat interval in milliseconds (half of server idle timeout). */
+#define SIGNAL_HEARTBEAT_INTERVAL_MS 30000
+
 /* ── Internal state ────────────────────────────────────── */
 
 XDEF_STRUCT(xSignalClient_) {
@@ -26,6 +31,7 @@ XDEF_STRUCT(xSignalClient_) {
   xSignalClientConf conf;
   xWsConn           ws;
   bool              connected;
+  xEventTimer       heartbeat_timer;
 };
 
 /* ── Helpers ───────────────────────────────────────────── */
@@ -42,6 +48,37 @@ static void report_error(xSignalClient_ *impl, xErrno err, const char *msg) {
   if (impl->conf.on_error) {
     impl->conf.on_error((xSignalClient)impl, err, msg, impl->conf.ctx);
   }
+}
+
+/* ── Heartbeat ─────────────────────────────────────────── */
+
+static void heartbeat_timer_cb(void *arg);
+
+static void schedule_heartbeat(xSignalClient_ *impl) {
+  impl->heartbeat_timer = xEventLoopTimerAfter(
+      impl->loop, heartbeat_timer_cb, impl, SIGNAL_HEARTBEAT_INTERVAL_MS);
+}
+
+static void cancel_heartbeat(xSignalClient_ *impl) {
+  if (impl->heartbeat_timer) {
+    xEventLoopTimerCancel(impl->loop, impl->heartbeat_timer);
+    impl->heartbeat_timer = NULL;
+  }
+}
+
+static void heartbeat_timer_cb(void *arg) {
+  xSignalClient_ *impl = (xSignalClient_ *)arg;
+  impl->heartbeat_timer = NULL;
+
+  if (!impl->ws || !impl->connected) return;
+
+  cJSON *msg = cJSON_CreateObject();
+  cJSON_AddStringToObject(msg, "type", "heartbeat");
+  send_json(impl->ws, msg);
+  cJSON_Delete(msg);
+
+  /* Reschedule next heartbeat */
+  schedule_heartbeat(impl);
 }
 
 /* ── WebSocket callbacks ───────────────────────────────── */
@@ -68,6 +105,9 @@ static void on_ws_open(xWsConn conn, void *arg) {
     send_json(conn, msg);
     cJSON_Delete(msg);
   }
+
+  /* Start heartbeat timer to keep the connection alive */
+  schedule_heartbeat(impl);
 }
 
 static void on_ws_message(xWsConn conn, xWsOpcode opcode,
@@ -134,6 +174,9 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
                               impl->conf.ctx);
     }
 
+  } else if (strcmp(type, "heartbeat") == 0) {
+    /* Server heartbeat response — nothing to do */
+
   } else if (strcmp(type, "error") == 0) {
     cJSON *msg_item = cJSON_GetObjectItemCaseSensitive(json, "message");
     const char *msg = cJSON_IsString(msg_item) ? msg_item->valuestring
@@ -156,6 +199,7 @@ static void on_ws_close(xWsConn conn, uint16_t code, const char *reason,
   (void)len;
 
   XDEBUG("[signal-client] WebSocket closed");
+  cancel_heartbeat(impl);
   impl->ws = NULL;
   impl->connected = false;
 }
@@ -195,6 +239,8 @@ xSignalClient xSignalClientCreate(xEventLoop loop,
 void xSignalClientDestroy(xSignalClient client) {
   if (!client) return;
   xSignalClient_ *impl = (xSignalClient_ *)client;
+
+  cancel_heartbeat(impl);
 
   if (impl->ws) {
     xWsClose(impl->ws, 1000);

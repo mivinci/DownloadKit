@@ -21,6 +21,8 @@
  *   Server  → Sender:  {"type":"answer","sdp":"..."}
  *   Either  → Server:  {"type":"candidate","candidate":"..."}
  *   Server  → Peer:    {"type":"candidate","candidate":"..."}
+ *   Either  → Server:  {"type":"heartbeat"}
+ *   Server  → Either:  {"type":"heartbeat"}
  */
 
 #include "xfer_signal.h"
@@ -217,6 +219,13 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
       send_json(session->sender, peer_joined);
       cJSON_Delete(peer_joined);
     }
+
+  } else if (strcmp(type, "heartbeat") == 0) {
+    /* Reply with a heartbeat to keep the connection alive */
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "type", "heartbeat");
+    send_json(conn, resp);
+    cJSON_Delete(resp);
 
   } else if (strcmp(type, "offer") == 0 ||
              strcmp(type, "answer") == 0 ||

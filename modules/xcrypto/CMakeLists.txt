@@ -56,7 +56,7 @@ if(XK_BUILD_TESTS)
   if(XCRYPTO_TEST_SOURCES)
     add_executable(xcrypto_test ${XCRYPTO_TEST_SOURCES})
     target_link_libraries(xcrypto_test PRIVATE xcrypto xbase
-                          GTest::gtest GTest::gtest_main)
+                          GTest::gtest_main)
     add_test(NAME xcrypto_test COMMAND xcrypto_test)
   endif()
 endif()

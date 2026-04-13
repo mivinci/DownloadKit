@@ -14,11 +14,9 @@
  *   ./xfer_recv -c AB12CD -d /tmp/received -u ws://192.168.1.100:8080/ws
  */
 
-#include <xbase/base58.h>
 #include <xbase/event.h>
 #include <xbase/speed_tracker.h>
 #include <xfer/xfer.h>
-#include <xnet/url.h>
 
 #include <signal.h> /* SIGINT */
 #include <stdio.h>
@@ -150,77 +148,10 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  /* Try Base58-decoding the code, then parse the URL to display
-     the session code and signal server separately. */
-  const char *display_code       = code;
-  const char *display_signal     = signal_url;
-  char        decoded_url[512]   = {0};
-  char        parsed_code[128]   = {0};
-  char        parsed_signal[512] = {0};
-
-  {
-    size_t      dec_len = sizeof(decoded_url) - 1;
-    const char *url_str = NULL;
-    /* Strip xfer_ prefix if present */
-    const char *b58_input = code;
-    if (strncmp(code, "xfer_", 5) == 0) b58_input = code + 5;
-    if (xBase58Decode(b58_input, strlen(b58_input), (uint8_t *)decoded_url,
-                      &dec_len) == 0 &&
-        dec_len > 0) {
-      decoded_url[dec_len] = '\0';
-      if (strncmp(decoded_url, "ws://", 5) == 0 ||
-          strncmp(decoded_url, "wss://", 6) == 0) {
-        url_str = decoded_url;
-      }
-    }
-    if (!url_str &&
-        (strncmp(code, "ws://", 5) == 0 || strncmp(code, "wss://", 6) == 0)) {
-      url_str = code;
-    }
-    if (url_str) {
-      xUrl url;
-      if (xUrlParse(url_str, &url) == xErrno_Ok && url.userinfo &&
-          url.userinfo_len > 0) {
-        size_t clen = url.userinfo_len;
-        if (clen >= sizeof(parsed_code)) clen = sizeof(parsed_code) - 1;
-        memcpy(parsed_code, url.userinfo, clen);
-        parsed_code[clen] = '\0';
-        display_code      = parsed_code;
-
-        if (url.port && url.port_len > 0) {
-          if (url.path && url.path_len > 0) {
-            snprintf(parsed_signal, sizeof(parsed_signal),
-                     "%.*s://%.*s:%.*s%.*s", (int)url.scheme_len, url.scheme,
-                     (int)url.host_len, url.host, (int)url.port_len, url.port,
-                     (int)url.path_len, url.path);
-          } else {
-            snprintf(parsed_signal, sizeof(parsed_signal), "%.*s://%.*s:%.*s",
-                     (int)url.scheme_len, url.scheme, (int)url.host_len,
-                     url.host, (int)url.port_len, url.port);
-          }
-        } else {
-          if (url.path && url.path_len > 0) {
-            snprintf(parsed_signal, sizeof(parsed_signal), "%.*s://%.*s%.*s",
-                     (int)url.scheme_len, url.scheme, (int)url.host_len,
-                     url.host, (int)url.path_len, url.path);
-          } else {
-            snprintf(parsed_signal, sizeof(parsed_signal), "%.*s://%.*s",
-                     (int)url.scheme_len, url.scheme, (int)url.host_len,
-                     url.host);
-          }
-        }
-        display_signal = parsed_signal;
-        xUrlFree(&url);
-      } else {
-        xUrlFree(&url);
-      }
-    }
-  }
-
   printf("xfer Recv\n");
-  printf("Code:    %s\n", display_code);
+  printf("Code:    %s\n", code);
   printf("Dest:    %s\n", dest_dir);
-  printf("Signal:  %s\n", display_signal);
+  printf("Signal:  %s\n", signal_url);
   printf("STUN:    %s\n", stun_server);
   printf("IPv6:    %s\n", enable_ipv6 ? "enabled" : "disabled");
 
@@ -260,7 +191,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  printf("Joining session with code: %s\n", display_code);
+  printf("Joining session with code: %s\n", code);
   printf("Waiting for sender...\n\n");
 
   xEventLoopRun(g_loop);

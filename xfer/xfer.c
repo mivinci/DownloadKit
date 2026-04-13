@@ -13,11 +13,9 @@
 #include "xfer_protocol.h"
 #include "xfer_signal.h"
 
-#include <xbase/base58.h>
 #include <xbase/bitmap.h>
 #include <xbase/log.h>
 #include <xcrypto/sha1.h>
-#include <xnet/url.h>
 #include <xp2p/peer_connection.h>
 
 #include <stdio.h>
@@ -78,8 +76,7 @@ XDEF_STRUCT(xTransfer_) {
   /* Code for signaling */
   char code[XFER_MAX_CODE_LEN];
 
-  /* Owned copy of signal_server URL (when parsed from code) */
-  char *signal_server_buf;
+
 
   /* Signaling client (NULL when using manual SDP API) */
   xSignalClient signal;
@@ -796,13 +793,6 @@ static void on_pc_ice_candidate(xPeerConnection pc, const char *candidate,
 
 /* ── Signaling callbacks (used when signal_server is configured) ──── */
 
-/**
- * @brief Build a full code string: ws://code@host:port/path
- *
- * If the signal_server URL is available, the code is embedded as the
- * userinfo component so the receiver can extract both the session code
- * and the signaling server address from a single string.
- */
 static void on_signal_code(xSignalClient client, const char *code, void *ctx) {
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)client;
@@ -811,70 +801,9 @@ static void on_signal_code(xSignalClient client, const char *code, void *ctx) {
   XDEBUG("[xfer] signaling: received code=%s", code);
 
   if (impl->conf.on_code) {
-    /* Build full code: ws://code@host:port/path */
-    if (impl->conf.signal_server) {
-      xUrl url;
-      if (xUrlParse(impl->conf.signal_server, &url) == xErrno_Ok) {
-        /* scheme://code@host[:port][/path] */
-        char full_code[512];
-        int n;
-        if (url.port && url.port_len > 0) {
-          if (url.path && url.path_len > 0) {
-            n = snprintf(full_code, sizeof(full_code),
-                         "%.*s://%s@%.*s:%.*s%.*s",
-                         (int)url.scheme_len, url.scheme,
-                         code,
-                         (int)url.host_len, url.host,
-                         (int)url.port_len, url.port,
-                         (int)url.path_len, url.path);
-          } else {
-            n = snprintf(full_code, sizeof(full_code),
-                         "%.*s://%s@%.*s:%.*s",
-                         (int)url.scheme_len, url.scheme,
-                         code,
-                         (int)url.host_len, url.host,
-                         (int)url.port_len, url.port);
-          }
-        } else {
-          if (url.path && url.path_len > 0) {
-            n = snprintf(full_code, sizeof(full_code),
-                         "%.*s://%s@%.*s%.*s",
-                         (int)url.scheme_len, url.scheme,
-                         code,
-                         (int)url.host_len, url.host,
-                         (int)url.path_len, url.path);
-          } else {
-            n = snprintf(full_code, sizeof(full_code),
-                         "%.*s://%s@%.*s",
-                         (int)url.scheme_len, url.scheme,
-                         code,
-                         (int)url.host_len, url.host);
-          }
-        }
-        (void)n;
-        xUrlFree(&url);
-
-        /* Base58-encode the full URL for a clean, human-friendly code */
-        char b58_code[XBASE58_ENCODE_MAXLEN(sizeof(full_code))];
-        size_t b58_len = sizeof(b58_code);
-        if (xBase58Encode((const uint8_t *)full_code, strlen(full_code),
-                          b58_code, &b58_len) == 0) {
-          /* Add xfer_ prefix for easy identification */
-          char prefixed_code[sizeof(b58_code) + 8];
-          snprintf(prefixed_code, sizeof(prefixed_code), "xfer_%s", b58_code);
-          impl->conf.on_code((xTransfer)impl, prefixed_code, impl->conf.ctx);
-        } else {
-          /* Fallback to raw URL if encoding fails */
-          impl->conf.on_code((xTransfer)impl, full_code, impl->conf.ctx);
-        }
-        return;
-      }
-    }
-    /* Fallback: plain code */
     impl->conf.on_code((xTransfer)impl, code, impl->conf.ctx);
   }
 }
-
 static void on_signal_peer_joined(xSignalClient client, void *ctx) {
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)client;
@@ -1009,10 +938,6 @@ void xTransferDestroy(xTransfer xfer) {
     xSignalClientDestroy(impl->signal);
     impl->signal = NULL;
   }
-  if (impl->signal_server_buf) {
-    free(impl->signal_server_buf);
-    impl->signal_server_buf = NULL;
-  }
   if (impl->pc) {
     xPeerConnectionDestroy(impl->pc);
     impl->pc = NULL;
@@ -1114,85 +1039,8 @@ xErrno xTransferRecvFile(xTransfer xfer, const char *code,
   impl->role = xTransferRole_Receiver;
   strncpy(impl->recv_dest_dir, dest_dir, sizeof(impl->recv_dest_dir) - 1);
 
-  /* Try Base58-decoding the code first. If it decodes to a URL
-     (ws:// or wss://), extract session code and signal server from it.
-     Otherwise treat the raw input as a plain code or URL. */
-  char decoded_buf[512];
-  const char *effective_code = code;
-  {
-    /* Strip xfer_ prefix if present */
-    const char *b58_input = code;
-    if (strncmp(code, "xfer_", 5) == 0)
-      b58_input = code + 5;
-    size_t dec_len = sizeof(decoded_buf) - 1;
-    if (xBase58Decode(b58_input, strlen(b58_input),
-                      (uint8_t *)decoded_buf, &dec_len) == 0 &&
-        dec_len > 0) {
-      decoded_buf[dec_len] = '\0';
-      /* Only use decoded result if it looks like a ws(s):// URL */
-      if (strncmp(decoded_buf, "ws://", 5) == 0 ||
-          strncmp(decoded_buf, "wss://", 6) == 0) {
-        effective_code = decoded_buf;
-      }
-    }
-  }
-
-  /* Parse code: if it looks like a URL (ws:// or wss://), extract the
-     session code from userinfo and rebuild the signaling server URL. */
-  const char *session_code = effective_code;
-  if ((strncmp(effective_code, "ws://", 5) == 0 ||
-       strncmp(effective_code, "wss://", 6) == 0)) {
-    xUrl url;
-    if (xUrlParse(effective_code, &url) == xErrno_Ok && url.userinfo &&
-        url.userinfo_len > 0) {
-      /* Extract session code from userinfo */
-      size_t code_len = url.userinfo_len;
-      if (code_len >= XFER_MAX_CODE_LEN) code_len = XFER_MAX_CODE_LEN - 1;
-      memcpy(impl->code, url.userinfo, code_len);
-      impl->code[code_len] = '\0';
-      session_code = impl->code;
-
-      /* Rebuild signal URL without userinfo: scheme://host[:port][/path] */
-      char sig_url[512];
-      if (url.port && url.port_len > 0) {
-        if (url.path && url.path_len > 0) {
-          snprintf(sig_url, sizeof(sig_url), "%.*s://%.*s:%.*s%.*s",
-                   (int)url.scheme_len, url.scheme,
-                   (int)url.host_len, url.host,
-                   (int)url.port_len, url.port,
-                   (int)url.path_len, url.path);
-        } else {
-          snprintf(sig_url, sizeof(sig_url), "%.*s://%.*s:%.*s",
-                   (int)url.scheme_len, url.scheme,
-                   (int)url.host_len, url.host,
-                   (int)url.port_len, url.port);
-        }
-      } else {
-        if (url.path && url.path_len > 0) {
-          snprintf(sig_url, sizeof(sig_url), "%.*s://%.*s%.*s",
-                   (int)url.scheme_len, url.scheme,
-                   (int)url.host_len, url.host,
-                   (int)url.path_len, url.path);
-        } else {
-          snprintf(sig_url, sizeof(sig_url), "%.*s://%.*s",
-                   (int)url.scheme_len, url.scheme,
-                   (int)url.host_len, url.host);
-        }
-      }
-      xUrlFree(&url);
-
-      /* Store owned copy and override signal_server */
-      impl->signal_server_buf = strdup(sig_url);
-      if (impl->signal_server_buf) {
-        impl->conf.signal_server = impl->signal_server_buf;
-      }
-    } else {
-      xUrlFree(&url);
-      strncpy(impl->code, effective_code, XFER_MAX_CODE_LEN - 1);
-    }
-  } else {
-    strncpy(impl->code, effective_code, XFER_MAX_CODE_LEN - 1);
-  }
+  strncpy(impl->code, code, XFER_MAX_CODE_LEN - 1);
+  const char *session_code = impl->code;
 
   /* Create PeerConnection */
   xPeerConnectionConf pc_conf;

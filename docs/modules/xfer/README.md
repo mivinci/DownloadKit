@@ -4,11 +4,11 @@
 
 **xfer** is xKit's peer-to-peer file transfer module, providing a high-level API for sending and receiving files over WebRTC DataChannels. Built on top of [xp2p](../xp2p/README.md), it handles the full transfer pipeline — signaling server rendezvous, SDP/ICE exchange, file chunking, integrity verification (SHA-1), progress reporting, and resume support — all driven by the xKit event loop.
 
-The module ships with a built-in signaling server (`xSignalServer`) and client (`xSignalClient`) that handle session creation, peer pairing, and SDP/ICE relay over WebSocket. Applications only need to provide a file path (sender) or a transfer code (receiver) to initiate a transfer. The transfer code (e.g. `xfer_93HRa5avgVymWxsKP4Bhfui7EJLVKJe6NT2ZPYMuvwzi`) encodes both the session ID and the signaling server address, so the receiver does not need to know the server URL separately.
+The module ships with a built-in signaling server (`xSignalServer`) and client (`xSignalClient`) that handle session creation, peer pairing, and SDP/ICE relay over WebSocket. Applications only need to provide a file path (sender) or a transfer code (receiver) to initiate a transfer. The transfer code (e.g. `AB12CD`) is a short, plain session ID assigned by the signaling server. Both sender and receiver must connect to the same signaling server.
 
 ## Design Philosophy
 
-1. **Zero-Configuration P2P** — The sender registers with a signaling server and receives a transfer code that encodes both the session ID and the signaling server address. The receiver only needs this code to connect — no manual server configuration required. NAT traversal, encryption, and chunking are handled automatically.
+1. **Zero-Configuration P2P** — The sender registers with a signaling server and receives a short transfer code (session ID). The receiver uses this code along with the signaling server URL to connect. NAT traversal, encryption, and chunking are handled automatically.
 
 2. **Event-Driven, Single-Threaded** — All callbacks (state changes, progress, errors) are invoked on the xKit event loop thread, consistent with the rest of the xKit stack.
 
@@ -75,11 +75,11 @@ sequenceDiagram
 
     Note over Sender: xTransferSendFile()
     Sender->>SignalServer: WebSocket connect + "create"
-    SignalServer-->>Sender: code = "xfer_93HRa5...wzi"
-    Note over Sender: on_code("xfer_93HRa5...wzi")
+    SignalServer-->>Sender: code = "AB12CD"
+    Note over Sender: on_code("AB12CD")
 
-    Note over Receiver: xTransferRecvFile("xfer_93HRa5...wzi")
-    Receiver->>SignalServer: WebSocket connect + "join(xfer_93HRa5...wzi)"
+    Note over Receiver: xTransferRecvFile("AB12CD")
+    Receiver->>SignalServer: WebSocket connect + "join(AB12CD)"
     SignalServer-->>Sender: peer_joined
     SignalServer-->>Receiver: joined
 
@@ -344,14 +344,13 @@ int main(void) {
   xTransferConf conf;
   memset(&conf, 0, sizeof(conf));
   conf.stun_server     = "stun.l.google.com:19302";
+  conf.signal_server   = "ws://127.0.0.1:8080/ws";
   conf.on_state_change = on_state_change;
   conf.on_progress     = on_progress;
   conf.on_file_meta    = on_file_meta;
 
   g_xfer = xTransferCreate(g_loop, &conf);
-  // The transfer code encodes the signaling server address,
-  // so there is no need to set conf.signal_server for the receiver.
-  xTransferRecvFile(g_xfer, "xfer_93HRa5avgVymWxsKP4Bhfui7EJLVKJe6NT2ZPYMuvwzi", "/tmp/received");
+  xTransferRecvFile(g_xfer, "AB12CD", "/tmp/received");
 
   xEventLoopRun(g_loop);
 
@@ -375,9 +374,7 @@ The `examples/` directory includes complete sender and receiver programs:
 ./xfer_send -f myfile.bin -u ws://127.0.0.1:8080/ws
 
 # Terminal 3: Receive the file (use the code printed by the sender)
-# The transfer code already contains the signaling server address,
-# so the receiver does not need to specify -u.
-./xfer_recv -c xfer_93HRa5avgVymWxsKP4Bhfui7EJLVKJe6NT2ZPYMuvwzi -d /tmp/received
+./xfer_recv -c AB12CD -u ws://127.0.0.1:8080/ws -d /tmp/received
 ```
 
 Command-line options:
@@ -385,9 +382,9 @@ Command-line options:
 | Option | `xfer_send` | `xfer_recv` | Description |
 | --- | --- | --- | --- |
 | `-f <file>` | ✅ Required | — | File to send |
-| `-c <code>` | — | ✅ Required | Transfer code from sender (encodes session ID + signaling server URL) |
+| `-c <code>` | — | ✅ Required | Transfer code from sender (plain session ID) |
 | `-d <dir>` | — | Optional | Destination directory (default: `/tmp/xfer_recv`) |
-| `-u <url>` | ✅ Required | Optional | Signaling server URL (receiver extracts it from the code) |
+| `-u <url>` | ✅ Required | ✅ Required | Signaling server URL |
 | `-s <host:port>` | Optional | Optional | STUN server (default: `stun.l.google.com:19302`) |
 | `-6` | Optional | Optional | Enable IPv6 candidates |
 

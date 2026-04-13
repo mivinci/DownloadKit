@@ -68,7 +68,7 @@ if(XK_BUILD_TESTS)
   file(GLOB_RECURSE XNET_TEST_SOURCES "*_test.cpp")
   if(XNET_TEST_SOURCES)
     add_executable(xnet_test ${XNET_TEST_SOURCES})
-    target_link_libraries(xnet_test PRIVATE xnet GTest::gtest GTest::gtest_main)
+    target_link_libraries(xnet_test PRIVATE xnet GTest::gtest_main)
     # Link TLS library for integration tests
     if(TARGET OpenSSL::SSL)
       target_link_libraries(xnet_test PRIVATE OpenSSL::SSL OpenSSL::Crypto)

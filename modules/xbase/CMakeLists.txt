@@ -44,7 +44,7 @@ endif()
 if(XK_BUILD_TESTS)
   file(GLOB_RECURSE XBASE_TEST_SOURCES "*_test.cpp")
   add_executable(xbase_test ${XBASE_TEST_SOURCES})
-  target_link_libraries(xbase_test PRIVATE xbase GTest::gtest GTest::gtest_main)
+  target_link_libraries(xbase_test PRIVATE xbase GTest::gtest_main)
   add_test(NAME xbase_test COMMAND xbase_test)
 endif()
 

@@ -95,7 +95,7 @@ if(XK_BUILD_TESTS)
   file(GLOB_RECURSE XP2P_TEST_SOURCES "*_test.cpp")
   if(XP2P_TEST_SOURCES)
     add_executable(xp2p_test ${XP2P_TEST_SOURCES})
-    target_link_libraries(xp2p_test PRIVATE xp2p GTest::gtest GTest::gtest_main)
+    target_link_libraries(xp2p_test PRIVATE xp2p GTest::gtest_main)
     # Link TLS library for tests that need DTLS
     if(XP2P_ENABLE_DTLS)
       if(XK_TLS_BACKEND STREQUAL "openssl" OR (XK_TLS_BACKEND STREQUAL "auto" AND OpenSSL_FOUND))

@@ -18,6 +18,8 @@ The module ships with a built-in signaling server (`xSignalServer`) and client (
 
 5. **Layered Architecture** — The module is cleanly separated into three layers: the high-level `xTransfer` API, the signaling layer (`xSignalServer` / `xSignalClient`), and the binary wire protocol (`xfer_protocol.h`). Each layer can be used independently.
 
+6. **Pluggable Storage Backend** — All file I/O (reading the source file, writing the received file) goes through a `xTransferVfs` interface. The default implementation uses POSIX `fopen`/`fread`/`fwrite`, but callers can supply a custom VFS for in-memory transfers, encrypted storage, cloud-backed storage, or any other backend.
+
 ## Architecture
 
 ### Component Stack
@@ -26,10 +28,15 @@ The module ships with a built-in signaling server (`xSignalServer`) and client (
 graph TD
     subgraph "Application"
         APP["User Application"]
+        CUSTOM_VFS["Custom VFS<br/>(optional)"]
     end
 
     subgraph "xfer"
         XFER["xTransfer<br/>xfer.h"]
+        SENDER["Sender Logic<br/>xfer_sender.c"]
+        RECEIVER["Receiver Logic<br/>xfer_receiver.c"]
+        VFS["xTransferVfs<br/>xfer_vfs.h"]
+        VFS_POSIX["POSIX VFS<br/>xfer_vfs_posix.c"]
         SIG_C["xSignalClient<br/>xfer_signal.h"]
         SIG_S["xSignalServer<br/>xfer_signal.h"]
         PROTO["Wire Protocol<br/>xfer_protocol.h"]
@@ -49,6 +56,12 @@ graph TD
     end
 
     APP --> XFER
+    CUSTOM_VFS -.-> VFS
+    XFER --> SENDER
+    XFER --> RECEIVER
+    SENDER --> VFS
+    RECEIVER --> VFS
+    VFS --> VFS_POSIX
     XFER --> SIG_C
     XFER --> PC
     XFER --> PROTO
@@ -59,6 +72,11 @@ graph TD
     WS_C --> EV
 
     style XFER fill:#4a90d9,color:#fff
+    style SENDER fill:#4a90d9,color:#fff
+    style RECEIVER fill:#4a90d9,color:#fff
+    style VFS fill:#e74c3c,color:#fff
+    style VFS_POSIX fill:#e74c3c,color:#fff
+    style CUSTOM_VFS fill:#e74c3c,color:#fff,stroke-dasharray: 5 5
     style SIG_C fill:#50b86c,color:#fff
     style SIG_S fill:#50b86c,color:#fff
     style PROTO fill:#f5a623,color:#fff
@@ -135,9 +153,14 @@ All messages are sent over the WebRTC DataChannel in binary. Multi-byte integers
 
 ## Sub-Module Overview
 
-| Header | Component | Description |
+| Header / Source | Component | Description |
 | --- | --- | --- |
 | `xfer.h` | `xTransfer` | High-level file transfer API — send/receive files with progress and state callbacks |
+| `xfer_vfs.h` | `xTransferVfs` | Virtual file system interface for pluggable storage backends |
+| `xfer_vfs_posix.c` | `xTransferPosixVfs` | Built-in POSIX VFS implementation (`fopen`/`fread`/`fwrite`) |
+| `xfer_sender.c` | Sender Logic | Sender-side data flow: file reading, chunking, flow control |
+| `xfer_receiver.c` | Receiver Logic | Receiver-side data flow: message parsing, file writing, SHA-1 verification |
+| `xfer_private.h` | Internal Header | Shared internal structures and helpers (not part of the public API) |
 | `xfer_signal.h` | `xSignalServer` | WebSocket-based signaling server for session management and SDP/ICE relay |
 | `xfer_signal.h` | `xSignalClient` | Signaling client for connecting to the server and exchanging SDP/ICE |
 | `xfer_protocol.h` | Wire Protocol | Binary message encoding/decoding for file metadata, chunks, and control messages |
@@ -159,7 +182,8 @@ All messages are sent over the WebRTC DataChannel in binary. Multi-byte integers
 | `xTransfer` | Opaque handle to a transfer session |
 | `xTransferState` | Enum: `Idle`, `WaitingPeer`, `Connecting`, `Transferring`, `Done`, `Failed` |
 | `xTransferRole` | Enum: `Sender`, `Receiver` |
-| `xTransferConf` | Configuration struct with P2P settings, signaling URL, and callbacks |
+| `xTransferConf` | Configuration struct with P2P settings, signaling URL, VFS, and callbacks |
+| `xTransferVfs` | Virtual file system interface — function pointers for open/pread/pwrite/close/etc. |
 
 ### Callbacks
 
@@ -171,6 +195,27 @@ All messages are sent over the WebRTC DataChannel in binary. Multi-byte integers
 | `xTransferOnFileMeta` | `void (*)(xTransfer, const char *filename, uint64_t filesize, void *ctx)` | Receiver learns file metadata |
 | `xTransferOnError` | `void (*)(xTransfer, xErrno, const char *msg, void *ctx)` | Error notification |
 | `xTransferOnIceCandidate` | `void (*)(xTransfer, const char *candidate, void *ctx)` | ICE candidate gathered |
+
+### VFS (Virtual File System)
+
+The `xTransferVfs` struct (defined in `xfer_vfs.h`) abstracts all file I/O. Pass a custom VFS via `xTransferConf.vfs`, or leave it `NULL` to use the default POSIX implementation.
+
+| Field | Signature | Required | Description |
+| --- | --- | --- | --- |
+| `ctx` | `void *` | — | Opaque context forwarded to all callbacks |
+| `open` | `void *(*)(void *ctx, const char *path, const char *mode)` | ✅ | Open a file, returns opaque handle or NULL |
+| `pread` | `xErrno (*)(void *ctx, void *handle, uint8_t *buf, size_t len, uint64_t offset, size_t *nread)` | ✅ | Random-access read at offset |
+| `pwrite` | `xErrno (*)(void *ctx, void *handle, const uint8_t *buf, size_t len, uint64_t offset, size_t *nwritten)` | ✅ | Random-access write at offset |
+| `size` | `xErrno (*)(void *ctx, void *handle, uint64_t *out_size)` | ✅ | Get total file size |
+| `truncate` | `xErrno (*)(void *ctx, void *handle, uint64_t size)` | Optional | Pre-allocate / truncate storage |
+| `flush` | `xErrno (*)(void *ctx, void *handle)` | ✅ | Flush buffered data to persistent storage |
+| `close` | `void (*)(void *ctx, void *handle)` | ✅ | Close the handle |
+| `rename` | `xErrno (*)(void *ctx, const char *from, const char *to)` | Optional | Rename a file |
+| `remove` | `xErrno (*)(void *ctx, const char *path)` | Optional | Remove a file |
+
+| Function | Signature | Description |
+| --- | --- | --- |
+| `xTransferPosixVfs` | `const xTransferVfs *xTransferPosixVfs(void)` | Return the built-in POSIX VFS (valid for the lifetime of the process) |
 
 ### Transfer Lifecycle
 
@@ -283,6 +328,7 @@ int main(void) {
   conf.on_state_change = on_state_change;
   conf.on_progress     = on_progress;
   conf.on_code         = on_code;
+  conf.vfs             = NULL; /* NULL = default POSIX VFS */
 
   g_xfer = xTransferCreate(g_loop, &conf);
   xTransferSendFile(g_xfer, "myfile.bin");
@@ -395,3 +441,89 @@ Command-line options:
 - **[xbase](../xbase/README.md)** — Uses [`xEventLoop`](../xbase/event.md) for I/O multiplexing and the single-threaded callback model.
 - **[xcrypto](../xcrypto/README.md)** — Uses SHA-1 for file integrity verification.
 - **[xnet](../xnet/README.md)** — Uses URL parsing for signaling server addresses.
+
+## Custom VFS Example
+
+The following example shows how to implement a minimal in-memory VFS for testing:
+
+```c
+#include <xfer/xfer_vfs.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct {
+  uint8_t *data;
+  uint64_t size;
+  uint64_t capacity;
+} MemFile;
+
+static void *mem_open(void *ctx, const char *path, const char *mode) {
+  (void)ctx; (void)path; (void)mode;
+  MemFile *f = calloc(1, sizeof(MemFile));
+  return f;
+}
+
+static xErrno mem_pread(void *ctx, void *handle, uint8_t *buf,
+                        size_t len, uint64_t offset, size_t *nread) {
+  (void)ctx;
+  MemFile *f = handle;
+  if (offset >= f->size) { *nread = 0; return xErrno_Ok; }
+  size_t avail = (size_t)(f->size - offset);
+  size_t n = len < avail ? len : avail;
+  memcpy(buf, f->data + offset, n);
+  *nread = n;
+  return xErrno_Ok;
+}
+
+static xErrno mem_pwrite(void *ctx, void *handle, const uint8_t *buf,
+                         size_t len, uint64_t offset, size_t *nwritten) {
+  (void)ctx;
+  MemFile *f = handle;
+  uint64_t end = offset + len;
+  if (end > f->capacity) {
+    f->data = realloc(f->data, (size_t)end);
+    f->capacity = end;
+  }
+  memcpy(f->data + offset, buf, len);
+  if (end > f->size) f->size = end;
+  *nwritten = len;
+  return xErrno_Ok;
+}
+
+static xErrno mem_size(void *ctx, void *handle, uint64_t *out) {
+  (void)ctx;
+  *out = ((MemFile *)handle)->size;
+  return xErrno_Ok;
+}
+
+static xErrno mem_flush(void *ctx, void *handle) {
+  (void)ctx; (void)handle;
+  return xErrno_Ok; /* no-op for in-memory */
+}
+
+static void mem_close(void *ctx, void *handle) {
+  (void)ctx;
+  MemFile *f = handle;
+  if (f) { free(f->data); free(f); }
+}
+
+static const xTransferVfs g_mem_vfs = {
+  .ctx      = NULL,
+  .open     = mem_open,
+  .pread    = mem_pread,
+  .pwrite   = mem_pwrite,
+  .size     = mem_size,
+  .truncate = NULL,  /* optional */
+  .flush    = mem_flush,
+  .close    = mem_close,
+  .rename   = NULL,  /* optional */
+  .remove   = NULL,  /* optional */
+};
+
+/* Usage: */
+xTransferConf conf;
+memset(&conf, 0, sizeof(conf));
+conf.vfs = &g_mem_vfs;
+/* ... set other fields ... */
+xTransfer xfer = xTransferCreate(loop, &conf);
+```

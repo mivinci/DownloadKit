@@ -101,6 +101,10 @@ typedef void (*xTransferOnError)(xTransfer xfer, xErrno err, const char *msg,
 typedef void (*xTransferOnIceCandidate)(xTransfer xfer, const char *candidate,
                                         void *ctx);
 
+/* ───────────────────── Virtual File System ───────────────────── */
+
+#include "xfer_vfs.h"
+
 /* ───────────────────── Configuration ───────────────────── */
 
 XDEF_STRUCT(xTransferConf) {
@@ -113,6 +117,9 @@ XDEF_STRUCT(xTransferConf) {
 
   /** Signaling server URL (e.g. "http://signal.example.com"). */
   const char *signal_server;
+
+  /** Optional VFS for custom storage.  NULL = default POSIX file I/O. */
+  const xTransferVfs *vfs;
 
   /** Callbacks. */
   xTransferOnStateChange on_state_change;

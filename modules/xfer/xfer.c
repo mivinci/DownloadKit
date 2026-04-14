@@ -36,6 +36,13 @@
  */
 #define XFER_SEND_LOW_WATER_MARK  (64 * 1024)  /* 64 KB */
 
+/**
+ * Bitmap persistence interval: persist the receiver bitmap every N chunks
+ * instead of every single chunk, to reduce disk I/O overhead.
+ * On resume, at most N chunks worth of progress may be lost.
+ */
+#define XFER_BITMAP_PERSIST_INTERVAL 32
+
 /* ───────────────────── Internal State ───────────────────── */
 
 XDEF_STRUCT(xTransfer_) {
@@ -650,7 +657,6 @@ static void receiver_on_dc_message(xDataChannel channel,
         report_error(impl, xErrno_SysError, "Failed to write chunk");
         return;
       }
-      fflush(impl->recv_fp);
     }
 
     /* Update bitmap and persist */
@@ -658,9 +664,13 @@ static void receiver_on_dc_message(xDataChannel channel,
     impl->recv_chunks_received++;
     impl->recv_bytes_received += chunk_data_len;
 
-    /* Persist bitmap periodically (every chunk for safety) */
-    bitmap_save(&impl->recv_bitmap, impl->recv_total_chunks,
-                impl->recv_bitmap_path);
+    /* Persist bitmap periodically to reduce disk I/O overhead.
+     * On resume, at most XFER_BITMAP_PERSIST_INTERVAL chunks may be
+     * re-transferred, which is an acceptable trade-off. */
+    if (impl->recv_chunks_received % XFER_BITMAP_PERSIST_INTERVAL == 0) {
+      bitmap_save(&impl->recv_bitmap, impl->recv_total_chunks,
+                  impl->recv_bitmap_path);
+    }
 
     report_progress(impl, impl->recv_bytes_received, impl->recv_filesize);
     break;
@@ -673,11 +683,14 @@ static void receiver_on_dc_message(xDataChannel channel,
       return;
     }
 
-    /* Close file */
+    /* Flush remaining data and persist final bitmap before closing */
     if (impl->recv_fp) {
+      fflush(impl->recv_fp);
       fclose(impl->recv_fp);
       impl->recv_fp = NULL;
     }
+    bitmap_save(&impl->recv_bitmap, impl->recv_total_chunks,
+                impl->recv_bitmap_path);
 
     /* Verify SHA-1: compute hash over the received .part file and compare
        with the sender's hash.  This is done from the file rather than

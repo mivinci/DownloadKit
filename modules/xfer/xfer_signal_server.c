@@ -144,9 +144,18 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
   if (strcmp(type, "create") == 0) {
     /* Sender wants to create a new session */
     if (srv->session_count >= SIGNAL_MAX_SESSIONS) {
-      XDEBUG("[signal-server] max sessions reached");
-      cJSON_Delete(json);
-      return;
+      /* Try to recycle inactive sessions first */
+      for (int i = 0; i < SIGNAL_MAX_SESSIONS; i++) {
+        if (!srv->sessions[i].active) {
+          srv->session_count = i;
+          break;
+        }
+      }
+      if (srv->session_count >= SIGNAL_MAX_SESSIONS) {
+        XDEBUG("[signal-server] max sessions reached");
+        cJSON_Delete(json);
+        return;
+      }
     }
 
     xSignalSession *session = &srv->sessions[srv->session_count++];
@@ -270,6 +279,9 @@ static void on_ws_close(xWsConn conn, uint16_t code, const char *reason,
     session->active = false;
     session->sender = NULL;
     session->receiver = NULL;
+    /* Recycle session slot */
+    if (srv->session_count > 0)
+      srv->session_count--;
   }
 }
 

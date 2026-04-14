@@ -52,9 +52,10 @@ XDEF_STRUCT(xTransfer_) {
   xTransferRole   role;
   xPeerConnection pc;
   xDataChannel    dc;
+  const xTransferVfs *vfs; /**< Active VFS (never NULL). */
 
   /* Sender state */
-  FILE    *send_fp;
+  void    *send_handle; /**< VFS handle for source file. */
   char     send_filepath[512];
   char     send_filename[XFER_MAX_FILENAME_LEN];
   uint64_t send_filesize;
@@ -67,7 +68,7 @@ XDEF_STRUCT(xTransfer_) {
   bool     send_waiting_resume; /**< True if waiting for FILE_RESUME before sending chunks. */
 
   /* Receiver state */
-  FILE    *recv_fp;
+  void    *recv_handle; /**< VFS handle for destination file. */
   char     recv_dest_dir[512];
   char     recv_filepath[1024]; /**< Full path to the .part file.   */
   char     recv_filename[XFER_MAX_FILENAME_LEN];
@@ -124,23 +125,27 @@ static void report_progress(xTransfer_ *impl, uint64_t transferred,
  * Reads the file in 64 KiB blocks so arbitrarily large files can be
  * hashed without loading them entirely into memory.
  */
-static xErrno compute_file_sha1(const char *path, uint8_t *digest) {
-  FILE *fp = fopen(path, "rb");
-  if (!fp) return xErrno_SysError;
+static xErrno compute_file_sha1(const xTransferVfs *vfs, const char *path,
+                                uint8_t *digest) {
+  void *handle = vfs->open(vfs->ctx, path, "rb");
+  if (!handle) return xErrno_SysError;
 
   xSha1Ctx ctx;
   xSha1Init(&ctx);
 
   uint8_t buf[65536];
-  size_t  n;
-  while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+  uint64_t offset = 0;
+  size_t n = 0;
+  xErrno err;
+  for (;;) {
+    err = vfs->pread(vfs->ctx, handle, buf, sizeof(buf), offset, &n);
+    if (err != xErrno_Ok) { vfs->close(vfs->ctx, handle); return err; }
+    if (n == 0) break;
     xSha1Update(&ctx, buf, n);
+    offset += n;
   }
-  bool err = ferror(fp);
-  fclose(fp);
 
-  if (err) return xErrno_SysError;
-
+  vfs->close(vfs->ctx, handle);
   xSha1Final(&ctx, digest);
   return xErrno_Ok;
 }
@@ -251,7 +256,7 @@ static void sender_send_next_chunk(xTransfer_ *impl) {
     size_t  len = 0;
 
     /* Compute SHA-1 over the entire source file */
-    if (compute_file_sha1(impl->send_filepath, impl->send_sha1) != xErrno_Ok) {
+    if (compute_file_sha1(impl->vfs, impl->send_filepath, impl->send_sha1) != xErrno_Ok) {
       report_error(impl, xErrno_SysError, "Failed to compute file SHA-1");
       return;
     }
@@ -285,14 +290,8 @@ static void sender_send_next_chunk(xTransfer_ *impl) {
     return;
   }
 
-  /* Seek to the correct file offset for this chunk */
+  /* Read chunk from file via VFS */
   uint64_t offset = (uint64_t)impl->send_next_chunk * impl->send_chunk_size;
-  if (fseek(impl->send_fp, (long)offset, SEEK_SET) != 0) {
-    report_error(impl, xErrno_SysError, "Failed to seek in file");
-    return;
-  }
-
-  /* Read chunk from file */
   uint8_t *buf = (uint8_t *)malloc(5 + impl->send_chunk_size);
   if (!buf) {
     report_error(impl, xErrno_NoMemory, "Failed to allocate chunk buffer");
@@ -304,9 +303,11 @@ static void sender_send_next_chunk(xTransfer_ *impl) {
   xTransferEncodeChunkHeader(impl->send_next_chunk, buf, 5, &hdr_len);
 
   /* Read file data */
-  size_t nread =
-    fread(buf + hdr_len, 1, impl->send_chunk_size, impl->send_fp);
-  if (nread == 0 && ferror(impl->send_fp)) {
+  size_t nread = 0;
+  xErrno read_err = impl->vfs->pread(impl->vfs->ctx, impl->send_handle,
+                                     buf + hdr_len, impl->send_chunk_size,
+                                     offset, &nread);
+  if (read_err != xErrno_Ok || (nread == 0 && offset < impl->send_filesize)) {
     report_error(impl, xErrno_SysError, "Failed to read file");
     free(buf);
     return;
@@ -540,8 +541,9 @@ static void receiver_on_dc_message(xDataChannel channel,
                                 impl->recv_bitmap_path);
     if (bm_err == xErrno_Ok && saved_total == impl->recv_total_chunks) {
       /* Resume: reopen the .part file for random-access writing */
-      impl->recv_fp = fopen(impl->recv_filepath, "r+b");
-      if (!impl->recv_fp) {
+      impl->recv_handle = impl->vfs->open(impl->vfs->ctx,
+                                          impl->recv_filepath, "r+b");
+      if (!impl->recv_handle) {
         /* .part file missing but bitmap exists — start fresh */
         xBitmapFree(&impl->recv_bitmap);
         bm_err = xErrno_NotFound;
@@ -569,21 +571,22 @@ static void receiver_on_dc_message(xDataChannel channel,
         report_error(impl, err, "Failed to init recv bitmap");
         return;
       }
-      impl->recv_fp = fopen(impl->recv_filepath, "wb");
-      if (!impl->recv_fp) {
+      impl->recv_handle = impl->vfs->open(impl->vfs->ctx,
+                                          impl->recv_filepath, "wb");
+      if (!impl->recv_handle) {
         report_error(impl, xErrno_SysError, "Failed to open output file");
         return;
       }
-      /* Pre-allocate the sparse file by seeking to the end */
-      if (impl->recv_filesize > 0) {
-        fseek(impl->recv_fp, (long)(impl->recv_filesize - 1), SEEK_SET);
-        fputc(0, impl->recv_fp);
-        fflush(impl->recv_fp);
+      /* Pre-allocate the sparse file */
+      if (impl->recv_filesize > 0 && impl->vfs->truncate) {
+        impl->vfs->truncate(impl->vfs->ctx, impl->recv_handle,
+                            impl->recv_filesize);
       }
       /* Reopen as "r+b" for random-access chunk writes */
-      fclose(impl->recv_fp);
-      impl->recv_fp = fopen(impl->recv_filepath, "r+b");
-      if (!impl->recv_fp) {
+      impl->vfs->close(impl->vfs->ctx, impl->recv_handle);
+      impl->recv_handle = impl->vfs->open(impl->vfs->ctx,
+                                          impl->recv_filepath, "r+b");
+      if (!impl->recv_handle) {
         report_error(impl, xErrno_SysError, "Failed to reopen .part file");
         return;
       }
@@ -646,14 +649,13 @@ static void receiver_on_dc_message(xDataChannel channel,
     }
 
     /* Seek to the correct offset and write */
-    if (impl->recv_fp) {
+    if (impl->recv_handle) {
       uint64_t offset = (uint64_t)chunk_id * impl->recv_chunk_size;
-      if (fseek(impl->recv_fp, (long)offset, SEEK_SET) != 0) {
-        report_error(impl, xErrno_SysError, "Failed to seek in output file");
-        return;
-      }
-      size_t written = fwrite(chunk_data, 1, chunk_data_len, impl->recv_fp);
-      if (written != chunk_data_len) {
+      size_t written = 0;
+      xErrno werr = impl->vfs->pwrite(impl->vfs->ctx, impl->recv_handle,
+                                      chunk_data, chunk_data_len,
+                                      offset, &written);
+      if (werr != xErrno_Ok || written != chunk_data_len) {
         report_error(impl, xErrno_SysError, "Failed to write chunk");
         return;
       }
@@ -684,10 +686,10 @@ static void receiver_on_dc_message(xDataChannel channel,
     }
 
     /* Flush remaining data and persist final bitmap before closing */
-    if (impl->recv_fp) {
-      fflush(impl->recv_fp);
-      fclose(impl->recv_fp);
-      impl->recv_fp = NULL;
+    if (impl->recv_handle) {
+      impl->vfs->flush(impl->vfs->ctx, impl->recv_handle);
+      impl->vfs->close(impl->vfs->ctx, impl->recv_handle);
+      impl->recv_handle = NULL;
     }
     bitmap_save(&impl->recv_bitmap, impl->recv_total_chunks,
                 impl->recv_bitmap_path);
@@ -700,7 +702,7 @@ static void receiver_on_dc_message(xDataChannel channel,
       memset(&ack, 0, sizeof(ack));
 
       uint8_t computed[XFER_SHA1_SIZE];
-      if (compute_file_sha1(impl->recv_filepath, computed) != xErrno_Ok) {
+      if (compute_file_sha1(impl->vfs, impl->recv_filepath, computed) != xErrno_Ok) {
         ack.status = 1;
         uint8_t ack_buf[4];
         size_t ack_len = 0;
@@ -734,10 +736,14 @@ static void receiver_on_dc_message(xDataChannel channel,
     char final_path[1024];
     snprintf(final_path, sizeof(final_path), "%s/%s",
              impl->recv_dest_dir, impl->recv_filename);
-    rename(impl->recv_filepath, final_path);
+    if (impl->vfs->rename) {
+      impl->vfs->rename(impl->vfs->ctx, impl->recv_filepath, final_path);
+    }
 
     /* Remove .bitmap file */
-    remove(impl->recv_bitmap_path);
+    if (impl->vfs->remove) {
+      impl->vfs->remove(impl->vfs->ctx, impl->recv_bitmap_path);
+    }
 
     /* Free bitmap */
     xBitmapFree(&impl->recv_bitmap);
@@ -931,6 +937,7 @@ xTransfer xTransferCreate(xEventLoop loop, const xTransferConf *conf) {
   impl->conf = *conf;
   impl->state = xTransferState_Idle;
   impl->send_chunk_size = XFER_DEFAULT_CHUNK_SIZE;
+  impl->vfs = conf->vfs ? conf->vfs : xTransferPosixVfs();
 
   return (xTransfer)impl;
 }
@@ -939,13 +946,13 @@ void xTransferDestroy(xTransfer xfer) {
   if (!xfer) return;
   xTransfer_ *impl = (xTransfer_ *)xfer;
 
-  if (impl->send_fp) {
-    fclose(impl->send_fp);
-    impl->send_fp = NULL;
+  if (impl->send_handle) {
+    impl->vfs->close(impl->vfs->ctx, impl->send_handle);
+    impl->send_handle = NULL;
   }
-  if (impl->recv_fp) {
-    fclose(impl->recv_fp);
-    impl->recv_fp = NULL;
+  if (impl->recv_handle) {
+    impl->vfs->close(impl->vfs->ctx, impl->recv_handle);
+    impl->recv_handle = NULL;
   }
   if (impl->signal) {
     xSignalClientDestroy(impl->signal);
@@ -977,15 +984,20 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
   strncpy(impl->send_filename, name, XFER_MAX_FILENAME_LEN - 1);
 
   /* Open file and get size */
-  impl->send_fp = fopen(filepath, "rb");
-  if (!impl->send_fp) {
+  impl->send_handle = impl->vfs->open(impl->vfs->ctx, filepath, "rb");
+  if (!impl->send_handle) {
     report_error(impl, xErrno_SysError, "Failed to open file");
     return xErrno_SysError;
   }
 
-  fseek(impl->send_fp, 0, SEEK_END);
-  impl->send_filesize = (uint64_t)ftell(impl->send_fp);
-  fseek(impl->send_fp, 0, SEEK_SET);
+  uint64_t fsize = 0;
+  if (impl->vfs->size(impl->vfs->ctx, impl->send_handle, &fsize) != xErrno_Ok) {
+    impl->vfs->close(impl->vfs->ctx, impl->send_handle);
+    impl->send_handle = NULL;
+    report_error(impl, xErrno_SysError, "Failed to get file size");
+    return xErrno_SysError;
+  }
+  impl->send_filesize = fsize;
 
   impl->send_total_chunks =
     (uint32_t)((impl->send_filesize + impl->send_chunk_size - 1) /

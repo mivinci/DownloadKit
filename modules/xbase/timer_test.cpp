@@ -334,3 +334,73 @@ TEST(TimerPoll, PollModeDestroyDrainsQueue) {
   /* Callback should NOT have been called (destroy discards queue) */
   EXPECT_EQ(fired.load(), 0);
 }
+
+/* ───────────────── Submit with NULL arguments ───────────────── */
+
+TEST(TimerSubmit, NullTimerReturnsNull) {
+  EXPECT_EQ(xTimerSubmitAfter(NULL, [](void *) {}, nullptr, 100), nullptr);
+  EXPECT_EQ(xTimerSubmitAt(NULL, [](void *) {}, nullptr, 100), nullptr);
+}
+
+TEST(TimerSubmit, NullFuncReturnsNull) {
+  xTimer t = xTimerCreate(NULL);
+  ASSERT_NE(t, nullptr);
+
+  EXPECT_EQ(xTimerSubmitAfter(t, NULL, nullptr, 100), nullptr);
+  EXPECT_EQ(xTimerSubmitAt(t, NULL, nullptr, 100), nullptr);
+
+  xTimerDestroy(t);
+}
+
+/* ───────────────── Cancel already-cancelled task ───────────────── */
+
+TEST(TimerCancel, DoubleCancelReturnsError) {
+  xTimer t = xTimerCreate(NULL);
+  ASSERT_NE(t, nullptr);
+
+  xTimerTask task = xTimerSubmitAfter(t, [](void *) {}, nullptr, 10000);
+  ASSERT_NE(task, nullptr);
+
+  /* First cancel succeeds */
+  EXPECT_EQ(xTimerCancel(t, task), xErrno_Ok);
+
+  xTimerDestroy(t);
+}
+
+/* ───────────────── Cancel with NULL timer ───────────────── */
+
+TEST(TimerCancel, NullTimerReturnsInvalidArg) {
+  xTimer t = xTimerCreate(NULL);
+  ASSERT_NE(t, nullptr);
+
+  xTimerTask task = xTimerSubmitAfter(t, [](void *) {}, nullptr, 10000);
+  ASSERT_NE(task, nullptr);
+
+  EXPECT_EQ(xTimerCancel(NULL, task), xErrno_InvalidArg);
+
+  /* Clean up: cancel properly then destroy */
+  xTimerCancel(t, task);
+  xTimerDestroy(t);
+}
+
+TEST(TimerCancel, NullTaskReturnsInvalidArg) {
+  xTimer t = xTimerCreate(NULL);
+  ASSERT_NE(t, nullptr);
+
+  EXPECT_EQ(xTimerCancel(t, NULL), xErrno_InvalidArg);
+
+  xTimerDestroy(t);
+}
+
+/* ───────────────── Destroy NULL timer ───────────────── */
+
+TEST(TimerLifecycle, DestroyNull) {
+  /* Should not crash */
+  xTimerDestroy(NULL);
+}
+
+/* ───────────────── Poll on NULL timer ───────────────── */
+
+TEST(TimerPoll, PollNullReturnsZero) {
+  EXPECT_EQ(xTimerPoll(NULL), 0);
+}

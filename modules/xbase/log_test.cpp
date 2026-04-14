@@ -202,13 +202,22 @@ TEST(LogThreadTest, NoCallbackInNewThread) {
 
 /* ========== Fatal abort ========== */
 
+/*
+ * Death tests that trigger xLog(true, ...) call xBacktraceSkip() which
+ * uses backtrace_symbols() (execinfo) or libunwind.  Under ASan the
+ * forked child may deadlock in malloc, so we use the "threadsafe"
+ * death-test style which re-executes the binary instead of forking.
+ */
+
 TEST(LogDeathTest, FatalAbortsProcess) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH({ xLog(true, "fatal error %d", 42); }, "");
 }
 
 /* ========== Fatal with callback captures backtrace ========== */
 
 TEST(LogDeathTest, FatalCallbackReceivesBacktrace) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(
     {
       xLogSetCallback(
@@ -240,6 +249,7 @@ TEST_F(LogTest, NonFatalBacktraceIsNull) {
 /* ========== Stderr fallback with fatal (death test) ========== */
 
 TEST(LogDeathTest, StderrFallbackFatal) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(
     {
       xLogSetCallback(nullptr, nullptr);

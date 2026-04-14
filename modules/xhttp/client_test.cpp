@@ -126,6 +126,12 @@ TEST_F(HttpClientTest, GetRequest) {
 
   pump_until(loop, ctx.done, 10000);
 
+  /* Destroy client before ctx goes out of scope so that any in-flight
+   * callback is invoked while ctx is still alive (avoids ASan
+   * stack-use-after-return). */
+  xHttpClientDestroy(client);
+  client = nullptr;
+
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0); /* CURLE_OK */
   EXPECT_EQ(ctx.status_code, 200);
@@ -145,6 +151,9 @@ TEST_F(HttpClientTest, PostRequest) {
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 10000);
+
+  xHttpClientDestroy(client);
+  client = nullptr;
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
@@ -209,6 +218,9 @@ TEST_F(HttpClientTest, InvalidUrlFails) {
   ASSERT_EQ(err, xErrno_Ok); /* submission succeeds, failure is async */
 
   pump_until(loop, ctx.done, 15000);
+
+  xHttpClientDestroy(client);
+  client = nullptr;
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_NE(ctx.curl_code, 0); /* should be a curl error */
@@ -285,6 +297,9 @@ TEST_F(HttpClientTest, DoGetRequest) {
 
   pump_until(loop, ctx.done, 10000);
 
+  xHttpClientDestroy(client);
+  client = nullptr;
+
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.curl_code, 0);
   EXPECT_EQ(ctx.status_code, 200);
@@ -307,6 +322,9 @@ TEST_F(HttpClientTest, DoWithCustomHeaders) {
 
   pump_until(loop, ctx.done, 10000);
 
+  xHttpClientDestroy(client);
+  client = nullptr;
+
   ASSERT_TRUE(ctx.done.load()) << "Request timed out";
   EXPECT_EQ(ctx.status_code, 200);
   /* httpbin echoes headers back — verify our custom header is present */
@@ -327,6 +345,9 @@ TEST_F(HttpClientTest, DoWithTimeout) {
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
+
+  xHttpClientDestroy(client);
+  client = nullptr;
 
   ASSERT_TRUE(ctx.done.load()) << "Request timed out waiting for callback";
   EXPECT_NE(ctx.curl_code, 0); /* should have timed out */

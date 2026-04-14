@@ -205,3 +205,69 @@ TEST(LogThreadTest, NoCallbackInNewThread) {
 TEST(LogDeathTest, FatalAbortsProcess) {
   EXPECT_DEATH({ xLog(true, "fatal error %d", 42); }, "");
 }
+
+/* ========== Fatal with callback captures backtrace ========== */
+
+TEST(LogDeathTest, FatalCallbackReceivesBacktrace) {
+  EXPECT_DEATH(
+    {
+      xLogSetCallback(
+        [](const char *msg, const char *backtrace, void *) {
+          (void)msg;
+          /* backtrace may or may not be NULL depending on platform */
+          fprintf(stderr, "bt=%s\n", backtrace ? "yes" : "no");
+        },
+        nullptr);
+      xLog(true, "fatal with bt");
+      /* abort() is called after callback, so we never reach here */
+    },
+    "");
+}
+
+/* ========== Non-fatal callback receives NULL backtrace ========== */
+
+TEST_F(LogTest, NonFatalBacktraceIsNull) {
+  static const char *received_bt = nullptr;
+  xLogSetCallback(
+    [](const char *, const char *backtrace, void *) {
+      received_bt = backtrace;
+    },
+    nullptr);
+  xLog(false, "non-fatal");
+  EXPECT_EQ(received_bt, nullptr);
+}
+
+/* ========== Stderr fallback with fatal (death test) ========== */
+
+TEST(LogDeathTest, StderrFallbackFatal) {
+  EXPECT_DEATH(
+    {
+      xLogSetCallback(nullptr, nullptr);
+      xLog(true, "stderr fatal");
+    },
+    "");
+}
+
+/* ========== Empty format string ========== */
+
+TEST_F(LogTest, EmptyFormatString) {
+  xLog(false, "");
+  EXPECT_EQ(captured.msg, "");
+  EXPECT_EQ(captured.count, 1);
+}
+
+/* ========== Multiple sequential logs ========== */
+
+TEST_F(LogTest, MultipleSequentialLogs) {
+  xLog(false, "first");
+  EXPECT_EQ(captured.msg, "first");
+  EXPECT_EQ(captured.count, 1);
+
+  xLog(false, "second");
+  EXPECT_EQ(captured.msg, "second");
+  EXPECT_EQ(captured.count, 2);
+
+  xLog(false, "third");
+  EXPECT_EQ(captured.msg, "third");
+  EXPECT_EQ(captured.count, 3);
+}

@@ -172,7 +172,8 @@ static void on_pc_state_change(xPeerConnection pc, xPeerConnectionState state,
     break;
   case xPeerConnectionState_Disconnected:
   case xPeerConnectionState_Closed:
-    if (impl->state != xTransferState_Done) {
+    if (impl->state != xTransferState_Done &&
+        impl->state != xTransferState_Failed) {
       xfer_report_error(impl, xErrno_Unknown,
                         "PeerConnection closed unexpectedly");
     }

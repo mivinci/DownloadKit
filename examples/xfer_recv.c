@@ -7,11 +7,12 @@
  *
  * Usage:
  *   ./xfer_recv -c <code> [-d dest_dir] [-u ws://host:port/ws] [-s stun:port]
- * [-6]
+ *              [-t turn:port] [-U user] [-P pass] [-6]
  *
  * Example:
  *   ./xfer_recv -c AB12CD
  *   ./xfer_recv -c AB12CD -d /tmp/received -u ws://192.168.1.100:8080/ws
+ *   ./xfer_recv -c AB12CD -t openrelay.metered.ca:443 -U openrelayproject -P openrelayproject
  */
 
 #include <xbase/event.h>
@@ -106,14 +107,17 @@ static void on_sigint(int signo, void *arg) {
 /* ── Main ──────────────────────────────────────────────── */
 
 int main(int argc, char *argv[]) {
-  const char *code        = NULL;
-  const char *dest_dir    = "/tmp/xfer_recv";
-  const char *signal_url  = "ws://127.0.0.1:8080/ws";
-  const char *stun_server = "stun.l.google.com:19302";
-  bool        enable_ipv6 = false;
+  const char *code          = NULL;
+  const char *dest_dir      = "/tmp/xfer_recv";
+  const char *signal_url    = "ws://127.0.0.1:8080/ws";
+  const char *stun_server   = "stun.l.google.com:19302";
+  const char *turn_server   = NULL;
+  const char *turn_username = NULL;
+  const char *turn_password = NULL;
+  bool        enable_ipv6   = false;
 
   int opt;
-  while ((opt = getopt(argc, argv, "c:d:u:s:6")) != -1) {
+  while ((opt = getopt(argc, argv, "c:d:u:s:t:U:P:6")) != -1) {
     switch (opt) {
     case 'c':
       code = optarg;
@@ -127,13 +131,22 @@ int main(int argc, char *argv[]) {
     case 's':
       stun_server = optarg;
       break;
+    case 't':
+      turn_server = optarg;
+      break;
+    case 'U':
+      turn_username = optarg;
+      break;
+    case 'P':
+      turn_password = optarg;
+      break;
     case '6':
       enable_ipv6 = true;
       break;
     default:
       fprintf(stderr,
               "Usage: %s -c <code> [-d dest_dir] [-u ws://host:port/ws] "
-              "[-s stun:port] [-6]\n",
+              "[-s stun:port] [-t turn:port] [-U user] [-P pass] [-6]\n",
               argv[0]);
       return 1;
     }
@@ -143,7 +156,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Error: -c <code> is required\n");
     fprintf(stderr,
             "Usage: %s -c <code> [-d dest_dir] [-u ws://host:port/ws] "
-            "[-s stun:port] [-6]\n",
+            "[-s stun:port] [-t turn:port] [-U user] [-P pass] [-6]\n",
             argv[0]);
     return 1;
   }
@@ -153,6 +166,7 @@ int main(int argc, char *argv[]) {
   printf("Dest:    %s\n", dest_dir);
   printf("Signal:  %s\n", signal_url);
   printf("STUN:    %s\n", stun_server);
+  printf("TURN:    %s\n", turn_server ? turn_server : "(none)");
   printf("IPv6:    %s\n", enable_ipv6 ? "enabled" : "disabled");
 
   /* Ensure destination directory exists */
@@ -169,6 +183,9 @@ int main(int argc, char *argv[]) {
   xTransferConf conf;
   memset(&conf, 0, sizeof(conf));
   conf.stun_server     = stun_server;
+  conf.turn_server     = turn_server;
+  conf.turn_username   = turn_username;
+  conf.turn_password   = turn_password;
   conf.enable_ipv6     = enable_ipv6;
   conf.signal_server   = signal_url;
   conf.on_state_change = on_state_change;

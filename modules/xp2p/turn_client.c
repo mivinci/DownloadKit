@@ -12,6 +12,8 @@
 #include "stun_attr.h"
 #include "stun_msg.h"
 
+#include <xbase/log.h>
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -343,9 +345,25 @@ static void on_permission_response(const xStunMsg        *msg,
                                    const struct sockaddr *from
                                    __attribute__((unused)),
                                    void *arg) {
-  (void)msg;
   (void)arg;
-  /* Permission created or failed — for now just log */
+  if (!msg) {
+    XDEBUG("[turn] CreatePermission timed out");
+    return;
+  }
+  if (xStunMsgIsErrorResponse(msg->type)) {
+    int error_code = 0;
+    xStunAttrIter iter;
+    xStunAttrIterInit(&iter, msg);
+    xStunAttr attr;
+    while (xStunAttrIterNext(&iter, &attr)) {
+      if (attr.type == xStunAttrType_ErrorCode) {
+        xStunAttrDecodeErrorCode(&attr, &error_code, NULL, NULL);
+      }
+    }
+    XDEBUG("[turn] CreatePermission failed, error=%d", error_code);
+    return;
+  }
+  XDEBUG("[turn] CreatePermission succeeded");
 }
 
 xErrno xTurnClientCreatePermission(xTurnClient           *tc,
@@ -405,9 +423,25 @@ static void on_channel_bind_response(const xStunMsg        *msg,
                                      const struct sockaddr *from
                                      __attribute__((unused)),
                                      void *arg) {
-  (void)msg;
   (void)arg;
-  /* Channel bound or failed */
+  if (!msg) {
+    XDEBUG("[turn] ChannelBind timed out");
+    return;
+  }
+  if (xStunMsgIsErrorResponse(msg->type)) {
+    int error_code = 0;
+    xStunAttrIter iter;
+    xStunAttrIterInit(&iter, msg);
+    xStunAttr attr;
+    while (xStunAttrIterNext(&iter, &attr)) {
+      if (attr.type == xStunAttrType_ErrorCode) {
+        xStunAttrDecodeErrorCode(&attr, &error_code, NULL, NULL);
+      }
+    }
+    XDEBUG("[turn] ChannelBind failed, error=%d", error_code);
+    return;
+  }
+  XDEBUG("[turn] ChannelBind succeeded");
 }
 
 int xTurnClientChannelBind(xTurnClient *tc, const struct sockaddr *peer) {

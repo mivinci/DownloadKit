@@ -7,11 +7,13 @@
  * transferred over a P2P DataChannel.
  *
  * Usage:
- *   ./xfer_send -f <file> [-u ws://host:port/ws] [-s stun:port] [-6]
+ *   ./xfer_send -f <file> [-u ws://host:port/ws] [-s stun:port]
+ *              [-t turn:port] [-U user] [-P pass] [-6]
  *
  * Example:
  *   ./xfer_send -f myfile.bin
  *   ./xfer_send -f myfile.bin -u ws://192.168.1.100:8080/ws
+ *   ./xfer_send -f myfile.bin -t openrelay.metered.ca:443 -U openrelayproject -P openrelayproject
  */
 
 #include <xbase/event.h>
@@ -107,13 +109,16 @@ static void on_sigint(int signo, void *arg) {
 /* ── Main ──────────────────────────────────────────────── */
 
 int main(int argc, char *argv[]) {
-  const char *filepath    = NULL;
-  const char *signal_url  = "ws://127.0.0.1:8080/ws";
-  const char *stun_server = "stun.l.google.com:19302";
-  bool        enable_ipv6 = false;
+  const char *filepath      = NULL;
+  const char *signal_url    = "ws://127.0.0.1:8080/ws";
+  const char *stun_server   = "stun.l.google.com:19302";
+  const char *turn_server   = NULL;
+  const char *turn_username = NULL;
+  const char *turn_password = NULL;
+  bool        enable_ipv6   = false;
 
   int opt;
-  while ((opt = getopt(argc, argv, "f:u:s:6")) != -1) {
+  while ((opt = getopt(argc, argv, "f:u:s:t:U:P:6")) != -1) {
     switch (opt) {
     case 'f':
       filepath = optarg;
@@ -124,13 +129,22 @@ int main(int argc, char *argv[]) {
     case 's':
       stun_server = optarg;
       break;
+    case 't':
+      turn_server = optarg;
+      break;
+    case 'U':
+      turn_username = optarg;
+      break;
+    case 'P':
+      turn_password = optarg;
+      break;
     case '6':
       enable_ipv6 = true;
       break;
     default:
       fprintf(stderr,
               "Usage: %s -f <file> [-u ws://host:port/ws] "
-              "[-s stun:port] [-6]\n",
+              "[-s stun:port] [-t turn:port] [-U user] [-P pass] [-6]\n",
               argv[0]);
       return 1;
     }
@@ -140,7 +154,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Error: -f <file> is required\n");
     fprintf(stderr,
             "Usage: %s -f <file> [-u ws://host:port/ws] "
-            "[-s stun:port] [-6]\n",
+            "[-s stun:port] [-t turn:port] [-U user] [-P pass] [-6]\n",
             argv[0]);
     return 1;
   }
@@ -149,6 +163,7 @@ int main(int argc, char *argv[]) {
   printf("File:    %s\n", filepath);
   printf("Signal:  %s\n", signal_url);
   printf("STUN:    %s\n", stun_server);
+  printf("TURN:    %s\n", turn_server ? turn_server : "(none)");
   printf("IPv6:    %s\n", enable_ipv6 ? "enabled" : "disabled");
 
   g_loop = xEventLoopCreate();
@@ -162,6 +177,9 @@ int main(int argc, char *argv[]) {
   xTransferConf conf;
   memset(&conf, 0, sizeof(conf));
   conf.stun_server     = stun_server;
+  conf.turn_server     = turn_server;
+  conf.turn_username   = turn_username;
+  conf.turn_password   = turn_password;
   conf.enable_ipv6     = enable_ipv6;
   conf.signal_server   = signal_url;
   conf.on_state_change = on_state_change;

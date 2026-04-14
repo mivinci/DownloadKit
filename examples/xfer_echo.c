@@ -63,6 +63,10 @@ static int  g_phase       = 1;
 static uint64_t g_sender_total    = 0;
 static uint64_t g_sender_progress = 0;
 
+/* Track both sides done for clean shutdown */
+static bool g_sender_done   = false;
+static bool g_receiver_done = false;
+
 /* ── Forward declarations ──────────────────────────────── */
 
 static void exchange_sdp(void);
@@ -139,6 +143,10 @@ static void sender_on_state_change(xTransfer xfer, xTransferState state,
     break;
   case xTransferState_Done:
     s = "Done";
+    g_sender_done = true;
+    if (g_receiver_done) {
+      xEventLoopStop(g_loop);
+    }
     break;
   case xTransferState_Failed:
     s = "Failed";
@@ -230,7 +238,10 @@ static void receiver_on_state_change(xTransfer xfer, xTransferState state,
       printf("\n❌ File mismatch! Transfer failed.\n");
     }
 
-    xEventLoopStop(g_loop);
+    g_receiver_done = true;
+    if (g_sender_done) {
+      xEventLoopStop(g_loop);
+    }
     return;
   }
   case xTransferState_Failed:
@@ -433,6 +444,8 @@ int main(int argc, char *argv[]) {
     g_phase                   = 2;
     g_sender_gathering_done   = false;
     g_receiver_gathering_done = false;
+    g_sender_done             = false;
+    g_receiver_done           = false;
     g_loop                    = xEventLoopCreate();
     start_transfer();
     xEventLoopRun(g_loop);

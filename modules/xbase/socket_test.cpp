@@ -8,9 +8,7 @@
 
 #include <xbase/socket.h>
 
-#include <atomic>
 #include <chrono>
-#include <thread>
 
 #include <fcntl.h>
 #include <sys/socket.h>

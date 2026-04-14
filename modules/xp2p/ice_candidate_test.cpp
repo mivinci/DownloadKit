@@ -32,10 +32,10 @@ TEST(IceCandidateTest, SrflxPriorityFormula) {
 }
 
 TEST(IceCandidateTest, RelayPriorityFormula) {
-  /* relay: type_pref=0, local_pref=65535, component=1 */
+  /* relay: type_pref=5, local_pref=65535, component=1 */
   uint32_t prio = xIceCandidatePriority(xIceCandidateType_Relay, 65535, 1);
-  /* (0 << 24) | (65535 << 8) | 255 = 16777215 */
-  EXPECT_EQ(prio, 16777215u);
+  /* (5 << 24) | (65535 << 8) | 255 = 100663295 */
+  EXPECT_EQ(prio, 100663295u);
 }
 
 TEST(IceCandidateTest, PriorityOrdering) {

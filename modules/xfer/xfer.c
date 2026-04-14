@@ -5,15 +5,14 @@
  *
  * xfer.c - P2P file transfer core implementation
  *
- * Orchestrates PeerConnection setup, DataChannel creation, and file
- * chunking/reassembly for peer-to-peer file transfer.
+ * Orchestrates PeerConnection setup, DataChannel creation, signaling,
+ * and the public API.  Sender / receiver logic lives in xfer_sender.c
+ * and xfer_receiver.c respectively.
  */
 
-#include "xfer.h"
-#include "xfer_protocol.h"
+#include "xfer_private.h"
 #include "xfer_signal.h"
 
-#include <xbase/bitmap.h>
 #include <xbase/log.h>
 #include <xcrypto/sha1.h>
 #include <xp2p/peer_connection.h>
@@ -22,96 +21,23 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ───────────────────── Constants ───────────────────── */
+/* ── Shared helpers ────────────────────────────────────── */
 
-/**
- * High-water mark for the DataChannel send buffer.
- * When buffered amount exceeds this, we pause sending and wait for
- * the on_buffered_amount_low callback to resume.
- */
-#define XFER_SEND_HIGH_WATER_MARK (256 * 1024) /* 256 KB */
-
-/**
- * Low-water mark: resume sending when buffered amount drops to this.
- */
-#define XFER_SEND_LOW_WATER_MARK  (64 * 1024)  /* 64 KB */
-
-/**
- * Bitmap persistence interval: persist the receiver bitmap every N chunks
- * instead of every single chunk, to reduce disk I/O overhead.
- * On resume, at most N chunks worth of progress may be lost.
- */
-#define XFER_BITMAP_PERSIST_INTERVAL 32
-
-/* ───────────────────── Internal State ───────────────────── */
-
-XDEF_STRUCT(xTransfer_) {
-  xEventLoop      loop;
-  xTransferConf   conf;
-  xTransferState  state;
-  xTransferRole   role;
-  xPeerConnection pc;
-  xDataChannel    dc;
-
-  /* Sender state */
-  FILE    *send_fp;
-  char     send_filepath[512];
-  char     send_filename[XFER_MAX_FILENAME_LEN];
-  uint64_t send_filesize;
-  uint32_t send_chunk_size;
-  uint32_t send_total_chunks;
-  uint32_t send_next_chunk;
-  uint8_t  send_sha1[XFER_SHA1_SIZE];
-  xBitmap  send_resume_bitmap;  /**< Bitmap from receiver (resume). */
-  bool     send_has_resume;     /**< True if FILE_RESUME received.  */
-  bool     send_waiting_resume; /**< True if waiting for FILE_RESUME before sending chunks. */
-
-  /* Receiver state */
-  FILE    *recv_fp;
-  char     recv_dest_dir[512];
-  char     recv_filepath[1024]; /**< Full path to the .part file.   */
-  char     recv_filename[XFER_MAX_FILENAME_LEN];
-  uint64_t recv_filesize;
-  uint32_t recv_chunk_size;
-  uint32_t recv_total_chunks;
-  uint32_t recv_chunks_received;
-  uint64_t recv_bytes_received;
-  uint8_t  recv_sha1[XFER_SHA1_SIZE];
-  xBitmap  recv_bitmap;         /**< Tracks which chunks received.  */
-  char     recv_bitmap_path[1024]; /**< Path to .bitmap file.       */
-
-  /* Code for signaling */
-  char code[XFER_MAX_CODE_LEN];
-
-
-
-  /* Signaling client (NULL when using manual SDP API) */
-  xSignalClient signal;
-
-  /* Flow control: true when paused due to backpressure */
-  bool send_paused;
-
-  /* True after FILE_DONE is sent; waiting for FILE_ACK from receiver */
-  bool send_waiting_ack;
-};
-
-/* ── Helpers ───────────────────────────────────────────── */
-
-static void set_state(xTransfer_ *impl, xTransferState state) {
+void xfer_set_state(xTransfer_ *impl, xTransferState state) {
   impl->state = state;
   if (impl->conf.on_state_change) {
     impl->conf.on_state_change((xTransfer)impl, state, impl->conf.ctx);
   }
 }
 
-static void report_error(xTransfer_ *impl, xErrno err, const char *msg) {
+void xfer_report_error(xTransfer_ *impl, xErrno err, const char *msg) {
   if (impl->conf.on_error) {
     impl->conf.on_error((xTransfer)impl, err, msg, impl->conf.ctx);
   }
-  set_state(impl, xTransferState_Failed);
+  xfer_set_state(impl, xTransferState_Failed);
 }
 
-static void report_progress(xTransfer_ *impl, uint64_t transferred,
+void xfer_report_progress(xTransfer_ *impl, uint64_t transferred,
                             uint64_t total) {
   if (impl->conf.on_progress) {
     impl->conf.on_progress((xTransfer)impl, transferred, total, impl->conf.ctx);
@@ -124,23 +50,27 @@ static void report_progress(xTransfer_ *impl, uint64_t transferred,
  * Reads the file in 64 KiB blocks so arbitrarily large files can be
  * hashed without loading them entirely into memory.
  */
-static xErrno compute_file_sha1(const char *path, uint8_t *digest) {
-  FILE *fp = fopen(path, "rb");
-  if (!fp) return xErrno_SysError;
+xErrno xfer_compute_file_sha1(const xTransferVfs *vfs, const char *path,
+                                uint8_t *digest) {
+  void *handle = vfs->open(vfs->ctx, path, "rb");
+  if (!handle) return xErrno_SysError;
 
   xSha1Ctx ctx;
   xSha1Init(&ctx);
 
   uint8_t buf[65536];
-  size_t  n;
-  while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+  uint64_t offset = 0;
+  size_t n = 0;
+  xErrno err;
+  for (;;) {
+    err = vfs->pread(vfs->ctx, handle, buf, sizeof(buf), offset, &n);
+    if (err != xErrno_Ok) { vfs->close(vfs->ctx, handle); return err; }
+    if (n == 0) break;
     xSha1Update(&ctx, buf, n);
+    offset += n;
   }
-  bool err = ferror(fp);
-  fclose(fp);
 
-  if (err) return xErrno_SysError;
-
+  vfs->close(vfs->ctx, handle);
   xSha1Final(&ctx, digest);
   return xErrno_Ok;
 }
@@ -159,7 +89,7 @@ static const char *basename_of(const char *path) {
  *
  * File format: total_chunks(4 bytes, big-endian) + bitmap raw bytes.
  */
-static xErrno bitmap_save(const xBitmap *bm, uint32_t total_chunks,
+xErrno xfer_bitmap_save(const xBitmap *bm, uint32_t total_chunks,
                            const char *path) {
   FILE *fp = fopen(path, "wb");
   if (!fp) return xErrno_SysError;
@@ -194,7 +124,7 @@ static xErrno bitmap_save(const xBitmap *bm, uint32_t total_chunks,
  * @param path          Path to the .bitmap file.
  * @return xErrno_Ok on success, xErrno_NotFound if file doesn't exist.
  */
-static xErrno bitmap_load(xBitmap *bm, uint32_t *total_chunks,
+xErrno xfer_bitmap_load(xBitmap *bm, uint32_t *total_chunks,
                            const char *path) {
   FILE *fp = fopen(path, "rb");
   if (!fp) return xErrno_NotFound;
@@ -223,535 +153,6 @@ static xErrno bitmap_load(xBitmap *bm, uint32_t *total_chunks,
   return xErrno_Ok;
 }
 
-/* ── Sender: send next chunk ───────────────────────────── */
-
-static void sender_schedule_next(void *arg);
-
-/**
- * @brief Send one chunk and schedule the next via a 0ms timer.
- *
- * Yielding after each chunk allows the event loop to process incoming
- * SCTP data (e.g. from the receiver in a loopback scenario). A
- * synchronous loop would starve the receiver.
- *
- * When paused due to backpressure, the on_buffered_amount_low
- * callback will resume sending.
- */
-static void sender_send_next_chunk(xTransfer_ *impl) {
-  /* Skip chunks that the receiver already has (resume). */
-  while (impl->send_next_chunk < impl->send_total_chunks &&
-         impl->send_has_resume &&
-         xBitmapTest(&impl->send_resume_bitmap, impl->send_next_chunk)) {
-    impl->send_next_chunk++;
-  }
-
-  /* All chunks sent? */
-  if (impl->send_next_chunk >= impl->send_total_chunks) {
-    uint8_t buf[64];
-    size_t  len = 0;
-
-    /* Compute SHA-1 over the entire source file */
-    if (compute_file_sha1(impl->send_filepath, impl->send_sha1) != xErrno_Ok) {
-      report_error(impl, xErrno_SysError, "Failed to compute file SHA-1");
-      return;
-    }
-
-    xTransferFileDone done;
-    done.total_chunks = impl->send_total_chunks;
-    memcpy(done.sha1, impl->send_sha1, XFER_SHA1_SIZE);
-
-    if (xTransferEncodeFileDone(&done, buf, sizeof(buf), &len) != xErrno_Ok) {
-      report_error(impl, xErrno_Unknown, "Failed to encode FILE_DONE");
-      return;
-    }
-
-    xDataChannelSendBinary(impl->dc, buf, len);
-
-    /* Wait for FILE_ACK from receiver before declaring Done.
-       The receiver will verify SHA-1 and reply with an ACK. */
-    impl->send_waiting_ack = true;
-    XDEBUG("[xfer] sender: FILE_DONE sent, waiting for FILE_ACK");
-    return;
-  }
-
-  /* Check backpressure: pause if buffered amount is too high */
-  size_t buffered = xDataChannelGetBufferedAmount(impl->dc);
-  if (buffered > XFER_SEND_HIGH_WATER_MARK) {
-    impl->send_paused = true;
-    xDataChannelSetBufferedAmountLowThreshold(impl->dc,
-                                              XFER_SEND_LOW_WATER_MARK);
-    XDEBUG("[xfer] sender paused: buffered=%zu high_water=%d",
-           buffered, XFER_SEND_HIGH_WATER_MARK);
-    return;
-  }
-
-  /* Seek to the correct file offset for this chunk */
-  uint64_t offset = (uint64_t)impl->send_next_chunk * impl->send_chunk_size;
-  if (fseek(impl->send_fp, (long)offset, SEEK_SET) != 0) {
-    report_error(impl, xErrno_SysError, "Failed to seek in file");
-    return;
-  }
-
-  /* Read chunk from file */
-  uint8_t *buf = (uint8_t *)malloc(5 + impl->send_chunk_size);
-  if (!buf) {
-    report_error(impl, xErrno_NoMemory, "Failed to allocate chunk buffer");
-    return;
-  }
-
-  /* Encode chunk header */
-  size_t hdr_len = 0;
-  xTransferEncodeChunkHeader(impl->send_next_chunk, buf, 5, &hdr_len);
-
-  /* Read file data */
-  size_t nread =
-    fread(buf + hdr_len, 1, impl->send_chunk_size, impl->send_fp);
-  if (nread == 0 && ferror(impl->send_fp)) {
-    report_error(impl, xErrno_SysError, "Failed to read file");
-    free(buf);
-    return;
-  }
-
-  /* Send */
-  xErrno err = xDataChannelSendBinary(impl->dc, buf, hdr_len + nread);
-  free(buf);
-
-  if (err == xErrno_Again) {
-    /* SCTP send buffer full (EAGAIN): pause and retry later */
-    impl->send_paused = true;
-    xDataChannelSetBufferedAmountLowThreshold(impl->dc,
-                                              XFER_SEND_LOW_WATER_MARK);
-    XDEBUG("[xfer] sender paused: SCTP EAGAIN on chunk %u",
-           impl->send_next_chunk);
-    return;
-  }
-  if (err != xErrno_Ok) {
-    report_error(impl, err, "Failed to send chunk");
-    return;
-  }
-
-  impl->send_next_chunk++;
-  uint64_t transferred =
-    (uint64_t)(impl->send_next_chunk - 1) * impl->send_chunk_size + nread;
-  if (transferred > impl->send_filesize) transferred = impl->send_filesize;
-  report_progress(impl, transferred, impl->send_filesize);
-
-  /* Yield: schedule next chunk via 0ms timer */
-  xEventLoopTimerAfter(impl->loop, sender_schedule_next, impl, 0);
-}
-
-static void sender_schedule_next(void *arg) {
-  xTransfer_ *impl = (xTransfer_ *)arg;
-  sender_send_next_chunk(impl);
-}
-
-/* ── Sender: DataChannel callbacks ─────────────────────── */
-
-/**
- * @brief Called when the DataChannel's buffered amount drops below
- *        the low-water threshold. Resumes sending if paused.
- */
-static void sender_on_buffered_amount_low(xDataChannel channel, void *ctx) {
-  xTransfer_ *impl = (xTransfer_ *)ctx;
-  (void)channel;
-
-  if (!impl->send_paused) return;
-
-  XDEBUG("[xfer] sender resumed: buffered amount low");
-  impl->send_paused = false;
-  sender_send_next_chunk(impl);
-}
-
-/**
- * @brief Sender-side message handler. Receives FILE_RESUME from receiver.
- */
-static void sender_on_dc_message(xDataChannel channel,
-                                 xDataChannelMsgType type,
-                                 const uint8_t *data, size_t len,
-                                 void *ctx) {
-  xTransfer_ *impl = (xTransfer_ *)ctx;
-  (void)channel;
-  (void)type;
-
-  if (len < 1) return;
-
-  uint8_t msg_type = data[0];
-  const uint8_t *payload = data + 1;
-  size_t payload_len = len - 1;
-
-  switch (msg_type) {
-  case XFER_MSG_ACK: {
-    if (!impl->send_waiting_ack) {
-      XDEBUG("[xfer] sender: unexpected FILE_ACK, ignoring");
-      break;
-    }
-    impl->send_waiting_ack = false;
-
-    xTransferFileAck ack;
-    if (xTransferDecodeFileAck(payload, payload_len, &ack) != xErrno_Ok) {
-      report_error(impl, xErrno_InvalidArg, "Invalid FILE_ACK");
-      return;
-    }
-
-    if (ack.status == 0) {
-      set_state(impl, xTransferState_Done);
-    } else {
-      report_error(impl, xErrno_Unknown,
-                   "Receiver reported verification failure");
-    }
-    break;
-  }
-
-  case XFER_MSG_FILE_RESUME: {
-    xTransferFileResume resume;
-    if (xTransferDecodeFileResume(payload, payload_len, &resume) !=
-        xErrno_Ok) {
-      report_error(impl, xErrno_InvalidArg, "Invalid FILE_RESUME");
-      return;
-    }
-
-    /* Validate total_chunks matches */
-    if (resume.total_chunks != impl->send_total_chunks) {
-      report_error(impl, xErrno_InvalidArg,
-                   "FILE_RESUME total_chunks mismatch");
-      return;
-    }
-
-    /* Load bitmap from the received data */
-    if (resume.bitmap && resume.bitmap_len > 0) {
-      xErrno err = xBitmapInit(&impl->send_resume_bitmap,
-                               resume.total_chunks);
-      if (err != xErrno_Ok) {
-        report_error(impl, err, "Failed to init resume bitmap");
-        return;
-      }
-      /* Copy bitmap data */
-      uint32_t copy_len = resume.bitmap_len;
-      if (copy_len > impl->send_resume_bitmap.nbytes)
-        copy_len = impl->send_resume_bitmap.nbytes;
-      memcpy(impl->send_resume_bitmap.data, resume.bitmap, copy_len);
-      impl->send_has_resume = true;
-
-      uint32_t already_done = xBitmapCount(&impl->send_resume_bitmap);
-      (void)already_done;
-      XDEBUG("[xfer] sender: resume bitmap received, %u/%u chunks done",
-             already_done, resume.total_chunks);
-    }
-
-    /* Now start sending (only missing chunks) */
-    if (impl->send_waiting_resume) {
-      impl->send_waiting_resume = false;
-      sender_send_next_chunk(impl);
-    }
-    break;
-  }
-
-  default:
-    XDEBUG("[xfer] sender: ignoring message type 0x%02x", msg_type);
-    break;
-  }
-}
-
-/* ── Sender: DataChannel open → send FILE_META then wait for resume ─ */
-
-static void sender_on_dc_open(xDataChannel channel, void *ctx) {
-  xTransfer_ *impl = (xTransfer_ *)ctx;
-
-  /* When the DataChannel was queued (pending), impl->dc may be NULL.
-     Update it now that the channel is actually open. */
-  impl->dc = channel;
-
-  set_state(impl, xTransferState_Transferring);
-
-  /* Send FILE_META */
-  xTransferFileMeta meta;
-  memset(&meta, 0, sizeof(meta));
-  size_t name_len = strlen(impl->send_filename);
-  if (name_len > 255) name_len = 255;
-  memcpy(meta.filename, impl->send_filename, name_len);
-  meta.filename_len = (uint16_t)name_len;
-  meta.file_size = impl->send_filesize;
-  meta.chunk_size = impl->send_chunk_size;
-  memcpy(meta.sha1, impl->send_sha1, XFER_SHA1_SIZE);
-
-  uint8_t buf[512];
-  size_t  len = 0;
-  if (xTransferEncodeFileMeta(&meta, buf, sizeof(buf), &len) != xErrno_Ok) {
-    report_error(impl, xErrno_Unknown, "Failed to encode FILE_META");
-    return;
-  }
-
-  xDataChannelSendBinary(impl->dc, buf, len);
-
-  /* Wait for FILE_RESUME from receiver before sending chunks.
-     The receiver will inspect its local state and reply with a bitmap
-     indicating which chunks it already has. */
-  impl->send_waiting_resume = true;
-}
-
-/* ── Receiver: DataChannel message handler ─────────────── */
-
-static void receiver_on_dc_message(xDataChannel channel,
-                                   xDataChannelMsgType type,
-                                   const uint8_t *data, size_t len,
-                                   void *ctx) {
-  xTransfer_ *impl = (xTransfer_ *)ctx;
-  (void)channel;
-  (void)type;
-
-  if (len < 1) return;
-
-  uint8_t msg_type = data[0];
-  const uint8_t *payload = data + 1;
-  size_t payload_len = len - 1;
-
-  switch (msg_type) {
-  case XFER_MSG_FILE_META: {
-    xTransferFileMeta meta;
-    if (xTransferDecodeFileMeta(payload, payload_len, &meta) != xErrno_Ok) {
-      report_error(impl, xErrno_InvalidArg, "Invalid FILE_META");
-      return;
-    }
-
-    /* Store metadata */
-    memcpy(impl->recv_filename, meta.filename, meta.filename_len);
-    impl->recv_filename[meta.filename_len] = '\0';
-    impl->recv_filesize = meta.file_size;
-    impl->recv_chunk_size = meta.chunk_size;
-    impl->recv_total_chunks =
-      (uint32_t)((meta.file_size + meta.chunk_size - 1) / meta.chunk_size);
-    memcpy(impl->recv_sha1, meta.sha1, XFER_SHA1_SIZE);
-
-    /* Notify callback */
-    if (impl->conf.on_file_meta) {
-      impl->conf.on_file_meta((xTransfer)impl, impl->recv_filename,
-                              impl->recv_filesize, impl->conf.ctx);
-    }
-
-    /* Build file paths */
-    snprintf(impl->recv_filepath, sizeof(impl->recv_filepath),
-             "%s/%s.part", impl->recv_dest_dir, impl->recv_filename);
-    snprintf(impl->recv_bitmap_path, sizeof(impl->recv_bitmap_path),
-             "%s/%s.bitmap", impl->recv_dest_dir, impl->recv_filename);
-
-    /* Try to load existing bitmap for resume */
-    uint32_t saved_total = 0;
-    xErrno bm_err = bitmap_load(&impl->recv_bitmap, &saved_total,
-                                impl->recv_bitmap_path);
-    if (bm_err == xErrno_Ok && saved_total == impl->recv_total_chunks) {
-      /* Resume: reopen the .part file for random-access writing */
-      impl->recv_fp = fopen(impl->recv_filepath, "r+b");
-      if (!impl->recv_fp) {
-        /* .part file missing but bitmap exists — start fresh */
-        xBitmapFree(&impl->recv_bitmap);
-        bm_err = xErrno_NotFound;
-      } else {
-        impl->recv_chunks_received = xBitmapCount(&impl->recv_bitmap);
-        impl->recv_bytes_received =
-          (uint64_t)impl->recv_chunks_received * impl->recv_chunk_size;
-        if (impl->recv_bytes_received > impl->recv_filesize)
-          impl->recv_bytes_received = impl->recv_filesize;
-        XDEBUG("[xfer] receiver: resuming, %u/%u chunks already received",
-               impl->recv_chunks_received, impl->recv_total_chunks);
-      }
-    } else {
-      if (bm_err == xErrno_Ok) {
-        /* total_chunks mismatch — discard old bitmap */
-        xBitmapFree(&impl->recv_bitmap);
-      }
-      bm_err = xErrno_NotFound;
-    }
-
-    if (bm_err != xErrno_Ok) {
-      /* Fresh transfer: create new bitmap and .part file */
-      xErrno err = xBitmapInit(&impl->recv_bitmap, impl->recv_total_chunks);
-      if (err != xErrno_Ok) {
-        report_error(impl, err, "Failed to init recv bitmap");
-        return;
-      }
-      impl->recv_fp = fopen(impl->recv_filepath, "wb");
-      if (!impl->recv_fp) {
-        report_error(impl, xErrno_SysError, "Failed to open output file");
-        return;
-      }
-      /* Pre-allocate the sparse file by seeking to the end */
-      if (impl->recv_filesize > 0) {
-        fseek(impl->recv_fp, (long)(impl->recv_filesize - 1), SEEK_SET);
-        fputc(0, impl->recv_fp);
-        fflush(impl->recv_fp);
-      }
-      /* Reopen as "r+b" for random-access chunk writes */
-      fclose(impl->recv_fp);
-      impl->recv_fp = fopen(impl->recv_filepath, "r+b");
-      if (!impl->recv_fp) {
-        report_error(impl, xErrno_SysError, "Failed to reopen .part file");
-        return;
-      }
-    }
-
-    /* Send FILE_RESUME to sender with our bitmap */
-    {
-      uint32_t bm_nbytes = 0;
-      const uint8_t *bm_data = xBitmapData(&impl->recv_bitmap, &bm_nbytes);
-
-      xTransferFileResume resume;
-      resume.total_chunks = impl->recv_total_chunks;
-      resume.bitmap = bm_data;
-      resume.bitmap_len = bm_nbytes;
-
-      /* Allocate buffer: 1 + 4 + 4 + bitmap_len */
-      size_t resume_buf_size = 9 + bm_nbytes;
-      uint8_t *resume_buf = (uint8_t *)malloc(resume_buf_size);
-      if (!resume_buf) {
-        report_error(impl, xErrno_NoMemory,
-                     "Failed to allocate FILE_RESUME buffer");
-        return;
-      }
-
-      size_t resume_len = 0;
-      if (xTransferEncodeFileResume(&resume, resume_buf, resume_buf_size,
-                                    &resume_len) != xErrno_Ok) {
-        free(resume_buf);
-        report_error(impl, xErrno_Unknown, "Failed to encode FILE_RESUME");
-        return;
-      }
-
-      xDataChannelSendBinary(impl->dc, resume_buf, resume_len);
-      free(resume_buf);
-    }
-
-    /* Save initial bitmap to disk */
-    bitmap_save(&impl->recv_bitmap, impl->recv_total_chunks,
-                impl->recv_bitmap_path);
-
-    set_state(impl, xTransferState_Transferring);
-    break;
-  }
-
-  case XFER_MSG_FILE_CHUNK: {
-    uint32_t       chunk_id;
-    const uint8_t *chunk_data;
-    uint32_t       chunk_data_len;
-
-    if (xTransferDecodeChunkHeader(payload, payload_len, &chunk_id,
-                                   &chunk_data, &chunk_data_len) != xErrno_Ok) {
-      report_error(impl, xErrno_InvalidArg, "Invalid FILE_CHUNK");
-      return;
-    }
-
-    /* Skip if already received (duplicate) */
-    if (xBitmapTest(&impl->recv_bitmap, chunk_id)) {
-      XDEBUG("[xfer] receiver: skipping duplicate chunk %u", chunk_id);
-      break;
-    }
-
-    /* Seek to the correct offset and write */
-    if (impl->recv_fp) {
-      uint64_t offset = (uint64_t)chunk_id * impl->recv_chunk_size;
-      if (fseek(impl->recv_fp, (long)offset, SEEK_SET) != 0) {
-        report_error(impl, xErrno_SysError, "Failed to seek in output file");
-        return;
-      }
-      size_t written = fwrite(chunk_data, 1, chunk_data_len, impl->recv_fp);
-      if (written != chunk_data_len) {
-        report_error(impl, xErrno_SysError, "Failed to write chunk");
-        return;
-      }
-    }
-
-    /* Update bitmap and persist */
-    xBitmapSet(&impl->recv_bitmap, chunk_id);
-    impl->recv_chunks_received++;
-    impl->recv_bytes_received += chunk_data_len;
-
-    /* Persist bitmap periodically to reduce disk I/O overhead.
-     * On resume, at most XFER_BITMAP_PERSIST_INTERVAL chunks may be
-     * re-transferred, which is an acceptable trade-off. */
-    if (impl->recv_chunks_received % XFER_BITMAP_PERSIST_INTERVAL == 0) {
-      bitmap_save(&impl->recv_bitmap, impl->recv_total_chunks,
-                  impl->recv_bitmap_path);
-    }
-
-    report_progress(impl, impl->recv_bytes_received, impl->recv_filesize);
-    break;
-  }
-
-  case XFER_MSG_FILE_DONE: {
-    xTransferFileDone done;
-    if (xTransferDecodeFileDone(payload, payload_len, &done) != xErrno_Ok) {
-      report_error(impl, xErrno_InvalidArg, "Invalid FILE_DONE");
-      return;
-    }
-
-    /* Flush remaining data and persist final bitmap before closing */
-    if (impl->recv_fp) {
-      fflush(impl->recv_fp);
-      fclose(impl->recv_fp);
-      impl->recv_fp = NULL;
-    }
-    bitmap_save(&impl->recv_bitmap, impl->recv_total_chunks,
-                impl->recv_bitmap_path);
-
-    /* Verify SHA-1: compute hash over the received .part file and compare
-       with the sender's hash.  This is done from the file rather than
-       incrementally so that resume transfers are handled correctly. */
-    {
-      xTransferFileAck ack;
-      memset(&ack, 0, sizeof(ack));
-
-      uint8_t computed[XFER_SHA1_SIZE];
-      if (compute_file_sha1(impl->recv_filepath, computed) != xErrno_Ok) {
-        ack.status = 1;
-        uint8_t ack_buf[4];
-        size_t ack_len = 0;
-        xTransferEncodeFileAck(&ack, ack_buf, sizeof(ack_buf), &ack_len);
-        xDataChannelSendBinary(impl->dc, ack_buf, ack_len);
-        report_error(impl, xErrno_SysError,
-                     "Failed to compute SHA-1 of received file");
-        return;
-      }
-
-      if (memcmp(computed, done.sha1, XFER_SHA1_SIZE) != 0) {
-        ack.status = 1;
-        uint8_t ack_buf[4];
-        size_t ack_len = 0;
-        xTransferEncodeFileAck(&ack, ack_buf, sizeof(ack_buf), &ack_len);
-        xDataChannelSendBinary(impl->dc, ack_buf, ack_len);
-        report_error(impl, xErrno_Unknown, "SHA-1 verification failed");
-        return;
-      }
-      XDEBUG("[xfer] receiver: SHA-1 verification passed");
-
-      /* Send success ACK to sender */
-      ack.status = 0;
-      uint8_t ack_buf[4];
-      size_t ack_len = 0;
-      xTransferEncodeFileAck(&ack, ack_buf, sizeof(ack_buf), &ack_len);
-      xDataChannelSendBinary(impl->dc, ack_buf, ack_len);
-    }
-
-    /* Rename .part → final filename */
-    char final_path[1024];
-    snprintf(final_path, sizeof(final_path), "%s/%s",
-             impl->recv_dest_dir, impl->recv_filename);
-    rename(impl->recv_filepath, final_path);
-
-    /* Remove .bitmap file */
-    remove(impl->recv_bitmap_path);
-
-    /* Free bitmap */
-    xBitmapFree(&impl->recv_bitmap);
-
-    set_state(impl, xTransferState_Done);
-    break;
-  }
-
-  default:
-    xLog(false, "xfer: unknown message type: 0x%02x", msg_type);
-    break;
-  }
-}
-
 /* ── PeerConnection callbacks ──────────────────────────── */
 
 static void on_pc_state_change(xPeerConnection pc, xPeerConnectionState state,
@@ -761,18 +162,19 @@ static void on_pc_state_change(xPeerConnection pc, xPeerConnectionState state,
 
   switch (state) {
   case xPeerConnectionState_Connecting:
-    set_state(impl, xTransferState_Connecting);
+    xfer_set_state(impl, xTransferState_Connecting);
     break;
   case xPeerConnectionState_Connected:
     /* DataChannel open callback will move to Transferring */
     break;
   case xPeerConnectionState_Failed:
-    report_error(impl, xErrno_Unknown, "PeerConnection failed");
+    xfer_report_error(impl, xErrno_Unknown, "PeerConnection failed");
     break;
   case xPeerConnectionState_Disconnected:
   case xPeerConnectionState_Closed:
     if (impl->state != xTransferState_Done) {
-      report_error(impl, xErrno_Unknown, "PeerConnection closed unexpectedly");
+      xfer_report_error(impl, xErrno_Unknown,
+                        "PeerConnection closed unexpectedly");
     }
     break;
   default:
@@ -817,6 +219,7 @@ static void on_signal_code(xSignalClient client, const char *code, void *ctx) {
     impl->conf.on_code((xTransfer)impl, code, impl->conf.ctx);
   }
 }
+
 static void on_signal_peer_joined(xSignalClient client, void *ctx) {
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)client;
@@ -826,7 +229,7 @@ static void on_signal_peer_joined(xSignalClient client, void *ctx) {
   /* Sender: create offer, set local, send via signaling, gather ICE */
   char *offer = xPeerConnectionCreateOffer(impl->pc);
   if (!offer) {
-    report_error(impl, xErrno_Unknown, "Failed to create SDP offer");
+    xfer_report_error(impl, xErrno_Unknown, "Failed to create SDP offer");
     return;
   }
 
@@ -848,7 +251,7 @@ static void on_signal_offer(xSignalClient client, const char *sdp, void *ctx) {
   /* Receiver: create answer, set local, send via signaling, gather ICE */
   char *answer = xPeerConnectionCreateAnswer(impl->pc);
   if (!answer) {
-    report_error(impl, xErrno_Unknown, "Failed to create SDP answer");
+    xfer_report_error(impl, xErrno_Unknown, "Failed to create SDP answer");
     return;
   }
 
@@ -883,7 +286,7 @@ static void on_signal_error(xSignalClient client, xErrno err, const char *msg,
   (void)client;
   (void)err;
 
-  report_error(impl, xErrno_Unknown, msg);
+  xfer_report_error(impl, xErrno_Unknown, msg);
 }
 
 /**
@@ -931,6 +334,7 @@ xTransfer xTransferCreate(xEventLoop loop, const xTransferConf *conf) {
   impl->conf = *conf;
   impl->state = xTransferState_Idle;
   impl->send_chunk_size = XFER_DEFAULT_CHUNK_SIZE;
+  impl->vfs = conf->vfs ? conf->vfs : xTransferPosixVfs();
 
   return (xTransfer)impl;
 }
@@ -939,13 +343,13 @@ void xTransferDestroy(xTransfer xfer) {
   if (!xfer) return;
   xTransfer_ *impl = (xTransfer_ *)xfer;
 
-  if (impl->send_fp) {
-    fclose(impl->send_fp);
-    impl->send_fp = NULL;
+  if (impl->send_handle) {
+    impl->vfs->close(impl->vfs->ctx, impl->send_handle);
+    impl->send_handle = NULL;
   }
-  if (impl->recv_fp) {
-    fclose(impl->recv_fp);
-    impl->recv_fp = NULL;
+  if (impl->recv_handle) {
+    impl->vfs->close(impl->vfs->ctx, impl->recv_handle);
+    impl->recv_handle = NULL;
   }
   if (impl->signal) {
     xSignalClientDestroy(impl->signal);
@@ -977,15 +381,20 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
   strncpy(impl->send_filename, name, XFER_MAX_FILENAME_LEN - 1);
 
   /* Open file and get size */
-  impl->send_fp = fopen(filepath, "rb");
-  if (!impl->send_fp) {
-    report_error(impl, xErrno_SysError, "Failed to open file");
+  impl->send_handle = impl->vfs->open(impl->vfs->ctx, filepath, "rb");
+  if (!impl->send_handle) {
+    xfer_report_error(impl, xErrno_SysError, "Failed to open file");
     return xErrno_SysError;
   }
 
-  fseek(impl->send_fp, 0, SEEK_END);
-  impl->send_filesize = (uint64_t)ftell(impl->send_fp);
-  fseek(impl->send_fp, 0, SEEK_SET);
+  uint64_t fsize = 0;
+  if (impl->vfs->size(impl->vfs->ctx, impl->send_handle, &fsize) != xErrno_Ok) {
+    impl->vfs->close(impl->vfs->ctx, impl->send_handle);
+    impl->send_handle = NULL;
+    xfer_report_error(impl, xErrno_SysError, "Failed to get file size");
+    return xErrno_SysError;
+  }
+  impl->send_filesize = fsize;
 
   impl->send_total_chunks =
     (uint32_t)((impl->send_filesize + impl->send_chunk_size - 1) /
@@ -1012,7 +421,8 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
 
   impl->pc = xPeerConnectionCreate(impl->loop, &pc_conf);
   if (!impl->pc) {
-    report_error(impl, xErrno_Unknown, "Failed to create PeerConnection");
+    xfer_report_error(impl, xErrno_Unknown,
+                      "Failed to create PeerConnection");
     return xErrno_Unknown;
   }
 
@@ -1030,12 +440,13 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
      The PeerConnection will create it later and fire on_dc_open. */
   impl->dc = xPeerConnectionCreateDataChannel(impl->pc, &dc_conf);
 
-  set_state(impl, xTransferState_WaitingPeer);
+  xfer_set_state(impl, xTransferState_WaitingPeer);
 
   /* Connect to signaling server if configured */
   xErrno sig_err = connect_signaling(impl, xSignalClientRole_Sender, NULL);
   if (sig_err != xErrno_Ok) {
-    report_error(impl, sig_err, "Failed to connect to signaling server");
+    xfer_report_error(impl, sig_err,
+                      "Failed to connect to signaling server");
     return sig_err;
   }
 
@@ -1071,17 +482,19 @@ xErrno xTransferRecvFile(xTransfer xfer, const char *code,
 
   impl->pc = xPeerConnectionCreate(impl->loop, &pc_conf);
   if (!impl->pc) {
-    report_error(impl, xErrno_Unknown, "Failed to create PeerConnection");
+    xfer_report_error(impl, xErrno_Unknown,
+                      "Failed to create PeerConnection");
     return xErrno_Unknown;
   }
 
-  set_state(impl, xTransferState_WaitingPeer);
+  xfer_set_state(impl, xTransferState_WaitingPeer);
 
   /* Connect to signaling server if configured */
   xErrno sig_err = connect_signaling(impl, xSignalClientRole_Receiver,
                                      session_code);
   if (sig_err != xErrno_Ok) {
-    report_error(impl, sig_err, "Failed to connect to signaling server");
+    xfer_report_error(impl, sig_err,
+                      "Failed to connect to signaling server");
     return sig_err;
   }
 
@@ -1112,7 +525,7 @@ void xTransferCancel(xTransfer xfer) {
     impl->dc = NULL;
   }
 
-  set_state(impl, xTransferState_Failed);
+  xfer_set_state(impl, xTransferState_Failed);
 }
 
 /* ───────────────────── SDP / ICE API ───────────────────── */

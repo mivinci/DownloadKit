@@ -153,7 +153,7 @@ XDEF_ENUM(xIceCandidateType){
 #define XICE_TYPE_PREF_HOST  126
 #define XICE_TYPE_PREF_SRFLX 100
 #define XICE_TYPE_PREF_PRFLX 110
-#define XICE_TYPE_PREF_RELAY 0
+#define XICE_TYPE_PREF_RELAY 5
 
 /* ───────────────────── ICE Candidate Pair States ───────────────────── */
 

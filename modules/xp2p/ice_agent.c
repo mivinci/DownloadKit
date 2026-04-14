@@ -354,9 +354,23 @@ static xErrno send_check(xIceAgent_ *a, xIcePair *pair) {
   ctx->agent = a;
   ctx->pair  = pair;
 
-  xErrno err = xStunTxnMgrSendRaw(
-    &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
-    pair_stun_send, pair->local->sock, on_check_response, ctx);
+  xErrno err;
+  if (pair->local->type == xIceCandidateType_Relay && a->turn_client) {
+    /* Relay pair: send connectivity check through TURN server */
+    err = xTurnClientSendData(a->turn_client,
+                              (const struct sockaddr *)&pair->remote->addr,
+                              msg_buf, total);
+    if (err == xErrno_Ok) {
+      /* Register the transaction so we can match the response */
+      err = xStunTxnMgrSendRaw(
+        &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
+        pair_stun_send, pair->local->sock, on_check_response, ctx);
+    }
+  } else {
+    err = xStunTxnMgrSendRaw(
+      &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
+      pair_stun_send, pair->local->sock, on_check_response, ctx);
+  }
   if (err != xErrno_Ok) {
     free(ctx);
   }
@@ -593,8 +607,16 @@ static void consent_cb(void *arg) {
   xWriteU16BE(msg_buf + 2, (uint16_t)w.pos);
 
   size_t total = XSTUN_HEADER_SIZE + w.pos;
-  agent_stun_send(msg_buf, total,
-                  (struct sockaddr *)&a->nominated->remote->addr, a);
+
+  /* Send consent check via TURN relay if nominated pair is relay type */
+  if (a->nominated->local->type == xIceCandidateType_Relay && a->turn_client) {
+    xTurnClientSendData(a->turn_client,
+                        (const struct sockaddr *)&a->nominated->remote->addr,
+                        msg_buf, total);
+  } else {
+    agent_stun_send(msg_buf, total,
+                    (struct sockaddr *)&a->nominated->remote->addr, a);
+  }
 
   /* Schedule next consent check */
   a->consent_timer =
@@ -760,6 +782,8 @@ static void on_srflx_response(const xStunMsg        *msg,
 
 /* ── relay: TURN Allocate callback ── */
 
+static void turn_create_permissions_for_remotes(xIceAgent_ *a);
+
 static void on_turn_allocated(const struct sockaddr *relayed_addr,
                               const struct sockaddr *mapped_addr,
                               uint32_t lifetime __attribute__((unused)),
@@ -822,12 +846,46 @@ static void on_turn_allocated(const struct sockaddr *relayed_addr,
 
   a->pending_gather--;
   gather_check_done(a);
+
+  /* Create permissions for any remote candidates already known */
+  turn_create_permissions_for_remotes(a);
 }
 
 static void on_turn_failed(xErrno err __attribute__((unused)), void *arg) {
   xIceAgent_ *a = (xIceAgent_ *)arg;
   a->pending_gather--;
   gather_check_done(a);
+}
+
+/**
+ * @brief Callback for TURN relay data — forwards to DTLS input hook.
+ */
+static void on_turn_data(const uint8_t *data, size_t len,
+                         const struct sockaddr *from, void *arg) {
+  xIceAgent_ *a = (xIceAgent_ *)arg;
+  XDEBUG("[ice] TURN relay data %zu bytes", len);
+  if (a->dtls_input_fn) {
+    a->dtls_input_fn(data, len, from, a->dtls_input_arg);
+  }
+  /* else: no DTLS consumer attached, silently discard */
+}
+
+/**
+ * @brief Create TURN permissions for all known remote candidates.
+ */
+static void turn_create_permissions_for_remotes(xIceAgent_ *a) {
+  if (!a->turn_client) return;
+  if (a->turn_client->state != xTurnState_Allocated) return;
+
+  for (int i = 0; i < a->remote_count; i++) {
+    const struct sockaddr *peer =
+      (const struct sockaddr *)&a->remote_candidates[i].addr;
+    xErrno err = xTurnClientCreatePermission(a->turn_client, peer);
+    if (err != xErrno_Ok) {
+      XDEBUG("[ice] failed to create TURN permission for remote candidate %d",
+             i);
+    }
+  }
 }
 
 /**
@@ -905,6 +963,7 @@ static void start_turn_allocate(xIceAgent_                    *a,
   tc_conf.send_arg     = a;
   tc_conf.on_allocated = on_turn_allocated;
   tc_conf.on_failed    = on_turn_failed;
+  tc_conf.on_data      = on_turn_data;
   tc_conf.ctx          = a;
 
   xTurnClientInit(a->turn_client, a->loop, &tc_conf);
@@ -1131,8 +1190,16 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
       xStunMsg msg;
       if (xStunMsgDecode(&msg, buf, len) != xErrno_Ok) continue;
 
+      uint8_t msg_class = XSTUN_MSG_CLASS(msg.type);
+
       if (xStunMsgIsRequest(msg.type)) {
         handle_incoming_binding_request(a, &msg, from, sock);
+      } else if (msg_class == XSTUN_CLASS_INDICATION) {
+        /* Indication (e.g. DataIndication) — route to TURN client */
+        if (a->turn_client) {
+          xTurnClientOnMessage(a->turn_client, &msg, buf, len, from);
+        }
+        /* No TURN client or not handled — silently discard */
       } else if (xStunMsgIsSuccessResponse(msg.type) ||
                  xStunMsgIsErrorResponse(msg.type)) {
         /* Try TURN client first */
@@ -1230,6 +1297,8 @@ void xIceAgentDestroy(xIceAgent agent) {
   /* Destroy TURN client */
   if (a->turn_client) {
     xTurnClientDestroy(a->turn_client);
+    free(a->turn_client);
+    a->turn_client = NULL;
   }
 
   /* Destroy transaction manager */
@@ -1464,6 +1533,9 @@ xErrno xIceAgentSetRemoteDescription(xIceAgent agent, const char *sdp) {
     a->remote_candidates[a->remote_count++] = parsed.candidates[i];
   }
 
+  /* Create TURN permissions for new remote candidates */
+  turn_create_permissions_for_remotes(a);
+
   /* If gathering is done, start checks */
   if (a->gathering_done && a->state != xIceAgentState_Checking) {
     generate_pairs(a);
@@ -1484,6 +1556,15 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
   if (err != xErrno_Ok) return err;
 
   a->remote_candidates[a->remote_count++] = cand;
+
+  /* Create TURN permission for the new remote candidate */
+  if (a->turn_client && a->turn_client->state == xTurnState_Allocated) {
+    xErrno perm_err = xTurnClientCreatePermission(
+      a->turn_client, (const struct sockaddr *)&cand.addr);
+    if (perm_err != xErrno_Ok) {
+      XDEBUG("[ice] failed to create TURN permission for new remote candidate");
+    }
+  }
 
   /* If already checking, re-generate pairs and continue */
   if (a->state == xIceAgentState_Checking) {
@@ -1520,6 +1601,14 @@ xErrno xIceAgentSend(xIceAgent agent, const uint8_t *data, size_t len) {
 
   if (!a->nominated || !a->nominated->local->sock) {
     return xErrno_InvalidArg;
+  }
+
+  /* Send via TURN relay if nominated pair's local candidate is relay type */
+  if (a->nominated->local->type == xIceCandidateType_Relay) {
+    if (!a->turn_client) return xErrno_SysError;
+    return xTurnClientSendData(a->turn_client,
+                               (const struct sockaddr *)&a->nominated->remote->addr,
+                               data, len);
   }
 
   return udp_sendto(a->nominated->local->sock, data, len,

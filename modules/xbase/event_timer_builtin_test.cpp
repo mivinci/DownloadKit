@@ -387,3 +387,43 @@ TEST(BuiltinTimerPrecision, DelayAccuracy) {
 
   xEventLoopDestroy(loop);
 }
+
+/* ───────────────────── Cancel after fire ───────────────────── */
+
+TEST(BuiltinTimerCancel, CancelAfterFireReturnsError) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  std::atomic<int> fired{0};
+
+  xEventTimer t = xEventLoopTimerAfter(
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
+    &fired, 10);
+  ASSERT_NE(t, nullptr);
+
+  /* Wait for it to fire */
+  for (int i = 0; i < 20 && fired.load() == 0; i++)
+    xEventWait(loop, 20);
+
+  EXPECT_EQ(fired.load(), 1);
+
+  /* Cancel after fire should return InvalidState */
+  xErrno err = xEventLoopTimerCancel(loop, t);
+  EXPECT_EQ(err, xErrno_InvalidState);
+
+  xEventLoopDestroy(loop);
+}
+
+/* ───────────────────── NowMs basic test ───────────────────── */
+
+TEST(BuiltinTimerNowMs, ReturnsNonZero) {
+  uint64_t now = xEventLoopNowMs();
+  EXPECT_GT(now, 0u);
+}
+
+TEST(BuiltinTimerNowMs, IsMonotonic) {
+  uint64_t a = xEventLoopNowMs();
+  sleep_ms(10);
+  uint64_t b = xEventLoopNowMs();
+  EXPECT_GE(b, a);
+}

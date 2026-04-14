@@ -560,3 +560,292 @@ TEST(SocketCallback, MaskReflectsEvent) {
   close(fds[1]);
   xEventLoopDestroy(loop);
 }
+
+/* ───────────────────── SocketCreateFromFd ───────────────────── */
+
+TEST(SocketCreateFromFd, Success) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  int fds[2];
+  ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+  xSocket sock = xSocketCreateFromFd(loop, fds[0], xEvent_Read,
+                                     noop_callback, nullptr);
+  ASSERT_NE(sock, nullptr);
+
+  int fd = xSocketFd(sock);
+  EXPECT_EQ(fd, fds[0]);
+
+  /* Verify O_NONBLOCK was set */
+  int flags = fcntl(fd, F_GETFL, 0);
+  EXPECT_TRUE(flags & O_NONBLOCK);
+
+  /* Verify FD_CLOEXEC was set */
+  int fdflags = fcntl(fd, F_GETFD, 0);
+  EXPECT_TRUE(fdflags & FD_CLOEXEC);
+
+  xSocketDestroy(loop, sock);
+  close(fds[1]);
+  xEventLoopDestroy(loop);
+}
+
+TEST(SocketCreateFromFd, NullLoop) {
+  int fds[2];
+  ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+  xSocket sock = xSocketCreateFromFd(NULL, fds[0], xEvent_Read,
+                                     noop_callback, nullptr);
+  EXPECT_EQ(sock, nullptr);
+
+  close(fds[0]);
+  close(fds[1]);
+}
+
+TEST(SocketCreateFromFd, NullCallback) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  int fds[2];
+  ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+  xSocket sock = xSocketCreateFromFd(loop, fds[0], xEvent_Read, NULL, nullptr);
+  EXPECT_EQ(sock, nullptr);
+
+  close(fds[0]);
+  close(fds[1]);
+  xEventLoopDestroy(loop);
+}
+
+TEST(SocketCreateFromFd, InvalidFd) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  xSocket sock = xSocketCreateFromFd(loop, -1, xEvent_Read,
+                                     noop_callback, nullptr);
+  EXPECT_EQ(sock, nullptr);
+
+  xEventLoopDestroy(loop);
+}
+
+TEST(SocketCreateFromFd, IOCallback) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  int fds[2];
+  ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+  struct Ctx {
+    xEventMask mask;
+    int        count;
+  } ctx = {0, 0};
+
+  xSocket sock = xSocketCreateFromFd(
+    loop, fds[0], xEvent_Read,
+    [](xSocket, xEventMask m, void *arg) {
+      auto *c = static_cast<Ctx *>(arg);
+      c->mask = m;
+      c->count++;
+    },
+    &ctx);
+  ASSERT_NE(sock, nullptr);
+
+  /* Write data to trigger read event */
+  write(fds[1], "hello", 5);
+  pump_loop(loop, 100);
+
+  EXPECT_GE(ctx.count, 1);
+  EXPECT_TRUE(ctx.mask & xEvent_Read);
+
+  xSocketDestroy(loop, sock);
+  close(fds[1]);
+  xEventLoopDestroy(loop);
+}
+
+/* ───────────────────── SocketSetCallback ───────────────────── */
+
+TEST(SocketSetCallback, ReplaceCallback) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  int original_count = 0;
+  int new_count      = 0;
+
+  xSocket sock = xSocketCreate(
+    loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
+    [](xSocket, xEventMask, void *arg) { (*static_cast<int *>(arg))++; },
+    &original_count);
+  ASSERT_NE(sock, nullptr);
+
+  /* Replace callback */
+  xErrno err = xSocketSetCallback(
+    sock,
+    [](xSocket, xEventMask, void *arg) { (*static_cast<int *>(arg))++; },
+    &new_count);
+  EXPECT_EQ(err, xErrno_Ok);
+
+  /* Trigger via timeout */
+  xSocketSetTimeout(sock, 50, 0);
+  pump_loop(loop, 200);
+
+  EXPECT_EQ(original_count, 0);
+  EXPECT_GE(new_count, 1);
+
+  xSocketDestroy(loop, sock);
+  xEventLoopDestroy(loop);
+}
+
+TEST(SocketSetCallback, NullSocket) {
+  EXPECT_EQ(xSocketSetCallback(NULL, noop_callback, nullptr),
+            xErrno_InvalidArg);
+}
+
+TEST(SocketSetCallback, NullCallback) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
+                               noop_callback, nullptr);
+  ASSERT_NE(sock, nullptr);
+
+  EXPECT_EQ(xSocketSetCallback(sock, NULL, nullptr), xErrno_InvalidArg);
+
+  xSocketDestroy(loop, sock);
+  xEventLoopDestroy(loop);
+}
+
+/* ───────────────────── SocketTimeout: NullSocket ───────────────────── */
+
+TEST(SocketTimeout, NullSocket) {
+  EXPECT_EQ(xSocketSetTimeout(NULL, 100, 100), xErrno_InvalidArg);
+}
+
+/* ───────────────────── SocketTimeout: BothTimeouts ───────────────────── */
+
+TEST(SocketTimeout, BothReadAndWriteTimeout) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  struct Ctx {
+    int read_timeout_count;
+    int write_timeout_count;
+  } ctx = {0, 0};
+
+  xSocket sock = xSocketCreate(
+    loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
+    [](xSocket, xEventMask m, void *arg) {
+      auto *c = static_cast<Ctx *>(arg);
+      if ((m & xEvent_Timeout) && (m & xEvent_Read)) c->read_timeout_count++;
+      if ((m & xEvent_Timeout) && (m & xEvent_Write)) c->write_timeout_count++;
+    },
+    &ctx);
+  ASSERT_NE(sock, nullptr);
+
+  xSocketSetTimeout(sock, 50, 80);
+  pump_loop(loop, 300);
+
+  EXPECT_GE(ctx.read_timeout_count, 1);
+  EXPECT_GE(ctx.write_timeout_count, 1);
+
+  xSocketDestroy(loop, sock);
+  xEventLoopDestroy(loop);
+}
+
+/* ───────────────────── I/O resets idle timer ───────────────────── */
+
+TEST(SocketTimeout, IOResetsReadTimer) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  int fds[2];
+  ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+  struct Ctx {
+    int io_count;
+    int timeout_count;
+    int rfd;
+  } ctx = {0, 0, fds[0]};
+
+  xSocket sock = xSocketCreateFromFd(
+    loop, fds[0], xEvent_Read,
+    [](xSocket, xEventMask m, void *arg) {
+      auto *c = static_cast<Ctx *>(arg);
+      if (m & xEvent_Timeout) {
+        c->timeout_count++;
+      } else if (m & xEvent_Read) {
+        c->io_count++;
+        /* Drain the data */
+        char buf[256];
+        while (read(c->rfd, buf, sizeof(buf)) > 0)
+          ;
+      }
+    },
+    &ctx);
+  ASSERT_NE(sock, nullptr);
+
+  /* Set a 150ms read timeout */
+  xSocketSetTimeout(sock, 150, 0);
+
+  /* At 50ms, send data — this should trigger read event and reset the timer */
+  pump_loop(loop, 50);
+  write(fds[1], "hello", 5);
+  pump_loop(loop, 20);
+
+  /* The read event should have fired and reset the timer */
+  EXPECT_GE(ctx.io_count, 1);
+  EXPECT_EQ(ctx.timeout_count, 0);
+
+  /* Wait another 100ms — still within the reset 150ms window */
+  pump_loop(loop, 100);
+  EXPECT_EQ(ctx.timeout_count, 0);
+
+  /* Wait another 100ms — now the reset timer should fire */
+  pump_loop(loop, 100);
+  EXPECT_GE(ctx.timeout_count, 1);
+
+  xSocketDestroy(loop, sock);
+  close(fds[1]);
+  xEventLoopDestroy(loop);
+}
+
+TEST(SocketTimeout, IOResetsWriteTimer) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  int fds[2];
+  ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+  struct Ctx {
+    int io_count;
+    int timeout_count;
+  } ctx = {0, 0};
+
+  /* Monitor for write events — socketpair is always writable */
+  xSocket sock = xSocketCreateFromFd(
+    loop, fds[0], xEvent_Write,
+    [](xSocket, xEventMask m, void *arg) {
+      auto *c = static_cast<Ctx *>(arg);
+      if (m & xEvent_Timeout) {
+        c->timeout_count++;
+      } else if (m & xEvent_Write) {
+        c->io_count++;
+      }
+    },
+    &ctx);
+  ASSERT_NE(sock, nullptr);
+
+  /* Set a 100ms write timeout */
+  xSocketSetTimeout(sock, 0, 100);
+
+  /* The write event should fire immediately (socketpair is writable),
+   * which resets the write timer */
+  pump_loop(loop, 50);
+  EXPECT_GE(ctx.io_count, 1);
+
+  /* The write timeout should not have fired yet because I/O reset it */
+  EXPECT_EQ(ctx.timeout_count, 0);
+
+  xSocketDestroy(loop, sock);
+  close(fds[1]);
+  xEventLoopDestroy(loop);
+}

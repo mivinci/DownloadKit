@@ -222,3 +222,78 @@ TEST_F(EventOffloadTest, ResultPassedToDoneFn) {
   EXPECT_TRUE(done.load());
   EXPECT_EQ(received_result, &sentinel);
 }
+
+/* ───────────────────── Work freelist reuse ───────────────────── */
+
+TEST_F(EventOffloadTest, WorkFreelistReuse) {
+  /* Submit multiple rounds of offload work. After the first round completes,
+   * the work items should be recycled into the freelist. The second round
+   * should reuse them (covering event_work_alloc from freelist path). */
+  constexpr int ROUNDS   = 3;
+  constexpr int PER_ROUND = 10;
+
+  for (int r = 0; r < ROUNDS; r++) {
+    std::atomic<int> done_count{0};
+
+    for (int i = 0; i < PER_ROUND; i++) {
+      xEventLoopSubmit(
+        loop, group,
+        [](void *) -> void * { return nullptr; },
+        [](void *arg, void *) {
+          static_cast<std::atomic<int> *>(arg)->fetch_add(1,
+                                                          std::memory_order_relaxed);
+        },
+        &done_count);
+    }
+
+    /* Pump until all done callbacks fire */
+    for (int i = 0; i < 200 &&
+                    done_count.load(std::memory_order_acquire) < PER_ROUND;
+         i++) {
+      xEventWait(loop, 10);
+    }
+
+    EXPECT_EQ(done_count.load(), PER_ROUND) << "round " << r;
+  }
+}
+
+/* ───────────────────── Submit with queue-capped group ───────────────────── */
+
+TEST_F(EventOffloadTest, SubmitFailsWhenGroupFull) {
+  /* Create a group with 1 thread and queue cap of 1 */
+  xTaskGroupConf conf = {.nthreads = 1, .queue_cap = 1};
+  xTaskGroup     small = xTaskGroupCreate(&conf);
+  ASSERT_NE(small, nullptr);
+
+  /* Block the single worker */
+  std::atomic<bool> unblock{false};
+  xEventLoopSubmit(
+    loop, small,
+    [](void *arg) -> void * {
+      auto *flag = static_cast<std::atomic<bool> *>(arg);
+      while (!flag->load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
+      return nullptr;
+    },
+    nullptr, &unblock);
+
+  /* Give the worker time to pick up the blocking task */
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  /* Fill the queue */
+  xEventLoopSubmit(
+    loop, small, [](void *) -> void * { return nullptr; }, nullptr, nullptr);
+
+  /* Next submit should fail because queue is full */
+  xErrno err = xEventLoopSubmit(
+    loop, small, [](void *) -> void * { return nullptr; }, nullptr, nullptr);
+  EXPECT_EQ(err, xErrno_SysError);
+
+  /* Cleanup */
+  unblock.store(true, std::memory_order_release);
+  for (int i = 0; i < 200; i++)
+    xEventWait(loop, 10);
+
+  xTaskGroupDestroy(small);
+}

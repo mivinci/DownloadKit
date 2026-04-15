@@ -44,12 +44,12 @@
 
 /* ── Session ───────────────────────────────────────────── */
 
-typedef struct {
+XDEF_STRUCT(xSignalSession) {
   char    code[SIGNAL_CODE_LEN + 1];
   xWsConn sender;
   xWsConn receiver;
   bool    active;
-} xSignalSession;
+};
 
 /* ── Server internal state ─────────────────────────────── */
 
@@ -143,24 +143,34 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
 
   if (strcmp(type, "create") == 0) {
     /* Sender wants to create a new session */
-    if (srv->session_count >= SIGNAL_MAX_SESSIONS) {
-      XDEBUG("[signal-server] max sessions reached");
-      cJSON_Delete(json);
-      return;
+    /* Reuse an inactive slot first, then append */
+    xSignalSession *session = NULL;
+    for (int i = 0; i < srv->session_count; i++) {
+      if (!srv->sessions[i].active) {
+        session = &srv->sessions[i];
+        break;
+      }
     }
-
-    xSignalSession *session = &srv->sessions[srv->session_count++];
+    if (!session) {
+      if (srv->session_count >= SIGNAL_MAX_SESSIONS) {
+        XDEBUG("[signal-server] max sessions reached");
+        cJSON_Delete(json);
+        return;
+      }
+      session = &srv->sessions[srv->session_count++];
+    }
     memset(session, 0, sizeof(*session));
-    session->active = true;
     session->sender = conn;
 
-    /* Generate unique code */
+    /* Generate unique code (session is still inactive during check) */
     int attempts = 0;
     do {
       generate_code(session->code, SIGNAL_CODE_LEN);
       attempts++;
-    } while (find_session_by_code(srv, session->code) != session &&
+    } while (find_session_by_code(srv, session->code) != NULL &&
              attempts < 100);
+
+    session->active = true;
 
     XDEBUG("[signal-server] session created: code=%s", session->code);
 

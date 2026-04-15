@@ -41,6 +41,7 @@ graph TD
 
     subgraph "Data Structures & Concurrency"
         HEAP["heap.h<br/>Min-Heap"]
+        MAP["map.h<br/>Generic Map"]
         MPSC["mpsc.h<br/>Lock-Free MPSC Queue"]
         ATOMIC["atomic.h<br/>Atomic Operations"]
     end
@@ -74,6 +75,7 @@ graph TD
     style ERROR fill:#50b86c,color:#fff
     style TIME fill:#50b86c,color:#fff
     style HEAP fill:#f5a623,color:#fff
+    style MAP fill:#f5a623,color:#fff
     style MPSC fill:#f5a623,color:#fff
     style ATOMIC fill:#f5a623,color:#fff
 ```
@@ -91,6 +93,7 @@ graph TD
 | [`backtrace.h`](backtrace.md) | [backtrace.md](backtrace.md) | Platform-adaptive stack trace capture (libunwind > execinfo > stub) |
 | [`error.h`](error.md) | [error.md](error.md) | Unified error codes (`xErrno`) and human-readable messages |
 | [`heap.h`](heap.md) | [heap.md](heap.md) | Generic min-heap with O(log n) insert/remove, used internally by the timer subsystem |
+| [`map.h`](map.md) | [map.md](map.md) | Generic key-value map with three backends: hash table, flat table, and red-black tree |
 | [`mpsc.h`](mpsc.md) | [mpsc.md](mpsc.md) | Lock-free multi-producer / single-consumer intrusive queue |
 | [`atomic.h`](atomic.md) | [atomic.md](atomic.md) | Compiler-portable atomic operations (GCC/Clang `__atomic` builtins) |
 | [`io.h`](io.md) | [io.md](io.md) | Abstract I/O interfaces (Reader, Writer, Seeker, Closer) with convenience helpers (xReadFull, xReadAll, xWritev, etc.) |
@@ -109,6 +112,7 @@ graph TD
 | Capture a stack trace for debugging | [`backtrace.h`](backtrace.md) — `xBacktrace()` fills a buffer |
 | Handle error codes uniformly | [`error.h`](error.md) — `xErrno` enum + `xstrerror()` |
 | Build a priority queue | [`heap.h`](heap.md) — generic min-heap with index tracking |
+| Store key-value pairs with O(1) or O(log n) access | [`map.h`](map.md) — generic map with hash, flat, and tree backends |
 | Pass messages between threads lock-free | [`mpsc.h`](mpsc.md) — intrusive MPSC queue |
 | Perform atomic read-modify-write | [`atomic.h`](atomic.md) — macro wrappers over compiler builtins |
 | Get current time in milliseconds | `time.h` — `xMonoMs()` for elapsed time, `xWallMs()` for wall-clock |

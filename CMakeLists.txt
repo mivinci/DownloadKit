@@ -9,7 +9,7 @@ message(STATUS "xKit: Building ${XK_VERSION}")
 
 option(XK_BUILD_XKIT "Build xKit" ON)
 option(XK_BUILD_TESTS "Build xKit tests" ON)
-option(XK_BUILD_BENCHMARKS "Build xKit benchmarks" OFF)
+option(XK_BUILD_BENCHMARKS "Build xKit benchmarks" ON)
 option(XK_BUILD_EXAMPLES "Build xKit example programs" OFF)
 option(XK_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(XK_ENABLE_DEBUG "Enable verbose debug logging in xKit modules" OFF)

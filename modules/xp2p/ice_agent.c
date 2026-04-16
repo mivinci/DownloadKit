@@ -94,6 +94,20 @@ XDEF_STRUCT(xIceAgent_) {
   /* DTLS data input hook — set by xPeerConnection when attached */
   xIceDtlsInputFn dtls_input_fn;
   void           *dtls_input_arg;
+
+  /* Birthday attack state */
+  bool        birthday_active;                          /**< Attack in progress.     */
+  int         birthday_k;                               /**< Resolved local socket count. */
+  int         birthday_n;                               /**< Resolved remote port count.   */
+  int         birthday_timeout_ms;                      /**< Resolved overall timeout.     */
+  xSocket    *birthday_socks;                           /**< Heap-allocated socket array.  */
+  int         birthday_sock_count;                      /**< Actual created sockets.       */
+  int         birthday_burst_index;                     /**< Current burst index.          */
+  int         birthday_round;                           /**< Current round (0-based).      */
+  uint16_t    birthday_target_port;                     /**< Remote srflx port (center).   */
+  xEventTimer birthday_timer;                           /**< Pacing timer.                 */
+  xEventTimer birthday_timeout_timer;                   /**< Overall timeout.              */
+  struct sockaddr_storage birthday_target;              /**< Remote NAT public IP.         */
 };
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -285,6 +299,7 @@ typedef struct {
 } CheckCtx;
 
 static void start_consent(xIceAgent_ *a);
+static void on_udp_recv(xSocket sock, xEventMask mask, void *arg);
 
 static void on_check_response(const xStunMsg *msg, const struct sockaddr *from,
                               void *arg);
@@ -522,6 +537,11 @@ static void on_check_response(const xStunMsg        *msg,
   try_nominate(agent);
 }
 
+/* Forward declarations for birthday attack */
+static void start_birthday_attack(xIceAgent_ *a);
+static void cleanup_birthday(xIceAgent_ *a);
+static void sockaddr_set_port(struct sockaddr_storage *addr, uint16_t port);
+
 static void check_timeout_cb(void *arg) {
   xIceAgent_ *a    = (xIceAgent_ *)arg;
   a->check_timeout = NULL;
@@ -551,7 +571,471 @@ static void check_timeout_cb(void *arg) {
     return;
   }
 
+  /* All regular checks failed — attempt birthday attack if enabled */
+  if (a->birthday_k > 0) {
+    start_birthday_attack(a);
+    return;
+  }
+
   set_state(a, xIceAgentState_Failed);
+}
+
+/* ───────────────────── Birthday Attack ───────────────────── */
+
+/**
+ * @brief Generate a random port in the ephemeral range.
+ */
+static uint16_t random_port(void) {
+  uint32_t range = XICE_BIRTHDAY_PORT_MAX - XICE_BIRTHDAY_PORT_MIN + 1;
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
+  return (uint16_t)(XICE_BIRTHDAY_PORT_MIN + arc4random_uniform(range));
+#else
+  return (uint16_t)(XICE_BIRTHDAY_PORT_MIN + (rand() % range));
+#endif
+}
+
+/**
+ * @brief Build a lightweight STUN Binding Request (header only, 20 bytes).
+ *
+ * No USERNAME / MESSAGE-INTEGRITY / FINGERPRINT — minimizes packet size
+ * to maximize send rate during the birthday attack.
+ *
+ * @param buf  Output buffer (must be >= XSTUN_HEADER_SIZE).
+ * @return     Encoded length (always XSTUN_HEADER_SIZE).
+ */
+static size_t build_birthday_probe(uint8_t *buf) {
+  uint8_t txn_id[XSTUN_TXN_ID_SIZE];
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
+  arc4random_buf(txn_id, XSTUN_TXN_ID_SIZE);
+#else
+  for (int i = 0; i < XSTUN_TXN_ID_SIZE; i++)
+    txn_id[i] = (uint8_t)(rand() & 0xFF);
+#endif
+
+  xStunMsg msg;
+  xStunMsgInit(&msg, xStunMsgType_BindingRequest, txn_id);
+  return (size_t)xStunMsgEncode(&msg, buf, XSTUN_HEADER_SIZE);
+}
+
+/**
+ * @brief Handle a successful birthday hit — promote to nominated pair.
+ *
+ * Creates a peer-reflexive candidate from the remote address and
+ * nominates the pair formed with the local host candidate that
+ * owns the birthday socket.
+ */
+static void birthday_hit(xIceAgent_ *a, xSocket sock,
+                         const struct sockaddr *from) {
+  XDEBUG("[ice] birthday attack hit from %s",
+         from->sa_family == AF_INET ? "IPv4" : "IPv6");
+
+  /* Find which local host candidate's interface matches this socket.
+   * Birthday sockets are bound to the same local address as host
+   * candidates, so we match by address family. */
+  xIceCandidate *local_cand = NULL;
+  for (int i = 0; i < a->host_count; i++) {
+    if (a->local_candidates[i].addr.ss_family == from->sa_family) {
+      local_cand = &a->local_candidates[i];
+      break;
+    }
+  }
+  if (!local_cand) {
+    /* Fallback: use first host candidate */
+    if (a->host_count > 0) local_cand = &a->local_candidates[0];
+  }
+  if (!local_cand) return;
+
+  /* Create a peer-reflexive remote candidate */
+  if (a->remote_count >= XICE_MAX_CANDIDATES) return;
+
+  xIceCandidate *prflx = &a->remote_candidates[a->remote_count];
+  memset(prflx, 0, sizeof(*prflx));
+  prflx->type         = xIceCandidateType_Prflx;
+  prflx->component_id = 1;
+  prflx->priority = xIceCandidatePriority(xIceCandidateType_Prflx, 65535, 1);
+  memcpy(&prflx->addr, from, sockaddr_len(from));
+  memcpy(&prflx->base_addr, from, sockaddr_len(from));
+  xIceCandidateFoundation(prflx, NULL);
+  a->remote_count++;
+
+  /* Create and nominate a pair */
+  if (a->pair_count >= XICE_MAX_PAIRS) return;
+
+  xIcePair *pair  = &a->pairs[a->pair_count];
+  pair->local     = local_cand;
+  pair->remote    = prflx;
+  pair->state     = xIcePairState_Succeeded;
+  pair->nominated = true;
+
+  uint32_t g_prio, d_prio;
+  if (a->role == xIceAgentRole_Controlling) {
+    g_prio = pair->local->priority;
+    d_prio = pair->remote->priority;
+  } else {
+    g_prio = pair->remote->priority;
+    d_prio = pair->local->priority;
+  }
+  pair->priority = xIcePairPriority(g_prio, d_prio);
+  a->pair_count++;
+
+  /* Transfer the birthday socket to the local candidate so it can be
+   * used for subsequent data and consent checks.  We must NOT destroy
+   * this socket in cleanup_birthday(), so we NULL it out of the array. */
+  for (int i = 0; i < a->birthday_sock_count; i++) {
+    if (a->birthday_socks[i] == sock) {
+      a->birthday_socks[i] = NULL;
+      break;
+    }
+  }
+
+  /* Replace the local candidate's socket with the birthday socket.
+   * The birthday socket owns the NAT mapping that was punched through,
+   * so all subsequent data (DTLS, consent checks) MUST go through it.
+   * We destroy the old host socket since the nominated pair is the only
+   * one that matters after this point. */
+  if (local_cand->sock && local_cand->sock != sock) {
+    xSocketDestroy(a->loop, local_cand->sock);
+  }
+  local_cand->sock = sock;
+
+  /* Switch the birthday socket callback from on_birthday_recv to
+   * on_udp_recv so that incoming DTLS, STUN, and other packets are
+   * properly demuxed through the normal ICE receive path. */
+  xSocketSetCallback(sock, on_udp_recv, a);
+
+  a->nominated = pair;
+
+#ifdef XK_ENABLE_DEBUG
+  {
+    char lstr[64], rstr[64];
+    sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
+                    sizeof(lstr));
+    sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr,
+                    sizeof(rstr));
+    XDEBUG("[ice] birthday nominated pair: %s -> %s", lstr, rstr);
+  }
+#endif
+
+  /* Clean up remaining birthday state */
+  cleanup_birthday(a);
+
+  set_state(a, xIceAgentState_Connected);
+  start_consent(a);
+}
+
+/**
+ * @brief UDP receive callback for birthday attack sockets.
+ *
+ * Handles two cases:
+ *  1. Binding Response — our probe reached the peer and they replied.
+ *  2. Binding Request — the peer's probe reached us; reply and probe back.
+ */
+static void on_birthday_recv(xSocket sock, xEventMask mask, void *arg) {
+  xIceAgent_ *a = (xIceAgent_ *)arg;
+
+  if (!(mask & xEvent_Read)) return;
+  if (!a->birthday_active) return;
+
+  int fd = xSocketFd(sock);
+
+  for (;;) {
+    uint8_t                 buf[256];
+    struct sockaddr_storage from_addr;
+    socklen_t               from_len = sizeof(from_addr);
+
+    ssize_t n = recvfrom(fd, buf, sizeof(buf), 0,
+                         (struct sockaddr *)&from_addr, &from_len);
+    if (n <= 0) break;
+
+    size_t                 len  = (size_t)n;
+    const struct sockaddr *from = (const struct sockaddr *)&from_addr;
+
+    /* Only process STUN messages */
+    if (!xStunMsgIsStun(buf, len)) continue;
+
+    xStunMsg msg;
+    if (xStunMsgDecode(&msg, buf, len) != xErrno_Ok) continue;
+
+    if (xStunMsgIsSuccessResponse(msg.type) ||
+        xStunMsgIsErrorResponse(msg.type)) {
+      /* Case 1: Our probe got through and the peer replied.
+       * This means bidirectional connectivity is established. */
+      birthday_hit(a, sock, from);
+      return;
+    }
+
+    if (xStunMsgIsRequest(msg.type)) {
+      /* Case 2: Peer's birthday probe reached us.
+       * Send a Binding Response so the peer knows we received it. */
+      uint8_t  resp_buf[128];
+      xStunMsg resp;
+      xStunMsgInit(&resp, xStunMsgType_BindingResponse, msg.txn_id);
+      xStunMsgEncode(&resp, resp_buf, sizeof(resp_buf));
+
+      xStunAttrWriter w;
+      xStunAttrWriterInit(&w, resp_buf + XSTUN_HEADER_SIZE,
+                          sizeof(resp_buf) - XSTUN_HEADER_SIZE);
+      xStunAttrWriteXorMappedAddress(&w, from, msg.txn_id);
+      xWriteU16BE(resp_buf + 2, (uint16_t)w.pos);
+      size_t total = XSTUN_HEADER_SIZE + w.pos;
+
+      udp_sendto(sock, resp_buf, total, from);
+
+      /* Also treat this as a hit — the peer's probe reaching us means
+       * the NAT mapping exists in both directions (the peer sent from
+       * their birthday socket, creating a NAT mapping; our response
+       * goes back through that mapping). */
+      birthday_hit(a, sock, from);
+      return;
+    }
+  }
+}
+
+/**
+ * @brief Pacing callback — sends one burst of probes from the next socket.
+ */
+static void birthday_pacing_cb(void *arg) {
+  xIceAgent_ *a   = (xIceAgent_ *)arg;
+  a->birthday_timer = NULL;
+
+  if (!a->birthday_active) return;
+  if (a->birthday_burst_index >= a->birthday_sock_count) return;
+
+  xSocket sock = a->birthday_socks[a->birthday_burst_index];
+  if (!sock) {
+    /* Socket was claimed by birthday_hit — skip */
+    a->birthday_burst_index++;
+    if (a->birthday_burst_index < a->birthday_sock_count) {
+      a->birthday_timer = xEventLoopTimerAfter(
+        a->loop, birthday_pacing_cb, a, XICE_BIRTHDAY_PACING_MS);
+    }
+    return;
+  }
+
+  /* Send n probes to the target IP.
+   * Strategy: the first XICE_BIRTHDAY_SEQUENTIAL_ROUNDS rounds use
+   * sequential ports centered around the remote srflx port, which is
+   * likely close to the peer's actual NAT mapping.  Subsequent rounds
+   * fall back to random ports for broader coverage. */
+  struct sockaddr_storage target;
+  memcpy(&target, &a->birthday_target, sizeof(target));
+
+  /* Compute the starting port for sequential mode.
+   * Each socket in the same round covers a different slice of the
+   * port space: socket i covers [center + offset, center + offset + n).
+   * offset = round * k * n + burst_index * n  (relative to center). */
+  bool sequential = (a->birthday_round < XICE_BIRTHDAY_SEQUENTIAL_ROUNDS
+                     && a->birthday_target_port > 0);
+  int  seq_base   = 0;
+  if (sequential) {
+    int total_per_round = a->birthday_sock_count * a->birthday_n;
+    int offset = a->birthday_round * total_per_round
+               + a->birthday_burst_index * a->birthday_n;
+    /* Center around target port: alternate above/below */
+    seq_base = (int)a->birthday_target_port - total_per_round / 2 + offset;
+  }
+
+  for (int i = 0; i < a->birthday_n; i++) {
+    uint8_t probe[XSTUN_HEADER_SIZE];
+    build_birthday_probe(probe);
+
+    uint16_t port;
+    if (sequential) {
+      int p = seq_base + i;
+      /* Clamp to valid ephemeral range */
+      if (p < XICE_BIRTHDAY_PORT_MIN) p = XICE_BIRTHDAY_PORT_MIN;
+      if (p > XICE_BIRTHDAY_PORT_MAX) p = XICE_BIRTHDAY_PORT_MAX;
+      port = (uint16_t)p;
+    } else {
+      port = random_port();
+    }
+
+    sockaddr_set_port(&target, port);
+    udp_sendto(sock, probe, XSTUN_HEADER_SIZE,
+               (const struct sockaddr *)&target);
+  }
+
+  a->birthday_burst_index++;
+
+  /* Schedule next burst, or wrap around for another round */
+  if (a->birthday_burst_index < a->birthday_sock_count) {
+    a->birthday_timer = xEventLoopTimerAfter(
+      a->loop, birthday_pacing_cb, a, XICE_BIRTHDAY_PACING_MS);
+  } else {
+    /* All sockets have sent one burst — loop back for another round.
+     * Increment round counter so we eventually switch from sequential
+     * to random port selection. */
+    a->birthday_burst_index = 0;
+    a->birthday_round++;
+    if (a->birthday_round == XICE_BIRTHDAY_SEQUENTIAL_ROUNDS) {
+      XDEBUG("[ice] birthday attack: switching from sequential to random ports "
+             "(round %d)", a->birthday_round);
+    }
+    a->birthday_timer = xEventLoopTimerAfter(
+      a->loop, birthday_pacing_cb, a, XICE_BIRTHDAY_PACING_MS);
+  }
+}
+
+/**
+ * @brief Overall birthday attack timeout — give up and fail.
+ */
+static void birthday_timeout_cb(void *arg) {
+  xIceAgent_ *a            = (xIceAgent_ *)arg;
+  a->birthday_timeout_timer = NULL;
+
+  if (!a->birthday_active) return;
+
+  XDEBUG("[ice] birthday attack timed out");
+
+  cleanup_birthday(a);
+  set_state(a, xIceAgentState_Failed);
+}
+
+/**
+ * @brief Clean up all birthday attack resources.
+ */
+static void cleanup_birthday(xIceAgent_ *a) {
+  if (a->birthday_timer) {
+    xEventLoopTimerCancel(a->loop, a->birthday_timer);
+    a->birthday_timer = NULL;
+  }
+  if (a->birthday_timeout_timer) {
+    xEventLoopTimerCancel(a->loop, a->birthday_timeout_timer);
+    a->birthday_timeout_timer = NULL;
+  }
+
+  for (int i = 0; i < a->birthday_sock_count; i++) {
+    if (a->birthday_socks[i]) {
+      xSocketDestroy(a->loop, a->birthday_socks[i]);
+      a->birthday_socks[i] = NULL;
+    }
+  }
+
+  if (a->birthday_socks) {
+    free(a->birthday_socks);
+    a->birthday_socks = NULL;
+  }
+
+  a->birthday_sock_count  = 0;
+  a->birthday_burst_index = 0;
+  a->birthday_active      = false;
+}
+
+/**
+ * @brief Start the birthday attack.
+ *
+ * Creates k UDP sockets, finds the remote srflx IP as the target,
+ * and begins paced probe bursts.
+ */
+static void start_birthday_attack(xIceAgent_ *a) {
+  if (a->birthday_active) return;
+
+  /* Find the remote srflx candidate to get the peer's NAT public IP.
+   * Fall back to any remote candidate if no srflx is available. */
+  const xIceCandidate *target_cand = NULL;
+  for (int i = 0; i < a->remote_count; i++) {
+    if (a->remote_candidates[i].type == xIceCandidateType_Srflx) {
+      target_cand = &a->remote_candidates[i];
+      break;
+    }
+  }
+  if (!target_cand) {
+    /* Fall back to first remote host candidate */
+    for (int i = 0; i < a->remote_count; i++) {
+      if (a->remote_candidates[i].type == xIceCandidateType_Host) {
+        target_cand = &a->remote_candidates[i];
+        break;
+      }
+    }
+  }
+  if (!target_cand) {
+    /* No usable remote candidate — cannot attempt birthday attack */
+    XDEBUG("[ice] birthday attack: no remote candidate for target IP");
+    set_state(a, xIceAgentState_Failed);
+    return;
+  }
+
+  /* Copy the target IP (port will be randomized per probe) */
+  memcpy(&a->birthday_target, &target_cand->addr, sizeof(a->birthday_target));
+
+  XDEBUG("[ice] starting birthday attack: k=%d n=%d", a->birthday_k,
+         a->birthday_n);
+
+  /* Allocate socket array */
+  a->birthday_socks = (xSocket *)calloc((size_t)a->birthday_k, sizeof(xSocket));
+  if (!a->birthday_socks) {
+    set_state(a, xIceAgentState_Failed);
+    return;
+  }
+
+  /* Determine the address family and local bind address from host candidates */
+  sa_family_t family = a->birthday_target.ss_family;
+  const struct sockaddr *bind_addr = NULL;
+  for (int i = 0; i < a->host_count; i++) {
+    if (a->local_candidates[i].addr.ss_family == family) {
+      bind_addr = (const struct sockaddr *)&a->local_candidates[i].addr;
+      break;
+    }
+  }
+
+  /* Create k UDP sockets */
+  int created = 0;
+  for (int i = 0; i < a->birthday_k; i++) {
+    xSocket sock = xSocketCreate(a->loop, (int)family, SOCK_DGRAM, 0,
+                                 xEvent_Read, on_birthday_recv, a);
+    if (!sock) continue;
+
+    /* Bind to the same local interface with OS-assigned port */
+    int fd = xSocketFd(sock);
+    if (bind_addr) {
+      struct sockaddr_storage local_bind;
+      memcpy(&local_bind, bind_addr, sizeof(local_bind));
+      sockaddr_set_port(&local_bind, 0);
+      if (bind(fd, (const struct sockaddr *)&local_bind,
+               sockaddr_len((const struct sockaddr *)&local_bind)) < 0) {
+        xSocketDestroy(a->loop, sock);
+        continue;
+      }
+    } else {
+      /* No host candidate — bind to INADDR_ANY */
+      struct sockaddr_in any;
+      memset(&any, 0, sizeof(any));
+      any.sin_family = AF_INET;
+      any.sin_port   = 0;
+      if (bind(fd, (const struct sockaddr *)&any, sizeof(any)) < 0) {
+        xSocketDestroy(a->loop, sock);
+        continue;
+      }
+    }
+
+    a->birthday_socks[created++] = sock;
+  }
+
+  if (created == 0) {
+    XDEBUG("[ice] birthday attack: failed to create any sockets");
+    free(a->birthday_socks);
+    a->birthday_socks = NULL;
+    set_state(a, xIceAgentState_Failed);
+    return;
+  }
+
+  a->birthday_sock_count  = created;
+  a->birthday_burst_index = 0;
+  a->birthday_round       = 0;
+  a->birthday_target_port = xSockaddrPort(
+    (const struct sockaddr *)&a->birthday_target);
+  a->birthday_active      = true;
+
+  XDEBUG("[ice] birthday attack: created %d/%d sockets", created,
+         a->birthday_k);
+
+  /* Start pacing timer — first burst fires immediately */
+  a->birthday_timer =
+    xEventLoopTimerAfter(a->loop, birthday_pacing_cb, a, 0);
+
+  /* Start overall timeout */
+  a->birthday_timeout_timer = xEventLoopTimerAfter(
+    a->loop, birthday_timeout_cb, a, (uint64_t)a->birthday_timeout_ms);
 }
 
 static void start_checks(xIceAgent_ *a) {
@@ -1261,6 +1745,34 @@ xIceAgent xIceAgentCreate(xEventLoop loop, const xIceConf *conf) {
   generate_random_string(a->ice_ufrag, XICE_UFRAG_LEN);
   generate_random_string(a->ice_pwd, XICE_PWD_LEN);
 
+  /* Resolve birthday attack parameters:
+   *   0 → use default
+   *  <0 → disabled (set to 0)
+   *  >0 → use specified value (clamped to hard max) */
+  if (conf->birthday_k < 0) {
+    a->birthday_k = 0;
+  } else if (conf->birthday_k == 0) {
+    a->birthday_k = XICE_BIRTHDAY_DEFAULT_K;
+  } else {
+    a->birthday_k =
+      conf->birthday_k > XICE_BIRTHDAY_MAX_K ? XICE_BIRTHDAY_MAX_K
+                                              : conf->birthday_k;
+  }
+
+  if (conf->birthday_n < 0) {
+    a->birthday_n = 0;
+  } else if (conf->birthday_n == 0) {
+    a->birthday_n = XICE_BIRTHDAY_DEFAULT_N;
+  } else {
+    a->birthday_n =
+      conf->birthday_n > XICE_BIRTHDAY_MAX_N ? XICE_BIRTHDAY_MAX_N
+                                              : conf->birthday_n;
+  }
+
+  a->birthday_timeout_ms = conf->birthday_timeout_ms > 0
+                             ? conf->birthday_timeout_ms
+                             : XICE_BIRTHDAY_TIMEOUT_MS;
+
   xStunTxnMgrInit(&a->txn_mgr, loop);
 
   return (xIceAgent)a;
@@ -1283,6 +1795,9 @@ void xIceAgentDestroy(xIceAgent agent) {
   if (a->consent_timer) {
     xEventLoopTimerCancel(a->loop, a->consent_timer);
   }
+
+  /* Clean up birthday attack state */
+  cleanup_birthday(a);
 
   /* Cancel pending DNS queries */
   if (a->stun_dns_query) {

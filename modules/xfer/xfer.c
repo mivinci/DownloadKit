@@ -414,6 +414,9 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
   pc_conf.turn_username = impl->conf.turn_username;
   pc_conf.turn_password = impl->conf.turn_password;
   pc_conf.enable_ipv6 = impl->conf.enable_ipv6;
+  pc_conf.birthday_k = impl->conf.birthday_k;
+  pc_conf.birthday_n = impl->conf.birthday_n;
+  pc_conf.birthday_timeout_ms = impl->conf.birthday_timeout_ms;
   pc_conf.on_state_change = on_pc_state_change;
   pc_conf.on_ice_candidate = on_pc_ice_candidate;
   pc_conf.on_datachannel = on_pc_datachannel;
@@ -475,6 +478,9 @@ xErrno xTransferRecvFile(xTransfer xfer, const char *code,
   pc_conf.turn_username = impl->conf.turn_username;
   pc_conf.turn_password = impl->conf.turn_password;
   pc_conf.enable_ipv6 = impl->conf.enable_ipv6;
+  pc_conf.birthday_k = impl->conf.birthday_k;
+  pc_conf.birthday_n = impl->conf.birthday_n;
+  pc_conf.birthday_timeout_ms = impl->conf.birthday_timeout_ms;
   pc_conf.on_state_change = on_pc_state_change;
   pc_conf.on_ice_candidate = on_pc_ice_candidate;
   pc_conf.on_datachannel = on_pc_datachannel;

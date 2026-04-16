@@ -349,6 +349,8 @@ xPeerConnection xPeerConnectionCreate(xEventLoop                 loop,
   ice_conf.on_state_change = on_ice_state_change;
   ice_conf.on_candidate    = on_ice_candidate;
   ice_conf.on_data         = NULL; /* Raw data goes through DTLS, not directly */
+  ice_conf.birthday_k      = conf->birthday_k;
+  ice_conf.birthday_n      = conf->birthday_n;
   ice_conf.ctx             = pc;
 
   pc->ice = xIceAgentCreate(loop, &ice_conf);

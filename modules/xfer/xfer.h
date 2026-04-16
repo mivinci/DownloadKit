@@ -115,6 +115,11 @@ XDEF_STRUCT(xTransferConf) {
   const char *turn_password; /**< TURN credential password.              */
   bool        enable_ipv6;   /**< Enable IPv6 candidates (default: false). */
 
+  /** Birthday attack parameters (passed through to ICE agent).
+   *  0 = use defaults, <0 = disabled.  See xIceConf for details. */
+  int birthday_k;            /**< Number of local sockets (default: 32).     */
+  int birthday_n;            /**< Random remote ports per socket (default: 256). */
+
   /** Signaling server URL (e.g. "http://signal.example.com"). */
   const char *signal_server;
 

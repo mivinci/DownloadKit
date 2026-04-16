@@ -103,6 +103,8 @@ XDEF_STRUCT(xIceAgent_) {
   xSocket    *birthday_socks;                           /**< Heap-allocated socket array.  */
   int         birthday_sock_count;                      /**< Actual created sockets.       */
   int         birthday_burst_index;                     /**< Current burst index.          */
+  int         birthday_round;                           /**< Current round (0-based).      */
+  uint16_t    birthday_target_port;                     /**< Remote srflx port (center).   */
   xEventTimer birthday_timer;                           /**< Pacing timer.                 */
   xEventTimer birthday_timeout_timer;                   /**< Overall timeout.              */
   struct sockaddr_storage birthday_target;              /**< Remote NAT public IP.         */
@@ -297,6 +299,7 @@ typedef struct {
 } CheckCtx;
 
 static void start_consent(xIceAgent_ *a);
+static void on_udp_recv(xSocket sock, xEventMask mask, void *arg);
 
 static void on_check_response(const xStunMsg *msg, const struct sockaddr *from,
                               void *arg);
@@ -686,15 +689,19 @@ static void birthday_hit(xIceAgent_ *a, xSocket sock,
   }
 
   /* Replace the local candidate's socket with the birthday socket.
-   * The old host socket is still valid for other pairs, so we keep it. */
-  /* Note: for simplicity we keep the original host socket alive.
-   * The nominated pair will use the birthday socket via pair->local->sock
-   * indirectly — but since we can't change the candidate's sock without
-   * affecting other pairs, we store the birthday socket on the pair
-   * and override send behavior.  For now, we take the simpler approach:
-   * the birthday socket is used for the nominated pair by setting it
-   * as the candidate's socket.  This works because after nomination,
-   * only the nominated pair's socket is used for data. */
+   * The birthday socket owns the NAT mapping that was punched through,
+   * so all subsequent data (DTLS, consent checks) MUST go through it.
+   * We destroy the old host socket since the nominated pair is the only
+   * one that matters after this point. */
+  if (local_cand->sock && local_cand->sock != sock) {
+    xSocketDestroy(a->loop, local_cand->sock);
+  }
+  local_cand->sock = sock;
+
+  /* Switch the birthday socket callback from on_birthday_recv to
+   * on_udp_recv so that incoming DTLS, STUN, and other packets are
+   * properly demuxed through the normal ICE receive path. */
+  xSocketSetCallback(sock, on_udp_recv, a);
 
   a->nominated = pair;
 
@@ -805,15 +812,45 @@ static void birthday_pacing_cb(void *arg) {
     return;
   }
 
-  /* Send n probes to random ports on the target IP */
+  /* Send n probes to the target IP.
+   * Strategy: the first XICE_BIRTHDAY_SEQUENTIAL_ROUNDS rounds use
+   * sequential ports centered around the remote srflx port, which is
+   * likely close to the peer's actual NAT mapping.  Subsequent rounds
+   * fall back to random ports for broader coverage. */
   struct sockaddr_storage target;
   memcpy(&target, &a->birthday_target, sizeof(target));
+
+  /* Compute the starting port for sequential mode.
+   * Each socket in the same round covers a different slice of the
+   * port space: socket i covers [center + offset, center + offset + n).
+   * offset = round * k * n + burst_index * n  (relative to center). */
+  bool sequential = (a->birthday_round < XICE_BIRTHDAY_SEQUENTIAL_ROUNDS
+                     && a->birthday_target_port > 0);
+  int  seq_base   = 0;
+  if (sequential) {
+    int total_per_round = a->birthday_sock_count * a->birthday_n;
+    int offset = a->birthday_round * total_per_round
+               + a->birthday_burst_index * a->birthday_n;
+    /* Center around target port: alternate above/below */
+    seq_base = (int)a->birthday_target_port - total_per_round / 2 + offset;
+  }
 
   for (int i = 0; i < a->birthday_n; i++) {
     uint8_t probe[XSTUN_HEADER_SIZE];
     build_birthday_probe(probe);
 
-    sockaddr_set_port(&target, random_port());
+    uint16_t port;
+    if (sequential) {
+      int p = seq_base + i;
+      /* Clamp to valid ephemeral range */
+      if (p < XICE_BIRTHDAY_PORT_MIN) p = XICE_BIRTHDAY_PORT_MIN;
+      if (p > XICE_BIRTHDAY_PORT_MAX) p = XICE_BIRTHDAY_PORT_MAX;
+      port = (uint16_t)p;
+    } else {
+      port = random_port();
+    }
+
+    sockaddr_set_port(&target, port);
     udp_sendto(sock, probe, XSTUN_HEADER_SIZE,
                (const struct sockaddr *)&target);
   }
@@ -826,11 +863,14 @@ static void birthday_pacing_cb(void *arg) {
       a->loop, birthday_pacing_cb, a, XICE_BIRTHDAY_PACING_MS);
   } else {
     /* All sockets have sent one burst — loop back for another round.
-     * Each round uses fresh random ports, increasing coverage over
-     * the timeout window.  This is critical because the remote peer
-     * may start its own birthday attack (creating NAT mappings) at
-     * any point during our window. */
+     * Increment round counter so we eventually switch from sequential
+     * to random port selection. */
     a->birthday_burst_index = 0;
+    a->birthday_round++;
+    if (a->birthday_round == XICE_BIRTHDAY_SEQUENTIAL_ROUNDS) {
+      XDEBUG("[ice] birthday attack: switching from sequential to random ports "
+             "(round %d)", a->birthday_round);
+    }
     a->birthday_timer = xEventLoopTimerAfter(
       a->loop, birthday_pacing_cb, a, XICE_BIRTHDAY_PACING_MS);
   }
@@ -981,6 +1021,9 @@ static void start_birthday_attack(xIceAgent_ *a) {
 
   a->birthday_sock_count  = created;
   a->birthday_burst_index = 0;
+  a->birthday_round       = 0;
+  a->birthday_target_port = xSockaddrPort(
+    (const struct sockaddr *)&a->birthday_target);
   a->birthday_active      = true;
 
   XDEBUG("[ice] birthday attack: created %d/%d sockets", created,

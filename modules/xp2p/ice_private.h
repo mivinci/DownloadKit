@@ -228,16 +228,19 @@ XDEF_ENUM(xIceAgentRole){
 #define XICE_BIRTHDAY_DEFAULT_N 256
 
 /** Maximum allowed local sockets (hard cap). */
-#define XICE_BIRTHDAY_MAX_K 64
+#define XICE_BIRTHDAY_MAX_K 128
 
 /** Maximum allowed remote ports per socket (hard cap). */
-#define XICE_BIRTHDAY_MAX_N 512
+#define XICE_BIRTHDAY_MAX_N 1024
 
 /** Birthday attack overall timeout in milliseconds. */
 #define XICE_BIRTHDAY_TIMEOUT_MS 10000
 
 /** Birthday attack pacing interval in milliseconds (per burst). */
 #define XICE_BIRTHDAY_PACING_MS 5
+
+/** Number of initial rounds using sequential port scanning. */
+#define XICE_BIRTHDAY_SEQUENTIAL_ROUNDS 3
 
 /** Minimum ephemeral port for birthday probing. */
 #define XICE_BIRTHDAY_PORT_MIN 1024

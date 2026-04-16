@@ -623,7 +623,7 @@ TEST(IceAgentTest, BirthdayAttackDefaultConfig) {
    *
    * We verify that the agent does NOT enter Failed state at the 10s
    * check timeout mark (it should be in birthday attack phase), and
-   * eventually fails after the birthday timeout (5s more).
+   * eventually fails after the birthday timeout (10s more).
    */
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
@@ -661,8 +661,8 @@ TEST(IceAgentTest, BirthdayAttackDefaultConfig) {
   pump_loop(loop, 10500);
   EXPECT_NE(as.state.load(), xIceState_Failed);
 
-  /* After birthday timeout (5s more), the agent should be Failed. */
-  pump_loop(loop, 5500);
+  /* After birthday timeout (10s more), the agent should be Failed. */
+  pump_loop(loop, 10500);
   EXPECT_EQ(as.state.load(), xIceState_Failed);
 
   xIceAgentDestroy(agent);
@@ -703,7 +703,7 @@ TEST(IceAgentTest, BirthdayAttackDisabledWithNegativeK) {
 
   EXPECT_EQ(xIceAgentSetRemoteDescription(agent, remote_sdp), xErrno_Ok);
 
-  /* Should fail at check timeout (10s), not 15s */
+  /* Should fail at check timeout (10s), not 20s */
   pump_loop(loop, 11000);
   EXPECT_EQ(as.state.load(), xIceState_Failed);
 
@@ -753,7 +753,7 @@ TEST(IceAgentTest, BirthdayAttackCustomKN) {
   EXPECT_NE(as.state.load(), xIceState_Failed);
 
   /* After birthday timeout, agent fails */
-  pump_loop(loop, 5500);
+  pump_loop(loop, 10500);
   EXPECT_EQ(as.state.load(), xIceState_Failed);
 
   xIceAgentDestroy(agent);

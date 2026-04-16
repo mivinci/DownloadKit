@@ -234,7 +234,7 @@ XDEF_ENUM(xIceAgentRole){
 #define XICE_BIRTHDAY_MAX_N 512
 
 /** Birthday attack overall timeout in milliseconds. */
-#define XICE_BIRTHDAY_TIMEOUT_MS 5000
+#define XICE_BIRTHDAY_TIMEOUT_MS 10000
 
 /** Birthday attack pacing interval in milliseconds (per burst). */
 #define XICE_BIRTHDAY_PACING_MS 5

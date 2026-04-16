@@ -819,8 +819,17 @@ static void birthday_pacing_cb(void *arg) {
 
   a->birthday_burst_index++;
 
-  /* Schedule next burst */
+  /* Schedule next burst, or wrap around for another round */
   if (a->birthday_burst_index < a->birthday_sock_count) {
+    a->birthday_timer = xEventLoopTimerAfter(
+      a->loop, birthday_pacing_cb, a, XICE_BIRTHDAY_PACING_MS);
+  } else {
+    /* All sockets have sent one burst — loop back for another round.
+     * Each round uses fresh random ports, increasing coverage over
+     * the timeout window.  This is critical because the remote peer
+     * may start its own birthday attack (creating NAT mappings) at
+     * any point during our window. */
+    a->birthday_burst_index = 0;
     a->birthday_timer = xEventLoopTimerAfter(
       a->loop, birthday_pacing_cb, a, XICE_BIRTHDAY_PACING_MS);
   }

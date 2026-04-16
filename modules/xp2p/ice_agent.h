@@ -111,8 +111,9 @@ XDEF_STRUCT(xIceConf) {
    * <0 = disabled (never attempt birthday attack)
    * >0 = use specified value (clamped to hard maximum)
    */
-  int birthday_k; /**< Number of local sockets (default: 32).     */
-  int birthday_n; /**< Random remote ports per socket (default: 256). */
+  int birthday_k;          /**< Number of local sockets (default: 32).     */
+  int birthday_n;          /**< Random remote ports per socket (default: 256). */
+  int birthday_timeout_ms; /**< Overall timeout in ms (0 = default 10s).     */
 };
 
 /* ───────────────────── Lifecycle ───────────────────── */

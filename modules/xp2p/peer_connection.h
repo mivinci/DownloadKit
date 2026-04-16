@@ -85,6 +85,7 @@ XDEF_STRUCT(xPeerConnectionConf) {
    *  0 = use defaults, <0 = disabled.  See xIceConf for details. */
   int birthday_k;              /**< Number of local sockets (default: 32).     */
   int birthday_n;              /**< Random remote ports per socket (default: 256). */
+  int birthday_timeout_ms;     /**< Overall timeout in ms (0 = default 10s).     */
 
   /** SCTP port (0 = default 5000). */
   uint16_t sctp_port;

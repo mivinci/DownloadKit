@@ -99,6 +99,7 @@ XDEF_STRUCT(xIceAgent_) {
   bool        birthday_active;                          /**< Attack in progress.     */
   int         birthday_k;                               /**< Resolved local socket count. */
   int         birthday_n;                               /**< Resolved remote port count.   */
+  int         birthday_timeout_ms;                      /**< Resolved overall timeout.     */
   xSocket    *birthday_socks;                           /**< Heap-allocated socket array.  */
   int         birthday_sock_count;                      /**< Actual created sockets.       */
   int         birthday_burst_index;                     /**< Current burst index.          */
@@ -991,7 +992,7 @@ static void start_birthday_attack(xIceAgent_ *a) {
 
   /* Start overall timeout */
   a->birthday_timeout_timer = xEventLoopTimerAfter(
-    a->loop, birthday_timeout_cb, a, XICE_BIRTHDAY_TIMEOUT_MS);
+    a->loop, birthday_timeout_cb, a, (uint64_t)a->birthday_timeout_ms);
 }
 
 static void start_checks(xIceAgent_ *a) {
@@ -1724,6 +1725,10 @@ xIceAgent xIceAgentCreate(xEventLoop loop, const xIceConf *conf) {
       conf->birthday_n > XICE_BIRTHDAY_MAX_N ? XICE_BIRTHDAY_MAX_N
                                               : conf->birthday_n;
   }
+
+  a->birthday_timeout_ms = conf->birthday_timeout_ms > 0
+                             ? conf->birthday_timeout_ms
+                             : XICE_BIRTHDAY_TIMEOUT_MS;
 
   xStunTxnMgrInit(&a->txn_mgr, loop);
 

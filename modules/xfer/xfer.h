@@ -119,6 +119,7 @@ XDEF_STRUCT(xTransferConf) {
    *  0 = use defaults, <0 = disabled.  See xIceConf for details. */
   int birthday_k;            /**< Number of local sockets (default: 32).     */
   int birthday_n;            /**< Random remote ports per socket (default: 256). */
+  int birthday_timeout_ms;   /**< Overall timeout in ms (0 = default 10s).     */
 
   /** Signaling server URL (e.g. "http://signal.example.com"). */
   const char *signal_server;

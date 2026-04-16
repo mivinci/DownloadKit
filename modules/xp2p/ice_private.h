@@ -219,6 +219,32 @@ XDEF_ENUM(xIceAgentRole){
 /** TURN allocation refresh at 80% of lifetime. */
 #define XTURN_REFRESH_RATIO 80
 
+/* ───────────────────── Birthday Attack Constants ───────────────────── */
+
+/** Default number of local sockets for birthday attack. */
+#define XICE_BIRTHDAY_DEFAULT_K 32
+
+/** Default number of random remote ports per socket. */
+#define XICE_BIRTHDAY_DEFAULT_N 256
+
+/** Maximum allowed local sockets (hard cap). */
+#define XICE_BIRTHDAY_MAX_K 64
+
+/** Maximum allowed remote ports per socket (hard cap). */
+#define XICE_BIRTHDAY_MAX_N 512
+
+/** Birthday attack overall timeout in milliseconds. */
+#define XICE_BIRTHDAY_TIMEOUT_MS 5000
+
+/** Birthday attack pacing interval in milliseconds (per burst). */
+#define XICE_BIRTHDAY_PACING_MS 5
+
+/** Minimum ephemeral port for birthday probing. */
+#define XICE_BIRTHDAY_PORT_MIN 1024
+
+/** Maximum ephemeral port for birthday probing. */
+#define XICE_BIRTHDAY_PORT_MAX 65535
+
 /* ───────────────────── ICE Credential Sizes ───────────────────── */
 
 /** Minimum ice-ufrag length (RFC 8445 §16.1). */

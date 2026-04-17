@@ -434,8 +434,6 @@ TEST(IceAgentTest, AllPairsFailLeadsToFailedState) {
   /*
    * Test: When all candidate pairs fail, agent transitions to Failed.
    * We set a remote candidate with an unreachable address.
-   * Birthday attack is disabled so the agent fails immediately after
-   * check timeout.
    */
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
@@ -447,7 +445,6 @@ TEST(IceAgentTest, AllPairsFailLeadsToFailedState) {
   config.on_state_change = on_state_change;
   config.on_candidate    = on_candidate;
   config.ctx             = &as;
-  config.birthday_k      = -1; /* Disable birthday attack */
 
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
@@ -608,153 +605,6 @@ TEST(IceAgentTest, ConfWithoutServersGathersHostOnly) {
   /* No pending gather requests → gathering completes immediately */
   pump_loop(loop, 100);
   EXPECT_TRUE(as.gathering_done);
-
-  xIceAgentDestroy(agent);
-  xEventLoopDestroy(loop);
-}
-
-/* ───────────────────── Birthday Attack Tests ───────────────────── */
-
-TEST(IceAgentTest, BirthdayAttackDefaultConfig) {
-  /*
-   * Test: With default config (birthday_k=0, birthday_n=0), the agent
-   * should use default birthday parameters (k=32, n=256) and attempt
-   * birthday attack after check timeout instead of immediately failing.
-   *
-   * We verify that the agent does NOT enter Failed state at the 10s
-   * check timeout mark (it should be in birthday attack phase), and
-   * eventually fails after the birthday timeout (10s more).
-   */
-  xEventLoop loop = xEventLoopCreate();
-  ASSERT_NE(loop, nullptr);
-
-  AgentState as;
-  xIceConf   config;
-  memset(&config, 0, sizeof(config));
-  config.role            = xIceRole_Controlling;
-  config.on_state_change = on_state_change;
-  config.on_candidate    = on_candidate;
-  config.ctx             = &as;
-  /* birthday_k = 0 → use default (32) */
-
-  xIceAgent agent = xIceAgentCreate(loop, &config);
-  ASSERT_NE(agent, nullptr);
-
-  EXPECT_EQ(xIceAgentGather(agent), xErrno_Ok);
-  pump_loop(loop, 100);
-
-  /* Set remote with unreachable candidate */
-  const char *remote_sdp = "v=0\r\n"
-                           "o=- 0 0 IN IP4 0.0.0.0\r\n"
-                           "s=-\r\n"
-                           "t=0 0\r\n"
-                           "m=application 9 UDP/ICE 0\r\n"
-                           "a=ice-ufrag:bdayufrag\r\n"
-                           "a=ice-pwd:bdaypassword1234567890ab\r\n"
-                           "a=candidate:1 1 UDP 100 192.0.2.1 1 typ srflx raddr "
-                           "0.0.0.0 rport 0\r\n";
-
-  EXPECT_EQ(xIceAgentSetRemoteDescription(agent, remote_sdp), xErrno_Ok);
-
-  /* After check timeout (10s) the agent should NOT be Failed yet —
-   * it should be attempting birthday attack (still in Checking state). */
-  pump_loop(loop, 10500);
-  EXPECT_NE(as.state.load(), xIceState_Failed);
-
-  /* After birthday timeout (10s more), the agent should be Failed. */
-  pump_loop(loop, 10500);
-  EXPECT_EQ(as.state.load(), xIceState_Failed);
-
-  xIceAgentDestroy(agent);
-  xEventLoopDestroy(loop);
-}
-
-TEST(IceAgentTest, BirthdayAttackDisabledWithNegativeK) {
-  /*
-   * Test: Setting birthday_k = -1 disables birthday attack.
-   * Agent should go directly to Failed after check timeout.
-   */
-  xEventLoop loop = xEventLoopCreate();
-  ASSERT_NE(loop, nullptr);
-
-  AgentState as;
-  xIceConf   config;
-  memset(&config, 0, sizeof(config));
-  config.role            = xIceRole_Controlling;
-  config.on_state_change = on_state_change;
-  config.on_candidate    = on_candidate;
-  config.ctx             = &as;
-  config.birthday_k      = -1;
-
-  xIceAgent agent = xIceAgentCreate(loop, &config);
-  ASSERT_NE(agent, nullptr);
-
-  EXPECT_EQ(xIceAgentGather(agent), xErrno_Ok);
-  pump_loop(loop, 100);
-
-  const char *remote_sdp = "v=0\r\n"
-                           "o=- 0 0 IN IP4 0.0.0.0\r\n"
-                           "s=-\r\n"
-                           "t=0 0\r\n"
-                           "m=application 9 UDP/ICE 0\r\n"
-                           "a=ice-ufrag:nobirthday\r\n"
-                           "a=ice-pwd:nobirthdaypasswd12345678\r\n"
-                           "a=candidate:1 1 UDP 100 192.0.2.1 1 typ host\r\n";
-
-  EXPECT_EQ(xIceAgentSetRemoteDescription(agent, remote_sdp), xErrno_Ok);
-
-  /* Should fail at check timeout (10s), not 20s */
-  pump_loop(loop, 11000);
-  EXPECT_EQ(as.state.load(), xIceState_Failed);
-
-  xIceAgentDestroy(agent);
-  xEventLoopDestroy(loop);
-}
-
-TEST(IceAgentTest, BirthdayAttackCustomKN) {
-  /*
-   * Test: Custom birthday_k and birthday_n values are respected.
-   * Use small values (k=2, n=4) to verify the agent still attempts
-   * birthday attack and eventually times out.
-   */
-  xEventLoop loop = xEventLoopCreate();
-  ASSERT_NE(loop, nullptr);
-
-  AgentState as;
-  xIceConf   config;
-  memset(&config, 0, sizeof(config));
-  config.role            = xIceRole_Controlling;
-  config.on_state_change = on_state_change;
-  config.on_candidate    = on_candidate;
-  config.ctx             = &as;
-  config.birthday_k      = 2;
-  config.birthday_n      = 4;
-
-  xIceAgent agent = xIceAgentCreate(loop, &config);
-  ASSERT_NE(agent, nullptr);
-
-  EXPECT_EQ(xIceAgentGather(agent), xErrno_Ok);
-  pump_loop(loop, 100);
-
-  const char *remote_sdp = "v=0\r\n"
-                           "o=- 0 0 IN IP4 0.0.0.0\r\n"
-                           "s=-\r\n"
-                           "t=0 0\r\n"
-                           "m=application 9 UDP/ICE 0\r\n"
-                           "a=ice-ufrag:custombd\r\n"
-                           "a=ice-pwd:custompassword1234567890\r\n"
-                           "a=candidate:1 1 UDP 100 192.0.2.1 1 typ srflx raddr "
-                           "0.0.0.0 rport 0\r\n";
-
-  EXPECT_EQ(xIceAgentSetRemoteDescription(agent, remote_sdp), xErrno_Ok);
-
-  /* After check timeout, birthday attack starts */
-  pump_loop(loop, 10500);
-  EXPECT_NE(as.state.load(), xIceState_Failed);
-
-  /* After birthday timeout, agent fails */
-  pump_loop(loop, 10500);
-  EXPECT_EQ(as.state.load(), xIceState_Failed);
 
   xIceAgentDestroy(agent);
   xEventLoopDestroy(loop);

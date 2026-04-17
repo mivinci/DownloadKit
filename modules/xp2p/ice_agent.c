@@ -179,7 +179,6 @@ static bool sockaddr_equal(const struct sockaddr *a, const struct sockaddr *b) {
   return false;
 }
 
-#ifdef XK_ENABLE_DEBUG
 /** Format a sockaddr into "ip:port" string, writes into buf (size >= 64). */
 static void sockaddr_to_str(const struct sockaddr *addr, char *buf,
                             size_t len) {
@@ -197,7 +196,6 @@ static void sockaddr_to_str(const struct sockaddr *addr, char *buf,
     snprintf(buf, len, "(unknown)");
   }
 }
-#endif
 
 /* ───────────────────── Low-level UDP Send ───────────────────── */
 
@@ -475,14 +473,12 @@ static void try_nominate(xIceAgent_ *a) {
       a->nominated    = best;
       best->nominated = true;
 
-#ifdef XK_ENABLE_DEBUG
       char lstr[64], rstr[64];
       sockaddr_to_str((const struct sockaddr *)&best->local->addr, lstr,
                       sizeof(lstr));
       sockaddr_to_str((const struct sockaddr *)&best->remote->addr, rstr,
                       sizeof(rstr));
-      XDEBUG("[ice] nominated pair: %s -> %s", lstr, rstr);
-#endif
+      XDEBUGL0("[ice] nominated pair: %s -> %s", lstr, rstr);
 
       set_state(a, xIceAgentState_Connected);
       start_consent(a);
@@ -863,7 +859,7 @@ static void on_turn_failed(xErrno err __attribute__((unused)), void *arg) {
 static void on_turn_data(const uint8_t *data, size_t len,
                          const struct sockaddr *from, void *arg) {
   xIceAgent_ *a = (xIceAgent_ *)arg;
-  XDEBUG("[ice] TURN relay data %zu bytes", len);
+  XDEBUGL0("[ice] TURN relay data %zu bytes", len);
   if (a->dtls_input_fn) {
     a->dtls_input_fn(data, len, from, a->dtls_input_arg);
   }
@@ -882,7 +878,7 @@ static void turn_create_permissions_for_remotes(xIceAgent_ *a) {
       (const struct sockaddr *)&a->remote_candidates[i].addr;
     xErrno err = xTurnClientCreatePermission(a->turn_client, peer);
     if (err != xErrno_Ok) {
-      XDEBUG("[ice] failed to create TURN permission for remote candidate %d",
+      XDEBUGL0("[ice] failed to create TURN permission for remote candidate %d",
              i);
     }
   }
@@ -1124,14 +1120,12 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
         a->pairs[i].nominated = true;
         a->pairs[i].state     = xIcePairState_Succeeded;
 
-#ifdef XK_ENABLE_DEBUG
         char lstr[64], rstr[64];
         sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr,
                         sizeof(lstr));
         sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr,
                         rstr, sizeof(rstr));
-        XDEBUG("[ice] nominated pair: %s -> %s", lstr, rstr);
-#endif
+        XDEBUGL0("[ice] nominated pair: %s -> %s", lstr, rstr);
 
         set_state(a, xIceAgentState_Connected);
         start_consent(a);
@@ -1216,7 +1210,7 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
 
     case XICE_DEMUX_DTLS:
       /* Feed into upper layer (PeerConnection) if DTLS hook is set */
-      XDEBUG("[ice] DTLS packet %zu bytes, dtls_input_fn=%p", len,
+      XDEBUGL0("[ice] DTLS packet %zu bytes, dtls_input_fn=%p", len,
              (void *)a->dtls_input_fn);
       if (a->dtls_input_fn) {
         a->dtls_input_fn(buf, len, from, a->dtls_input_arg);
@@ -1562,7 +1556,7 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
     xErrno perm_err = xTurnClientCreatePermission(
       a->turn_client, (const struct sockaddr *)&cand.addr);
     if (perm_err != xErrno_Ok) {
-      XDEBUG("[ice] failed to create TURN permission for new remote candidate");
+      XDEBUGL0("[ice] failed to create TURN permission for new remote candidate");
     }
   }
 

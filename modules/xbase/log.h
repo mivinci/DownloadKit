@@ -59,15 +59,46 @@ XCAPI(void) xLogSetCallback(xLogCallback cb, void *userdata);
 XCAPI(void) xLog(bool fatal, const char *fmt, ...);
 
 /**
- * @brief Debug-only logging macro.
+ * @brief Level-based debug logging macros.
  *
- * When XK_ENABLE_DEBUG is defined at compile time, XDEBUG expands to
- * a non-fatal xLog() call.  Otherwise it compiles to nothing.
+ * Controlled by the compile-time integer XK_DEBUG_LEVEL (default 0).
+ *
+ * XDEBUGL0: Critical debug messages  (shown if XK_DEBUG_LEVEL >= 0)
+ * XDEBUGL1: Important debug messages  (shown if XK_DEBUG_LEVEL >= 1)
+ * XDEBUGL2: Detailed debug messages   (shown if XK_DEBUG_LEVEL >= 2)
+ * XDEBUGL3: Verbose debug messages    (shown if XK_DEBUG_LEVEL >= 3)
+ *
+ * XDEBUG is an alias for XDEBUGL3 for backward compatibility.
  */
-#ifdef XK_ENABLE_DEBUG
-#define XDEBUG(...) xLog(false, __VA_ARGS__)
-#else
-#define XDEBUG(...) ((void)0)
+#ifndef XK_DEBUG_LEVEL
+#define XK_DEBUG_LEVEL 0
 #endif
+
+#if XK_DEBUG_LEVEL >= 0
+#define XDEBUGL0(...) xLog(false, __VA_ARGS__)
+#else
+#define XDEBUGL0(...) ((void)0)
+#endif
+
+#if XK_DEBUG_LEVEL >= 1
+#define XDEBUGL1(...) xLog(false, __VA_ARGS__)
+#else
+#define XDEBUGL1(...) ((void)0)
+#endif
+
+#if XK_DEBUG_LEVEL >= 2
+#define XDEBUGL2(...) xLog(false, __VA_ARGS__)
+#else
+#define XDEBUGL2(...) ((void)0)
+#endif
+
+#if XK_DEBUG_LEVEL >= 3
+#define XDEBUGL3(...) xLog(false, __VA_ARGS__)
+#else
+#define XDEBUGL3(...) ((void)0)
+#endif
+
+// Backward compatibility: XDEBUG maps to the most verbose level
+#define XDEBUG XDEBUGL3
 
 #endif // XBASE_LOG_H

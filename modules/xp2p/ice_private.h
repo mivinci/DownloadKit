@@ -18,6 +18,7 @@
 #include <xbase/event.h>
 #include <xbase/socket.h>
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -239,14 +240,10 @@ XDEF_ENUM(xIceAgentRole){
 /** Birthday attack pacing interval in milliseconds (per burst). */
 #define XICE_BIRTHDAY_PACING_MS 5
 
-/** Number of initial rounds using sequential port scanning. */
-#define XICE_BIRTHDAY_SEQUENTIAL_ROUNDS 3
+/** NAT detection timeout in milliseconds. */
+#define XICE_NAT_DETECT_TIMEOUT_MS 5000
 
-/** Minimum ephemeral port for birthday probing. */
-#define XICE_BIRTHDAY_PORT_MIN 1024
 
-/** Maximum ephemeral port for birthday probing. */
-#define XICE_BIRTHDAY_PORT_MAX 65535
 
 /* ───────────────────── ICE Credential Sizes ───────────────────── */
 

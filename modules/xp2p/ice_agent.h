@@ -98,22 +98,6 @@ XDEF_STRUCT(xIceConf) {
   xIceOnCandidate   on_candidate;
   xIceOnData        on_data;
   void             *ctx; /**< Forwarded to all callbacks.               */
-
-  /**
-   * Birthday attack parameters for Symmetric NAT traversal.
-   *
-   * When all regular connectivity checks fail, the agent can attempt
-   * a birthday attack by sending STUN probes from multiple local
-   * sockets to random remote ports, exploiting the birthday paradox
-   * to find a port collision.
-   *
-   *  0 = use default (k=32, n=256)
-   * <0 = disabled (never attempt birthday attack)
-   * >0 = use specified value (clamped to hard maximum)
-   */
-  int birthday_k;          /**< Number of local sockets (default: 32).     */
-  int birthday_n;          /**< Random remote ports per socket (default: 256). */
-  int birthday_timeout_ms; /**< Overall timeout in ms (0 = default 10s).     */
 };
 
 /* ───────────────────── Lifecycle ───────────────────── */

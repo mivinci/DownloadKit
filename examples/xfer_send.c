@@ -8,13 +8,12 @@
  *
  * Usage:
  *   ./xfer_send -f <file> [-u ws://host:port/ws] [-s stun:port]
- *              [-T turn:port] [-U user] [-P pass] [-k sockets] [-n ports]
- *              [-t timeout_ms] [-6]
+ *              [-t turn:port] [-U user] [-P pass] [-6]
  *
  * Example:
  *   ./xfer_send -f myfile.bin
  *   ./xfer_send -f myfile.bin -u ws://192.168.1.100:8080/ws
- *   ./xfer_send -f myfile.bin -T openrelay.metered.ca:443 -U openrelayproject -P openrelayproject
+ *   ./xfer_send -f myfile.bin -t openrelay.metered.ca:443 -U openrelayproject -P openrelayproject
  */
 
 #include <xbase/event.h>
@@ -117,12 +116,9 @@ int main(int argc, char *argv[]) {
   const char *turn_username = NULL;
   const char *turn_password = NULL;
   bool        enable_ipv6   = false;
-  int         birthday_k    = 0;
-  int         birthday_n    = 0;
-  int         birthday_t    = 0;
 
   int opt;
-  while ((opt = getopt(argc, argv, "f:u:s:T:U:P:k:n:t:6")) != -1) {
+  while ((opt = getopt(argc, argv, "f:u:s:t:U:P:6")) != -1) {
     switch (opt) {
     case 'f':
       filepath = optarg;
@@ -133,7 +129,7 @@ int main(int argc, char *argv[]) {
     case 's':
       stun_server = optarg;
       break;
-    case 'T':
+    case 't':
       turn_server = optarg;
       break;
     case 'U':
@@ -142,23 +138,13 @@ int main(int argc, char *argv[]) {
     case 'P':
       turn_password = optarg;
       break;
-    case 'k':
-      birthday_k = atoi(optarg);
-      break;
-    case 'n':
-      birthday_n = atoi(optarg);
-      break;
-    case 't':
-      birthday_t = atoi(optarg);
-      break;
     case '6':
       enable_ipv6 = true;
       break;
     default:
       fprintf(stderr,
               "Usage: %s -f <file> [-u ws://host:port/ws] "
-              "[-s stun:port] [-T turn:port] [-U user] [-P pass] "
-              "[-k sockets] [-n ports] [-t timeout_ms] [-6]\n",
+              "[-s stun:port] [-t turn:port] [-U user] [-P pass] [-6]\n",
               argv[0]);
       return 1;
     }
@@ -168,8 +154,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Error: -f <file> is required\n");
     fprintf(stderr,
             "Usage: %s -f <file> [-u ws://host:port/ws] "
-            "[-s stun:port] [-T turn:port] [-U user] [-P pass] "
-            "[-k sockets] [-n ports] [-t timeout_ms] [-6]\n",
+            "[-s stun:port] [-t turn:port] [-U user] [-P pass] [-6]\n",
             argv[0]);
     return 1;
   }
@@ -180,8 +165,6 @@ int main(int argc, char *argv[]) {
   printf("STUN:    %s\n", stun_server);
   printf("TURN:    %s\n", turn_server ? turn_server : "(none)");
   printf("IPv6:    %s\n", enable_ipv6 ? "enabled" : "disabled");
-  printf("Birthday: k=%d n=%d t=%dms%s\n", birthday_k, birthday_n, birthday_t,
-         birthday_k < 0 ? " (disabled)" : birthday_k == 0 ? " (default)" : "");
 
   g_loop = xEventLoopCreate();
   if (!g_loop) {
@@ -198,9 +181,6 @@ int main(int argc, char *argv[]) {
   conf.turn_username   = turn_username;
   conf.turn_password   = turn_password;
   conf.enable_ipv6     = enable_ipv6;
-  conf.birthday_k      = birthday_k;
-  conf.birthday_n      = birthday_n;
-  conf.birthday_timeout_ms = birthday_t;
   conf.signal_server   = signal_url;
   conf.on_state_change = on_state_change;
   conf.on_progress     = on_progress;

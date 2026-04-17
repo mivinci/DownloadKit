@@ -12,7 +12,7 @@ option(XK_BUILD_TESTS "Build xKit tests" ON)
 option(XK_BUILD_BENCHMARKS "Build xKit benchmarks" ON)
 option(XK_BUILD_EXAMPLES "Build xKit example programs" OFF)
 option(XK_ENABLE_ASAN "Enable AddressSanitizer" OFF)
-option(XK_ENABLE_DEBUG "Enable verbose debug logging in xKit modules" OFF)
+option(XK_DEBUG_LEVEL "Debug logging level (0-3, higher means more verbose)" 0)
 
 add_compile_options(-Wall -Wextra)
 add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror>)
@@ -22,6 +22,9 @@ if(XK_ENABLE_ASAN)
   add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address)
 endif()
+
+# Pass debug level to source code
+add_compile_definitions(XK_DEBUG_LEVEL=${XK_DEBUG_LEVEL})
 
 if(XK_BUILD_TESTS)
   enable_testing()

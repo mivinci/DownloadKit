@@ -120,6 +120,7 @@ static void generate_random_string(char *buf, size_t len) {
   buf[len] = '\0';
 }
 
+#if XK_DEBUG_LEVEL >= 1
 static const char *state_name(xIceAgentState s) {
   switch (s) {
   case xIceAgentState_New:
@@ -140,6 +141,7 @@ static const char *state_name(xIceAgentState s) {
     return "Unknown";
   }
 }
+#endif
 
 static void set_state(xIceAgent_ *a, xIceAgentState new_state) {
   if (a->state == new_state) return;
@@ -204,7 +206,6 @@ static bool sockaddr_equal(const struct sockaddr *a, const struct sockaddr *b) {
   return false;
 }
 
-#if XK_DEBUG_LEVEL >= 1
 /** Format a sockaddr into "ip:port" string, writes into buf (size >= 64). */
 static void sockaddr_to_str(const struct sockaddr *addr, char *buf,
                             size_t len) {
@@ -222,7 +223,6 @@ static void sockaddr_to_str(const struct sockaddr *addr, char *buf,
     snprintf(buf, len, "(unknown)");
   }
 }
-#endif
 
 /* ───────────────────── Low-level UDP Send ───────────────────── */
 

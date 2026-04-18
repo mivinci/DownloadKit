@@ -22,6 +22,7 @@
 
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <inttypes.h>
 #include <net/if.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,8 +119,23 @@ static void generate_random_string(char *buf, size_t len) {
   buf[len] = '\0';
 }
 
+static const char *state_name(xIceAgentState s) {
+  switch (s) {
+  case xIceAgentState_New:       return "New";
+  case xIceAgentState_Gathering: return "Gathering";
+  case xIceAgentState_Checking:  return "Checking";
+  case xIceAgentState_Connected: return "Connected";
+  case xIceAgentState_Completed: return "Completed";
+  case xIceAgentState_Failed:    return "Failed";
+  case xIceAgentState_Closed:    return "Closed";
+  default:                       return "Unknown";
+  }
+}
+
 static void set_state(xIceAgent_ *a, xIceAgentState new_state) {
   if (a->state == new_state) return;
+  XDEBUGL1("[ice] state: %s -> %s", state_name(a->state),
+           state_name(new_state));
   a->state = new_state;
 
   /* Map internal state to public state */
@@ -264,6 +280,18 @@ static void generate_pairs(xIceAgent_ *a) {
   }
 
   xIcePairSort(a->pairs, a->pair_count);
+
+  XDEBUGL1("[ice] generated %d candidate pairs (local=%d, remote=%d)",
+           a->pair_count, a->local_count, a->remote_count);
+  for (int i = 0; i < a->pair_count; i++) {
+    char lstr[64], rstr[64];
+    sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr,
+                    sizeof(lstr));
+    sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr, rstr,
+                    sizeof(rstr));
+    XDEBUGL1("[ice]   pair[%d]: %s -> %s (prio=%" PRIu64 ")", i, lstr, rstr,
+             a->pairs[i].priority);
+  }
 }
 
 /* ───────────────────── Connectivity Check ───────────────────── */
@@ -296,6 +324,14 @@ static xErrno sock_stun_send(const uint8_t *data, size_t len,
 }
 
 static xErrno send_check(xIceAgent_ *a, xIcePair *pair) {
+  char lstr[64], rstr[64];
+  sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
+                  sizeof(lstr));
+  sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr,
+                  sizeof(rstr));
+  XDEBUGL1("[ice] send_check: %s -> %s (role=%s)", lstr, rstr,
+           a->role == xIceAgentRole_Controlling ? "controlling" : "controlled");
+
   uint8_t msg_buf[512];
   uint8_t txn_id[XSTUN_TXN_ID_SIZE];
 
@@ -506,6 +542,17 @@ static void on_check_response(const xStunMsg        *msg,
   xIcePair   *pair  = ctx->pair;
   free(ctx);
 
+  {
+    char lstr[64], rstr[64];
+    sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
+                    sizeof(lstr));
+    sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr,
+                    sizeof(rstr));
+    XDEBUGL1("[ice] check response: %s -> %s, result=%s", lstr, rstr,
+             !msg ? "timeout" : xStunMsgIsSuccessResponse(msg->type) ? "success"
+                              : "error");
+  }
+
   if (!msg) {
     /* Timeout */
     pair->state = xIcePairState_Failed;
@@ -580,7 +627,9 @@ static void check_timeout_cb(void *arg) {
 }
 
 static void start_checks(xIceAgent_ *a) {
+  XDEBUGL1("[ice] start_checks: %d pairs", a->pair_count);
   if (a->pair_count == 0) {
+    XDEBUGL1("[ice] start_checks: no pairs, failing");
     set_state(a, xIceAgentState_Failed);
     return;
   }
@@ -756,6 +805,9 @@ static void on_srflx_response(const xStunMsg        *msg,
   xIceAgent_ *a   = ctx->agent;
   int         hi  = ctx->host_index;
   free(ctx);
+
+  XDEBUGL1("[ice] srflx response for host[%d]: %s",
+           hi, (msg && xStunMsgIsSuccessResponse(msg->type)) ? "success" : "fail/timeout");
 
   if (msg && xStunMsgIsSuccessResponse(msg->type)) {
     /* Extract XOR-MAPPED-ADDRESS → srflx candidate */
@@ -1001,6 +1053,8 @@ static void start_turn_allocate(xIceAgent_                    *a,
  * If so, cancel the gather timer and finish gathering immediately.
  */
 static void gather_check_done(xIceAgent_ *a) {
+  XDEBUGL1("[ice] gather_check_done: pending=%d, state=%s, done=%d",
+           a->pending_gather, state_name(a->state), a->gathering_done);
   if (a->pending_gather > 0) return;
   if (a->state != xIceAgentState_Gathering) return;
   if (a->gathering_done) return;
@@ -1020,14 +1074,19 @@ static void gather_check_done(xIceAgent_ *a) {
 
   /* If remote is set, start checks */
   if (a->remote_set) {
+    XDEBUGL1("[ice] gather done, remote already set, starting checks");
     generate_pairs(a);
     start_checks(a);
+  } else {
+    XDEBUGL1("[ice] gather done, waiting for remote description");
   }
 }
 
 static void gather_timeout_cb(void *arg) {
   xIceAgent_ *a   = (xIceAgent_ *)arg;
   a->gather_timer = NULL;
+
+  XDEBUGL1("[ice] gather timeout");
 
   if (a->state != xIceAgentState_Gathering) return;
 
@@ -1289,6 +1348,9 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
       uint8_t msg_class = XSTUN_MSG_CLASS(msg.type);
 
       if (xStunMsgIsRequest(msg.type)) {
+        char fstr[64];
+        sockaddr_to_str(from, fstr, sizeof(fstr));
+        XDEBUGL1("[ice] recv STUN request from %s", fstr);
         handle_incoming_binding_request(a, &msg, buf, len, from, sock);
       } else if (msg_class == XSTUN_CLASS_INDICATION) {
         /* Indication (e.g. DataIndication) — route to TURN client */
@@ -1622,6 +1684,9 @@ xErrno xIceAgentSetRemoteDescription(xIceAgent agent, const char *sdp) {
   a->remote_gathering_done = parsed.end_of_candidates;
   a->remote_set            = true;
 
+  XDEBUGL1("[ice] set remote: ufrag=%s, %d candidates, gathering_done=%d",
+           a->remote_ufrag, parsed.candidate_count, a->gathering_done);
+
   /* Add remote candidates */
   for (int i = 0;
        i < parsed.candidate_count && a->remote_count < XICE_MAX_CANDIDATES;
@@ -1634,8 +1699,12 @@ xErrno xIceAgentSetRemoteDescription(xIceAgent agent, const char *sdp) {
 
   /* If gathering is done, start checks */
   if (a->gathering_done && a->state != xIceAgentState_Checking) {
+    XDEBUGL1("[ice] remote set, gather already done, starting checks");
     generate_pairs(a);
     start_checks(a);
+  } else {
+    XDEBUGL1("[ice] remote set, gather not done yet (state=%s)",
+             state_name(a->state));
   }
 
   return xErrno_Ok;

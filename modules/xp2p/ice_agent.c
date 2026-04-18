@@ -16,9 +16,8 @@
 #include "stun_txn.h"
 #include "turn_client.h"
 
-#include <xnet/dns.h>
-
 #include <xbase/log.h>
+#include <xnet/dns.h>
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -30,6 +29,15 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <time.h>
+
+/* Maximum number of STUN servers for port prediction */
+#define XICE_STUN_SERVER_COUNT_MAX 4
+/* Default predicted candidates per host */
+#define XICE_PORT_PREDICT_COUNT_DEFAULT 5
+/* Maximum allowed predicted candidates   */
+#define XICE_PORT_PREDICT_COUNT_MAX 10
+/* Maximum number of host candidates */
+#define XICE_HOST_COUNT_MAX 8
 
 /* ───────────────────── Internal Agent Structure ───────────────────── */
 
@@ -92,6 +100,29 @@ XDEF_STRUCT(xIceAgent_) {
   xDnsQuery turn_dns_query;
   uint16_t  stun_port; /* Parsed port for STUN server */
   uint16_t  turn_port; /* Parsed port for TURN server */
+
+  /* Multi-STUN server support for port prediction */
+  struct sockaddr_storage stun_addrs[XICE_STUN_SERVER_COUNT_MAX];
+  int                     stun_count; /* Number of resolved STUN servers */
+  int                     stun_dns_pending; /* Pending DNS resolutions */
+  xDnsQuery               stun_dns_queries[XICE_STUN_SERVER_COUNT_MAX];
+  uint16_t stun_ports[XICE_STUN_SERVER_COUNT_MAX];  /* Parsed ports */
+  bool     stun_dns_ok[XICE_STUN_SERVER_COUNT_MAX]; /* DNS resolved? */
+
+  /*
+   * Per-host srflx response collection for delta computation.
+   * srflx_mapped[host_index][server_index] = mapped port (0 if not yet
+   * received). srflx_received[host_index] = number of responses received for
+   * this host.
+   */
+  uint16_t srflx_mapped[XICE_HOST_COUNT_MAX][XICE_STUN_SERVER_COUNT_MAX];
+  int      srflx_received[XICE_HOST_COUNT_MAX];
+  int srflx_expected[XICE_HOST_COUNT_MAX]; /* Expected responses per host */
+  struct sockaddr_storage srflx_full_mapped[XICE_HOST_COUNT_MAX]
+                                           [XICE_STUN_SERVER_COUNT_MAX];
+
+  /* Port prediction config (runtime, from xIceConf) */
+  int port_predict_count;
 
   /* DTLS data input hook — set by xPeerConnection when attached */
   xIceDtlsInputFn dtls_input_fn;
@@ -766,31 +797,82 @@ static void sockaddr_set_port(struct sockaddr_storage *addr, uint16_t port) {
 }
 
 /* Forward declarations for DNS callbacks */
-static void send_stun_binding(xIceAgent_                    *a,
-                              const struct sockaddr_storage *stun_addr);
+static void send_stun_bindings_all(xIceAgent_ *a);
 static void start_turn_allocate(xIceAgent_                    *a,
                                 const struct sockaddr_storage *turn_addr);
 
 /**
- * Async DNS callback for STUN server resolution.
+ * Context for per-STUN-server DNS resolution.
  */
-static void on_stun_dns_done(xDnsResult *result, void *arg) {
-  xIceAgent_ *a     = (xIceAgent_ *)arg;
-  a->stun_dns_query = NULL;
+typedef struct {
+  xIceAgent_ *agent;
+  int         server_index; /* Which STUN server this DNS query is for */
+} StunDnsCtx;
 
-  if (result->error == xErrno_Ok && result->addrs) {
-    struct sockaddr_storage stun_addr;
-    memcpy(&stun_addr, &result->addrs->addr, sizeof(stun_addr));
-    sockaddr_set_port(&stun_addr, a->stun_port);
-    xDnsResultFree(result);
-    send_stun_binding(a, &stun_addr);
+/**
+ * Check if all STUN DNS resolutions are done. If so, send binding
+ * requests to all resolved servers.
+ */
+static void check_stun_dns_done(xIceAgent_ *a) {
+  if (a->stun_dns_pending > 0) return;
+
+  if (a->stun_count == 0) {
+    /* All DNS resolutions failed */
+    a->pending_gather--;
+    gather_check_done(a);
     return;
   }
 
-  /* DNS failed — decrement pending and check done */
-  xDnsResultFree(result);
+  /* Remove the initial pending_gather increment for STUN DNS phase */
   a->pending_gather--;
+
+  /* Now send binding requests to all resolved STUN servers */
+  send_stun_bindings_all(a);
   gather_check_done(a);
+}
+
+/**
+ * Async DNS callback for STUN server resolution (multi-server version).
+ */
+static void on_stun_dns_done(xDnsResult *result, void *arg) {
+  StunDnsCtx *ctx = (StunDnsCtx *)arg;
+  xIceAgent_ *a   = ctx->agent;
+  int         si  = ctx->server_index;
+  free(ctx);
+
+  a->stun_dns_queries[si] = NULL;
+
+  if (result->error == xErrno_Ok && result->addrs) {
+    struct sockaddr_storage addr;
+    memcpy(&addr, &result->addrs->addr, sizeof(addr));
+    sockaddr_set_port(&addr, a->stun_ports[si]);
+
+    /* Check for duplicate: skip if this resolves to same addr as another */
+    bool dup = false;
+    for (int i = 0; i < a->stun_count; i++) {
+      if (sockaddr_equal((const struct sockaddr *)&a->stun_addrs[i],
+                         (const struct sockaddr *)&addr)) {
+        dup = true;
+        break;
+      }
+    }
+
+    if (!dup && a->stun_count < XICE_STUN_SERVER_COUNT_MAX) {
+      /* Store at the next available slot, preserving order */
+      memcpy(&a->stun_addrs[a->stun_count], &addr, sizeof(addr));
+      a->stun_dns_ok[si] = true;
+      a->stun_count++;
+      XDEBUGL1("[ice] STUN server[%d] resolved, total=%d", si, a->stun_count);
+    } else if (dup) {
+      XDEBUGL1("[ice] STUN server[%d] duplicate, skipped", si);
+    }
+  } else {
+    XDEBUGL1("[ice] STUN server[%d] DNS failed", si);
+  }
+
+  xDnsResultFree(result);
+  a->stun_dns_pending--;
+  check_stun_dns_done(a);
 }
 
 /**
@@ -819,8 +901,114 @@ static void on_turn_dns_done(xDnsResult *result, void *arg) {
 
 typedef struct {
   xIceAgent_ *agent;
-  int host_index; /* Index of the host candidate that sent the request */
+  int host_index;   /* Index of the host candidate that sent the request */
+  int server_index; /* Index of the STUN server this request was sent to */
 } SrflxCtx;
+
+/**
+ * Create an srflx candidate from a mapped address and notify via callback.
+ */
+static void create_srflx_candidate(xIceAgent_ *a, int host_index,
+                                   const struct sockaddr_storage *mapped,
+                                   uint16_t                       local_pref) {
+  if (a->local_count >= XICE_MAX_CANDIDATES) return;
+
+  xIceCandidate *host = &a->local_candidates[host_index];
+  xIceCandidate *cand = &a->local_candidates[a->local_count];
+  memset(cand, 0, sizeof(*cand));
+  cand->type         = xIceCandidateType_Srflx;
+  cand->component_id = 1;
+  cand->transport    = 0; /* UDP */
+  cand->priority =
+    xIceCandidatePriority(xIceCandidateType_Srflx, local_pref, 1);
+  memcpy(&cand->addr, mapped, sizeof(*mapped));
+  memcpy(&cand->base_addr, &host->addr, sizeof(cand->base_addr));
+  memcpy(&cand->rel_addr, mapped, sizeof(*mapped));
+  cand->sock = host->sock;
+  xIceCandidateFoundation(cand, NULL);
+  a->local_count++;
+
+  if (a->conf.on_candidate) {
+    char cand_line[256];
+    if (xIceSdpEncodeCandidate(cand, cand_line, sizeof(cand_line)) > 0) {
+      a->conf.on_candidate((xIceAgent)a, cand_line, a->conf.ctx);
+    }
+  }
+}
+
+/**
+ * Finalize srflx gathering for a host candidate after all STUN server
+ * responses have been collected. Computes port delta and generates
+ * predicted candidates for symmetric NAT traversal.
+ */
+static void finalize_srflx_for_host(xIceAgent_ *a, int hi) {
+  int received = a->srflx_received[hi];
+  int expected = a->srflx_expected[hi];
+
+  if (received == 0) {
+    /* All STUN servers failed for this host — nothing to do */
+    return;
+  }
+
+  /* Find the first and last successful mapped ports (by server order) */
+  int first_si = -1, last_si = -1;
+  for (int si = 0; si < expected; si++) {
+    if (a->srflx_mapped[hi][si] != 0) {
+      if (first_si < 0) first_si = si;
+      last_si = si;
+    }
+  }
+
+  /* Always create an srflx candidate from the last successful response.
+   * This is the most recently allocated port — closest to what the NAT
+   * will assign for the next outgoing packet (connectivity check). */
+  create_srflx_candidate(a, hi, &a->srflx_full_mapped[hi][last_si],
+                         (uint16_t)(65535 - hi));
+
+  /* If we only have one STUN server or only one success, no delta to compute */
+  if (first_si == last_si) return;
+
+  uint16_t port_first = a->srflx_mapped[hi][first_si];
+  uint16_t port_last  = a->srflx_mapped[hi][last_si];
+  int      delta      = (int)port_last - (int)port_first;
+
+  /* Sanity check: delta should be small and positive for sequential NAT.
+   * Typical values: 1, 2, or small multiples. Reject large/negative/zero. */
+  if (delta <= 0 || delta > 100) {
+    XDEBUGL1("[ice] host[%d]: port delta=%d (not sequential), skip prediction",
+             hi, delta);
+    return;
+  }
+
+  /* Normalize delta: if servers are N apart, per-destination delta = delta/N */
+  int server_gap     = last_si - first_si;
+  int per_dest_delta = delta / server_gap;
+  if (per_dest_delta <= 0) per_dest_delta = delta;
+
+  XDEBUGL1("[ice] host[%d]: ports=[%u,%u], delta=%d, per_dest=%d", hi,
+           port_first, port_last, delta, per_dest_delta);
+
+  /* Generate predicted srflx candidates.
+   * Start from port_last + per_dest_delta (the next expected allocation). */
+  for (int k = 1; k <= a->port_predict_count; k++) {
+    int predicted_port = (int)port_last + k * per_dest_delta;
+    if (predicted_port <= 0 || predicted_port > 65535) break;
+    if (a->local_count >= XICE_MAX_CANDIDATES) break;
+
+    /* Clone the last mapped address and change the port */
+    struct sockaddr_storage predicted_addr;
+    memcpy(&predicted_addr, &a->srflx_full_mapped[hi][last_si],
+           sizeof(predicted_addr));
+    sockaddr_set_port(&predicted_addr, (uint16_t)predicted_port);
+
+    /* Use lower priority for predicted candidates */
+    uint16_t local_pref = (uint16_t)(65535 - hi - k * a->host_count);
+    create_srflx_candidate(a, hi, &predicted_addr, local_pref);
+
+    XDEBUGL1("[ice] host[%d]: predicted srflx port %d (k=%d)", hi,
+             predicted_port, k);
+  }
+}
 
 static void on_srflx_response(const xStunMsg        *msg,
                               const struct sockaddr *from
@@ -829,14 +1017,14 @@ static void on_srflx_response(const xStunMsg        *msg,
   SrflxCtx   *ctx = (SrflxCtx *)arg;
   xIceAgent_ *a   = ctx->agent;
   int         hi  = ctx->host_index;
+  int         si  = ctx->server_index;
   free(ctx);
 
-  XDEBUGL1("[ice] srflx response for host[%d]: %s", hi,
+  XDEBUGL1("[ice] srflx response for host[%d] server[%d]: %s", hi, si,
            (msg && xStunMsgIsSuccessResponse(msg->type)) ? "success"
                                                          : "fail/timeout");
 
   if (msg && xStunMsgIsSuccessResponse(msg->type)) {
-    /* Extract XOR-MAPPED-ADDRESS → srflx candidate */
     xStunAttrIter iter;
     xStunAttrIterInit(&iter, msg);
     xStunAttr attr;
@@ -846,36 +1034,24 @@ static void on_srflx_response(const xStunMsg        *msg,
         struct sockaddr_storage mapped;
         if (xStunAttrDecodeXorMappedAddress(&attr, msg->txn_id, &mapped) ==
             xErrno_Ok) {
-          if (a->local_count < XICE_MAX_CANDIDATES) {
-            xIceCandidate *host = &a->local_candidates[hi];
-            xIceCandidate *cand = &a->local_candidates[a->local_count];
-            memset(cand, 0, sizeof(*cand));
-            cand->type         = xIceCandidateType_Srflx;
-            cand->component_id = 1;
-            cand->transport    = 0; /* UDP */
-            cand->priority     = xIceCandidatePriority(xIceCandidateType_Srflx,
-                                                       (uint16_t)(65535 - hi), 1);
-            memcpy(&cand->addr, &mapped, sizeof(mapped));
-            /* base_addr = the host candidate that sent the request */
-            memcpy(&cand->base_addr, &host->addr, sizeof(cand->base_addr));
-            /* rel_addr = mapped address */
-            memcpy(&cand->rel_addr, &mapped, sizeof(mapped));
-            cand->sock = host->sock;
-            xIceCandidateFoundation(cand, NULL);
-            a->local_count++;
-
-            /* Notify candidate */
-            if (a->conf.on_candidate) {
-              char cand_line[256];
-              if (xIceSdpEncodeCandidate(cand, cand_line, sizeof(cand_line)) >
-                  0) {
-                a->conf.on_candidate((xIceAgent)a, cand_line, a->conf.ctx);
-              }
-            }
+          uint16_t mapped_port = xSockaddrPort((struct sockaddr *)&mapped);
+          if (hi < XICE_HOST_COUNT_MAX && si < XICE_STUN_SERVER_COUNT_MAX) {
+            a->srflx_mapped[hi][si] = mapped_port;
+            memcpy(&a->srflx_full_mapped[hi][si], &mapped, sizeof(mapped));
           }
         }
         break;
       }
+    }
+  }
+
+  /* Track how many responses we've received for this host */
+  if (hi < XICE_HOST_COUNT_MAX) {
+    a->srflx_received[hi]++;
+
+    /* When all responses for this host are in, finalize */
+    if (a->srflx_received[hi] >= a->srflx_expected[hi]) {
+      finalize_srflx_for_host(a, hi);
     }
   }
 
@@ -992,15 +1168,12 @@ static void turn_create_permissions_for_remotes(xIceAgent_ *a) {
 }
 
 /**
- * Send a STUN Binding Request to the resolved STUN server address.
- * Called from on_stun_dns_done after successful DNS resolution.
- */
-/**
- * Send a STUN Binding Request from a specific host candidate.
+ * Send a STUN Binding Request from a specific host candidate to a
+ * specific STUN server (identified by server_index).
  */
 static void send_stun_binding_for_host(xIceAgent_                    *a,
                                        const struct sockaddr_storage *stun_addr,
-                                       int host_index) {
+                                       int host_index, int server_index) {
   uint8_t msg_buf[256];
   uint8_t txn_id[XSTUN_TXN_ID_SIZE];
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
@@ -1020,8 +1193,9 @@ static void send_stun_binding_for_host(xIceAgent_                    *a,
     gather_check_done(a);
     return;
   }
-  ctx->agent      = a;
-  ctx->host_index = host_index;
+  ctx->agent        = a;
+  ctx->host_index   = host_index;
+  ctx->server_index = server_index;
 
   xStunTxnMgrSendRaw(&a->txn_mgr, msg_buf, XSTUN_HEADER_SIZE,
                      (struct sockaddr *)stun_addr, sock_stun_send,
@@ -1029,18 +1203,24 @@ static void send_stun_binding_for_host(xIceAgent_                    *a,
                      ctx);
 }
 
-static void send_stun_binding(xIceAgent_                    *a,
-                              const struct sockaddr_storage *stun_addr) {
-  /* Send a STUN Binding Request from each host candidate */
-  for (int i = 0; i < a->host_count; i++) {
-    if (a->local_candidates[i].addr.ss_family == stun_addr->ss_family) {
+/**
+ * Send STUN Binding Requests from all host candidates to all resolved
+ * STUN servers. For each host, requests are sent in server order
+ * (server 0 first, then server 1, ...) so that NAT port allocations
+ * follow a predictable sequence for delta computation.
+ */
+static void send_stun_bindings_all(xIceAgent_ *a) {
+  for (int hi = 0; hi < a->host_count && hi < XICE_HOST_COUNT_MAX; hi++) {
+    int sent = 0;
+    for (int si = 0; si < a->stun_count; si++) {
+      if (a->local_candidates[hi].addr.ss_family != a->stun_addrs[si].ss_family)
+        continue;
       a->pending_gather++;
-      send_stun_binding_for_host(a, stun_addr, i);
+      send_stun_binding_for_host(a, &a->stun_addrs[si], hi, si);
+      sent++;
     }
+    a->srflx_expected[hi] = sent;
   }
-  /* Remove the initial pending_gather increment from on_stun_dns_done path */
-  a->pending_gather--;
-  gather_check_done(a);
 }
 
 /**
@@ -1453,6 +1633,13 @@ xIceAgent xIceAgentCreate(xEventLoop loop, const xIceConf *conf) {
   a->role  = (conf->role == xIceRole_Controlling) ? xIceAgentRole_Controlling
                                                   : xIceAgentRole_Controlled;
 
+  /* Port prediction count: use user value if valid, otherwise default */
+  if (conf->port_predict_count > 0 &&
+      conf->port_predict_count <= XICE_PORT_PREDICT_COUNT_MAX)
+    a->port_predict_count = conf->port_predict_count;
+  else
+    a->port_predict_count = XICE_PORT_PREDICT_COUNT_DEFAULT;
+
   /* Generate random ufrag (4+ chars) and pwd (22+ chars) */
   generate_random_string(a->ice_ufrag, XICE_UFRAG_LEN);
   generate_random_string(a->ice_pwd, XICE_PWD_LEN);
@@ -1481,6 +1668,12 @@ void xIceAgentDestroy(xIceAgent agent) {
   }
 
   /* Cancel pending DNS queries */
+  for (int i = 0; i < XICE_STUN_SERVER_COUNT_MAX; i++) {
+    if (a->stun_dns_queries[i]) {
+      xDnsCancel(a->loop, a->stun_dns_queries[i]);
+      a->stun_dns_queries[i] = NULL;
+    }
+  }
   if (a->stun_dns_query) {
     xDnsCancel(a->loop, a->stun_dns_query);
     a->stun_dns_query = NULL;
@@ -1632,24 +1825,64 @@ xErrno xIceAgentGather(xIceAgent agent) {
     return xErrno_SysError;
   }
 
-  /* ── Gather srflx candidate via STUN server ── */
+  /* ── Gather srflx candidates via STUN server(s) ── */
+  /* stun_server supports comma-separated list: "server1:port,server2:port" */
   if (a->conf.stun_server) {
-    char     host[256];
-    uint16_t port;
-    if (parse_host_port(a->conf.stun_server, host, sizeof(host), &port)) {
-      struct addrinfo hints;
-      memset(&hints, 0, sizeof(hints));
-      hints.ai_family   = AF_INET;
-      hints.ai_socktype = SOCK_DGRAM;
+    /* Initialize multi-STUN state */
+    memset(a->srflx_mapped, 0, sizeof(a->srflx_mapped));
+    memset(a->srflx_received, 0, sizeof(a->srflx_received));
+    memset(a->srflx_expected, 0, sizeof(a->srflx_expected));
+    memset(a->srflx_full_mapped, 0, sizeof(a->srflx_full_mapped));
+    a->stun_count       = 0;
+    a->stun_dns_pending = 0;
 
-      a->stun_port = port;
-      a->pending_gather++;
-      a->stun_dns_query =
-        xDnsResolve(a->loop, host, NULL, &hints, on_stun_dns_done, a);
-      if (!a->stun_dns_query) {
-        /* DNS submit failed (e.g. invalid args) */
-        a->pending_gather--;
+    /* Parse comma-separated STUN server list */
+    char stun_buf[1024];
+    strncpy(stun_buf, a->conf.stun_server, sizeof(stun_buf) - 1);
+    stun_buf[sizeof(stun_buf) - 1] = '\0';
+
+    int   server_count = 0;
+    char *saveptr      = NULL;
+    char *token        = strtok_r(stun_buf, ",", &saveptr);
+    while (token && server_count < XICE_STUN_SERVER_COUNT_MAX) {
+      /* Trim leading whitespace */
+      while (*token == ' ' || *token == '\t')
+        token++;
+      char     host[256];
+      uint16_t port;
+      if (parse_host_port(token, host, sizeof(host), &port)) {
+        a->stun_ports[server_count] = port;
+
+        struct addrinfo hints;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family   = AF_INET;
+        hints.ai_socktype = SOCK_DGRAM;
+
+        StunDnsCtx *dns_ctx = (StunDnsCtx *)malloc(sizeof(StunDnsCtx));
+        if (dns_ctx) {
+          dns_ctx->agent        = a;
+          dns_ctx->server_index = server_count;
+          a->stun_dns_pending++;
+          a->stun_dns_queries[server_count] =
+            xDnsResolve(a->loop, host, NULL, &hints, on_stun_dns_done, dns_ctx);
+          if (!a->stun_dns_queries[server_count]) {
+            a->stun_dns_pending--;
+            free(dns_ctx);
+          }
+        }
+        server_count++;
       }
+      token = strtok_r(NULL, ",", &saveptr);
+    }
+
+    /* Also keep stun_port for backward compat (first server) */
+    if (server_count > 0) {
+      a->stun_port = a->stun_ports[0];
+    }
+
+    if (a->stun_dns_pending > 0) {
+      /* One pending_gather for the entire STUN DNS phase */
+      a->pending_gather++;
     }
   }
 

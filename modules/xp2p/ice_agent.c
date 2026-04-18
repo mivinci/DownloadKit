@@ -1687,11 +1687,22 @@ xErrno xIceAgentSetRemoteDescription(xIceAgent agent, const char *sdp) {
   XDEBUGL1("[ice] set remote: ufrag=%s, %d candidates, gathering_done=%d",
            a->remote_ufrag, parsed.candidate_count, a->gathering_done);
 
-  /* Add remote candidates */
+  /* Add remote candidates (with de-duplication) */
   for (int i = 0;
        i < parsed.candidate_count && a->remote_count < XICE_MAX_CANDIDATES;
        i++) {
-    a->remote_candidates[a->remote_count++] = parsed.candidates[i];
+    bool dup = false;
+    for (int j = 0; j < a->remote_count; j++) {
+      if (sockaddr_equal(
+            (const struct sockaddr *)&a->remote_candidates[j].addr,
+            (const struct sockaddr *)&parsed.candidates[i].addr)) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) {
+      a->remote_candidates[a->remote_count++] = parsed.candidates[i];
+    }
   }
 
   /* Create TURN permissions for new remote candidates */
@@ -1720,6 +1731,18 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
   xErrno        err = xIceSdpDecodeCandidate(candidate_sdp, &cand);
   if (err != xErrno_Ok) return err;
 
+  /* De-duplicate: skip if a remote candidate with the same address already
+   * exists.  This can happen when the SDP answer contains candidates AND
+   * trickle ICE delivers them again via AddRemoteCandidate. */
+  for (int i = 0; i < a->remote_count; i++) {
+    if (sockaddr_equal((const struct sockaddr *)&a->remote_candidates[i].addr,
+                       (const struct sockaddr *)&cand.addr)) {
+      XDEBUGL1("[ice] AddRemoteCandidate: duplicate address, skipping");
+      return xErrno_Ok;
+    }
+  }
+
+  int new_remote_idx = a->remote_count;
   a->remote_candidates[a->remote_count++] = cand;
 
   /* Create TURN permission for the new remote candidate */
@@ -1731,15 +1754,45 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
     }
   }
 
-  /* If already checking, re-generate pairs and continue */
+  /* If already checking, incrementally add new pairs for this candidate
+   * without destroying existing pairs (which may be InProgress with
+   * outstanding STUN transactions). */
   if (a->state == xIceAgentState_Checking) {
-    int old_count = a->pair_count;
-    generate_pairs(a);
+    xIceCandidate *remote = &a->remote_candidates[new_remote_idx];
+    for (int l = 0; l < a->local_count && a->pair_count < XICE_MAX_PAIRS;
+         l++) {
+      if (a->local_candidates[l].component_id != remote->component_id)
+        continue;
+      if (a->local_candidates[l].addr.ss_family != remote->addr.ss_family)
+        continue;
 
-    /* Check new pairs immediately */
-    for (int i = old_count; i < a->pair_count; i++) {
-      if (a->pairs[i].state == xIcePairState_Frozen) {
-        send_check(a, &a->pairs[i]);
+      xIcePair *pair  = &a->pairs[a->pair_count];
+      pair->local     = &a->local_candidates[l];
+      pair->remote    = remote;
+      pair->state     = xIcePairState_Frozen;
+      pair->nominated = false;
+
+      uint32_t g_prio, d_prio;
+      if (a->role == xIceAgentRole_Controlling) {
+        g_prio = pair->local->priority;
+        d_prio = pair->remote->priority;
+      } else {
+        g_prio = pair->remote->priority;
+        d_prio = pair->local->priority;
+      }
+      pair->priority = xIcePairPriority(g_prio, d_prio);
+      a->pair_count++;
+    }
+
+    XDEBUGL1("[ice] trickle: added pairs for new remote, total=%d",
+             a->pair_count);
+
+    /* Send checks on the newly added pairs immediately */
+    for (int i = 0; i < a->pair_count; i++) {
+      xIcePair *pair = &a->pairs[i];
+      if (pair->remote != remote) continue;
+      if (pair->state == xIcePairState_Frozen) {
+        send_check(a, pair);
       }
     }
   }

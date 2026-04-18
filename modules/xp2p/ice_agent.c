@@ -21,7 +21,9 @@
 #include <xbase/log.h>
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <ifaddrs.h>
+#include <inttypes.h>
 #include <net/if.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,8 +120,33 @@ static void generate_random_string(char *buf, size_t len) {
   buf[len] = '\0';
 }
 
+#if XK_DEBUG_LEVEL >= 1
+static const char *state_name(xIceAgentState s) {
+  switch (s) {
+  case xIceAgentState_New:
+    return "New";
+  case xIceAgentState_Gathering:
+    return "Gathering";
+  case xIceAgentState_Checking:
+    return "Checking";
+  case xIceAgentState_Connected:
+    return "Connected";
+  case xIceAgentState_Completed:
+    return "Completed";
+  case xIceAgentState_Failed:
+    return "Failed";
+  case xIceAgentState_Closed:
+    return "Closed";
+  default:
+    return "Unknown";
+  }
+}
+#endif
+
 static void set_state(xIceAgent_ *a, xIceAgentState new_state) {
   if (a->state == new_state) return;
+  XDEBUGL1("[ice] state: %s -> %s", state_name(a->state),
+           state_name(new_state));
   a->state = new_state;
 
   /* Map internal state to public state */
@@ -204,28 +231,30 @@ static xErrno udp_sendto(xSocket sock, const uint8_t *data, size_t len,
   int fd = xSocketFd(sock);
   if (fd < 0) return xErrno_SysError;
   ssize_t n = sendto(fd, data, len, 0, addr, sockaddr_len(addr));
+#if XK_DEBUG_LEVEL >= 1
+  if (n < 0) {
+    char dstr[64];
+    sockaddr_to_str(addr, dstr, sizeof(dstr));
+    XDEBUGL1("[ice] sendto %s failed: %s (fd=%d)", dstr, strerror(errno), fd);
+  }
+#endif
   return (n >= 0) ? xErrno_Ok : xErrno_SysError;
 }
 
 /* ───────────────────── Send Callback for STUN Txn ───────────────────── */
 
-static xErrno agent_stun_send(const uint8_t *data, size_t len,
-                              const struct sockaddr *addr, void *arg) {
-  xIceAgent_ *a = (xIceAgent_ *)arg;
-  /* Prefer a host candidate whose address family matches the destination */
+/**
+ * @brief Find the first host candidate socket whose address family matches
+ *        the given address.  Returns NULL if none found.
+ */
+static xSocket find_host_sock(xIceAgent_ *a, sa_family_t family) {
   for (int i = 0; i < a->host_count; i++) {
     if (a->local_candidates[i].sock &&
-        a->local_candidates[i].addr.ss_family == addr->sa_family) {
-      return udp_sendto(a->local_candidates[i].sock, data, len, addr);
+        a->local_candidates[i].addr.ss_family == family) {
+      return a->local_candidates[i].sock;
     }
   }
-  /* Fallback: any socket */
-  for (int i = 0; i < a->local_count; i++) {
-    if (a->local_candidates[i].sock) {
-      return udp_sendto(a->local_candidates[i].sock, data, len, addr);
-    }
-  }
-  return xErrno_SysError;
+  return NULL;
 }
 
 /* ───────────────────── Pair Generation ───────────────────── */
@@ -269,6 +298,20 @@ static void generate_pairs(xIceAgent_ *a) {
   }
 
   xIcePairSort(a->pairs, a->pair_count);
+
+#if XK_DEBUG_LEVEL >= 1
+  XDEBUGL1("[ice] generated %d candidate pairs (local=%d, remote=%d)",
+           a->pair_count, a->local_count, a->remote_count);
+  for (int i = 0; i < a->pair_count; i++) {
+    char lstr[64], rstr[64];
+    sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr,
+                    sizeof(lstr));
+    sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr, rstr,
+                    sizeof(rstr));
+    XDEBUGL1("[ice]   pair[%d]: %s -> %s (prio=%" PRIu64 ")", i, lstr, rstr,
+             a->pairs[i].priority);
+  }
+#endif
 }
 
 /* ───────────────────── Connectivity Check ───────────────────── */
@@ -288,15 +331,29 @@ static void on_check_response(const xStunMsg *msg, const struct sockaddr *from,
                               void *arg);
 
 /**
- * @brief Send function for connectivity checks — uses the pair's local socket.
+ * @brief Send function that uses a specific socket (passed as arg).
+ *
+ * Used by connectivity checks, srflx gather, consent checks and TURN
+ * client so that each STUN transaction (including retransmissions)
+ * always goes out on the correct socket.
  */
-static xErrno pair_stun_send(const uint8_t *data, size_t len,
+static xErrno sock_stun_send(const uint8_t *data, size_t len,
                              const struct sockaddr *addr, void *arg) {
   xSocket sock = (xSocket)arg;
   return udp_sendto(sock, data, len, addr);
 }
 
 static xErrno send_check(xIceAgent_ *a, xIcePair *pair) {
+#if XK_DEBUG_LEVEL >= 1
+  char lstr[64], rstr[64];
+  sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
+                  sizeof(lstr));
+  sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr,
+                  sizeof(rstr));
+  XDEBUGL1("[ice] send_check: %s -> %s (role=%s)", lstr, rstr,
+           a->role == xIceAgentRole_Controlling ? "controlling" : "controlled");
+#endif
+
   uint8_t msg_buf[512];
   uint8_t txn_id[XSTUN_TXN_ID_SIZE];
 
@@ -362,12 +419,12 @@ static xErrno send_check(xIceAgent_ *a, xIcePair *pair) {
       /* Register the transaction so we can match the response */
       err = xStunTxnMgrSendRaw(
         &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
-        pair_stun_send, pair->local->sock, on_check_response, ctx);
+        sock_stun_send, pair->local->sock, on_check_response, ctx);
     }
   } else {
     err = xStunTxnMgrSendRaw(
       &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
-      pair_stun_send, pair->local->sock, on_check_response, ctx);
+      sock_stun_send, pair->local->sock, on_check_response, ctx);
   }
   if (err != xErrno_Ok) {
     free(ctx);
@@ -473,12 +530,14 @@ static void try_nominate(xIceAgent_ *a) {
       a->nominated    = best;
       best->nominated = true;
 
+#if XK_DEBUG_LEVEL >= 0
       char lstr[64], rstr[64];
       sockaddr_to_str((const struct sockaddr *)&best->local->addr, lstr,
                       sizeof(lstr));
       sockaddr_to_str((const struct sockaddr *)&best->remote->addr, rstr,
                       sizeof(rstr));
       XDEBUGL0("[ice] nominated pair: %s -> %s", lstr, rstr);
+#endif
 
       set_state(a, xIceAgentState_Connected);
       start_consent(a);
@@ -507,11 +566,53 @@ static void on_check_response(const xStunMsg        *msg,
   xIcePair   *pair  = ctx->pair;
   free(ctx);
 
+#if XK_DEBUG_LEVEL >= 1
+  char lstr[64], rstr[64];
+  sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
+                  sizeof(lstr));
+  sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr,
+                  sizeof(rstr));
+  XDEBUGL1("[ice] check response: %s -> %s, result=%s", lstr, rstr,
+           !msg                                   ? "timeout"
+           : xStunMsgIsSuccessResponse(msg->type) ? "success"
+                                                  : "error");
+#endif
+
   if (!msg) {
     /* Timeout */
     pair->state = xIcePairState_Failed;
   } else if (xStunMsgIsSuccessResponse(msg->type)) {
     pair->state = xIcePairState_Succeeded;
+  } else if (xStunMsgIsErrorResponse(msg->type)) {
+    /* Check for 487 Role Conflict (RFC 8445 §7.2.5.1) */
+    int           err_code       = 0;
+    const char   *err_reason     = NULL;
+    size_t        err_reason_len = 0;
+    xStunAttrIter iter;
+    xStunAttrIterInit(&iter, msg);
+    xStunAttr attr;
+    while (xStunAttrIterNext(&iter, &attr)) {
+      if (attr.type == xStunAttrType_ErrorCode) {
+        xStunAttrDecodeErrorCode(&attr, &err_code, &err_reason,
+                                 &err_reason_len);
+        break;
+      }
+    }
+    if (err_code == 487) {
+      /* Role conflict: switch role and retry */
+      XDEBUGL0("[ice] 487 Role Conflict, switching role");
+      if (agent->role == xIceAgentRole_Controlling) {
+        agent->role = xIceAgentRole_Controlled;
+      } else {
+        agent->role = xIceAgentRole_Controlling;
+      }
+      pair->state = xIcePairState_Waiting;
+      send_check(agent, pair);
+      return; /* Don't call try_nominate yet */
+    }
+    /* Other error: mark pair as failed */
+    XDEBUGL0("[ice] check error %d for pair", err_code);
+    pair->state = xIcePairState_Failed;
   }
 
   /* A pair finished — check if we can nominate now */
@@ -551,7 +652,9 @@ static void check_timeout_cb(void *arg) {
 }
 
 static void start_checks(xIceAgent_ *a) {
+  XDEBUGL1("[ice] start_checks: %d pairs", a->pair_count);
   if (a->pair_count == 0) {
+    XDEBUGL1("[ice] start_checks: no pairs, failing");
     set_state(a, xIceAgentState_Failed);
     return;
   }
@@ -610,8 +713,8 @@ static void consent_cb(void *arg) {
                         (const struct sockaddr *)&a->nominated->remote->addr,
                         msg_buf, total);
   } else {
-    agent_stun_send(msg_buf, total,
-                    (struct sockaddr *)&a->nominated->remote->addr, a);
+    udp_sendto(a->nominated->local->sock, msg_buf, total,
+               (struct sockaddr *)&a->nominated->remote->addr);
   }
 
   /* Schedule next consent check */
@@ -727,6 +830,10 @@ static void on_srflx_response(const xStunMsg        *msg,
   xIceAgent_ *a   = ctx->agent;
   int         hi  = ctx->host_index;
   free(ctx);
+
+  XDEBUGL1("[ice] srflx response for host[%d]: %s", hi,
+           (msg && xStunMsgIsSuccessResponse(msg->type)) ? "success"
+                                                         : "fail/timeout");
 
   if (msg && xStunMsgIsSuccessResponse(msg->type)) {
     /* Extract XOR-MAPPED-ADDRESS → srflx candidate */
@@ -879,7 +986,7 @@ static void turn_create_permissions_for_remotes(xIceAgent_ *a) {
     xErrno err = xTurnClientCreatePermission(a->turn_client, peer);
     if (err != xErrno_Ok) {
       XDEBUGL0("[ice] failed to create TURN permission for remote candidate %d",
-             i);
+               i);
     }
   }
 }
@@ -917,8 +1024,9 @@ static void send_stun_binding_for_host(xIceAgent_                    *a,
   ctx->host_index = host_index;
 
   xStunTxnMgrSendRaw(&a->txn_mgr, msg_buf, XSTUN_HEADER_SIZE,
-                     (struct sockaddr *)stun_addr, agent_stun_send, a,
-                     on_srflx_response, ctx);
+                     (struct sockaddr *)stun_addr, sock_stun_send,
+                     a->local_candidates[host_index].sock, on_srflx_response,
+                     ctx);
 }
 
 static void send_stun_binding(xIceAgent_                    *a,
@@ -955,8 +1063,8 @@ static void start_turn_allocate(xIceAgent_                    *a,
           sizeof(tc_conf.username) - 1);
   strncpy(tc_conf.password, a->conf.turn_password,
           sizeof(tc_conf.password) - 1);
-  tc_conf.send_fn      = agent_stun_send;
-  tc_conf.send_arg     = a;
+  tc_conf.send_fn      = sock_stun_send;
+  tc_conf.send_arg     = find_host_sock(a, turn_addr->ss_family);
   tc_conf.on_allocated = on_turn_allocated;
   tc_conf.on_failed    = on_turn_failed;
   tc_conf.on_data      = on_turn_data;
@@ -971,6 +1079,8 @@ static void start_turn_allocate(xIceAgent_                    *a,
  * If so, cancel the gather timer and finish gathering immediately.
  */
 static void gather_check_done(xIceAgent_ *a) {
+  XDEBUGL1("[ice] gather_check_done: pending=%d, state=%s, done=%d",
+           a->pending_gather, state_name(a->state), a->gathering_done);
   if (a->pending_gather > 0) return;
   if (a->state != xIceAgentState_Gathering) return;
   if (a->gathering_done) return;
@@ -990,14 +1100,19 @@ static void gather_check_done(xIceAgent_ *a) {
 
   /* If remote is set, start checks */
   if (a->remote_set) {
+    XDEBUGL1("[ice] gather done, remote already set, starting checks");
     generate_pairs(a);
     start_checks(a);
+  } else {
+    XDEBUGL1("[ice] gather done, waiting for remote description");
   }
 }
 
 static void gather_timeout_cb(void *arg) {
   xIceAgent_ *a   = (xIceAgent_ *)arg;
   a->gather_timer = NULL;
+
+  XDEBUGL1("[ice] gather timeout");
 
   if (a->state != xIceAgentState_Gathering) return;
 
@@ -1018,8 +1133,53 @@ static void gather_timeout_cb(void *arg) {
 /* ───────────────────── Incoming STUN Handler ───────────────────── */
 
 static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
+                                            const uint8_t         *raw_buf,
+                                            size_t                 raw_len,
                                             const struct sockaddr *from,
                                             xSocket                sock) {
+  /* Validate USERNAME and MESSAGE-INTEGRITY (RFC 8445 §7.2.1.1) */
+  bool             has_username  = false;
+  bool             has_integrity = false;
+  const xStunAttr *mi_attr_ptr   = NULL;
+  xStunAttr        mi_attr_copy;
+  xStunAttrIter    viter;
+  xStunAttrIterInit(&viter, msg);
+  xStunAttr vattr;
+  while (xStunAttrIterNext(&viter, &vattr)) {
+    if (vattr.type == xStunAttrType_Username) {
+      /* USERNAME must be "local_ufrag:remote_ufrag" */
+      size_t local_len  = strlen(a->ice_ufrag);
+      size_t remote_len = strlen(a->remote_ufrag);
+      size_t expected   = local_len + 1 + remote_len;
+      if (vattr.length != expected ||
+          memcmp(vattr.value, a->ice_ufrag, local_len) != 0 ||
+          vattr.value[local_len] != ':' ||
+          memcmp(vattr.value + local_len + 1, a->remote_ufrag, remote_len) !=
+            0) {
+        XDEBUGL0("[ice] incoming request: USERNAME mismatch, discarding");
+        return;
+      }
+      has_username = true;
+    } else if (vattr.type == xStunAttrType_MessageIntegrity) {
+      mi_attr_copy  = vattr;
+      mi_attr_ptr   = &mi_attr_copy;
+      has_integrity = true;
+    }
+  }
+  if (!has_username || !has_integrity) {
+    XDEBUGL0("[ice] incoming request: missing USERNAME or MESSAGE-INTEGRITY, "
+             "discarding");
+    return;
+  }
+  /* Verify HMAC using local ice_pwd (the remote peer signs with our pwd) */
+  if (xStunAttrVerifyMessageIntegrity(raw_buf, raw_len, mi_attr_ptr,
+                                      (const uint8_t *)a->ice_pwd,
+                                      strlen(a->ice_pwd)) != xErrno_Ok) {
+    XDEBUGL0("[ice] incoming request: MESSAGE-INTEGRITY verification failed, "
+             "discarding");
+    return;
+  }
+
   /* Send a Binding Success Response */
   uint8_t  resp_buf[256];
   xStunMsg resp;
@@ -1109,6 +1269,34 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
     }
   }
 
+  /* Triggered check (RFC 8445 §7.2.5.1)
+   *
+   * When we receive a Binding Request from the remote peer, we look up
+   * the pair whose local candidate matches the socket we received on and
+   * whose remote candidate matches the source address.  If that pair is
+   * in Frozen / Waiting / Failed state, we immediately send a
+   * connectivity check on it — this is critical for restricted NAT
+   * traversal because the incoming request has just opened a pinhole in
+   * our NAT, and we must send our check through that same pinhole before
+   * it closes. */
+  if (a->state == xIceAgentState_Checking) {
+    for (int i = 0; i < a->pair_count; i++) {
+      xIcePair *pair = &a->pairs[i];
+      if (pair->local->sock != sock) continue;
+      const struct sockaddr *raddr =
+        (const struct sockaddr *)&pair->remote->addr;
+      if (!sockaddr_equal(from, raddr)) continue;
+
+      if (pair->state == xIcePairState_Frozen ||
+          pair->state == xIcePairState_Waiting ||
+          pair->state == xIcePairState_Failed) {
+        XDEBUGL0("[ice] triggered check for pair %d", i);
+        send_check(a, pair);
+      }
+      break;
+    }
+  }
+
   /* Handle nomination (Controlled side) */
   if (use_candidate && a->role == xIceAgentRole_Controlled && !a->nominated) {
     /* Find the pair for this remote address */
@@ -1120,12 +1308,14 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
         a->pairs[i].nominated = true;
         a->pairs[i].state     = xIcePairState_Succeeded;
 
+#if XK_DEBUG_LEVEL >= 0
         char lstr[64], rstr[64];
         sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr,
                         sizeof(lstr));
         sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr,
                         rstr, sizeof(rstr));
         XDEBUGL0("[ice] nominated pair: %s -> %s", lstr, rstr);
+#endif
 
         set_state(a, xIceAgentState_Connected);
         start_consent(a);
@@ -1164,6 +1354,13 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
     size_t                 len  = (size_t)n;
     const struct sockaddr *from = (const struct sockaddr *)&from_addr;
 
+#if XK_DEBUG_LEVEL >= 2
+    char fstr[64];
+    sockaddr_to_str(from, fstr, sizeof(fstr));
+    XDEBUGL2("[ice] on_udp_recv: %zu bytes from %s (first_byte=0x%02x)", len,
+             fstr, buf[0]);
+#endif
+
     /*
      * RFC 7983 first-byte demultiplexing:
      *   [0,   3]   → STUN
@@ -1187,7 +1384,12 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
       uint8_t msg_class = XSTUN_MSG_CLASS(msg.type);
 
       if (xStunMsgIsRequest(msg.type)) {
-        handle_incoming_binding_request(a, &msg, from, sock);
+#if XK_DEBUG_LEVEL >= 1
+        char fstr[64];
+        sockaddr_to_str(from, fstr, sizeof(fstr));
+        XDEBUGL1("[ice] recv STUN request from %s", fstr);
+#endif
+        handle_incoming_binding_request(a, &msg, buf, len, from, sock);
       } else if (msg_class == XSTUN_CLASS_INDICATION) {
         /* Indication (e.g. DataIndication) — route to TURN client */
         if (a->turn_client) {
@@ -1210,8 +1412,8 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
 
     case XICE_DEMUX_DTLS:
       /* Feed into upper layer (PeerConnection) if DTLS hook is set */
-      XDEBUGL0("[ice] DTLS packet %zu bytes, dtls_input_fn=%p", len,
-             (void *)a->dtls_input_fn);
+      XDEBUGL3("[ice] DTLS packet %zu bytes, dtls_input_fn=%p", len,
+               (void *)a->dtls_input_fn);
       if (a->dtls_input_fn) {
         a->dtls_input_fn(buf, len, from, a->dtls_input_arg);
       }
@@ -1520,11 +1722,24 @@ xErrno xIceAgentSetRemoteDescription(xIceAgent agent, const char *sdp) {
   a->remote_gathering_done = parsed.end_of_candidates;
   a->remote_set            = true;
 
-  /* Add remote candidates */
+  XDEBUGL1("[ice] set remote: ufrag=%s, %d candidates, gathering_done=%d",
+           a->remote_ufrag, parsed.candidate_count, a->gathering_done);
+
+  /* Add remote candidates (with de-duplication) */
   for (int i = 0;
        i < parsed.candidate_count && a->remote_count < XICE_MAX_CANDIDATES;
        i++) {
-    a->remote_candidates[a->remote_count++] = parsed.candidates[i];
+    bool dup = false;
+    for (int j = 0; j < a->remote_count; j++) {
+      if (sockaddr_equal((const struct sockaddr *)&a->remote_candidates[j].addr,
+                         (const struct sockaddr *)&parsed.candidates[i].addr)) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) {
+      a->remote_candidates[a->remote_count++] = parsed.candidates[i];
+    }
   }
 
   /* Create TURN permissions for new remote candidates */
@@ -1532,8 +1747,12 @@ xErrno xIceAgentSetRemoteDescription(xIceAgent agent, const char *sdp) {
 
   /* If gathering is done, start checks */
   if (a->gathering_done && a->state != xIceAgentState_Checking) {
+    XDEBUGL1("[ice] remote set, gather already done, starting checks");
     generate_pairs(a);
     start_checks(a);
+  } else {
+    XDEBUGL1("[ice] remote set, gather not done yet (state=%s)",
+             state_name(a->state));
   }
 
   return xErrno_Ok;
@@ -1549,6 +1768,18 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
   xErrno        err = xIceSdpDecodeCandidate(candidate_sdp, &cand);
   if (err != xErrno_Ok) return err;
 
+  /* De-duplicate: skip if a remote candidate with the same address already
+   * exists.  This can happen when the SDP answer contains candidates AND
+   * trickle ICE delivers them again via AddRemoteCandidate. */
+  for (int i = 0; i < a->remote_count; i++) {
+    if (sockaddr_equal((const struct sockaddr *)&a->remote_candidates[i].addr,
+                       (const struct sockaddr *)&cand.addr)) {
+      XDEBUGL1("[ice] AddRemoteCandidate: duplicate address, skipping");
+      return xErrno_Ok;
+    }
+  }
+
+  int new_remote_idx                      = a->remote_count;
   a->remote_candidates[a->remote_count++] = cand;
 
   /* Create TURN permission for the new remote candidate */
@@ -1556,19 +1787,48 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
     xErrno perm_err = xTurnClientCreatePermission(
       a->turn_client, (const struct sockaddr *)&cand.addr);
     if (perm_err != xErrno_Ok) {
-      XDEBUGL0("[ice] failed to create TURN permission for new remote candidate");
+      XDEBUGL0(
+        "[ice] failed to create TURN permission for new remote candidate");
     }
   }
 
-  /* If already checking, re-generate pairs and continue */
+  /* If already checking, incrementally add new pairs for this candidate
+   * without destroying existing pairs (which may be InProgress with
+   * outstanding STUN transactions). */
   if (a->state == xIceAgentState_Checking) {
-    int old_count = a->pair_count;
-    generate_pairs(a);
+    xIceCandidate *remote = &a->remote_candidates[new_remote_idx];
+    for (int l = 0; l < a->local_count && a->pair_count < XICE_MAX_PAIRS; l++) {
+      if (a->local_candidates[l].component_id != remote->component_id) continue;
+      if (a->local_candidates[l].addr.ss_family != remote->addr.ss_family)
+        continue;
 
-    /* Check new pairs immediately */
-    for (int i = old_count; i < a->pair_count; i++) {
-      if (a->pairs[i].state == xIcePairState_Frozen) {
-        send_check(a, &a->pairs[i]);
+      xIcePair *pair  = &a->pairs[a->pair_count];
+      pair->local     = &a->local_candidates[l];
+      pair->remote    = remote;
+      pair->state     = xIcePairState_Frozen;
+      pair->nominated = false;
+
+      uint32_t g_prio, d_prio;
+      if (a->role == xIceAgentRole_Controlling) {
+        g_prio = pair->local->priority;
+        d_prio = pair->remote->priority;
+      } else {
+        g_prio = pair->remote->priority;
+        d_prio = pair->local->priority;
+      }
+      pair->priority = xIcePairPriority(g_prio, d_prio);
+      a->pair_count++;
+    }
+
+    XDEBUGL1("[ice] trickle: added pairs for new remote, total=%d",
+             a->pair_count);
+
+    /* Send checks on the newly added pairs immediately */
+    for (int i = 0; i < a->pair_count; i++) {
+      xIcePair *pair = &a->pairs[i];
+      if (pair->remote != remote) continue;
+      if (pair->state == xIcePairState_Frozen) {
+        send_check(a, pair);
       }
     }
   }
@@ -1600,9 +1860,9 @@ xErrno xIceAgentSend(xIceAgent agent, const uint8_t *data, size_t len) {
   /* Send via TURN relay if nominated pair's local candidate is relay type */
   if (a->nominated->local->type == xIceCandidateType_Relay) {
     if (!a->turn_client) return xErrno_SysError;
-    return xTurnClientSendData(a->turn_client,
-                               (const struct sockaddr *)&a->nominated->remote->addr,
-                               data, len);
+    return xTurnClientSendData(
+      a->turn_client, (const struct sockaddr *)&a->nominated->remote->addr,
+      data, len);
   }
 
   return udp_sendto(a->nominated->local->sock, data, len,

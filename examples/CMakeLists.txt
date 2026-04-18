@@ -30,3 +30,6 @@ target_link_libraries(xfer_recv PRIVATE xfer xbase)
 
 add_executable(xfer_signal xfer_signal.c)
 target_link_libraries(xfer_signal PRIVATE xfer xhttp xbase)
+
+add_executable(nat_probe nat_probe.c)
+target_link_libraries(nat_probe PRIVATE xp2p xbase)

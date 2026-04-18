@@ -231,11 +231,13 @@ static xErrno udp_sendto(xSocket sock, const uint8_t *data, size_t len,
   int fd = xSocketFd(sock);
   if (fd < 0) return xErrno_SysError;
   ssize_t n = sendto(fd, data, len, 0, addr, sockaddr_len(addr));
+#if XK_DEBUG_LEVEL >= 1
   if (n < 0) {
     char dstr[64];
     sockaddr_to_str(addr, dstr, sizeof(dstr));
     XDEBUGL1("[ice] sendto %s failed: %s (fd=%d)", dstr, strerror(errno), fd);
   }
+#endif
   return (n >= 0) ? xErrno_Ok : xErrno_SysError;
 }
 

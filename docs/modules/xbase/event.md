@@ -12,7 +12,7 @@
 
 3. **Integrated Timer Heap** — Rather than requiring a separate timer facility, the event loop embeds a min-heap of timer entries. `xEventWait()` automatically adjusts its timeout to fire the earliest timer, providing sub-millisecond timer resolution without a dedicated timer thread.
 
-4. **Thread-Pool Offload** — `xEventLoopSubmit()` bridges the event loop and the task system: CPU-bound work runs on a worker thread, and the completion callback is dispatched on the event loop thread via a lock-free MPSC queue + wake pipe, ensuring single-threaded callback semantics.
+4. **Thread-Pool Offload** — `xEventLoopSubmit()` bridges the event loop and the task system: CPU-bound work runs on a worker thread, and the completion callback is dispatched on the event loop thread via a lock-free MPSC queue + cross-thread wake, ensuring single-threaded callback semantics.
 
 5. **Self-Pipe Trick for Signals** — On epoll and poll backends, signal delivery uses the self-pipe trick (a `sigaction` handler writes to a pipe) rather than `signalfd`, avoiding the fragile requirement of blocking signals in every thread. On kqueue, `EVFILT_SIGNAL` is used natively.
 
@@ -35,7 +35,7 @@ graph TD
     end
 
     subgraph "Cross-Thread"
-        WAKE["Wake Pipe"]
+        WAKE["Wake (EVFILT_USER / eventfd / pipe)"]
         MPSC_Q["MPSC Done Queue"]
         WORKER["Worker Thread Pool"]
     end
@@ -103,7 +103,7 @@ Each backend is implemented in a separate `.c` file that provides the full publi
 All backends share a common base structure (`struct xEventLoop_`) defined in `event_private.h`, which contains:
 
 - A dynamic source array with deferred deletion (sweep after dispatch)
-- A wake pipe (non-blocking) for cross-thread wakeup
+- A cross-thread wake mechanism (`EVFILT_USER` on kqueue, `eventfd` on epoll, pipe on poll) with atomic coalescing
 - A min-heap for builtin timers (protected by `timer_mu` mutex)
 - A lock-free MPSC done-queue for offload completion callbacks
 - Signal watch slots (up to `XK_SIGNAL_MAX = 64`)
@@ -112,9 +112,17 @@ All backends share a common base structure (`struct xEventLoop_`) defined in `ev
 
 When `xEventDel()` is called during a callback dispatch, the source is marked `deleted = 1` rather than freed immediately. After the dispatch batch completes, `source_array_sweep()` frees all deleted sources. This prevents use-after-free when multiple events reference the same source in a single `xEventWait()` call.
 
-### Wake Pipe
+### Cross-Thread Wake
 
-A non-blocking pipe (`wake_rfd` / `wake_wfd`) is registered with the backend. `xEventWake()` writes a single byte to the write end; the event loop drains the read end and processes the done-queue. Multiple wakes before the next `xEventWait()` are coalesced (EAGAIN on a full pipe is treated as success).
+Each backend uses the lightest available mechanism for cross-thread wakeup:
+
+| Backend | Mechanism | Fds Used |
+| --- | --- | --- |
+| kqueue | `EVFILT_USER` with `NOTE_TRIGGER` | 0 (kernel event, no fd) |
+| epoll | `eventfd` (`EFD_NONBLOCK \| EFD_CLOEXEC`) | 1 (`wake_rfd`) |
+| poll | Non-blocking pipe (`wake_rfd` / `wake_wfd`) | 2 (POSIX fallback) |
+
+`xEventWake()` triggers the backend-specific notification; the event loop drains it and processes the done-queue. Multiple wakes before the next `xEventWait()` are coalesced via an atomic `wake_pending` flag — only the first caller after the loop clears the flag performs the actual syscall, subsequent callers skip it entirely. This reduces wake overhead from O(N) syscalls to O(1) in batch completion scenarios.
 
 ### Timer Integration
 
@@ -324,51 +332,31 @@ int main(void) {
 
 > Environment: Apple M3 Pro, 36 GB RAM, macOS 26.4, Release build (`-O2`), kqueue backend.
 > Source: [`xbase/event_bench.cpp`](https://github.com/mivinci/xKit/blob/main/xbase/event_bench.cpp)
+> Full report: [`docs/bench/event_loop.md`](../bench/event_loop.md)
 
 ### Core Operations
 
 | Benchmark | Time (ns) | CPU (ns) | Iterations |
 | --- | ---: | ---: | ---: |
-| `BM_EventLoop_CreateDestroy` | 2,773 | 2,773 | 235,725 |
-| `BM_EventLoop_WakeLatency` | 879 | 879 | 786,676 |
-| `BM_EventLoop_PipeAddDel` | 1,181 | 1,181 | 588,033 |
+| `BM_EventLoop_CreateDestroy` | 700 | 700 | 974,157 |
+| `BM_EventLoop_WakeLatency` | 413 | 413 | 1,717,088 |
+| `BM_EventLoop_PipeAddDel` | 1,144 | 1,144 | 612,118 |
 
-### Timer Scheduling
-
-| Benchmark | Time (ns) | CPU (ns) | Throughput |
-| --- | ---: | ---: | ---: |
-| `BM_EventLoop_TimerSingle` | 974 | 974 | 1.03M items/s |
-| `BM_EventLoop_TimerBatch/10` | 3,794 | 3,794 | 2.64M items/s |
-| `BM_EventLoop_TimerBatch/100` | 31,483 | 31,479 | 3.18M items/s |
-| `BM_EventLoop_TimerBatch/1000` | 318,881 | 318,805 | 3.14M items/s |
-
-### Offload Round-Trip (Submit → Done Callback)
-
-| Benchmark | Time (ns) | CPU (ns) | Throughput |
-| --- | ---: | ---: | ---: |
-| `BM_EventLoop_OffloadSingle` | 6,959 | 4,110 | 243.3k items/s |
-| `BM_EventLoop_OffloadBatch/10` | 18,514 | 15,058 | 664.1k items/s |
-| `BM_EventLoop_OffloadBatch/100` | 82,536 | 66,319 | 1.51M items/s |
-| `BM_EventLoop_OffloadBatch/1000` | 636,981 | 507,346 | 1.97M items/s |
+- **Create/Destroy** takes ~700ns — reduced from ~2.8µs after eliminating the wake pipe (no more `pipe()` + two extra fds).
+- **Wake latency** is ~413ns per wake+wait cycle via `EVFILT_USER`, down from ~879ns with the old pipe mechanism — a **2.1× improvement**.
 
 ### libuv Baseline Comparison
 
 | Dimension | xKit | libuv | Ratio |
 | --- | ---: | ---: | ---: |
-| **Wake Latency** | 879 ns | 415 ns | 2.12× slower |
-| **Timer (single)** | 974 ns | 1,525 ns (CPU) | **1.57× faster** |
-| **Timer (×10)** | 3,794 ns | 1,836 ns (CPU) | 2.07× slower |
-| **Timer (×100)** | 31,479 ns | 6,037 ns (CPU) | 5.21× slower |
-| **Timer (×1000)** | 318,805 ns | 73,537 ns (CPU) | 4.33× slower |
-| **Offload (single)** | 4,110 ns (CPU) | 3,536 ns (CPU) | 1.16× slower |
-| **Offload (×10)** | 15,058 ns (CPU) | 10,394 ns (CPU) | 1.45× slower |
-| **Offload (×100)** | 66,319 ns (CPU) | 33,966 ns (CPU) | 1.95× slower |
-| **Offload (×1000)** | 507,346 ns (CPU) | 260,302 ns (CPU) | 1.95× slower |
+| **Wake Latency** | 413 ns | 417 ns | **Tied** (xKit 1.01× faster) |
+| **Timer (single)** | 461 ns | 1,517 ns | **xKit 3.3× faster** |
+| **Timer (×1000)** | 43,545 ns | 68,659 ns | **xKit 1.6× faster** |
+| **Offload (single)** | 3,785 ns | 3,449 ns | libuv 1.1× faster (tied) |
+| **Offload (×1000)** | 456,426 ns | 218,513 ns | libuv 2.1× faster |
 
 **Key Observations:**
 
-- **Create/Destroy** takes ~2.8µs, reflecting the cost of kqueue fd creation and internal structure allocation. Acceptable for long-lived event loops.
-- **Wake latency** is ~879ns per wake+wait cycle. libuv is ~2× faster here, likely due to its use of `uv_async_t` which avoids the pipe read/drain overhead.
-- **Timer (single)** — xKit wins at ~974ns vs libuv's ~1.5µs CPU time, showing that xKit's lightweight timer heap has lower per-timer overhead for the simple case.
-- **Timer (batch)** — libuv scales significantly better under bulk timer load. libuv's timer implementation uses a more optimized heap or batched processing that amortizes overhead at scale. This is an area for future optimization.
-- **Offload round-trip** — libuv is ~1.2–2× faster across all batch sizes. The gap widens with batch size, suggesting libuv's `uv_queue_work` has a more efficient completion notification path. xKit's MPSC queue + wake pipe approach is competitive for single-item offload but has room for improvement in batch throughput.
+- **Wake latency** — Now effectively tied with libuv (413ns vs 417ns) after switching to `EVFILT_USER` (kqueue) / `eventfd` (epoll) + atomic wake coalescing. Previously 2.1× slower.
+- **Timer** — xKit now **wins across all batch sizes** thanks to batch-pop with single lock acquisition and timer struct freelist pooling. Previously libuv was 4–5× faster at batch sizes.
+- **Offload round-trip** — libuv remains ~2× faster at scale. The gap has narrowed at small batch sizes thanks to wake coalescing and work item pooling.

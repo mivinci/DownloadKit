@@ -209,23 +209,18 @@ static xErrno udp_sendto(xSocket sock, const uint8_t *data, size_t len,
 
 /* ───────────────────── Send Callback for STUN Txn ───────────────────── */
 
-static xErrno agent_stun_send(const uint8_t *data, size_t len,
-                              const struct sockaddr *addr, void *arg) {
-  xIceAgent_ *a = (xIceAgent_ *)arg;
-  /* Prefer a host candidate whose address family matches the destination */
+/**
+ * @brief Find the first host candidate socket whose address family matches
+ *        the given address.  Returns NULL if none found.
+ */
+static xSocket find_host_sock(xIceAgent_ *a, sa_family_t family) {
   for (int i = 0; i < a->host_count; i++) {
     if (a->local_candidates[i].sock &&
-        a->local_candidates[i].addr.ss_family == addr->sa_family) {
-      return udp_sendto(a->local_candidates[i].sock, data, len, addr);
+        a->local_candidates[i].addr.ss_family == family) {
+      return a->local_candidates[i].sock;
     }
   }
-  /* Fallback: any socket */
-  for (int i = 0; i < a->local_count; i++) {
-    if (a->local_candidates[i].sock) {
-      return udp_sendto(a->local_candidates[i].sock, data, len, addr);
-    }
-  }
-  return xErrno_SysError;
+  return NULL;
 }
 
 /* ───────────────────── Pair Generation ───────────────────── */
@@ -288,9 +283,13 @@ static void on_check_response(const xStunMsg *msg, const struct sockaddr *from,
                               void *arg);
 
 /**
- * @brief Send function for connectivity checks — uses the pair's local socket.
+ * @brief Send function that uses a specific socket (passed as arg).
+ *
+ * Used by connectivity checks, srflx gather, consent checks and TURN
+ * client so that each STUN transaction (including retransmissions)
+ * always goes out on the correct socket.
  */
-static xErrno pair_stun_send(const uint8_t *data, size_t len,
+static xErrno sock_stun_send(const uint8_t *data, size_t len,
                              const struct sockaddr *addr, void *arg) {
   xSocket sock = (xSocket)arg;
   return udp_sendto(sock, data, len, addr);
@@ -361,13 +360,13 @@ static xErrno send_check(xIceAgent_ *a, xIcePair *pair) {
     if (err == xErrno_Ok) {
       /* Register the transaction so we can match the response */
       err = xStunTxnMgrSendRaw(
-        &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
-        pair_stun_send, pair->local->sock, on_check_response, ctx);
+      &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
+      sock_stun_send, pair->local->sock, on_check_response, ctx);
     }
   } else {
     err = xStunTxnMgrSendRaw(
       &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
-      pair_stun_send, pair->local->sock, on_check_response, ctx);
+      sock_stun_send, pair->local->sock, on_check_response, ctx);
   }
   if (err != xErrno_Ok) {
     free(ctx);
@@ -610,8 +609,8 @@ static void consent_cb(void *arg) {
                         (const struct sockaddr *)&a->nominated->remote->addr,
                         msg_buf, total);
   } else {
-    agent_stun_send(msg_buf, total,
-                    (struct sockaddr *)&a->nominated->remote->addr, a);
+    udp_sendto(a->nominated->local->sock, msg_buf, total,
+               (struct sockaddr *)&a->nominated->remote->addr);
   }
 
   /* Schedule next consent check */
@@ -917,7 +916,8 @@ static void send_stun_binding_for_host(xIceAgent_                    *a,
   ctx->host_index = host_index;
 
   xStunTxnMgrSendRaw(&a->txn_mgr, msg_buf, XSTUN_HEADER_SIZE,
-                     (struct sockaddr *)stun_addr, agent_stun_send, a,
+                     (struct sockaddr *)stun_addr, sock_stun_send,
+                     a->local_candidates[host_index].sock,
                      on_srflx_response, ctx);
 }
 
@@ -955,8 +955,8 @@ static void start_turn_allocate(xIceAgent_                    *a,
           sizeof(tc_conf.username) - 1);
   strncpy(tc_conf.password, a->conf.turn_password,
           sizeof(tc_conf.password) - 1);
-  tc_conf.send_fn      = agent_stun_send;
-  tc_conf.send_arg     = a;
+  tc_conf.send_fn      = sock_stun_send;
+  tc_conf.send_arg     = find_host_sock(a, turn_addr->ss_family);
   tc_conf.on_allocated = on_turn_allocated;
   tc_conf.on_failed    = on_turn_failed;
   tc_conf.on_data      = on_turn_data;

@@ -1109,6 +1109,34 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
     }
   }
 
+  /* Triggered check (RFC 8445 §7.2.5.1)
+   *
+   * When we receive a Binding Request from the remote peer, we look up
+   * the pair whose local candidate matches the socket we received on and
+   * whose remote candidate matches the source address.  If that pair is
+   * in Frozen / Waiting / Failed state, we immediately send a
+   * connectivity check on it — this is critical for restricted NAT
+   * traversal because the incoming request has just opened a pinhole in
+   * our NAT, and we must send our check through that same pinhole before
+   * it closes. */
+  if (a->state == xIceAgentState_Checking) {
+    for (int i = 0; i < a->pair_count; i++) {
+      xIcePair *pair = &a->pairs[i];
+      if (pair->local->sock != sock) continue;
+      const struct sockaddr *raddr =
+        (const struct sockaddr *)&pair->remote->addr;
+      if (!sockaddr_equal(from, raddr)) continue;
+
+      if (pair->state == xIcePairState_Frozen ||
+          pair->state == xIcePairState_Waiting ||
+          pair->state == xIcePairState_Failed) {
+        XDEBUGL0("[ice] triggered check for pair %d", i);
+        send_check(a, pair);
+      }
+      break;
+    }
+  }
+
   /* Handle nomination (Controlled side) */
   if (use_candidate && a->role == xIceAgentRole_Controlled && !a->nominated) {
     /* Find the pair for this remote address */

@@ -12,8 +12,10 @@
 #include "ice_candidate.h"
 #include "ice_private.h"
 
-/** Maximum number of candidate pairs. */
-#define XICE_MAX_PAIRS 128
+/** Maximum number of candidate pairs.
+ *  Increased to 1536 to accommodate birthday-attack spray pairs
+ *  generated during symmetric NAT traversal. */
+#define XICE_MAX_PAIRS 1536
 
 /**
  * @brief An ICE candidate pair.

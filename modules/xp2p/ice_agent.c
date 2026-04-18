@@ -124,6 +124,21 @@ XDEF_STRUCT(xIceAgent_) {
   /* Port prediction config (runtime, from xIceConf) */
   int port_predict_count;
 
+  /* NAT type detection */
+  bool local_is_symmetric;  /* true if local NAT is symmetric (random ports) */
+  bool remote_is_symmetric; /* true if remote has divergent srflx ports */
+
+  /* Aggressive port-spray state for symmetric NAT traversal.
+   * When the local side is Cone NAT and the remote is symmetric,
+   * we spray connectivity checks to a wide range of random ports
+   * on the remote's srflx IP (birthday attack). */
+  bool        aggressive_mode;   /* true when doing port-spray */
+  xEventTimer aggressive_timer;  /* pacing timer for spray checks */
+  int         spray_index;       /* next spray pair to check */
+  int         spray_pair_start;  /* index where spray pairs begin in pairs[] */
+
+
+
   /* DTLS data input hook — set by xPeerConnection when attached */
   xIceDtlsInputFn dtls_input_fn;
   void           *dtls_input_arg;
@@ -255,6 +270,9 @@ static void sockaddr_to_str(const struct sockaddr *addr, char *buf,
   }
 }
 
+/* Forward declaration — defined later in the Gathering section */
+static void sockaddr_set_port(struct sockaddr_storage *addr, uint16_t port);
+
 /* ───────────────────── Low-level UDP Send ───────────────────── */
 
 static xErrno udp_sendto(xSocket sock, const uint8_t *data, size_t len,
@@ -289,6 +307,49 @@ static xSocket find_host_sock(xIceAgent_ *a, sa_family_t family) {
 }
 
 /* ───────────────────── Pair Generation ───────────────────── */
+
+/** Compare two sockaddrs for IP equality only (ignoring port). */
+static bool sockaddr_ip_equal(const struct sockaddr *a,
+                              const struct sockaddr *b) {
+  if (a->sa_family != b->sa_family) return false;
+  if (a->sa_family == AF_INET) {
+    return ((const struct sockaddr_in *)a)->sin_addr.s_addr ==
+           ((const struct sockaddr_in *)b)->sin_addr.s_addr;
+  }
+  if (a->sa_family == AF_INET6) {
+    return memcmp(&((const struct sockaddr_in6 *)a)->sin6_addr,
+                  &((const struct sockaddr_in6 *)b)->sin6_addr, 16) == 0;
+  }
+  return false;
+}
+
+/**
+ * Detect whether the remote peer is behind a symmetric NAT by examining
+ * its srflx candidates.  If two srflx candidates share the same IP but
+ * have ports that differ by more than 100, the remote NAT is symmetric.
+ */
+static void detect_remote_nat_type(xIceAgent_ *a) {
+  a->remote_is_symmetric = false;
+  for (int i = 0; i < a->remote_count; i++) {
+    if (a->remote_candidates[i].type != xIceCandidateType_Srflx) continue;
+    for (int j = i + 1; j < a->remote_count; j++) {
+      if (a->remote_candidates[j].type != xIceCandidateType_Srflx) continue;
+      const struct sockaddr *ai =
+        (const struct sockaddr *)&a->remote_candidates[i].addr;
+      const struct sockaddr *aj =
+        (const struct sockaddr *)&a->remote_candidates[j].addr;
+      if (!sockaddr_ip_equal(ai, aj)) continue;
+      int pi = (int)xSockaddrPort(ai);
+      int pj = (int)xSockaddrPort(aj);
+      int diff = abs(pi - pj);
+      if (diff > XICE_SYMMETRIC_NAT_PORT_THRESHOLD) {
+        a->remote_is_symmetric = true;
+        XDEBUGL1("[ice] remote NAT detected as symmetric (port diff=%d)", diff);
+        return;
+      }
+    }
+  }
+}
 
 static void generate_pairs(xIceAgent_ *a) {
   a->pair_count = 0;
@@ -374,15 +435,19 @@ static xErrno sock_stun_send(const uint8_t *data, size_t len,
   return udp_sendto(sock, data, len, addr);
 }
 
-static xErrno send_check(xIceAgent_ *a, xIcePair *pair) {
+static xErrno send_check(xIceAgent_ *a, xIcePair *pair, bool log) {
 #if XK_DEBUG_LEVEL >= 1
-  char lstr[64], rstr[64];
-  sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
-                  sizeof(lstr));
-  sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr,
-                  sizeof(rstr));
-  XDEBUGL1("[ice] send_check: %s -> %s (role=%s)", lstr, rstr,
-           a->role == xIceAgentRole_Controlling ? "controlling" : "controlled");
+  if (log) {
+    char lstr[64], rstr[64];
+    sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
+                    sizeof(lstr));
+    sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr,
+                    sizeof(rstr));
+    XDEBUGL1("[ice] send_check: %s -> %s (role=%s)", lstr, rstr,
+             a->role == xIceAgentRole_Controlling ? "controlling" : "controlled");
+  }
+#else
+  (void)log;
 #endif
 
   uint8_t msg_buf[512];
@@ -465,6 +530,10 @@ static xErrno send_check(xIceAgent_ *a, xIcePair *pair) {
 
 static void check_pacing_cb(void *arg);
 static void try_nominate(xIceAgent_ *a);
+static void start_aggressive_spray(xIceAgent_ *a);
+static void start_symmetric_keepalive(xIceAgent_ *a);
+static void symmetric_keepalive_cb(void *arg);
+
 
 static void schedule_next_check(xIceAgent_ *a) {
   if (a->state != xIceAgentState_Checking) return;
@@ -486,7 +555,7 @@ static void check_pacing_cb(void *arg) {
 
     if (pair->state == xIcePairState_Frozen ||
         pair->state == xIcePairState_Waiting) {
-      send_check(a, pair);
+      send_check(a, pair, true);
       schedule_next_check(a);
       return;
     }
@@ -578,12 +647,38 @@ static void try_nominate(xIceAgent_ *a) {
         xEventLoopTimerCancel(a->loop, a->check_timeout);
         a->check_timeout = NULL;
       }
+      /* Cancel aggressive spray timer if running */
+      if (a->aggressive_timer) {
+        xEventLoopTimerCancel(a->loop, a->aggressive_timer);
+        a->aggressive_timer = NULL;
+      }
+
     }
     return;
   }
 
-  /* All pairs finished (none in progress) and none succeeded — fail. */
+  /* All pairs finished (none in progress) and none succeeded — check if
+   * we should start aggressive port-spray before giving up. */
   if (!any_in_progress && !any_succeeded) {
+    /* If we are Cone NAT and haven't tried aggressive spray yet, try it.
+     * When all checks fail and we are Cone, the remote is very likely behind
+     * a symmetric NAT (detect_remote_nat_type may miss this when the remote's
+     * srflx ports from different host bases happen to be close together).
+     * We only need the remote to have at least one srflx candidate to spray
+     * around. */
+    if (!a->local_is_symmetric && !a->aggressive_mode) {
+      bool has_remote_srflx = false;
+      for (int i = 0; i < a->remote_count; i++) {
+        if (a->remote_candidates[i].type == xIceCandidateType_Srflx) {
+          has_remote_srflx = true;
+          break;
+        }
+      }
+      if (has_remote_srflx) {
+        start_aggressive_spray(a);
+        return;
+      }
+    }
     set_state(a, xIceAgentState_Failed);
   }
 }
@@ -638,7 +733,7 @@ static void on_check_response(const xStunMsg        *msg,
         agent->role = xIceAgentRole_Controlling;
       }
       pair->state = xIcePairState_Waiting;
-      send_check(agent, pair);
+        send_check(agent, pair, true);
       return; /* Don't call try_nominate yet */
     }
     /* Other error: mark pair as failed */
@@ -679,6 +774,47 @@ static void check_timeout_cb(void *arg) {
     return;
   }
 
+  /* If we are Cone NAT and haven't tried aggressive spray yet, try it
+   * before giving up.  All normal checks timed out, so the remote is very
+   * likely behind a symmetric NAT. */
+  if (!a->local_is_symmetric && !a->aggressive_mode) {
+    bool has_remote_srflx = false;
+    for (int i = 0; i < a->remote_count; i++) {
+      if (a->remote_candidates[i].type == xIceCandidateType_Srflx) {
+        has_remote_srflx = true;
+        break;
+      }
+    }
+    if (has_remote_srflx) {
+      XDEBUGL1("[ice] check timeout, starting aggressive spray before failing");
+      start_aggressive_spray(a);
+      return;
+    }
+  }
+
+  /* If we are Symmetric NAT and haven't started keepalive yet, start it.
+   * The remote Cone peer may be spraying us — keep our pinholes alive so
+   * their spray packets can reach us and trigger a check. */
+  if (a->local_is_symmetric && !a->aggressive_mode) {
+    bool has_remote_srflx = false;
+    for (int i = 0; i < a->remote_count; i++) {
+      if (a->remote_candidates[i].type == xIceCandidateType_Srflx) {
+        has_remote_srflx = true;
+        break;
+      }
+    }
+    if (has_remote_srflx) {
+      start_symmetric_keepalive(a);
+      return;
+    }
+  }
+
+  /* Cancel aggressive spray timer if running */
+  if (a->aggressive_timer) {
+    xEventLoopTimerCancel(a->loop, a->aggressive_timer);
+    a->aggressive_timer = NULL;
+  }
+
   set_state(a, xIceAgentState_Failed);
 }
 
@@ -699,6 +835,247 @@ static void start_checks(xIceAgent_ *a) {
   /* Start overall check timeout */
   a->check_timeout =
     xEventLoopTimerAfter(a->loop, check_timeout_cb, a, XICE_CHECK_TIMEOUT_MS);
+}
+
+/* ───────────────────── Symmetric NAT Keepalive ───────────────────── */
+
+/**
+ * @brief Keepalive callback for symmetric NAT side.
+ *
+ * When the local side is behind a symmetric NAT, the remote Cone peer
+ * may be spraying random ports at our srflx IP.  We periodically
+ * re-send connectivity checks on existing pairs whose remote candidate
+ * is srflx, so that the NAT pinhole stays open and the Cone side's
+ * spray has a chance to hit it.
+ */
+static void symmetric_keepalive_cb(void *arg) {
+  xIceAgent_ *a     = (xIceAgent_ *)arg;
+  a->aggressive_timer = NULL;
+
+  if (a->state != xIceAgentState_Checking) return;
+  if (a->nominated) return;
+
+  /* Re-send checks on all pairs targeting remote srflx candidates */
+  for (int i = 0; i < a->pair_count; i++) {
+    xIcePair *pair = &a->pairs[i];
+    if (pair->remote->type != xIceCandidateType_Srflx) continue;
+    send_check(a, pair, false);
+  }
+
+  /* Schedule next keepalive */
+  a->aggressive_timer = xEventLoopTimerAfter(
+    a->loop, symmetric_keepalive_cb, a, XICE_SYMMETRIC_KEEPALIVE_MS);
+}
+
+/**
+ * @brief Start symmetric NAT keepalive mode.
+ *
+ * Called when the local side is behind a symmetric NAT and normal checks
+ * have timed out.  Instead of giving up, we extend the timeout and
+ * periodically re-send checks to the remote's srflx addresses to keep
+ * our NAT pinholes alive.  The remote Cone side is simultaneously
+ * spraying random ports at our srflx IP; if one of those packets
+ * arrives at our pinhole, the triggered check mechanism will establish
+ * connectivity.
+ */
+static void start_symmetric_keepalive(xIceAgent_ *a) {
+  if (a->aggressive_mode) return;
+  a->aggressive_mode = true;
+
+  XDEBUGL1("[ice] starting symmetric keepalive (keeping pinholes alive "
+           "for cone side spray, interval=%dms)", XICE_SYMMETRIC_KEEPALIVE_MS);
+
+  /* Extend the check timeout to match the cone side's spray window */
+  if (a->check_timeout) {
+    xEventLoopTimerCancel(a->loop, a->check_timeout);
+    a->check_timeout = NULL;
+  }
+  a->check_timeout = xEventLoopTimerAfter(
+    a->loop, check_timeout_cb, a, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS);
+
+  /* Start the first keepalive immediately */
+  symmetric_keepalive_cb(a);
+}
+
+/* ───────────────────── Aggressive Port Spray ───────────────────── */
+
+/**
+ * @brief Pacing callback for aggressive spray mode.
+ *
+ * Sends connectivity checks to spray pairs at a faster rate than
+ * normal pacing (XICE_CHECK_PACING_AGGRESSIVE_MS).
+ */
+static void aggressive_pacing_cb(void *arg) {
+  xIceAgent_ *a     = (xIceAgent_ *)arg;
+  a->aggressive_timer = NULL;
+
+  if (a->state != xIceAgentState_Checking) return;
+  if (a->nominated) return;
+
+  /* Send next batch of spray checks */
+  int sent = 0;
+  while (a->spray_index < a->pair_count && sent < 4) {
+    xIcePair *pair = &a->pairs[a->spray_index];
+    a->spray_index++;
+
+    if (pair->state == xIcePairState_Frozen ||
+        pair->state == xIcePairState_Waiting) {
+      send_check(a, pair, false);
+      sent++;
+    }
+  }
+
+  if (a->spray_index < a->pair_count) {
+    /* More spray pairs to send */
+    a->aggressive_timer = xEventLoopTimerAfter(
+      a->loop, aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS);
+  } else {
+    XDEBUGL1("[ice] spray: all %d spray pairs dispatched",
+             a->pair_count - a->spray_pair_start);
+  }
+}
+
+/**
+ * @brief Start aggressive port-spray mode (birthday attack, Cone side).
+ *
+ * Called when all normal connectivity checks have failed and we detect
+ * that the remote peer is behind a symmetric NAT while we are behind
+ * a Cone NAT.  Instead of spraying a small range around known srflx
+ * ports (which fails for random-port symmetric NATs), we generate
+ * XICE_BIRTHDAY_SPRAY_COUNT random ports across the full ephemeral
+ * range (1024-65535) on the remote's srflx IP.
+ *
+ * The key insight (birthday paradox): if we spray M random ports and
+ * the symmetric side simultaneously opens N new NAT mappings, the
+ * collision probability is approximately 1 - (1 - M/65535)^N.
+ * With M=256 and N=256, this gives ~63% success probability.
+ */
+static void start_aggressive_spray(xIceAgent_ *a) {
+  if (a->aggressive_mode) return;
+  a->aggressive_mode = true;
+
+  XDEBUGL1("[ice] starting birthday-attack spray (remote is symmetric, "
+           "local is cone, spray_count=%d)", XICE_BIRTHDAY_SPRAY_COUNT);
+
+  /* Extend the check timeout to give spray time to work */
+  if (a->check_timeout) {
+    xEventLoopTimerCancel(a->loop, a->check_timeout);
+    a->check_timeout = NULL;
+  }
+  a->check_timeout = xEventLoopTimerAfter(a->loop, check_timeout_cb, a,
+                                          XICE_CHECK_TIMEOUT_AGGRESSIVE_MS);
+
+  /* Record where spray pairs start */
+  a->spray_pair_start = a->pair_count;
+
+  /* Collect unique remote srflx IPs (de-dup by IP, not IP:port) */
+  struct sockaddr_storage srflx_ips[8];
+  int ip_count = 0;
+
+  for (int r = 0; r < a->remote_count && ip_count < 8; r++) {
+    if (a->remote_candidates[r].type != xIceCandidateType_Srflx) continue;
+    const struct sockaddr *raddr =
+      (const struct sockaddr *)&a->remote_candidates[r].addr;
+
+    /* De-duplicate by IP only */
+    bool dup = false;
+    for (int t = 0; t < ip_count; t++) {
+      if (sockaddr_ip_equal(raddr,
+                            (const struct sockaddr *)&srflx_ips[t])) {
+        dup = true;
+        break;
+      }
+    }
+    if (dup) continue;
+
+    memcpy(&srflx_ips[ip_count], &a->remote_candidates[r].addr,
+           sizeof(struct sockaddr_storage));
+    ip_count++;
+  }
+
+  if (ip_count == 0) {
+    XDEBUGL1("[ice] spray: no srflx targets found, aborting");
+    a->aggressive_mode = false;
+    return;
+  }
+
+  XDEBUGL1("[ice] spray: %d unique srflx IPs, generating %d "
+           "random ports each", ip_count, XICE_BIRTHDAY_SPRAY_COUNT);
+
+  /* Generate random spray candidates across the ephemeral port range */
+  for (int t = 0; t < ip_count; t++) {
+    for (int n = 0; n < XICE_BIRTHDAY_SPRAY_COUNT; n++) {
+      if (a->remote_count >= XICE_MAX_CANDIDATES) break;
+
+      /* Pick a random port in [1024, 65535] */
+      uint16_t port;
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
+      port = (uint16_t)(1024 + arc4random_uniform(65535 - 1024 + 1));
+#else
+      port = (uint16_t)(1024 + (rand() % (65535 - 1024 + 1)));
+#endif
+
+      /* Create a predicted remote candidate */
+      xIceCandidate *pred = &a->remote_candidates[a->remote_count];
+      memset(pred, 0, sizeof(*pred));
+      pred->type         = xIceCandidateType_Srflx;
+      pred->component_id = 1;
+      pred->transport    = 0;
+      /* Very low priority so these don't interfere with normal pairs */
+      pred->priority =
+        xIceCandidatePriority(xIceCandidateType_Srflx,
+                              (uint16_t)(200 + n), 1);
+      memcpy(&pred->addr, &srflx_ips[t], sizeof(struct sockaddr_storage));
+      sockaddr_set_port(&pred->addr, port);
+      snprintf(pred->foundation, XICE_FOUNDATION_MAX_LEN, "bday%d", port);
+      a->remote_count++;
+
+      /* Create pairs with all local host/srflx candidates */
+      for (int l = 0; l < a->local_count && a->pair_count < XICE_MAX_PAIRS;
+           l++) {
+        if (a->local_candidates[l].type != xIceCandidateType_Host &&
+            a->local_candidates[l].type != xIceCandidateType_Srflx)
+          continue;
+        if (a->local_candidates[l].addr.ss_family != pred->addr.ss_family)
+          continue;
+        if (a->local_candidates[l].component_id != pred->component_id)
+          continue;
+
+        xIcePair *pair  = &a->pairs[a->pair_count];
+        pair->local     = &a->local_candidates[l];
+        pair->remote    = pred;
+        pair->state     = xIcePairState_Frozen;
+        pair->nominated = false;
+
+        uint32_t g_prio, d_prio;
+        if (a->role == xIceAgentRole_Controlling) {
+          g_prio = pair->local->priority;
+          d_prio = pair->remote->priority;
+        } else {
+          g_prio = pair->remote->priority;
+          d_prio = pair->local->priority;
+        }
+        pair->priority = xIcePairPriority(g_prio, d_prio);
+        a->pair_count++;
+      }
+    }
+    if (a->remote_count >= XICE_MAX_CANDIDATES) break;
+  }
+
+  int spray_count = a->pair_count - a->spray_pair_start;
+  XDEBUGL1("[ice] spray: generated %d spray pairs (total=%d)",
+           spray_count, a->pair_count);
+
+  if (spray_count == 0) {
+    XDEBUGL1("[ice] spray: no pairs generated, aborting");
+    a->aggressive_mode = false;
+    return;
+  }
+
+  /* Start fast pacing for spray pairs */
+  a->spray_index = a->spray_pair_start;
+  a->aggressive_timer = xEventLoopTimerAfter(
+    a->loop, aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS);
 }
 
 /* ───────────────────── Consent Freshness ───────────────────── */
@@ -972,11 +1349,20 @@ static void finalize_srflx_for_host(xIceAgent_ *a, int hi) {
   uint16_t port_last  = a->srflx_mapped[hi][last_si];
   int      delta      = (int)port_last - (int)port_first;
 
-  /* Sanity check: delta should be small and positive for sequential NAT.
-   * Typical values: 1, 2, or small multiples. Reject large/negative/zero. */
-  if (delta <= 0 || delta > 100) {
-    XDEBUGL1("[ice] host[%d]: port delta=%d (not sequential), skip prediction",
+  /* delta == 0 means both STUN servers returned the same mapped port,
+   * which is the hallmark of Cone NAT (Endpoint-Independent Mapping).
+   * No port prediction needed, and definitely NOT symmetric. */
+  if (delta == 0) {
+    XDEBUGL1("[ice] host[%d]: port delta=0 (cone NAT), skip prediction", hi);
+    return;
+  }
+
+  /* Negative delta or large positive delta indicates random/symmetric NAT.
+   * Typical sequential NAT deltas are small positive values: 1, 2, etc. */
+  if (delta < 0 || delta > XICE_SYMMETRIC_NAT_PORT_THRESHOLD) {
+    XDEBUGL1("[ice] host[%d]: port delta=%d (symmetric NAT), skip prediction",
              hi, delta);
+    a->local_is_symmetric = true;
     return;
   }
 
@@ -1281,6 +1667,7 @@ static void gather_check_done(xIceAgent_ *a) {
   /* If remote is set, start checks */
   if (a->remote_set) {
     XDEBUGL1("[ice] gather done, remote already set, starting checks");
+    detect_remote_nat_type(a);
     generate_pairs(a);
     start_checks(a);
   } else {
@@ -1305,6 +1692,7 @@ static void gather_timeout_cb(void *arg) {
 
   /* If remote is set, start checks */
   if (a->remote_set) {
+    detect_remote_nat_type(a);
     generate_pairs(a);
     start_checks(a);
   }
@@ -1471,7 +1859,7 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
           pair->state == xIcePairState_Waiting ||
           pair->state == xIcePairState_Failed) {
         XDEBUGL0("[ice] triggered check for pair %d", i);
-        send_check(a, pair);
+        send_check(a, pair, true);
       }
       break;
     }
@@ -1665,6 +2053,9 @@ void xIceAgentDestroy(xIceAgent agent) {
   }
   if (a->consent_timer) {
     xEventLoopTimerCancel(a->loop, a->consent_timer);
+  }
+  if (a->aggressive_timer) {
+    xEventLoopTimerCancel(a->loop, a->aggressive_timer);
   }
 
   /* Cancel pending DNS queries */
@@ -1981,6 +2372,7 @@ xErrno xIceAgentSetRemoteDescription(xIceAgent agent, const char *sdp) {
   /* If gathering is done, start checks */
   if (a->gathering_done && a->state != xIceAgentState_Checking) {
     XDEBUGL1("[ice] remote set, gather already done, starting checks");
+    detect_remote_nat_type(a);
     generate_pairs(a);
     start_checks(a);
   } else {
@@ -2056,12 +2448,15 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
     XDEBUGL1("[ice] trickle: added pairs for new remote, total=%d",
              a->pair_count);
 
+    /* Re-evaluate remote NAT type with the new candidate */
+    detect_remote_nat_type(a);
+
     /* Send checks on the newly added pairs immediately */
     for (int i = 0; i < a->pair_count; i++) {
       xIcePair *pair = &a->pairs[i];
       if (pair->remote != remote) continue;
       if (pair->state == xIcePairState_Frozen) {
-        send_check(a, pair);
+        send_check(a, pair, true);
       }
     }
   }
@@ -2070,6 +2465,7 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
    * candidate — this handles late-arriving trickle ICE candidates. */
   if (a->state == xIceAgentState_Failed && a->gathering_done) {
     a->nominated = NULL;
+    detect_remote_nat_type(a);
     generate_pairs(a);
     start_checks(a);
   }

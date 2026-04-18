@@ -187,8 +187,31 @@ XDEF_ENUM(xIceAgentRole){
 /** Connectivity check timeout in milliseconds. */
 #define XICE_CHECK_TIMEOUT_MS 10000
 
+/** Extended check timeout for aggressive spray mode (ms). */
+#define XICE_CHECK_TIMEOUT_AGGRESSIVE_MS 30000
+
 /** Connectivity check pacing interval in milliseconds. */
 #define XICE_CHECK_PACING_MS 50
+
+/** Faster pacing interval for aggressive spray mode (ms). */
+#define XICE_CHECK_PACING_AGGRESSIVE_MS 5
+
+/** Port spray range: ±N ports around each known srflx port (sequential NAT). */
+#define XICE_SPRAY_RANGE 50
+
+/** Number of random ports for birthday-attack spray (cone side). */
+#define XICE_BIRTHDAY_SPRAY_COUNT 256
+
+/** Keepalive interval for symmetric side pinhole refresh (ms). */
+#define XICE_SYMMETRIC_KEEPALIVE_MS 500
+
+/**
+ * Maximum port delta to consider as sequential (predictable) NAT.
+ * If the delta between mapped ports from different STUN servers exceeds
+ * this threshold, the NAT is classified as symmetric (unpredictable).
+ * Should be kept small enough that delta × predict_count is meaningful.
+ */
+#define XICE_SYMMETRIC_NAT_PORT_THRESHOLD 20
 
 /** Consent freshness interval in milliseconds (RFC 7675). */
 #define XICE_CONSENT_INTERVAL_MS 15000

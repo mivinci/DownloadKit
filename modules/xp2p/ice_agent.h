@@ -85,8 +85,16 @@ XDEF_STRUCT(xIceConf) {
   xIceRole role;        /**< ICE role (Controlling or Controlled).   */
   bool     enable_ipv6; /**< Enable IPv6 candidates (default: false). */
 
-  /** STUN server (optional, "host:port" or NULL). */
+  /** STUN server(s) (optional, "host:port" or comma-separated list
+   *  "host1:port1,host2:port2" for port prediction, or NULL).
+   *  When multiple servers are provided, the agent sends STUN Binding
+   *  Requests to each server from the same socket to detect symmetric
+   *  NAT port allocation patterns and generate predicted candidates. */
   const char *stun_server;
+
+  /** Number of predicted port candidates to generate per host when
+   *  symmetric NAT is detected (0 = use default of 5, max 10). */
+  int port_predict_count;
 
   /** TURN server (optional, "host:port" or NULL). */
   const char *turn_server;

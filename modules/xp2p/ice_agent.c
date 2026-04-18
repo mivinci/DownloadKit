@@ -511,6 +511,36 @@ static void on_check_response(const xStunMsg        *msg,
     pair->state = xIcePairState_Failed;
   } else if (xStunMsgIsSuccessResponse(msg->type)) {
     pair->state = xIcePairState_Succeeded;
+  } else if (xStunMsgIsErrorResponse(msg->type)) {
+    /* Check for 487 Role Conflict (RFC 8445 §7.2.5.1) */
+    int         err_code   = 0;
+    const char *err_reason = NULL;
+    size_t      err_reason_len = 0;
+    xStunAttrIter iter;
+    xStunAttrIterInit(&iter, msg);
+    xStunAttr attr;
+    while (xStunAttrIterNext(&iter, &attr)) {
+      if (attr.type == xStunAttrType_ErrorCode) {
+        xStunAttrDecodeErrorCode(&attr, &err_code, &err_reason,
+                                 &err_reason_len);
+        break;
+      }
+    }
+    if (err_code == 487) {
+      /* Role conflict: switch role and retry */
+      XDEBUGL0("[ice] 487 Role Conflict, switching role");
+      if (agent->role == xIceAgentRole_Controlling) {
+        agent->role = xIceAgentRole_Controlled;
+      } else {
+        agent->role = xIceAgentRole_Controlling;
+      }
+      pair->state = xIcePairState_Waiting;
+      send_check(agent, pair);
+      return; /* Don't call try_nominate yet */
+    }
+    /* Other error: mark pair as failed */
+    XDEBUGL0("[ice] check error %d for pair", err_code);
+    pair->state = xIcePairState_Failed;
   }
 
   /* A pair finished — check if we can nominate now */
@@ -1018,8 +1048,52 @@ static void gather_timeout_cb(void *arg) {
 /* ───────────────────── Incoming STUN Handler ───────────────────── */
 
 static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
+                                            const uint8_t         *raw_buf,
+                                            size_t                 raw_len,
                                             const struct sockaddr *from,
                                             xSocket                sock) {
+  /* Validate USERNAME and MESSAGE-INTEGRITY (RFC 8445 §7.2.1.1) */
+  bool           has_username  = false;
+  bool           has_integrity = false;
+  const xStunAttr *mi_attr_ptr = NULL;
+  xStunAttr       mi_attr_copy;
+  xStunAttrIter   viter;
+  xStunAttrIterInit(&viter, msg);
+  xStunAttr vattr;
+  while (xStunAttrIterNext(&viter, &vattr)) {
+    if (vattr.type == xStunAttrType_Username) {
+      /* USERNAME must be "local_ufrag:remote_ufrag" */
+      size_t local_len  = strlen(a->ice_ufrag);
+      size_t remote_len = strlen(a->remote_ufrag);
+      size_t expected   = local_len + 1 + remote_len;
+      if (vattr.length != expected ||
+          memcmp(vattr.value, a->ice_ufrag, local_len) != 0 ||
+          vattr.value[local_len] != ':' ||
+          memcmp(vattr.value + local_len + 1, a->remote_ufrag, remote_len) != 0) {
+        XDEBUGL0("[ice] incoming request: USERNAME mismatch, discarding");
+        return;
+      }
+      has_username = true;
+    } else if (vattr.type == xStunAttrType_MessageIntegrity) {
+      mi_attr_copy = vattr;
+      mi_attr_ptr  = &mi_attr_copy;
+      has_integrity = true;
+    }
+  }
+  if (!has_username || !has_integrity) {
+    XDEBUGL0("[ice] incoming request: missing USERNAME or MESSAGE-INTEGRITY, "
+             "discarding");
+    return;
+  }
+  /* Verify HMAC using local ice_pwd (the remote peer signs with our pwd) */
+  if (xStunAttrVerifyMessageIntegrity(raw_buf, raw_len, mi_attr_ptr,
+                                      (const uint8_t *)a->ice_pwd,
+                                      strlen(a->ice_pwd)) != xErrno_Ok) {
+    XDEBUGL0("[ice] incoming request: MESSAGE-INTEGRITY verification failed, "
+             "discarding");
+    return;
+  }
+
   /* Send a Binding Success Response */
   uint8_t  resp_buf[256];
   xStunMsg resp;
@@ -1215,7 +1289,7 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
       uint8_t msg_class = XSTUN_MSG_CLASS(msg.type);
 
       if (xStunMsgIsRequest(msg.type)) {
-        handle_incoming_binding_request(a, &msg, from, sock);
+        handle_incoming_binding_request(a, &msg, buf, len, from, sock);
       } else if (msg_class == XSTUN_CLASS_INDICATION) {
         /* Indication (e.g. DataIndication) — route to TURN client */
         if (a->turn_client) {

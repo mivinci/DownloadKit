@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
   const char *code          = NULL;
   const char *dest_dir      = "/tmp/xfer_recv";
   const char *signal_url    = "ws://127.0.0.1:8080/ws";
-  const char *stun_server   = "stun.l.google.com:19302";
+  const char *stun_server   = "stun1.l.google.com:19302,stun.cloudflare.com:3478";
   const char *turn_server   = NULL;
   const char *turn_username = NULL;
   const char *turn_password = NULL;

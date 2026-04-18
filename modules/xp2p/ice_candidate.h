@@ -13,8 +13,10 @@
 
 #include <netinet/in.h>
 
-/** Maximum number of candidates per agent. */
-#define XICE_MAX_CANDIDATES 32
+/** Maximum number of candidates per agent.
+ *  Increased to 512 to accommodate birthday-attack spray candidates
+ *  generated during symmetric NAT traversal. */
+#define XICE_MAX_CANDIDATES 512
 
 /**
  * @brief An ICE candidate.

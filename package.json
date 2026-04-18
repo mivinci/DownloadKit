@@ -30,7 +30,7 @@
     "example": "examples"
   },
   "scripts": {
-    "build": "cmake -B build -DXK_BUILD_EXAMPLES=ON && cmake --build build",
+    "build": "cmake -B build -DXK_BUILD_EXAMPLES=ON -DXK_DEBUG_LEVEL=1 && cmake --build build",
     "build-openssl": "cmake -B build-openssl -DXK_BUILD_EXAMPLES=ON -DXK_TLS_BACKEND=openssl && cmake --build build-openssl",
     "build-mbedtls": "cmake -B build-mbedtls -DXK_BUILD_EXAMPLES=ON -DXK_TLS_BACKEND=mbedtls && cmake --build build-mbedtls",
     "test": "ctest --test-dir build --output-on-failure",

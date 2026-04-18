@@ -109,7 +109,8 @@ typedef void (*xTransferOnIceCandidate)(xTransfer xfer, const char *candidate,
 
 XDEF_STRUCT(xTransferConf) {
   /* P2P configuration. */
-  const char *stun_server;   /**< STUN server "host:port" or NULL.       */
+  const char *stun_server;   /**< STUN server(s) "host:port" or comma-separated
+                                  list for port prediction, or NULL.    */
   const char *turn_server;   /**< TURN server "host:port" or NULL.       */
   const char *turn_username; /**< TURN credential username.              */
   const char *turn_password; /**< TURN credential password.              */

@@ -40,15 +40,22 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | ------------ | ---------- | ------- |
 | CMake ≥ 3.14 | ✅ | Build system |
 | C99 compiler | ✅ | GCC or Clang |
-| libcurl | ✅ | Enables the **xhttp** client — `libcurl4-openssl-dev` (apt) / `curl` (brew) |
-| llhttp | ✅ | HTTP/1.1 parsing for **xhttp** server — `libllhttp-dev` (apt) / `llhttp` (brew) |
-| nghttp2 | ✅ | HTTP/2 support for **xhttp** server — `libnghttp2-dev` (apt) / `nghttp2` (brew) |
-| cJSON | ✅ | JSON parsing for **xfer** signaling — `libcjson-dev` (apt) / `cjson` (brew) |
-| usrsctp | ✅ | User-space SCTP for **xp2p** WebRTC DataChannel — `libusrsctp-dev` (apt) / `usrsctp` (brew) |
 | OpenSSL | ✅ pick one | TLS backend for **xhttp** and **xp2p** DTLS — `libssl-dev` (apt) / `openssl` (brew) |
 | MbedTLS | ✅ pick one | TLS backend for **xhttp** and **xp2p** DTLS — `libmbedtls-dev` (apt) / `mbedtls` (brew) |
-| libunwind | Optional | Better backtraces on Linux |
-| GoogleTest | For tests | `libgtest-dev` (apt) / `googletest` (brew) |
+| libunwind | Optional | Better backtraces on Linux — `libunwind-dev` (apt) |
+
+The following dependencies are **automatically fetched and built from source** via CMake FetchContent if not found on the system. You can still install them manually for faster builds:
+
+| Dependency | Description | Manual install |
+| ---------- | ----------- | -------------- |
+| libcurl | HTTP client for **xhttp** | `libcurl4-openssl-dev` (apt) / `curl` (brew) |
+| llhttp | HTTP/1.1 parsing for **xhttp** server | `libllhttp-dev` (apt) / `llhttp` (brew) |
+| nghttp2 | HTTP/2 support for **xhttp** server | `libnghttp2-dev` (apt) / `nghttp2` (brew) |
+| cJSON | JSON parsing for **xfer** signaling | `libcjson-dev` (apt) / `cjson` (brew) |
+| usrsctp | User-space SCTP for **xp2p** DataChannel | `libusrsctp-dev` (apt) / `usrsctp` (brew) |
+| libuv | Event loop backend | `libuv1-dev` (apt) / `libuv` (brew) |
+| GoogleTest | Unit testing (when `XK_BUILD_TESTS=ON`) | `libgtest-dev` (apt) / `googletest` (brew) |
+| Google Benchmark | Benchmarking (when `XK_BUILD_BENCHMARKS=ON`) | `libbenchmark-dev` (apt) / `google-benchmark` (brew) |
 
 ## Build
 

@@ -12,72 +12,89 @@
 #   ./scripts/test-linux.sh -j4 -m 4G    # custom parallelism and memory
 #   XK_TLS_BACKEND=openssl ./scripts/test-linux.sh  # test single backend
 #
+# Caching:
+#   - APT dependencies are baked into a pre-built image (scripts/Dockerfile.test).
+#     Rebuild with: ./scripts/test-linux.sh --rebuild
+#   - FetchContent downloads are cached in a named volume (xkit-fetchcontent).
+#     Clear with: container volume rm xkit-fetchcontent
+#
 
 set -euo pipefail
 
-IMAGE="${IMAGE:-gcc:14}"
+BASE_IMAGE="${BASE_IMAGE:-gcc:14}"
+TEST_IMAGE="xkit-test:latest"
 BUILD_TYPE="${BUILD_TYPE:-Debug}"
 MEMORY="2G"
 JOBS="2"
 TLS_BACKENDS="${XK_TLS_BACKEND:-openssl mbedtls}"
-APT_MIRROR="${APT_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn}"
+APT_MIRROR="${APT_MIRROR:-mirrors.tuna.tsinghua.edu.cn}"
+FETCHCONTENT_VOLUME="xkit-fetchcontent"
+REBUILD_IMAGE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -j*)  JOBS="${1#-j}"; shift ;;
-        -m)   MEMORY="$2"; shift 2 ;;
-        *)    echo "Unknown option: $1"; exit 1 ;;
+        -j*)       JOBS="${1#-j}"; shift ;;
+        -m)        MEMORY="$2"; shift 2 ;;
+        --rebuild) REBUILD_IMAGE=1; shift ;;
+        *)         echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Cache llhttp source in tmp/ to avoid repeated git clone
-LLHTTP_DIR="$PROJECT_DIR/tmp/llhttp"
-if [[ -d "$LLHTTP_DIR" ]]; then
-    echo "==> Using cached llhttp at tmp/llhttp"
-else
-    echo "==> Cloning llhttp to tmp/llhttp ..."
-    mkdir -p "$PROJECT_DIR/tmp"
-    git  "$LLHTTP_DIR"
+# --- Build test image if needed ---
+build_image() {
+    echo "==> Building test image: $TEST_IMAGE"
+    container build \
+        -t "$TEST_IMAGE" \
+        -f "$SCRIPT_DIR/Dockerfile.test" \
+        --build-arg "BASE_IMAGE=$BASE_IMAGE" \
+        --build-arg "APT_MIRROR=$APT_MIRROR" \
+        "$SCRIPT_DIR"
+    echo "==> ✅ Image built: $TEST_IMAGE"
+    echo ""
+}
+
+if [[ "$REBUILD_IMAGE" -eq 1 ]]; then
+    build_image
+elif ! container image ls 2>/dev/null | grep -q "$TEST_IMAGE"; then
+    echo "==> Test image not found, building..."
+    build_image
 fi
 
+# --- Ensure FetchContent cache volume exists ---
+if ! container volume ls 2>/dev/null | grep -q "$FETCHCONTENT_VOLUME"; then
+    echo "==> Creating FetchContent cache volume: $FETCHCONTENT_VOLUME"
+    container volume create "$FETCHCONTENT_VOLUME"
+fi
+
+# --- Run tests ---
 for TLS in $TLS_BACKENDS; do
     BUILD_DIR="build-linux-${TLS}"
 
     echo "==> Running Linux tests in container (TLS=$TLS)"
-    echo "    Image:      $IMAGE"
+    echo "    Image:      $TEST_IMAGE"
     echo "    Build type: $BUILD_TYPE"
     echo "    TLS backend: $TLS"
     echo "    Memory:     $MEMORY"
     echo "    Jobs:       $JOBS"
     echo ""
 
-    # Build sed command to swap APT mirror if APT_MIRROR is set
-    MIRROR_CMD=""
-    if [[ -n "$APT_MIRROR" ]]; then
-        MIRROR_CMD="sed -i 's|deb.debian.org|${APT_MIRROR#https://}|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's|deb.debian.org|${APT_MIRROR#https://}|g' /etc/apt/sources.list 2>/dev/null; "
-    fi
-
     container run --rm -m "$MEMORY" \
         -v "$PROJECT_DIR":/work \
+        -v "$FETCHCONTENT_VOLUME":/fetchcontent-cache \
         -w /work \
-        "$IMAGE" \
+        "$TEST_IMAGE" \
         bash -c "
             export XKIT_SKIP_NETWORK_TESTS=1 && \
-            ${MIRROR_CMD}
-            apt-get update -qq && \
-            apt-get install -y -qq cmake libgtest-dev libssl-dev libcurl4-openssl-dev \
-              libnghttp2-dev libmbedtls-dev > /dev/null 2>&1 && \
-            # Install llhttp from cached source in tmp/llhttp
-            cmake -S /work/tmp/llhttp -B /tmp/llhttp-build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON > /dev/null 2>&1 && \
-            cmake --build /tmp/llhttp-build > /dev/null 2>&1 && \
-            cmake --install /tmp/llhttp-build > /dev/null 2>&1 && \
-            ldconfig && \
             find /work -name '*.c' -o -name '*.cpp' -o -name '*.h' | xargs touch && \
             rm -rf $BUILD_DIR && mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
-            cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DXK_TLS_BACKEND=$TLS -DXK_ENABLE_ASAN=OFF && \
+            cmake .. \
+              -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+              -DXK_TLS_BACKEND=$TLS \
+              -DXK_ENABLE_ASAN=OFF \
+              -DFETCHCONTENT_BASE_DIR=/fetchcontent-cache && \
             cmake --build . -j$JOBS && \
             ctest --output-on-failure
         "

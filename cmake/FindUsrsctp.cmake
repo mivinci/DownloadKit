@@ -75,13 +75,24 @@ else()
   set(sctp_inet6            OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(usrsctp)
 
-  # Create an alias target matching our naming convention
+  # Suppress warnings-as-errors inherited from parent project
+  # and enable PIC for linking into shared libraries
+  if(TARGET usrsctp)
+    target_compile_options(usrsctp PRIVATE -Wno-error)
+    set_target_properties(usrsctp PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  endif()
+
+  # Create an imported interface target wrapping the lib
   if(NOT TARGET Usrsctp::Usrsctp)
-    add_library(Usrsctp::Usrsctp ALIAS usrsctp-static)
+    add_library(Usrsctp::Usrsctp INTERFACE IMPORTED GLOBAL)
+    set_target_properties(Usrsctp::Usrsctp PROPERTIES
+      INTERFACE_LINK_LIBRARIES usrsctp
+      INTERFACE_INCLUDE_DIRECTORIES "${usrsctp_SOURCE_DIR}/usrsctplib"
+    )
   endif()
 
   set(Usrsctp_INCLUDE_DIRS ${usrsctp_SOURCE_DIR}/usrsctplib)
-  set(Usrsctp_LIBRARIES    usrsctp-static)
+  set(Usrsctp_LIBRARIES    usrsctp)
   set(Usrsctp_FOUND TRUE)
 
   message(STATUS "FindUsrsctp: Built usrsctp from source")

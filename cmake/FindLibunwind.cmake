@@ -7,6 +7,15 @@
 #
 # And the imported target:
 #   Libunwind::Libunwind   - The libunwind library
+#
+# Note: libunwind uses autotools and contains platform-specific assembly,
+# making it impractical to build from source via FetchContent.
+# Install via your system package manager (e.g. apt install libunwind-dev).
+
+# Prevent duplicate find
+if(Libunwind_FOUND)
+  return()
+endif()
 
 include(FindPackageHandleStandardArgs)
 
@@ -41,6 +50,8 @@ if(Libunwind_FOUND)
       INTERFACE_INCLUDE_DIRECTORIES "${Libunwind_INCLUDE_DIR}"
     )
   endif()
+
+  message(STATUS "FindLibunwind: Found system libunwind: ${Libunwind_LIBRARY}")
 endif()
 
 mark_as_advanced(Libunwind_INCLUDE_DIR Libunwind_LIBRARY)

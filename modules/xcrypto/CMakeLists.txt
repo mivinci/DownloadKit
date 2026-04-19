@@ -3,7 +3,7 @@ file(GLOB_RECURSE XCRYPTO_HEADERS "*.h")
 # Start with no sources; add conditionally below
 set(XCRYPTO_SOURCES "")
 
-add_library(xcrypto SHARED ${XCRYPTO_HEADERS})
+add_library(xcrypto ${XK_LIB_TYPE} ${XCRYPTO_HEADERS})
 
 target_link_libraries(xcrypto PUBLIC xbase)
 

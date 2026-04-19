@@ -1,18 +1,33 @@
 cmake_minimum_required(VERSION 3.14)
-project(xKit)
+project(xKit VERSION 0.0.1 LANGUAGES C CXX)
 
 include("cmake/Functions.cmake")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
-xk_version("${CMAKE_SOURCE_DIR}/version.txt")
+# Pre-release channel (alpha / beta / rc / "")
+set(XK_VERSION_CHANNEL "alpha")
+set(XK_VERSION_BUILDNO 1)
+
+if(XK_VERSION_CHANNEL)
+  set(XK_VERSION "${PROJECT_VERSION}-${XK_VERSION_CHANNEL}.${XK_VERSION_BUILDNO}")
+else()
+  set(XK_VERSION "${PROJECT_VERSION}")
+endif()
+
 message(STATUS "xKit: Building ${XK_VERSION}")
 
-option(XK_BUILD_XKIT "Build xKit" ON)
+option(XK_BUILD_STATIC "Build xKit as static libraries" OFF)
 option(XK_BUILD_TESTS "Build xKit tests" ON)
 option(XK_BUILD_BENCHMARKS "Build xKit benchmarks" ON)
 option(XK_BUILD_EXAMPLES "Build xKit example programs" OFF)
 option(XK_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(XK_DEBUG_LEVEL "Debug logging level (0-3, higher means more verbose)" 0)
+
+if(XK_BUILD_STATIC)
+  set(XK_LIB_TYPE STATIC)
+else()
+  set(XK_LIB_TYPE SHARED)
+endif()
 
 add_compile_options(-Wall -Wextra)
 add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror>)

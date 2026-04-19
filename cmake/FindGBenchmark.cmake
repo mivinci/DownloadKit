@@ -1,4 +1,4 @@
-# FindGBenchmark.cmake - Find and configure local Google Benchmark
+# FindGBenchmark.cmake - Find and configure Google Benchmark
 #
 # Result variables:
 #   GBenchmark_FOUND            - Whether Google Benchmark was found
@@ -9,6 +9,9 @@
 # Imported targets:
 #   GBenchmark::benchmark       - Google Benchmark library target
 #   GBenchmark::benchmark_main  - Google Benchmark main library target
+#
+# If Google Benchmark is not found on the system, it will be fetched and
+# built from source via FetchContent.
 
 # Prevent redundant searches
 if(GBenchmark_FOUND)
@@ -19,7 +22,6 @@ endif()
 find_package(benchmark CONFIG QUIET)
 if(benchmark_FOUND)
   message(STATUS "FindGBenchmark: Found Google Benchmark via CMake Config mode")
-  # Map config-mode targets to our namespaced targets
   if(TARGET benchmark::benchmark AND NOT TARGET GBenchmark::benchmark)
     add_library(GBenchmark::benchmark ALIAS benchmark::benchmark)
   endif()
@@ -56,7 +58,6 @@ if(NOT GBenchmark_INCLUDE_DIRS)
       $ENV{GBENCHMARK_ROOT}/include
     NO_DEFAULT_PATH
   )
-  # Fallback to default search paths
   if(NOT GBenchmark_INCLUDE_DIRS)
     find_path(GBenchmark_INCLUDE_DIRS NAMES benchmark/benchmark.h)
   endif()
@@ -94,13 +95,15 @@ endif()
 
 # ---- Validate results ----
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(GBenchmark
-  REQUIRED_VARS GBenchmark_INCLUDE_DIRS GBenchmark_LIBRARIES
-)
 
-# ---- Create IMPORTED targets ----
+if(GBenchmark_INCLUDE_DIRS AND GBenchmark_LIBRARIES)
+  find_package_handle_standard_args(GBenchmark
+    REQUIRED_VARS GBenchmark_INCLUDE_DIRS GBenchmark_LIBRARIES
+  )
+endif()
+
+# ---- Create IMPORTED targets if found on system ----
 if(GBenchmark_FOUND)
-  # Google Benchmark depends on threads
   find_package(Threads QUIET)
 
   if(NOT TARGET GBenchmark::benchmark)
@@ -126,4 +129,37 @@ if(GBenchmark_FOUND)
   endif()
 
   mark_as_advanced(GBenchmark_INCLUDE_DIRS GBenchmark_LIBRARIES GBenchmark_MAIN_LIBRARIES)
+  message(STATUS "FindGBenchmark: Found system Google Benchmark")
+else()
+  # ---- Fallback: fetch and build from source ----
+  message(STATUS "FindGBenchmark: System Google Benchmark not found, fetching from source")
+
+  include(FetchContent)
+  FetchContent_Declare(
+    googlebenchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG        v1.9.1
+    GIT_SHALLOW    TRUE
+  )
+  set(BENCHMARK_ENABLE_TESTING  OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_INSTALL  OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googlebenchmark)
+
+  # Create an imported interface target wrapping the static lib
+  if(NOT TARGET GBenchmark::benchmark)
+    add_library(GBenchmark::benchmark INTERFACE IMPORTED GLOBAL)
+    set_target_properties(GBenchmark::benchmark PROPERTIES
+      INTERFACE_LINK_LIBRARIES benchmark
+    )
+  endif()
+  if(NOT TARGET GBenchmark::benchmark_main)
+    add_library(GBenchmark::benchmark_main INTERFACE IMPORTED GLOBAL)
+    set_target_properties(GBenchmark::benchmark_main PROPERTIES
+      INTERFACE_LINK_LIBRARIES benchmark_main
+    )
+  endif()
+
+  set(GBenchmark_FOUND TRUE)
+  message(STATUS "FindGBenchmark: Built Google Benchmark from source")
 endif()

@@ -1,7 +1,7 @@
 file(GLOB_RECURSE XFER_HEADERS "*.h")
 file(GLOB_RECURSE XFER_SOURCES "*.c")
 
-add_library(xfer SHARED ${XFER_SOURCES} ${XFER_HEADERS})
+add_library(xfer ${XK_LIB_TYPE} ${XFER_SOURCES} ${XFER_HEADERS})
 
 find_package(Cjson REQUIRED)
 

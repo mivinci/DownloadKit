@@ -1,6 +1,6 @@
 file(GLOB_RECURSE XBUF_HEADERS "*.h")
 file(GLOB_RECURSE XBUF_SOURCES "*.c")
-add_library(xbuf SHARED ${XBUF_SOURCES} ${XBUF_HEADERS})
+add_library(xbuf ${XK_LIB_TYPE} ${XBUF_SOURCES} ${XBUF_HEADERS})
 
 target_link_libraries(xbuf PUBLIC xbase)
 

@@ -1,6 +1,6 @@
 file(GLOB_RECURSE XBASE_HEADERS "*.h")
 file(GLOB_RECURSE XBASE_SOURCES "*.c")
-add_library(xbase SHARED ${XBASE_SOURCES} ${XBASE_HEADERS})
+add_library(xbase ${XK_LIB_TYPE} ${XBASE_SOURCES} ${XBASE_HEADERS})
 
 # ── Event backend detection (kqueue → epoll → poll fallback) ──
 include(CheckIncludeFile)

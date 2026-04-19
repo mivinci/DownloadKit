@@ -6,7 +6,7 @@ list(FILTER XHTTP_HEADERS EXCLUDE REGEX "_test")
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "transport_")
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_crypto_")
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_deflate")
-add_library(xhttp SHARED ${XHTTP_SOURCES} ${XHTTP_HEADERS})
+add_library(xhttp ${XK_LIB_TYPE} ${XHTTP_SOURCES} ${XHTTP_HEADERS})
 
 target_compile_definitions(xhttp PUBLIC XK_HAS_CURL)
 target_link_libraries(xhttp PUBLIC xbase xbuf xnet PRIVATE Libcurl::Libcurl)

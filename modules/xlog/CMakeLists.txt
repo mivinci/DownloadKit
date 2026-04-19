@@ -1,6 +1,6 @@
 file(GLOB_RECURSE XLOG_HEADERS "*.h")
 file(GLOB_RECURSE XLOG_SOURCES "*.c")
-add_library(xlog SHARED ${XLOG_SOURCES} ${XLOG_HEADERS})
+add_library(xlog ${XK_LIB_TYPE} ${XLOG_SOURCES} ${XLOG_HEADERS})
 
 target_link_libraries(xlog PUBLIC xbase)
 

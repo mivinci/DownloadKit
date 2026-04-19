@@ -23,10 +23,20 @@ clang-format **无法覆盖**的约定。
 ### 2.1 目录结构
 
 ```plain
-xbase/          # 基础库（事件循环、定时器、内存、日志等）
-xhttp/          # HTTP 客户端（依赖 libcurl + xbase）
+modules/
+  xbase/        # 核心原语 — 事件循环、定时器、任务、异步 socket、内存、无锁数据结构
+  xbuf/         # 缓冲区原语 — 线性、环形、链式 I/O 缓冲区
+  xnet/         # 网络原语 — URL 解析、异步 DNS、TCP、TLS 传输层
+  xhttp/        # 异步 HTTP — libcurl 客户端、HTTP/1.1 & HTTP/2 服务器、WebSocket
+  xlog/         # 异步日志 — MPSC 队列、定时/管道刷写、日志轮转
+  xcrypto/      # 密码学原语 — SHA-1（OpenSSL / mbedTLS / builtin）
+  xp2p/         # P2P 连接 — ICE agent、STUN/TURN、SDP、NAT 穿透、DTLS、DataChannel
+  xfer/         # P2P 文件传输 — 零配置发送/接收、分块、SHA-1 校验、断点续传
 examples/       # 示例程序
-cmake/          # CMake 辅助模块
+bench/          # 端到端基准测试（HTTP server vs Go 等）
+cmake/          # CMake 辅助模块（Find*.cmake、Functions.cmake）
+scripts/        # 构建 & 测试脚本
+docs/           # 文档站点源文件
 ```
 
 ### 2.2 文件命名
@@ -170,7 +180,7 @@ XCAPI(xErrno) xHeapPush(xHeap h, void *elem);
 | 指针对齐 | 靠右 (`int *p`) |
 | 大括号 | Attach（K&R 风格） |
 | 对齐 | 连续赋值、声明、宏自动对齐 |
-| switch/case | case 缩进 |
+| switch/case | case 不缩进 |
 | 短函数 | 空函数体可单行 |
 | 短 if | 无 else 时可单行 |
 
@@ -292,15 +302,14 @@ fail:
 
 使用项目模块名作为 scope，常见值：
 
-- `xbase` — 基础库整体
-- `xhttp` — HTTP 客户端
-- `event` — 事件循环
-- `timer` — 定时器
-- `task` — 任务组
-- `heap` — 堆
-- `error` — 错误码
-- `xsignal` — 信号处理
-- `xsocket` — 异步 socket
+- `xbase` — 核心原语（事件循环、定时器、任务、内存等）
+- `xbuf` — 缓冲区
+- `xnet` — 网络（URL、DNS、TCP、TLS）
+- `xhttp` — HTTP 客户端 & 服务器、WebSocket
+- `xlog` — 异步日志
+- `xcrypto` — 密码学
+- `xp2p` — P2P 连接（ICE、STUN/TURN、DTLS、DataChannel）
+- `xfer` — P2P 文件传输
 
 scope 也可省略，表示跨模块或项目级变更。
 
@@ -350,12 +359,22 @@ codebuddy/xcurl
 
 ## 11. 版本号规范
 
-版本号记录在项目根目录的 `version.txt` 中，遵循 [Semantic Versioning 2.0](https://semver.org/)。
+版本号遵循 [Semantic Versioning 2.0](https://semver.org/)，直接在根 `CMakeLists.txt` 的 `project()` 中声明：
+
+```cmake
+project(xKit VERSION 0.0.1 LANGUAGES C CXX)
+
+# Pre-release channel (alpha / beta / rc / "")
+set(XK_VERSION_CHANNEL "alpha")
+set(XK_VERSION_BUILDNO 1)
+```
+
+CMake 会自动设置 `PROJECT_VERSION`、`PROJECT_VERSION_MAJOR`、`PROJECT_VERSION_MINOR`、`PROJECT_VERSION_PATCH` 等变量。预发布通道和构建号通过额外的 `set()` 变量管理，最终拼接为完整版本字符串 `XK_VERSION`。
 
 ### 11.1 格式
 
 ```plain
-MAJOR.MINOR.PATCH[-CHANNEL.BUILDNO][+META]
+MAJOR.MINOR.PATCH[-CHANNEL.BUILDNO]
 ```
 
 | 字段 | 说明 | 示例 |
@@ -365,41 +384,33 @@ MAJOR.MINOR.PATCH[-CHANNEL.BUILDNO][+META]
 | `PATCH` | 向后兼容的 Bug 修复 | `3` |
 | `CHANNEL` | 预发布通道（可选） | `alpha`, `beta`, `rc` |
 | `BUILDNO` | 预发布构建号（可选） | `1`, `2` |
-| `META` | 构建元数据（可选） | `main`, `feature-branch` |
 
 ### 11.2 示例
 
 ```plain
-0.0.1-alpha.1+main
+0.0.1-alpha.1
 1.0.0
 2.0.0-beta.2
-1.3.0-rc.1+hotfix
+1.3.0-rc.1
 ```
 
 ---
 
 ## 12. CMake 规范
 
-### 12.1 自定义函数
+### 12.1 编译选项
 
-项目在 `cmake/Functions.cmake` 中定义辅助函数，统一使用 `xk_` 前缀：
-
-| 函数 | 用途 |
-| ---- | ---- |
-| `xk_option(key hint value)` | 声明编译选项，自动添加 `-D` 定义 |
-| `xk_version(path)` | 从 `version.txt` 解析版本号并注入编译定义 |
-| `xk_message(message)` | 统一格式的日志输出（`** ...`） |
-
-### 12.2 编译选项
-
-所有编译选项以 `XK_` 前缀命名，通过 `xk_option` 注册：
+所有编译选项通过 `option` 注册：
 
 ```cmake
-xk_option(XK_BUILD_XKIT "Build xKit" ON)
-xk_option(XK_BUILD_TESTS "Build xKit tests" ON)
+option(XK_BUILD_TESTS "Build xKit tests" ON)
+option(XK_BUILD_BENCHMARKS "Build xKit benchmarks" ON)
+option(XK_BUILD_EXAMPLES "Build xKit example programs" OFF)
+option(XK_ENABLE_ASAN "Enable AddressSanitizer" OFF)
+option(XK_DEBUG_LEVEL "Debug logging level (0-3)" 0)
 ```
 
-### 12.3 平台检测
+### 12.2 平台检测
 
 使用 CMake 的 `check_include_file` 进行平台特性检测，编译定义统一为 `XK_HAS_<FEATURE>`：
 
@@ -408,7 +419,7 @@ check_include_file(sys/event.h HAS_SYS_EVENT_H)   # → XK_HAS_KQUEUE
 check_include_file(sys/epoll.h HAS_SYS_EPOLL_H)   # → XK_HAS_EPOLL
 ```
 
-### 12.4 模块 CMakeLists
+### 12.3 模块 CMakeLists
 
 每个模块目录包含独立的 `CMakeLists.txt`，负责：
 

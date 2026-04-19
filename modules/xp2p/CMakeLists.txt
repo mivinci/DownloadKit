@@ -11,7 +11,7 @@ list(FILTER XP2P_SOURCES EXCLUDE REGEX "sctp_transport\\.c$")
 list(FILTER XP2P_SOURCES EXCLUDE REGEX "datachannel\\.c$")
 list(FILTER XP2P_SOURCES EXCLUDE REGEX "peer_connection\\.c$")
 
-add_library(xp2p SHARED ${XP2P_SOURCES} ${XP2P_HEADERS})
+add_library(xp2p ${XK_LIB_TYPE} ${XP2P_SOURCES} ${XP2P_HEADERS})
 
 target_link_libraries(xp2p PUBLIC xbase xnet)
 

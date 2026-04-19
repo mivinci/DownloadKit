@@ -174,7 +174,7 @@ cmake --build build --parallel
 ### Full Results
 
 - **Micro-benchmarks** — detailed tables are in each module's documentation:
-  [mpsc.h](https://le0.me/xKit/xbase/mpsc.html#benchmark) · [event.h](https://le0.me/xKit/xbase/event.html#benchmark) · [timer.h](https://le0.me/xKit/xbase/timer.html#benchmark) · [heap.h](https://le0.me/xKit/xbase/heap.html#benchmark) · [memory.h](https://le0.me/xKit/xbase/memory.html#benchmark) · [buf.h](https://le0.me/xKit/xbuf/buf.html#benchmark) · [ring.h](https://le0.me/xKit/xbuf/ring.html#benchmark) · [io.h](https://le0.me/xKit/xbuf/io.html#benchmark)
+  [mpsc.h](https://le0.me/xKit/modules/xbase/mpsc.html#benchmark) · [event.h](https://le0.me/xKit/modules/xbase/event.html#benchmark) · [timer.h](https://le0.me/xKit/modules/xbase/timer.html#benchmark) · [heap.h](https://le0.me/xKit/modules/xbase/heap.html#benchmark) · [memory.h](https://le0.me/xKit/modules/xbase/memory.html#benchmark) · [buf.h](https://le0.me/xKit/modules/xbuf/buf.html#benchmark) · [ring.h](https://le0.me/xKit/modules/xbuf/ring.html#benchmark) · [io.h](https://le0.me/xKit/modules/xbuf/io.html#benchmark)
 - **End-to-end** — [HTTP/1.1 Server Benchmark](https://le0.me/xKit/bench/http_server.html) · [HTTP/2 Server Benchmark](https://le0.me/xKit/bench/http2_server.html) · [HTTPS Server Benchmark](https://le0.me/xKit/bench/https_server.html) (xKit vs Go)
 
 ## License

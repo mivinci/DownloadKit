@@ -1,0 +1,20 @@
+ARG BASE_IMAGE=gcc:14
+FROM ${BASE_IMAGE}
+
+ARG APT_MIRROR=
+
+# Optionally swap APT mirror for faster downloads in China
+RUN if [ -n "$APT_MIRROR" ]; then \
+      sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources 2>/dev/null \
+      || sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list 2>/dev/null \
+      || true; \
+    fi
+
+RUN apt-get update -qq && \
+    apt-get install -y -qq \
+      cmake pkg-config git \
+      libssl-dev libcurl4-openssl-dev libmbedtls-dev libunwind-dev \
+      > /dev/null 2>&1 && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work

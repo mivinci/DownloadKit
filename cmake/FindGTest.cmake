@@ -1,28 +1,31 @@
-# FindGTest.cmake - 检查并配置本地的 Google Test
+# FindGTest.cmake - Find and configure Google Test
 #
-# 查找结果变量：
-#   GTest_FOUND          - 是否找到 GTest
-#   GTest_INCLUDE_DIRS   - GTest 头文件目录
-#   GTest_LIBRARIES      - GTest 库文件
-#   GTest_MAIN_LIBRARIES - GTest main 库文件
+# Result variables:
+#   GTest_FOUND          - Whether GTest was found
+#   GTest_INCLUDE_DIRS   - GTest include directories
+#   GTest_LIBRARIES      - GTest library
+#   GTest_MAIN_LIBRARIES - GTest main library
 #
-# 导入目标：
-#   GTest::gtest         - GTest 库目标
-#   GTest::gtest_main    - GTest main 库目标
+# Imported targets:
+#   GTest::gtest         - GTest library target
+#   GTest::gtest_main    - GTest main library target
+#
+# If GTest is not found on the system, it will be fetched and built
+# from source via FetchContent.
 
-# 防止重复查找
+# Prevent duplicate find
 if(GTest_FOUND)
   return()
 endif()
 
-# ---- 方式 1：尝试 CMake Config 模式 ----
+# ---- Method 1: Try CMake Config mode ----
 find_package(GTest CONFIG QUIET)
 if(GTest_FOUND)
-  message(STATUS "FindGTest: 通过 CMake Config 模式找到 GTest")
+  message(STATUS "FindGTest: Found GTest via CMake Config mode")
   return()
 endif()
 
-# ---- 方式 2：尝试 pkg-config ----
+# ---- Method 2: Try pkg-config ----
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
   pkg_check_modules(_GTEST QUIET gtest)
@@ -37,7 +40,7 @@ if(PkgConfig_FOUND)
   endif()
 endif()
 
-# ---- 方式 3：手动搜索常见路径 ----
+# ---- Method 3: Manual search in common paths ----
 if(NOT GTest_INCLUDE_DIRS)
   find_path(GTest_INCLUDE_DIRS
     NAMES gtest/gtest.h
@@ -48,7 +51,6 @@ if(NOT GTest_INCLUDE_DIRS)
       $ENV{GTEST_ROOT}/include
     NO_DEFAULT_PATH
   )
-  # 回退到默认搜索路径
   if(NOT GTest_INCLUDE_DIRS)
     find_path(GTest_INCLUDE_DIRS NAMES gtest/gtest.h)
   endif()
@@ -84,15 +86,17 @@ if(NOT GTest_MAIN_LIBRARIES)
   endif()
 endif()
 
-# ---- 验证结果 ----
+# ---- Validate results ----
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(GTest
-  REQUIRED_VARS GTest_INCLUDE_DIRS GTest_LIBRARIES
-)
 
-# ---- 创建 IMPORTED 目标 ----
+if(GTest_INCLUDE_DIRS AND GTest_LIBRARIES)
+  find_package_handle_standard_args(GTest
+    REQUIRED_VARS GTest_INCLUDE_DIRS GTest_LIBRARIES
+  )
+endif()
+
+# ---- Create IMPORTED targets if found on system ----
 if(GTest_FOUND)
-  # GTest 依赖 threads
   find_package(Threads QUIET)
 
   if(NOT TARGET GTest::gtest)
@@ -118,4 +122,36 @@ if(GTest_FOUND)
   endif()
 
   mark_as_advanced(GTest_INCLUDE_DIRS GTest_LIBRARIES GTest_MAIN_LIBRARIES)
+  message(STATUS "FindGTest: Found system GTest")
+else()
+  # ---- Fallback: fetch and build from source ----
+  message(STATUS "FindGTest: System GTest not found, fetching from source")
+
+  include(FetchContent)
+  FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG        v1.15.2
+    GIT_SHALLOW    TRUE
+  )
+  set(BUILD_GMOCK   OFF CACHE BOOL "" FORCE)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+
+  # Create an imported interface target wrapping the static lib
+  if(NOT TARGET GTest::gtest)
+    add_library(GTest::gtest INTERFACE IMPORTED GLOBAL)
+    set_target_properties(GTest::gtest PROPERTIES
+      INTERFACE_LINK_LIBRARIES gtest
+    )
+  endif()
+  if(NOT TARGET GTest::gtest_main)
+    add_library(GTest::gtest_main INTERFACE IMPORTED GLOBAL)
+    set_target_properties(GTest::gtest_main PROPERTIES
+      INTERFACE_LINK_LIBRARIES gtest_main
+    )
+  endif()
+
+  set(GTest_FOUND TRUE)
+  message(STATUS "FindGTest: Built GTest from source")
 endif()

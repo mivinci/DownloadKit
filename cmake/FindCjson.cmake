@@ -77,9 +77,20 @@ else()
   FetchContent_MakeAvailable(cjson)
   unset(CMAKE_POLICY_VERSION_MINIMUM)
 
-  # Create an alias target matching our naming convention
+  # Suppress warnings-as-errors inherited from parent project
+  # and enable PIC for linking into shared libraries
+  if(TARGET cjson)
+    target_compile_options(cjson PRIVATE -Wno-error)
+    set_target_properties(cjson PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  endif()
+
+  # Create an imported interface target wrapping the static lib
   if(NOT TARGET Cjson::Cjson)
-    add_library(Cjson::Cjson ALIAS cjson)
+    add_library(Cjson::Cjson INTERFACE IMPORTED GLOBAL)
+    set_target_properties(Cjson::Cjson PROPERTIES
+      INTERFACE_LINK_LIBRARIES cjson
+      INTERFACE_INCLUDE_DIRECTORIES "${cjson_SOURCE_DIR}"
+    )
   endif()
 
   set(Cjson_INCLUDE_DIRS ${cjson_SOURCE_DIR})

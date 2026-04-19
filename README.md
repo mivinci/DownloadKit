@@ -53,7 +53,7 @@ The following dependencies are **automatically fetched and built from source** v
 | nghttp2 | HTTP/2 support for **xhttp** server | `libnghttp2-dev` (apt) / `nghttp2` (brew) |
 | cJSON | JSON parsing for **xfer** signaling | `libcjson-dev` (apt) / `cjson` (brew) |
 | usrsctp | User-space SCTP for **xp2p** DataChannel | `libusrsctp-dev` (apt) / `usrsctp` (brew) |
-| libuv | Event loop backend | `libuv1-dev` (apt) / `libuv` (brew) |
+| libuv | Event loop for benchmarks | `libuv1-dev` (apt) / `libuv` (brew) |
 | GoogleTest | Unit testing (when `XK_BUILD_TESTS=ON`) | `libgtest-dev` (apt) / `googletest` (brew) |
 | Google Benchmark | Benchmarking (when `XK_BUILD_BENCHMARKS=ON`) | `libbenchmark-dev` (apt) / `google-benchmark` (brew) |
 

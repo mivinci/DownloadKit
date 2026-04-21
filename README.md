@@ -80,7 +80,7 @@ ctest --test-dir build --output-on-failure --parallel 4
 
 ### TLS backend selection
 
-Both **xhttp** and **xp2p** support two TLS backends. Use `XK_TLS_BACKEND` (for xhttp) and `XP2P_TLS_BACKEND` (for xp2p DTLS) to choose at configure time:
+Both **xhttp** and **xp2p** share the same TLS backend setting. Use `XK_TLS_BACKEND` to choose at configure time:
 
 | Backend | Value | Extra dependency |
 | ------- | ----- | ---------------- |
@@ -107,17 +107,14 @@ ctest --test-dir build-mbedtls --output-on-failure --parallel 4
 
 ### xp2p DTLS configuration
 
-The **xp2p** module supports DTLS + SCTP + DataChannel for WebRTC browser interop. Use `XP2P_TLS_BACKEND` to select the TLS backend and `XP2P_ENABLE_DTLS` to toggle the feature:
+The **xp2p** module includes DTLS + SCTP + DataChannel for WebRTC browser interop (always enabled). It reuses the same `XK_TLS_BACKEND` setting as **xhttp**:
 
 ```bash
 # OpenSSL backend (default)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXP2P_TLS_BACKEND=openssl
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=openssl
 
 # mbedTLS backend
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXP2P_TLS_BACKEND=mbedtls
-
-# Disable DTLS entirely (pure ICE mode)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXP2P_ENABLE_DTLS=OFF
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=mbedtls
 ```
 
 ### HTTPS integration tests

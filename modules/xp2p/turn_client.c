@@ -7,7 +7,8 @@
  */
 
 #include "turn_client.h"
-#include "ice_crypto.h"
+
+#include <xcrypto/md5.h>
 #include "ice_private.h"
 #include "stun_attr.h"
 #include "stun_msg.h"
@@ -60,8 +61,8 @@ static void turn_compute_key(const xTurnClient *tc, uint8_t *key,
   buf[ulen + 1 + rlen] = ':';
   memcpy(buf + ulen + 1 + rlen + 1, pass, plen);
 
-  xIceMD5(buf, total, key);
-  *key_len = XICE_MD5_DIGEST_SIZE;
+  xMd5(buf, total, key);
+  *key_len = XCRYPTO_MD5_DIGEST_SIZE;
   free(buf);
 }
 

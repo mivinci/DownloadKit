@@ -7,7 +7,8 @@
  */
 
 #include "ice_candidate.h"
-#include "ice_crypto.h"
+
+#include <xcrypto/crc32.h>
 
 #include <arpa/inet.h>
 #include <stdio.h>
@@ -75,7 +76,7 @@ void xIceCandidateFoundation(xIceCandidate         *cand,
     }
   }
 
-  uint32_t hash = xIceCrc32(buf, pos);
+  uint32_t hash = xCrc32(buf, pos);
   snprintf(cand->foundation, XICE_FOUNDATION_MAX_LEN, "%u", hash);
 }
 

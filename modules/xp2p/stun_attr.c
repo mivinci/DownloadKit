@@ -7,7 +7,9 @@
  */
 
 #include "stun_attr.h"
-#include "ice_crypto.h"
+
+#include <xcrypto/crc32.h>
+#include <xcrypto/hmac_sha1.h>
 
 #include <arpa/inet.h>
 #include <stdlib.h>
@@ -177,7 +179,7 @@ xErrno xStunAttrWriteMessageIntegrity(xStunAttrWriter *w, uint8_t *msg_buf,
 
   /* Compute HMAC-SHA1 over header + attrs so far */
   uint8_t hmac[XSTUN_SHA1_DIGEST_SIZE];
-  xIceHmacSHA1(key, key_len, msg_buf, XSTUN_HEADER_SIZE + mi_offset, hmac);
+  xHmacSha1(key, key_len, msg_buf, XSTUN_HEADER_SIZE + mi_offset, hmac);
 
   /* Restore original length (will be updated by caller) */
   xWriteU16BE(msg_buf + 2, orig_len);
@@ -195,7 +197,7 @@ xErrno xStunAttrWriteFingerprint(xStunAttrWriter *w, uint8_t *msg_buf) {
   xWriteU16BE(msg_buf + 2, (uint16_t)(fp_offset + XSTUN_ATTR_HEADER_SIZE + 4));
 
   /* CRC-32 over header + attrs so far */
-  uint32_t crc = xIceCrc32(msg_buf, XSTUN_HEADER_SIZE + fp_offset);
+  uint32_t crc = xCrc32(msg_buf, XSTUN_HEADER_SIZE + fp_offset);
   crc ^= XSTUN_FINGERPRINT_XOR;
 
   xWriteU16BE(msg_buf + 2, orig_len);
@@ -438,7 +440,7 @@ xErrno xStunAttrVerifyMessageIntegrity(const uint8_t *msg_buf,
   }
 
   uint8_t computed[XSTUN_SHA1_DIGEST_SIZE];
-  xIceHmacSHA1(key, key_len, tmp, total_hash_len, computed);
+  xHmacSha1(key, key_len, tmp, total_hash_len, computed);
   free(tmp);
 
   if (memcmp(computed, attr->value, XSTUN_SHA1_DIGEST_SIZE) != 0) {
@@ -475,7 +477,7 @@ xErrno xStunAttrVerifyFingerprint(const uint8_t *msg_buf,
            crc_len - XSTUN_HEADER_SIZE);
   }
 
-  uint32_t computed = xIceCrc32(tmp, crc_len) ^ XSTUN_FINGERPRINT_XOR;
+  uint32_t computed = xCrc32(tmp, crc_len) ^ XSTUN_FINGERPRINT_XOR;
   free(tmp);
 
   uint32_t expected = xReadU32BE(attr->value);

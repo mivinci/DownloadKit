@@ -20,8 +20,8 @@ xKit is organized into eight modules, layered from low-level core primitives up 
 │   xbuf — Linear / Ring / Block-Chain Buffer │
 ├──────────────────────┬──────────────────────┤
 │   xbase              │   xcrypto            │
-│   Event Loop / Timer │   SHA-1 / Crypto     │
-│   Task / Memory      │   Primitives         │
+│   Event Loop / Timer │   SHA-1/256 MD5 CRC  │
+│   Task / Memory      │   HMAC / Crypto      │
 └──────────────────────┴──────────────────────┘
 ```
 
@@ -34,7 +34,7 @@ xKit is organized into eight modules, layered from low-level core primitives up 
 | **[xnet](xnet/README.md)** | Networking primitives — URL parser, async DNS resolver, TCP, shared TLS configuration types |
 | **[xhttp](xhttp/README.md)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 & HTTP/2 async server with TLS, WebSocket server & client |
 | **[xlog](xlog/README.md)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
-| **[xcrypto](xcrypto/README.md)** | Cryptographic primitives — SHA-1 with pluggable backend (OpenSSL / mbedTLS / builtin) |
+| **[xcrypto](xcrypto/README.md)** | Cryptographic primitives — SHA-1, SHA-256 (OpenSSL / mbedTLS / builtin), MD5, CRC-32, generic HMAC with HMAC-SHA1, HMAC-SHA256, HMAC-MD5 |
 | **[xp2p](xp2p/README.md)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
 | **[xfer](xfer/README.md)** | P2P file transfer — chunked transfer over WebRTC DataChannel with signaling, resume, and SHA-1 integrity |
 
@@ -48,5 +48,5 @@ Level 3 (Level 0-2)   : event.h, io.h, url.h, tls.h
 Level 4 (event loop)  : timer.h, task.h, socket.h, dns.h, tcp.h, logger.h, client.h, server.h, ws.h
 Level 5 (xbase+xnet) : ice_agent.h, stun_msg.h, stun_attr.h, stun_txn.h, turn_client.h, sdp.h
 Level 6 (xp2p+xhttp) : xfer.h, xfer_signal.h, xfer_protocol.h
-Level ∞ (standalone)  : sha1.h (xcrypto — depends only on xbase error codes)
+Level ∞ (standalone)  : sha1.h, sha256.h, md5.h, crc32.h, hmac.h (xcrypto — depends only on xbase error codes)
 ```

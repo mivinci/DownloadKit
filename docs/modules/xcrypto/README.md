@@ -2,62 +2,95 @@
 
 ## Introduction
 
-**xcrypto** is xKit's cryptographic module, providing common hash functions and related primitives for use by higher-level modules. It currently offers a SHA-1 implementation with both a one-shot convenience function and a streaming (init/update/final) API.
+**xcrypto** is xKit's cryptographic module, providing common hash functions, checksums, and HMAC primitives for use by higher-level modules. It currently offers:
 
-The underlying implementation is selected at build time based on the `XK_TLS_BACKEND` CMake option, supporting three backends: **OpenSSL**, **mbedTLS**, and a **pure-C builtin fallback**. This allows xcrypto to leverage hardware-accelerated crypto when available while remaining fully functional on minimal environments with zero external dependencies.
+- **Hash functions**: SHA-1, SHA-256, MD5
+- **Checksum**: CRC-32
+- **HMAC**: Generic HMAC (RFC 2104) with streaming API, plus convenience wrappers for HMAC-SHA1, HMAC-SHA256, and HMAC-MD5
+
+SHA-1 and SHA-256 support three backends selected at build time via `XK_TLS_BACKEND`: **OpenSSL**, **mbedTLS**, and a **pure-C builtin fallback**. MD5 and CRC-32 are always pure-C with no external dependencies.
 
 ## Design Philosophy
 
-1. **Backend Abstraction** — A single public header (`sha1.h`) exposes a unified API regardless of the underlying crypto library. The backend is selected at build time via `XK_TLS_BACKEND`, keeping runtime overhead at zero and the public interface stable.
+1. **Backend Abstraction** — Hash headers (`sha1.h`, `sha256.h`) expose a unified API regardless of the underlying crypto library. The backend is selected at build time via `XK_TLS_BACKEND`, keeping runtime overhead at zero and the public interface stable.
 
-2. **Zero Heap Allocation** — The `xSha1Ctx` structure uses a fixed-size opaque buffer (128 bytes) large enough to hold any backend's internal state. No dynamic allocation is needed for hashing operations.
+2. **Zero Heap Allocation** — All context structures (`xSha1Ctx`, `xSha256Ctx`, `xMd5Ctx`, `xHmacCtx`) use fixed-size opaque buffers large enough to hold any backend's internal state. No dynamic allocation is needed.
 
-3. **Dual API Surface** — Every algorithm provides both a one-shot function (`xSha1()`) for simple use cases and a streaming API (`xSha1Init` / `xSha1Update` / `xSha1Final`) for incremental hashing of large or chunked data.
+3. **Dual API Surface** — Every hash algorithm provides both a one-shot function (e.g. `xSha256()`) for simple use cases and a streaming API (`Init` / `Update` / `Final`) for incremental hashing of large or chunked data. The generic HMAC also supports both modes.
 
 4. **Compile-Time Static Assertions** — Each backend implementation uses `_Static_assert` to verify at compile time that the opaque buffer is large enough for its internal state, catching size mismatches before they become runtime bugs.
 
 5. **Consistent Error Handling** — All functions return `xErrno` codes and validate arguments defensively, following the same error convention used throughout xKit.
+
+6. **Generic HMAC via Vtable** — The HMAC implementation is hash-agnostic, driven by an `xHashVtable` that describes any hash algorithm's init/update/final/sizes. Adding HMAC for a new hash requires only a one-line vtable definition.
 
 ## Architecture
 
 ```mermaid
 graph TD
     subgraph "Public API"
-        SHA1_H["sha1.h<br/>xSha1() / xSha1Init / xSha1Update / xSha1Final"]
+        SHA1_H["sha1.h<br/>xSha1() / Init / Update / Final"]
+        SHA256_H["sha256.h<br/>xSha256() / Init / Update / Final"]
+        MD5_H["md5.h<br/>xMd5() / Init / Update / Final"]
+        CRC32_H["crc32.h<br/>xCrc32()"]
+        HMAC_H["hmac.h<br/>xHmac() / Init / Update / Final"]
+        HMAC_SHA1_H["hmac_sha1.h — xHmacSha1()"]
+        HMAC_SHA256_H["hmac_sha256.h — xHmacSha256()"]
+        HMAC_MD5_H["hmac_md5.h — xHmacMd5()"]
     end
 
     subgraph "Backend Implementations"
-        OPENSSL["sha1_openssl.c<br/>OpenSSL EVP"]
-        MBEDTLS["sha1_mbedtls.c<br/>mbedTLS"]
-        BUILTIN["sha1_builtin.c<br/>Pure-C (RFC 3174)"]
+        SHA1_SSL["sha1_openssl.c"]
+        SHA1_MBED["sha1_mbedtls.c"]
+        SHA1_BUILT["sha1_builtin.c"]
+        SHA256_SSL["sha256_openssl.c"]
+        SHA256_MBED["sha256_mbedtls.c"]
+        SHA256_BUILT["sha256_builtin.c"]
+        MD5_C["md5.c (pure C)"]
+        CRC32_C["crc32.c (pure C)"]
     end
 
-    subgraph "Build-Time Selection"
-        CMAKE["CMakeLists.txt<br/>XK_TLS_BACKEND"]
+    subgraph "Generic HMAC Engine"
+        HMAC_C["hmac.c (RFC 2104)"]
+        VTABLE["xHashVtable"]
     end
 
-    SHA1_H -->|"openssl"| OPENSSL
-    SHA1_H -->|"mbedtls"| MBEDTLS
-    SHA1_H -->|"builtin / auto fallback"| BUILTIN
-    CMAKE -->|"selects one"| SHA1_H
+    SHA1_H --> SHA1_SSL & SHA1_MBED & SHA1_BUILT
+    SHA256_H --> SHA256_SSL & SHA256_MBED & SHA256_BUILT
+    MD5_H --> MD5_C
+    CRC32_H --> CRC32_C
+
+    HMAC_SHA1_H --> HMAC_C
+    HMAC_SHA256_H --> HMAC_C
+    HMAC_MD5_H --> HMAC_C
+    HMAC_H --> HMAC_C
+    HMAC_C --> VTABLE
+    VTABLE -.->|"sha1"| SHA1_H
+    VTABLE -.->|"sha256"| SHA256_H
+    VTABLE -.->|"md5"| MD5_H
 
     style SHA1_H fill:#4a90d9,color:#fff
-    style OPENSSL fill:#f5a623,color:#fff
-    style MBEDTLS fill:#f5a623,color:#fff
-    style BUILTIN fill:#50b86c,color:#fff
-    style CMAKE fill:#888,color:#fff
+    style SHA256_H fill:#4a90d9,color:#fff
+    style MD5_H fill:#4a90d9,color:#fff
+    style CRC32_H fill:#4a90d9,color:#fff
+    style HMAC_H fill:#4a90d9,color:#fff
+    style HMAC_SHA1_H fill:#9b59b6,color:#fff
+    style HMAC_SHA256_H fill:#9b59b6,color:#fff
+    style HMAC_MD5_H fill:#9b59b6,color:#fff
+    style HMAC_C fill:#e67e22,color:#fff
+    style VTABLE fill:#e67e22,color:#fff
 ```
 
 ## Backend Selection
 
-The SHA-1 backend is chosen via the `XK_TLS_BACKEND` CMake variable:
+SHA-1 and SHA-256 backends are chosen via the `XK_TLS_BACKEND` CMake variable. MD5 and CRC-32 are always pure-C.
 
-| `XK_TLS_BACKEND` | Backend | External Dependency |
+| `XK_TLS_BACKEND` | SHA-1 / SHA-256 Backend | External Dependency |
 | --- | --- | --- |
 | `openssl` | OpenSSL EVP API | `libssl`, `libcrypto` |
 | `mbedtls` | mbedTLS | `libmbedtls` |
 | `auto` | Auto-detect: OpenSSL → mbedTLS → builtin | Best available |
-| *(anything else)* | Pure-C builtin (RFC 3174) | None |
+| *(anything else)* | Pure-C builtin | None |
 
 When set to `auto`, CMake probes for OpenSSL first, then mbedTLS, and falls back to the builtin implementation if neither is found.
 
@@ -65,46 +98,70 @@ When set to `auto`, CMake probes for OpenSSL first, then mbedTLS, and falls back
 
 | Header | Description |
 | --- | --- |
-| [`sha1.h`](sha1.md) | SHA-1 hash — one-shot and streaming API with pluggable backend |
+| `sha1.h` | SHA-1 hash — one-shot and streaming API with pluggable backend |
+| `sha256.h` | SHA-256 hash — one-shot and streaming API with pluggable backend |
+| `md5.h` | MD5 hash — one-shot and streaming API (pure C, RFC 1321) |
+| `crc32.h` | CRC-32 checksum — one-shot API (pure C, ISO 3309) |
+| `hmac.h` | Generic HMAC — one-shot and streaming API (RFC 2104), works with any `xHashVtable` |
+| `hmac_sha1.h` | HMAC-SHA1 convenience wrapper |
+| `hmac_sha256.h` | HMAC-SHA256 convenience wrapper |
+| `hmac_md5.h` | HMAC-MD5 convenience wrapper |
 
 ## API Reference
 
-### Constants
+### Hash Constants
 
 | Constant | Value | Description |
 | --- | --- | --- |
 | `XCRYPTO_SHA1_DIGEST_SIZE` | 20 | SHA-1 digest length in bytes |
 | `XCRYPTO_SHA1_BLOCK_SIZE` | 64 | SHA-1 internal block size in bytes |
+| `XCRYPTO_SHA256_DIGEST_SIZE` | 32 | SHA-256 digest length in bytes |
+| `XCRYPTO_SHA256_BLOCK_SIZE` | 64 | SHA-256 internal block size in bytes |
+| `XCRYPTO_MD5_DIGEST_SIZE` | 16 | MD5 digest length in bytes |
+| `XCRYPTO_MD5_BLOCK_SIZE` | 64 | MD5 internal block size in bytes |
 
-### Functions
+### Hash Functions
 
 | Function | Description |
 | --- | --- |
-| `xSha1(data, len, digest)` | One-shot: compute SHA-1 of a buffer |
-| `xSha1Init(ctx)` | Initialize a streaming SHA-1 context |
-| `xSha1Update(ctx, data, len)` | Feed data into the context incrementally |
-| `xSha1Final(ctx, digest)` | Finalize and produce the 20-byte digest |
+| `xSha1(data, len, digest)` | One-shot SHA-1 |
+| `xSha1Init(ctx)` / `xSha1Update(ctx, data, len)` / `xSha1Final(ctx, digest)` | Streaming SHA-1 |
+| `xSha256(data, len, digest)` | One-shot SHA-256 |
+| `xSha256Init(ctx)` / `xSha256Update(ctx, data, len)` / `xSha256Final(ctx, digest)` | Streaming SHA-256 |
+| `xMd5(data, len, digest)` | One-shot MD5 |
+| `xMd5Init(ctx)` / `xMd5Update(ctx, data, len)` / `xMd5Final(ctx, digest)` | Streaming MD5 |
+| `xCrc32(data, len)` | One-shot CRC-32 (returns `uint32_t`) |
 
-All functions return `xErrno_Ok` on success. After `xSha1Final`, the context must be re-initialized before reuse.
+### HMAC Functions
+
+| Function | Description |
+| --- | --- |
+| `xHmac(hash, key, key_len, data, data_len, digest)` | Generic one-shot HMAC with any `xHashVtable` |
+| `xHmacInit(ctx, hash, key, key_len)` / `xHmacUpdate(ctx, data, len)` / `xHmacFinal(ctx, digest)` | Generic streaming HMAC |
+| `xHmacSha1(key, key_len, data, data_len, digest)` | One-shot HMAC-SHA1 convenience wrapper |
+| `xHmacSha256(key, key_len, data, data_len, digest)` | One-shot HMAC-SHA256 convenience wrapper |
+| `xHmacMd5(key, key_len, data, data_len, digest)` | One-shot HMAC-MD5 convenience wrapper |
+
+All functions return `xErrno_Ok` on success (except `xCrc32` which returns the checksum directly). After calling a `Final` function, the context must be re-initialized before reuse.
 
 ## Quick Start
 
-### One-Shot Hashing
+### One-Shot SHA-256
 
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xcrypto/sha1.h>
+#include <xcrypto/sha256.h>
 
 int main(void) {
     const char *msg = "Hello, World!";
-    uint8_t digest[XCRYPTO_SHA1_DIGEST_SIZE];
+    uint8_t digest[XCRYPTO_SHA256_DIGEST_SIZE];
 
-    xErrno err = xSha1((const uint8_t *)msg, strlen(msg), digest);
+    xErrno err = xSha256((const uint8_t *)msg, strlen(msg), digest);
     if (err != xErrno_Ok) return 1;
 
-    printf("SHA-1: ");
-    for (int i = 0; i < XCRYPTO_SHA1_DIGEST_SIZE; i++) {
+    printf("SHA-256: ");
+    for (int i = 0; i < XCRYPTO_SHA256_DIGEST_SIZE; i++) {
         printf("%02x", digest[i]);
     }
     printf("\n");
@@ -112,27 +169,48 @@ int main(void) {
 }
 ```
 
-### Streaming (Incremental) Hashing
+### HMAC-SHA256
 
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xcrypto/sha1.h>
+#include <xcrypto/hmac_sha256.h>
 
 int main(void) {
-    xSha1Ctx ctx;
-    uint8_t digest[XCRYPTO_SHA1_DIGEST_SIZE];
+    const char *key = "secret";
+    const char *msg = "Hello, World!";
+    uint8_t digest[32];
 
-    xSha1Init(&ctx);
-    xSha1Update(&ctx, (const uint8_t *)"Hello, ", 7);
-    xSha1Update(&ctx, (const uint8_t *)"World!", 6);
-    xSha1Final(&ctx, digest);
+    xErrno err = xHmacSha256(
+        (const uint8_t *)key, strlen(key),
+        (const uint8_t *)msg, strlen(msg),
+        digest);
+    if (err != xErrno_Ok) return 1;
 
-    printf("SHA-1: ");
-    for (int i = 0; i < XCRYPTO_SHA1_DIGEST_SIZE; i++) {
+    printf("HMAC-SHA256: ");
+    for (int i = 0; i < 32; i++) {
         printf("%02x", digest[i]);
     }
     printf("\n");
+    return 0;
+}
+```
+
+### Streaming HMAC (Generic)
+
+```c
+#include <xcrypto/hmac.h>
+#include <xcrypto/hmac_sha1.h>  /* for xHashVtableSha1 */
+
+int main(void) {
+    xHmacCtx ctx;
+    uint8_t digest[20];
+
+    xHmacInit(&ctx, &xHashVtableSha1,
+              (const uint8_t *)"key", 3);
+    xHmacUpdate(&ctx, (const uint8_t *)"Hello, ", 7);
+    xHmacUpdate(&ctx, (const uint8_t *)"World!", 6);
+    xHmacFinal(&ctx, digest);
     return 0;
 }
 ```
@@ -140,7 +218,7 @@ int main(void) {
 Compile with:
 
 ```bash
-gcc -o sha1_example sha1_example.c -I/path/to/xkit -lxcrypto -lxbase
+gcc -o example example.c -I/path/to/xkit -lxcrypto -lxbase
 ```
 
 ## Relationship with Other Modules
@@ -151,17 +229,21 @@ graph LR
     XBASE["xbase"]
     XHTTP["xhttp"]
     XP2P["xp2p"]
+    XFER["xfer"]
 
     XCRYPTO -->|"error codes + base types"| XBASE
     XHTTP -.->|"WebSocket handshake SHA-1"| XCRYPTO
-    XP2P -.->|"STUN message integrity"| XCRYPTO
+    XP2P -.->|"STUN HMAC-SHA1 + CRC-32"| XCRYPTO
+    XFER -.->|"SHA-1 integrity check"| XCRYPTO
 
     style XCRYPTO fill:#4a90d9,color:#fff
     style XBASE fill:#50b86c,color:#fff
     style XHTTP fill:#f5a623,color:#fff
     style XP2P fill:#e74c3c,color:#fff
+    style XFER fill:#9b59b6,color:#fff
 ```
 
 - **xbase** — xcrypto depends on xbase for `xErrno` error codes, `XDEF_STRUCT`, and `XCAPI` macros.
-- **xhttp** — The WebSocket handshake (RFC 6455) requires SHA-1 to compute the `Sec-WebSocket-Accept` header. xhttp may use xcrypto for this.
-- **xp2p** — STUN message integrity (RFC 5389) uses HMAC-SHA1. xp2p may use xcrypto's SHA-1 as a building block.
+- **xhttp** — The WebSocket handshake (RFC 6455) requires SHA-1 to compute the `Sec-WebSocket-Accept` header.
+- **xp2p** — STUN message integrity (RFC 5389) uses HMAC-SHA1 and CRC-32 fingerprint. xp2p uses xcrypto directly.
+- **xfer** — File transfer integrity verification uses SHA-1 checksums from xcrypto.

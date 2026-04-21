@@ -28,7 +28,7 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 | **[xnet](https://le0.me/xKit/modules/xnet)** | Networking primitives — URL parser, async DNS resolver, shared TLS configuration types |
 | **[xhttp](https://le0.me/xKit/modules/xhttp)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing, WebSocket server & client (RFC 6455) |
 | **[xlog](https://le0.me/xKit/modules/xlog)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
-| **[xcrypto](https://le0.me/xKit/modules/xcrypto)** | Cryptographic primitives — SHA-1 with pluggable backend (OpenSSL / mbedTLS / builtin) |
+| **[xcrypto](https://le0.me/xKit/modules/xcrypto)** | Cryptographic primitives — SHA-1, SHA-256 (OpenSSL / mbedTLS / builtin), MD5, CRC-32, generic HMAC with HMAC-SHA1, HMAC-SHA256, HMAC-MD5 |
 | **[xp2p](https://le0.me/xKit/modules/xp2p)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
 | **[xfer](https://le0.me/xKit/modules/xfer)** | P2P file transfer — zero-config send/receive over WebRTC DataChannel with signaling, chunking, SHA-1 verification, and resume support |
 

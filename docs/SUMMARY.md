@@ -38,7 +38,6 @@
   - [xlog — Async Logging](modules/xlog/README.md)
     - [Logger](modules/xlog/logger.md)
   - [xcrypto — Cryptographic Primitives](modules/xcrypto/README.md)
-    - [SHA-1](modules/xcrypto/sha1.md)
   - [xp2p — P2P Connectivity](modules/xp2p/README.md)
     - [ICE Agent](modules/xp2p/ice.md)
     - [Peer Connection](modules/xp2p/pc.md)

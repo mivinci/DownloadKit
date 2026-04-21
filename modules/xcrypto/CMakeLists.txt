@@ -1,9 +1,15 @@
 file(GLOB_RECURSE XCRYPTO_HEADERS "*.h")
 
-# Start with no sources; add conditionally below
-set(XCRYPTO_SOURCES "")
+# Sources that are always built (no TLS backend dependency)
+set(XCRYPTO_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/hmac.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/hmac_sha1.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/hmac_md5.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/crc32.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/md5.c
+)
 
-add_library(xcrypto ${XK_LIB_TYPE} ${XCRYPTO_HEADERS})
+add_library(xcrypto ${XK_LIB_TYPE} ${XCRYPTO_SOURCES} ${XCRYPTO_HEADERS})
 
 target_link_libraries(xcrypto PUBLIC xbase)
 
@@ -48,7 +54,7 @@ else()
   message(STATUS "xcrypto: SHA-1 backend = builtin (pure C)")
 endif()
 
-message(STATUS "xcrypto: crypto module enabled (SHA-1)")
+message(STATUS "xcrypto: crypto module enabled (SHA-1, MD5, CRC-32, HMAC)")
 
 # ── Tests ──────────────────────────────────────────────────────────────
 if(XK_BUILD_TESTS)

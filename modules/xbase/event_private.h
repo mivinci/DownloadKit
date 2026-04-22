@@ -154,7 +154,10 @@ static inline void event_timer_set_idx(void *elem, size_t idx) {
 struct xEventWork_ {
   xMpsc     mpsc;    /* intrusive MPSC queue node                */
   xTaskFunc work_fn; /* executed on worker thread                */
-  void (*done_fn)(void *arg, void *result); /* executed on loop thread */
+  union {
+    void (*done_fn)(void *arg, void *result); /* offload completion   */
+    xEventPostFunc post_fn;                   /* posted callback      */
+  };
   void               *arg;
   void               *result;
   xEventLoop          loop;      /* back-pointer to the owning event loop    */
@@ -390,26 +393,30 @@ static inline void event_work_pool_destroy(struct xEventLoop_ *loop) {
   loop->work_freelist = NULL;
 }
 
-/* Dispatch all completed offload work items (call done_fn, then recycle). */
+/* Dispatch all completed work items (offload + post) from the done queue. */
 static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
   xMpsc *node;
   while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
     struct xEventWork_ *w = xContainerOf(node, struct xEventWork_, mpsc);
-    /* Release the xTask handle allocated by xTaskSubmit. */
-    xTaskWait(w->task, NULL);
-    if (w->done_fn) w->done_fn(w->arg, w->result);
-    xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
+    if (w->task) {
+      /* Offload item: release the xTask handle, then invoke done_fn. */
+      xTaskWait(w->task, NULL);
+      if (w->done_fn) w->done_fn(w->arg, w->result);
+      xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
+    } else {
+      /* Posted item (xEventLoopPost): invoke the callback directly. */
+      if (w->post_fn) w->post_fn(w->arg);
+    }
     event_work_free(loop, w);
   }
 }
 
-/* Drain remaining offload work items without executing done_fn (for destroy).
- */
+/* Drain remaining work items without executing callbacks (for destroy). */
 static inline void loop_cleanup_done(struct xEventLoop_ *loop) {
   xMpsc *node;
   while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
     struct xEventWork_ *w = xContainerOf(node, struct xEventWork_, mpsc);
-    xTaskWait(w->task, NULL);
+    if (w->task) xTaskWait(w->task, NULL);
     free(w); /* truly free — loop is being destroyed */
   }
 }

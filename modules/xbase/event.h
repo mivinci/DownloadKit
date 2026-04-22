@@ -228,6 +228,29 @@ XCAPI(xErrno) xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
                                void *arg);
 
 /**
+ * @brief Callback invoked on the event loop thread by xEventLoopPost().
+ * @param arg User-provided argument.
+ */
+typedef void (*xEventPostFunc)(void *arg);
+
+/**
+ * @brief Post a callback to be executed on the event loop thread.
+ *
+ * The callback is queued and will be dispatched during the next
+ * xEventWait(), serialised with I/O, timer, and offload callbacks.
+ * Unlike xEventLoopSubmit(), no thread pool is involved — the callback
+ * runs directly on the loop thread.
+ *
+ * Thread-safe: may be called from any thread.
+ *
+ * @param loop  The event loop (must not be NULL).
+ * @param fn    Callback to invoke on the loop thread (must not be NULL).
+ * @param arg   Argument forwarded to @p fn.
+ * @return      xErrno_Ok on success, or an error code.
+ */
+XCAPI(xErrno) xEventLoopPost(xEventLoop loop, xEventPostFunc fn, void *arg);
+
+/**
  * @brief Run the event loop.
  *
  * Enters a blocking main loop that repeatedly calls xEventWait() until

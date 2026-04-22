@@ -14,6 +14,8 @@
 
 4. **Thread-Pool Offload** — `xEventLoopSubmit()` bridges the event loop and the task system: CPU-bound work runs on a worker thread, and the completion callback is dispatched on the event loop thread via a lock-free MPSC queue + cross-thread wake, ensuring single-threaded callback semantics.
 
+6. **Direct Cross-Thread Posting** — `xEventLoopPost()` allows any thread to queue a callback for execution on the event loop thread without involving a thread pool. This is the lightest cross-thread communication primitive — ideal for notifying the loop of external events (e.g., ICE/TURN callbacks, inter-module signals) with zero thread-pool overhead.
+
 5. **Self-Pipe Trick for Signals** — On epoll and poll backends, signal delivery uses the self-pipe trick (a `sigaction` handler writes to a pipe) rather than `signalfd`, avoiding the fragile requirement of blocking signals in every thread. On kqueue, `EVFILT_SIGNAL` is used natively.
 
 ## Architecture
@@ -38,6 +40,7 @@ graph TD
         WAKE["Wake (EVFILT_USER / eventfd / pipe)"]
         MPSC_Q["MPSC Done Queue"]
         WORKER["Worker Thread Pool"]
+        POST["xEventLoopPost()"]
     end
 
     WAIT --> KQ
@@ -51,6 +54,7 @@ graph TD
     DONE --> SWEEP
 
     WORKER -->|"push result"| MPSC_Q
+    POST -->|"push callback"| MPSC_Q
     MPSC_Q -->|"wake"| WAKE
     WAKE -->|"drain"| DONE
 
@@ -105,7 +109,7 @@ All backends share a common base structure (`struct xEventLoop_`) defined in `ev
 - A dynamic source array with deferred deletion (sweep after dispatch)
 - A cross-thread wake mechanism (`EVFILT_USER` on kqueue, `eventfd` on epoll, pipe on poll) with atomic coalescing
 - A min-heap for builtin timers (protected by `timer_mu` mutex)
-- A lock-free MPSC done-queue for offload completion callbacks
+- A lock-free MPSC done-queue for offload completion and posted callbacks
 - Signal watch slots (up to `XK_SIGNAL_MAX = 64`)
 
 ### Deferred Source Deletion
@@ -149,6 +153,7 @@ The self-pipe approach avoids `signalfd`'s requirement to block signals in all t
 | `xEventTimerFunc` | `void (*)(void *arg)` — Timer callback |
 | `xEventSignalFunc` | `void (*)(int signo, void *arg)` — Signal callback |
 | `xEventDoneFunc` | `void (*)(void *arg, void *result)` — Offload completion callback |
+| `xEventPostFunc` | `void (*)(void *arg)` — Posted callback (via `xEventLoopPost`) |
 | `xEventLoop` | Opaque handle to an event loop |
 | `xEventSource` | Opaque handle to a registered event source |
 | `xEventTimer` | Opaque handle to a builtin timer |
@@ -187,6 +192,7 @@ The self-pipe approach avoids `signalfd`'s requirement to block signals in all t
 | Function | Signature | Thread Safety |
 | --- | --- | --- |
 | `xEventWake` | `xErrno xEventWake(xEventLoop loop)` | **Thread-safe** (signal-handler-safe) |
+| `xEventLoopPost` | `xErrno xEventLoopPost(xEventLoop loop, xEventPostFunc fn, void *arg)` | **Thread-safe** |
 | `xEventLoopSubmit` | `xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn, xEventDoneFunc done_fn, void *arg)` | **Thread-safe** |
 
 #### Signal
@@ -260,6 +266,40 @@ int main(void) {
 }
 ```
 
+### Posting a Callback to the Loop Thread
+
+```c
+#include <stdio.h>
+#include <pthread.h>
+#include <xbase/event.h>
+
+static void on_notify(void *arg) {
+    // Runs on the event loop thread — safe to access loop state
+    printf("Notified from another thread!\n");
+    xEventLoopStop((xEventLoop)arg);
+}
+
+static void *background_thread(void *arg) {
+    xEventLoop loop = (xEventLoop)arg;
+    // Do some work...
+    xEventLoopPost(loop, on_notify, loop);
+    return NULL;
+}
+
+int main(void) {
+    xEventLoop loop = xEventLoopCreate();
+
+    pthread_t th;
+    pthread_create(&th, NULL, background_thread, loop);
+
+    xEventLoopRun(loop);
+
+    pthread_join(th, NULL);
+    xEventLoopDestroy(loop);
+    return 0;
+}
+```
+
 ### Offloading Work to a Thread Pool
 
 ```c
@@ -303,10 +343,13 @@ int main(void) {
 
 3. **Hybrid I/O + CPU Workloads** — Use `xEventLoopSubmit()` to offload CPU-intensive parsing or compression to a thread pool, then process results on the event loop thread where I/O state is safely accessible.
 
+4. **Cross-Thread Notifications** — Use `xEventLoopPost()` to notify the event loop from external callbacks (e.g., ICE/TURN completions, OS notifications) without the overhead of a thread pool round-trip. The callback runs on the loop thread, so no additional synchronisation is needed.
+
 ## Best Practices
 
 - **Always drain fds in edge-triggered mode.** Read/write until `EAGAIN` in every callback. Missing data means you won't be notified again until new data arrives.
 - **Never block in callbacks.** The event loop is single-threaded; a blocking call stalls all I/O and timer processing. Offload heavy work via `xEventLoopSubmit()`.
+- **Prefer `xEventLoopPost()` over `xEventLoopSubmit()` when no worker thread is needed.** If you just need to run a callback on the loop thread from another thread, `xEventLoopPost()` avoids the thread-pool overhead entirely.
 - **Use `xEventLoopRun()` for the main loop.** It handles timer dispatch and stop-flag checking automatically. Only use `xEventWait()` directly if you need custom loop logic.
 - **Cancel timers you no longer need.** Uncancelled timers hold memory until they fire. Use `xEventLoopTimerCancel()` to free them early.
 - **Be aware of the poll backend's edge emulation.** On systems without kqueue or epoll, the poll backend clears the event mask after dispatch. You must call `xEventMod()` to re-arm.

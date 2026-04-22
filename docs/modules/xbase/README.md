@@ -106,6 +106,7 @@ graph TD
 | React to I/O readiness on file descriptors | [`event.h`](event.md) — register fds and get edge-triggered callbacks |
 | Schedule delayed or periodic work | [`timer.h`](timer.md) — standalone timer, or use `xEventLoopTimerAfter()` for event-loop-integrated timers |
 | Run CPU-bound work off the main thread | [`task.h`](task.md) — submit to a thread pool, optionally collect results |
+| Post a callback to the event loop from another thread | [`event.h`](event.md) — `xEventLoopPost()` for zero-overhead cross-thread dispatch |
 | Manage non-blocking TCP/UDP connections | [`socket.h`](socket.md) — wraps socket + event loop + idle timeout |
 | Allocate objects with automatic cleanup | [`memory.h`](memory.md) — `XMALLOC(T)` + `xRetain`/`xRelease` |
 | Report errors from library internals | [`log.h`](log.md) — thread-local callback, or stderr fallback |
@@ -180,5 +181,5 @@ graph LR
 
 - **xbuf** — Buffer module. `xIOBuffer` uses xbase's `atomic.h` for lock-free block pool management. xhttp uses both xbase and xbuf together.
 - **xhttp** — The async HTTP client is built on top of xbase's event loop (`xEventLoop`) and timer infrastructure, and uses xbuf for response buffering.
-- **xnet** — The networking primitives module. The async DNS resolver uses xbase's event loop for thread-pool offload (`xEventLoopSubmit`) and `atomic.h` for the cancellation flag.
+- **xnet** — The networking primitives module. The async DNS resolver uses xbase's event loop for thread-pool offload (`xEventLoopSubmit`) and `atomic.h` for the cancellation flag. Cross-thread notifications (e.g., ICE/TURN completions) can use `xEventLoopPost()` to avoid thread-pool overhead.
 - **xlog** — The async logger uses xbase's event loop for timer-based flushing and the MPSC queue for lock-free log message passing from application threads to the logger thread.

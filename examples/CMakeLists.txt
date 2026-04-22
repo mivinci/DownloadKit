@@ -33,3 +33,12 @@ target_link_libraries(xfer_signal PRIVATE xfer xhttp xbase)
 
 add_executable(nat_probe nat_probe.c)
 target_link_libraries(nat_probe PRIVATE xp2p xbase)
+
+add_executable(ai_openai ai_openai.cpp)
+target_link_libraries(ai_openai PRIVATE xai xhttp xbase)
+# Demo reaches into modules/xai/provider_private.h for the internal
+# dispatcher because session.c has not landed yet. Once session lands,
+# this include path should be removed and the demo rewritten against
+# xAiAgentCreate + xAiSessionCreate.
+target_include_directories(ai_openai PRIVATE
+  ${CMAKE_SOURCE_DIR}/modules)

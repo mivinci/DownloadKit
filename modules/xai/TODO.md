@@ -27,31 +27,34 @@ without touching the public API shipped today.
       layer.
 - [x] `agent.c` — bookkeeping for provider / tools / limits / task
       group, no own loop state. Landed in `43ede0a`.
-- [~] `session.c` — the actual agent loop:
+- [x] `session.c` — the actual agent loop:
   - [x] lifecycle (create / destroy / cancel);
   - [x] single-in-flight run enforcement (`xErrno_Busy` on re-entry);
   - [x] history ownership (session duplicates every byte);
   - [x] text-only round: submit view build, text delta streaming,
         provider stop-reason → `xAiDoneReason` translation;
   - [x] partial-text commit on error / cancel;
-  - [ ] tool dispatch to the task group with `concurrent_safe`
-        gating (tool_use currently terminates the round with
-        `xAiDoneReason_ToolError` + on_error diagnostic);
-  - [ ] internal Terminal / Continue tagged union — the MVP only
-        does one provider round per input, so no state machine is
-        needed yet; this lands with the tool loop;
-  - [ ] local context-budget trip wire / max_turns / max_tokens
-        enforcement (provider's own PromptLong signal is already
-        mapped to `xAiDoneReason_PromptTooLong`).
+  - [x] tool dispatch — synchronous on the event loop, unknown-tool
+        / handler-error rolled back to the model as `is_error=1`
+        tool_result rather than aborting the round;
+  - [x] internal Terminal / Continue decision hidden inside
+        `on_provider_done`; `xAiProviderStop_ToolUse` + ≥1 pending
+        call continues, everything else terminates;
+  - [x] `max_turns` enforcement (configurable per-session /
+        per-agent; `XAI_SESSION_DEFAULT_MAX_TURNS=16` fallback);
+  - [ ] parallel tool dispatch via `xTaskGroup` when
+        `concurrent_safe` is set — today every handler runs
+        synchronously on the loop thread;
+  - [ ] local context-budget compression (provider's own PromptLong
+        signal is already mapped to `xAiDoneReason_PromptTooLong`).
 - [ ] End-to-end smoke tests against a local OpenAI-compatible
       endpoint (llama.cpp server or stub).
 
-## Session.c follow-ups (Commit 4 candidates)
+## Session.c follow-ups (post-Commit 4)
 
-- [ ] Tool loop: receive `xAiContentType_ToolUse`, look up the tool
-      on the agent, dispatch the handler (synchronously on the loop
-      for MVP), append the `tool_result` to history, submit the
-      next round.
+- [x] Tool loop: receive `xAiContentType_ToolUse`, look up the tool
+      on the agent, dispatch the handler, append the `tool_result`
+      to history, submit the next round. Landed with Commit 4.
 - [ ] Finalise on_done vs on_error split. Current policy: on_error
       is an informational pre-cursor (tool-not-supported, provider
       transport error) followed by on_done. session.h's "exactly
@@ -62,6 +65,8 @@ without touching the public API shipped today.
       state. This relies on the provider delivering on_done
       synchronously from cancel(), which provider_openai does not
       promise. Add a drained-by-loop teardown path.
+- [ ] User-confirmation gate for `needs_confirm` tools (see
+      "Tooling" section below).
 
 ## Provider expansion
 

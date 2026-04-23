@@ -3,45 +3,50 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * session.c - xAiSession implementation (MVP: text-only rounds)
+ * session.c - xAiSession implementation
  *
- * Scope of this file today:
+ * Scope:
  *   - Lifecycle (create / destroy / cancel).
  *   - Single-flight admission with xErrno_Busy.
- *   - History ownership: the session duplicates every text byte it
- *     receives from the caller (xAiSessionInput) and every chunk it
- *     receives from the provider, so callers can drop their message
- *     as soon as xAiSessionInput returns.
- *   - One streaming round per xAiSessionInput: build a
- *     xAiProviderSubmitConf view over the history, submit, stream
- *     text deltas, surface on_done.
+ *   - History ownership: every byte (user text, assistant text,
+ *     tool_use arguments, tool_result output) is duplicated into
+ *     session-owned storage. Callers can drop their xAiMessage as
+ *     soon as xAiSessionInput returns.
+ *   - Full tool loop: collect tool_use deltas during a round, dispatch
+ *     to registered handlers on the event loop when the provider
+ *     reports Stop_ToolUse, stitch tool_result entries into history,
+ *     and submit the next round — up to the configured max_turns.
  *
- * Intentionally NOT implemented yet (tracked in modules/xai/TODO.md):
- *   - Tool loop (tool_use → handler → tool_result → next round).
- *     If the provider emits a tool_call, the session reports
- *     xAiDoneReason_ToolError with an explanatory on_error so it is
- *     obvious from the outside that the MVP does not yet close the
- *     loop.
- *   - Local context_budget enforcement before submitting.
- *   - max_turns enforcement (MVP only issues one provider submit
- *     per xAiSessionInput; there is no multi-round loop yet because
- *     tools are the only thing that would extend a turn).
- *   - Prompt compression / snipping.
+ * Intentionally still deferred (see modules/xai/TODO.md):
+ *   - Parallel tool dispatch via xTaskGroup when concurrent_safe is
+ *     set. Today every handler runs synchronously on the loop thread.
+ *   - User-confirmation gate for needs_confirm tools.
+ *   - Local context_budget compression. The session still forwards
+ *     the provider's PromptLong signal as xAiDoneReason_PromptTooLong.
+ *   - Proper async teardown when destroy is called mid-flight.
  */
 
 #include "session_private.h"
 
 #include "agent_private.h"
-#include "provider_private.h" /* for ai_provider_submit / ai_provider_cancel */
+#include "provider_private.h" /* ai_provider_submit / ai_provider_cancel   */
+#include "tool_private.h"     /* ai_tool_name / ai_tool_invoke             */
 
 #include <xai/message.h>
 #include <xai/provider.h>
 #include <xai/session.h>
+#include <xai/tool.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Fallback cap if neither the caller nor the agent set max_turns.
+ * Picked to be generous enough for typical multi-step tool use while
+ * still catching runaway agent loops. */
+#define XAI_SESSION_DEFAULT_MAX_TURNS 16
 
 /* ── Small helpers ──────────────────────────────────────────────────── */
 
@@ -54,6 +59,11 @@ static char *dup_bytes(const char *src, size_t len) {
   return out;
 }
 
+static char *dup_cstr(const char *src) {
+  if (!src) return NULL;
+  return dup_bytes(src, strlen(src));
+}
+
 static void msg_free(struct xAiSessionMsg_ *m) {
   if (!m) return;
   free(m->text);
@@ -63,6 +73,21 @@ static void msg_free(struct xAiSessionMsg_ *m) {
   free(m->tool_result_id);
   free(m->tool_result_output);
   memset(m, 0, sizeof(*m));
+}
+
+static void pending_free_entry(struct xAiSessionPending_ *p) {
+  if (!p) return;
+  free(p->id);
+  free(p->name);
+  free(p->args_json);
+  memset(p, 0, sizeof(*p));
+}
+
+static void pending_reset(struct xAiSession_ *s) {
+  for (size_t i = 0; i < s->n_pending; i++) {
+    pending_free_entry(&s->pending[i]);
+  }
+  s->n_pending = 0;
 }
 
 /* Grow history by one slot, zero-initialised. Returns the slot or
@@ -81,12 +106,13 @@ static struct xAiSessionMsg_ *history_grow(struct xAiSession_ *s) {
   return slot;
 }
 
-/* Append one text-only message to the history, copying every byte. */
+/* Append one text entry to the history, copying every byte. */
 static xErrno history_append_text(struct xAiSession_ *s, xAiRole role,
                                   const char *text, size_t len) {
   struct xAiSessionMsg_ *slot = history_grow(s);
   if (!slot) return xErrno_NoMemory;
   slot->role = role;
+  slot->kind = xAiSessionEntry_Text;
   if (len > 0) {
     slot->text = dup_bytes(text, len);
     if (!slot->text) {
@@ -98,13 +124,56 @@ static xErrno history_append_text(struct xAiSession_ *s, xAiRole role,
   return xErrno_Ok;
 }
 
-/* Append an incoming xAiMessage into our history. Only text content
- * blocks are persisted in the MVP; other block kinds (which the
- * caller really shouldn't be feeding in as user input anyway) are
- * ignored. */
+/* Append an Assistant tool_use entry. */
+static xErrno history_append_tool_use(struct xAiSession_ *s, const char *id,
+                                      const char *name, const char *args) {
+  struct xAiSessionMsg_ *slot = history_grow(s);
+  if (!slot) return xErrno_NoMemory;
+  slot->role = xAiRole_Assistant;
+  slot->kind = xAiSessionEntry_ToolUse;
+  slot->tool_use_id   = dup_cstr(id ? id : "");
+  slot->tool_use_name = dup_cstr(name ? name : "");
+  slot->tool_use_args = dup_cstr(args ? args : "{}");
+  if (!slot->tool_use_id || !slot->tool_use_name || !slot->tool_use_args) {
+    msg_free(slot);
+    s->n_history--;
+    return xErrno_NoMemory;
+  }
+  return xErrno_Ok;
+}
+
+/* Append a Tool tool_result entry. */
+static xErrno history_append_tool_result(struct xAiSession_ *s, const char *id,
+                                         const char *output, size_t output_len,
+                                         int is_error) {
+  struct xAiSessionMsg_ *slot = history_grow(s);
+  if (!slot) return xErrno_NoMemory;
+  slot->role = xAiRole_Tool;
+  slot->kind = xAiSessionEntry_ToolResult;
+  slot->tool_result_id = dup_cstr(id ? id : "");
+  if (output_len > 0) {
+    slot->tool_result_output = dup_bytes(output, output_len);
+    slot->tool_result_output_len = output_len;
+  } else if (output) {
+    slot->tool_result_output     = dup_cstr(output);
+    slot->tool_result_output_len = strlen(output);
+  } else {
+    slot->tool_result_output     = dup_cstr("");
+    slot->tool_result_output_len = 0;
+  }
+  slot->tool_result_is_error = is_error;
+  if (!slot->tool_result_id || !slot->tool_result_output) {
+    msg_free(slot);
+    s->n_history--;
+    return xErrno_NoMemory;
+  }
+  return xErrno_Ok;
+}
+
+/* Append an incoming xAiMessage (caller-supplied, shallow view) into
+ * our history. Every text block is concatenated into a single text
+ * entry; non-text blocks on the user side are ignored. */
 static xErrno history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
-  /* Concatenate every text block into one string — the wire model
-   * for an OpenAI "user" message is a single content string. */
   size_t total = 0;
   for (size_t i = 0; i < msg.n; i++) {
     if (msg.contents[i].type == xAiContentType_Text) {
@@ -112,8 +181,6 @@ static xErrno history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
     }
   }
   if (total == 0) {
-    /* Empty message — still record role so history round-trip tests
-     * see it, but no text buffer. */
     return history_append_text(s, msg.role, NULL, 0);
   }
 
@@ -135,12 +202,13 @@ static xErrno history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
     return xErrno_NoMemory;
   }
   slot->role     = msg.role;
+  slot->kind     = xAiSessionEntry_Text;
   slot->text     = buf;
   slot->text_len = total;
   return xErrno_Ok;
 }
 
-/* Append one byte range to the current-round assistant accumulator. */
+/* Append one byte range to the current-round assistant text buffer. */
 static xErrno assist_append(struct xAiSession_ *s, const char *chunk,
                             size_t len) {
   if (len == 0) return xErrno_Ok;
@@ -163,14 +231,42 @@ static void assist_reset(struct xAiSession_ *s) {
   if (s->assist_buf) s->assist_buf[0] = '\0';
 }
 
-/* Build the transient (messages[], contents[]) view that submit()
- * expects. Arrays are caller-owned and freed after submit returns
- * (the provider treats them as borrowed for the lifetime of the
- * call — provider_openai_test confirmed this via BodyCaptured). */
+/* Append one pending tool_call. Copies every string. */
+static xErrno pending_append(struct xAiSession_ *s, const xAiContent *call) {
+  if (s->n_pending + 1 > s->cap_pending) {
+    size_t new_cap = s->cap_pending ? s->cap_pending * 2 : 4;
+    struct xAiSessionPending_ *np = (struct xAiSessionPending_ *)realloc(
+        s->pending, new_cap * sizeof(*np));
+    if (!np) return xErrno_NoMemory;
+    s->pending     = np;
+    s->cap_pending = new_cap;
+  }
+  struct xAiSessionPending_ *slot = &s->pending[s->n_pending];
+  memset(slot, 0, sizeof(*slot));
+  slot->id        = dup_cstr(call->u.tool_use.id ? call->u.tool_use.id : "");
+  slot->name      = dup_cstr(call->u.tool_use.name ? call->u.tool_use.name
+                                                   : "");
+  slot->args_json = dup_cstr(call->u.tool_use.args_json
+                                 ? call->u.tool_use.args_json
+                                 : "{}");
+  if (!slot->id || !slot->name || !slot->args_json) {
+    pending_free_entry(slot);
+    return xErrno_NoMemory;
+  }
+  s->n_pending++;
+  return xErrno_Ok;
+}
+
+/* ── Submit-view construction ──────────────────────────────────────── */
+
+/* The transient arrays passed to provider_submit. The provider
+ * borrows them only for the duration of submit(); we tear them down
+ * immediately after. */
 struct view_ {
-  xAiMessage *msgs;
-  xAiContent *blocks; /* one per msg (MVP only supports text) */
+  xAiMessage *msgs;   /* n_msgs entries                             */
+  xAiContent *blocks; /* n_blocks entries, referenced by msgs[i]    */
   size_t      n_msgs;
+  size_t      n_blocks;
 };
 
 static void view_free(struct view_ *v) {
@@ -179,44 +275,259 @@ static void view_free(struct view_ *v) {
   memset(v, 0, sizeof(*v));
 }
 
+/* Fold consecutive Assistant entries into one xAiMessage (possibly
+ * carrying both text and tool_use blocks); every other entry maps
+ * 1:1 to an xAiMessage.
+ *
+ * First pass counts output sizes, second pass populates them. */
 static xErrno view_build(struct xAiSession_ *s, struct view_ *out) {
   memset(out, 0, sizeof(*out));
-  size_t extra  = (s->system_prompt && s->system_prompt[0]) ? 1 : 0;
-  size_t n_msgs = s->n_history + extra;
+  size_t extra_system = (s->system_prompt && s->system_prompt[0]) ? 1 : 0;
+
+  /* Count messages and blocks. */
+  size_t n_msgs   = extra_system;
+  size_t n_blocks = extra_system; /* system prompt gets one text block */
+  for (size_t i = 0; i < s->n_history; ) {
+    if (s->history[i].role == xAiRole_Assistant) {
+      /* Fold all consecutive Assistant entries into one msg. */
+      size_t j = i;
+      while (j < s->n_history && s->history[j].role == xAiRole_Assistant) j++;
+      n_msgs   += 1;
+      n_blocks += (j - i);
+      i = j;
+    } else {
+      /* One block per user/tool entry. */
+      n_msgs   += 1;
+      n_blocks += 1;
+      i += 1;
+    }
+  }
+
   if (n_msgs == 0) return xErrno_InvalidArg;
 
-  out->msgs = (xAiMessage *)calloc(n_msgs, sizeof(xAiMessage));
-  out->blocks = (xAiContent *)calloc(n_msgs, sizeof(xAiContent));
+  out->msgs   = (xAiMessage *)calloc(n_msgs, sizeof(xAiMessage));
+  out->blocks = (xAiContent *)calloc(n_blocks, sizeof(xAiContent));
   if (!out->msgs || !out->blocks) {
     view_free(out);
     return xErrno_NoMemory;
   }
-  out->n_msgs = n_msgs;
+  out->n_msgs   = n_msgs;
+  out->n_blocks = n_blocks;
 
-  size_t w = 0;
-  if (extra) {
-    out->blocks[w].type         = xAiContentType_Text;
-    out->blocks[w].u.text.text  = s->system_prompt;
-    out->blocks[w].u.text.len   = strlen(s->system_prompt);
-    out->msgs[w].role           = xAiRole_System;
-    out->msgs[w].contents       = &out->blocks[w];
-    out->msgs[w].n              = 1;
-    w++;
+  size_t mi = 0; /* msg write index */
+  size_t bi = 0; /* block write index */
+
+  if (extra_system) {
+    out->blocks[bi].type         = xAiContentType_Text;
+    out->blocks[bi].u.text.text  = s->system_prompt;
+    out->blocks[bi].u.text.len   = strlen(s->system_prompt);
+    out->msgs[mi].role           = xAiRole_System;
+    out->msgs[mi].contents       = &out->blocks[bi];
+    out->msgs[mi].n              = 1;
+    mi++;
+    bi++;
   }
-  for (size_t i = 0; i < s->n_history; i++, w++) {
+
+  for (size_t i = 0; i < s->n_history; ) {
     struct xAiSessionMsg_ *m = &s->history[i];
-    out->msgs[w].role         = m->role;
-    if (m->text) {
-      out->blocks[w].type        = xAiContentType_Text;
-      out->blocks[w].u.text.text = m->text;
-      out->blocks[w].u.text.len  = m->text_len;
-      out->msgs[w].contents      = &out->blocks[w];
-      out->msgs[w].n             = 1;
+    if (m->role == xAiRole_Assistant) {
+      size_t block_start = bi;
+      size_t j           = i;
+      while (j < s->n_history && s->history[j].role == xAiRole_Assistant) {
+        struct xAiSessionMsg_ *mm = &s->history[j];
+        xAiContent            *b  = &out->blocks[bi++];
+        if (mm->kind == xAiSessionEntry_Text) {
+          b->type        = xAiContentType_Text;
+          b->u.text.text = mm->text ? mm->text : "";
+          b->u.text.len  = mm->text_len;
+        } else if (mm->kind == xAiSessionEntry_ToolUse) {
+          b->type                 = xAiContentType_ToolUse;
+          b->u.tool_use.id        = mm->tool_use_id;
+          b->u.tool_use.name      = mm->tool_use_name;
+          b->u.tool_use.args_json = mm->tool_use_args;
+        }
+        j++;
+      }
+      out->msgs[mi].role     = xAiRole_Assistant;
+      out->msgs[mi].contents = &out->blocks[block_start];
+      out->msgs[mi].n        = bi - block_start;
+      mi++;
+      i = j;
     } else {
-      out->msgs[w].contents = NULL;
-      out->msgs[w].n        = 0;
+      xAiContent *b = &out->blocks[bi];
+      if (m->kind == xAiSessionEntry_ToolResult) {
+        b->type                      = xAiContentType_ToolResult;
+        b->u.tool_result.id          = m->tool_result_id;
+        b->u.tool_result.output      = m->tool_result_output;
+        b->u.tool_result.output_len  = m->tool_result_output_len;
+        b->u.tool_result.is_error    = m->tool_result_is_error;
+      } else {
+        b->type        = xAiContentType_Text;
+        b->u.text.text = m->text ? m->text : "";
+        b->u.text.len  = m->text_len;
+      }
+      out->msgs[mi].role     = m->role;
+      out->msgs[mi].contents = b;
+      out->msgs[mi].n        = 1;
+      mi++;
+      bi++;
+      i++;
     }
   }
+
+  return xErrno_Ok;
+}
+
+/* ── Round submission ──────────────────────────────────────────────── */
+
+/* Forward decls for the callback dispatch. */
+static void on_provider_text(const char *chunk, size_t len, void *arg);
+static void on_provider_tool_call(const xAiContent *call, void *arg);
+static void on_provider_done(xAiProviderStopReason reason, xErrno err,
+                             void *arg);
+
+/* Submit a new provider round over the current history.
+ *
+ * Precondition: s->running == 1. Caller is responsible for appending
+ * the user message / tool_results into history before calling.
+ *
+ * Returns xErrno_Ok if the submit was accepted (on_done will fire
+ * later). On failure the caller must decide how to unwind. */
+static xErrno submit_round(struct xAiSession_ *s) {
+  struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
+
+  struct view_ v;
+  xErrno rc = view_build(s, &v);
+  if (rc != xErrno_Ok) return rc;
+
+  xAiProviderSubmitConf pc = {0};
+  pc.model                 = s->model;
+  pc.messages              = v.msgs;
+  pc.n_messages            = v.n_msgs;
+  pc.tools                 = (const xAiTool **)a->tools;
+  pc.n_tools               = a->n_tools;
+  pc.temperature           = -1;
+  pc.max_tokens            = s->max_tokens;
+  pc.stop                  = NULL;
+
+  xAiProviderStreamCallbacks cbs = {0};
+  cbs.on_text                    = on_provider_text;
+  cbs.on_tool_call               = on_provider_tool_call;
+  cbs.on_done                    = on_provider_done;
+
+  assist_reset(s);
+  pending_reset(s);
+  s->turn++;
+
+  rc = ai_provider_submit(a->provider, &pc, &cbs, s);
+  view_free(&v);
+  return rc;
+}
+
+/* Finish the current session run and fire on_done. After this
+ * returns, the session is idle. */
+static void finish_run(struct xAiSession_ *s, xAiDoneReason reason) {
+  assist_reset(s);
+  pending_reset(s);
+  s->running   = 0;
+  s->cancelled = 0;
+  s->turn      = 0;
+  if (s->cbs.on_done) {
+    s->cbs.on_done((xAiSession)s, reason, s->cbs.user_data);
+  }
+}
+
+/* Look up a tool by name on the agent. Returns NULL if not found.
+ *
+ * Note: `a->tools` is `const xAiTool **` (array-of-handle-pointers,
+ * matching provider.h's SubmitConf.tools contract). Each `a->tools[i]`
+ * is itself a `const xAiTool *`, so the real handle is `*a->tools[i]`.
+ * Do NOT short-circuit with a C-style cast: we burned that before
+ * (04-23 provider_openai.c bug), the compiler can't catch it and the
+ * lookup reads a bogus address. */
+static xAiTool find_tool(struct xAiAgent_ *a, const char *name) {
+  if (!name) return NULL;
+  for (size_t i = 0; i < a->n_tools; i++) {
+    if (!a->tools[i]) continue;
+    xAiTool t = *a->tools[i];
+    const char *n = ai_tool_name(t);
+    if (n && strcmp(n, name) == 0) return t;
+  }
+  return NULL;
+}
+
+/* Dispatch every buffered tool call, appending tool_result entries to
+ * history. If the session is cancelled mid-dispatch we stop early and
+ * let finish_run surface Aborted.
+ *
+ * Returns xErrno_Ok if dispatch completed (successfully or with
+ * individual tool errors folded back into history). Fatal failure
+ * (OOM building result entries) aborts with the returned code. */
+static xErrno dispatch_pending_tools(struct xAiSession_ *s) {
+  struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
+
+  for (size_t i = 0; i < s->n_pending && !s->cancelled; i++) {
+    struct xAiSessionPending_ *p = &s->pending[i];
+
+    if (s->cbs.on_tool) {
+      s->cbs.on_tool((xAiSession)s, p->name, /*started=*/1, s->cbs.user_data);
+    }
+
+    xAiTool t = find_tool(a, p->name);
+    xAiContent out = {0};
+    int        is_error = 0;
+    const char *out_text;
+    size_t      out_text_len;
+    char        err_buf[256];
+
+    if (!t) {
+      /* Unknown tool: feed the error back to the model rather than
+       * aborting the whole run. The model is in a better position
+       * to decide whether to retry with a different name or give
+       * up. */
+      snprintf(err_buf, sizeof(err_buf),
+               "tool \"%s\" is not registered on this agent", p->name);
+      out_text     = err_buf;
+      out_text_len = strlen(err_buf);
+      is_error     = 1;
+    } else {
+      xAiContent in = {0};
+      in.type                 = xAiContentType_ToolUse;
+      in.u.tool_use.id        = p->id;
+      in.u.tool_use.name      = p->name;
+      in.u.tool_use.args_json = p->args_json;
+      xErrno trc = ai_tool_invoke(t, &in, &out);
+      if (trc != xErrno_Ok) {
+        snprintf(err_buf, sizeof(err_buf),
+                 "tool handler returned error (xErrno=%d)", (int)trc);
+        out_text     = err_buf;
+        out_text_len = strlen(err_buf);
+        is_error     = 1;
+      } else if (out.type == xAiContentType_ToolResult) {
+        out_text     = out.u.tool_result.output ? out.u.tool_result.output
+                                                : "";
+        out_text_len = out.u.tool_result.output_len
+                           ? out.u.tool_result.output_len
+                           : strlen(out_text);
+        is_error     = out.u.tool_result.is_error ? 1 : 0;
+      } else {
+        /* Handler forgot to populate out — treat as error. */
+        out_text     = "tool handler did not produce a tool_result";
+        out_text_len = strlen(out_text);
+        is_error     = 1;
+      }
+    }
+
+    xErrno rc = history_append_tool_result(s, p->id, out_text, out_text_len,
+                                           is_error);
+
+    if (s->cbs.on_tool) {
+      s->cbs.on_tool((xAiSession)s, p->name, /*started=*/0, s->cbs.user_data);
+    }
+
+    if (rc != xErrno_Ok) return rc;
+  }
+
   return xErrno_Ok;
 }
 
@@ -226,12 +537,6 @@ static void on_provider_text(const char *chunk, size_t len, void *arg) {
   struct xAiSession_ *s = (struct xAiSession_ *)arg;
   if (s->cancelled) return;
 
-  /* Accumulate so we can commit the full assistant message to
-   * history on on_done. If allocation fails, we swallow the byte
-   * range in history (the user still sees it live via on_text) and
-   * let the on_done path translate the failure. A more aggressive
-   * option would be to abort the round here; leaving that to
-   * Commit 4 where error taxonomy is revisited. */
   (void)assist_append(s, chunk, len);
 
   if (s->cbs.on_text) {
@@ -241,75 +546,113 @@ static void on_provider_text(const char *chunk, size_t len, void *arg) {
 
 static void on_provider_tool_call(const xAiContent *call, void *arg) {
   struct xAiSession_ *s = (struct xAiSession_ *)arg;
-  (void)call;
-  /* MVP: report (exactly once) that tools aren't wired up yet. We
-   * rely on the provider's on_done to terminate; by the time it
-   * fires s->cancelled will cause us to report ToolError. */
-  if (!s->cancelled && s->cbs.on_error) {
-    s->cbs.on_error((xAiSession)s, xErrno_NotSupported,
-                    "tool_use received but tool loop is not implemented in "
-                    "this build of xAiSession (see modules/xai/TODO.md)",
-                    s->cbs.user_data);
-  }
-  s->cancelled = 1; /* marks the round as tool-aborted */
+  if (s->cancelled || !call || call->type != xAiContentType_ToolUse) return;
+  /* Buffer; actual dispatch happens from on_provider_done when we
+   * know the assistant message is complete. */
+  (void)pending_append(s, call);
 }
 
-static xAiDoneReason translate_stop(xAiProviderStopReason r, int cancelled,
-                                    int tool_abort) {
-  if (tool_abort) return xAiDoneReason_ToolError;
-  if (cancelled) return xAiDoneReason_Aborted;
+/* Map a provider stop reason to the caller-visible done reason for
+ * runs that are *not* continuing into another tool-loop iteration. */
+static xAiDoneReason translate_terminal(xAiProviderStopReason r,
+                                        int user_cancel) {
+  if (user_cancel) return xAiDoneReason_Aborted;
   switch (r) {
     case xAiProviderStop_EndTurn:    return xAiDoneReason_Completed;
-    case xAiProviderStop_ToolUse:    return xAiDoneReason_ToolError;
     case xAiProviderStop_MaxTokens:  return xAiDoneReason_Completed;
     case xAiProviderStop_StopSeq:    return xAiDoneReason_Stopped;
     case xAiProviderStop_PromptLong: return xAiDoneReason_PromptTooLong;
     case xAiProviderStop_Error:      return xAiDoneReason_ModelError;
     case xAiProviderStop_Cancelled:  return xAiDoneReason_Aborted;
+    case xAiProviderStop_ToolUse:
+      /* Only reached if no pending calls survived (e.g. the model
+       * advertised ToolUse but sent zero tool_calls). Treat as a
+       * model error rather than silently looping. */
+      return xAiDoneReason_ToolError;
   }
   return xAiDoneReason_ModelError;
+}
+
+static void commit_assistant_turn(struct xAiSession_ *s) {
+  /* Flush accumulated text first (as its own Assistant/Text entry),
+   * then each pending tool_use (as Assistant/ToolUse entries). The
+   * fold-into-one-message happens at view_build time. */
+  if (s->assist_len > 0) {
+    (void)history_append_text(s, xAiRole_Assistant, s->assist_buf,
+                              s->assist_len);
+  }
+  for (size_t i = 0; i < s->n_pending; i++) {
+    struct xAiSessionPending_ *p = &s->pending[i];
+    (void)history_append_tool_use(s, p->id, p->name, p->args_json);
+  }
 }
 
 static void on_provider_done(xAiProviderStopReason reason, xErrno err,
                              void *arg) {
   struct xAiSession_ *s = (struct xAiSession_ *)arg;
 
-  /* Determine whether this round was aborted because a tool_use
-   * arrived (MVP can't handle it). cancelled got set both by
-   * xAiSessionCancel and by the tool_call bailout. Distinguish via
-   * reason. */
-  int user_cancel = (reason == xAiProviderStop_Cancelled);
-  int tool_abort  = (reason == xAiProviderStop_ToolUse) ||
-                   (s->cancelled && !user_cancel);
+  int user_cancel = (reason == xAiProviderStop_Cancelled) || s->cancelled;
 
-  /* Commit the accumulated assistant text into history as an
-   * Assistant message — even if the run errored, any streamed
-   * prefix is still legitimate model output. */
-  if (s->assist_len > 0) {
-    (void)history_append_text(s, xAiRole_Assistant, s->assist_buf,
-                              s->assist_len);
-  }
-  assist_reset(s);
-
-  /* Surface any transport error before on_done so the caller sees
-   * the diagnostic in order. Mirrors "exactly one of on_done /
-   * on_error" by treating on_error here as an auxiliary signal —
-   * see TODO.md "Finalise on_done vs on_error split". */
+  /* Surface transport / model errors before anything else so the
+   * caller's on_error fires in order with the round. */
   if (reason == xAiProviderStop_Error && err != xErrno_Ok && s->cbs.on_error) {
     s->cbs.on_error((xAiSession)s, err, NULL, s->cbs.user_data);
   }
 
-  xAiDoneReason coarse = translate_stop(reason, user_cancel, tool_abort);
+  /* Commit the assistant turn into history regardless of outcome —
+   * any text or tool_use the model managed to emit is legitimate
+   * output. */
+  commit_assistant_turn(s);
 
-  /* Clear in-flight state BEFORE the callback: a well-behaved
-   * caller may re-enter xAiSessionInput from inside on_done, and
-   * that must succeed (admission must already see running == 0). */
-  s->running   = 0;
-  s->cancelled = 0;
+  /* Continue the tool loop iff: (a) not cancelled, (b) provider said
+   * ToolUse AND we buffered >=1 tool call, (c) max_turns not exceeded. */
+  int can_continue = !user_cancel && reason == xAiProviderStop_ToolUse &&
+                     s->n_pending > 0;
 
-  if (s->cbs.on_done) {
-    s->cbs.on_done((xAiSession)s, coarse, s->cbs.user_data);
+  if (can_continue) {
+    int turn_limit = s->max_turns > 0 ? s->max_turns
+                                      : XAI_SESSION_DEFAULT_MAX_TURNS;
+    if (s->turn >= turn_limit) {
+      /* Already emitted enough rounds; tell the caller we bailed. */
+      finish_run(s, xAiDoneReason_MaxTurns);
+      return;
+    }
+
+    /* Run every pending handler; each appends a tool_result entry. */
+    xErrno drc = dispatch_pending_tools(s);
+    pending_reset(s);
+
+    if (s->cancelled) {
+      finish_run(s, xAiDoneReason_Aborted);
+      return;
+    }
+    if (drc != xErrno_Ok) {
+      /* Catastrophic (e.g. OOM appending tool_result). Surface via
+       * on_error to give the caller diagnostic detail, then close
+       * the run. */
+      if (s->cbs.on_error) {
+        s->cbs.on_error((xAiSession)s, drc,
+                        "failed to record tool_result in history",
+                        s->cbs.user_data);
+      }
+      finish_run(s, xAiDoneReason_ToolError);
+      return;
+    }
+
+    /* Submit the next round. */
+    xErrno src = submit_round(s);
+    if (src != xErrno_Ok) {
+      if (s->cbs.on_error) {
+        s->cbs.on_error((xAiSession)s, src,
+                        "failed to submit follow-up tool round",
+                        s->cbs.user_data);
+      }
+      finish_run(s, xAiDoneReason_ModelError);
+    }
+    return;
   }
+
+  finish_run(s, translate_terminal(reason, user_cancel));
 }
 
 /* ── Public API ─────────────────────────────────────────────────────── */
@@ -325,7 +668,8 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   s->agent = agent;
   s->cbs   = conf->cbs;
 
-  s->system_prompt  = conf->system_prompt ? conf->system_prompt : a->system_prompt;
+  s->system_prompt  = conf->system_prompt ? conf->system_prompt
+                                          : a->system_prompt;
   s->model          = conf->model ? conf->model : a->model;
   s->max_turns      = conf->max_turns > 0 ? conf->max_turns : a->max_turns;
   s->max_tokens     = conf->max_tokens > 0 ? conf->max_tokens : a->max_tokens;
@@ -338,60 +682,26 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
 xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   if (!sess) return xErrno_InvalidArg;
   struct xAiSession_ *s = (struct xAiSession_ *)sess;
-  struct xAiAgent_ *a   = (struct xAiAgent_ *)s->agent;
 
   if (s->running) return xErrno_Busy;
 
-  /* Admission: append to history first. If anything goes wrong
-   * from here on we can pop the tail to roll back. */
   size_t history_checkpoint = s->n_history;
   xErrno rc = history_append_user_msg(s, msg);
   if (rc != xErrno_Ok) return rc;
 
-  /* Build the submit view over the current history. */
-  struct view_ v;
-  rc = view_build(s, &v);
-  if (rc != xErrno_Ok) {
-    /* Roll back the user message we just appended. */
-    while (s->n_history > history_checkpoint) {
-      msg_free(&s->history[--s->n_history]);
-    }
-    return rc;
-  }
-
-  xAiProviderSubmitConf pc = {0};
-  pc.model                 = s->model;
-  pc.messages              = v.msgs;
-  pc.n_messages            = v.n_msgs;
-  pc.tools                 = (const xAiTool **)a->tools; /* borrowed */
-  pc.n_tools               = a->n_tools;
-  pc.temperature           = -1; /* not set */
-  pc.max_tokens            = s->max_tokens;
-  pc.stop                  = NULL;
-
-  xAiProviderStreamCallbacks cbs = {0};
-  cbs.on_text                    = on_provider_text;
-  cbs.on_tool_call               = on_provider_tool_call;
-  cbs.on_done                    = on_provider_done;
-
-  /* Flip running BEFORE submit — submit may invoke callbacks
-   * synchronously on error paths, and our on_done clears running. */
+  /* Flip running BEFORE submit: submit may deliver callbacks
+   * synchronously, and our on_provider_done clears running. */
   s->running   = 1;
   s->cancelled = 0;
-  assist_reset(s);
+  s->turn      = 0;
 
-  rc = ai_provider_submit(a->provider, &pc, &cbs, s);
-
-  /* The provider is allowed to borrow v.msgs/v.blocks only for the
-   * duration of submit(). provider_openai copies fields it needs
-   * into its HTTP body before returning. */
-  view_free(&v);
-
+  rc = submit_round(s);
   if (rc != xErrno_Ok) {
-    /* Submit rejected. Tear the round down without firing on_done —
-     * this is the "failed to start" branch, and the caller receives
-     * the error through our return value. */
+    /* Round never started — don't fire on_done. Undo the user
+     * message we appended so the history tracks what actually
+     * happened. */
     s->running = 0;
+    s->turn    = 0;
     while (s->n_history > history_checkpoint) {
       msg_free(&s->history[--s->n_history]);
     }
@@ -410,19 +720,14 @@ void xAiSessionCancel(xAiSession sess) {
 
   struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
   ai_provider_cancel(a->provider);
-  /* on_done will arrive through the provider (reason=Cancelled) and
-   * our translate_stop() will surface xAiDoneReason_Aborted. */
+  /* on_provider_done will arrive with reason=Cancelled (or we are
+   * between rounds and dispatch_pending_tools will notice). */
 }
 
 void xAiSessionDestroy(xAiSession sess) {
   if (!sess) return;
   struct xAiSession_ *s = (struct xAiSession_ *)sess;
 
-  /* If a run is still in flight, cancel it. The provider is
-   * required to deliver on_done synchronously or before submit()
-   * returns a rejection. We don't attempt to pump the loop here;
-   * session.h warns callers to quiesce the session first, and
-   * TODO.md tracks proper async teardown. */
   if (s->running) {
     xAiSessionCancel(sess);
   }
@@ -430,5 +735,7 @@ void xAiSessionDestroy(xAiSession sess) {
   for (size_t i = 0; i < s->n_history; i++) msg_free(&s->history[i]);
   free(s->history);
   free(s->assist_buf);
+  pending_reset(s);
+  free(s->pending);
   free(s);
 }

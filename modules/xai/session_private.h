@@ -17,34 +17,62 @@
 #include <stddef.h>
 
 /**
+ * @brief Kind of a history entry.
+ *
+ * History is stored as a flat list of "entries" rather than fully
+ * composed xAiMessages: one entry carries exactly one content block.
+ * At submit time, view_build() walks the list and folds consecutive
+ * Assistant-role entries into a single xAiMessage so the wire
+ * representation matches what providers expect (an assistant turn is
+ * one message that may contain text and tool_use blocks together).
+ *
+ * The tradeoff: history grows longer than turn_count, but each entry
+ * has a fixed, union-free shape that is trivial to own/copy/free.
+ */
+enum xAiSessionEntryKind_ {
+  xAiSessionEntry_Text       = 0, /**< role + text payload            */
+  xAiSessionEntry_ToolUse    = 1, /**< role==Assistant + tool_use     */
+  xAiSessionEntry_ToolResult = 2, /**< role==Tool + tool_result       */
+};
+
+/**
  * @brief One history entry owned by the session.
  *
- * Represents a single @ref xAiMessage plus all heap buffers backing
- * its content blocks. Everything inside is session-owned; the
- * session is responsible for freeing @p text / @p tool_use_* /
- * @p tool_result_* fields.
- *
- * The MVP only populates @p role + @p text (one text block per
- * message). The extra tool_* slots are reserved for Commit 4 where
- * tool_use / tool_result round-tripping lands; they stay NULL /
- * zero in the current build.
+ * Everything inside is session-owned; msg_free() is responsible for
+ * releasing the populated fields based on @p kind.
  */
 struct xAiSessionMsg_ {
-  xAiRole role;
+  xAiRole                    role;
+  enum xAiSessionEntryKind_  kind;
 
-  /* ── Text block (NULL = no text) ──────────────────────────────── */
+  /* kind == Text */
   char  *text;
   size_t text_len;
 
-  /* ── Reserved for tool_use / tool_result (MVP leaves NULL) ────── */
+  /* kind == ToolUse */
   char *tool_use_id;
   char *tool_use_name;
   char *tool_use_args; /* JSON object string */
 
+  /* kind == ToolResult */
   char  *tool_result_id;
   char  *tool_result_output;
   size_t tool_result_output_len;
   int    tool_result_is_error;
+};
+
+/**
+ * @brief One pending tool call captured from the provider stream.
+ *
+ * session.c buffers the whole set while the assistant turn is still
+ * streaming (tool_use arrives as part of the stream, but dispatch
+ * must wait until on_done(ToolUse) so we know the assistant message
+ * is complete and every call has its full arguments string).
+ */
+struct xAiSessionPending_ {
+  char *id;        /* tool_use_id supplied by the provider        */
+  char *name;      /* tool name                                    */
+  char *args_json; /* arguments JSON (owned copy)                  */
 };
 
 /**
@@ -64,7 +92,7 @@ struct xAiSession_ {
   int         max_tokens;    /* resolved per-round cap                */
   size_t      context_budget;
 
-  /* ── Rolling history (session-owned) ──────────────────────────── */
+  /* ── Rolling history (session-owned, flat entries) ────────────── */
   struct xAiSessionMsg_ *history;
   size_t                 n_history;
   size_t                 cap_history;
@@ -74,9 +102,15 @@ struct xAiSession_ {
   size_t assist_len;
   size_t assist_cap;
 
-  /* ── In-flight run state ──────────────────────────────────────── */
-  int running;   /* 1 between xAiSessionInput() accept and on_done  */
-  int cancelled; /* xAiSessionCancel() sets this                    */
+  /* ── Pending tool calls captured during the current round ─────── */
+  struct xAiSessionPending_ *pending;
+  size_t                     n_pending;
+  size_t                     cap_pending;
+
+  /* ── Run-wide state ───────────────────────────────────────────── */
+  int running;       /* 1 from Input accept to final on_done           */
+  int cancelled;     /* xAiSessionCancel() sets this                   */
+  int turn;          /* number of provider submits this run (>=1)      */
 };
 
 #endif /* XAI_SESSION_PRIVATE_H */

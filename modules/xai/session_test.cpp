@@ -36,13 +36,23 @@ extern "C" {
 /* ── Fake provider ──────────────────────────────────────────────────── */
 
 struct FakeScript {
-  enum Kind { TEXT, TOOL_CALL, DONE };
+  enum Kind { TEXT, TOOL_CALL, THINKING, DONE };
   Kind                  kind;
-  std::string           text;      /* TEXT: payload; TOOL_CALL: name */
+  std::string           text;      /* TEXT: payload; TOOL_CALL: name;
+                                      THINKING: payload              */
   std::string           tool_id;   /* TOOL_CALL: id (default "call_1") */
   std::string           tool_args; /* TOOL_CALL: args_json (default "{}") */
   xAiProviderStopReason reason;
   xErrno                err;
+  /* Optional per-round usage to hand the session along with DONE.
+   * has_usage == false → provider reports NULL (server silent).
+   * has_usage == true  → the three numbers below get passed; -1
+   * still means "this field unknown" (the session accumulator is
+   * expected to honour the sentinel). */
+  bool                  has_usage         = false;
+  int                   prompt_tokens     = -1;
+  int                   completion_tokens = -1;
+  int                   total_tokens      = -1;
 };
 
 /* Convenience constructors for scripted events. Keep the call sites
@@ -61,6 +71,20 @@ static inline FakeScript SDone(xAiProviderStopReason reason,
   s.err    = err;
   return s;
 }
+static inline FakeScript SDoneWithUsage(xAiProviderStopReason reason,
+                                        int prompt, int completion,
+                                        int total = -1,
+                                        xErrno err = xErrno_Ok) {
+  FakeScript s{};
+  s.kind              = FakeScript::DONE;
+  s.reason            = reason;
+  s.err               = err;
+  s.has_usage         = true;
+  s.prompt_tokens     = prompt;
+  s.completion_tokens = completion;
+  s.total_tokens      = total;
+  return s;
+}
 static inline FakeScript SToolCall(const char *name,
                                    const char *id   = "call_1",
                                    const char *args = "{}") {
@@ -71,10 +95,16 @@ static inline FakeScript SToolCall(const char *name,
   s.tool_args = args;
   return s;
 }
+static inline FakeScript SThinking(const char *payload) {
+  FakeScript s{};
+  s.kind = FakeScript::THINKING;
+  s.text = payload;
+  return s;
+}
 
 struct FakeCapturedBlock {
   xAiContentType type;
-  std::string    text;          /* Text payload */
+  std::string    text;          /* Text / Thinking payload */
   std::string    tool_use_id;   /* ToolUse / ToolResult */
   std::string    tool_use_name;
   std::string    tool_use_args;
@@ -130,6 +160,8 @@ static xErrno fake_submit(void *impl, const xAiProviderSubmitConf *conf,
       if (c.type == xAiContentType_Text) {
         b.text.assign(c.u.text.text, c.u.text.len);
         m.text.append(c.u.text.text, c.u.text.len);
+      } else if (c.type == xAiContentType_Thinking) {
+        b.text.assign(c.u.thinking.text, c.u.thinking.len);
       } else if (c.type == xAiContentType_ToolUse) {
         b.tool_use_id   = c.u.tool_use.id   ? c.u.tool_use.id   : "";
         b.tool_use_name = c.u.tool_use.name ? c.u.tool_use.name : "";
@@ -165,6 +197,11 @@ static xErrno fake_submit(void *impl, const xAiProviderSubmitConf *conf,
       case FakeScript::TEXT:
         if (cbs->on_text) cbs->on_text(ev.text.data(), ev.text.size(), cb_arg);
         break;
+      case FakeScript::THINKING:
+        if (cbs->on_thinking) {
+          cbs->on_thinking(ev.text.data(), ev.text.size(), cb_arg);
+        }
+        break;
       case FakeScript::TOOL_CALL:
         if (cbs->on_tool_call) {
           xAiContent tc = {};
@@ -178,7 +215,11 @@ static xErrno fake_submit(void *impl, const xAiProviderSubmitConf *conf,
         }
         break;
       case FakeScript::DONE:
-        if (cbs->on_done) cbs->on_done(ev.reason, ev.err, cb_arg);
+        if (cbs->on_done) {
+          xAiUsage u{ev.prompt_tokens, ev.completion_tokens, ev.total_tokens};
+          cbs->on_done(ev.reason, ev.err, ev.has_usage ? &u : nullptr,
+                       cb_arg);
+        }
         break;
     }
   }
@@ -189,7 +230,8 @@ static void fake_cancel(void *impl) {
   auto *f = static_cast<FakeImpl *>(impl);
   f->cancels++;
   if (f->cancel_fires_done && f->cbs_last.on_done) {
-    f->cbs_last.on_done(xAiProviderStop_Cancelled, xErrno_Ok, f->cb_arg_last);
+    f->cbs_last.on_done(xAiProviderStop_Cancelled, xErrno_Ok, nullptr,
+                        f->cb_arg_last);
   }
 }
 
@@ -216,11 +258,18 @@ static xAiProvider make_fake_provider(FakeImpl **out) {
 struct Captured {
   std::string   texts;
   int           texts_fired = 0;
+  std::string   thinking;       /* accumulated on_thinking deltas */
+  int           thinking_fired = 0;
   int           done_fired  = 0;
   xAiDoneReason done_reason = xAiDoneReason_Completed;
   int           error_fired = 0;
   xErrno        error_code  = xErrno_Ok;
   std::string   error_msg;
+  /* Usage snapshot from on_done. has_usage false when session hands
+   * NULL (no round ever reported); otherwise holds the cumulative
+   * totals across the whole run, with -1 for fields still unknown. */
+  bool          has_usage   = false;
+  xAiUsage      usage{-1, -1, -1};
 };
 
 static void cb_text(xAiSession, const char *c, size_t n, void *ud) {
@@ -228,10 +277,19 @@ static void cb_text(xAiSession, const char *c, size_t n, void *ud) {
   cap->texts.append(c, n);
   cap->texts_fired++;
 }
-static void cb_done(xAiSession, xAiDoneReason r, void *ud) {
+static void cb_thinking(xAiSession, const char *c, size_t n, void *ud) {
+  auto *cap = static_cast<Captured *>(ud);
+  cap->thinking.append(c, n);
+  cap->thinking_fired++;
+}
+static void cb_done(xAiSession, xAiDoneReason r, const xAiUsage *u, void *ud) {
   auto *cap        = static_cast<Captured *>(ud);
   cap->done_fired++;
   cap->done_reason = r;
+  if (u) {
+    cap->has_usage = true;
+    cap->usage     = *u;
+  }
 }
 static void cb_err(xAiSession, xErrno e, const char *m, void *ud) {
   auto *cap = static_cast<Captured *>(ud);
@@ -279,6 +337,7 @@ class SessionTest : public ::testing::Test {
   static xAiSessionCallbacks make_cbs(Captured *cap) {
     xAiSessionCallbacks c = {};
     c.on_text             = cb_text;
+    c.on_thinking         = cb_thinking;
     c.on_done             = cb_done;
     c.on_error            = cb_err;
     c.user_data           = cap;
@@ -473,7 +532,8 @@ static void cb_reenter_text(xAiSession sess, const char *, size_t, void *ud) {
   /* Try to recursively call Input while we are mid-stream. */
   r->rc = xAiSessionInput(sess, xAiMessageFromText("nested"));
 }
-static void cb_reenter_done(xAiSession, xAiDoneReason, void *) {}
+static void cb_reenter_done(xAiSession, xAiDoneReason, const xAiUsage *,
+                            void *) {}
 
 TEST_F(SessionTest, ReentrantInputReturnsBusy) {
   ReInputCap              r;
@@ -950,6 +1010,204 @@ TEST_F(ToolLoopFixture, ToolUseWithoutAnyCallsYieldsToolError) {
   EXPECT_EQ(cap.done_fired, 1);
   EXPECT_EQ(cap.done_reason, xAiDoneReason_ToolError);
   EXPECT_EQ(fake_->submits, 1); /* no follow-up */
+
+  xAiSessionDestroy(sess);
+}
+
+/* Regression for the "reasoning_content missing in assistant tool call
+ * message" error on kimi-k2.6 / DeepSeek-R1 / o1. When the provider
+ * streams reasoning deltas alongside a tool_call, the session must
+ * stash them and echo the reasoning back inside the same assistant
+ * turn on the next submit — otherwise moonshot rejects the follow-up
+ * with a 400. */
+TEST_F(ToolLoopFixture, AssistantThinkingEchoedInFollowUpRound) {
+  Captured cap;
+  xAiSession sess = make_session(make_cbs(&cap));
+
+  /* Round 1: reasoning chunks split across deltas (as they arrive on
+   * the wire), then a tool call, then finish_reason=tool_calls. */
+  fake_->script_queue.push_back({
+      SThinking("I should "),
+      SThinking("call echo."),
+      SToolCall("echo", "call_7", "{\"x\":1}"),
+      SDone(xAiProviderStop_ToolUse),
+  });
+  /* Round 2: model acknowledges and ends the turn. */
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+
+  /* History must now contain a dedicated Thinking entry before the
+   * ToolUse entry inside the assistant turn, so view_build can emit
+   * the reasoning_content block on round 2. */
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  /* [0] user, [1] assistant thinking, [2] assistant tool_use,
+   * [3] tool result, [4] assistant text "ok" */
+  ASSERT_EQ(s->n_history, 5u);
+  EXPECT_EQ(s->history[1].role, xAiRole_Assistant);
+  EXPECT_EQ(s->history[1].kind, xAiSessionEntry_Thinking);
+  EXPECT_STREQ(s->history[1].text, "I should call echo.");
+  EXPECT_EQ(s->history[2].kind, xAiSessionEntry_ToolUse);
+
+  /* Second submit: the assistant message carries thinking + tool_use
+   * as distinct content blocks. Provider serialisers (OpenAI-compat)
+   * rely on seeing the Thinking block to emit the reasoning_content
+   * field. */
+  ASSERT_GE(fake_->captured_msgs_per_submit.size(), 2u);
+  const auto &msgs2 = fake_->captured_msgs_per_submit[1];
+  /* [system, user, assistant(thinking+tool_use), tool] */
+  ASSERT_EQ(msgs2.size(), 4u);
+  EXPECT_EQ(msgs2[2].role, xAiRole_Assistant);
+  ASSERT_EQ(msgs2[2].blocks.size(), 2u);
+  EXPECT_EQ(msgs2[2].blocks[0].type, xAiContentType_Thinking);
+  EXPECT_EQ(msgs2[2].blocks[0].text, "I should call echo.");
+  EXPECT_EQ(msgs2[2].blocks[1].type, xAiContentType_ToolUse);
+
+  xAiSessionDestroy(sess);
+}
+
+/* Usage numbers from each provider round must fold together so the
+ * caller sees cumulative input/output tokens for the entire run, not
+ * just the last round. This is what the REPL / xbuddy surfaces in
+ * "tokens=179/88 total=267" style lines. */
+TEST_F(ToolLoopFixture, UsageAccumulatesAcrossToolLoop) {
+  Captured cap;
+  xAiSession sess = make_session(make_cbs(&cap));
+
+  /* Round 1: 100 prompt / 20 completion / 120 total. Model calls echo. */
+  fake_->script_queue.push_back({
+      SToolCall("echo", "call_u1", "{}"),
+      SDoneWithUsage(xAiProviderStop_ToolUse, 100, 20, 120),
+  });
+  /* Round 2: 150 prompt / 30 completion / 180 total. Model finishes. */
+  fake_->script_queue.push_back({
+      SText("done"),
+      SDoneWithUsage(xAiProviderStop_EndTurn, 150, 30, 180),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+
+  EXPECT_EQ(fake_->submits, 2);
+  EXPECT_EQ(cap.done_fired, 1);
+  EXPECT_EQ(cap.done_reason, xAiDoneReason_Completed);
+
+  /* Cumulative totals — not just the last round. */
+  ASSERT_TRUE(cap.has_usage);
+  EXPECT_EQ(cap.usage.prompt_tokens, 250);
+  EXPECT_EQ(cap.usage.completion_tokens, 50);
+  EXPECT_EQ(cap.usage.total_tokens, 300);
+
+  xAiSessionDestroy(sess);
+}
+
+/* A round that reports NULL usage (server stayed silent) must not
+ * poison the accumulator — we carry forward whatever earlier rounds
+ * reported. Mirrors claude-code's behaviour of skipping over missing
+ * usage snapshots rather than zeroing the totals. */
+TEST_F(ToolLoopFixture, UsageSurvivesRoundWithoutUsage) {
+  Captured cap;
+  xAiSession sess = make_session(make_cbs(&cap));
+
+  /* Round 1: reports numbers. */
+  fake_->script_queue.push_back({
+      SToolCall("echo", "call_u2", "{}"),
+      SDoneWithUsage(xAiProviderStop_ToolUse, 42, 7, 49),
+  });
+  /* Round 2: deliberately no usage (SDone, not SDoneWithUsage). */
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+
+  EXPECT_EQ(cap.done_fired, 1);
+  /* Round-1 numbers must survive — missing round neither adds nor
+   * resets. */
+  ASSERT_TRUE(cap.has_usage);
+  EXPECT_EQ(cap.usage.prompt_tokens, 42);
+  EXPECT_EQ(cap.usage.completion_tokens, 7);
+  EXPECT_EQ(cap.usage.total_tokens, 49);
+
+  xAiSessionDestroy(sess);
+}
+
+/* When every round is silent about usage the caller gets a NULL
+ * pointer in on_done — not a bogus 0/0/0 "free run" reading. */
+TEST_F(SessionTest, UsageStaysNullWhenProviderNeverReports) {
+  Captured cap;
+  xAiSession sess = make_session(make_cbs(&cap));
+
+  fake_->script_queue.push_back({
+      SText("hi"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+  /* No round reported anything → session hands NULL to the caller. */
+  EXPECT_FALSE(cap.has_usage);
+
+  xAiSessionDestroy(sess);
+}
+
+/* Reasoning-capable models (kimi-k2.6 thinking, DeepSeek-R1, o1, ...)
+ * stream their chain-of-thought on a separate channel. The session
+ * layer MUST forward those deltas to cbs.on_thinking in order,
+ * strictly before any text, and it MUST NOT leak reasoning bytes
+ * into cbs.on_text — the REPL renders them very differently (dim +
+ * [thinking] prefix) and mixing the two would be a correctness
+ * disaster. */
+TEST_F(SessionTest, StreamsThinkingToCaller) {
+  Captured cap;
+  xAiSession sess = make_session(make_cbs(&cap));
+
+  fake_->script_queue.push_back({
+      SThinking("I should "),
+      SThinking("say hi."),
+      SText("hello"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+
+  /* Thinking deltas reassembled in arrival order. */
+  EXPECT_EQ(cap.thinking, "I should say hi.");
+  EXPECT_EQ(cap.thinking_fired, 2);
+
+  /* Text channel stayed clean — no reasoning bleed. */
+  EXPECT_EQ(cap.texts, "hello");
+
+  xAiSessionDestroy(sess);
+}
+
+/* Callers that don't care about reasoning leave on_thinking NULL.
+ * The session must still accept the deltas (some servers, notably
+ * kimi-k2.6, require them to be echoed back on the next tool-loop
+ * round or they'll 400) — it just shouldn't crash or spill them
+ * into on_text. */
+TEST_F(SessionTest, ThinkingWithoutCallbackDoesNotCrash) {
+  Captured cap;
+  xAiSessionCallbacks cbs = make_cbs(&cap);
+  cbs.on_thinking = nullptr; /* opt out */
+  xAiSession sess = make_session(cbs);
+
+  fake_->script_queue.push_back({
+      SThinking("hidden reasoning"),
+      SText("visible"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+  /* Thinking callback wasn't set → nothing captured there. */
+  EXPECT_EQ(cap.thinking, "");
+  EXPECT_EQ(cap.thinking_fired, 0);
+  /* And it didn't bleed into on_text. */
+  EXPECT_EQ(cap.texts, "visible");
 
   xAiSessionDestroy(sess);
 }

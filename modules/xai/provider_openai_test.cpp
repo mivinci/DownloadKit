@@ -54,6 +54,15 @@ class MiniOpenAIServer {
 public:
   explicit MiniOpenAIServer(std::string body) : body_(std::move(body)) {}
 
+  /* If set, the server returns this status line instead of 200 OK,
+   * and wraps body_ as a JSON error response (Content-Type: application/
+   * json) instead of an SSE stream. Used to exercise how the provider
+   * reacts when the upstream rejects a request mid-conversation. */
+  void set_error_status(int code, std::string reason) {
+    err_code_   = code;
+    err_reason_ = std::move(reason);
+  }
+
   ~MiniOpenAIServer() {
     join();
   }
@@ -99,12 +108,26 @@ private:
     ssize_t n = read(client_fd, buf, sizeof(buf));
     if (n > 0) request_.assign(buf, buf + n);
 
-    std::string response = "HTTP/1.1 200 OK\r\n"
-                           "Content-Type: text/event-stream\r\n"
-                           "Cache-Control: no-cache\r\n"
-                           "Connection: close\r\n"
-                           "\r\n" +
-                           body_;
+    std::string response;
+    if (err_code_ > 0) {
+      response = "HTTP/1.1 " + std::to_string(err_code_) + " " +
+                 err_reason_ +
+                 "\r\n"
+                 "Content-Type: application/json\r\n"
+                 "Content-Length: " +
+                 std::to_string(body_.size()) +
+                 "\r\n"
+                 "Connection: close\r\n"
+                 "\r\n" +
+                 body_;
+    } else {
+      response = "HTTP/1.1 200 OK\r\n"
+                 "Content-Type: text/event-stream\r\n"
+                 "Cache-Control: no-cache\r\n"
+                 "Connection: close\r\n"
+                 "\r\n" +
+                 body_;
+    }
     ssize_t sent = write(client_fd, response.data(), response.size());
     (void)sent;
     close(client_fd);
@@ -115,6 +138,8 @@ private:
   std::string request_;
   int         listen_fd_ = -1;
   int         port_      = 0;
+  int         err_code_  = 0;
+  std::string err_reason_;
   std::thread thread_;
 };
 
@@ -122,17 +147,29 @@ private:
 
 struct Recorder {
   std::string                          text;
+  std::string                          thinking;
   std::vector<std::string>             tool_ids;
   std::vector<std::string>             tool_names;
   std::vector<std::string>             tool_args;
   std::atomic<bool>                    done_fired{false};
   xAiProviderStopReason                done_reason = xAiProviderStop_EndTurn;
   xErrno                               done_err    = xErrno_Ok;
+  /* Usage snapshot captured on on_done. has_usage stays false when
+   * the provider hands NULL (no usage ever reported by server);
+   * otherwise the copy holds the last round's numbers, with -1 for
+   * fields the server omitted. */
+  bool                                 has_usage = false;
+  xAiUsage                             usage{-1, -1, -1};
 };
 
 static void on_text(const char *chunk, size_t len, void *arg) {
   auto *r = static_cast<Recorder *>(arg);
   r->text.append(chunk, len);
+}
+
+static void on_thinking(const char *chunk, size_t len, void *arg) {
+  auto *r = static_cast<Recorder *>(arg);
+  r->thinking.append(chunk, len);
 }
 
 static void on_tool(const xAiContent *call, void *arg) {
@@ -146,10 +183,15 @@ static void on_tool(const xAiContent *call, void *arg) {
   }
 }
 
-static void on_done(xAiProviderStopReason reason, xErrno err, void *arg) {
+static void on_done(xAiProviderStopReason reason, xErrno err,
+                    const xAiUsage *usage, void *arg) {
   auto *r        = static_cast<Recorder *>(arg);
   r->done_reason = reason;
   r->done_err    = err;
+  if (usage) {
+    r->has_usage = true;
+    r->usage     = *usage;
+  }
   r->done_fired.store(true, std::memory_order_release);
 }
 
@@ -648,5 +690,399 @@ TEST_F(OpenAIProviderTest, RequestBodyEncodesTools) {
   xAiProviderDestroy(pvd);
   xAiToolDestroy(t_add);
   xAiToolDestroy(t_time);
+  srv.join();
+}
+
+/* ── HTTP 4xx surfaces as a provider error, not a silent EndTurn ─────
+ *
+ * Regression target for a bug observed on 2026-04-23:
+ *
+ *   $ ./build/examples/ai_session   (kimi-k2.6, real moonshot API)
+ *   > 几点了
+ *   [tool] get_time starting
+ *   [tool] get_time finished
+ *   [done] reason=completed reply_bytes=0   ← WRONG
+ *
+ * The second-round POST was rejected by the upstream with a non-2xx
+ * status and a JSON error body. xhttp/sse.c doesn't inspect the
+ * status code on the downstream, so the JSON body was handed to the
+ * SSE parser, which produced no events, and libcurl reported the
+ * transfer as successful (CURLcode == 0). oai_on_sse_done then saw
+ * `curl_code == 0 && !saw_finish_reason` and mapped that to the
+ * default "graceful end of turn".
+ *
+ * Expected: the provider's on_done must carry a non-Ok `xErrno` (or
+ * `xAiProviderStop_Error`) so the session layer can distinguish
+ * "model chose to stop" from "request was rejected". This test is
+ * allowed to pass with either Error+non-Ok or, at minimum, a reason
+ * other than EndTurn.                                                */
+TEST_F(OpenAIProviderTest, HttpErrorIsNotSilentlyTreatedAsEndTurn) {
+  /* The body here is what moonshot/openai-compatible endpoints
+   * typically return on 400. It is NOT SSE. */
+  std::string err_body =
+    "{\"error\":{\"message\":\"Invalid request: tool_call_id not "
+    "found\",\"type\":\"invalid_request_error\",\"code\":"
+    "\"invalid_parameter\"}}";
+
+  MiniOpenAIServer srv(err_body);
+  srv.set_error_status(400, "Bad Request");
+  srv.start();
+
+  xAiProvider pvd = make_provider(srv.base_url());
+  ASSERT_NE(pvd, nullptr);
+
+  xAiContent user_c = xAiContentText("hi");
+  xAiMessage user_m = xAiMessageFromContent(xAiRole_User, &user_c, 1);
+
+  Recorder rec;
+  xAiProviderSubmitConf conf = {};
+  conf.messages    = &user_m;
+  conf.n_messages  = 1;
+  conf.temperature = -1.0;
+
+  xAiProviderStreamCallbacks cbs = {};
+  cbs.on_text      = on_text;
+  cbs.on_tool_call = on_tool;
+  cbs.on_done      = on_done;
+
+  struct ProviderBase {
+    const xAiProviderVtable *vt;
+    void                    *ctx;
+  };
+  auto *base = reinterpret_cast<ProviderBase *>(pvd);
+  ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
+
+  pump_until(loop, rec.done_fired, 5000);
+  ASSERT_TRUE(rec.done_fired.load());
+
+  /* No text should have leaked through. */
+  EXPECT_EQ(rec.text, "");
+  EXPECT_EQ(rec.tool_ids.size(), 0u);
+
+  /* The important invariant: upstream HTTP failure must NOT be
+   * reported to the caller as a graceful EndTurn with xErrno_Ok.
+   * Either the reason shifts to Error, or the errno becomes
+   * non-Ok — but the combination (EndTurn, Ok) is a lie. */
+  bool reported_as_error =
+    (rec.done_reason == xAiProviderStop_Error) ||
+    (rec.done_err != xErrno_Ok);
+  EXPECT_TRUE(reported_as_error)
+    << "HTTP 400 was silently reported as reason="
+    << static_cast<int>(rec.done_reason)
+    << ", err=" << static_cast<int>(rec.done_err)
+    << ". This is the 2026-04-23 'reply_bytes=0 reason=completed' bug.";
+
+  xAiProviderDestroy(pvd);
+  srv.join();
+}
+
+/* ── Stream parsing: delta.reasoning_content → on_thinking ────────────
+ *
+ * Regression for 2026-04-23 (kimi-k2.6): thinking-capable models stream
+ * their chain-of-thought in `choices[].delta.reasoning_content` rather
+ * than `.content`. Before the fix the OpenAI provider only watched
+ * `.content`, so reasoning deltas were silently dropped — and then the
+ * next round's POST got rejected with
+ *   "thinking is enabled but reasoning_content is missing in
+ *    assistant tool call message".
+ *
+ * This test pins the delivery contract: reasoning fragments MUST be
+ * reassembled and forwarded via cbs.on_thinking in order, with no
+ * bleed into cbs.on_text.                                              */
+
+TEST_F(OpenAIProviderTest, StreamsReasoningContent) {
+  /* Two reasoning deltas, one text delta, and a stop. Ordering matters:
+   * thinking-capable APIs typically emit reasoning first, then the
+   * final answer. */
+  std::string body =
+    "data: {\"choices\":[{\"delta\":"
+         "{\"reasoning_content\":\"I think \"}}]}\n\n"
+    "data: {\"choices\":[{\"delta\":"
+         "{\"reasoning_content\":\"therefore I am.\"}}]}\n\n"
+    "data: {\"choices\":[{\"delta\":"
+         "{\"content\":\"Hi.\"},"
+         "\"finish_reason\":\"stop\"}]}\n\n"
+    "data: [DONE]\n\n";
+
+  MiniOpenAIServer srv(body);
+  srv.start();
+
+  xAiProvider pvd = make_provider(srv.base_url());
+  ASSERT_NE(pvd, nullptr);
+
+  xAiContent user_c = xAiContentText("hi");
+  xAiMessage user_m = xAiMessageFromContent(xAiRole_User, &user_c, 1);
+
+  Recorder rec;
+  xAiProviderSubmitConf conf = {};
+  conf.messages    = &user_m;
+  conf.n_messages  = 1;
+  conf.temperature = -1.0;
+
+  xAiProviderStreamCallbacks cbs = {};
+  cbs.on_text     = on_text;
+  cbs.on_thinking = on_thinking;
+  cbs.on_done     = on_done;
+
+  struct ProviderBase {
+    const xAiProviderVtable *vt;
+    void                    *ctx;
+  };
+  auto *base = reinterpret_cast<ProviderBase *>(pvd);
+  ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
+
+  pump_until(loop, rec.done_fired, 5000);
+  ASSERT_TRUE(rec.done_fired.load());
+
+  /* Reasoning assembled in arrival order. */
+  EXPECT_EQ(rec.thinking, "I think therefore I am.");
+  /* And it did NOT bleed into on_text. */
+  EXPECT_EQ(rec.text,     "Hi.");
+  EXPECT_EQ(rec.done_reason, xAiProviderStop_EndTurn);
+  EXPECT_EQ(rec.done_err,    xErrno_Ok);
+
+  xAiProviderDestroy(pvd);
+  srv.join();
+}
+
+/* ── Request body inspection: Thinking blocks serialise as
+ *    `reasoning_content` on assistant messages ────────────────────────
+ *
+ * Second half of the 2026-04-23 fix. When the session replays history
+ * that contains assistant-side Thinking blocks (from an earlier round),
+ * the provider MUST emit them as `reasoning_content` on the assistant
+ * JSON message. Otherwise moonshot/kimi reject the follow-up POST with
+ *   "thinking is enabled but reasoning_content is missing in
+ *    assistant tool call message at index N".
+ *
+ * The exact shape we pin here:
+ *   {"role":"assistant","content":null,"reasoning_content":"...",
+ *    "tool_calls":[{...}]}
+ * i.e. Thinking → top-level `reasoning_content`, Text absent/null,
+ * ToolUse → `tool_calls`.                                              */
+
+TEST_F(OpenAIProviderTest, AssistantMessageSerialisesReasoningContent) {
+  std::string body =
+    "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},"
+         "\"finish_reason\":\"stop\"}]}\n\n"
+    "data: [DONE]\n\n";
+
+  MiniOpenAIServer srv(body);
+  srv.start();
+
+  xAiProvider pvd = make_provider(srv.base_url());
+  ASSERT_NE(pvd, nullptr);
+
+  /* Replay a tiny history:
+   *   [0] user: "weather in SF?"
+   *   [1] assistant: [Thinking("I should call get_weather."),
+   *                   ToolUse(id=call_1, name=get_weather, args={...})]
+   *   [2] tool: {tool result for call_1}
+   *   [3] user: "thanks"  (new turn — this is what triggers the POST)
+   *
+   * The assistant entry (index 1) is what must carry reasoning_content
+   * on the wire. We don't need to reproduce the full session state
+   * machine — just construct the shape that session.c would assemble
+   * on replay, and hand it to the provider directly. */
+  xAiContent u0 = xAiContentText("weather in SF?");
+  xAiMessage m0 = xAiMessageFromContent(xAiRole_User, &u0, 1);
+
+  xAiContent a_blocks[2] = {};
+  a_blocks[0].type              = xAiContentType_Thinking;
+  a_blocks[0].u.thinking.text   = "I should call get_weather.";
+  a_blocks[0].u.thinking.len    = strlen(a_blocks[0].u.thinking.text);
+  a_blocks[1].type              = xAiContentType_ToolUse;
+  a_blocks[1].u.tool_use.id        = "call_1";
+  a_blocks[1].u.tool_use.name      = "get_weather";
+  a_blocks[1].u.tool_use.args_json = "{\"city\":\"SF\"}";
+  xAiMessage m1 = xAiMessageFromContent(xAiRole_Assistant, a_blocks, 2);
+
+  xAiContent t_block = {};
+  t_block.type                     = xAiContentType_ToolResult;
+  t_block.u.tool_result.id         = "call_1";
+  t_block.u.tool_result.output     = "sunny";
+  t_block.u.tool_result.output_len = 5;
+  xAiMessage m2 = xAiMessageFromContent(xAiRole_Tool, &t_block, 1);
+
+  xAiContent u3 = xAiContentText("thanks");
+  xAiMessage m3 = xAiMessageFromContent(xAiRole_User, &u3, 1);
+
+  xAiMessage msgs[] = {m0, m1, m2, m3};
+
+  Recorder rec;
+  xAiProviderSubmitConf conf = {};
+  conf.messages    = msgs;
+  conf.n_messages  = sizeof(msgs) / sizeof(msgs[0]);
+  conf.temperature = -1.0;
+
+  xAiProviderStreamCallbacks cbs = {};
+  cbs.on_done = on_done;
+
+  struct ProviderBase {
+    const xAiProviderVtable *vt;
+    void                    *ctx;
+  };
+  auto *base = reinterpret_cast<ProviderBase *>(pvd);
+  ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
+
+  pump_until(loop, rec.done_fired, 5000);
+  ASSERT_TRUE(rec.done_fired.load());
+
+  const std::string &req = srv.request();
+
+  /* Positive: Thinking made it out as reasoning_content on the
+   * assistant message. */
+  EXPECT_NE(req.find("\"reasoning_content\":\"I should call get_weather.\""),
+            std::string::npos)
+    << "assistant Thinking block was NOT serialised as reasoning_content. "
+       "kimi-k2.6 / DeepSeek-R1 will 400 the next round. Request was:\n"
+    << req;
+
+  /* Positive: ToolUse still rendered alongside. */
+  EXPECT_NE(req.find("\"tool_calls\":["),        std::string::npos);
+  EXPECT_NE(req.find("\"name\":\"get_weather\""), std::string::npos);
+  EXPECT_NE(req.find("\"id\":\"call_1\""),        std::string::npos);
+
+  /* Positive: assistant's `content` is null when there is no Text
+   * block (matching OpenAI's wire convention for tool_call-only
+   * turns). */
+  EXPECT_NE(req.find("\"role\":\"assistant\""), std::string::npos);
+  EXPECT_NE(req.find("\"content\":null"),       std::string::npos);
+
+  /* Negative: the reasoning must NOT accidentally land on the user
+   * or tool messages, nor duplicate as `content`. */
+  EXPECT_EQ(req.find("\"content\":\"I should call get_weather.\""),
+            std::string::npos);
+
+  xAiProviderDestroy(pvd);
+  srv.join();
+}
+
+/* ── Usage accounting: prompt_tokens/completion_tokens parsed from
+ *    the final usage chunk, and forwarded via on_done ────────────────
+ *
+ * OpenAI-compatible servers carry token counts in a top-level
+ * `usage` object, typically on the chunk that also emits
+ * finish_reason, or on a dedicated chunk just before [DONE] (when
+ * the client asked for stream_options.include_usage=true).
+ *
+ * We send a minimal stream where:
+ *  - one chunk delivers content + finish_reason=stop WITHOUT usage
+ *  - a second chunk has `"choices":[]` and `usage={...}`  (this is
+ *    the exact shape OpenAI ships when include_usage is on)
+ *  - [DONE] closes the stream
+ *
+ * The provider MUST parse the standalone usage chunk (it does not
+ * live under choices[]) and hand the numbers to on_done via the
+ * xAiUsage* pointer.                                                 */
+
+TEST_F(OpenAIProviderTest, ForwardsUsageOnDone) {
+  std::string body =
+    "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},"
+         "\"finish_reason\":\"stop\"}]}\n\n"
+    "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":12,"
+         "\"completion_tokens\":7,\"total_tokens\":19}}\n\n"
+    "data: [DONE]\n\n";
+
+  MiniOpenAIServer srv(body);
+  srv.start();
+
+  xAiProvider pvd = make_provider(srv.base_url());
+  ASSERT_NE(pvd, nullptr);
+
+  xAiContent user_c = xAiContentText("hi");
+  xAiMessage user_m = xAiMessageFromContent(xAiRole_User, &user_c, 1);
+
+  Recorder rec;
+  xAiProviderSubmitConf conf = {};
+  conf.messages    = &user_m;
+  conf.n_messages  = 1;
+  conf.temperature = -1.0;
+
+  xAiProviderStreamCallbacks cbs = {};
+  cbs.on_text = on_text;
+  cbs.on_done = on_done;
+
+  struct ProviderBase {
+    const xAiProviderVtable *vt;
+    void                    *ctx;
+  };
+  auto *base = reinterpret_cast<ProviderBase *>(pvd);
+  ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
+
+  pump_until(loop, rec.done_fired, 5000);
+  ASSERT_TRUE(rec.done_fired.load());
+
+  /* Also verify the request body opted in — regression guard: if
+   * anyone removes stream_options.include_usage, servers like
+   * OpenAI will silently drop the usage chunk, this assertion
+   * stays but the prompt_tokens one below would start failing
+   * against the real wire. */
+  const std::string &req = srv.request();
+  EXPECT_NE(req.find("\"stream_options\":{"), std::string::npos);
+  EXPECT_NE(req.find("\"include_usage\":true"), std::string::npos);
+
+  /* The usage pointer must be non-NULL and the numbers must round-
+   * trip intact. */
+  EXPECT_EQ(rec.text, "hi");
+  EXPECT_EQ(rec.done_reason, xAiProviderStop_EndTurn);
+  ASSERT_TRUE(rec.has_usage)
+    << "provider did not forward usage to on_done — either the "
+       "parser missed `usage` on a choices-empty chunk, or "
+       "oai_finish_flight failed to pass the pointer.";
+  EXPECT_EQ(rec.usage.prompt_tokens,     12);
+  EXPECT_EQ(rec.usage.completion_tokens, 7);
+  EXPECT_EQ(rec.usage.total_tokens,      19);
+
+  xAiProviderDestroy(pvd);
+  srv.join();
+}
+
+/* ── No usage reported: on_done still fires, but with NULL usage ───
+ *
+ * Pins the "unknown vs zero" contract. If the server never sends a
+ * `usage` block (e.g. a minimal mock or a gateway that strips it),
+ * the provider MUST hand NULL — never a zero-initialised struct,
+ * which would misrepresent "no data" as "zero tokens used".        */
+
+TEST_F(OpenAIProviderTest, NoUsageChunkYieldsNullUsage) {
+  std::string body =
+    "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},"
+         "\"finish_reason\":\"stop\"}]}\n\n"
+    "data: [DONE]\n\n";
+
+  MiniOpenAIServer srv(body);
+  srv.start();
+
+  xAiProvider pvd = make_provider(srv.base_url());
+  ASSERT_NE(pvd, nullptr);
+
+  xAiContent user_c = xAiContentText("hi");
+  xAiMessage user_m = xAiMessageFromContent(xAiRole_User, &user_c, 1);
+
+  Recorder rec;
+  xAiProviderSubmitConf conf = {};
+  conf.messages    = &user_m;
+  conf.n_messages  = 1;
+  conf.temperature = -1.0;
+
+  xAiProviderStreamCallbacks cbs = {};
+  cbs.on_done = on_done;
+
+  struct ProviderBase {
+    const xAiProviderVtable *vt;
+    void                    *ctx;
+  };
+  auto *base = reinterpret_cast<ProviderBase *>(pvd);
+  ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
+
+  pump_until(loop, rec.done_fired, 5000);
+  ASSERT_TRUE(rec.done_fired.load());
+
+  EXPECT_FALSE(rec.has_usage)
+    << "provider fabricated a usage struct out of thin air; the "
+       "caller has no way to tell 'unknown' from 'zero' apart.";
+
+  xAiProviderDestroy(pvd);
   srv.join();
 }

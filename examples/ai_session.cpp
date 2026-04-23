@@ -46,6 +46,7 @@
 struct ReplCtx {
   xEventLoop loop            = nullptr;
   bool       saw_first_delta = false;
+  bool       in_thinking     = false; /* currently streaming thinking? */
   size_t     reply_bytes     = 0;
 };
 
@@ -78,11 +79,31 @@ static xErrno tool_get_time(const xAiContent *in, xAiContent *out, void *ud) {
 
 /* ── Session callbacks ──────────────────────────────────────────────── */
 
+/* Close an open thinking block: reset SGR (`\x1b[0m`), newline, AND
+ * emit one blank line so whatever follows (final text, [tool],
+ * [done], ...) has visual breathing room. The trailing blank is
+ * important when thinking ends with a sentence that looks like a
+ * reply ("简短回复：..." etc) — without it the eye merges the faint
+ * scratchpad into the bright answer. Must be called before printing
+ * anything that shouldn't inherit faint style. No-op if no thinking
+ * block is open, so it's safe to sprinkle liberally. */
+static void end_thinking(ReplCtx *ctx) {
+  if (!ctx->in_thinking) return;
+  std::fputs("\x1b[0m\n\n", stdout);
+  ctx->in_thinking = false;
+}
+
 static void on_text(xAiSession sess, const char *chunk, size_t len,
                     void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
-  if (!ctx->saw_first_delta) {
+  /* Close the thinking block (if any) before the visible reply
+   * starts, so they don't visually merge AND the terminal doesn't
+   * stay in faint mode for the rest of the output. */
+  if (ctx->in_thinking) {
+    end_thinking(ctx);
+    ctx->saw_first_delta = true;
+  } else if (!ctx->saw_first_delta) {
     std::putchar('\n');
     ctx->saw_first_delta = true;
   }
@@ -91,11 +112,39 @@ static void on_text(xAiSession sess, const char *chunk, size_t len,
   ctx->reply_bytes += len;
 }
 
+/* Thinking stream: dim + prefix so it's obviously "model scratchpad"
+ * and not the final answer. ANSI 2 = faint; most modern terminals
+ * honour it (including macOS Terminal and iTerm2). On the rare
+ * terminal that doesn't, the `[thinking]` prefix still telegraphs
+ * intent. */
+static void on_thinking(xAiSession sess, const char *chunk, size_t len,
+                        void *ud) {
+  (void)sess;
+  auto *ctx = static_cast<ReplCtx *>(ud);
+  if (!ctx->in_thinking) {
+    /* Open a new thinking block on its own line. */
+    std::fputs("\n\x1b[2m[thinking] ", stdout);
+    ctx->in_thinking = true;
+  }
+  std::fwrite(chunk, 1, len, stdout);
+  std::fflush(stdout);
+}
+
 static void on_tool(xAiSession sess, const char *tool_name, int started,
                     void *ud) {
   (void)sess;
-  (void)ud;
-  std::printf("\n[tool] %s %s\n", tool_name ? tool_name : "(null)",
+  auto *ctx = static_cast<ReplCtx *>(ud);
+  /* [tool] frames are chrome — render faint, same as
+   * [thinking]/[done]. Node placement rules:
+   *   - After thinking: end_thinking() already emitted `\n\n`, so
+   *     just print the line (no leading newline from us).
+   *   - Otherwise (start of run, or after text): print one blank
+   *     line first so [tool] doesn't glue to whatever was above. */
+  bool after_thinking = ctx->in_thinking;
+  end_thinking(ctx);
+  if (!after_thinking) std::putchar('\n');
+  std::printf("\x1b[2m[tool] %s %s\x1b[0m\n",
+              tool_name ? tool_name : "(null)",
               started ? "starting" : "finished");
   std::fflush(stdout);
 }
@@ -113,12 +162,43 @@ static const char *done_reason_name(xAiDoneReason r) {
   return "?";
 }
 
-static void on_done(xAiSession sess, xAiDoneReason reason, void *ud) {
+static void on_done(xAiSession sess, xAiDoneReason reason,
+                    const xAiUsage *usage, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
-  std::putchar('\n');
-  std::printf("[done] reason=%s reply_bytes=%zu\n",
+  bool after_thinking = ctx->in_thinking;
+  end_thinking(ctx);
+  /* [done] is chrome — render the whole line faint so it recedes and
+   * the model's answer above stays visually primary. Extra blank
+   * line after so the next `> ` prompt isn't glued to the status. */
+  if (!after_thinking) std::putchar('\n');
+  std::fputs("\x1b[2m", stdout);
+  std::printf("[done] reason=%s reply_bytes=%zu",
               done_reason_name(reason), ctx->reply_bytes);
+  /* Token accounting (cumulative across every round of this
+   * xAiSessionInput). The provider fills -1 for fields it couldn't
+   * parse; we hide those so the line stays clean for servers that
+   * only report a subset. A NULL usage means the server never sent
+   * a usage object — rare in practice (moonshot, openai, deepseek
+   * all support stream_options.include_usage). */
+  if (usage) {
+    std::printf(" tokens=");
+    if (usage->prompt_tokens >= 0) {
+      std::printf("%d", usage->prompt_tokens);
+    } else {
+      std::printf("?");
+    }
+    std::printf("/");
+    if (usage->completion_tokens >= 0) {
+      std::printf("%d", usage->completion_tokens);
+    } else {
+      std::printf("?");
+    }
+    if (usage->total_tokens >= 0) {
+      std::printf(" total=%d", usage->total_tokens);
+    }
+  }
+  std::fputs("\x1b[0m\n\n", stdout);
   std::fflush(stdout);
   xEventLoopStop(ctx->loop);
 }
@@ -127,8 +207,15 @@ static void on_error(xAiSession sess, xErrno err, const char *msg,
                      void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
-  std::fprintf(stderr, "\n[error] errno=%d msg=%s\n", (int)err,
-               msg ? msg : "(none)");
+  /* Same SGR hygiene as on_done — error might fire mid-thinking.
+   * Errors are the one piece of chrome that should NOT recede — use
+   * bold red (`\x1b[1;31m`) instead of faint so the user notices the
+   * run failed at a glance. */
+  bool after_thinking = ctx->in_thinking;
+  end_thinking(ctx);
+  if (!after_thinking) std::fputc('\n', stderr);
+  std::fprintf(stderr, "\x1b[1;31m[error] errno=%d msg=%s\x1b[0m\n\n",
+               (int)err, msg ? msg : "(none)");
   std::fflush(stderr);
   xEventLoopStop(ctx->loop);
 }
@@ -233,11 +320,12 @@ int main() {
 
   xAiSessionConf sconf;
   std::memset(&sconf, 0, sizeof(sconf));
-  sconf.cbs.on_text   = on_text;
-  sconf.cbs.on_tool   = on_tool;
-  sconf.cbs.on_done   = on_done;
-  sconf.cbs.on_error  = on_error;
-  sconf.cbs.user_data = &ctx;
+  sconf.cbs.on_text     = on_text;
+  sconf.cbs.on_thinking = on_thinking;
+  sconf.cbs.on_tool     = on_tool;
+  sconf.cbs.on_done     = on_done;
+  sconf.cbs.on_error    = on_error;
+  sconf.cbs.user_data   = &ctx;
 
   xAiSession sess = xAiSessionCreate(agent, &sconf);
   if (!sess) {
@@ -270,6 +358,7 @@ int main() {
       break;
 
     ctx.saw_first_delta = false;
+    ctx.in_thinking     = false;
     ctx.reply_bytes     = 0;
 
     /* xAiMessageFromText creates a User-role borrow-view that points

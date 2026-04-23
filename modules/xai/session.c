@@ -142,6 +142,25 @@ static xErrno history_append_tool_use(struct xAiSession_ *s, const char *id,
   return xErrno_Ok;
 }
 
+/* Append an Assistant thinking / reasoning entry. Payload reuses the
+ * Text-kind `text` / `text_len` slot so msg_free() stays uniform. */
+static xErrno history_append_thinking(struct xAiSession_ *s, const char *text,
+                                      size_t len) {
+  struct xAiSessionMsg_ *slot = history_grow(s);
+  if (!slot) return xErrno_NoMemory;
+  slot->role = xAiRole_Assistant;
+  slot->kind = xAiSessionEntry_Thinking;
+  if (len > 0) {
+    slot->text = dup_bytes(text, len);
+    if (!slot->text) {
+      s->n_history--;
+      return xErrno_NoMemory;
+    }
+    slot->text_len = len;
+  }
+  return xErrno_Ok;
+}
+
 /* Append a Tool tool_result entry. */
 static xErrno history_append_tool_result(struct xAiSession_ *s, const char *id,
                                          const char *output, size_t output_len,
@@ -229,6 +248,32 @@ static xErrno assist_append(struct xAiSession_ *s, const char *chunk,
 static void assist_reset(struct xAiSession_ *s) {
   s->assist_len = 0;
   if (s->assist_buf) s->assist_buf[0] = '\0';
+}
+
+/* Same shape as assist_append, but for the current-round reasoning /
+ * thinking stream. Kept separate so the two never race to the same
+ * buffer and so view_build can emit them as distinct content blocks
+ * on the wire. */
+static xErrno reasoning_append(struct xAiSession_ *s, const char *chunk,
+                               size_t len) {
+  if (len == 0) return xErrno_Ok;
+  if (s->reasoning_len + len + 1 > s->reasoning_cap) {
+    size_t new_cap = s->reasoning_cap ? s->reasoning_cap : 256;
+    while (new_cap < s->reasoning_len + len + 1) new_cap *= 2;
+    char *nb = (char *)realloc(s->reasoning_buf, new_cap);
+    if (!nb) return xErrno_NoMemory;
+    s->reasoning_buf = nb;
+    s->reasoning_cap = new_cap;
+  }
+  memcpy(s->reasoning_buf + s->reasoning_len, chunk, len);
+  s->reasoning_len += len;
+  s->reasoning_buf[s->reasoning_len] = '\0';
+  return xErrno_Ok;
+}
+
+static void reasoning_reset(struct xAiSession_ *s) {
+  s->reasoning_len = 0;
+  if (s->reasoning_buf) s->reasoning_buf[0] = '\0';
 }
 
 /* Append one pending tool_call. Copies every string. */
@@ -340,6 +385,10 @@ static xErrno view_build(struct xAiSession_ *s, struct view_ *out) {
           b->type        = xAiContentType_Text;
           b->u.text.text = mm->text ? mm->text : "";
           b->u.text.len  = mm->text_len;
+        } else if (mm->kind == xAiSessionEntry_Thinking) {
+          b->type            = xAiContentType_Thinking;
+          b->u.thinking.text = mm->text ? mm->text : "";
+          b->u.thinking.len  = mm->text_len;
         } else if (mm->kind == xAiSessionEntry_ToolUse) {
           b->type                 = xAiContentType_ToolUse;
           b->u.tool_use.id        = mm->tool_use_id;
@@ -383,8 +432,44 @@ static xErrno view_build(struct xAiSession_ *s, struct view_ *out) {
 /* Forward decls for the callback dispatch. */
 static void on_provider_text(const char *chunk, size_t len, void *arg);
 static void on_provider_tool_call(const xAiContent *call, void *arg);
+static void on_provider_thinking(const char *chunk, size_t len, void *arg);
 static void on_provider_done(xAiProviderStopReason reason, xErrno err,
-                             void *arg);
+                             const xAiUsage *usage, void *arg);
+
+/* Fold one round's usage into the session-wide running total.
+ *
+ * Semantics: -1 is the "unknown" sentinel on both sides. If the
+ * round contributes a real number for a given field and the running
+ * total is still -1, we replace (first real report wins the initial
+ * value). If both are real numbers, we add. If the round's field is
+ * -1, we leave the running total alone. Anthropic-style
+ * cache_creation / cache_read will slot in the same way once we
+ * teach the provider to parse them. */
+static void usage_accumulate(struct xAiSession_ *s, const xAiUsage *round) {
+  if (!round) return;
+  s->saw_usage = 1;
+
+#define XAI_FOLD(field)                                                       \
+  do {                                                                        \
+    if (round->field >= 0) {                                                  \
+      s->usage.field = (s->usage.field < 0) ? round->field                    \
+                                            : s->usage.field + round->field;  \
+    }                                                                         \
+  } while (0)
+
+  XAI_FOLD(prompt_tokens);
+  XAI_FOLD(completion_tokens);
+  XAI_FOLD(total_tokens);
+
+#undef XAI_FOLD
+}
+
+static void usage_reset(struct xAiSession_ *s) {
+  s->saw_usage               = 0;
+  s->usage.prompt_tokens     = -1;
+  s->usage.completion_tokens = -1;
+  s->usage.total_tokens      = -1;
+}
 
 /* Submit a new provider round over the current history.
  *
@@ -413,9 +498,11 @@ static xErrno submit_round(struct xAiSession_ *s) {
   xAiProviderStreamCallbacks cbs = {0};
   cbs.on_text                    = on_provider_text;
   cbs.on_tool_call               = on_provider_tool_call;
+  cbs.on_thinking                = on_provider_thinking;
   cbs.on_done                    = on_provider_done;
 
   assist_reset(s);
+  reasoning_reset(s);
   pending_reset(s);
   s->turn++;
 
@@ -427,13 +514,23 @@ static xErrno submit_round(struct xAiSession_ *s) {
 /* Finish the current session run and fire on_done. After this
  * returns, the session is idle. */
 static void finish_run(struct xAiSession_ *s, xAiDoneReason reason) {
+  /* Snapshot usage before reset: the callback sees the running
+   * totals we accumulated across every provider round, or NULL if
+   * nothing ever reported. */
+  xAiUsage        usage_snapshot = s->usage;
+  int             had_usage      = s->saw_usage;
+
   assist_reset(s);
+  reasoning_reset(s);
   pending_reset(s);
+  usage_reset(s);
   s->running   = 0;
   s->cancelled = 0;
   s->turn      = 0;
   if (s->cbs.on_done) {
-    s->cbs.on_done((xAiSession)s, reason, s->cbs.user_data);
+    s->cbs.on_done((xAiSession)s, reason,
+                   had_usage ? &usage_snapshot : NULL,
+                   s->cbs.user_data);
   }
 }
 
@@ -552,6 +649,25 @@ static void on_provider_tool_call(const xAiContent *call, void *arg) {
   (void)pending_append(s, call);
 }
 
+/* Absorb a reasoning / thinking delta. We buffer it into the
+ * per-round reasoning_buf (the final history entry is committed in
+ * commit_assistant_turn so it lands alongside — and before — the
+ * round's text and tool_use blocks inside the same assistant turn),
+ * AND forward it live to the caller if they asked for a thinking
+ * channel. Non-thinking callers just leave cbs.on_thinking NULL and
+ * the delta is silently buffered for the next-round echo-back, which
+ * servers like kimi-k2.6 require. */
+static void on_provider_thinking(const char *chunk, size_t len, void *arg) {
+  struct xAiSession_ *s = (struct xAiSession_ *)arg;
+  if (s->cancelled) return;
+
+  (void)reasoning_append(s, chunk, len);
+
+  if (s->cbs.on_thinking) {
+    s->cbs.on_thinking((xAiSession)s, chunk, len, s->cbs.user_data);
+  }
+}
+
 /* Map a provider stop reason to the caller-visible done reason for
  * runs that are *not* continuing into another tool-loop iteration. */
 static xAiDoneReason translate_terminal(xAiProviderStopReason r,
@@ -574,9 +690,15 @@ static xAiDoneReason translate_terminal(xAiProviderStopReason r,
 }
 
 static void commit_assistant_turn(struct xAiSession_ *s) {
-  /* Flush accumulated text first (as its own Assistant/Text entry),
-   * then each pending tool_use (as Assistant/ToolUse entries). The
-   * fold-into-one-message happens at view_build time. */
+  /* Order matters on the wire: the thinking block (if any) goes
+   * FIRST inside the assistant turn, then the text, then each tool_use
+   * entry. moonshot's kimi-k2.6 doesn't appear to care about the
+   * exact ordering inside the message, but Anthropic's thinking
+   * blocks are documented as coming first, and putting reasoning
+   * before tool_calls matches every upstream example I've seen. */
+  if (s->reasoning_len > 0) {
+    (void)history_append_thinking(s, s->reasoning_buf, s->reasoning_len);
+  }
   if (s->assist_len > 0) {
     (void)history_append_text(s, xAiRole_Assistant, s->assist_buf,
                               s->assist_len);
@@ -588,8 +710,15 @@ static void commit_assistant_turn(struct xAiSession_ *s) {
 }
 
 static void on_provider_done(xAiProviderStopReason reason, xErrno err,
-                             void *arg) {
+                             const xAiUsage *usage, void *arg) {
   struct xAiSession_ *s = (struct xAiSession_ *)arg;
+
+  /* Fold this round's usage into the running total BEFORE any
+   * branching — we want the accounting to be correct whether the
+   * run ends here or continues into another tool-loop round. If the
+   * provider didn't report usage this round, the accumulator stays
+   * where it was. */
+  usage_accumulate(s, usage);
 
   int user_cancel = (reason == xAiProviderStop_Cancelled) || s->cancelled;
 
@@ -676,6 +805,10 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   s->context_budget = conf->context_budget > 0 ? conf->context_budget
                                                : a->context_budget;
 
+  /* Usage is unknown until a round reports it. -1 is the sentinel;
+   * calloc zeroed us to 0 which would lie. */
+  usage_reset(s);
+
   return (xAiSession)s;
 }
 
@@ -694,6 +827,7 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   s->running   = 1;
   s->cancelled = 0;
   s->turn      = 0;
+  usage_reset(s);
 
   rc = submit_round(s);
   if (rc != xErrno_Ok) {
@@ -735,6 +869,7 @@ void xAiSessionDestroy(xAiSession sess) {
   for (size_t i = 0; i < s->n_history; i++) msg_free(&s->history[i]);
   free(s->history);
   free(s->assist_buf);
+  free(s->reasoning_buf);
   pending_reset(s);
   free(s->pending);
   free(s);

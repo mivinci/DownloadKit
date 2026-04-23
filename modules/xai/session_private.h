@@ -33,6 +33,15 @@ enum xAiSessionEntryKind_ {
   xAiSessionEntry_Text       = 0, /**< role + text payload            */
   xAiSessionEntry_ToolUse    = 1, /**< role==Assistant + tool_use     */
   xAiSessionEntry_ToolResult = 2, /**< role==Tool + tool_result       */
+  /**
+   * role==Assistant + chain-of-thought. Payload lives in @c text /
+   * @c text_len so msg_free() stays simple. Kept as its own kind so
+   * view_build() can turn it back into an xAiContentType_Thinking
+   * block on follow-up rounds — several reasoning models reject
+   * tool_calls assistant messages that do not echo the previous
+   * round's reasoning.
+   */
+  xAiSessionEntry_Thinking   = 3,
 };
 
 /**
@@ -102,6 +111,11 @@ struct xAiSession_ {
   size_t assist_len;
   size_t assist_cap;
 
+  /* ── Assistant reasoning / thinking accumulator (current round) ── */
+  char  *reasoning_buf;
+  size_t reasoning_len;
+  size_t reasoning_cap;
+
   /* ── Pending tool calls captured during the current round ─────── */
   struct xAiSessionPending_ *pending;
   size_t                     n_pending;
@@ -111,6 +125,16 @@ struct xAiSession_ {
   int running;       /* 1 from Input accept to final on_done           */
   int cancelled;     /* xAiSessionCancel() sets this                   */
   int turn;          /* number of provider submits this run (>=1)      */
+
+  /* Cumulative token usage across every provider round of this run.
+   * Each on_provider_done folds the round's per-request numbers in;
+   * finish_run hands a pointer to this struct (or NULL if no round
+   * ever reported usage) to the caller's on_done. We treat -1 as
+   * "unknown" on input AND on output; the accumulator keeps that
+   * sentinel intact until the first field we can actually add.
+   * Reset to all-(-1) at the start of every xAiSessionInput run. */
+  int      saw_usage;      /* 1 once any round reported usage           */
+  xAiUsage usage;          /* running totals                            */
 };
 
 #endif /* XAI_SESSION_PRIVATE_H */

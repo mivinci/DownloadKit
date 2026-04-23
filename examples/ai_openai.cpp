@@ -144,13 +144,28 @@ static const char *stop_reason_name(xAiProviderStopReason r) {
   return "?";
 }
 
-static void on_done(xAiProviderStopReason reason, xErrno err, void *arg) {
+static void on_done(xAiProviderStopReason reason, xErrno err,
+                    const xAiUsage *usage, void *arg) {
   auto *ctx = static_cast<ReplCtx *>(arg);
 
   /* Always surface the outcome so "silent failure" is impossible. */
   std::putchar('\n');
-  std::printf("[done] reason=%s errno=%d reply_bytes=%zu\n",
+  std::printf("[done] reason=%s errno=%d reply_bytes=%zu",
               stop_reason_name(reason), (int)err, ctx->reply.size());
+  if (usage) {
+    /* -1 means "server was silent about this field" — show "?" so
+     * the user can tell missing from zero. */
+    auto fmt = [](int v, char *out, size_t n) {
+      if (v < 0) std::snprintf(out, n, "?");
+      else       std::snprintf(out, n, "%d", v);
+    };
+    char p[16], c[16], t[16];
+    fmt(usage->prompt_tokens,     p, sizeof p);
+    fmt(usage->completion_tokens, c, sizeof c);
+    fmt(usage->total_tokens,      t, sizeof t);
+    std::printf(" tokens=%s/%s total=%s", p, c, t);
+  }
+  std::putchar('\n');
   std::fflush(stdout);
 
   ctx->stream_done = true;

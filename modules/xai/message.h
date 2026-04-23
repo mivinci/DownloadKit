@@ -45,6 +45,7 @@ XDEF_ENUM(xAiContentType){
   xAiContentType_Text       = 0, /**< Plain text block                    */
   xAiContentType_ToolUse    = 1, /**< Model-issued tool invocation        */
   xAiContentType_ToolResult = 2, /**< Tool execution result               */
+  xAiContentType_Thinking   = 3, /**< Model chain-of-thought (echo-back)  */
 };
 
 /**
@@ -76,6 +77,19 @@ XDEF_STRUCT(xAiContent) {
       size_t      output_len; /**< Byte length of @p output               */
       int         is_error;   /**< Non-zero if the tool reported failure  */
     } tool_result;
+    /** Active when type == xAiContentType_Thinking.
+     *
+     * Carries the model's streamed chain-of-thought ("reasoning_content"
+     * on kimi/DeepSeek-R1/o1, "thinking" blocks on Anthropic). The
+     * session layer echoes these back inside the assistant turn on
+     * follow-up rounds; several thinking-capable models reject the
+     * request otherwise (e.g. kimi-k2.6 returns
+     * "thinking is enabled but reasoning_content is missing in
+     *  assistant tool call message"). */
+    struct {
+      const char *text; /**< UTF-8 reasoning text (must not be NULL)   */
+      size_t      len;  /**< Byte length of @p text                    */
+    } thinking;
   } u;
 };
 
@@ -140,5 +154,30 @@ XCAPI(xAiMessage) xAiMessageFromContent(xAiRole           role,
  * @return      A user-role message with one text block.
  */
 XCAPI(xAiMessage) xAiMessageFromText(const char *text);
+
+/* ── Token accounting ─────────────────────────────────────────────── */
+
+/**
+ * @brief Token usage reported by the model for one (or more) rounds.
+ *
+ * Providers that don't report a particular field use @c -1 as a
+ * "not available" sentinel; clients should check for this before
+ * displaying or summing. The public convention across the xai stack
+ * is to initialise with all three fields set to @c -1 so that
+ * callers can trust "unknown" vs "zero".
+ *
+ * The session layer accumulates usage across tool-loop rounds: each
+ * on_done() carries the running sum for the entire xAiSessionInput()
+ * call, not just the last round. Providers report per-request
+ * numbers — provider_openai extracts them from the SSE chunk that
+ * carries the final `usage` object (OpenAI) or the equivalent.
+ */
+XDEF_STRUCT(xAiUsage) {
+  int prompt_tokens;     /**< Input/prompt side; -1 if unknown       */
+  int completion_tokens; /**< Output/completion side; -1 if unknown  */
+  int total_tokens;      /**< Sum (may be > prompt+completion on
+                              providers that count reasoning); -1 if
+                              unknown                                 */
+};
 
 #endif /* XAI_MESSAGE_H */

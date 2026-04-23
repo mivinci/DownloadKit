@@ -101,14 +101,39 @@ typedef void (*xAiProviderTextDeltaFunc)(const char *chunk, size_t len,
 typedef void (*xAiProviderToolCallFunc)(const xAiContent *call, void *arg);
 
 /**
+ * @brief Delivered for each streamed reasoning / thinking delta.
+ *
+ * Thinking-capable models (kimi-k2.6, DeepSeek-R1, o1, Anthropic's
+ * thinking blocks) interleave chain-of-thought with the final answer.
+ * OpenAI-compatible servers carry it on `choices[].delta.reasoning_content`;
+ * Anthropic carries it in a dedicated thinking content block.
+ *
+ * The session layer must preserve these chunks and echo them back
+ * inside the assistant turn on follow-up rounds, or the server will
+ * reject the follow-up (moonshot: "thinking is enabled but
+ * reasoning_content is missing in assistant tool call message").
+ *
+ * @param chunk  Byte buffer (NOT NUL-terminated).
+ * @param len    Length of @p chunk in bytes.
+ * @param arg    Opaque pointer supplied in xAiProviderStreamCallbacks.
+ */
+typedef void (*xAiProviderThinkingDeltaFunc)(const char *chunk, size_t len,
+                                             void *arg);
+
+/**
  * @brief Delivered once when the submit() call terminates.
  *
  * @param reason  Why the provider stopped this round.
  * @param err     xErrno_Ok unless @p reason == xAiProviderStop_Error.
+ * @param usage   Per-request token accounting (may be NULL if the
+ *                provider didn't report any; individual fields use
+ *                -1 as a "not available" sentinel). Pointer is valid
+ *                only for the duration of the callback — session
+ *                layer must copy what it wants to keep.
  * @param arg     Opaque pointer supplied in xAiProviderStreamCallbacks.
  */
 typedef void (*xAiProviderDoneFunc)(xAiProviderStopReason reason, xErrno err,
-                                    void *arg);
+                                    const xAiUsage *usage, void *arg);
 
 /**
  * @brief Streaming callbacks passed to vtable->submit().
@@ -118,9 +143,10 @@ typedef void (*xAiProviderDoneFunc)(xAiProviderStopReason reason, xErrno err,
  * tool calls can leave @ref on_tool_call unused).
  */
 XDEF_STRUCT(xAiProviderStreamCallbacks) {
-  xAiProviderTextDeltaFunc on_text;
-  xAiProviderToolCallFunc  on_tool_call;
-  xAiProviderDoneFunc      on_done;
+  xAiProviderTextDeltaFunc     on_text;
+  xAiProviderToolCallFunc      on_tool_call;
+  xAiProviderThinkingDeltaFunc on_thinking;
+  xAiProviderDoneFunc          on_done;
 };
 
 /* ── Provider vtable (internal contract with implementations) ────────── */

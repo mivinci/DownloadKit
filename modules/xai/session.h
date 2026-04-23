@@ -83,6 +83,27 @@ XDEF_STRUCT(xAiSessionCallbacks) {
   void (*on_text)(xAiSession sess, const char *chunk, size_t len, void *ud);
 
   /**
+   * @brief Fired for each streamed chain-of-thought ("thinking") chunk.
+   *
+   * Only reasoning-capable models (kimi-k2.6 thinking, DeepSeek-R1,
+   * o1, ...) emit these on the `delta.reasoning_content` channel.
+   * Non-thinking models never fire this callback at all. Leave NULL
+   * if the caller doesn't want to surface the model's reasoning —
+   * the session still records it internally so the next tool-loop
+   * round can echo it back (some servers require it), it just won't
+   * be streamed out.
+   *
+   * Fires strictly before on_text within a given assistant turn.
+   *
+   * @param sess   The session producing the thinking stream.
+   * @param chunk  Byte buffer (NOT NUL-terminated).
+   * @param len    Length of @p chunk in bytes.
+   * @param ud     The user_data pointer from this struct.
+   */
+  void (*on_thinking)(xAiSession sess, const char *chunk, size_t len,
+                      void *ud);
+
+  /**
    * @brief Fired once when the current run terminates.
    *
    * Exactly one of on_done / on_error is delivered per
@@ -90,9 +111,17 @@ XDEF_STRUCT(xAiSessionCallbacks) {
    *
    * @param sess    The session.
    * @param reason  Coarse completion reason.
+   * @param usage   Cumulative token usage across every provider
+   *                round in this run (the tool loop may submit
+   *                several rounds; this is the running sum), or
+   *                NULL if the provider never reported any. Fields
+   *                that are still unknown use -1 as a sentinel.
+   *                Pointer is valid only for the duration of the
+   *                callback — copy what you want to keep.
    * @param ud      The user_data pointer from this struct.
    */
-  void (*on_done)(xAiSession sess, xAiDoneReason reason, void *ud);
+  void (*on_done)(xAiSession sess, xAiDoneReason reason,
+                  const xAiUsage *usage, void *ud);
 
   /**
    * @brief Fired when the session is unable to continue.

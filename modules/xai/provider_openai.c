@@ -78,6 +78,15 @@ struct xOaiImpl_ {
   int                        saw_finish_reason; /* 1 once server sent one */
   struct xOaiToolCallSlot_   tool_calls[XAI_OAI_MAX_TOOL_CALLS];
 
+  /* Token accounting for the current flight. OpenAI-compatible SSE
+   * streams put a `usage` object on the chunk that carries
+   * finish_reason (or, on some servers, on the [DONE] chunk). Values
+   * are -1 until we actually see them; if the server never reports
+   * usage (e.g. a minimal mock) we hand NULL to on_done so callers
+   * can tell "unknown" from "zero". */
+  int                        saw_usage;
+  xAiUsage                   usage;
+
   xEventTimer defer_done; /* non-NULL while pending   */
 };
 
@@ -185,16 +194,32 @@ static cJSON *oai_message_to_json(const xAiMessage *m) {
   }
 
   if (m->role == xAiRole_Assistant) {
-    /* Split text vs tool_use across the content blocks. */
-    cJSON  *tool_calls = NULL;
-    size_t  text_len   = 0;
-    char   *text_buf   = NULL;
-    size_t  text_cap   = 0;
+    /* Split text / thinking / tool_use across the content blocks.
+     *
+     * Why thinking: kimi-k2.6 (and other reasoning models) require
+     * the client to echo back the `reasoning_content` they streamed
+     * earlier — when a later round's assistant turn carries tool_calls
+     * but no reasoning_content, moonshot rejects the whole request
+     * with "thinking is enabled but reasoning_content is missing in
+     * assistant tool call message". The session layer preserves the
+     * thinking stream for us; here we serialise it alongside content
+     * and tool_calls. */
+    cJSON  *tool_calls     = NULL;
+    size_t  text_len       = 0;
+    char   *text_buf       = NULL;
+    size_t  text_cap       = 0;
+    size_t  reasoning_len  = 0;
+    char   *reasoning_buf  = NULL;
+    size_t  reasoning_cap  = 0;
     for (size_t i = 0; i < m->n; i++) {
       const xAiContent *c = &m->contents[i];
       if (c->type == xAiContentType_Text && c->u.text.text) {
         oai_str_append(&text_buf, &text_len, &text_cap,
                        c->u.text.text, c->u.text.len);
+      } else if (c->type == xAiContentType_Thinking &&
+                 c->u.thinking.text) {
+        oai_str_append(&reasoning_buf, &reasoning_len, &reasoning_cap,
+                       c->u.thinking.text, c->u.thinking.len);
       } else if (c->type == xAiContentType_ToolUse) {
         if (!tool_calls) tool_calls = cJSON_CreateArray();
         cJSON *tc = cJSON_CreateObject();
@@ -216,8 +241,12 @@ static cJSON *oai_message_to_json(const xAiMessage *m) {
     } else {
       cJSON_AddNullToObject(obj, "content");
     }
+    if (reasoning_buf && reasoning_len > 0) {
+      cJSON_AddStringToObject(obj, "reasoning_content", reasoning_buf);
+    }
     if (tool_calls) cJSON_AddItemToObject(obj, "tool_calls", tool_calls);
     free(text_buf);
+    free(reasoning_buf);
     return obj;
   }
 
@@ -280,6 +309,20 @@ static char *oai_build_body(struct xOaiImpl_            *impl,
   const char *model = conf->model ? conf->model : impl->default_model;
   cJSON_AddStringToObject(root, "model", model ? model : "");
   cJSON_AddBoolToObject(root, "stream", 1);
+
+  /* Ask the server to append a final `usage` chunk with
+   * prompt/completion/total tokens. OpenAI, moonshot/kimi,
+   * DeepSeek and most gateways support this opt-in; servers that
+   * don't recognise the field treat it as a no-op. Without this,
+   * OpenAI specifically drops the usage block on streamed
+   * responses. */
+  {
+    cJSON *so = cJSON_CreateObject();
+    if (so) {
+      cJSON_AddBoolToObject(so, "include_usage", 1);
+      cJSON_AddItemToObject(root, "stream_options", so);
+    }
+  }
 
   if (conf->temperature >= 0.0) {
     cJSON_AddNumberToObject(root, "temperature", conf->temperature);
@@ -372,6 +415,13 @@ static void oai_finish_flight(struct xOaiImpl_ *impl) {
   xErrno                err    = impl->stop_err;
   void                 *arg    = impl->cb_arg;
 
+  /* Snapshot usage before we reset state. We pass a pointer through
+   * the callback, so it must outlive the rest of this function —
+   * using a local here is fine since on_done is invoked synchronously
+   * just below and the pointer is only valid for that call. */
+  xAiUsage usage_snapshot = impl->usage;
+  int      had_usage      = impl->saw_usage;
+
   /* Clear flight state BEFORE firing on_done, so a callback that
    * synchronously issues another submit() sees a clean provider. */
   impl->in_flight   = 0;
@@ -382,9 +432,13 @@ static void oai_finish_flight(struct xOaiImpl_ *impl) {
   impl->stop_reason = xAiProviderStop_EndTurn;
   impl->stop_err    = xErrno_Ok;
   impl->saw_finish_reason = 0;
+  impl->saw_usage   = 0;
+  impl->usage.prompt_tokens     = -1;
+  impl->usage.completion_tokens = -1;
+  impl->usage.total_tokens      = -1;
   oai_tool_calls_reset(impl);
 
-  if (done) done(reason, err, arg);
+  if (done) done(reason, err, had_usage ? &usage_snapshot : NULL, arg);
 }
 
 /* ── SSE delta parsing ─────────────────────────────────────────────────── */
@@ -410,6 +464,14 @@ static xAiProviderStopReason oai_parse_finish_reason(const char *fr) {
 static int oai_handle_chunk(struct xOaiImpl_ *impl, const char *data) {
   if (!data) return 0;
 
+  /* Per-chunk dump is very noisy (one line per SSE delta — ~50+ per
+   * turn for thinking models) and actively fights the REPL's stdout
+   * stream: without a stderr→stdout sync, each assistant char on
+   * stdout gets pushed to line-start/-end by the next stderr line.
+   * Keep it at L3 for targeted debugging; the L1 POST body dump
+   * above is enough for normal tracing. */
+  XDEBUGL3("[xai/openai] chunk: %s", data);
+
   /* Per OpenAI spec, the terminating event carries the literal
    * string "[DONE]" (no JSON). Anything else is parseable JSON. */
   if (strcmp(data, "[DONE]") == 0) {
@@ -424,6 +486,28 @@ static int oai_handle_chunk(struct xOaiImpl_ *impl, const char *data) {
 
   cJSON *choices = cJSON_GetObjectItemCaseSensitive(root, "choices");
   cJSON *choice  = choices ? cJSON_GetArrayItem(choices, 0) : NULL;
+
+  /* OpenAI-compatible servers carry token accounting in a top-level
+   * `usage` object, NOT under `choices[].delta`. It typically arrives
+   * on either (a) the chunk that also carries the final
+   * finish_reason, or (b) a standalone chunk right before
+   * [DONE]. Some gateways send `"choices":[]` with usage only — so
+   * we MUST parse usage before bailing on a missing choice[0]. We
+   * keep "last value wins" semantics (any later chunk's usage
+   * overrides earlier partial numbers, though in practice usage
+   * only appears once). */
+  cJSON *usage_obj = cJSON_GetObjectItemCaseSensitive(root, "usage");
+  if (cJSON_IsObject(usage_obj)) {
+    cJSON *pt = cJSON_GetObjectItemCaseSensitive(usage_obj, "prompt_tokens");
+    cJSON *ct = cJSON_GetObjectItemCaseSensitive(usage_obj,
+                                                 "completion_tokens");
+    cJSON *tt = cJSON_GetObjectItemCaseSensitive(usage_obj, "total_tokens");
+    if (cJSON_IsNumber(pt)) impl->usage.prompt_tokens     = pt->valueint;
+    if (cJSON_IsNumber(ct)) impl->usage.completion_tokens = ct->valueint;
+    if (cJSON_IsNumber(tt)) impl->usage.total_tokens      = tt->valueint;
+    impl->saw_usage = 1;
+  }
+
   if (!choice) {
     cJSON_Delete(root);
     return 0;
@@ -436,6 +520,18 @@ static int oai_handle_chunk(struct xOaiImpl_ *impl, const char *data) {
         impl->cbs.on_text) {
       const char *s = content->valuestring;
       impl->cbs.on_text(s, strlen(s), impl->cb_arg);
+    }
+
+    /* `reasoning_content` is kimi/DeepSeek/o1's chain-of-thought
+     * stream. We forward it verbatim; the session layer decides
+     * whether to store it (for round-2 echo-back) and/or surface it
+     * to the caller. */
+    cJSON *reasoning =
+      cJSON_GetObjectItemCaseSensitive(delta, "reasoning_content");
+    if (cJSON_IsString(reasoning) && reasoning->valuestring &&
+        impl->cbs.on_thinking) {
+      const char *s = reasoning->valuestring;
+      impl->cbs.on_thinking(s, strlen(s), impl->cb_arg);
     }
 
     cJSON *tool_calls = cJSON_GetObjectItemCaseSensitive(delta, "tool_calls");
@@ -535,6 +631,10 @@ static xErrno oai_submit(void                             *impl_p,
   impl->stop_reason = xAiProviderStop_EndTurn;
   impl->stop_err    = xErrno_Ok;
   impl->saw_finish_reason = 0;
+  impl->saw_usage   = 0;
+  impl->usage.prompt_tokens     = -1;
+  impl->usage.completion_tokens = -1;
+  impl->usage.total_tokens      = -1;
   oai_tool_calls_reset(impl);
 
   /* Compose URL: <base>/chat/completions */
@@ -559,6 +659,14 @@ static xErrno oai_submit(void                             *impl_p,
     impl->in_flight = 0;
     return xErrno_NoMemory;
   }
+
+  /* Debug: echo the request body. Invaluable when the server goes
+   * quiet on the follow-up round of a tool loop (reply_bytes=0 but
+   * no explicit error), but verbose enough that it visually competes
+   * with stdout in interactive REPLs — keep at L3 together with the
+   * per-chunk dump. Flip XK_DEBUG_LEVEL to 3 when you need wire-level
+   * tracing. */
+  XDEBUGL3("[xai/openai] POST %s body=%s", url, body);
 
   /* Headers: we must hold the storage until xHttpClientDoSse returns. */
   char auth_buf[512];

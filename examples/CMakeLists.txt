@@ -42,3 +42,9 @@ target_link_libraries(ai_openai PRIVATE xai xhttp xbase)
 # xAiAgentCreate + xAiSessionCreate.
 target_include_directories(ai_openai PRIVATE
   ${CMAKE_SOURCE_DIR}/modules)
+
+# Canonical end-to-end demo: xAiProvider -> xAiAgent -> xAiSession.
+# The session layer hides the tool-call loop entirely, so this demo
+# never touches provider internals.
+add_executable(ai_session ai_session.cpp)
+target_link_libraries(ai_session PRIVATE xai xhttp xbase)

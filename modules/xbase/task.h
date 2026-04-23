@@ -75,9 +75,27 @@ XCAPI(xTask) xTaskSubmit(xTaskGroup g, xTaskFunc fn, void *arg);
  * @ingroup xTask
  * @param t The task handle.
  * @param result If non-NULL, receives the return value of the task function.
- * @return xErrno_Ok on success.
+ * @return xErrno_Ok on success, xErrno_Cancelled if the task was cancelled.
  */
 XCAPI(xErrno) xTaskWait(xTask t, void **result);
+
+/**
+ * @brief Attempt to cancel a queued task.
+ *
+ * If the task is still waiting in the queue, it is marked as cancelled
+ * and will not be executed.  The caller may safely release the task's
+ * argument after a successful cancel.
+ *
+ * If the task is already running or has completed, the cancel fails
+ * and xErrno_Busy is returned.  In that case the caller must call
+ * xTaskWait() before releasing the argument.
+ *
+ * @ingroup xTask
+ * @param t The task handle.
+ * @return xErrno_Ok if cancelled successfully, xErrno_InvalidState if the task
+ *         is already running or finished.
+ */
+XCAPI(xErrno) xTaskCancel(xTask t);
 
 /**
  * @brief Wait for all pending tasks in the group to complete.

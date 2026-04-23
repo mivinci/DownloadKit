@@ -10,9 +10,11 @@
 
 2. **Simple Submit/Wait Model** — Tasks are submitted with `xTaskSubmit()` and optionally awaited with `xTaskWait()`. This mirrors the future/promise pattern found in higher-level languages, but in pure C with minimal overhead.
 
-3. **Configurable Capacity** — The task group can be configured with a maximum thread count and queue capacity. When the queue is full, `xTaskSubmit()` returns NULL, giving the caller explicit backpressure.
+3. **Safe Cancellation** — `xTaskCancel()` uses a single CAS (compare-and-swap) to atomically transition a queued task to the cancelled state. If the task is still in the queue, the cancel succeeds and the caller can safely release the task's argument. If the task is already running or done, the cancel fails and the caller must `xTaskWait()` first.
 
-4. **Global Shared Group** — `xTaskGroupGlobal()` provides a lazily-initialized, process-wide task group with default settings (unlimited threads, no queue cap). It's automatically destroyed at `atexit()`, making it convenient for fire-and-forget usage.
+4. **Configurable Capacity** — The task group can be configured with a maximum thread count and queue capacity. When the queue is full, `xTaskSubmit()` returns NULL, giving the caller explicit backpressure.
+
+5. **Global Shared Group** — `xTaskGroupGlobal()` provides a lazily-initialized, process-wide task group with default settings (unlimited threads, no queue cap). It's automatically destroyed at `atexit()`, making it convenient for fire-and-forget usage.
 
 ## Architecture
 
@@ -52,7 +54,7 @@ struct xTask_ {
     struct xTaskGroup_ *group; // Back-pointer to owning group
     struct xTask_  *next;     // Intrusive queue linkage (task queue + TLS freelist)
     xMpsc           done_link; // Lock-free done-list linkage (xMpsc)
-    atomic_bool     waited;   // Set by xTaskWait() so drain knows it was collected
+    atomic_int      state;    // QUEUED → RUNNING/CANCELLED → DONE (CAS-based cancel)
 };
 // sizeof(xTask_) ≈ 48 bytes (down from ~136 bytes with mutex+cond)
 
@@ -92,10 +94,11 @@ Each worker thread runs `worker_loop()`:
 1. **Acquire lock** and increment `idle` count.
 2. **Wait** on `qcond` while the queue is empty and not shutting down.
 3. **Dequeue** one task, decrement `idle`.
-4. **Execute** `task->fn(task->arg)`.
-5. **Push to done queue** via `xMpscPush()` (lock-free, wait-free for producers).
-6. **Signal completion** via `xNoteSignal()` (atomic store + kernel wake).
-7. **Update counters** — decrement `pending`, signal `wcond` if all tasks are done.
+4. **CAS state QUEUED → RUNNING** — if the CAS fails (task was cancelled), skip execution.
+5. **Execute** `task->fn(task->arg)` (only if step 4 succeeded).
+6. **Push to done queue** via `xMpscPush()` (lock-free, wait-free for producers).
+7. **Signal completion** via `xNoteSignal()` (atomic store + kernel wake).
+8. **Update counters** — decrement `pending`, signal `wcond` if all tasks are done.
 
 ### Task Submission Flow
 
@@ -158,7 +161,8 @@ Using a single condition variable caused lost wakeups: `pthread_cond_signal()` c
 | `xTaskGroupCreate` | `xTaskGroup xTaskGroupCreate(const xTaskGroupConf *conf)` | Create a task group. NULL conf = defaults. | Not thread-safe |
 | `xTaskGroupDestroy` | `void xTaskGroupDestroy(xTaskGroup g)` | Wait for pending tasks, then destroy. | Not thread-safe |
 | `xTaskSubmit` | `xTask xTaskSubmit(xTaskGroup g, xTaskFunc fn, void *arg)` | Submit a task. Returns NULL if queue is full. | **Thread-safe** |
-| `xTaskWait` | `xErrno xTaskWait(xTask t, void **result)` | Block until task completes. Frees the task handle. | **Thread-safe** |
+| `xTaskWait` | `xErrno xTaskWait(xTask t, void **result)` | Block until task completes. Returns `xErrno_Cancelled` if the task was cancelled. | **Thread-safe** |
+| `xTaskCancel` | `xErrno xTaskCancel(xTask t)` | Cancel a queued task. Returns `xErrno_Ok` on success, `xErrno_InvalidState` if already running/done. | **Thread-safe** |
 | `xTaskGroupWait` | `xErrno xTaskGroupWait(xTaskGroup g)` | Block until all pending tasks complete. | **Thread-safe** |
 | `xTaskGroupThreads` | `size_t xTaskGroupThreads(xTaskGroup g)` | Return number of spawned worker threads. | **Thread-safe** (atomic read) |
 | `xTaskGroupPending` | `size_t xTaskGroupPending(xTaskGroup g)` | Return number of pending tasks. | **Thread-safe** (atomic read) |
@@ -232,6 +236,40 @@ int main(void) {
 }
 ```
 
+### Cancelling a Task
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <xbase/task.h>
+
+static void *process(void *arg) {
+    int *data = (int *)arg;
+    printf("Processing: %d\n", *data);
+    return NULL;
+}
+
+int main(void) {
+    xTaskGroup group = xTaskGroupCreate(NULL);
+
+    int *data = (int *)malloc(sizeof(int));
+    *data = 42;
+    xTask task = xTaskSubmit(group, process, data);
+
+    // Try to cancel — if successful, we can safely free data now.
+    if (xTaskCancel(task) == xErrno_Ok) {
+        free(data);  // Safe: fn was never called
+    } else {
+        // Task is already running — must wait before freeing
+        xTaskWait(task, NULL);
+        free(data);
+    }
+
+    xTaskGroupDestroy(group);
+    return 0;
+}
+```
+
 ### Using the Global Task Group
 
 ```c
@@ -262,6 +300,7 @@ int main(void) {
 ## Best Practices
 
 - **Always call `xTaskWait()` or let `xTaskGroupDestroy()` clean up.** Each `xTaskSubmit()` allocates a task struct (from the TLS freelist or malloc). Task memory is reclaimed when the done queue is drained (during `xTaskGroupWait()` or `xTaskGroupDestroy()`). Leaking task handles leaks resources.
+- **Check `xTaskCancel()` return value before releasing the arg.** `xErrno_Ok` means the task will not execute — safe to free. `xErrno_InvalidState` means it's already running or done — you must `xTaskWait()` first.
 - **Set `queue_cap` for backpressure.** Without a cap, unbounded submission can exhaust memory. A bounded queue lets you detect overload via NULL returns from `xTaskSubmit()`.
 - **Don't destroy the global group.** `xTaskGroupGlobal()` is managed internally and destroyed at `atexit()`. Passing it to `xTaskGroupDestroy()` is undefined behavior.
 - **Use `xTaskGroupWait()` for barriers, not busy-polling.** It uses a dedicated condition variable and blocks efficiently.

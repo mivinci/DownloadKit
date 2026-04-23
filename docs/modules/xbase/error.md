@@ -60,7 +60,7 @@ if (err != xErrno_Ok) {
 
 - **event.h** — `xEventMod()`, `xEventDel()`, `xEventWake()`, `xEventLoopTimerCancel()`, `xEventLoopSubmit()`, `xEventLoopPost()`, `xEventLoopSignalWatch()`
 - **timer.h** — `xTimerCancel()`
-- **task.h** — `xTaskWait()`, `xTaskGroupWait()`
+- **task.h** — `xTaskWait()`, `xTaskCancel()`, `xTaskGroupWait()`
 - **socket.h** — `xSocketSetMask()`, `xSocketSetTimeout()`
 - **heap.h** — `xHeapPush()`, `xHeapUpdate()`
 

@@ -18,6 +18,7 @@ extern "C" {
 #include <xai/message.h>
 #include <xai/provider.h>
 #include <xai/provider_openai.h>
+#include <xai/tool.h>
 #include <xbase/event.h>
 #include <xhttp/client.h>
 }
@@ -524,5 +525,128 @@ TEST_F(OpenAIProviderTest, RequestBodyCarriesModelAndMessages) {
   EXPECT_NE(req.find("ping"), std::string::npos);
 
   xAiProviderDestroy(pvd);
+  srv.join();
+}
+
+/* ── Request body inspection: tools[] are encoded correctly ───────────
+ *
+ * Regression for 57ddc48 (fix(xai): deref tools[i] correctly when
+ * encoding tool_calls request). SubmitConf.tools is `const xAiTool **`,
+ * i.e. an array of handle pointers. Before the fix the provider did
+ *
+ *     cJSON *t = oai_tool_to_json((xAiTool)conf->tools[i]);
+ *
+ * which cast the pointer-to-handle to a handle, skipping one level of
+ * indirection. ai_tool_name() then read garbage, cJSON silently
+ * emitted `"name":""` and dropped `description` entirely, and the
+ * server 400'd the request.
+ *
+ * This test exercises two tools (to also cover the second iteration
+ * of the encoding loop) and checks every user-visible field of the
+ * emitted JSON. The negative assertions on `"name":""` would have
+ * caught the original bug on their own.                                */
+
+static xErrno noop_tool_handler(const xAiContent *, xAiContent *, void *) {
+  return xErrno_Ok;
+}
+
+TEST_F(OpenAIProviderTest, RequestBodyEncodesTools) {
+  std::string body =
+    "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},"
+         "\"finish_reason\":\"stop\"}]}\n\n"
+    "data: [DONE]\n\n";
+
+  MiniOpenAIServer srv(body);
+  srv.start();
+
+  xAiProvider pvd = make_provider(srv.base_url());
+  ASSERT_NE(pvd, nullptr);
+
+  /* Tool A: no-arg time getter (schema = NULL → empty object). */
+  xAiToolConf tconf_time = {};
+  tconf_time.name        = "get_time";
+  tconf_time.description = "Return current local time";
+  tconf_time.handler     = noop_tool_handler;
+  xAiTool t_time = xAiToolCreate(&tconf_time);
+  ASSERT_NE(t_time, nullptr);
+
+  /* Tool B: two-arg add (schema provided → parsed into parameters). */
+  const char *add_schema =
+    "{\"type\":\"object\","
+     "\"properties\":{\"a\":{\"type\":\"integer\"},"
+                     "\"b\":{\"type\":\"integer\"}},"
+     "\"required\":[\"a\",\"b\"]}";
+  xAiToolConf tconf_add = {};
+  tconf_add.name        = "add";
+  tconf_add.description = "Add two integers";
+  tconf_add.json_schema = add_schema;
+  tconf_add.handler     = noop_tool_handler;
+  xAiTool t_add = xAiToolCreate(&tconf_add);
+  ASSERT_NE(t_add, nullptr);
+
+  /* This is exactly how examples/ai_openai.cpp advertises tools —
+   * an array of pointers to handles. Keep the spelling identical
+   * so this test pins the call convention end-to-end. */
+  const xAiTool *tools[] = {&t_time, &t_add};
+
+  xAiContent user_c = xAiContentText("ping");
+  xAiMessage user_m = xAiMessageFromContent(xAiRole_User, &user_c, 1);
+
+  Recorder rec;
+  xAiProviderSubmitConf conf = {};
+  conf.messages    = &user_m;
+  conf.n_messages  = 1;
+  conf.tools       = tools;
+  conf.n_tools     = sizeof(tools) / sizeof(tools[0]);
+  conf.temperature = -1.0;
+
+  xAiProviderStreamCallbacks cbs = {};
+  cbs.on_done = on_done;
+
+  struct ProviderBase {
+    const xAiProviderVtable *vt;
+    void                    *ctx;
+  };
+  auto *base = reinterpret_cast<ProviderBase *>(pvd);
+  ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
+
+  pump_until(loop, rec.done_fired, 5000);
+  ASSERT_TRUE(rec.done_fired.load());
+
+  const std::string &req = srv.request();
+
+  /* Positive assertions: every field oai_tool_to_json() writes. */
+  EXPECT_NE(req.find("\"tools\":["),                 std::string::npos);
+  EXPECT_NE(req.find("\"type\":\"function\""),       std::string::npos);
+  EXPECT_NE(req.find("\"name\":\"get_time\""),       std::string::npos);
+  EXPECT_NE(req.find("\"description\":\"Return current local time\""),
+            std::string::npos);
+  EXPECT_NE(req.find("\"name\":\"add\""),            std::string::npos);
+  EXPECT_NE(req.find("\"description\":\"Add two integers\""),
+            std::string::npos);
+  /* The `add` schema is pre-parsed + re-emitted, so the exact byte
+   * order may differ from the input string. Assert on distinctive
+   * fragments only. */
+  EXPECT_NE(req.find("\"parameters\":{"),            std::string::npos);
+  EXPECT_NE(req.find("\"type\":\"object\""),         std::string::npos);
+  EXPECT_NE(req.find("\"required\":[\"a\",\"b\"]"),  std::string::npos);
+
+  /* Negative assertions: the pre-fix bug manifested as empty or
+   * missing `name` (ai_tool_name() returned garbage / NULL, which
+   * cJSON_AddStringToObject coerced to ""). These three lines would
+   * have failed on the pre-57ddc48 code. */
+  EXPECT_EQ(req.find("\"name\":\"\""),               std::string::npos);
+  EXPECT_EQ(req.find("\"name\":null"),               std::string::npos);
+  /* And of course no uninitialised garbage should leak into the
+   * request as stray bytes. A canary: the SSE body we wired above
+   * contains the literal "ok"; if random heap bytes ended up in the
+   * request body we'd likely see non-printable chars before the
+   * trailing \r\n\r\n. We don't enforce that here because it's
+   * brittle, but the positive + negative name/description checks
+   * above are strong enough to pin the fix. */
+
+  xAiProviderDestroy(pvd);
+  xAiToolDestroy(t_add);
+  xAiToolDestroy(t_time);
   srv.join();
 }

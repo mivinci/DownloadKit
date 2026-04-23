@@ -59,3 +59,4 @@
   - [xTaskGroup Work-Stealing](todo/xbase_work_stealing.md)
   - [NAT4 Birthday Attack Traversal](todo/nat4.md)
   - [ICE Nomination Strategy](todo/ice_nomination_strategy.md)
+  - [Human-like AI (xai roadmap)](todo/human-like-ai.md)

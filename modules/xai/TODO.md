@@ -13,29 +13,55 @@ without touching the public API shipped today.
 
 ## MVP implementation (next batch)
 
-- [ ] `message.c` — `xAiContentText` / `xAiMessageFromContent` /
+- [x] `message.c` — `xAiContentText` / `xAiMessageFromContent` /
       `xAiMessageFromText` (thread-local one-slot buffer for the
       last one, as documented).
-- [ ] `tool.c` — `xAiToolCreate` / `xAiToolDestroy`; snapshot of
+- [x] `tool.c` — `xAiToolCreate` / `xAiToolDestroy`; snapshot of
       caller-owned strings into the tool's own storage.
-- [ ] `provider.c` — shared `xAiProvider` base struct (vtable +
+- [x] `provider.c` — shared `xAiProvider` base struct (vtable +
       impl pointer), plus `xAiProviderDestroy`.
-- [ ] `provider_openai.c` — OpenAI-compatible provider. Uses
+- [x] `provider_openai.c` — OpenAI-compatible provider. Uses
       `xHttpClientDoSse` for the streaming wire protocol, incremental
       JSON parser for choice/content/tool_calls deltas, and coalesces
       fragmented tool-call arguments before dispatching to the session
       layer.
-- [ ] `agent.c` — bookkeeping for provider / tools / limits / task
-      group, no own loop state.
-- [ ] `session.c` — the actual agent loop:
-  - internal Terminal / Continue tagged union (do not leak to the
-    public header), mapped to `xAiDoneReason` at the boundary;
-  - single-in-flight run enforcement (`xErrno_Busy` on re-entry);
-  - tool dispatch to the task group with `concurrent_safe` gating;
-  - history management and context-budget trip wire (coarse
-    truncation for MVP; see "Context management" below).
+- [x] `agent.c` — bookkeeping for provider / tools / limits / task
+      group, no own loop state. Landed in `43ede0a`.
+- [~] `session.c` — the actual agent loop:
+  - [x] lifecycle (create / destroy / cancel);
+  - [x] single-in-flight run enforcement (`xErrno_Busy` on re-entry);
+  - [x] history ownership (session duplicates every byte);
+  - [x] text-only round: submit view build, text delta streaming,
+        provider stop-reason → `xAiDoneReason` translation;
+  - [x] partial-text commit on error / cancel;
+  - [ ] tool dispatch to the task group with `concurrent_safe`
+        gating (tool_use currently terminates the round with
+        `xAiDoneReason_ToolError` + on_error diagnostic);
+  - [ ] internal Terminal / Continue tagged union — the MVP only
+        does one provider round per input, so no state machine is
+        needed yet; this lands with the tool loop;
+  - [ ] local context-budget trip wire / max_turns / max_tokens
+        enforcement (provider's own PromptLong signal is already
+        mapped to `xAiDoneReason_PromptTooLong`).
 - [ ] End-to-end smoke tests against a local OpenAI-compatible
       endpoint (llama.cpp server or stub).
+
+## Session.c follow-ups (Commit 4 candidates)
+
+- [ ] Tool loop: receive `xAiContentType_ToolUse`, look up the tool
+      on the agent, dispatch the handler (synchronously on the loop
+      for MVP), append the `tool_result` to history, submit the
+      next round.
+- [ ] Finalise on_done vs on_error split. Current policy: on_error
+      is an informational pre-cursor (tool-not-supported, provider
+      transport error) followed by on_done. session.h's "exactly
+      one" wording is stricter — decide which side wins and update
+      both header + implementation in the same commit.
+- [ ] Async teardown: destroying a session while a run is in flight
+      today only calls `ai_provider_cancel` and immediately frees
+      state. This relies on the provider delivering on_done
+      synchronously from cancel(), which provider_openai does not
+      promise. Add a drained-by-loop teardown path.
 
 ## Provider expansion
 

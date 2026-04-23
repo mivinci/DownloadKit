@@ -6,11 +6,10 @@ without touching the public API shipped today.
 
 ## Upstream dependencies (must land before / with MVP)
 
-- [ ] Add `xErrno_Busy` to `xbase/error.h` — referenced by
+- [x] Add `xErrno_Busy` to `xbase/error.h` — referenced by
       `xAiSessionInput()` to signal "a previous run is still in
-      flight". No suitable existing code covers this case
-      (`xErrno_InvalidState` is too broad; xai intentionally reserves
-      it for genuinely bad state).
+      flight". Landed in `5f3a2d2`; xstrerror maps it to "resource
+      busy".
 
 ## MVP implementation (next batch)
 

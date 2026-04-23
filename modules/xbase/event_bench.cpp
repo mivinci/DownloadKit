@@ -148,7 +148,7 @@ static void BM_EventLoop_OffloadSingle(benchmark::State &state) {
         static_cast<std::atomic<bool> *>(arg)->store(
           true, std::memory_order_release);
       },
-      &done);
+      &done, nullptr);
 
     /* Drive the loop until done_fn fires. */
     while (!done.load(std::memory_order_acquire)) {
@@ -185,7 +185,7 @@ static void BM_EventLoop_OffloadBatch(benchmark::State &state) {
           static_cast<std::atomic<int64_t> *>(arg)->fetch_sub(
             1, std::memory_order_release);
         },
-        &remaining);
+        &remaining, nullptr);
     }
 
     while (remaining.load(std::memory_order_acquire) > 0) {

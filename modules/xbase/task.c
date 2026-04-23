@@ -40,8 +40,8 @@ struct xTask_ {
   /* Lock-free done-list linkage (xMpsc) */
   xMpsc done_link;
 
-  /* Set by xTaskWait() so drain knows this task was already collected. */
-  atomic_bool waited;
+  /* Task lifecycle state — used for cancel and drain. */
+  atomic_int state;
 };
 
 struct xTaskGroup_ {
@@ -87,6 +87,20 @@ static inline struct xTaskGroup_ *grp(xTaskGroup g) {
 static inline struct xTask_ *tsk(xTask t) {
   return (struct xTask_ *)t;
 }
+
+/* Task states for the CAS-based cancel protocol.
+ * Transitions:
+ *   QUEUED   → RUNNING    (worker picks up)
+ *   QUEUED   → CANCELLED  (xTaskCancel succeeds)
+ *   RUNNING  → DONE       (worker finishes fn)
+ *   CANCELLED stays CANCELLED
+ */
+enum {
+  TASK_QUEUED    = 0,
+  TASK_RUNNING   = 1,
+  TASK_DONE      = 2,
+  TASK_CANCELLED = 3,
+};
 
 /* ───────────────── Thread-local task freelist ────────────── */
 
@@ -156,8 +170,18 @@ static void *worker_loop(void *arg) {
 
     pthread_mutex_unlock(&g->qlock);
 
-    /* Execute the task */
-    void *result = task->fn(task->arg);
+    /* Try to transition QUEUED → RUNNING.  If the task was cancelled
+     * between enqueue and here, the CAS fails and we skip execution. */
+    int expected = TASK_QUEUED;
+    if (atomic_compare_exchange_strong_explicit(
+            &task->state, &expected, TASK_RUNNING,
+            memory_order_acq_rel, memory_order_acquire)) {
+      /* Execute the task */
+      void *result = task->fn(task->arg);
+      task->result = result;
+      atomic_store_explicit(&task->state, TASK_DONE, memory_order_release);
+    }
+    /* else: task was cancelled — skip execution, result stays NULL. */
 
     /* Append to done list (lock-free) BEFORE signaling the note.
      *
@@ -166,10 +190,7 @@ static void *worker_loop(void *arg) {
      * xTaskGroupDestroy can always find and free it. */
     xMpscPush(&g->done_head, &g->done_tail, &task->done_link);
 
-    /* Store the result and signal the note. */
-    /* After xNoteSignal the caller of xTaskWait may mark the task as
-     * waited, but the task memory stays alive until drain. */
-    task->result = result;
+    /* Signal the note so xTaskWait unblocks. */
     xNoteSignal(&task->note);
 
     /* Update counters and wake GroupWait if all done.
@@ -286,7 +307,7 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
   task->result = NULL;
   task->group  = g;
   task->next   = NULL;
-  atomic_store_explicit(&task->waited, false, memory_order_relaxed);
+  atomic_store_explicit(&task->state, TASK_QUEUED, memory_order_relaxed);
 
   pthread_mutex_lock(&g->qlock);
 
@@ -335,15 +356,37 @@ xErrno xTaskWait(xTask t_, void **result) {
    * event-loop offload path the note is already signaled by the
    * time we get here, so this is a single atomic load. */
   xNoteWait(&t->note);
+
+  int s = atomic_load_explicit(&t->state, memory_order_acquire);
+  if (s == TASK_CANCELLED) {
+    return xErrno_Cancelled;
+  }
+
   if (result) *result = t->result;
-
-  /* Mark as waited so the drain in GroupWait/Destroy can free it.
-   * We do NOT free the task here — the done-list is a lock-free
-   * MPSC queue that does not support random removal.  Memory is
-   * reclaimed when the done queue is drained. */
-  atomic_store_explicit(&t->waited, true, memory_order_release);
-
   return xErrno_Ok;
+}
+
+xErrno xTaskCancel(xTask t_) {
+  struct xTask_ *t = tsk(t_);
+
+  if (!t) return xErrno_InvalidArg;
+
+  /* Try to transition QUEUED → CANCELLED.
+   * If the CAS succeeds the task was still queued — the worker will
+   * see CANCELLED when it dequeues and skip fn().  The caller may
+   * safely release the arg.
+   *
+   * If the CAS fails the task is already RUNNING or DONE — we
+   * return xErrno_Busy so the caller knows fn() is (or was) in
+   * flight and must xTaskWait() before releasing the arg. */
+  int expected = TASK_QUEUED;
+  if (atomic_compare_exchange_strong_explicit(
+          &t->state, &expected, TASK_CANCELLED,
+          memory_order_acq_rel, memory_order_acquire)) {
+    return xErrno_Ok;
+  }
+
+  return xErrno_InvalidState;
 }
 
 xErrno xTaskGroupWait(xTaskGroup g_) {

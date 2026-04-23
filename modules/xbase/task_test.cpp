@@ -282,6 +282,182 @@ TEST_F(TaskTest, StressTest) {
   EXPECT_EQ(counter.value.load(), N);
 }
 
+/* ========== Cancel ========== */
+
+TEST_F(TaskTest, CancelNullReturnsError) {
+  EXPECT_EQ(xTaskCancel(nullptr), xErrno_InvalidArg);
+}
+
+TEST_F(TaskTest, CancelQueuedTask) {
+  /* Use a single-threaded group and block the worker so tasks queue up. */
+  std::atomic<bool> unblock{false};
+  auto              block_fn = [](void *arg) -> void * {
+    auto *flag = static_cast<std::atomic<bool> *>(arg);
+    while (!flag->load(std::memory_order_acquire)) {
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+    return nullptr;
+  };
+
+  xTaskGroupConf conf   = {.nthreads = 1, .queue_cap = 0};
+  xTaskGroup     single = xTaskGroupCreate(&conf);
+  ASSERT_NE(single, nullptr);
+
+  /* Block the worker */
+  xTask blocker = xTaskSubmit(single, block_fn, &unblock);
+  ASSERT_NE(blocker, nullptr);
+
+  /* Give the worker time to pick up the blocking task */
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  /* Submit a task that should stay queued */
+  Counter c;
+  xTask   t = xTaskSubmit(single, increment, &c);
+  ASSERT_NE(t, nullptr);
+
+  /* Cancel should succeed — task is still queued */
+  EXPECT_EQ(xTaskCancel(t), xErrno_Ok);
+
+  /* Unblock the worker and wait for everything to drain */
+  unblock.store(true, std::memory_order_release);
+  xTaskGroupWait(single);
+
+  /* The cancelled task's fn should NOT have been called */
+  EXPECT_EQ(c.value.load(), 0);
+
+  /* xTaskWait on a cancelled task should return xErrno_Cancelled */
+  EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Cancelled);
+
+  xTaskGroupDestroy(single);
+}
+
+TEST_F(TaskTest, CancelRunningTaskReturnsBusy) {
+  /* Submit a long-running task and try to cancel it while it runs. */
+  std::atomic<bool> started{false};
+  std::atomic<bool> unblock{false};
+
+  struct Ctx {
+    std::atomic<bool> *started;
+    std::atomic<bool> *unblock;
+  };
+  Ctx ctx{&started, &unblock};
+
+  auto slow_fn = [](void *arg) -> void * {
+    auto *c = static_cast<Ctx *>(arg);
+    c->started->store(true, std::memory_order_release);
+    while (!c->unblock->load(std::memory_order_acquire)) {
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+    return nullptr;
+  };
+
+  xTask t = xTaskSubmit(g, slow_fn, &ctx);
+  ASSERT_NE(t, nullptr);
+
+  /* Wait until the task is actually running */
+  while (!started.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+  }
+
+  /* Cancel should fail — task is already running */
+  EXPECT_EQ(xTaskCancel(t), xErrno_InvalidState);
+
+  /* Let it finish and wait */
+  unblock.store(true, std::memory_order_release);
+  EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Ok);
+}
+
+TEST_F(TaskTest, CancelAlreadyDoneReturnsBusy) {
+  xTask t = xTaskSubmit(g, noop, nullptr);
+  ASSERT_NE(t, nullptr);
+
+  /* Wait for it to complete first */
+  EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Ok);
+
+  /* Cancel after completion should return InvalidState */
+  EXPECT_EQ(xTaskCancel(t), xErrno_InvalidState);
+}
+
+TEST_F(TaskTest, CancelSafeArgRelease) {
+  /* Demonstrates the safe arg-release pattern:
+   * cancel succeeds → free arg immediately;
+   * cancel fails    → wait, then free. */
+  std::atomic<bool> unblock{false};
+  auto              block_fn = [](void *arg) -> void * {
+    auto *flag = static_cast<std::atomic<bool> *>(arg);
+    while (!flag->load(std::memory_order_acquire)) {
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+    return nullptr;
+  };
+
+  xTaskGroupConf conf   = {.nthreads = 1, .queue_cap = 0};
+  xTaskGroup     single = xTaskGroupCreate(&conf);
+  ASSERT_NE(single, nullptr);
+
+  /* Block the worker */
+  xTask _ = xTaskSubmit(single, block_fn, &unblock);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  /* Submit a task with a heap-allocated arg */
+  int  *arg = new int(42);
+  xTask t   = xTaskSubmit(single, increment, arg);
+  ASSERT_NE(t, nullptr);
+
+  /* Cancel succeeds — safe to free arg now */
+  EXPECT_EQ(xTaskCancel(t), xErrno_Ok);
+  delete arg; /* No crash — fn was never called */
+
+  unblock.store(true, std::memory_order_release);
+  xTaskGroupWait(single);
+  xTaskGroupDestroy(single);
+}
+
+TEST_F(TaskTest, CancelMultipleQueuedTasks) {
+  std::atomic<bool> unblock{false};
+  auto              block_fn = [](void *arg) -> void * {
+    auto *flag = static_cast<std::atomic<bool> *>(arg);
+    while (!flag->load(std::memory_order_acquire)) {
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+    return nullptr;
+  };
+
+  xTaskGroupConf conf   = {.nthreads = 1, .queue_cap = 0};
+  xTaskGroup     single = xTaskGroupCreate(&conf);
+  ASSERT_NE(single, nullptr);
+
+  xTask _ = xTaskSubmit(single, block_fn, &unblock);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  /* Submit several tasks and cancel them all */
+  constexpr int          N = 10;
+  Counter                counter;
+  std::vector<xTask>     tasks(N);
+
+  for (int i = 0; i < N; i++) {
+    tasks[i] = xTaskSubmit(single, increment, &counter);
+    ASSERT_NE(tasks[i], nullptr);
+  }
+
+  for (auto t : tasks) {
+    EXPECT_EQ(xTaskCancel(t), xErrno_Ok);
+  }
+
+  unblock.store(true, std::memory_order_release);
+  xTaskGroupWait(single);
+
+  /* None of the cancelled tasks should have run */
+  EXPECT_EQ(counter.value.load(), 0);
+
+  for (auto t : tasks) {
+    EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Cancelled);
+  }
+
+  xTaskGroupDestroy(single);
+}
+
 /* ========== Global Task Group ========== */
 
 TEST(TaskGroupGlobal, ReturnsNonNull) {

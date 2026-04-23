@@ -58,9 +58,9 @@ if (err != xErrno_Ok) {
 
 `xErrno` is used by:
 
-- **event.h** — `xEventMod()`, `xEventDel()`, `xEventWake()`, `xEventLoopTimerCancel()`, `xEventLoopSubmit()`, `xEventLoopPost()`, `xEventLoopSignalWatch()`
+- **event.h** — `xEventMod()`, `xEventDel()`, `xEventWake()`, `xEventLoopTimerCancel()`, `xEventLoopSubmit()`, `xEventLoopWorkCancel()`, `xEventLoopPost()`, `xEventLoopSignalWatch()`
 - **timer.h** — `xTimerCancel()`
-- **task.h** — `xTaskWait()`, `xTaskGroupWait()`
+- **task.h** — `xTaskWait()`, `xTaskCancel()`, `xTaskGroupWait()`
 - **socket.h** — `xSocketSetMask()`, `xSocketSetTimeout()`
 - **heap.h** — `xHeapPush()`, `xHeapUpdate()`
 

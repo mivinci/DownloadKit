@@ -30,7 +30,10 @@ struct xDnsRequest_ {
   xDnsCallback callback;
   void        *arg;
 
-  /* Cancellation flag (written by event-loop thread, read by done callback) */
+  /* Work handle for xEventLoopWorkCancel() */
+  xEventWork work;
+
+  /* Cancellation flag (fallback when work is already running) */
   int cancelled;
 };
 
@@ -218,7 +221,7 @@ xDnsQuery xDnsResolve(xEventLoop loop, const char *hostname,
   req->arg       = arg;
   req->cancelled = 0;
 
-  xErrno err = xEventLoopSubmit(loop, NULL, dns_work_fn, dns_done_fn, req);
+  xErrno err = xEventLoopSubmit(loop, NULL, dns_work_fn, dns_done_fn, req, &req->work);
   if (err != xErrno_Ok) goto fail;
 
   return (xDnsQuery)req;
@@ -233,10 +236,21 @@ fail:
 }
 
 void xDnsCancel(xEventLoop loop, xDnsQuery query) {
-  (void)loop;
-  if (!query) return;
+  if (!loop || !query) return;
 
   struct xDnsRequest_ *req = (struct xDnsRequest_ *)query;
+
+  /* Fast path: if work_fn has not started yet, cancel it entirely.
+   * On success, done_fn will NOT be called, so we clean up here. */
+  if (xEventLoopWorkCancel(loop, req->work) == xErrno_Ok) {
+    free(req->hostname);
+    free(req->service);
+    free(req);
+    return;
+  }
+
+  /* Slow path: work_fn is already running or done.
+   * Set the flag so done_fn skips the user callback. */
   xAtomicStore(&req->cancelled, 1, xAtomicRelease);
 }
 

@@ -39,7 +39,8 @@ static void *offload_worker(void *arg) {
 /* ───────────────────── Public API ───────────────────── */
 
 xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn,
-                        xEventDoneFunc done_fn, void *arg) {
+                        xEventDoneFunc done_fn, void *arg, xEventWork *out) {
+  if (out) *out = NULL;
   if (!loop || !work_fn) return xErrno_InvalidArg;
 
   if (!group) {
@@ -65,6 +66,36 @@ xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn,
 
   w->task = t;
   xAtomicFetchAdd(&((struct xEventLoop_ *)loop)->inflight, 1, xAtomicRelaxed);
+
+  if (out) *out = (xEventWork)w;
+
+  return xErrno_Ok;
+}
+
+xErrno xEventLoopWorkCancel(xEventLoop loop, xEventWork work) {
+  if (!loop || !work) return xErrno_InvalidArg;
+
+  struct xEventWork_ *w = (struct xEventWork_ *)work;
+
+  /* The work item must belong to this loop. */
+  if (w->loop != loop) return xErrno_InvalidArg;
+
+  /* Attempt to cancel the underlying task.  If the task is still
+   * queued in the thread pool, xTaskCancel succeeds and the
+   * offload_worker will never execute. */
+  xErrno err = xTaskCancel(w->task);
+  if (err != xErrno_Ok) return xErrno_InvalidState;
+
+  /* Cancel succeeded — offload_worker will NOT run, so the work item
+   * will never be pushed to the done queue by the worker.  We must
+   * push it ourselves so that loop_dispatch_done can clean it up.
+   *
+   * Mark result as NULL (work_fn was never called). */
+  w->result = NULL;
+
+  struct xEventLoop_ *l = (struct xEventLoop_ *)loop;
+  xMpscPush(&l->done_head, &l->done_tail, &w->mpsc);
+  xEventWake(loop);
 
   return xErrno_Ok;
 }

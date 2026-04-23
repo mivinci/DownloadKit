@@ -12,7 +12,7 @@
 
 3. **Integrated Timer Heap** — Rather than requiring a separate timer facility, the event loop embeds a min-heap of timer entries. `xEventWait()` automatically adjusts its timeout to fire the earliest timer, providing sub-millisecond timer resolution without a dedicated timer thread.
 
-4. **Thread-Pool Offload** — `xEventLoopSubmit()` bridges the event loop and the task system: CPU-bound work runs on a worker thread, and the completion callback is dispatched on the event loop thread via a lock-free MPSC queue + cross-thread wake, ensuring single-threaded callback semantics.
+4. **Thread-Pool Offload** — `xEventLoopSubmit()` bridges the event loop and the task system: CPU-bound work runs on a worker thread, and the completion callback is dispatched on the event loop thread via a lock-free MPSC queue + cross-thread wake, ensuring single-threaded callback semantics. Offloaded work can be cancelled via `xEventLoopWorkCancel()` if it hasn't started yet.
 
 6. **Direct Cross-Thread Posting** — `xEventLoopPost()` allows any thread to queue a callback for execution on the event loop thread without involving a thread pool. This is the lightest cross-thread communication primitive — ideal for notifying the loop of external events (e.g., ICE/TURN callbacks, inter-module signals) with zero thread-pool overhead.
 
@@ -157,6 +157,7 @@ The self-pipe approach avoids `signalfd`'s requirement to block signals in all t
 | `xEventLoop` | Opaque handle to an event loop |
 | `xEventSource` | Opaque handle to a registered event source |
 | `xEventTimer` | Opaque handle to a builtin timer |
+| `xEventWork` | Opaque handle to a submitted offload work item |
 
 ### Functions
 
@@ -193,7 +194,8 @@ The self-pipe approach avoids `signalfd`'s requirement to block signals in all t
 | --- | --- | --- |
 | `xEventWake` | `xErrno xEventWake(xEventLoop loop)` | **Thread-safe** (signal-handler-safe) |
 | `xEventLoopPost` | `xErrno xEventLoopPost(xEventLoop loop, xEventPostFunc fn, void *arg)` | **Thread-safe** |
-| `xEventLoopSubmit` | `xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn, xEventDoneFunc done_fn, void *arg)` | **Thread-safe** |
+| `xEventLoopSubmit` | `xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn, xEventDoneFunc done_fn, void *arg, xEventWork *out)` | **Thread-safe** |
+| `xEventLoopWorkCancel` | `xErrno xEventLoopWorkCancel(xEventLoop loop, xEventWork work)` | **Thread-safe** |
 
 #### Signal
 
@@ -324,7 +326,7 @@ int main(void) {
     xEventLoop loop = xEventLoopCreate();
     int value = 21;
 
-    xEventLoopSubmit(loop, NULL, heavy_work, on_done, &value);
+    xEventLoopSubmit(loop, NULL, heavy_work, on_done, &value, NULL);
 
     // Run briefly to process the completion
     xEventLoopTimerAfter(loop, (xEventTimerFunc)xEventLoopStop, loop, 1000);
@@ -341,7 +343,7 @@ int main(void) {
 
 2. **Timer-Driven State Machines** — Use `xEventLoopTimerAfter()` to schedule state transitions, retries, or heartbeat checks. The timer is integrated into the event loop, so no separate timer thread is needed.
 
-3. **Hybrid I/O + CPU Workloads** — Use `xEventLoopSubmit()` to offload CPU-intensive parsing or compression to a thread pool, then process results on the event loop thread where I/O state is safely accessible.
+3. **Hybrid I/O + CPU Workloads** — Use `xEventLoopSubmit()` to offload CPU-intensive parsing or compression to a thread pool, then process results on the event loop thread where I/O state is safely accessible. Use `xEventLoopWorkCancel()` to cancel pending work when the associated resource is being released.
 
 4. **Cross-Thread Notifications** — Use `xEventLoopPost()` to notify the event loop from external callbacks (e.g., ICE/TURN completions, OS notifications) without the overhead of a thread pool round-trip. The callback runs on the loop thread, so no additional synchronisation is needed.
 
@@ -351,6 +353,7 @@ int main(void) {
 - **Never block in callbacks.** The event loop is single-threaded; a blocking call stalls all I/O and timer processing. Offload heavy work via `xEventLoopSubmit()`.
 - **Prefer `xEventLoopPost()` over `xEventLoopSubmit()` when no worker thread is needed.** If you just need to run a callback on the loop thread from another thread, `xEventLoopPost()` avoids the thread-pool overhead entirely.
 - **Use `xEventLoopRun()` for the main loop.** It handles timer dispatch and stop-flag checking automatically. Only use `xEventWait()` directly if you need custom loop logic.
+- **Cancel offloaded work when releasing resources.** If you submit work via `xEventLoopSubmit()` and the associated resource (passed as `arg`) is about to be freed, use `xEventLoopWorkCancel()` to prevent use-after-free. If cancel succeeds (`xErrno_Ok`), the arg is safe to free immediately. If it fails (`xErrno_InvalidState`), the work is already running — let `done_fn` handle cleanup.
 - **Cancel timers you no longer need.** Uncancelled timers hold memory until they fire. Use `xEventLoopTimerCancel()` to free them early.
 - **Be aware of the poll backend's edge emulation.** On systems without kqueue or epoll, the poll backend clears the event mask after dispatch. You must call `xEventMod()` to re-arm.
 

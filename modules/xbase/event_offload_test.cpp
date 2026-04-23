@@ -67,7 +67,7 @@ static void basic_done(void *arg, void *result) {
 TEST_F(EventOffloadTest, BasicOffload) {
   OffloadCtx ctx;
 
-  ASSERT_EQ(xEventLoopSubmit(loop, group, basic_work, basic_done, &ctx),
+  ASSERT_EQ(xEventLoopSubmit(loop, group, basic_work, basic_done, &ctx, nullptr),
             xErrno_Ok);
 
   /* Pump the event loop until done_fn fires (max 2 s). */
@@ -95,7 +95,7 @@ TEST_F(EventOffloadTest, FireAndForget) {
     return nullptr;
   };
 
-  ASSERT_EQ(xEventLoopSubmit(loop, group, work_fn, nullptr, &work_done),
+  ASSERT_EQ(xEventLoopSubmit(loop, group, work_fn, nullptr, &work_done, nullptr),
             xErrno_Ok);
 
   /* Pump the loop to let the done queue drain (even though done_fn is NULL). */
@@ -109,12 +109,13 @@ TEST_F(EventOffloadTest, FireAndForget) {
 /* ───────────────────── Parameter validation ───────────────────── */
 
 TEST_F(EventOffloadTest, NullLoopReturnsError) {
-  EXPECT_EQ(xEventLoopSubmit(nullptr, group, basic_work, basic_done, nullptr),
+  EXPECT_EQ(xEventLoopSubmit(nullptr, group, basic_work, basic_done, nullptr,
+                             nullptr),
             xErrno_InvalidArg);
 }
 
 TEST_F(EventOffloadTest, NullWorkFnReturnsError) {
-  EXPECT_EQ(xEventLoopSubmit(loop, group, nullptr, basic_done, nullptr),
+  EXPECT_EQ(xEventLoopSubmit(loop, group, nullptr, basic_done, nullptr, nullptr),
             xErrno_InvalidArg);
 }
 
@@ -151,7 +152,7 @@ TEST_F(EventOffloadTest, ConcurrentSubmits) {
             auto *ctx = static_cast<SubmitCtx *>(arg);
             ctx->done_cnt->fetch_add(1, std::memory_order_relaxed);
           },
-          &sctx);
+          &sctx, nullptr);
       }
     });
   }
@@ -175,7 +176,8 @@ TEST_F(EventOffloadTest, NullGroupUsesGlobal) {
   OffloadCtx ctx;
 
   /* Pass NULL as group — should use xTaskGroupGlobal(). */
-  ASSERT_EQ(xEventLoopSubmit(loop, nullptr, basic_work, basic_done, &ctx),
+  ASSERT_EQ(xEventLoopSubmit(loop, nullptr, basic_work, basic_done, &ctx,
+                             nullptr),
             xErrno_Ok);
 
   for (int i = 0; i < 200 && !ctx.done_called.load(std::memory_order_acquire);
@@ -213,7 +215,8 @@ TEST_F(EventOffloadTest, ResultPassedToDoneFn) {
     void             **result_slot;
   } out{&done, &received_result};
 
-  ASSERT_EQ(xEventLoopSubmit(loop, group, work_fn, done_fn, &out), xErrno_Ok);
+  ASSERT_EQ(xEventLoopSubmit(loop, group, work_fn, done_fn, &out, nullptr),
+            xErrno_Ok);
 
   for (int i = 0; i < 200 && !done.load(std::memory_order_acquire); i++) {
     xEventWait(loop, 10);
@@ -243,7 +246,7 @@ TEST_F(EventOffloadTest, WorkFreelistReuse) {
           static_cast<std::atomic<int> *>(arg)->fetch_add(1,
                                                           std::memory_order_relaxed);
         },
-        &done_count);
+        &done_count, nullptr);
     }
 
     /* Pump until all done callbacks fire */
@@ -276,18 +279,20 @@ TEST_F(EventOffloadTest, SubmitFailsWhenGroupFull) {
       }
       return nullptr;
     },
-    nullptr, &unblock);
+    nullptr, &unblock, nullptr);
 
   /* Give the worker time to pick up the blocking task */
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Fill the queue */
   xEventLoopSubmit(
-    loop, small, [](void *) -> void * { return nullptr; }, nullptr, nullptr);
+    loop, small, [](void *) -> void * { return nullptr; }, nullptr, nullptr,
+    nullptr);
 
   /* Next submit should fail because queue is full */
   xErrno err = xEventLoopSubmit(
-    loop, small, [](void *) -> void * { return nullptr; }, nullptr, nullptr);
+    loop, small, [](void *) -> void * { return nullptr; }, nullptr, nullptr,
+    nullptr);
   EXPECT_EQ(err, xErrno_SysError);
 
   /* Cleanup */
@@ -296,4 +301,145 @@ TEST_F(EventOffloadTest, SubmitFailsWhenGroupFull) {
     xEventWait(loop, 10);
 
   xTaskGroupDestroy(small);
+}
+
+/* ───────────────────── Cancel offload ───────────────────── */
+
+TEST_F(EventOffloadTest, CancelNullReturnsError) {
+  EXPECT_EQ(xEventLoopCancelSubmit(loop, nullptr), xErrno_InvalidArg);
+  EXPECT_EQ(xEventLoopCancelSubmit(nullptr, nullptr), xErrno_InvalidArg);
+}
+
+TEST_F(EventOffloadTest, CancelQueuedWork) {
+  /* Use a single-threaded group and block the worker so tasks queue up. */
+  std::atomic<bool> unblock{false};
+  xTaskGroupConf    conf  = {.nthreads = 1, .queue_cap = 0};
+  xTaskGroup        small = xTaskGroupCreate(&conf);
+  ASSERT_NE(small, nullptr);
+
+  /* Block the worker */
+  xEventLoopSubmit(
+    loop, small,
+    [](void *arg) -> void * {
+      auto *flag = static_cast<std::atomic<bool> *>(arg);
+      while (!flag->load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
+      return nullptr;
+    },
+    nullptr, &unblock, nullptr);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  /* Submit a task that should stay queued, get the work handle */
+  std::atomic<bool> work_called{false};
+  std::atomic<bool> done_called{false};
+  xEventWork        work = nullptr;
+
+  ASSERT_EQ(
+    xEventLoopSubmit(
+      loop, small,
+      [](void *arg) -> void * {
+        static_cast<std::atomic<bool> *>(arg)->store(
+          true, std::memory_order_release);
+        return nullptr;
+      },
+      [](void *arg, void *) {
+        /* This is the done_fn — should NOT be called if cancelled. */
+        static_cast<std::atomic<bool> *>(arg)->store(
+          true, std::memory_order_release);
+      },
+      &work_called, &work),
+    xErrno_Ok);
+  ASSERT_NE(work, nullptr);
+
+  /* Cancel should succeed — task is still queued */
+  EXPECT_EQ(xEventLoopCancelSubmit(loop, work), xErrno_Ok);
+
+  /* Unblock the worker and pump the loop */
+  unblock.store(true, std::memory_order_release);
+  for (int i = 0; i < 200; i++)
+    xEventWait(loop, 10);
+
+  /* Neither work_fn nor done_fn should have been called */
+  EXPECT_FALSE(work_called.load());
+  EXPECT_FALSE(done_called.load());
+
+  xTaskGroupDestroy(small);
+}
+
+TEST_F(EventOffloadTest, CancelRunningWorkFails) {
+  /* Submit a long-running task and try to cancel it while it runs. */
+  std::atomic<bool> started{false};
+  std::atomic<bool> unblock{false};
+
+  struct Ctx {
+    std::atomic<bool> *started;
+    std::atomic<bool> *unblock;
+  };
+  Ctx ctx{&started, &unblock};
+
+  xEventWork work = nullptr;
+  ASSERT_EQ(
+    xEventLoopSubmit(
+      loop, group,
+      [](void *arg) -> void * {
+        auto *c = static_cast<Ctx *>(arg);
+        c->started->store(true, std::memory_order_release);
+        while (!c->unblock->load(std::memory_order_acquire)) {
+          std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+        return nullptr;
+      },
+      nullptr, &ctx, &work),
+    xErrno_Ok);
+
+  /* Wait until the task is actually running */
+  while (!started.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+  }
+
+  /* Cancel should fail — task is already running */
+  EXPECT_EQ(xEventLoopCancelSubmit(loop, work), xErrno_InvalidState);
+
+  /* Let it finish and pump the loop */
+  unblock.store(true, std::memory_order_release);
+  for (int i = 0; i < 200; i++)
+    xEventWait(loop, 10);
+}
+
+TEST_F(EventOffloadTest, CancelSubmitOutHandle) {
+  /* Verify that passing a non-NULL out parameter populates the handle. */
+  xEventWork work = nullptr;
+  ASSERT_EQ(
+    xEventLoopSubmit(
+      loop, group,
+      [](void *) -> void * { return nullptr; },
+      nullptr, nullptr, &work),
+    xErrno_Ok);
+  EXPECT_NE(work, nullptr);
+
+  /* Pump the loop to let it complete normally */
+  for (int i = 0; i < 200; i++)
+    xEventWait(loop, 10);
+}
+
+TEST_F(EventOffloadTest, CancelSubmitNullOutStillWorks) {
+  /* Passing NULL for out should still work (backward compat). */
+  std::atomic<bool> done{false};
+  ASSERT_EQ(
+    xEventLoopSubmit(
+      loop, group,
+      [](void *) -> void * { return nullptr; },
+      [](void *arg, void *) {
+        static_cast<std::atomic<bool> *>(arg)->store(
+          true, std::memory_order_release);
+      },
+      &done, nullptr),
+    xErrno_Ok);
+
+  for (int i = 0; i < 200 && !done.load(std::memory_order_acquire); i++)
+    xEventWait(loop, 10);
+
+  EXPECT_TRUE(done.load());
 }

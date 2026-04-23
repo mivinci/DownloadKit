@@ -218,7 +218,7 @@ xDnsQuery xDnsResolve(xEventLoop loop, const char *hostname,
   req->arg       = arg;
   req->cancelled = 0;
 
-  xErrno err = xEventLoopSubmit(loop, NULL, dns_work_fn, dns_done_fn, req);
+  xErrno err = xEventLoopSubmit(loop, NULL, dns_work_fn, dns_done_fn, req, NULL);
   if (err != xErrno_Ok) goto fail;
 
   return (xDnsQuery)req;

@@ -399,9 +399,12 @@ static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
   while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
     struct xEventWork_ *w = xContainerOf(node, struct xEventWork_, mpsc);
     if (w->task) {
-      /* Offload item: release the xTask handle, then invoke done_fn. */
-      xTaskWait(w->task, NULL);
-      if (w->done_fn) w->done_fn(w->arg, w->result);
+      /* Offload item: release the xTask handle, then invoke done_fn.
+       * If the task was cancelled, xTaskWait returns xErrno_Cancelled
+       * and we skip the done callback — the work_fn never ran. */
+      xErrno err = xTaskWait(w->task, NULL);
+      if (err != xErrno_Cancelled && w->done_fn)
+        w->done_fn(w->arg, w->result);
       xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
     } else {
       /* Posted item (xEventLoopPost): invoke the callback directly. */

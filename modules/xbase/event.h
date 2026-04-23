@@ -61,6 +61,15 @@ XDEF_HANDLE(xEventSource);
 XDEF_HANDLE(xEventTimer);
 
 /**
+ * @brief Opaque handle to a submitted offload work item.
+ *
+ * Returned by xEventLoopSubmit() when a non-NULL @p out parameter is
+ * provided. Can be passed to xEventLoopCancelSubmit() to attempt
+ * cancellation.
+ */
+XDEF_HANDLE(xEventWork);
+
+/**
  * @brief Callback invoked when a builtin event timer fires.
  * @param arg User-provided argument.
  */
@@ -221,11 +230,33 @@ typedef void (*xEventDoneFunc)(void *arg, void *result);
  * @param done_fn  Completion callback on the loop thread, or NULL for
  *                 fire-and-forget.
  * @param arg      Argument forwarded to both @p work_fn and @p done_fn.
+ * @param out      If non-NULL, receives an xEventWork handle that can be
+ *                 passed to xEventLoopCancelSubmit(). May be NULL.
  * @return         xErrno_Ok on success, or an error code.
  */
 XCAPI(xErrno) xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
                                xTaskFunc work_fn, xEventDoneFunc done_fn,
-                               void *arg);
+                               void *arg, xEventWork *out);
+
+/**
+ * @brief Cancel a previously submitted offload work item.
+ *
+ * If the work function has not yet started on a worker thread, it is
+ * cancelled and @p done_fn will NOT be invoked. The caller may safely
+ * release the argument after a successful cancel.
+ *
+ * If the work function is already running or has completed, the cancel
+ * fails and xErrno_InvalidState is returned. In that case @p done_fn
+ * will still be called normally on the loop thread.
+ *
+ * Thread-safe: may be called from any thread.
+ *
+ * @param loop  The event loop (must not be NULL).
+ * @param work  Work handle returned by xEventLoopSubmit().
+ * @return      xErrno_Ok if cancelled, xErrno_InvalidState if already
+ *              running or done, xErrno_InvalidArg if arguments are NULL.
+ */
+XCAPI(xErrno) xEventLoopCancelSubmit(xEventLoop loop, xEventWork work);
 
 /**
  * @brief Callback invoked on the event loop thread by xEventLoopPost().

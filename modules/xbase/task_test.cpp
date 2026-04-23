@@ -396,7 +396,7 @@ TEST_F(TaskTest, CancelSafeArgRelease) {
   ASSERT_NE(single, nullptr);
 
   /* Block the worker */
-  xTask blocker = xTaskSubmit(single, block_fn, &unblock);
+  xTask _ = xTaskSubmit(single, block_fn, &unblock);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
@@ -428,7 +428,7 @@ TEST_F(TaskTest, CancelMultipleQueuedTasks) {
   xTaskGroup     single = xTaskGroupCreate(&conf);
   ASSERT_NE(single, nullptr);
 
-  xTask blocker = xTaskSubmit(single, block_fn, &unblock);
+  xTask _ = xTaskSubmit(single, block_fn, &unblock);
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Submit several tasks and cancel them all */

@@ -76,6 +76,10 @@ TEST(ErrorTest, AgainReturnsCorrectString) {
   EXPECT_STREQ(xstrerror(xErrno_Again), "try again");
 }
 
+TEST(ErrorTest, BusyReturnsCorrectString) {
+  EXPECT_STREQ(xstrerror(xErrno_Busy), "resource busy");
+}
+
 /* ── Out-of-range error codes return "unknown error" ── */
 
 TEST(ErrorTest, NegativeCodeReturnsUnknown) {

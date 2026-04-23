@@ -223,7 +223,8 @@ int main() {
     return 1;
   }
   const xAiTool *tools[] = {&time_tool}; /* xAiTool is opaque void*;
-                                          * provider wants xAiTool** */
+                                          * sconf.tools is xAiTool**
+                                          * (array of handle pointers) */
 
   ReplCtx ctx;
   ctx.loop = loop;

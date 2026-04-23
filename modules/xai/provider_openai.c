@@ -305,11 +305,12 @@ static char *oai_build_body(struct xOaiImpl_            *impl,
   if (conf->tools && conf->n_tools > 0) {
     cJSON *tools = cJSON_CreateArray();
     for (size_t i = 0; i < conf->n_tools; i++) {
-      /* Drop the const on the handle: xAiTool is an opaque void*,
-       * so the provider.h-side const is advisory only (the caller
-       * won't see anything we mutate via the handle here — we only
-       * read through ai_tool_* accessors). */
-      cJSON *t = oai_tool_to_json((xAiTool)conf->tools[i]);
+      /* SubmitConf.tools is `const xAiTool **` — an array of handle
+       * pointers. Deref once to reach the handle itself. The handle
+       * is opaque (void*), so the const here is advisory only (the
+       * accessors don't mutate it). */
+      if (!conf->tools[i]) continue;
+      cJSON *t = oai_tool_to_json(*conf->tools[i]);
       if (t) cJSON_AddItemToArray(tools, t);
     }
     cJSON_AddItemToObject(root, "tools", tools);

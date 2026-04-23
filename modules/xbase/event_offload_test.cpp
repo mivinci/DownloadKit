@@ -306,8 +306,8 @@ TEST_F(EventOffloadTest, SubmitFailsWhenGroupFull) {
 /* ───────────────────── Cancel offload ───────────────────── */
 
 TEST_F(EventOffloadTest, CancelNullReturnsError) {
-  EXPECT_EQ(xEventLoopCancelSubmit(loop, nullptr), xErrno_InvalidArg);
-  EXPECT_EQ(xEventLoopCancelSubmit(nullptr, nullptr), xErrno_InvalidArg);
+  EXPECT_EQ(xEventLoopWorkCancel(loop, nullptr), xErrno_InvalidArg);
+  EXPECT_EQ(xEventLoopWorkCancel(nullptr, nullptr), xErrno_InvalidArg);
 }
 
 TEST_F(EventOffloadTest, CancelQueuedWork) {
@@ -354,7 +354,7 @@ TEST_F(EventOffloadTest, CancelQueuedWork) {
   ASSERT_NE(work, nullptr);
 
   /* Cancel should succeed — task is still queued */
-  EXPECT_EQ(xEventLoopCancelSubmit(loop, work), xErrno_Ok);
+  EXPECT_EQ(xEventLoopWorkCancel(loop, work), xErrno_Ok);
 
   /* Unblock the worker and pump the loop */
   unblock.store(true, std::memory_order_release);
@@ -400,7 +400,7 @@ TEST_F(EventOffloadTest, CancelRunningWorkFails) {
   }
 
   /* Cancel should fail — task is already running */
-  EXPECT_EQ(xEventLoopCancelSubmit(loop, work), xErrno_InvalidState);
+  EXPECT_EQ(xEventLoopWorkCancel(loop, work), xErrno_InvalidState);
 
   /* Let it finish and pump the loop */
   unblock.store(true, std::memory_order_release);

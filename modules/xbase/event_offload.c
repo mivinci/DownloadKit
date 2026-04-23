@@ -72,7 +72,7 @@ xErrno xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn,
   return xErrno_Ok;
 }
 
-xErrno xEventLoopCancelSubmit(xEventLoop loop, xEventWork work) {
+xErrno xEventLoopWorkCancel(xEventLoop loop, xEventWork work) {
   if (!loop || !work) return xErrno_InvalidArg;
 
   struct xEventWork_ *w = (struct xEventWork_ *)work;

@@ -64,7 +64,7 @@ XDEF_HANDLE(xEventTimer);
  * @brief Opaque handle to a submitted offload work item.
  *
  * Returned by xEventLoopSubmit() when a non-NULL @p out parameter is
- * provided. Can be passed to xEventLoopCancelSubmit() to attempt
+ * provided. Can be passed to xEventLoopWorkCancel() to attempt
  * cancellation.
  */
 XDEF_HANDLE(xEventWork);
@@ -231,7 +231,7 @@ typedef void (*xEventDoneFunc)(void *arg, void *result);
  *                 fire-and-forget.
  * @param arg      Argument forwarded to both @p work_fn and @p done_fn.
  * @param out      If non-NULL, receives an xEventWork handle that can be
- *                 passed to xEventLoopCancelSubmit(). May be NULL.
+ *                 passed to xEventLoopWorkCancel(). May be NULL.
  * @return         xErrno_Ok on success, or an error code.
  */
 XCAPI(xErrno) xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
@@ -256,7 +256,7 @@ XCAPI(xErrno) xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
  * @return      xErrno_Ok if cancelled, xErrno_InvalidState if already
  *              running or done, xErrno_InvalidArg if arguments are NULL.
  */
-XCAPI(xErrno) xEventLoopCancelSubmit(xEventLoop loop, xEventWork work);
+XCAPI(xErrno) xEventLoopWorkCancel(xEventLoop loop, xEventWork work);
 
 /**
  * @brief Callback invoked on the event loop thread by xEventLoopPost().

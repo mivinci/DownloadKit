@@ -104,13 +104,20 @@ XDEF_STRUCT(xAiSessionCallbacks) {
                       void *ud);
 
   /**
-   * @brief Fired once when the current run terminates.
+   * @brief Fired exactly once when the current run terminates.
    *
-   * Exactly one of on_done / on_error is delivered per
-   * xAiSessionInput() call.
+   * Every successfully-accepted xAiSessionInput() call produces
+   * exactly one on_done. Failure cases may additionally fire
+   * on_error first as a diagnostic precursor (see on_error below),
+   * but on_done is always the authoritative terminator — callers
+   * that only want to react to "the run is over" can wire just
+   * this callback.
    *
    * @param sess    The session.
-   * @param reason  Coarse completion reason.
+   * @param reason  Coarse completion reason. Failure modes map to
+   *                xAiDoneReason_ModelError / _ToolError; in those
+   *                cases on_error has already fired with the
+   *                specific xErrno.
    * @param usage   Cumulative token usage across every provider
    *                round in this run (the tool loop may submit
    *                several rounds; this is the running sum), or
@@ -124,7 +131,23 @@ XDEF_STRUCT(xAiSessionCallbacks) {
                   const xAiUsage *usage, void *ud);
 
   /**
-   * @brief Fired when the session is unable to continue.
+   * @brief Fired as a diagnostic precursor when the run hits a
+   *        non-recoverable error.
+   *
+   * on_error is NOT a terminator — it is always followed by an
+   * on_done with reason == xAiDoneReason_ModelError or
+   * xAiDoneReason_ToolError in the same event-loop iteration. Its
+   * sole purpose is to surface the specific @p err / @p msg pair
+   * that on_done's coarse reason does not carry.
+   *
+   * Callers that only care about "did the run succeed" can ignore
+   * on_error entirely and check on_done's reason. Callers that
+   * want the error's detail wire on_error too and remember it
+   * until on_done fires.
+   *
+   * Recoverable failures (unknown tool, handler returning non-Ok)
+   * do NOT fire on_error — they are folded back to the model as
+   * is_error=1 tool_result and the loop continues.
    *
    * @param sess  The session.
    * @param err   xErrno describing the failure class.
@@ -201,8 +224,9 @@ xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf);
  * to the history, the provider is invoked, and streaming callbacks
  * begin firing. Only one run may be active per session at a time;
  * calling this while a previous run is still in flight returns
- * xErrno_Busy. The subsequent on_done / on_error callback marks
- * the end of the run.
+ * xErrno_Busy. Each accepted call is terminated by exactly one
+ * on_done callback; on_error may additionally precede it with
+ * diagnostic detail on failure paths.
  *
  * The message is shallow-copied: all string pointers inside @p msg
  * (and inside its content blocks) must remain valid until the

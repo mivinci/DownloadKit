@@ -485,6 +485,10 @@ TEST_F(SessionTest, ProviderErrorMapsToModelErrorAndFiresOnError) {
   });
   EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
 
+  /* Contract (see session.h): on_error fires as a diagnostic
+   * precursor AND on_done always fires as the authoritative
+   * terminator. Every accepted Input() produces exactly one
+   * on_done regardless of success/failure. */
   EXPECT_EQ(cap.done_fired, 1);
   EXPECT_EQ(cap.done_reason, xAiDoneReason_ModelError);
   EXPECT_EQ(cap.error_fired, 1);

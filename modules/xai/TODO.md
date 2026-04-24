@@ -1,10 +1,15 @@
 # xai — TODO
 
+> **架构级状态（2026-04-24）**：human-like-ai MVP 扳机已扣下，详见
+> [`docs/todo/human-like-ai.md`](../../docs/todo/human-like-ai.md) §6。
+> Session/Query 拆分 Step 1 前置已满足，**下一个动手项就是 Step 1**
+> （见 [`docs/todo/xai_architecture.md`](../../docs/todo/xai_architecture.md) §10）。
+
 模块级落地细节清单。**架构级 / 跨层 TODO 不住这里**，看
 [`docs/todo/xai_architecture.md`](../../docs/todo/xai_architecture.md)
 （三层切分、Session/Query 拆分、Agent 层登记）和
 [`docs/todo/human-like-ai.md`](../../docs/todo/human-like-ai.md)
-（产品方向）。
+（产品方向 + MVP 执行边界）。
 
 本文件只管 provider 扩展、tool 工程、session 语义收尾、构建打包这类
 **模块内工程细节**——这些东西无论架构怎么切，该做的还得做。

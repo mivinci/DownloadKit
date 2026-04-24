@@ -524,6 +524,114 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 
 ---
 
+## 6. MVP 执行边界（2026-04-24 启动）
+
+> 文档 §0-§5 是**路线图**，回答"做什么 / 为什么做"。本节是**执行边界**，回答"MVP 这一期到底做到哪、用什么做、不做什么"。Session/Query 拆分从此节得到合法性——具体拆分方案见 [`xai_architecture.md`](xai_architecture.md) §10。
+
+### 6.1 MVP 为什么拆成 MVP-a / MVP-b 两小段
+
+原 §4 的 MVP 范围（L0+L1+L2 全套 + 基础 value function + 双层压缩）**6-8 周做不完**。主要瓶颈是 L2 需要本地 embedding 模型 + sqlite-vec 集成，光依赖引入和端侧打包体积管控就是独立工程。
+
+所以拆成两段，**MVP-a 跑起来 → 看到跨 session 效果 → 再决定要不要做 MVP-b**：
+
+| 段 | 周期 | 核心交付 | 依赖 |
+|---|---|---|---|
+| **MVP-a** | 3-4 周 | L0 复用 + L1 Episode 抽取 + JSONL 持久化 + Agent 层 memory 勾子雏形 | 零新依赖（只加 JSONL 文本 IO） |
+| **MVP-b** | 3-4 周 | L2 Fact 向量检索 + SQLite + sqlite-vec + embedding 模型集成 | 依赖评估：sqlite-vec 成熟度、embedding 模型选型（bge-small / all-MiniLM） |
+
+MVP-a 不触 L2，意味着跨 session **只有时间索引 + 文本摘要**，没有向量检索。这够不够"像人"？**够用于验证 Part I.3 的"早"测试的一半**——记得昨天聊过什么（情景记忆命中），但答不上"我三个月前提过的某个同事"这种语义模糊的长期回忆。后半部分等 MVP-b。
+
+### 6.2 四条关键决策（拍板记录）
+
+以下是 §4.MVP 留的悬念的正式拍板，**2026-04-24 敲定，写死在本节**。后续实施过程如遇反例要改，必须在本节留修订记录。
+
+#### 决策 1：MVP-a 只做 L0+L1，不做 L2
+
+- **L0**：复用 `xAiSession` 现有 `messages` 数组，零改动
+- **L1 Episode**：新增 `xAiEpisode` 结构，在 session 终结时抽取
+- **L2 Fact**：推到 MVP-b
+- **L3 Persona**：推到 v1 之后（和 mood 一起做，见原 §4 v1）
+
+**理由**：L1 单独可验证（Part I.3 的"早"测试只需 L1 就能跑通一半）；L2 的向量检索依赖是独立风险点，不应该绑在 MVP 交付路径上。
+
+#### 决策 2：L1 存储用 JSONL，不引 SQLite
+
+- **MVP-a 存储**：每个 session 一个 JSONL 文件，每条 `xAiEpisode` 一行
+- **文件布局**：`~/.<app>/xai/episodes/<agent_id>/<YYYY-MM>/<session_id>.jsonl`
+- **检索方式**：按时间窗口 scan（MVP-a 检索只需要"最近 N 天"，不需要语义匹配）
+- **MVP-b 切 SQLite + sqlite-vec**：迁移脚本提供，老 JSONL 直接归档不删
+
+**理由**：MVP-a 不做向量检索，就不需要 SQLite。引入 sqlite-vec 是 MVP-b 的事，提前引只会让 CMake 依赖、端侧体积、license 审查都提前到账，没收益。
+
+#### 决策 3：L1 抽取用"规则 + 轻量 LLM call"组合，value function 延后
+
+- **MVP-a 抽取策略**：
+  1. **规则先过**：明确"值得记"的条目（包含专有名词、数字、时间、URL 等硬特征）直接入库
+  2. **不确定时调 LLM**：一条 prompt ≤ 200 tokens，让模型判断 yes/no + 提取摘要
+  3. **value function 完整计算推到 MVP-b**：MVP-a 先记下原始信号（specificity 指标、user_reference_count 计数），不做 α/β/γ/δ 加权计算；等 MVP-b 有线上数据了再调权重
+- **LLM 选型**：复用 Agent 配置的 provider，不引入第二个 provider；prompt 模板内置
+
+**理由**：value function 的权重调优**必须有线上数据**才合理，现在拍脑袋 α=0.2/β=0.3 完全没根据。MVP-a 只收集信号、不做决策，是最诚实的做法。
+
+#### 决策 4：Session/Query 拆分与 MVP-a 的绑定时序
+
+**序列（硬依赖，不可并行）**：
+
+```
+Step 1 (xai_architecture.md §10)  [2026-04-24 起，约 3-5 天]
+  └─ session.c 内部 query_*/session_* 分组 + on_provider_done 拆三份
+  └─ session_test 9/9 全绿作为 Step 2 开工门槛
+        ↓
+Step 2 (xai_architecture.md §10)  [Step 1 过 review 后，约 5-7 天]
+  └─ 引入 xAiQuery 类型 + 落实 §8 预留勾子
+  └─ 对外 API 零 break
+        ↓
+MVP-a                              [Step 2 过 review 后，约 3-4 周]
+  └─ xAiEpisode 结构 + 抽取流水线
+  └─ JSONL 存储层
+  └─ Agent 层 memory 勾子雏形（不暴露公开 API）
+  └─ 端到端测试：两个连续 session，第二个开场能引用第一个的 Episode
+        ↓
+MVP-b                              [MVP-a benchmark 通过后，约 3-4 周]
+  └─ sqlite-vec 依赖引入 + embedding 模型集成
+  └─ L2 Fact 向量检索
+  └─ value function 权重调优（线上数据驱动）
+```
+
+**总预算 5-6 周到 MVP-a 交付，跟原 §4 的 6-8 周接近但可验证节点更多。**
+
+### 6.3 MVP-a 可测指标
+
+**交付验收的硬指标**（比原 §4 的指标更严，因为只做 L0+L1）：
+
+- **跨 session 命中率**：构造 30 组"上一 session 说 X → 下一 session 开场"测试，L1 命中率 ≥ 80%（人工标注）
+- **Episode 抽取准确率**：从 L1 能恢复出原 session 核心内容，人工评分 ≥ 7/10
+- **规则快速路径占比**：≥ 60% 的 Episode 不需要 LLM call 就能决定入库与否（控制成本）
+- **存储增长**：每 session 平均 ≤ 2 KB JSONL（L1 只存摘要不存 highlights，MVP-a 阶段）
+- **性能**：session 终结时的 L1 抽取延迟 ≤ 500ms（中位数），不阻塞用户下一 session 开启
+- **回归**：开 L1 vs 不开 L1，单次对话的 on_text 延迟差 ≤ 10ms（L1 写入不能拖慢主路径）
+
+Part I.3 的"早"测试**不在 MVP-a 验收里**——那个需要 mood（v1）才能真正通过，MVP-a 只覆盖"事实命中"这一半。
+
+### 6.4 MVP-a 明确不做
+
+钉死边界，避免范围漂移：
+
+1. **不做 mood**：情绪延续是 v1 的事，MVP-a 连 `xAiMoodState` 结构都不声明
+2. **不做 scheduler**：主动唤醒是 v2 的事，MVP-a 的 Agent 层没有后台 timer
+3. **不做 Layer B 晚期整合**：只做实时 L1 抽取，没有异步 background 压缩任务
+4. **不做 L3 Persona**：Agent 层会预留 `persona` 字段但 MVP-a 不写入
+5. **不做 value function 加权**：只收集原始信号，不做 α/β/γ/δ 计算
+6. **不做跨 Agent memory 共享**：每个 Agent 的 Episode 文件独立，互不串
+
+### 6.5 修订记录
+
+| 日期 | 修订 | 理由 |
+|---|---|---|
+| 2026-04-24 | MVP 启动，拆 a/b 两段，钉死四条决策 | 决定扣扳机，动 Session/Query 拆分 |
+
+---
+
 ## 结语
 
 "像人"不是玄学，是**四个可拆解维度的工程问题**：分层记忆、情绪延续、选择性遗忘、主动唤醒。每一维都能量化、能测。

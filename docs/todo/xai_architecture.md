@@ -145,7 +145,7 @@ Session 在**每次 Query 结束后**上报候选：
 - **"Turn"** 在 LLM 语境里通常指 user↔assistant **交替的轮次**。我们这个类型的本质是"一次查询产生若干 tool round 直到稳定"，用 Turn 会让读代码的人误以为它对应一次 user message ↔ assistant reply 的配对。
 - **"Query"** 更贴合"一次调用 LLM（及其内部 tool loop）直到终结状态"的语义。
 - 和 Claude Code 源码/文档的术语对齐（CC 的 `query()` 是无状态 generator 执行器），日后对照阅读零翻译成本。
-- 内部静态函数前缀 `q_*` 比 `turn_*` 更专、也不会和 `history_append_*` 这类动词打架。
+- 内部静态函数前缀 `query_*` 比 `turn_*` / `q_*` 更自解释，读起来也不会和 `history_append_*` 这类动词打架。
 
 ### 5. 职责重新切分
 
@@ -346,9 +346,9 @@ static void forward_on_done(xAiQuery q, const xAiQueryResult *r, void *ud) {
 
 具体动作：
 
-- 把 `submit_round` / `on_provider_*` / `assist_*` / `reasoning_*` / `pending_*` / `view_build` 等函数，**重命名**为 `q_submit_round` / `q_on_provider_*` / `q_assist_*` …
+- 把 `submit_round` / `on_provider_*` / `assist_*` / `reasoning_*` / `pending_*` / `view_build` 等函数，**重命名**为 `query_submit_round` / `query_on_provider_*` / `query_assist_*` …
 - 把 `history_*` / `commit_assistant_turn` / `finish_run` / `translate_terminal` / `usage_accumulate` 留为 `session_*` 或不前缀（表示"决策层"）。
-- `on_provider_done` 拆成 3 个小函数：`q_handle_error()`、`q_handle_tool_loop_continuation()`、`q_handle_terminal()`，原函数变成只做三路分派的 3-5 行调度器。
+- `on_provider_done` 拆成 3 个小函数：`query_handle_error()`、`query_handle_tool_loop_continuation()`、`query_handle_terminal()`，原函数变成只做三路分派的 3-5 行调度器。
 - **对外 API、public header、测试全部不动**。纯物理重组。
 
 产物：一个 PR，`session.c` diff 大但语义零变化，`npm test` 全绿。
@@ -356,7 +356,7 @@ static void forward_on_done(xAiQuery q, const xAiQueryResult *r, void *ud) {
 #### Step 2：正式引出 xAiQuery 类型
 
 - 新建 `modules/xai/query.h`、`query_private.h`、`query.c`、`query_test.cpp`。
-- 把 Step 1 里 `q_` 前缀的那批函数 + 相关数据（`assist_buf` / `reasoning_buf` / `pending` / `turn`）**搬家**到 `query.c`。
+- 把 Step 1 里 `query_` 前缀的那批函数 + 相关数据（`assist_buf` / `reasoning_buf` / `pending` / `turn`）**搬家**到 `query.c`。
 - `struct xAiSession_` 瘦身：删掉那些搬走的字段，加一个 `xAiQuery current_q` 字段。
 - `session.c` 的 `xAiSessionInput` 改写成 `QueryCreate + QueryRun` 两步。
 - **同步落实 §8.1 / §8.2 / §8.3 三条 Agent 预留勾子**：
@@ -404,7 +404,7 @@ modules/xai/message_test.cpp     — message 结构
 
 ### 12. 开工清单
 
-- [ ] **Step 1**：`session.c` 内部 `q_*` / `session_*` 分组重命名 + `on_provider_done` 拆三份
+- [ ] **Step 1**：`session.c` 内部 `query_*` / `session_*` 分组重命名 + `on_provider_done` 拆三份
 - [ ] **Step 1**：`npm test` 9/9 全绿验证
 - [ ] **Step 1**：PR 提交 + self-review 确认 diff 零语义变化
 - [ ] **Step 2**：新增 `query.h/c/private.h`，从 Session 搬运字段与函数
@@ -524,6 +524,12 @@ v1 之后的事，先不管。但脑子里要有个粗草案：不是连续浮�
 
 这两条约束必须严守。架构设计可以提前半年写好，但动手写代码要绑定真实产品需求。
 
+#### 18.1 MVP 启动记录
+
+- **2026-04-24**：human-like-ai MVP 启动扳机已扣下。拆分 MVP-a（L0+L1 + JSONL + Agent 层雏形）和 MVP-b（L2 + 向量 + SQLite）两小段，详见 [`human-like-ai.md` §6 MVP 执行边界](human-like-ai.md)。
+- **因此 Session/Query 拆分 Step 1 解锁**，可以开工；Step 2 同期进行，为 MVP-a 的 Agent 勾子落地做准备。
+- **Agent 层**的硬前置仍未满足——等 MVP-a 跑稳、确认要接 L2 跨 session 记忆后再启动。
+
 ---
 
 ## Part V · 附录
@@ -534,7 +540,7 @@ v1 之后的事，先不管。但脑子里要有个粗草案：不是连续浮�
 |---|---|---|---|---|
 | Agent Loop | `xAiAgent`（将来） | `agent_*` | `agent.h/c`（将来） | "这个 AI 怎么活" |
 | Session Loop | `xAiSession`（现有） | `session_*` / 待梳理 | `session.h/c`（现有） | "这个任务怎么完成" |
-| Query Loop | `xAiQuery`（Step 2 后） | `q_*` | `query.h/c`（将来） | "这次请求怎么跑完" |
+| Query Loop | `xAiQuery`（Step 2 后） | `query_*` | `query.h/c`（将来） | "这次请求怎么跑完" |
 
 **命名一致性原则**：Agent 内部静态函数用 `agent_*`（模块短前缀去掉首字母 x → `agent`，规则和 `xfer → xfer_*` 一致）。
 

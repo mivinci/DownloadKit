@@ -54,6 +54,11 @@
 
 ---
 
+- [Design](design/README.md)
+  - [Three-Layer Conversation Model](design/three-layer-conversation-model.md)
+
+---
+
 - [TODO](todo/README.md)
   - [Removing libcurl](todo/remove_libcurl.md)
   - [xTaskGroup Work-Stealing](todo/xbase_work_stealing.md)

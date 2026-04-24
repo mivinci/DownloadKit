@@ -1,0 +1,16 @@
+# Design
+
+A collection of architecture-level design documents that are not tied to any
+single module. These are methodology notes — reusable patterns, cross-cutting
+decisions, and design rationale that outlive any individual implementation.
+
+Each document here states a problem shape, proposes a structure, and compares
+the structure against the common alternative of _not_ doing it. They are
+intended to be readable on their own, without prior knowledge of xKit internals.
+
+## Index
+
+- [Three-Layer Conversation Model](three-layer-conversation-model.md) —
+  A way to carve systems that have "long-lived identity + multi-turn session +
+  one-shot request" topology into three layers (Agent / Session / Query), and
+  what it concretely buys you compared to the one-fat-object default.

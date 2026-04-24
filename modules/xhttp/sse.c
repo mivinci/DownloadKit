@@ -349,6 +349,14 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
   curl_easy_setopt(easy, CURLOPT_ERRORBUFFER, req->base.errbuf);
   curl_easy_setopt(easy, CURLOPT_NOSIGNAL, 1L);
 
+  /* HTTP 4xx/5xx must not be handed to the SSE parser as if it were
+   * event data — the body will be a JSON/HTML error page that the
+   * parser silently drops, after which libcurl reports the transfer
+   * as successful and the caller has no way to tell that its request
+   * was rejected. FAILONERROR makes libcurl abort such transfers
+   * with CURLE_HTTP_RETURNED_ERROR so on_done surfaces a real error. */
+  curl_easy_setopt(easy, CURLOPT_FAILONERROR, 1L);
+
   /* Apply HTTP version: per-request override or client default */
   {
     xHttpVersion ver = config->http_version;

@@ -24,6 +24,7 @@ static const char *xErrnoStrings[] = {
   [xErrno_DnsError]      = "dns: resolution error",
   [xErrno_Timeout]       = "operation timed out",
   [xErrno_Again]         = "try again",
+  [xErrno_Busy]          = "resource busy",
 };
 
 const char *xstrerror(xErrno err) {

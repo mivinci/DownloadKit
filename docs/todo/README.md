@@ -6,3 +6,5 @@ Planning and feasibility analysis for future improvements.
 - [xTaskGroup Work-Stealing](xbase_work_stealing.md) — Migrating xTaskGroup's task queue from a single-lock design to a work-stealing architecture
 - [NAT4 Birthday Attack Traversal](nat4.md) — Feasibility analysis of using birthday attack for port prediction to traverse symmetric NAT (NAT4)
 - [ICE Nomination Strategy](ice_nomination_strategy.md) — Optimize nomination timing to reduce connection establishment latency, with comparison to libwebrtc
+- [Human-like AI (xai roadmap)](human-like-ai.md) — Long-term product direction for the xai module: layered memory, mood continuity, selective forgetting, proactive recall
+- [xai Architecture (Agent/Session/Query)](xai_architecture.md) — Three-layer architecture design & execution plan: Session/Query split (near-term) + Agent layer (future)

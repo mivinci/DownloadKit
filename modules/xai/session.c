@@ -75,7 +75,7 @@ static void msg_free(struct xAiSessionMsg_ *m) {
   memset(m, 0, sizeof(*m));
 }
 
-static void query_pending_free_entry(struct xAiSessionPending_ *p) {
+static void query_pending_free_entry(struct xAiQueryPending_ *p) {
   if (!p) return;
   free(p->id);
   free(p->name);
@@ -84,10 +84,10 @@ static void query_pending_free_entry(struct xAiSessionPending_ *p) {
 }
 
 static void query_pending_reset(struct xAiSession_ *s) {
-  for (size_t i = 0; i < s->n_pending; i++) {
-    query_pending_free_entry(&s->pending[i]);
+  for (size_t i = 0; i < s->query.n_pending; i++) {
+    query_pending_free_entry(&s->query.pending[i]);
   }
-  s->n_pending = 0;
+  s->query.n_pending = 0;
 }
 
 /* Grow history by one slot, zero-initialised. Returns the slot or
@@ -231,23 +231,23 @@ static xErrno history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
 static xErrno query_assist_append(struct xAiSession_ *s, const char *chunk,
                                   size_t len) {
   if (len == 0) return xErrno_Ok;
-  if (s->assist_len + len + 1 > s->assist_cap) {
-    size_t new_cap = s->assist_cap ? s->assist_cap : 256;
-    while (new_cap < s->assist_len + len + 1) new_cap *= 2;
-    char *nb = (char *)realloc(s->assist_buf, new_cap);
+  if (s->query.assist_len + len + 1 > s->query.assist_cap) {
+    size_t new_cap = s->query.assist_cap ? s->query.assist_cap : 256;
+    while (new_cap < s->query.assist_len + len + 1) new_cap *= 2;
+    char *nb = (char *)realloc(s->query.assist_buf, new_cap);
     if (!nb) return xErrno_NoMemory;
-    s->assist_buf = nb;
-    s->assist_cap = new_cap;
+    s->query.assist_buf = nb;
+    s->query.assist_cap = new_cap;
   }
-  memcpy(s->assist_buf + s->assist_len, chunk, len);
-  s->assist_len += len;
-  s->assist_buf[s->assist_len] = '\0';
+  memcpy(s->query.assist_buf + s->query.assist_len, chunk, len);
+  s->query.assist_len += len;
+  s->query.assist_buf[s->query.assist_len] = '\0';
   return xErrno_Ok;
 }
 
 static void query_assist_reset(struct xAiSession_ *s) {
-  s->assist_len = 0;
-  if (s->assist_buf) s->assist_buf[0] = '\0';
+  s->query.assist_len = 0;
+  if (s->query.assist_buf) s->query.assist_buf[0] = '\0';
 }
 
 /* Same shape as query_assist_append, but for the current-round reasoning /
@@ -257,36 +257,36 @@ static void query_assist_reset(struct xAiSession_ *s) {
 static xErrno query_reasoning_append(struct xAiSession_ *s, const char *chunk,
                                      size_t len) {
   if (len == 0) return xErrno_Ok;
-  if (s->reasoning_len + len + 1 > s->reasoning_cap) {
-    size_t new_cap = s->reasoning_cap ? s->reasoning_cap : 256;
-    while (new_cap < s->reasoning_len + len + 1) new_cap *= 2;
-    char *nb = (char *)realloc(s->reasoning_buf, new_cap);
+  if (s->query.reasoning_len + len + 1 > s->query.reasoning_cap) {
+    size_t new_cap = s->query.reasoning_cap ? s->query.reasoning_cap : 256;
+    while (new_cap < s->query.reasoning_len + len + 1) new_cap *= 2;
+    char *nb = (char *)realloc(s->query.reasoning_buf, new_cap);
     if (!nb) return xErrno_NoMemory;
-    s->reasoning_buf = nb;
-    s->reasoning_cap = new_cap;
+    s->query.reasoning_buf = nb;
+    s->query.reasoning_cap = new_cap;
   }
-  memcpy(s->reasoning_buf + s->reasoning_len, chunk, len);
-  s->reasoning_len += len;
-  s->reasoning_buf[s->reasoning_len] = '\0';
+  memcpy(s->query.reasoning_buf + s->query.reasoning_len, chunk, len);
+  s->query.reasoning_len += len;
+  s->query.reasoning_buf[s->query.reasoning_len] = '\0';
   return xErrno_Ok;
 }
 
 static void query_reasoning_reset(struct xAiSession_ *s) {
-  s->reasoning_len = 0;
-  if (s->reasoning_buf) s->reasoning_buf[0] = '\0';
+  s->query.reasoning_len = 0;
+  if (s->query.reasoning_buf) s->query.reasoning_buf[0] = '\0';
 }
 
 /* Append one pending tool_call. Copies every string. */
 static xErrno query_pending_append(struct xAiSession_ *s, const xAiContent *call) {
-  if (s->n_pending + 1 > s->cap_pending) {
-    size_t new_cap = s->cap_pending ? s->cap_pending * 2 : 4;
-    struct xAiSessionPending_ *np = (struct xAiSessionPending_ *)realloc(
-        s->pending, new_cap * sizeof(*np));
+  if (s->query.n_pending + 1 > s->query.cap_pending) {
+    size_t new_cap = s->query.cap_pending ? s->query.cap_pending * 2 : 4;
+    struct xAiQueryPending_ *np = (struct xAiQueryPending_ *)realloc(
+        s->query.pending, new_cap * sizeof(*np));
     if (!np) return xErrno_NoMemory;
-    s->pending     = np;
-    s->cap_pending = new_cap;
+    s->query.pending     = np;
+    s->query.cap_pending = new_cap;
   }
-  struct xAiSessionPending_ *slot = &s->pending[s->n_pending];
+  struct xAiQueryPending_ *slot = &s->query.pending[s->query.n_pending];
   memset(slot, 0, sizeof(*slot));
   slot->id        = dup_cstr(call->u.tool_use.id ? call->u.tool_use.id : "");
   slot->name      = dup_cstr(call->u.tool_use.name ? call->u.tool_use.name
@@ -298,7 +298,7 @@ static xErrno query_pending_append(struct xAiSession_ *s, const xAiContent *call
     query_pending_free_entry(slot);
     return xErrno_NoMemory;
   }
-  s->n_pending++;
+  s->query.n_pending++;
   return xErrno_Ok;
 }
 
@@ -447,13 +447,15 @@ static void query_on_provider_done(xAiProviderStopReason reason, xErrno err,
  * teach the provider to parse them. */
 static void session_usage_accumulate(struct xAiSession_ *s, const xAiUsage *round) {
   if (!round) return;
-  s->saw_usage = 1;
+  s->query.saw_usage = 1;
 
 #define XAI_FOLD(field)                                                       \
   do {                                                                        \
     if (round->field >= 0) {                                                  \
-      s->usage.field = (s->usage.field < 0) ? round->field                    \
-                                            : s->usage.field + round->field;  \
+      s->query.usage.field =                                                  \
+          (s->query.usage.field < 0)                                          \
+              ? round->field                                                  \
+              : s->query.usage.field + round->field;                          \
     }                                                                         \
   } while (0)
 
@@ -465,16 +467,17 @@ static void session_usage_accumulate(struct xAiSession_ *s, const xAiUsage *roun
 }
 
 static void session_usage_reset(struct xAiSession_ *s) {
-  s->saw_usage               = 0;
-  s->usage.prompt_tokens     = -1;
-  s->usage.completion_tokens = -1;
-  s->usage.total_tokens      = -1;
+  s->query.saw_usage               = 0;
+  s->query.usage.prompt_tokens     = -1;
+  s->query.usage.completion_tokens = -1;
+  s->query.usage.total_tokens      = -1;
 }
 
 /* Submit a new provider round over the current history.
  *
- * Precondition: s->running == 1. Caller is responsible for appending
- * the user message / tool_results into history before calling.
+ * Precondition: s->query.running == 1. Caller is responsible for
+ * appending the user message / tool_results into history before
+ * calling.
  *
  * Returns xErrno_Ok if the submit was accepted (on_done will fire
  * later). On failure the caller must decide how to unwind. */
@@ -504,7 +507,7 @@ static xErrno query_submit_round(struct xAiSession_ *s) {
   query_assist_reset(s);
   query_reasoning_reset(s);
   query_pending_reset(s);
-  s->turn++;
+  s->query.turn++;
 
   rc = ai_provider_submit(a->provider, &pc, &cbs, s);
   query_view_free(&v);
@@ -517,16 +520,16 @@ static void session_finish_run(struct xAiSession_ *s, xAiDoneReason reason) {
   /* Snapshot usage before reset: the callback sees the running
    * totals we accumulated across every provider round, or NULL if
    * nothing ever reported. */
-  xAiUsage        usage_snapshot = s->usage;
-  int             had_usage      = s->saw_usage;
+  xAiUsage        usage_snapshot = s->query.usage;
+  int             had_usage      = s->query.saw_usage;
 
   query_assist_reset(s);
   query_reasoning_reset(s);
   query_pending_reset(s);
   session_usage_reset(s);
-  s->running   = 0;
-  s->cancelled = 0;
-  s->turn      = 0;
+  s->query.running   = 0;
+  s->query.cancelled = 0;
+  s->query.turn      = 0;
   if (s->cbs.on_done) {
     s->cbs.on_done((xAiSession)s, reason,
                    had_usage ? &usage_snapshot : NULL,
@@ -563,8 +566,8 @@ static xAiTool query_find_tool(struct xAiAgent_ *a, const char *name) {
 static xErrno query_dispatch_pending_tools(struct xAiSession_ *s) {
   struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
 
-  for (size_t i = 0; i < s->n_pending && !s->cancelled; i++) {
-    struct xAiSessionPending_ *p = &s->pending[i];
+  for (size_t i = 0; i < s->query.n_pending && !s->query.cancelled; i++) {
+    struct xAiQueryPending_ *p = &s->query.pending[i];
 
     if (s->cbs.on_tool) {
       s->cbs.on_tool((xAiSession)s, p->name, /*started=*/1, s->cbs.user_data);
@@ -632,7 +635,7 @@ static xErrno query_dispatch_pending_tools(struct xAiSession_ *s) {
 
 static void query_on_provider_text(const char *chunk, size_t len, void *arg) {
   struct xAiSession_ *s = (struct xAiSession_ *)arg;
-  if (s->cancelled) return;
+  if (s->query.cancelled) return;
 
   (void)query_assist_append(s, chunk, len);
 
@@ -643,7 +646,7 @@ static void query_on_provider_text(const char *chunk, size_t len, void *arg) {
 
 static void query_on_provider_tool_call(const xAiContent *call, void *arg) {
   struct xAiSession_ *s = (struct xAiSession_ *)arg;
-  if (s->cancelled || !call || call->type != xAiContentType_ToolUse) return;
+  if (s->query.cancelled || !call || call->type != xAiContentType_ToolUse) return;
   /* Buffer; actual dispatch happens from query_on_provider_done when we
    * know the assistant message is complete. */
   (void)query_pending_append(s, call);
@@ -659,7 +662,7 @@ static void query_on_provider_tool_call(const xAiContent *call, void *arg) {
  * servers like kimi-k2.6 require. */
 static void query_on_provider_thinking(const char *chunk, size_t len, void *arg) {
   struct xAiSession_ *s = (struct xAiSession_ *)arg;
-  if (s->cancelled) return;
+  if (s->query.cancelled) return;
 
   (void)query_reasoning_append(s, chunk, len);
 
@@ -696,15 +699,16 @@ static void query_commit_assistant_turn(struct xAiSession_ *s) {
    * exact ordering inside the message, but Anthropic's thinking
    * blocks are documented as coming first, and putting reasoning
    * before tool_calls matches every upstream example I've seen. */
-  if (s->reasoning_len > 0) {
-    (void)history_append_thinking(s, s->reasoning_buf, s->reasoning_len);
+  if (s->query.reasoning_len > 0) {
+    (void)history_append_thinking(s, s->query.reasoning_buf,
+                                  s->query.reasoning_len);
   }
-  if (s->assist_len > 0) {
-    (void)history_append_text(s, xAiRole_Assistant, s->assist_buf,
-                              s->assist_len);
+  if (s->query.assist_len > 0) {
+    (void)history_append_text(s, xAiRole_Assistant, s->query.assist_buf,
+                              s->query.assist_len);
   }
-  for (size_t i = 0; i < s->n_pending; i++) {
-    struct xAiSessionPending_ *p = &s->pending[i];
+  for (size_t i = 0; i < s->query.n_pending; i++) {
+    struct xAiQueryPending_ *p = &s->query.pending[i];
     (void)history_append_tool_use(s, p->id, p->name, p->args_json);
   }
 }
@@ -743,7 +747,7 @@ static void query_handle_error(struct xAiSession_ *s, xErrno err) {
 static void query_handle_tool_loop_continuation(struct xAiSession_ *s) {
   int turn_limit = s->max_turns > 0 ? s->max_turns
                                     : XAI_SESSION_DEFAULT_MAX_TURNS;
-  if (s->turn >= turn_limit) {
+  if (s->query.turn >= turn_limit) {
     /* Already emitted enough rounds; tell the caller we bailed. */
     session_finish_run(s, xAiDoneReason_MaxTurns);
     return;
@@ -753,7 +757,7 @@ static void query_handle_tool_loop_continuation(struct xAiSession_ *s) {
   xErrno drc = query_dispatch_pending_tools(s);
   query_pending_reset(s);
 
-  if (s->cancelled) {
+  if (s->query.cancelled) {
     session_finish_run(s, xAiDoneReason_Aborted);
     return;
   }
@@ -801,7 +805,7 @@ static void query_on_provider_done(xAiProviderStopReason reason, xErrno err,
    * where it was. */
   session_usage_accumulate(s, usage);
 
-  int user_cancel = (reason == xAiProviderStop_Cancelled) || s->cancelled;
+  int user_cancel = (reason == xAiProviderStop_Cancelled) || s->query.cancelled;
 
   /* Surface transport / model errors before anything else so the
    * caller's on_error fires in order with the round. */
@@ -817,7 +821,7 @@ static void query_on_provider_done(xAiProviderStopReason reason, xErrno err,
   /* Continue the tool loop iff: (a) not cancelled, (b) provider said
    * ToolUse AND we buffered >=1 tool call, (c) max_turns not exceeded. */
   int can_continue = !user_cancel && reason == xAiProviderStop_ToolUse &&
-                     s->n_pending > 0;
+                     s->query.n_pending > 0;
 
   if (can_continue) {
     query_handle_tool_loop_continuation(s);
@@ -859,7 +863,7 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   if (!sess) return xErrno_InvalidArg;
   struct xAiSession_ *s = (struct xAiSession_ *)sess;
 
-  if (s->running) return xErrno_Busy;
+  if (s->query.running) return xErrno_Busy;
 
   size_t history_checkpoint = s->n_history;
   xErrno rc = history_append_user_msg(s, msg);
@@ -867,9 +871,9 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
 
   /* Flip running BEFORE submit: submit may deliver callbacks
    * synchronously, and our query_on_provider_done clears running. */
-  s->running   = 1;
-  s->cancelled = 0;
-  s->turn      = 0;
+  s->query.running   = 1;
+  s->query.cancelled = 0;
+  s->query.turn      = 0;
   session_usage_reset(s);
 
   rc = query_submit_round(s);
@@ -877,8 +881,8 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
     /* Round never started — don't fire on_done. Undo the user
      * message we appended so the history tracks what actually
      * happened. */
-    s->running = 0;
-    s->turn    = 0;
+    s->query.running = 0;
+    s->query.turn    = 0;
     while (s->n_history > history_checkpoint) {
       msg_free(&s->history[--s->n_history]);
     }
@@ -891,9 +895,9 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
 void xAiSessionCancel(xAiSession sess) {
   if (!sess) return;
   struct xAiSession_ *s = (struct xAiSession_ *)sess;
-  if (!s->running) return;
+  if (!s->query.running) return;
 
-  s->cancelled = 1;
+  s->query.cancelled = 1;
 
   struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
   ai_provider_cancel(a->provider);
@@ -905,15 +909,15 @@ void xAiSessionDestroy(xAiSession sess) {
   if (!sess) return;
   struct xAiSession_ *s = (struct xAiSession_ *)sess;
 
-  if (s->running) {
+  if (s->query.running) {
     xAiSessionCancel(sess);
   }
 
   for (size_t i = 0; i < s->n_history; i++) msg_free(&s->history[i]);
   free(s->history);
-  free(s->assist_buf);
-  free(s->reasoning_buf);
+  free(s->query.assist_buf);
+  free(s->query.reasoning_buf);
   query_pending_reset(s);
-  free(s->pending);
+  free(s->query.pending);
   free(s);
 }

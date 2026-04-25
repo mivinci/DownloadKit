@@ -14,3 +14,8 @@ intended to be readable on their own, without prior knowledge of xKit internals.
   A way to carve systems that have "long-lived identity + multi-turn session +
   one-shot request" topology into three layers (Agent / Session / Query), and
   what it concretely buys you compared to the one-fat-object default.
+- [Context Budget](context-budget.md) —
+  How the Session layer keeps outgoing prompts under a token ceiling without
+  bleeding history ownership into Provider or Query. Covers the three-piece
+  split (estimator / EWMA calibrator / front-trimmer), the policy gate wiring,
+  and walks through the live numbers printed by `examples/ai_session.cpp`.

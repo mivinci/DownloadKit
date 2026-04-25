@@ -35,14 +35,107 @@
 #include <xbase/event.h>
 #include <xhttp/client.h>
 
+#include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <string>
+#include <random>
+
+/* ── Lightweight JSON field extractors ──────────────────────────────
+ *
+ * Tool handlers receive `in->u.tool_use.args_json` as a raw JSON
+ * string produced by the model. xbase does not ship a JSON parser,
+ * and pulling one in just for the demo is overkill — the model-side
+ * arguments are tiny, flat objects and we only need three accessors:
+ * string / int / bool, by key.
+ *
+ * These helpers are intentionally minimal: they don't handle nested
+ * objects, arrays, unicode escapes, or numbers with exponents. The
+ * tool JSON schemas below are authored so the model never produces
+ * such shapes. If the model violates the schema, the handler simply
+ * returns a tool_result with is_error=1 — the model will see the
+ * error and retry or apologise.
+ */
+
+/* Skip whitespace. Returns new cursor. */
+static const char *json_skip_ws(const char *p) {
+  while (*p && std::isspace((unsigned char)*p)) ++p;
+  return p;
+}
+
+/* Find the value cursor for a top-level key in a JSON object.
+ * Returns NULL if not found. Cursor points AT the value's first
+ * non-whitespace char (`"`, digit, `t`/`f`, `{`, `[`, ...). */
+static const char *json_find_value(const char *src, const char *key) {
+  if (!src || !key) return nullptr;
+  size_t klen = std::strlen(key);
+  const char *p = src;
+  /* Scan for `"<key>"` followed by `:`. Not bullet-proof (could
+   * match inside a string value), but our schemas use short,
+   * distinct keys so collisions don't happen in practice. */
+  while (*p) {
+    const char *q = std::strstr(p, "\"");
+    if (!q) return nullptr;
+    ++q; /* past opening quote */
+    if (std::strncmp(q, key, klen) == 0 && q[klen] == '"') {
+      const char *r = json_skip_ws(q + klen + 1);
+      if (*r == ':') return json_skip_ws(r + 1);
+    }
+    /* advance past this key-or-string and keep scanning */
+    p = std::strchr(q, '"');
+    if (!p) return nullptr;
+    ++p;
+  }
+  return nullptr;
+}
+
+/* Copy a JSON string value into `out` (NUL-terminated, truncated to
+ * out_size-1). Returns true on success. Handles `\"`, `\\`, `\n`,
+ * `\t`, `\r` escapes — enough for prose passed from the model. */
+static bool json_find_string(const char *src, const char *key,
+                              char *out, size_t out_size) {
+  const char *p = json_find_value(src, key);
+  if (!p || *p != '"' || out_size == 0) return false;
+  ++p; /* skip opening quote */
+  size_t n = 0;
+  while (*p && *p != '"') {
+    char c;
+    if (*p == '\\' && p[1]) {
+      switch (p[1]) {
+        case '"':  c = '"';  break;
+        case '\\': c = '\\'; break;
+        case '/':  c = '/';  break;
+        case 'n':  c = '\n'; break;
+        case 't':  c = '\t'; break;
+        case 'r':  c = '\r'; break;
+        case 'b':  c = '\b'; break;
+        case 'f':  c = '\f'; break;
+        default:   c = p[1]; break; /* pass through */
+      }
+      p += 2;
+    } else {
+      c = *p++;
+    }
+    if (n + 1 < out_size) out[n++] = c;
+  }
+  out[n] = '\0';
+  return *p == '"';
+}
+
+/* Parse a JSON integer value. Returns true on success. */
+static bool json_find_int(const char *src, const char *key, long *out) {
+  const char *p = json_find_value(src, key);
+  if (!p) return false;
+  char *end = nullptr;
+  long v = std::strtol(p, &end, 10);
+  if (end == p) return false;
+  *out = v;
+  return true;
+}
 
 /* ── REPL state ─────────────────────────────────────────────────────── */
-
 struct ReplCtx {
   xEventLoop loop            = nullptr;
   bool       saw_first_delta = false;
@@ -50,14 +143,32 @@ struct ReplCtx {
   size_t     reply_bytes     = 0;
 };
 
-/* ── Tool: get_time ─────────────────────────────────────────────────── */
+/* ── Tools ──────────────────────────────────────────────────────────
+ *
+ * Every handler below follows the same shape:
+ *   1. Parse `in->u.tool_use.args_json` into local variables.
+ *   2. Compute the result into a thread-local buffer.
+ *   3. Fill `out->u.tool_result` — session.c copies the bytes before
+ *      this function returns, so the thread-local storage is safe.
+ *
+ * `out->u.tool_result.id` is left NULL: the session layer substitutes
+ * the matching tool_use id when it folds the result back into
+ * history. This keeps handlers agnostic to how calls are threaded.
+ *
+ * Error reporting: on bad input (parse failures, schema violations,
+ * runtime errors like divide-by-zero), the handler sets is_error=1
+ * and writes a short human-readable message into the same buffer.
+ * The model sees that as a failed tool_result and will typically
+ * apologise or retry with corrected args. Returning a non-Ok xErrno
+ * would surface instead as on_error in the session, ending the run —
+ * we only want that for genuinely unrecoverable failures (OOM), not
+ * for bad args. */
 
+/* Tool: get_time — current UTC time in ISO-8601. No arguments. */
 static xErrno tool_get_time(const xAiContent *in, xAiContent *out, void *ud) {
   (void)in;
   (void)ud;
 
-  /* Session strdup's our output before we return, so a thread-local
-   * buffer is fine — we only need stability across the return. */
   static thread_local char buf[64];
   std::time_t              now = std::time(nullptr);
   std::tm                  tm_utc{};
@@ -69,11 +180,299 @@ static xErrno tool_get_time(const xAiContent *in, xAiContent *out, void *ud) {
   std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
 
   out->type                     = xAiContentType_ToolResult;
-  out->u.tool_result.id          = nullptr; /* session fills the id from
-                                              * the matching tool_use */
+  out->u.tool_result.id          = nullptr;
   out->u.tool_result.output      = buf;
   out->u.tool_result.output_len  = std::strlen(buf);
   out->u.tool_result.is_error    = 0;
+  return xErrno_Ok;
+}
+
+/* ── Tool: calculator ────────────────────────────────────────────────
+ *
+ * Shunting-yard over `double`. Supports `+ - * / %`, parens, and
+ * unary minus. Integer literals and decimals are both accepted; the
+ * result is printed as an integer when it's whole, otherwise with
+ * %g so trailing zeros don't pollute the answer.
+ *
+ * We use two small stacks (values and operators). Parentheses are
+ * just high-priority markers that swallow everything until the
+ * matching `(`. Operator precedence follows the usual C convention
+ * (`* / %` bind tighter than `+ -`). Division by zero is surfaced
+ * as a tool error — the model can then apologise. */
+static int calc_prec(char op) {
+  switch (op) {
+    case '+': case '-': return 1;
+    case '*': case '/': case '%': return 2;
+    case 'u': return 3; /* unary minus, internal token */
+    default:  return 0;
+  }
+}
+
+static bool calc_apply(char op, double *vals, size_t *nv,
+                       const char **err) {
+  if (op == 'u') {
+    if (*nv < 1) { *err = "unary minus without operand"; return false; }
+    vals[*nv - 1] = -vals[*nv - 1];
+    return true;
+  }
+  if (*nv < 2) { *err = "binary operator without two operands";
+                 return false; }
+  double b = vals[--(*nv)];
+  double a = vals[--(*nv)];
+  double r = 0;
+  switch (op) {
+    case '+': r = a + b; break;
+    case '-': r = a - b; break;
+    case '*': r = a * b; break;
+    case '/':
+      if (b == 0) { *err = "division by zero"; return false; }
+      r = a / b; break;
+    case '%':
+      if (b == 0) { *err = "modulo by zero"; return false; }
+      /* fmod on doubles so both int and fp inputs work */
+      r = std::fmod(a, b); break;
+    default:
+      *err = "unknown operator"; return false;
+  }
+  vals[(*nv)++] = r;
+  return true;
+}
+
+static bool calc_eval(const char *expr, double *out, const char **err) {
+  /* Plenty of headroom for any expression the model will plausibly
+   * emit — 128 tokens each side. */
+  enum { STACK_CAP = 128 };
+  double vals[STACK_CAP];
+  char   ops[STACK_CAP];
+  size_t nv = 0, no = 0;
+  bool   want_value = true; /* next token should be a value / unary? */
+
+  const char *p = expr;
+  while (*p) {
+    if (std::isspace((unsigned char)*p)) { ++p; continue; }
+
+    if (std::isdigit((unsigned char)*p) || *p == '.') {
+      char *end = nullptr;
+      double v = std::strtod(p, &end);
+      if (end == p) { *err = "bad number"; return false; }
+      if (nv == STACK_CAP) { *err = "expression too deep"; return false; }
+      vals[nv++] = v;
+      p = end;
+      want_value = false;
+      continue;
+    }
+
+    if (*p == '(') {
+      if (no == STACK_CAP) { *err = "expression too deep"; return false; }
+      ops[no++] = '(';
+      ++p;
+      want_value = true;
+      continue;
+    }
+    if (*p == ')') {
+      while (no && ops[no - 1] != '(') {
+        if (!calc_apply(ops[--no], vals, &nv, err)) return false;
+      }
+      if (!no) { *err = "unbalanced ')'"; return false; }
+      --no; /* pop '(' */
+      ++p;
+      want_value = false;
+      continue;
+    }
+
+    char op = *p;
+    if (op == '+' || op == '-' || op == '*' || op == '/' || op == '%') {
+      /* Disambiguate unary minus: '-' in a context expecting a value
+       * is unary (token 'u'). Unary plus is a no-op, so just skip. */
+      if (want_value) {
+        if (op == '-') {
+          if (no == STACK_CAP) { *err = "expression too deep";
+                                 return false; }
+          ops[no++] = 'u';
+          ++p;
+          /* still expecting a value */
+          continue;
+        }
+        if (op == '+') { ++p; continue; }
+        *err = "operator in value position"; return false;
+      }
+      /* Binary op: pop anything of equal-or-higher precedence. */
+      while (no && ops[no - 1] != '('
+             && calc_prec(ops[no - 1]) >= calc_prec(op)) {
+        if (!calc_apply(ops[--no], vals, &nv, err)) return false;
+      }
+      if (no == STACK_CAP) { *err = "expression too deep"; return false; }
+      ops[no++] = op;
+      ++p;
+      want_value = true;
+      continue;
+    }
+
+    *err = "unexpected character";
+    return false;
+  }
+
+  while (no) {
+    if (ops[no - 1] == '(') { *err = "unbalanced '('"; return false; }
+    if (!calc_apply(ops[--no], vals, &nv, err)) return false;
+  }
+  if (nv != 1) { *err = "missing operand"; return false; }
+  *out = vals[0];
+  return true;
+}
+
+static xErrno tool_calculator(const xAiContent *in, xAiContent *out,
+                              void *ud) {
+  (void)ud;
+  static thread_local char buf[256];
+
+  char expr[256];
+  if (!json_find_string(in->u.tool_use.args_json, "expr", expr,
+                        sizeof(expr))) {
+    std::snprintf(buf, sizeof(buf),
+                  "missing or invalid 'expr' argument");
+    out->type                     = xAiContentType_ToolResult;
+    out->u.tool_result.id         = nullptr;
+    out->u.tool_result.output     = buf;
+    out->u.tool_result.output_len = std::strlen(buf);
+    out->u.tool_result.is_error   = 1;
+    return xErrno_Ok;
+  }
+
+  double      result = 0;
+  const char *err    = nullptr;
+  bool        ok     = calc_eval(expr, &result, &err);
+
+  if (!ok) {
+    std::snprintf(buf, sizeof(buf), "calc error: %s (expr=%s)",
+                  err ? err : "unknown", expr);
+    out->type                     = xAiContentType_ToolResult;
+    out->u.tool_result.id         = nullptr;
+    out->u.tool_result.output     = buf;
+    out->u.tool_result.output_len = std::strlen(buf);
+    out->u.tool_result.is_error   = 1;
+    return xErrno_Ok;
+  }
+
+  /* Whole number? Print as long long to avoid "42.000000". */
+  if (result == (double)(long long)result
+      && result > -1e18 && result < 1e18) {
+    std::snprintf(buf, sizeof(buf), "%lld", (long long)result);
+  } else {
+    std::snprintf(buf, sizeof(buf), "%.12g", result);
+  }
+  out->type                     = xAiContentType_ToolResult;
+  out->u.tool_result.id         = nullptr;
+  out->u.tool_result.output     = buf;
+  out->u.tool_result.output_len = std::strlen(buf);
+  out->u.tool_result.is_error   = 0;
+  return xErrno_Ok;
+}
+
+/* ── Tool: random_int ────────────────────────────────────────────────
+ *
+ * Return a uniform integer in [min, max]. Uses a process-wide mt19937
+ * seeded from std::random_device on first call; threading is not a
+ * concern here because the demo session runs single-threaded on the
+ * event loop. */
+static xErrno tool_random_int(const xAiContent *in, xAiContent *out,
+                               void *ud) {
+  (void)ud;
+  static thread_local char buf[64];
+
+  long lo = 0, hi = 0;
+  bool got_lo = json_find_int(in->u.tool_use.args_json, "min", &lo);
+  bool got_hi = json_find_int(in->u.tool_use.args_json, "max", &hi);
+  if (!got_lo || !got_hi) {
+    std::snprintf(buf, sizeof(buf),
+                  "missing or invalid 'min'/'max' arguments");
+    out->type                     = xAiContentType_ToolResult;
+    out->u.tool_result.id         = nullptr;
+    out->u.tool_result.output     = buf;
+    out->u.tool_result.output_len = std::strlen(buf);
+    out->u.tool_result.is_error   = 1;
+    return xErrno_Ok;
+  }
+  if (lo > hi) {
+    std::snprintf(buf, sizeof(buf),
+                  "invalid range: min (%ld) > max (%ld)", lo, hi);
+    out->type                     = xAiContentType_ToolResult;
+    out->u.tool_result.id         = nullptr;
+    out->u.tool_result.output     = buf;
+    out->u.tool_result.output_len = std::strlen(buf);
+    out->u.tool_result.is_error   = 1;
+    return xErrno_Ok;
+  }
+
+  /* Lazy-init on first call. uniform_int_distribution<long> is
+   * inclusive on both ends, which matches the schema's contract. */
+  static std::mt19937 *rng = nullptr;
+  if (!rng) {
+    std::random_device rd;
+    rng = new std::mt19937(rd());
+  }
+  std::uniform_int_distribution<long> dist(lo, hi);
+  long v = dist(*rng);
+
+  std::snprintf(buf, sizeof(buf), "%ld", v);
+  out->type                     = xAiContentType_ToolResult;
+  out->u.tool_result.id         = nullptr;
+  out->u.tool_result.output     = buf;
+  out->u.tool_result.output_len = std::strlen(buf);
+  out->u.tool_result.is_error   = 0;
+  return xErrno_Ok;
+}
+
+/* ── Tool: wordcount ─────────────────────────────────────────────────
+ *
+ * Return char / word / line counts for a text blob. "Words" are
+ * runs of non-whitespace (UTF-8 aware at the ASCII-whitespace level
+ * only — adequate for a demo). The output is a tiny JSON so the
+ * model can lift individual fields if it wants ("how many words?"). */
+static xErrno tool_wordcount(const xAiContent *in, xAiContent *out,
+                              void *ud) {
+  (void)ud;
+  static thread_local char buf[128];
+  static thread_local char text[4096];
+
+  if (!json_find_string(in->u.tool_use.args_json, "text", text,
+                        sizeof(text))) {
+    std::snprintf(buf, sizeof(buf),
+                  "missing or invalid 'text' argument");
+    out->type                     = xAiContentType_ToolResult;
+    out->u.tool_result.id         = nullptr;
+    out->u.tool_result.output     = buf;
+    out->u.tool_result.output_len = std::strlen(buf);
+    out->u.tool_result.is_error   = 1;
+    return xErrno_Ok;
+  }
+
+  size_t chars = std::strlen(text);
+  size_t lines = 0;
+  size_t words = 0;
+  bool   in_word = false;
+  for (const char *p = text; *p; ++p) {
+    if (*p == '\n') ++lines;
+    if (std::isspace((unsigned char)*p)) {
+      in_word = false;
+    } else if (!in_word) {
+      in_word = true;
+      ++words;
+    }
+  }
+  /* If text isn't empty and doesn't end with '\n', count the final
+   * line too. This matches `wc -l` only if the input is newline-
+   * terminated; we prefer the intuitive "lines of text you see". */
+  if (chars > 0 && text[chars - 1] != '\n') ++lines;
+
+  std::snprintf(buf, sizeof(buf),
+                "{\"chars\":%zu,\"words\":%zu,\"lines\":%zu}",
+                chars, words, lines);
+  out->type                     = xAiContentType_ToolResult;
+  out->u.tool_result.id         = nullptr;
+  out->u.tool_result.output     = buf;
+  out->u.tool_result.output_len = std::strlen(buf);
+  out->u.tool_result.is_error   = 0;
   return xErrno_Ok;
 }
 
@@ -268,46 +667,120 @@ int main() {
     return 1;
   }
 
-  /* ── Tool: get_time ─────────────────────────────────────────────── */
-  xAiToolConf tconf;
-  std::memset(&tconf, 0, sizeof(tconf));
-  tconf.name        = "get_time";
-  tconf.description = "Return the current UTC time in ISO-8601 format.";
-  tconf.json_schema = "{\"type\":\"object\",\"properties\":{},"
-                      "\"additionalProperties\":false}";
-  tconf.handler     = tool_get_time;
+  /* ── Tools ───────────────────────────────────────────────────────────
+   *
+   * Each xAiToolCreate call returns a handle; xAiAgentConf wants an
+   * array of handle pointers (const xAiTool **), so we collect the
+   * handles first and then take their addresses. A single helper
+   * keeps the error-path bail-out linear — if any creation fails we
+   * destroy the ones already built and abort. */
 
-  xAiTool time_tool = xAiToolCreate(&tconf);
-  if (!time_tool) {
-    std::fprintf(stderr, "failed to create tool\n");
-    xAiProviderDestroy(pvd);
-    xHttpClientDestroy(http);
-    xEventLoopDestroy(loop);
-    return 1;
+  struct ToolSpec {
+    const char        *name;
+    const char        *description;
+    const char        *schema;
+    xAiToolHandlerFunc handler;
+  };
+  const ToolSpec specs[] = {
+    {
+      "get_time",
+      "Return the current UTC time in ISO-8601 format. Takes no "
+      "arguments.",
+      "{\"type\":\"object\",\"properties\":{},"
+      "\"additionalProperties\":false}",
+      tool_get_time,
+    },
+    {
+      "calculator",
+      "Evaluate a basic arithmetic expression over numbers. "
+      "Supports + - * / %, parentheses, and unary minus. Returns "
+      "the numeric result as a string, or an error message when "
+      "the expression is malformed or divides by zero.",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+        "\"expr\":{\"type\":\"string\","
+        "\"description\":\"arithmetic expression, e.g. '1+2*3'\"}"
+      "},"
+      "\"required\":[\"expr\"],"
+      "\"additionalProperties\":false}",
+      tool_calculator,
+    },
+    {
+      "random_int",
+      "Return a uniform pseudo-random integer in the inclusive "
+      "range [min, max].",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+        "\"min\":{\"type\":\"integer\"},"
+        "\"max\":{\"type\":\"integer\"}"
+      "},"
+      "\"required\":[\"min\",\"max\"],"
+      "\"additionalProperties\":false}",
+      tool_random_int,
+    },
+    {
+      "wordcount",
+      "Count characters, words, and lines in a piece of text. "
+      "Returns a JSON object {\"chars\":N,\"words\":N,\"lines\":N}.",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+        "\"text\":{\"type\":\"string\"}"
+      "},"
+      "\"required\":[\"text\"],"
+      "\"additionalProperties\":false}",
+      tool_wordcount,
+    },
+  };
+  constexpr size_t N_TOOLS = sizeof(specs) / sizeof(specs[0]);
+
+  xAiTool tool_handles[N_TOOLS] = {};
+  for (size_t i = 0; i < N_TOOLS; ++i) {
+    xAiToolConf tconf;
+    std::memset(&tconf, 0, sizeof(tconf));
+    tconf.name        = specs[i].name;
+    tconf.description = specs[i].description;
+    tconf.json_schema = specs[i].schema;
+    tconf.handler     = specs[i].handler;
+    tool_handles[i]   = xAiToolCreate(&tconf);
+    if (!tool_handles[i]) {
+      std::fprintf(stderr, "failed to create tool '%s'\n",
+                   specs[i].name);
+      for (size_t j = 0; j < i; ++j) xAiToolDestroy(tool_handles[j]);
+      xAiProviderDestroy(pvd);
+      xHttpClientDestroy(http);
+      xEventLoopDestroy(loop);
+      return 1;
+    }
   }
-  /* xAiTool is opaque void*; AgentConf.tools is `const xAiTool **`
-   * (array of handle pointers), so store the handle's ADDRESS here,
-   * not the handle itself. Same contract as provider's SubmitConf. */
-  const xAiTool *tools[] = {&time_tool};
 
+  /* xAiAgentConf::tools is `const xAiTool **` (array of handle
+   * pointers, not an array of handles); collect addresses. */
+  const xAiTool *tool_ptrs[N_TOOLS];
+  for (size_t i = 0; i < N_TOOLS; ++i) tool_ptrs[i] = &tool_handles[i];
   /* ── Agent ──────────────────────────────────────────────────────── */
   xAiAgentConf aconf;
   std::memset(&aconf, 0, sizeof(aconf));
   aconf.loop          = loop;
   aconf.provider      = pvd;
   aconf.model         = model;
-  aconf.system_prompt = "You are a concise assistant running on xKit's "
-                        "xai session demo. Use the get_time tool when "
-                        "the user asks about the current time. Keep "
-                        "replies short.";
-  aconf.tools         = tools;
-  aconf.n_tools       = sizeof(tools) / sizeof(tools[0]);
+  aconf.system_prompt =
+      "You are a concise assistant running on xKit's xai session "
+      "demo. You have access to these tools:\n"
+      "  - get_time: current UTC time (no args)\n"
+      "  - calculator: evaluate arithmetic like '1+2*3'\n"
+      "  - random_int: uniform int in [min, max]\n"
+      "  - wordcount: count chars/words/lines of a text blob\n"
+      "Use tools when they would produce a more accurate answer "
+      "than guessing. You may chain multiple tool calls in a single "
+      "turn. Keep replies short.";
+  aconf.tools         = tool_ptrs;
+  aconf.n_tools       = N_TOOLS;
   aconf.max_turns     = 8;
 
   xAiAgent agent = xAiAgentCreate(&aconf);
   if (!agent) {
     std::fprintf(stderr, "failed to create agent\n");
-    xAiToolDestroy(time_tool);
+    for (size_t i = 0; i < N_TOOLS; ++i) xAiToolDestroy(tool_handles[i]);
     xAiProviderDestroy(pvd);
     xHttpClientDestroy(http);
     xEventLoopDestroy(loop);
@@ -331,7 +804,7 @@ int main() {
   if (!sess) {
     std::fprintf(stderr, "failed to create session\n");
     xAiAgentDestroy(agent);
-    xAiToolDestroy(time_tool);
+    for (size_t i = 0; i < N_TOOLS; ++i) xAiToolDestroy(tool_handles[i]);
     xAiProviderDestroy(pvd);
     xHttpClientDestroy(http);
     xEventLoopDestroy(loop);
@@ -340,8 +813,11 @@ int main() {
 
   std::printf("xai session REPL (model: %s)\n", model);
   std::printf("Type a message and press Enter. Ctrl-D or \"exit\" to quit.\n"
-              "Tool 'get_time' is registered and will be executed when "
-              "the model asks for it.\n\n");
+              "Registered tools:\n");
+  for (size_t i = 0; i < N_TOOLS; ++i) {
+    std::printf("  - %s\n", specs[i].name);
+  }
+  std::putchar('\n');
 
   char line[4096];
   while (true) {
@@ -381,7 +857,7 @@ int main() {
 
   xAiSessionDestroy(sess);
   xAiAgentDestroy(agent);
-  xAiToolDestroy(time_tool);
+  for (size_t i = 0; i < N_TOOLS; ++i) xAiToolDestroy(tool_handles[i]);
   xAiProviderDestroy(pvd);
   xHttpClientDestroy(http);
   xEventLoopDestroy(loop);

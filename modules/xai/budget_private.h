@@ -7,17 +7,21 @@
  *
  * Scope
  * -----
- * Pure, side-effect-free utilities that support the context_budget
- * enforcement path introduced in modules/xai/TODO.md §6. None of
- * these functions are wired into xAiSessionInput yet — that is c3's
- * job. c2 only provides the building blocks and their unit tests.
+ * Pure, side-effect-free utilities plus a tiny online calibrator
+ * that support the context_budget enforcement path from
+ * modules/xai/TODO.md §6. Wired into xAiSessionInput and
+ * sess_fwd_on_done by session.c as of c3/c4; this header only
+ * publishes the pieces, not the policy decisions.
  *
  * Three concerns, three functions, no cross-talk:
  *
  *   1. ai_budget_estimate_tokens() — how big is this sequence of
  *      entries when the provider sees it, roughly? Returns an
- *      approximate token count. Deliberately coarse; calibration
- *      against real xAiUsage lands in c4.
+ *      approximate token count from a static bytes/4 + envelope
+ *      formula. ai_budget_estimate_tokens_calibrated() layers an
+ *      online multiplier on top; the calibrator state that feeds
+ *      that multiplier lives on the session and is updated from
+ *      provider-reported xAiUsage in sess_fwd_on_done.
  *
  *   2. ai_budget_find_nth_user_turn() — given a history slice, at
  *      what index does the k-th User-role entry sit? Pure indexing
@@ -66,8 +70,9 @@ extern "C" {
  * The canonical "1 token ≈ 4 bytes of English" heuristic. Not
  * accurate for CJK or for tool_use JSON, but conservative in both
  * directions: overestimates CJK (we trim earlier), underestimates
- * compact JSON by a small margin (c4 calibration will tighten this
- * once we have live xAiUsage feedback to compare against).
+ * compact JSON by a small margin. The calibrator layered on top
+ * of this static estimate (see ai_budget_calibrator_update)
+ * corrects the resulting systematic bias per session.
  */
 #define XAI_BUDGET_BYTES_PER_TOKEN 4u
 
@@ -95,6 +100,132 @@ extern "C" {
  * chosen for "something sensible" rather than "tight fit".
  */
 #define XAI_BUDGET_DEFAULT_MAX_TOKENS 128000u
+
+/**
+ * @name Token-estimate calibration constants
+ *
+ * These drive the post-run feedback loop that adjusts the coarse
+ * static estimator using provider-reported @ref xAiUsage values.
+ * The loop is deliberately conservative: a small EWMA step, hard
+ * clamps at both ends, and opt-out rules for rounds we cannot
+ * attribute cleanly (multi-round tool loops). See
+ * ai_budget_calibrator_update() for the exact rules.
+ * @{
+ */
+
+/**
+ * @brief EWMA weight for each new observation.
+ *
+ * On every accepted observation the factor updates as
+ *
+ *   factor := (1 - ALPHA) * factor + ALPHA * observed
+ *
+ * 0.25 means "a fresh sample pulls the factor a quarter of the
+ * way toward itself". This converges in ~5–10 rounds on a stable
+ * workload but is slow enough that a single outlier (e.g. an
+ * unusually long tool_result) does not dominate the next gate
+ * decision. Values larger than 0.5 start feeling like a moving
+ * assignment rather than a smoothed average; smaller than 0.1
+ * converge too slowly for interactive sessions.
+ */
+#define XAI_BUDGET_CALIBRATION_ALPHA 0.25
+
+/**
+ * @brief Hard lower and upper clamps on the calibrated factor.
+ *
+ * Defends the gate against two failure modes:
+ *
+ *   - Provider reports @c prompt_tokens that excludes the system
+ *     prompt or compresses whitespace aggressively, making the
+ *     true/estimate ratio drift below 0.5. Letting the factor go
+ *     arbitrarily small would make the gate too permissive and
+ *     eventually hand the provider a request it actually can't
+ *     serve.
+ *   - A bug on either side (tokenizer change, a single malformed
+ *     response with a bogus usage block, a switch to a CJK-heavy
+ *     workload right after an English one) pushes the ratio
+ *     momentarily to absurd highs. Clamping at 2.0 means the
+ *     worst a single bad observation can do is double our
+ *     estimate for a round or two, not explode it.
+ *
+ * Real-world ratios on sane models sit in [0.7, 1.3]; the ±0.5
+ * range around 1.0 is headroom, not a target.
+ */
+#define XAI_BUDGET_CALIBRATION_MIN_FACTOR 0.5
+#define XAI_BUDGET_CALIBRATION_MAX_FACTOR 2.0
+
+/** @} */
+
+/**
+ * @brief Online token-estimate calibrator.
+ *
+ * A tiny bit of state that rides on each xAiSession_ and lets the
+ * budget gate correct for systematic bias in the static estimator.
+ * Every successful provider round with clean attribution (see
+ * ai_budget_calibrator_update()) produces one observation; the
+ * EWMA-smoothed factor is then consulted by
+ * ai_budget_estimate_tokens_calibrated() on the next gate check.
+ *
+ * Fields:
+ *   - @c factor:    current multiplier applied to raw estimates.
+ *                   Initialised to 1.0 (identity) so a brand-new
+ *                   session with no observations behaves exactly
+ *                   like the pre-c4 static estimator.
+ *   - @c samples:   monotonic observation counter, for tests and
+ *                   diagnostics. Saturates at SIZE_MAX so it never
+ *                   wraps in a long-lived session.
+ *
+ * The struct is intentionally POD / trivially copyable — no heap,
+ * no pointers, no destructor needed. Zero-initialisation is NOT
+ * valid (factor would be 0.0 and the gate would think every
+ * estimate is tiny); always go through ai_budget_calibrator_init().
+ */
+typedef struct xAiBudgetCalibrator_ {
+  double factor;  /* current EWMA-smoothed multiplier             */
+  size_t samples; /* count of accepted observations (saturating)  */
+} xAiBudgetCalibrator;
+
+/**
+ * @brief Reset a calibrator to identity (factor = 1.0, samples = 0).
+ *
+ * Must be called once per xAiSession_ during create. Safe to call
+ * on a previously-initialised calibrator (discards prior state).
+ */
+void ai_budget_calibrator_init(xAiBudgetCalibrator *c);
+
+/**
+ * @brief Fold one observation into the calibrator.
+ *
+ * Computes @c observed = (double) actual / estimated, applies one
+ * EWMA step with @ref XAI_BUDGET_CALIBRATION_ALPHA, then clamps
+ * the result into
+ * [@ref XAI_BUDGET_CALIBRATION_MIN_FACTOR,
+ *  @ref XAI_BUDGET_CALIBRATION_MAX_FACTOR].
+ *
+ * Opt-out rules (observation ignored, state unchanged, @c samples
+ * NOT incremented):
+ *
+ *   - @p c is NULL.
+ *   - @p estimated is 0 (would divide by zero).
+ *   - @p actual is &lt;= 0 (provider reported unknown / missing;
+ *     xAiUsage uses -1 as the sentinel for "unknown").
+ *
+ * On acceptance, @c samples increments (saturating at SIZE_MAX).
+ *
+ * Thread model: caller must serialise updates. Session only calls
+ * this from the on_done forwarder, which runs on the event-loop
+ * thread, so single-session use is naturally serialised.
+ *
+ * @param c          calibrator to update in place.
+ * @param estimated  the pre-submit static estimate (after any
+ *                   prior calibration, i.e. what the gate actually
+ *                   compared against @c max_tokens).
+ * @param actual     provider-reported @c prompt_tokens from
+ *                   @ref xAiUsage for this round. Pass -1 (or any
+ *                   non-positive value) to signal "unknown".
+ */
+void ai_budget_calibrator_update(xAiBudgetCalibrator *c, size_t estimated,
+                                 int actual);
 /**
  * @brief Estimate the approximate token count for a flat slice of
  *        turn entries.
@@ -119,6 +250,28 @@ extern "C" {
  *              0, returns 0 (no envelope tax without any entries).
  */
 size_t ai_budget_estimate_tokens(const struct xAiSessionMsg_ *msgs, size_t n);
+
+/**
+ * @brief Calibrated variant of @ref ai_budget_estimate_tokens.
+ *
+ * Computes the raw static estimate and multiplies by the supplied
+ * @p factor, rounding to the nearest integer. A @p factor of 1.0
+ * is a bit-identical passthrough to the uncalibrated function.
+ *
+ * Returns 0 for empty inputs. @p factor is expected to be within
+ * the clamp range defined by @ref XAI_BUDGET_CALIBRATION_MIN_FACTOR
+ * and @ref XAI_BUDGET_CALIBRATION_MAX_FACTOR, but the function does
+ * not re-clamp: callers must feed a value produced by the
+ * calibrator (or a hard-coded 1.0 when they explicitly want the
+ * uncalibrated answer).
+ *
+ * Split from the plain estimator so tests can reproduce the exact
+ * arithmetic and so the calibration path stays opt-in per call
+ * site — the uncalibrated estimator remains a pure, history-only
+ * function with no session coupling.
+ */
+size_t ai_budget_estimate_tokens_calibrated(const struct xAiSessionMsg_ *msgs,
+                                            size_t n, double factor);
 
 /**
  * @brief Return the index of the @p k-th User-role entry in the

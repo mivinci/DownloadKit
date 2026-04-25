@@ -27,8 +27,7 @@
  * when a new entry kind is added there, the compiler warning on an
  * unhandled switch case will flag this function first.
  * ──────────────────────────────────────────────────────────────── */
-size_t ai_budget_estimate_tokens(const struct xAiSessionMsg_ *msgs,
-                                 size_t                       n) {
+size_t ai_budget_estimate_tokens(const struct xAiSessionMsg_ *msgs, size_t n) {
   if (!msgs || n == 0) return 0;
 
   size_t payload_bytes = 0;
@@ -37,28 +36,28 @@ size_t ai_budget_estimate_tokens(const struct xAiSessionMsg_ *msgs,
     const struct xAiSessionMsg_ *m = &msgs[i];
 
     switch (m->kind) {
-      case xAiSessionEntry_Text:
-      case xAiSessionEntry_Thinking:
-        payload_bytes += m->text_len;
-        break;
+    case xAiSessionEntry_Text:
+    case xAiSessionEntry_Thinking:
+      payload_bytes += m->text_len;
+      break;
 
-      case xAiSessionEntry_ToolUse:
-        /* Name and args are guaranteed non-NULL on populated
-         * entries (see ai_history_append_tool_use), but we guard
-         * defensively so this function stays safe on partially
-         * constructed fixtures in tests. */
-        if (m->tool_use_name) payload_bytes += strlen(m->tool_use_name);
-        if (m->tool_use_args) payload_bytes += strlen(m->tool_use_args);
-        break;
+    case xAiSessionEntry_ToolUse:
+      /* Name and args are guaranteed non-NULL on populated
+       * entries (see ai_history_append_tool_use), but we guard
+       * defensively so this function stays safe on partially
+       * constructed fixtures in tests. */
+      if (m->tool_use_name) payload_bytes += strlen(m->tool_use_name);
+      if (m->tool_use_args) payload_bytes += strlen(m->tool_use_args);
+      break;
 
-      case xAiSessionEntry_ToolResult:
-        payload_bytes += m->tool_result_output_len;
-        break;
+    case xAiSessionEntry_ToolResult:
+      payload_bytes += m->tool_result_output_len;
+      break;
     }
   }
 
-  return (payload_bytes / XAI_BUDGET_BYTES_PER_TOKEN)
-       + (n * XAI_BUDGET_PER_MSG_TOKENS);
+  return (payload_bytes / XAI_BUDGET_BYTES_PER_TOKEN) +
+         (n * XAI_BUDGET_PER_MSG_TOKENS);
 }
 
 /* ─────────────────────────────────────────────────────────────────
@@ -68,8 +67,8 @@ size_t ai_budget_estimate_tokens(const struct xAiSessionMsg_ *msgs,
  * hundreds, so this is not a hot path even when called repeatedly
  * from the trimmer.
  * ──────────────────────────────────────────────────────────────── */
-size_t ai_budget_find_nth_user_turn(const struct xAiSessionMsg_ *msgs,
-                                    size_t n, size_t k) {
+size_t ai_budget_find_nth_user_turn(const struct xAiSessionMsg_ *msgs, size_t n,
+                                    size_t k) {
   if (!msgs) return XAI_BUDGET_NO_SUCH_TURN;
 
   size_t seen = 0;
@@ -136,4 +135,65 @@ size_t ai_budget_earliest_keep(const struct xAiSessionMsg_ *msgs, size_t n,
   size_t k    = user_count - keep_recent_turns;
   size_t keep = ai_budget_find_nth_user_turn(msgs, n, k);
   return keep == XAI_BUDGET_NO_SUCH_TURN ? 0 : keep;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * ai_budget_estimate_tokens_calibrated
+ *
+ * Thin adapter over the raw estimator: compute once, multiply,
+ * round to nearest. Callers that need the uncalibrated answer go
+ * through ai_budget_estimate_tokens() directly; we do not publish
+ * a "pass 1.0 to this" convenience because the clarity of the
+ * function name at the call site is worth more than saving a
+ * branch.
+ *
+ * Rounding: +0.5 before truncation. For the clamp range this is
+ * well-behaved — raw * 2.0 on a size_t that fits in a history of
+ * reasonable size cannot overflow IEEE-754 double precision.
+ * ──────────────────────────────────────────────────────────────── */
+size_t ai_budget_estimate_tokens_calibrated(const struct xAiSessionMsg_ *msgs,
+                                            size_t n, double factor) {
+  size_t raw = ai_budget_estimate_tokens(msgs, n);
+  if (raw == 0) return 0;
+  double adjusted = (double)raw * factor + 0.5;
+  /* Safety net: a pathologically negative factor would go to 0
+   * after truncation. We document the input range in the header
+   * but still want a defined answer if a caller violates it. */
+  if (adjusted < 0.0) return 0;
+  return (size_t)adjusted;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * ai_budget_calibrator_init / _update
+ *
+ * Tiny stateful pair — the only piece of non-pure code in this
+ * translation unit. Kept here rather than in session.c so the full
+ * arithmetic (EWMA step + clamp + opt-out rules) is co-located
+ * with its tests in budget_test.cpp and with the constants it
+ * references from budget_private.h.
+ * ──────────────────────────────────────────────────────────────── */
+void ai_budget_calibrator_init(xAiBudgetCalibrator *c) {
+  if (!c) return;
+  c->factor  = 1.0;
+  c->samples = 0;
+}
+
+void ai_budget_calibrator_update(xAiBudgetCalibrator *c, size_t estimated,
+                                 int actual) {
+  if (!c) return;
+  if (estimated == 0) return; /* would divide by zero */
+  if (actual <= 0)    return; /* provider signalled "unknown" */
+
+  double observed = (double)actual / (double)estimated;
+  double next     = (1.0 - XAI_BUDGET_CALIBRATION_ALPHA) * c->factor +
+                    XAI_BUDGET_CALIBRATION_ALPHA * observed;
+
+  if (next < XAI_BUDGET_CALIBRATION_MIN_FACTOR) {
+    next = XAI_BUDGET_CALIBRATION_MIN_FACTOR;
+  } else if (next > XAI_BUDGET_CALIBRATION_MAX_FACTOR) {
+    next = XAI_BUDGET_CALIBRATION_MAX_FACTOR;
+  }
+  c->factor = next;
+
+  if (c->samples != (size_t)-1) c->samples++;
 }

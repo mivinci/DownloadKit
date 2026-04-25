@@ -31,6 +31,15 @@
  *     pre-budget releases. Callback / SummarizeOldest policies
  *     are accepted by the parser but behave like Error until
  *     c4+ wires the real implementations.
+ *   - Token-estimate calibration: each Session carries a tiny
+ *     EWMA calibrator (budget_calibrator, budget_private.h) that
+ *     corrects the static bytes/4 + envelope estimator against
+ *     provider-reported xAiUsage.prompt_tokens. The gate consults
+ *     the calibrated estimate; the on_done forwarder folds in one
+ *     observation per clean (single-round, text-only) run. Runs
+ *     with tool rounds are intentionally skipped because Query
+ *     usage is accumulated across rounds and cannot be mapped
+ *     back to a single-submit prompt size.
  *
  * The provider / tool loop itself lives in query.c; the Session
  * installs a static set of forwarding callbacks that re-dispatch
@@ -44,9 +53,10 @@
  *     set. Today every handler runs synchronously on the loop thread.
  *   - User-confirmation gate for needs_confirm tools.
  *   - Budget-policy implementations for Callback (caller-supplied
- *     compaction) and SummarizeOldest (async summary query). The
- *     token estimator is also deliberately coarse today;
- *     c4 calibrates it against provider-reported xAiUsage.
+ *     compaction) and SummarizeOldest (async summary query).
+ *     Multi-round tool runs do not yet contribute calibration
+ *     observations; a proper split of per-round usage out of
+ *     Query would unlock that in a later commit.
  *   - Proper async teardown when destroy is called mid-flight.
  */
 
@@ -322,52 +332,66 @@ static size_t session_budget_limit_(const struct xAiSession_ *s) {
  * the "can I trim enough to fit?" question honest: including it
  * would make an over-large system prompt look like regular history
  * pressure and yield no-op trims. */
-static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
+static xErrno session_enforce_budget_(struct xAiSession_ *s,
+                                      xAiMessage          msg) {
   if (s->budget.policy == xAiBudgetPolicy_Disabled) return xErrno_Ok;
 
   size_t limit    = session_budget_limit_(s);
   size_t incoming = estimate_incoming_user_tokens_(msg);
-  size_t current  = ai_budget_estimate_tokens(s->history, s->n_history);
+  double factor   = s->budget_calibrator.factor;
+  size_t current  = ai_budget_estimate_tokens_calibrated(
+    s->history, s->n_history, factor);
 
-  if (current + incoming <= limit) return xErrno_Ok;
+  if (current + incoming <= limit) {
+    /* Remember what the gate saw so sess_fwd_on_done can compare
+     * it to the provider-reported prompt_tokens and update the
+     * calibrator. Note we store the COMBINED number (history +
+     * incoming), which is what the provider will actually count —
+     * not just the history side. */
+    s->last_prompt_estimate = current + incoming;
+    return xErrno_Ok;
+  }
 
   switch (s->budget.policy) {
-  case xAiBudgetPolicy_TruncateOldest: {
-    /* Ask the policy primitive for the earliest point we are
-     * allowed to keep from while still honouring
-     * keep_recent_turns. If that is 0 (floor exceeds what we
-     * have, or no user turns to anchor on) we have nowhere to
-     * trim — fall through to the refusal branch below. */
-    size_t keep = ai_budget_earliest_keep(s->history, s->n_history,
-                                          s->budget.keep_recent_turns);
-    if (keep > 0) {
-      session_trim_history_front_(s, keep);
-      current = ai_budget_estimate_tokens(s->history, s->n_history);
-      if (current + incoming <= limit) return xErrno_Ok;
+    case xAiBudgetPolicy_TruncateOldest: {
+      /* Ask the policy primitive for the earliest point we are
+       * allowed to keep from while still honouring
+       * keep_recent_turns. If that is 0 (floor exceeds what we
+       * have, or no user turns to anchor on) we have nowhere to
+       * trim — fall through to the refusal branch below. */
+      size_t keep = ai_budget_earliest_keep(s->history, s->n_history,
+                                            s->budget.keep_recent_turns);
+      if (keep > 0) {
+        session_trim_history_front_(s, keep);
+        current = ai_budget_estimate_tokens_calibrated(
+          s->history, s->n_history, factor);
+        if (current + incoming <= limit) {
+          s->last_prompt_estimate = current + incoming;
+          return xErrno_Ok;
+        }
+      }
+      /* Even the maximally-aggressive trim still does not fit —
+       * that means either keep_recent_turns is larger than the
+       * budget can realistically serve, or the incoming message
+       * alone overflows. Refuse rather than silently violate the
+       * floor. */
+      return xErrno_PromptTooLong;
     }
-    /* Even the maximally-aggressive trim still does not fit —
-     * that means either keep_recent_turns is larger than the
-     * budget can realistically serve, or the incoming message
-     * alone overflows. Refuse rather than silently violate the
-     * floor. */
-    return xErrno_PromptTooLong;
-  }
 
-  case xAiBudgetPolicy_Error:
-    return xErrno_PromptTooLong;
+    case xAiBudgetPolicy_Error:
+      return xErrno_PromptTooLong;
 
-  case xAiBudgetPolicy_Callback:
-  case xAiBudgetPolicy_SummarizeOldest:
-  case xAiBudgetPolicy_Disabled:
-  default:
-    /* Reserved policies are not implemented yet. Refuse by
-     * default so a caller who asked for one does not silently
-     * get Disabled behaviour — that could mask bugs for years.
-     * c4+ replaces these arms with real wiring. */
-    return xErrno_PromptTooLong;
+    case xAiBudgetPolicy_Callback:
+    case xAiBudgetPolicy_SummarizeOldest:
+    case xAiBudgetPolicy_Disabled:
+    default:
+      /* Reserved policies are not implemented yet. Refuse by
+       * default so a caller who asked for one does not silently
+       * get Disabled behaviour — that could mask bugs for years.
+       * c4+ replaces these arms with real wiring. */
+      return xErrno_PromptTooLong;
   }
 }
-
 /* ── Building the Query input from Session state ────────────────────
  *
  * Every xAiSessionInput run hands the Query a complete, self-
@@ -567,6 +591,42 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
   size_t                 n_produced = 0;
   ai_query_take_produced((struct xAiQuery_ *)q, &produced, &n_produced);
 
+  /* Calibration opt-in check — done BEFORE we move produced into
+   * history so the scan is cheap (small, local array) and
+   * independent of future history growth.
+   *
+   * Rationale for "single round only": Query.usage is accumulated
+   * across every provider round (see query.c:usage_accumulate —
+   * each round's prompt_tokens counts the cumulative inputs +
+   * prior tool_results the model saw on that round). Feeding that
+   * sum into a calibrator that estimates a SINGLE-submit prompt
+   * would inflate the factor by a factor-of-rounds each time and
+   * make the gate pathologically conservative after a few tool
+   * sessions. Detecting single-round is cheap and reliable: a
+   * tool_use in produced means there was at least a second round
+   * to deliver the tool_result. No tool_use → exactly one round
+   * → usage->prompt_tokens maps cleanly to last_prompt_estimate.
+   *
+   * Other opt-outs handled inside ai_budget_calibrator_update():
+   *   - usage == NULL or prompt_tokens <= 0 (unknown)
+   *   - last_prompt_estimate == 0 (gate was Disabled or not run) */
+  int single_round = 1;
+  for (size_t i = 0; i < n_produced; i++) {
+    if (produced[i].kind == xAiSessionEntry_ToolUse) {
+      single_round = 0;
+      break;
+    }
+  }
+  if (single_round && usage && s->last_prompt_estimate > 0) {
+    ai_budget_calibrator_update(&s->budget_calibrator,
+                                s->last_prompt_estimate,
+                                usage->prompt_tokens);
+  }
+  /* Reset for the next run either way — a stale estimate crossing
+   * query boundaries would be a foot-gun if some future code path
+   * fires on_done without having gone through the gate. */
+  s->last_prompt_estimate = 0;
+
   /* Append every produced entry into history by bitwise move: the
    * struct owns its strings, and history_grow hands us a freshly
    * zeroed slot, so we can just copy the struct across. On growth
@@ -630,6 +690,13 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
    * and the enforcement path is still dark at this point — c2/c3
    * will light it up. */
   s->budget = conf->budget;
+
+  /* Token-estimate calibrator boots at identity (factor = 1.0);
+   * it accumulates observations from sess_fwd_on_done on clean
+   * single-round runs. last_prompt_estimate is zero until the
+   * first gate run records one. */
+  ai_budget_calibrator_init(&s->budget_calibrator);
+  s->last_prompt_estimate = 0;
 
   /* Session-lifetime properties: stamped here, never mutated. Zero
    * for @c origin collapses to xAiInputOrigin_User, which is also

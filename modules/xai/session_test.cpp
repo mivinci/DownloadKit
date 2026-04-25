@@ -1551,4 +1551,208 @@ TEST_F(SessionTest, BudgetTruncatePolicyUnderBudgetIsNoop) {
   xAiSessionDestroy(sess);
 }
 
+/* ── Token-estimate calibration (c4) ────────────────────────────────
+ *
+ * These tests cover the post-run calibrator loop:
+ *
+ *   - A fresh session starts at factor = 1.0, samples = 0.
+ *   - A clean single-round run with a positive prompt_tokens in
+ *     the usage block produces exactly one observation; the
+ *     factor moves by ALPHA of the way toward (actual / estimate).
+ *   - Runs without a usage block, or with -1 prompt_tokens, do
+ *     NOT update the calibrator.
+ *   - Runs under a Disabled policy never touch the calibrator —
+ *     the gate short-circuits before recording last_prompt_estimate,
+ *     so sess_fwd_on_done sees zero and bails out.
+ *   - The calibrated factor flows back into the next gate: a
+ *     factor pushed well above 1.0 causes a previously-accepted
+ *     payload size to be refused with PromptTooLong.
+ *
+ * All tests here poke directly at xAiSession_::budget_calibrator
+ * rather than going through a public accessor because c4 does not
+ * introduce one — the calibrator is session-internal diagnostics,
+ * not caller-facing API. */
+
+TEST_F(SessionTest, BudgetCalibratorInitialStateIsIdentity) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy     = xAiBudgetPolicy_Error;
+  budget.max_tokens = 1000;
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
+  EXPECT_EQ(s->budget_calibrator.samples, 0u);
+  EXPECT_EQ(s->last_prompt_estimate, 0u);
+
+  xAiSessionDestroy(sess);
+}
+
+TEST_F(SessionTest, BudgetCalibratorUpdatesOnCleanSingleRound) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy     = xAiBudgetPolicy_Error;
+  budget.max_tokens = 1000;
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Provider reports a prompt_tokens that is substantially larger
+   * than our static estimate. The static estimate for "hello" is
+   * ~9 tokens (5 bytes / 4 + 8 envelope). Report 900 to force a
+   * big observed ratio and an unambiguous factor move. */
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDoneWithUsage(xAiProviderStop_EndTurn, /*prompt=*/900,
+                     /*completion=*/10),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hello")), xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  /* One observation recorded. */
+  EXPECT_EQ(s->budget_calibrator.samples, 1u);
+  /* Factor moved above 1.0 (observed >> 1) but did not exceed the
+   * upper clamp from a single observation (1 + ALPHA * (observed - 1)
+   * is far below 2.0 even for a 100x observed ratio because ALPHA
+   * is 0.25; a single step adds at most 0.25 * (MAX - 1) before
+   * clamping, i.e. 1.25 on the first step regardless of observed). */
+  EXPECT_GT(s->budget_calibrator.factor, 1.0);
+  EXPECT_LE(s->budget_calibrator.factor,
+            XAI_BUDGET_CALIBRATION_MAX_FACTOR);
+  /* last_prompt_estimate must be cleared after the run so a stale
+   * value can't leak into the next gate. */
+  EXPECT_EQ(s->last_prompt_estimate, 0u);
+
+  xAiSessionDestroy(sess);
+}
+
+TEST_F(SessionTest, BudgetCalibratorIgnoresMissingUsage) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy     = xAiBudgetPolicy_Error;
+  budget.max_tokens = 1000;
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Plain SDone without SDoneWithUsage → provider reports NULL
+   * usage → calibrator must not budge. */
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hello")), xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
+  EXPECT_EQ(s->budget_calibrator.samples, 0u);
+
+  xAiSessionDestroy(sess);
+}
+
+TEST_F(SessionTest, BudgetCalibratorIgnoresUnknownPromptTokens) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy     = xAiBudgetPolicy_Error;
+  budget.max_tokens = 1000;
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Usage present but prompt_tokens = -1 (the "unknown" sentinel).
+   * Calibrator opt-out applies. */
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDoneWithUsage(xAiProviderStop_EndTurn, /*prompt=*/-1,
+                     /*completion=*/7),
+  });
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hello")), xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
+  EXPECT_EQ(s->budget_calibrator.samples, 0u);
+
+  xAiSessionDestroy(sess);
+}
+
+TEST_F(SessionTest, BudgetCalibratorDoesNotRunUnderDisabledPolicy) {
+  /* Disabled skips the gate entirely → last_prompt_estimate stays
+   * zero → on_done's calibrator update bails out. This is
+   * deliberate: callers who haven't opted into budget enforcement
+   * also haven't opted into the cost of calibration, and running
+   * it anyway would be silent work + a surprise resource if they
+   * later flip to an enforcing policy (they'd expect a fresh
+   * identity calibrator). */
+  Captured cap;
+  xAiBudgetConf budget{};               /* Disabled (zero default) */
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDoneWithUsage(xAiProviderStop_EndTurn, /*prompt=*/900,
+                     /*completion=*/10),
+  });
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hello")), xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
+  EXPECT_EQ(s->budget_calibrator.samples, 0u);
+
+  xAiSessionDestroy(sess);
+}
+
+TEST_F(SessionTest, BudgetCalibratorFeedsBackIntoNextGate) {
+  /* The end-to-end story: a miscalibrated session (our estimate is
+   * too low, the provider's true prompt_tokens is higher) learns
+   * from the first round and enforces more aggressively on the
+   * next round.
+   *
+   * Setup:
+   *   - max_tokens = 100
+   *   - A payload that our static estimator sees as ~80 tokens.
+   *     At factor = 1.0 this passes the gate comfortably.
+   *   - Provider reports prompt_tokens = 400 (5x our estimate),
+   *     the worst kind of systematic underestimate.
+   *   - After one observation, the calibrator is pushed high
+   *     enough that the SAME payload is estimated above the
+   *     100-token ceiling and the next Input is refused. */
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy     = xAiBudgetPolicy_Error;
+  budget.max_tokens = 100;
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* 280 bytes → 70 payload tokens + 8 envelope = 78 raw. Well
+   * under 100 at factor = 1.0. Provider reports 400 (observed =
+   * ~5.1 against our 78; ALPHA step pushes factor toward
+   * min(MAX_FACTOR, 1 + 0.25 * ~4.1) = MAX_FACTOR = 2.0 after
+   * clamp). */
+  std::string payload(280, 'q');
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDoneWithUsage(xAiProviderStop_EndTurn, /*prompt=*/400,
+                     /*completion=*/12),
+  });
+  ASSERT_EQ(xAiSessionInput(sess, xAiMessageFromText(payload.c_str())),
+            xErrno_Ok);
+  ASSERT_EQ(cap.done_fired, 1);
+
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  ASSERT_GT(s->budget_calibrator.factor, 1.0);
+
+  /* Second turn: history now holds (user + assistant). Estimate
+   * at factor = 2.0 is doubled across the board — the same-sized
+   * new payload plus the grown history will trip the 100-token
+   * ceiling and the gate must refuse. */
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText(payload.c_str())),
+            xErrno_PromptTooLong);
+
+  xAiSessionDestroy(sess);
+}
+
 

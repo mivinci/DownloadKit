@@ -124,8 +124,7 @@ XDEF_STRUCT(xAiSessionCallbacks) {
    * @param len    Length of @p chunk in bytes.
    * @param ud     The user_data pointer from this struct.
    */
-  void (*on_thinking)(xAiSession sess, const char *chunk, size_t len,
-                      void *ud);
+  void (*on_thinking)(xAiSession sess, const char *chunk, size_t len, void *ud);
 
   /**
    * @brief Fired exactly once when the current run terminates.
@@ -151,8 +150,8 @@ XDEF_STRUCT(xAiSessionCallbacks) {
    *                callback — copy what you want to keep.
    * @param ud      The user_data pointer from this struct.
    */
-  void (*on_done)(xAiSession sess, xAiDoneReason reason,
-                  const xAiUsage *usage, void *ud);
+  void (*on_done)(xAiSession sess, xAiDoneReason reason, const xAiUsage *usage,
+                  void *ud);
 
   /**
    * @brief Fired as a diagnostic precursor when the run hits a
@@ -228,6 +227,95 @@ XDEF_STRUCT(xAiSessionCallbacks) {
 typedef void (*xAiSessionFinalizingFn)(xAiSession sess, void *owner);
 
 /**
+ * @brief Strategy for keeping the serialized prompt under the
+ *        session's token budget.
+ *
+ * Consulted by the session immediately before a new Query is
+ * launched: "am I about to send more tokens to the provider than I
+ * am allowed to?" The policy decides what the session does in that
+ * case — drop older history, bail out with an error, summarise
+ * offline, etc. All policies preserve four invariants regardless
+ * of which variant is selected:
+ *
+ *   1. the System prompt, if any, is never trimmed;
+ *   2. the current user turn being submitted is never trimmed;
+ *   3. tool_use / tool_result pairs are trimmed atomically — a
+ *      surviving tool_use always has its matching tool_result and
+ *      vice versa;
+ *   4. at least the last @ref xAiBudgetConf::keep_recent_turns
+ *      user turns (with their assistant replies and tool chatter)
+ *      are kept.
+ *
+ * Zero (@ref xAiBudgetPolicy_Disabled) means "do nothing", which
+ * matches existing sessions byte-for-byte and is the default for
+ * calloc'd configs.
+ *
+ * @see docs/todo/xai_architecture.md and modules/xai/TODO.md §6
+ *      for the rollout plan; alpha ships with Disabled / Error /
+ *      TruncateOldest only. Callback and SummarizeOldest slots are
+ *      wired into the enum early so that adding them later is not
+ *      an ABI break.
+ */
+XDEF_ENUM(xAiBudgetPolicy){
+  xAiBudgetPolicy_Disabled        = 0, /**< No budget check runs      */
+  xAiBudgetPolicy_Error           = 1, /**< Fail with PromptTooLong   */
+  xAiBudgetPolicy_TruncateOldest  = 2, /**< Drop oldest non-pinned    */
+  xAiBudgetPolicy_Callback        = 3, /**< Reserved: caller-supplied */
+  xAiBudgetPolicy_SummarizeOldest = 4, /**< Reserved: async summary   */
+};
+
+/**
+ * @brief Configuration for the session's context-budget enforcement.
+ *
+ * All three fields are optional. When @ref policy is
+ * @ref xAiBudgetPolicy_Disabled the other two are ignored, and the
+ * session behaves exactly as if this struct did not exist — this
+ * is the default for zero-initialised configs, so existing callers
+ * need not change a single line.
+ *
+ * The budget is expressed in **approximate tokens**, not bytes.
+ * The session's internal estimator is deliberately coarse
+ * (bytes/4 baseline, ex-post calibrated against provider-reported
+ * xAiUsage once a run reports one) and is never exposed here —
+ * callers who care about precision should over-provision by ~10%.
+ */
+XDEF_STRUCT(xAiBudgetConf) {
+  /**
+   * @brief Which policy the session applies when the estimated
+   *        prompt size is about to exceed @ref max_tokens.
+   *
+   * @ref xAiBudgetPolicy_Disabled (the zero default) disables the
+   * check entirely; the other fields are then ignored.
+   */
+  xAiBudgetPolicy policy;
+
+  /**
+   * @brief Estimated-token ceiling for the serialized prompt.
+   *
+   * Zero means "let the session fall back to its built-in default
+   * for the active model" — the concrete default is
+   * implementation-defined and may change across releases. Callers
+   * with a hard downstream limit should set this explicitly.
+   */
+  size_t max_tokens;
+
+  /**
+   * @brief Minimum number of recent user turns to keep intact,
+   *        regardless of how much token pressure the trimmer is
+   *        under.
+   *
+   * A "user turn" here means one xAiRole_User message plus every
+   * assistant / tool entry that followed before the next user
+   * message. Zero means "no minimum" — use with care, since a
+   * pathological budget could otherwise leave the model with only
+   * the current input and no conversational context. The session
+   * may clamp very high values downward if honouring them would
+   * itself violate @ref max_tokens.
+   */
+  size_t keep_recent_turns;
+};
+
+/**
  * @brief Configuration for creating a session.
  *
  * Zero-initialise for "inherit everything from the agent". All
@@ -243,12 +331,31 @@ XDEF_STRUCT(xAiSessionConf) {
   const char *model;         /**< Override the agent's default model
                                   id (borrowed, may be NULL).           */
 
-  int    max_turns;          /**< Override the agent's max_turns
-                                  (0 = inherit).                        */
-  int    max_tokens;         /**< Override per-round token cap
-                                  (0 = inherit).                        */
-  size_t context_budget;     /**< Override the agent's context budget
-                                  (0 = inherit).                        */
+  int max_turns;         /**< Override the agent's max_turns
+                              (0 = inherit).                        */
+  int max_tokens;        /**< Override per-round token cap
+                              (0 = inherit).                        */
+  size_t context_budget; /**< Legacy soft byte cap on the serialized
+                              prompt (0 = inherit from agent). New
+                              code should prefer @ref budget below;
+                              this field is retained so that older
+                              callers keep building unchanged while
+                              context_budget \u03b1 is being rolled out. */
+
+  /**
+   * @brief Structured context-budget policy for this session.
+   *
+   * Zero-initialised (@ref xAiBudgetPolicy_Disabled) behaves
+   * exactly like previous releases: the session never trims and
+   * never refuses a turn on prompt size. Setting a non-Disabled
+   * policy opts the session into the enforcement path described
+   * in xAiBudgetPolicy / xAiBudgetConf. Unlike @ref context_budget,
+   * this field is **not** inherited from the agent today — the
+   * session is the only layer that owns the rolling history and
+   * therefore the only layer that can trim it. Agent-level
+   * inheritance can be added non-breakingly later.
+   */
+  xAiBudgetConf budget;
 
   /**
    * @brief Who this session speaks for.

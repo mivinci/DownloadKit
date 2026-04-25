@@ -473,6 +473,12 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   s->context_budget = conf->context_budget > 0 ? conf->context_budget
                                                : a->context_budget;
 
+  /* Structured budget config is a plain value copy: Disabled (the
+   * zero default) keeps the session behaving exactly as before,
+   * and the enforcement path is still dark at this point — c2/c3
+   * will light it up. */
+  s->budget = conf->budget;
+
   /* Session-lifetime properties: stamped here, never mutated. Zero
    * for @c origin collapses to xAiInputOrigin_User, which is also
    * the conservative default for callers who simply calloc the

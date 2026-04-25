@@ -20,6 +20,17 @@
  *     fired. Anything the Query produced during the run is pulled
  *     out via ai_query_take_produced() and merged back into the
  *     Session's history before the Query is released.
+ *   - Context-budget gate: before appending the user turn and
+ *     creating a Query, xAiSessionInput runs the incoming msg +
+ *     current history through the budget estimator (budget.c) and
+ *     dispatches on xAiBudgetConf::policy. Error refuses with
+ *     xErrno_PromptTooLong; TruncateOldest drops history entries
+ *     at the earliest-keep boundary and, if that still does not
+ *     fit, refuses. Disabled (the default) is a single-branch
+ *     short-circuit and leaves behaviour byte-identical to
+ *     pre-budget releases. Callback / SummarizeOldest policies
+ *     are accepted by the parser but behave like Error until
+ *     c4+ wires the real implementations.
  *
  * The provider / tool loop itself lives in query.c; the Session
  * installs a static set of forwarding callbacks that re-dispatch
@@ -32,14 +43,17 @@
  *   - Parallel tool dispatch via xTaskGroup when concurrent_safe is
  *     set. Today every handler runs synchronously on the loop thread.
  *   - User-confirmation gate for needs_confirm tools.
- *   - Local context_budget compression. The session still forwards
- *     the provider's PromptLong signal as xAiDoneReason_PromptTooLong.
+ *   - Budget-policy implementations for Callback (caller-supplied
+ *     compaction) and SummarizeOldest (async summary query). The
+ *     token estimator is also deliberately coarse today;
+ *     c4 calibrates it against provider-reported xAiUsage.
  *   - Proper async teardown when destroy is called mid-flight.
  */
 
 #include "session_private.h"
 
 #include "agent_private.h"
+#include "budget_private.h"
 
 #include <xai/message.h>
 #include <xai/provider.h>
@@ -82,9 +96,9 @@ void ai_session_msg_free(struct xAiSessionMsg_ *m) {
  * NULL on allocation failure. */
 static struct xAiSessionMsg_ *history_grow(struct xAiSession_ *s) {
   if (s->n_history + 1 > s->cap_history) {
-    size_t new_cap = s->cap_history ? s->cap_history * 2 : 8;
-    struct xAiSessionMsg_ *nh = (struct xAiSessionMsg_ *)realloc(
-        s->history, new_cap * sizeof(*nh));
+    size_t                 new_cap = s->cap_history ? s->cap_history * 2 : 8;
+    struct xAiSessionMsg_ *nh =
+      (struct xAiSessionMsg_ *)realloc(s->history, new_cap * sizeof(*nh));
     if (!nh) return NULL;
     s->history     = nh;
     s->cap_history = new_cap;
@@ -117,8 +131,8 @@ xErrno ai_history_append_tool_use(struct xAiSession_ *s, const char *id,
                                   const char *name, const char *args) {
   struct xAiSessionMsg_ *slot = history_grow(s);
   if (!slot) return xErrno_NoMemory;
-  slot->role = xAiRole_Assistant;
-  slot->kind = xAiSessionEntry_ToolUse;
+  slot->role          = xAiRole_Assistant;
+  slot->kind          = xAiSessionEntry_ToolUse;
   slot->tool_use_id   = dup_cstr(id ? id : "");
   slot->tool_use_name = dup_cstr(name ? name : "");
   slot->tool_use_args = dup_cstr(args ? args : "{}");
@@ -154,11 +168,11 @@ xErrno ai_history_append_tool_result(struct xAiSession_ *s, const char *id,
                                      int is_error) {
   struct xAiSessionMsg_ *slot = history_grow(s);
   if (!slot) return xErrno_NoMemory;
-  slot->role = xAiRole_Tool;
-  slot->kind = xAiSessionEntry_ToolResult;
+  slot->role           = xAiRole_Tool;
+  slot->kind           = xAiSessionEntry_ToolResult;
   slot->tool_result_id = dup_cstr(id ? id : "");
   if (output_len > 0) {
-    slot->tool_result_output = dup_bytes(output, output_len);
+    slot->tool_result_output     = dup_bytes(output, output_len);
     slot->tool_result_output_len = output_len;
   } else if (output) {
     slot->tool_result_output     = dup_cstr(output);
@@ -217,6 +231,143 @@ static xErrno history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
   return xErrno_Ok;
 }
 
+/* ── Context-budget enforcement ─────────────────────────────────────
+ *
+ * Gate xAiSessionInput runs on the structured xAiBudgetConf policy.
+ * The pipeline runs BEFORE the user message is committed to
+ * history, so the Error policy can refuse the turn without leaving
+ * history polluted, and the TruncateOldest policy can shape history
+ * first and then let the normal append path execute on an already-
+ * conforming base.
+ *
+ * Wire picture:
+ *
+ *   xAiSessionInput(sess, msg)
+ *     │
+ *     ├─ budget.policy == Disabled   → skip, proceed as before
+ *     ├─ budget.policy == Error      → estimate; if over, return
+ *     │                                xErrno_PromptTooLong
+ *     ├─ budget.policy == Truncate   → estimate; if over, trim
+ *     │                                history front to the
+ *     │                                earliest-keep boundary. If
+ *     │                                still over afterwards fall
+ *     │                                through to Error (refuse).
+ *     └─ Callback / SummarizeOldest  → reserved; treated like Error
+ *                                      until c4+ wires them up.
+ *
+ * The estimator is the coarse one from budget.c — bytes/4 plus a
+ * per-entry envelope constant — and is intentionally conservative
+ * so a slightly-overestimate still errs on the side of "refuse /
+ * trim a bit more" rather than busting the real provider window.
+ */
+
+/* Estimate the token footprint of an incoming xAiMessage as if it
+ * were already appended to history as a single xAiRole_User text
+ * entry. Only text blocks contribute bytes (see
+ * history_append_user_msg — non-text blocks on user input are
+ * ignored), and the per-entry envelope constant is charged once
+ * for the whole merged entry, matching how the append path creates
+ * exactly one history slot. */
+static size_t estimate_incoming_user_tokens_(xAiMessage msg) {
+  size_t payload_bytes = 0;
+  for (size_t i = 0; i < msg.n; i++) {
+    if (msg.contents[i].type == xAiContentType_Text) {
+      payload_bytes += msg.contents[i].u.text.len;
+    }
+  }
+  return (payload_bytes / XAI_BUDGET_BYTES_PER_TOKEN) +
+         XAI_BUDGET_PER_MSG_TOKENS;
+}
+
+/* Drop history entries @c [0, keep_idx) in place. Releases each
+ * slot's owned strings via ai_session_msg_free() and shifts the
+ * survivors down with memmove. The capacity is left untouched —
+ * we expect the freed slots to be refilled by the very next
+ * xAiSessionInput run, and shrinking the backing array would just
+ * churn realloc. */
+static void session_trim_history_front_(struct xAiSession_ *s,
+                                        size_t              keep_idx) {
+  if (keep_idx == 0 || keep_idx >= s->n_history) return;
+
+  for (size_t i = 0; i < keep_idx; i++) {
+    ai_session_msg_free(&s->history[i]);
+  }
+  size_t remaining = s->n_history - keep_idx;
+  memmove(&s->history[0], &s->history[keep_idx],
+          remaining * sizeof(s->history[0]));
+  s->n_history = remaining;
+}
+
+/* Resolve the effective token ceiling for this session. A zero
+ * @c max_tokens in the budget conf means "use the built-in
+ * default"; callers that want a tighter or looser cap MUST set an
+ * explicit value. Kept inline-ish so each policy branch does not
+ * repeat the fallback. */
+static size_t session_budget_limit_(const struct xAiSession_ *s) {
+  return s->budget.max_tokens > 0 ? s->budget.max_tokens
+                                  : XAI_BUDGET_DEFAULT_MAX_TOKENS;
+}
+
+/* Decide whether this incoming user message, combined with the
+ * current history, fits in the configured budget — and if not,
+ * act according to @c budget.policy. May mutate @c s->history
+ * (TruncateOldest path).
+ *
+ * Returns xErrno_Ok to mean "proceed: it's safe to append and run
+ * a Query"; any other value short-circuits xAiSessionInput.
+ *
+ * Note: the system_prompt is intentionally NOT counted here. It
+ * is a borrowed, fixed-size sidecar that the trimmer cannot touch
+ * anyway (invariant 1), so excluding it from the budget math keeps
+ * the "can I trim enough to fit?" question honest: including it
+ * would make an over-large system prompt look like regular history
+ * pressure and yield no-op trims. */
+static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
+  if (s->budget.policy == xAiBudgetPolicy_Disabled) return xErrno_Ok;
+
+  size_t limit    = session_budget_limit_(s);
+  size_t incoming = estimate_incoming_user_tokens_(msg);
+  size_t current  = ai_budget_estimate_tokens(s->history, s->n_history);
+
+  if (current + incoming <= limit) return xErrno_Ok;
+
+  switch (s->budget.policy) {
+  case xAiBudgetPolicy_TruncateOldest: {
+    /* Ask the policy primitive for the earliest point we are
+     * allowed to keep from while still honouring
+     * keep_recent_turns. If that is 0 (floor exceeds what we
+     * have, or no user turns to anchor on) we have nowhere to
+     * trim — fall through to the refusal branch below. */
+    size_t keep = ai_budget_earliest_keep(s->history, s->n_history,
+                                          s->budget.keep_recent_turns);
+    if (keep > 0) {
+      session_trim_history_front_(s, keep);
+      current = ai_budget_estimate_tokens(s->history, s->n_history);
+      if (current + incoming <= limit) return xErrno_Ok;
+    }
+    /* Even the maximally-aggressive trim still does not fit —
+     * that means either keep_recent_turns is larger than the
+     * budget can realistically serve, or the incoming message
+     * alone overflows. Refuse rather than silently violate the
+     * floor. */
+    return xErrno_PromptTooLong;
+  }
+
+  case xAiBudgetPolicy_Error:
+    return xErrno_PromptTooLong;
+
+  case xAiBudgetPolicy_Callback:
+  case xAiBudgetPolicy_SummarizeOldest:
+  case xAiBudgetPolicy_Disabled:
+  default:
+    /* Reserved policies are not implemented yet. Refuse by
+     * default so a caller who asked for one does not silently
+     * get Disabled behaviour — that could mask bugs for years.
+     * c4+ replaces these arms with real wiring. */
+    return xErrno_PromptTooLong;
+  }
+}
+
 /* ── Building the Query input from Session state ────────────────────
  *
  * Every xAiSessionInput run hands the Query a complete, self-
@@ -255,7 +406,8 @@ static xErrno sess_input_view_build(struct xAiSession_      *s,
   for (size_t i = 0; i < s->n_history;) {
     if (s->history[i].role == xAiRole_Assistant) {
       size_t j = i;
-      while (j < s->n_history && s->history[j].role == xAiRole_Assistant) j++;
+      while (j < s->n_history && s->history[j].role == xAiRole_Assistant)
+        j++;
       n_msgs += 1;
       n_blocks += (j - i);
       i = j;
@@ -465,13 +617,13 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   s->agent = agent;
   s->cbs   = conf->cbs;
 
-  s->system_prompt  = conf->system_prompt ? conf->system_prompt
-                                          : a->system_prompt;
-  s->model          = conf->model ? conf->model : a->model;
-  s->max_turns      = conf->max_turns > 0 ? conf->max_turns : a->max_turns;
-  s->max_tokens     = conf->max_tokens > 0 ? conf->max_tokens : a->max_tokens;
-  s->context_budget = conf->context_budget > 0 ? conf->context_budget
-                                               : a->context_budget;
+  s->system_prompt =
+    conf->system_prompt ? conf->system_prompt : a->system_prompt;
+  s->model      = conf->model ? conf->model : a->model;
+  s->max_turns  = conf->max_turns > 0 ? conf->max_turns : a->max_turns;
+  s->max_tokens = conf->max_tokens > 0 ? conf->max_tokens : a->max_tokens;
+  s->context_budget =
+    conf->context_budget > 0 ? conf->context_budget : a->context_budget;
 
   /* Structured budget config is a plain value copy: Disabled (the
    * zero default) keeps the session behaving exactly as before,
@@ -501,11 +653,20 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
    * is still in flight refuse with Busy. */
   if (s->query) return xErrno_Busy;
 
+  /* Budget gate: consulted BEFORE any history mutation so the
+   * Error policy can refuse without leaving partial state behind,
+   * and the TruncateOldest policy can shape history first so the
+   * subsequent append lands on an already-conforming base. A
+   * Disabled policy (the default) short-circuits inside
+   * session_enforce_budget_() with zero measurable overhead. */
+  xErrno rc = session_enforce_budget_(s, msg);
+  if (rc != xErrno_Ok) return rc;
+
   /* Commit the user message to history first so the input view
    * below includes it. If the Query submit later fails we'll roll
    * this back. */
   size_t history_checkpoint = s->n_history;
-  xErrno rc                 = history_append_user_msg(s, msg);
+  rc                        = history_append_user_msg(s, msg);
   if (rc != xErrno_Ok) return rc;
 
   /* Build the complete message array the Query should run on

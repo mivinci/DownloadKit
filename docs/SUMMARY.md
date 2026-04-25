@@ -56,6 +56,7 @@
 
 - [Design](design/README.md)
   - [Three-Layer Conversation Model](design/three-layer-conversation-model.md)
+  - [Context Budget](design/context-budget.md)
 
 ---
 

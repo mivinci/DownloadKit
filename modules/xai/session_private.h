@@ -17,62 +17,9 @@
 #include <xai/session.h>
 
 #include "query_private.h"
+#include "turn_private.h" /* struct xAiSessionMsg_, ai_session_msg_free */
 
 #include <stddef.h>
-
-/**
- * @brief Kind of a history entry.
- *
- * History is stored as a flat list of "entries" rather than fully
- * composed xAiMessages: one entry carries exactly one content block.
- * At submit time, view_build() walks the list and folds consecutive
- * Assistant-role entries into a single xAiMessage so the wire
- * representation matches what providers expect (an assistant turn is
- * one message that may contain text and tool_use blocks together).
- *
- * The tradeoff: history grows longer than turn_count, but each entry
- * has a fixed, union-free shape that is trivial to own/copy/free.
- */
-enum xAiSessionEntryKind_ {
-  xAiSessionEntry_Text       = 0, /**< role + text payload            */
-  xAiSessionEntry_ToolUse    = 1, /**< role==Assistant + tool_use     */
-  xAiSessionEntry_ToolResult = 2, /**< role==Tool + tool_result       */
-  /**
-   * role==Assistant + chain-of-thought. Payload lives in @c text /
-   * @c text_len so ai_session_msg_free() stays simple. Kept as its
-   * own kind so view_build() can turn it back into an
-   * xAiContentType_Thinking block on follow-up rounds — several
-   * reasoning models reject tool_calls assistant messages that do
-   * not echo the previous round's reasoning.
-   */
-  xAiSessionEntry_Thinking   = 3,
-};
-
-/**
- * @brief One history entry owned by the session.
- *
- * Everything inside is session-owned; ai_session_msg_free() is
- * responsible for releasing the populated fields based on @p kind.
- */
-struct xAiSessionMsg_ {
-  xAiRole                    role;
-  enum xAiSessionEntryKind_  kind;
-
-  /* kind == Text */
-  char  *text;
-  size_t text_len;
-
-  /* kind == ToolUse */
-  char *tool_use_id;
-  char *tool_use_name;
-  char *tool_use_args; /* JSON object string */
-
-  /* kind == ToolResult */
-  char  *tool_result_id;
-  char  *tool_result_output;
-  size_t tool_result_output_len;
-  int    tool_result_is_error;
-};
 
 /**
  * @brief The session instance.
@@ -121,14 +68,6 @@ struct xAiSession_ {
 #define XAI_SESSION_DEFAULT_MAX_TURNS 16
 
 /* ── Cross-TU helpers (session.c implementers, query.c consumers) ── */
-
-/**
- * @brief Release the fields of a history entry in place.
- *
- * The slot itself is caller-owned storage (a member of @c session->history);
- * this only frees the owned strings and zeroes the struct.
- */
-void ai_session_msg_free(struct xAiSessionMsg_ *m);
 
 /**
  * @brief Append a (role, text) history entry. @p text is duplicated.

@@ -94,6 +94,11 @@ struct xAiSession_ {
   int         max_tokens;    /* resolved per-round cap                */
   size_t      context_budget;
 
+  /* ── Session-lifetime properties (stamped at create, immutable) ── */
+  xAiInputOrigin         origin;           /* default User on zero    */
+  xAiSessionFinalizingFn on_finalizing;    /* NULL = no hook          */
+  void                  *finalizing_owner; /* passed back verbatim    */
+
   /* ── Rolling history (session-owned, flat entries) ────────────── */
   struct xAiSessionMsg_ *history;
   size_t                 n_history;

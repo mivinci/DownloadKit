@@ -97,6 +97,8 @@ graph TD
 | [`mpsc.h`](mpsc.md) | [mpsc.md](mpsc.md) | Lock-free multi-producer / single-consumer intrusive queue |
 | [`atomic.h`](atomic.md) | [atomic.md](atomic.md) | Compiler-portable atomic operations (GCC/Clang `__atomic` builtins) |
 | [`io.h`](io.md) | [io.md](io.md) | Abstract I/O interfaces (Reader, Writer, Seeker, Closer) with convenience helpers (xReadFull, xReadAll, xWritev, etc.) |
+| `hex.h` | [hex.md](hex.md) | Hex (base16) encode/decode — binary to/from ASCII hex string (lower-case output, case-insensitive decode) |
+| `base64.h` | [base64.md](base64.md) | Base64 encode/decode (RFC 4648) — standard and URL-safe alphabets, with or without `=` padding |
 | `time.h` | — | Time utilities: `xMonoMs()` (monotonic) and `xWallMs()` (wall-clock) in milliseconds |
 
 ## How to Choose

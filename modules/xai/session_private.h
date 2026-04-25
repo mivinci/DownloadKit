@@ -17,6 +17,7 @@
 
 #include "query_private.h"
 #include "turn_private.h" /* struct xAiSessionMsg_, ai_session_msg_free */
+#include "budget_private.h" /* xAiBudgetCalibrator                    */
 
 #include <stddef.h>
 
@@ -47,6 +48,23 @@ struct xAiSession_ {
    * enforcement pipeline itself lands in follow-up commits. Not
    * inherited from the agent today — see session.h for rationale. */
   xAiBudgetConf budget;
+
+  /* Online calibration state for the token estimator. Initialised
+   * to identity (factor = 1.0) by xAiSessionCreate; updated from
+   * sess_fwd_on_done whenever a single-round run returns a usage
+   * block with a positive prompt_tokens. Consulted by the budget
+   * gate on the next xAiSessionInput so a session running against
+   * a model whose true token count drifts from the coarse bytes/4
+   * heuristic self-corrects within a handful of turns. See
+   * ai_budget_calibrator_update() for the exact opt-in rules. */
+  xAiBudgetCalibrator budget_calibrator;
+
+  /* The calibrated pre-submit estimate of the last turn that
+   * cleared the budget gate, or 0 when no run is in flight /
+   * never-calibrated. Paired with the xAiUsage reported by
+   * sess_fwd_on_done to produce one calibration observation per
+   * clean (single-round, text-only) run. */
+  size_t last_prompt_estimate;
 
   /* ── Session-lifetime properties (stamped at create, immutable) ── */
   xAiInputOrigin         origin;           /* default User on zero    */

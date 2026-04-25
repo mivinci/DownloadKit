@@ -30,10 +30,10 @@
 #include "session_private.h"
 
 #include "agent_private.h"
-#include "provider_private.h" /* ai_provider_cancel                        */
 
 #include <xai/message.h>
 #include <xai/provider.h>
+#include <xai/query.h>    /* xAiSessionQuery, xAiQueryCancel           */
 #include <xai/session.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
@@ -292,16 +292,11 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
 }
 
 void xAiSessionCancel(xAiSession sess) {
-  if (!sess) return;
-  struct xAiSession_ *s = (struct xAiSession_ *)sess;
-  if (!s->query.running) return;
-
-  ai_query_cancel_mark(&s->query);
-
-  struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
-  ai_provider_cancel(a->provider);
-  /* on_provider_done will arrive with reason=Cancelled (or we are
-   * between rounds and dispatch_pending_tools will notice). */
+  /* Thin wrapper over the query-level entry point. Both exist so
+   * callers can target whichever layer their code already tracks;
+   * the underlying semantics are identical (cancel this session's
+   * single in-flight run). */
+  xAiQueryCancel(xAiSessionQuery(sess));
 }
 
 void xAiSessionDestroy(xAiSession sess) {

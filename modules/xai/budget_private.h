@@ -80,8 +80,21 @@ extern "C" {
  * turn because history arrays are bounded by size_t capacity far
  * below SIZE_MAX.
  */
-#define XAI_BUDGET_NO_SUCH_TURN ((size_t)-1)
+#define XAI_BUDGET_NO_SUCH_TURN ((size_t) -1)
 
+/**
+ * @brief Built-in @c max_tokens default when the caller sets
+ *        @ref xAiBudgetConf::max_tokens to zero.
+ *
+ * 128000 covers the context windows of the models this codebase
+ * currently talks to (Claude 3.5 / 3.7, GPT-4o / 4.1, kimi-k2.6,
+ * DeepSeek-V3) without overshooting the smallest deployed variant.
+ * Callers that know their downstream limit (e.g. gpt-3.5-turbo at
+ * 16k or an internal-only 32k Sonnet deployment) MUST set an
+ * explicit @c max_tokens in @ref xAiBudgetConf; this fallback is
+ * chosen for "something sensible" rather than "tight fit".
+ */
+#define XAI_BUDGET_DEFAULT_MAX_TOKENS 128000u
 /**
  * @brief Estimate the approximate token count for a flat slice of
  *        turn entries.

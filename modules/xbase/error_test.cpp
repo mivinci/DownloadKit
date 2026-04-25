@@ -80,6 +80,11 @@ TEST(ErrorTest, BusyReturnsCorrectString) {
   EXPECT_STREQ(xstrerror(xErrno_Busy), "resource busy");
 }
 
+TEST(ErrorTest, PromptTooLongReturnsCorrectString) {
+  EXPECT_STREQ(xstrerror(xErrno_PromptTooLong),
+               "prompt exceeds context budget");
+}
+
 /* ── Out-of-range error codes return "unknown error" ── */
 
 TEST(ErrorTest, NegativeCodeReturnsUnknown) {

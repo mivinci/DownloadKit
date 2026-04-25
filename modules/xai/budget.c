@@ -1,0 +1,139 @@
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * budget.c - Context-budget helper implementations.
+ *
+ * Scope discipline: pure functions only. No allocations, no IO,
+ * no mutation of caller state. See budget_private.h for the
+ * contract each function must honour and the reasoning behind the
+ * constants.
+ */
+
+#include "budget_private.h"
+
+#include <xai/message.h> /* xAiRole_User */
+
+#include <string.h>
+
+/* ─────────────────────────────────────────────────────────────────
+ * ai_budget_estimate_tokens
+ *
+ * Coarse "bytes / 4 plus per-message envelope" estimator. The
+ * per-kind branch is deliberately verbose: each case reads the
+ * exact fields that ai_history_append_*() populates for that kind,
+ * which keeps this function in lock-step with turn_private.h —
+ * when a new entry kind is added there, the compiler warning on an
+ * unhandled switch case will flag this function first.
+ * ──────────────────────────────────────────────────────────────── */
+size_t ai_budget_estimate_tokens(const struct xAiSessionMsg_ *msgs,
+                                 size_t                       n) {
+  if (!msgs || n == 0) return 0;
+
+  size_t payload_bytes = 0;
+
+  for (size_t i = 0; i < n; ++i) {
+    const struct xAiSessionMsg_ *m = &msgs[i];
+
+    switch (m->kind) {
+      case xAiSessionEntry_Text:
+      case xAiSessionEntry_Thinking:
+        payload_bytes += m->text_len;
+        break;
+
+      case xAiSessionEntry_ToolUse:
+        /* Name and args are guaranteed non-NULL on populated
+         * entries (see ai_history_append_tool_use), but we guard
+         * defensively so this function stays safe on partially
+         * constructed fixtures in tests. */
+        if (m->tool_use_name) payload_bytes += strlen(m->tool_use_name);
+        if (m->tool_use_args) payload_bytes += strlen(m->tool_use_args);
+        break;
+
+      case xAiSessionEntry_ToolResult:
+        payload_bytes += m->tool_result_output_len;
+        break;
+    }
+  }
+
+  return (payload_bytes / XAI_BUDGET_BYTES_PER_TOKEN)
+       + (n * XAI_BUDGET_PER_MSG_TOKENS);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * ai_budget_find_nth_user_turn
+ *
+ * Linear scan. The slice sizes we deal with are in the tens to low
+ * hundreds, so this is not a hot path even when called repeatedly
+ * from the trimmer.
+ * ──────────────────────────────────────────────────────────────── */
+size_t ai_budget_find_nth_user_turn(const struct xAiSessionMsg_ *msgs,
+                                    size_t n, size_t k) {
+  if (!msgs) return XAI_BUDGET_NO_SUCH_TURN;
+
+  size_t seen = 0;
+  for (size_t i = 0; i < n; ++i) {
+    if (msgs[i].role == xAiRole_User) {
+      if (seen == k) return i;
+      ++seen;
+    }
+  }
+  return XAI_BUDGET_NO_SUCH_TURN;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * ai_budget_earliest_keep
+ *
+ * High-level shape:
+ *
+ *   1. Count total User-role entries in the slice (call it @c U).
+ *   2. If U == 0, nothing anchors a trim boundary → return 0.
+ *   3. If U <= keep_recent_turns, we do not have enough history to
+ *      meet the floor → return 0 (the caller keeps everything).
+ *   4. Otherwise the keep window begins at the (U - keep_recent_turns)-th
+ *      User-role entry (0-indexed), i.e. the first User turn that
+ *      we are obliged to keep. Everything strictly before that
+ *      index is safe to drop.
+ *
+ * Correctness sketch for the tool_use / tool_result invariant:
+ * history is produced exclusively by ai_history_append_*(). User
+ * messages (xAiRole_User) can only carry Text entries — never
+ * ToolUse or ToolResult. Therefore a User-role boundary can never
+ * sit between a tool_use and its matching tool_result, so slicing
+ * the array at that index preserves pairing.
+ * ──────────────────────────────────────────────────────────────── */
+size_t ai_budget_earliest_keep(const struct xAiSessionMsg_ *msgs, size_t n,
+                               size_t keep_recent_turns) {
+  if (!msgs || n == 0) return 0;
+
+  /* Count user turns in one pass. Cheap and keeps the subsequent
+   * find_nth_user_turn call from having to walk past the desired
+   * entry just to verify it exists. */
+  size_t user_count = 0;
+  for (size_t i = 0; i < n; ++i) {
+    if (msgs[i].role == xAiRole_User) ++user_count;
+  }
+
+  if (user_count == 0) return 0;
+
+  /* Special-case keep_recent_turns == 0: keep only the last user
+   * turn. The earliest-keep index is then the index of the last
+   * User-role entry, because everything strictly before it (its
+   * older peers plus their assistant/tool chatter) is expendable. */
+  if (keep_recent_turns == 0) {
+    size_t last = ai_budget_find_nth_user_turn(msgs, n, user_count - 1);
+    /* user_count > 0 here, so find_nth_user_turn must succeed. */
+    return last == XAI_BUDGET_NO_SUCH_TURN ? 0 : last;
+  }
+
+  /* Not enough history to honour the floor: keep everything. */
+  if (user_count <= keep_recent_turns) return 0;
+
+  /* The keep window starts at the (user_count - keep_recent_turns)-th
+   * User-role entry. Example: 5 user turns, keep_recent_turns = 2
+   * → start keeping from the 3rd user turn (index 2 in 0-based k). */
+  size_t k    = user_count - keep_recent_turns;
+  size_t keep = ai_budget_find_nth_user_turn(msgs, n, k);
+  return keep == XAI_BUDGET_NO_SUCH_TURN ? 0 : keep;
+}

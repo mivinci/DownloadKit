@@ -41,6 +41,13 @@ struct xAiSession_ {
   int         max_tokens;    /* resolved per-round cap                */
   size_t      context_budget;
 
+  /* Structured context-budget policy, captured from conf by value
+   * at create time. Zero-initialised (Disabled) means "no budget
+   * enforcement" and is the backward-compatible default; the
+   * enforcement pipeline itself lands in follow-up commits. Not
+   * inherited from the agent today — see session.h for rationale. */
+  xAiBudgetConf budget;
+
   /* ── Session-lifetime properties (stamped at create, immutable) ── */
   xAiInputOrigin         origin;           /* default User on zero    */
   xAiSessionFinalizingFn on_finalizing;    /* NULL = no hook          */

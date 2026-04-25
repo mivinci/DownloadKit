@@ -13,6 +13,7 @@
 #ifndef XAI_SESSION_PRIVATE_H
 #define XAI_SESSION_PRIVATE_H
 
+#include <xai/message.h> /* xAiMessage (for ai_history_append_user_msg) */
 #include <xai/session.h>
 
 #include "query_private.h"
@@ -105,12 +106,14 @@ struct xAiSession_ {
   size_t                 cap_history;
 
   /* ── In-flight run state ──────────────────────────────────────── */
-  /* One Query at a time for now. Embedded, not heap-allocated: the
-   * struct is small and we never observe more than one concurrent
-   * run per Session. Promotion to a pointer (or a list) is a
-   * follow-up when SystemSynthesized queries start coexisting with
-   * user-initiated ones — see docs/todo/xai_architecture.md §8. */
-  struct xAiQuery_ query;
+  /* At most one Query alive at a time today; the Session itself
+   * enforces single-flight by rejecting xAiSessionInput while
+   * @c query is non-NULL. NULL means idle (no run in flight). The
+   * Query is heap-allocated by xAiQueryCreate and released when its
+   * terminal on_done has been forwarded. Promotion to a list is a
+   * follow-up for when SystemSynthesized queries start coexisting
+   * with user-initiated ones — see docs/todo/xai_architecture.md §8. */
+  struct xAiQuery_ *query;
 };
 
 /* Fallback cap if neither the caller nor the agent set max_turns.
@@ -153,12 +156,16 @@ xErrno ai_history_append_tool_result(struct xAiSession_ *s, const char *id,
                                      int is_error);
 
 /**
- * @brief Finish the current run: reset the Query and fire on_done.
+ * @brief Append an incoming user-shaped xAiMessage into history.
  *
- * Snapshots the usage accumulator, clears the Query's round buffers
- * and run flags, then invokes the caller's on_done callback with
- * @p reason (and the snapshot if any round reported usage).
+ * Concatenates every text block into a single text entry; non-text
+ * blocks are ignored. Used by xAiQueryRun during Phase α when the
+ * Query still drives its input into the Session's history directly.
+ *
+ * @param s    Session to append into.
+ * @param msg  Caller-supplied message (role is usually User).
+ * @return     xErrno_Ok on success; xErrno_NoMemory on allocation failure.
  */
-void ai_session_finish_run(struct xAiSession_ *s, xAiDoneReason reason);
+xErrno ai_history_append_user_msg(struct xAiSession_ *s, xAiMessage msg);
 
 #endif /* XAI_SESSION_PRIVATE_H */

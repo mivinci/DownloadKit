@@ -3,172 +3,29 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * query_test.cpp - Whitebox smoke tests for xAiQuery_ state machine.
+ * query_test.cpp - Whitebox tests for the xAiQuery public API.
  *
  * Rationale:
- *   The end-to-end behaviour of Query (provider round, tool loop,
- *   usage accumulation, cancellation) is already covered by
- *   session_test.cpp through the public xAiSession surface. These
- *   tests zero in on the Query's internal state machine in
- *   isolation, so a future refactor that shuffles only the Query
- *   layer breaks here first rather than in the larger session
- *   suite.
+ *   End-to-end Query behaviour (provider round, tool loop, usage
+ *   accumulation, cancellation, Create/Run/Destroy lifecycle) is
+ *   exercised through the public xAiSession surface in
+ *   session_test.cpp. These tests only cover what that suite can't
+ *   reach trivially: the NULL-safety and out-parameter contracts
+ *   of the standalone xAiQuery* accessors.
  *
- *   Two questions we answer:
- *
- *     1. ai_query_arm() turns an idle Query into a submitted-ready
- *        one with the right invariants (usage reset to all-(-1),
- *        running flag set, session back-pointer wired).
- *     2. ai_query_reset_round() / ai_query_dispose() leave the
- *        Query in a sane, leak-free shape.
- *
- *   We deliberately do NOT reach through ai_query_submit here —
- *   that path would require the full provider/agent/event-loop
- *   scaffolding, which is already exercised verbatim by
- *   session_test. Duplicating it would test the scaffolding, not
- *   the Query.
- */
-
-extern "C" {
-#include "query_private.h"
-#include "session_private.h"
-
-#include <xbase/error.h>
-}
-
-#include <cstring>
-
-#include <gtest/gtest.h>
-
-namespace {
-
-/* Zero-shape a Session just enough that ai_query_arm can wire the
- * back-pointer. The Query does not dereference any Session field
- * during arm / reset / dispose; it only needs a non-NULL address to
- * record as q->session. */
-struct FakeSession {
-  xAiSession_ s;
-
-  FakeSession() {
-    std::memset(&s, 0, sizeof(s));
-  }
-  xAiSession_ *get() {
-    return &s;
-  }
-};
-
-} // namespace
-
-/* ── ai_query_arm ─────────────────────────────────────────────────── */
-
-TEST(QueryState, ArmWiresSessionBackpointer) {
-  FakeSession fs;
-  xAiQuery_   q;
-  std::memset(&q, 0, sizeof(q));
-
-  ai_query_arm(&q, fs.get());
-
-  EXPECT_EQ(q.session, fs.get());
-  EXPECT_EQ(q.running, 1);
-  EXPECT_EQ(q.cancelled, 0);
-  EXPECT_EQ(q.turn, 0);
-}
-
-TEST(QueryState, ArmResetsUsageToSentinels) {
-  FakeSession fs;
-  xAiQuery_   q;
-  std::memset(&q, 0, sizeof(q));
-  /* Prime the usage with stale non-sentinel data; arm must wipe it. */
-  q.saw_usage               = 1;
-  q.usage.prompt_tokens     = 42;
-  q.usage.completion_tokens = 99;
-  q.usage.total_tokens      = 141;
-
-  ai_query_arm(&q, fs.get());
-
-  EXPECT_EQ(q.saw_usage, 0);
-  EXPECT_EQ(q.usage.prompt_tokens, -1);
-  EXPECT_EQ(q.usage.completion_tokens, -1);
-  EXPECT_EQ(q.usage.total_tokens, -1);
-}
-
-/* ── ai_query_cancel_mark ─────────────────────────────────────────── */
-
-TEST(QueryState, CancelMarkFlipsFlagWithoutTouchingRunning) {
-  FakeSession fs;
-  xAiQuery_   q;
-  std::memset(&q, 0, sizeof(q));
-  ai_query_arm(&q, fs.get());
-
-  ai_query_cancel_mark(&q);
-
-  EXPECT_EQ(q.cancelled, 1);
-  /* running stays 1 — finish_run is what clears it. cancel_mark
-   * only raises the flag so the next callback bail-out can observe
-   * it. */
-  EXPECT_EQ(q.running, 1);
-}
-
-/* ── ai_query_reset_round ─────────────────────────────────────────── */
-
-TEST(QueryState, ResetRoundClearsRunFlagsAndUsage) {
-  FakeSession fs;
-  xAiQuery_   q;
-  std::memset(&q, 0, sizeof(q));
-  ai_query_arm(&q, fs.get());
-  q.turn                    = 3;
-  q.saw_usage               = 1;
-  q.usage.prompt_tokens     = 10;
-  q.usage.completion_tokens = 20;
-  q.cancelled               = 1;
-
-  ai_query_reset_round(&q);
-
-  EXPECT_EQ(q.running, 0);
-  EXPECT_EQ(q.cancelled, 0);
-  EXPECT_EQ(q.turn, 0);
-  EXPECT_EQ(q.saw_usage, 0);
-  EXPECT_EQ(q.usage.prompt_tokens, -1);
-  EXPECT_EQ(q.usage.completion_tokens, -1);
-  EXPECT_EQ(q.usage.total_tokens, -1);
-}
-
-/* ── ai_query_dispose ─────────────────────────────────────────────── */
-
-TEST(QueryState, DisposeOnZeroQueryIsSafe) {
-  /* An idle Query that never saw arm() must still tolerate dispose
-   * — this matches session.c's unconditional call in the destroy
-   * path. No assertions beyond "doesn't crash / no UB under ASan". */
-  xAiQuery_ q;
-  std::memset(&q, 0, sizeof(q));
-  ai_query_dispose(&q);
-  SUCCEED();
-}
-
-TEST(QueryState, DisposeAfterArmIsSafe) {
-  FakeSession fs;
-  xAiQuery_   q;
-  std::memset(&q, 0, sizeof(q));
-  ai_query_arm(&q, fs.get());
-  /* No provider round ran, so no heap buffers were allocated; this
-   * still exercises the dispose path for the common
-   * "create-then-destroy without ever sending input" shape. */
-  ai_query_dispose(&q);
-  SUCCEED();
-}
-
-/* ── Public API (xai/query.h) ─────────────────────────────────────
- *
- * These tests only exercise the Session-less accessor surface: the
- * functions that read back state from an already-constructed Query
- * handle. The driving side (Cancel triggering an actual provider
- * abort) is covered end-to-end in session_test.cpp where a real
- * provider is wired up.
+ *   Anything that needs a real Agent + provider stack is tested
+ *   via xAiSessionInput in session_test.cpp; duplicating that
+ *   setup here would test the scaffolding, not the Query.
  */
 
 extern "C" {
 #include <xai/query.h>
+#include <xai/session.h>
 }
+
+#include <gtest/gtest.h>
+
+/* ── Public API NULL / out-param contracts ─────────────────────── */
 
 TEST(QueryPublicApi, NullHandleIsSafe) {
   EXPECT_EQ(xAiSessionQuery(nullptr), nullptr);
@@ -178,6 +35,9 @@ TEST(QueryPublicApi, NullHandleIsSafe) {
 
   /* xAiQueryCancel on NULL is a silent no-op. */
   xAiQueryCancel(nullptr);
+
+  /* xAiQueryDestroy on NULL is a silent no-op. */
+  xAiQueryDestroy(nullptr);
 
   /* xAiQueryUsage on NULL must populate the out struct with
    * all-(-1) sentinels so callers can rely on a single shape. */
@@ -192,41 +52,21 @@ TEST(QueryPublicApi, NullHandleIsSafe) {
   SUCCEED();
 }
 
-TEST(QueryPublicApi, AccessorsReadQueryState) {
-  FakeSession fs;
-  xAiQuery_   q;
-  std::memset(&q, 0, sizeof(q));
-  ai_query_arm(&q, fs.get());
-  q.turn                    = 2;
-  q.usage.prompt_tokens     = 7;
-  q.usage.completion_tokens = 11;
-  q.usage.total_tokens      = 18;
-
-  auto handle = reinterpret_cast<xAiQuery>(&q);
-
-  EXPECT_EQ(xAiQueryIsRunning(handle), 1);
-  EXPECT_EQ(xAiQueryTurn(handle), 2);
-  EXPECT_EQ(xAiQuerySession(handle),
-            reinterpret_cast<xAiSession>(fs.get()));
-
-  xAiUsage u{0, 0, 0};
-  xAiQueryUsage(handle, &u);
-  EXPECT_EQ(u.prompt_tokens, 7);
-  EXPECT_EQ(u.completion_tokens, 11);
-  EXPECT_EQ(u.total_tokens, 18);
+TEST(QueryPublicApi, CreateRejectsNullArgs) {
+  /* Both args required; Create returns NULL on any omission. No
+   * Session is actually live here, but the early-return branches
+   * must trigger before any Session member is dereferenced. */
+  xAiQueryConf conf{};
+  EXPECT_EQ(xAiQueryCreate(nullptr, &conf), nullptr);
+  /* A non-NULL Session with a NULL conf is also rejected — we
+   * don't have a real Session to hand in, but xAiSession is an
+   * opaque handle so any non-NULL pointer exercises the NULL-conf
+   * branch (the arg check runs before any dereference). */
+  auto dummy_sess = reinterpret_cast<xAiSession>(0x1);
+  EXPECT_EQ(xAiQueryCreate(dummy_sess, nullptr), nullptr);
 }
 
-TEST(QueryPublicApi, CancelOnIdleQueryIsSilentNoop) {
-  /* The Query has never been armed (running == 0). xAiQueryCancel
-   * must early-return without touching the provider (none exists
-   * here — we don't wire a FakeSession so the back-pointer is NULL
-   * too) and without flipping the cancelled flag. */
-  xAiQuery_ q;
-  std::memset(&q, 0, sizeof(q));
-
-  xAiQueryCancel(reinterpret_cast<xAiQuery>(&q));
-
-  EXPECT_EQ(q.cancelled, 0);
-  EXPECT_EQ(q.running, 0);
+TEST(QueryPublicApi, RunRejectsNullQuery) {
+  EXPECT_EQ(xAiQueryRun(nullptr, xAiMessageFromText("hi")),
+            xErrno_InvalidArg);
 }
-

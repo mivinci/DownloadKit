@@ -12,11 +12,15 @@
  *     tool_use arguments, tool_result output) is duplicated into
  *     session-owned storage. Callers can drop their xAiMessage as
  *     soon as xAiSessionInput returns.
- *   - Run finalisation: snapshot usage + reset the embedded Query +
- *     fire the caller's on_done.
+ *   - Query lifecycle: each accepted xAiSessionInput creates a fresh
+ *     Query via xAiQueryCreate, runs it with xAiQueryRun, and
+ *     destroys it from a forwarding on_done once the terminal
+ *     callback has fired.
  *
- * The provider / tool loop itself lives in query.c; xAiSessionInput
- * arms the Query and hands off via ai_query_submit.
+ * The provider / tool loop itself lives in query.c; the Session
+ * installs a static set of forwarding callbacks that re-dispatch
+ * Query-level events (on_text, on_thinking, on_done, ...) to the
+ * caller's xAiSessionCallbacks with the Session handle.
  *
  * Intentionally still deferred (see modules/xai/TODO.md):
  *   - Parallel tool dispatch via xTaskGroup when concurrent_safe is
@@ -33,7 +37,7 @@
 
 #include <xai/message.h>
 #include <xai/provider.h>
-#include <xai/query.h>    /* xAiSessionQuery, xAiQueryCancel           */
+#include <xai/query.h>
 #include <xai/session.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
@@ -168,9 +172,12 @@ xErrno ai_history_append_tool_result(struct xAiSession_ *s, const char *id,
 
 /* Append an incoming xAiMessage (caller-supplied, shallow view) into
  * our history. Every text block is concatenated into a single text
- * entry; non-text blocks on the user side are ignored. Kept static:
- * only xAiSessionInput in this TU consumes user-shaped xAiMessage. */
-static xErrno history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
+ * entry; non-text blocks on the user side are ignored. Exposed to
+ * query.c via session_private.h so xAiQueryRun can perform the
+ * Phase-α history append on its input. Phase β moves the history
+ * append back into session.c once Queries take explicit message
+ * arrays. */
+xErrno ai_history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
   size_t total = 0;
   for (size_t i = 0; i < msg.n; i++) {
     if (msg.contents[i].type == xAiContentType_Text) {
@@ -205,25 +212,79 @@ static xErrno history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
   return xErrno_Ok;
 }
 
-/* ── Run finalisation ──────────────────────────────────────────────── */
+/* ── Query → Session callback forwarding ──────────────────────────────
+ *
+ * The Query fires its own @c q->cbs.* stream with a Query handle.
+ * Sessions install the shims below so every event is re-dispatched
+ * to the caller's xAiSessionCallbacks with the Session handle and
+ * the caller's user_data. The Query callbacks carry the owning
+ * Session as user_data.
+ */
 
-void ai_session_finish_run(struct xAiSession_ *s, xAiDoneReason reason) {
-  /* Snapshot usage before reset: the callback sees the running
-   * totals we accumulated across every provider round, or NULL if
-   * nothing ever reported. */
-  xAiUsage usage_snapshot = s->query.usage;
-  int      had_usage      = s->query.saw_usage;
-
-  /* Hand the Query back to its idle shape (buffers kept for reuse,
-   * flags cleared, usage accumulator zeroed). */
-  ai_query_reset_round(&s->query);
-
-  if (s->cbs.on_done) {
-    s->cbs.on_done((xAiSession)s, reason,
-                   had_usage ? &usage_snapshot : NULL,
-                   s->cbs.user_data);
+static void sess_fwd_on_text(xAiQuery q, const char *chunk, size_t len,
+                             void *ud) {
+  (void)q;
+  struct xAiSession_ *s = (struct xAiSession_ *)ud;
+  if (s->cbs.on_text) {
+    s->cbs.on_text((xAiSession)s, chunk, len, s->cbs.user_data);
   }
 }
+
+static void sess_fwd_on_thinking(xAiQuery q, const char *chunk, size_t len,
+                                 void *ud) {
+  (void)q;
+  struct xAiSession_ *s = (struct xAiSession_ *)ud;
+  if (s->cbs.on_thinking) {
+    s->cbs.on_thinking((xAiSession)s, chunk, len, s->cbs.user_data);
+  }
+}
+
+static void sess_fwd_on_error(xAiQuery q, xErrno err, const char *msg,
+                              void *ud) {
+  (void)q;
+  struct xAiSession_ *s = (struct xAiSession_ *)ud;
+  if (s->cbs.on_error) {
+    s->cbs.on_error((xAiSession)s, err, msg, s->cbs.user_data);
+  }
+}
+
+static void sess_fwd_on_tool(xAiQuery q, const char *tool_name, int started,
+                             void *ud) {
+  (void)q;
+  struct xAiSession_ *s = (struct xAiSession_ *)ud;
+  if (s->cbs.on_tool) {
+    s->cbs.on_tool((xAiSession)s, tool_name, started, s->cbs.user_data);
+  }
+}
+
+/* Terminal forwarding: fire the caller's on_done first, then release
+ * the Query. Destroy-in-on_done is safe because query.c's finalize
+ * path does not touch @p q after firing our callback (see
+ * query_finalize in query.c).
+ *
+ * Order note: caller's on_done runs while @c s->query still points
+ * at @p q, so xAiSessionQuery / xAiQueryUsage observed from inside
+ * on_done still work. Only after the callback returns do we detach
+ * and free (xAiQueryDestroy nulls s->query for us). */
+static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
+                             const xAiUsage *usage, void *ud) {
+  struct xAiSession_ *s = (struct xAiSession_ *)ud;
+  if (s->cbs.on_done) {
+    s->cbs.on_done((xAiSession)s, reason, usage, s->cbs.user_data);
+  }
+  xAiQueryDestroy(q);
+}
+
+/* One static callback set — stamped into every Query the Session
+ * spawns, with user_data re-bound per-create to the Session handle. */
+static const xAiQueryCallbacks SESSION_FWD_CBS = {
+  .on_text     = sess_fwd_on_text,
+  .on_thinking = sess_fwd_on_thinking,
+  .on_done     = sess_fwd_on_done,
+  .on_error    = sess_fwd_on_error,
+  .on_tool     = sess_fwd_on_tool,
+  .user_data   = NULL, /* filled in per-Query */
+};
 
 /* ── Public API ─────────────────────────────────────────────────────── */
 
@@ -254,9 +315,8 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   s->on_finalizing    = conf->on_finalizing;
   s->finalizing_owner = conf->finalizing_owner;
 
-  /* Leave the Query in its zero-initialised idle shape: ai_query_arm
-   * at xAiSessionInput time will set session back-pointer, reset
-   * the usage accumulator to all-(-1), and flip running=1. */
+  /* @c s->query starts NULL (from calloc). A Query is allocated on
+   * demand by xAiSessionInput and released from sess_fwd_on_done. */
 
   return (xAiSession)s;
 }
@@ -265,29 +325,28 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   if (!sess) return xErrno_InvalidArg;
   struct xAiSession_ *s = (struct xAiSession_ *)sess;
 
-  if (s->query.running) return xErrno_Busy;
+  /* Single-flight: one live Query per Session. If the previous run
+   * is still in flight refuse with Busy. */
+  if (s->query) return xErrno_Busy;
 
-  size_t history_checkpoint = s->n_history;
-  xErrno rc = history_append_user_msg(s, msg);
-  if (rc != xErrno_Ok) return rc;
+  /* Spawn a fresh Query with Session-level forwarding shims bound
+   * to this Session. xAiQueryCreate also sets s->query so a second
+   * Input call during the same run hits the Busy branch above. */
+  xAiQueryConf qc  = {0};
+  qc.cbs           = SESSION_FWD_CBS;
+  qc.cbs.user_data = s;
 
-  /* Arm BEFORE submit: submit may deliver callbacks synchronously,
-   * and on_provider_done clears running via ai_session_finish_run. */
-  ai_query_arm(&s->query, s);
+  xAiQuery q = xAiQueryCreate(sess, &qc);
+  if (!q) return xErrno_NoMemory;
 
-  rc = ai_query_submit(&s->query);
+  /* xAiQueryRun performs the Phase-α history append and submits the
+   * first round. On failure it rolls the history append back; we
+   * just need to release the Query we just created. */
+  xErrno rc = xAiQueryRun(q, msg);
   if (rc != xErrno_Ok) {
-    /* Round never started — don't fire on_done. Undo the user
-     * message we appended so the history tracks what actually
-     * happened. */
-    s->query.running = 0;
-    s->query.turn    = 0;
-    while (s->n_history > history_checkpoint) {
-      ai_session_msg_free(&s->history[--s->n_history]);
-    }
+    xAiQueryDestroy(q); /* Clears s->query back to NULL. */
     return rc;
   }
-
   return xErrno_Ok;
 }
 
@@ -303,19 +362,24 @@ void xAiSessionDestroy(xAiSession sess) {
   if (!sess) return;
   struct xAiSession_ *s = (struct xAiSession_ *)sess;
 
-  if (s->query.running) {
-    xAiSessionCancel(sess);
+  /* Tear down the Query first (if any). xAiQueryDestroy will
+   * cancel-then-free synchronously; in the common "natural
+   * completion" path sess_fwd_on_done has already destroyed it, so
+   * this branch is mostly a safety net for mid-flight destroys. */
+  if (s->query) {
+    xAiQueryDestroy((xAiQuery)s->query);
+    /* xAiQueryDestroy nulls s->query for us. */
   }
 
   /* Fire the late-teardown hook while the session is still fully
-   * live (history intact, Query buffers intact). Detach before
-   * calling so a misbehaving hook that triggers a second destroy
-   * won't re-enter here. Per contract the hook runs at most once. */
+   * live (history intact). Detach before calling so a misbehaving
+   * hook that triggers a second destroy won't re-enter here. Per
+   * contract the hook runs at most once. */
   if (s->on_finalizing) {
-    xAiSessionFinalizingFn hook = s->on_finalizing;
+    xAiSessionFinalizingFn hook  = s->on_finalizing;
     void                  *owner = s->finalizing_owner;
-    s->on_finalizing    = NULL;
-    s->finalizing_owner = NULL;
+    s->on_finalizing             = NULL;
+    s->finalizing_owner          = NULL;
     hook(sess, owner);
   }
 
@@ -323,7 +387,6 @@ void xAiSessionDestroy(xAiSession sess) {
     ai_session_msg_free(&s->history[i]);
   }
   free(s->history);
-  ai_query_dispose(&s->query);
   free(s);
 }
 

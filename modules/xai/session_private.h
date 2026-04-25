@@ -13,7 +13,6 @@
 #ifndef XAI_SESSION_PRIVATE_H
 #define XAI_SESSION_PRIVATE_H
 
-#include <xai/message.h> /* xAiMessage (for ai_history_append_user_msg) */
 #include <xai/session.h>
 
 #include "query_private.h"
@@ -93,18 +92,5 @@ xErrno ai_history_append_tool_use(struct xAiSession_ *s, const char *id,
 xErrno ai_history_append_tool_result(struct xAiSession_ *s, const char *id,
                                      const char *output, size_t output_len,
                                      int is_error);
-
-/**
- * @brief Append an incoming user-shaped xAiMessage into history.
- *
- * Concatenates every text block into a single text entry; non-text
- * blocks are ignored. Used by xAiQueryRun during Phase α when the
- * Query still drives its input into the Session's history directly.
- *
- * @param s    Session to append into.
- * @param msg  Caller-supplied message (role is usually User).
- * @return     xErrno_Ok on success; xErrno_NoMemory on allocation failure.
- */
-xErrno ai_history_append_user_msg(struct xAiSession_ *s, xAiMessage msg);
 
 #endif /* XAI_SESSION_PRIVATE_H */

@@ -12,15 +12,21 @@
  *     tool_use arguments, tool_result output) is duplicated into
  *     session-owned storage. Callers can drop their xAiMessage as
  *     soon as xAiSessionInput returns.
- *   - Query lifecycle: each accepted xAiSessionInput creates a fresh
- *     Query via xAiQueryCreate, runs it with xAiQueryRun, and
- *     destroys it from a forwarding on_done once the terminal
- *     callback has fired.
+ *   - Query lifecycle: each accepted xAiSessionInput builds the
+ *     complete message list the model should see (System prompt +
+ *     rolling history + the new user turn), creates a fresh Query
+ *     via xAiQueryCreate, runs it with xAiQueryRun, and destroys
+ *     it from a forwarding on_done once the terminal callback has
+ *     fired. Anything the Query produced during the run is pulled
+ *     out via ai_query_take_produced() and merged back into the
+ *     Session's history before the Query is released.
  *
  * The provider / tool loop itself lives in query.c; the Session
  * installs a static set of forwarding callbacks that re-dispatch
  * Query-level events (on_text, on_thinking, on_done, ...) to the
- * caller's xAiSessionCallbacks with the Session handle.
+ * caller's xAiSessionCallbacks with the Session handle. The Query
+ * runs off an explicit message array and never reads or writes
+ * s->history directly — that is the boundary this split enforces.
  *
  * Intentionally still deferred (see modules/xai/TODO.md):
  *   - Parallel tool dispatch via xTaskGroup when concurrent_safe is
@@ -170,14 +176,13 @@ xErrno ai_history_append_tool_result(struct xAiSession_ *s, const char *id,
   return xErrno_Ok;
 }
 
-/* Append an incoming xAiMessage (caller-supplied, shallow view) into
- * our history. Every text block is concatenated into a single text
- * entry; non-text blocks on the user side are ignored. Exposed to
- * query.c via session_private.h so xAiQueryRun can perform the
- * Phase-α history append on its input. Phase β moves the history
- * append back into session.c once Queries take explicit message
- * arrays. */
-xErrno ai_history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
+/* Concatenate every text block of an incoming user-role xAiMessage
+ * into a single text entry and append it to history. Non-text blocks
+ * are ignored (user-side tool_result entries come in via the tool
+ * pipeline, not xAiSessionInput). Kept static: only xAiSessionInput
+ * consumes this shape now that the Query no longer drives history
+ * writes itself. */
+static xErrno history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
   size_t total = 0;
   for (size_t i = 0; i < msg.n; i++) {
     if (msg.contents[i].type == xAiContentType_Text) {
@@ -209,6 +214,134 @@ xErrno ai_history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
   slot->kind     = xAiSessionEntry_Text;
   slot->text     = buf;
   slot->text_len = total;
+  return xErrno_Ok;
+}
+
+/* ── Building the Query input from Session state ────────────────────
+ *
+ * Every xAiSessionInput run hands the Query a complete, self-
+ * contained message array: (optional) System prompt + the rolling
+ * history the Session already has, including the user message we
+ * just appended. Each xAiMessage borrows from session-owned storage
+ * (history entries live until the run terminates or the Session is
+ * torn down) — the Query still deep-copies, so once xAiQueryRun
+ * returns this transient array can go away.
+ */
+
+struct sess_input_view_ {
+  xAiMessage *msgs;
+  xAiContent *blocks;
+  size_t      n_msgs;
+  size_t      n_blocks;
+};
+
+static void sess_input_view_free(struct sess_input_view_ *v) {
+  free(v->msgs);
+  free(v->blocks);
+  memset(v, 0, sizeof(*v));
+}
+
+/* Build a message array from the current session state. Consecutive
+ * Assistant entries are folded into one xAiMessage (so thinking +
+ * text + tool_use blocks travel together); other roles map 1:1. */
+static xErrno sess_input_view_build(struct xAiSession_      *s,
+                                    struct sess_input_view_ *out) {
+  memset(out, 0, sizeof(*out));
+  size_t extra_system = (s->system_prompt && s->system_prompt[0]) ? 1 : 0;
+
+  /* Pass 1: count. */
+  size_t n_msgs   = extra_system;
+  size_t n_blocks = extra_system;
+  for (size_t i = 0; i < s->n_history;) {
+    if (s->history[i].role == xAiRole_Assistant) {
+      size_t j = i;
+      while (j < s->n_history && s->history[j].role == xAiRole_Assistant) j++;
+      n_msgs += 1;
+      n_blocks += (j - i);
+      i = j;
+    } else {
+      n_msgs += 1;
+      n_blocks += 1;
+      i += 1;
+    }
+  }
+  if (n_msgs == 0) return xErrno_InvalidArg;
+
+  out->msgs   = (xAiMessage *)calloc(n_msgs, sizeof(xAiMessage));
+  out->blocks = (xAiContent *)calloc(n_blocks, sizeof(xAiContent));
+  if (!out->msgs || !out->blocks) {
+    sess_input_view_free(out);
+    return xErrno_NoMemory;
+  }
+  out->n_msgs   = n_msgs;
+  out->n_blocks = n_blocks;
+
+  /* Pass 2: populate. */
+  size_t mi = 0;
+  size_t bi = 0;
+
+  if (extra_system) {
+    out->blocks[bi].type        = xAiContentType_Text;
+    out->blocks[bi].u.text.text = s->system_prompt;
+    out->blocks[bi].u.text.len  = strlen(s->system_prompt);
+    out->msgs[mi].role          = xAiRole_System;
+    out->msgs[mi].contents      = &out->blocks[bi];
+    out->msgs[mi].n             = 1;
+    mi++;
+    bi++;
+  }
+
+  for (size_t i = 0; i < s->n_history;) {
+    struct xAiSessionMsg_ *m = &s->history[i];
+    if (m->role == xAiRole_Assistant) {
+      size_t block_start = bi;
+      size_t j           = i;
+      while (j < s->n_history && s->history[j].role == xAiRole_Assistant) {
+        struct xAiSessionMsg_ *mm = &s->history[j];
+        xAiContent            *b  = &out->blocks[bi++];
+        if (mm->kind == xAiSessionEntry_Text) {
+          b->type        = xAiContentType_Text;
+          b->u.text.text = mm->text ? mm->text : "";
+          b->u.text.len  = mm->text_len;
+        } else if (mm->kind == xAiSessionEntry_Thinking) {
+          b->type            = xAiContentType_Thinking;
+          b->u.thinking.text = mm->text ? mm->text : "";
+          b->u.thinking.len  = mm->text_len;
+        } else if (mm->kind == xAiSessionEntry_ToolUse) {
+          b->type                 = xAiContentType_ToolUse;
+          b->u.tool_use.id        = mm->tool_use_id;
+          b->u.tool_use.name      = mm->tool_use_name;
+          b->u.tool_use.args_json = mm->tool_use_args;
+        }
+        j++;
+      }
+      out->msgs[mi].role     = xAiRole_Assistant;
+      out->msgs[mi].contents = &out->blocks[block_start];
+      out->msgs[mi].n        = bi - block_start;
+      mi++;
+      i = j;
+    } else {
+      xAiContent *b = &out->blocks[bi];
+      if (m->kind == xAiSessionEntry_ToolResult) {
+        b->type                     = xAiContentType_ToolResult;
+        b->u.tool_result.id         = m->tool_result_id;
+        b->u.tool_result.output     = m->tool_result_output;
+        b->u.tool_result.output_len = m->tool_result_output_len;
+        b->u.tool_result.is_error   = m->tool_result_is_error;
+      } else {
+        b->type        = xAiContentType_Text;
+        b->u.text.text = m->text ? m->text : "";
+        b->u.text.len  = m->text_len;
+      }
+      out->msgs[mi].role     = m->role;
+      out->msgs[mi].contents = b;
+      out->msgs[mi].n        = 1;
+      mi++;
+      bi++;
+      i++;
+    }
+  }
+
   return xErrno_Ok;
 }
 
@@ -257,18 +390,51 @@ static void sess_fwd_on_tool(xAiQuery q, const char *tool_name, int started,
   }
 }
 
-/* Terminal forwarding: fire the caller's on_done first, then release
- * the Query. Destroy-in-on_done is safe because query.c's finalize
- * path does not touch @p q after firing our callback (see
- * query_finalize in query.c).
+/* Terminal forwarding: pull the Query's produced-turn list into the
+ * Session's history first (so the on_done handler sees the updated
+ * conversation), then fire the caller's on_done, then release the
+ * Query. Destroy-in-on_done is safe because query.c's finalize path
+ * does not touch @p q after firing our callback.
  *
  * Order note: caller's on_done runs while @c s->query still points
  * at @p q, so xAiSessionQuery / xAiQueryUsage observed from inside
  * on_done still work. Only after the callback returns do we detach
- * and free (xAiQueryDestroy nulls s->query for us). */
+ * and free (xAiQueryDestroy nulls s->query for us).
+ *
+ * Produced merging happens on every terminal reason, including
+ * Aborted / MaxTurns / errors: whatever partial output the model
+ * managed to emit before the run ended is legitimate conversation
+ * history and the next xAiSessionInput should see it. */
 static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
                              const xAiUsage *usage, void *ud) {
   struct xAiSession_ *s = (struct xAiSession_ *)ud;
+
+  /* Steal the produced list (ownership transfer). After this the
+   * Query's own destructor won't touch these entries. */
+  struct xAiSessionMsg_ *produced   = NULL;
+  size_t                 n_produced = 0;
+  ai_query_take_produced((struct xAiQuery_ *)q, &produced, &n_produced);
+
+  /* Append every produced entry into history by bitwise move: the
+   * struct owns its strings, and history_grow hands us a freshly
+   * zeroed slot, so we can just copy the struct across. On growth
+   * failure the remainder (and whatever we haven't moved yet) is
+   * released via ai_session_msg_free + free(produced) below. */
+  for (size_t i = 0; i < n_produced; i++) {
+    struct xAiSessionMsg_ *slot = history_grow(s);
+    if (!slot) {
+      /* OOM merging: release the rest of the produced list. What
+       * we've already committed stays in history. */
+      for (size_t j = i; j < n_produced; j++) {
+        ai_session_msg_free(&produced[j]);
+      }
+      break;
+    }
+    *slot = produced[i];
+    memset(&produced[i], 0, sizeof(produced[i])); /* moved */
+  }
+  free(produced);
+
   if (s->cbs.on_done) {
     s->cbs.on_done((xAiSession)s, reason, usage, s->cbs.user_data);
   }
@@ -329,6 +495,25 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
    * is still in flight refuse with Busy. */
   if (s->query) return xErrno_Busy;
 
+  /* Commit the user message to history first so the input view
+   * below includes it. If the Query submit later fails we'll roll
+   * this back. */
+  size_t history_checkpoint = s->n_history;
+  xErrno rc                 = history_append_user_msg(s, msg);
+  if (rc != xErrno_Ok) return rc;
+
+  /* Build the complete message array the Query should run on
+   * (system prompt + rolling history including the new user turn). */
+  struct sess_input_view_ view;
+  rc = sess_input_view_build(s, &view);
+  if (rc != xErrno_Ok) {
+    /* Roll back the user append — nothing observable happened. */
+    while (s->n_history > history_checkpoint) {
+      ai_session_msg_free(&s->history[--s->n_history]);
+    }
+    return rc;
+  }
+
   /* Spawn a fresh Query with Session-level forwarding shims bound
    * to this Session. xAiQueryCreate also sets s->query so a second
    * Input call during the same run hits the Busy branch above. */
@@ -337,14 +522,27 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   qc.cbs.user_data = s;
 
   xAiQuery q = xAiQueryCreate(sess, &qc);
-  if (!q) return xErrno_NoMemory;
+  if (!q) {
+    sess_input_view_free(&view);
+    while (s->n_history > history_checkpoint) {
+      ai_session_msg_free(&s->history[--s->n_history]);
+    }
+    return xErrno_NoMemory;
+  }
 
-  /* xAiQueryRun performs the Phase-α history append and submits the
-   * first round. On failure it rolls the history append back; we
-   * just need to release the Query we just created. */
-  xErrno rc = xAiQueryRun(q, msg);
+  /* Hand the input array to the Query. xAiQueryRun deep-copies
+   * everything, so we can release @c view immediately afterwards
+   * regardless of success/failure. */
+  rc = xAiQueryRun(q, view.msgs, view.n_msgs);
+  sess_input_view_free(&view);
+
   if (rc != xErrno_Ok) {
     xAiQueryDestroy(q); /* Clears s->query back to NULL. */
+    /* No on_done fires on the failure path — roll back the user
+     * message too so history reflects what actually happened. */
+    while (s->n_history > history_checkpoint) {
+      ai_session_msg_free(&s->history[--s->n_history]);
+    }
     return rc;
   }
   return xErrno_Ok;

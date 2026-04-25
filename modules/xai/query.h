@@ -195,28 +195,40 @@ XDEF_STRUCT(xAiQueryConf) {
 XCAPI(xAiQuery) xAiQueryCreate(xAiSession sess, const xAiQueryConf *conf);
 
 /**
- * @brief Start the Query by running it against an input message.
+ * @brief Start the Query by running it against an explicit message list.
  *
- * Appends @p input to the Session's history (today — Phase α of the
- * Query split; a future revision will thread the messages through
- * as an explicit array parameter so Queries become purely data-in/
- * data-out) and kicks off the first provider round. Streaming
- * callbacks begin firing asynchronously; the run terminates with
- * exactly one on_done.
+ * Deep-copies @p msgs into Query-owned storage and kicks off the
+ * first provider round. Streaming callbacks begin firing
+ * asynchronously; the run terminates with exactly one on_done.
+ *
+ * The message array is fully consumed at call time: the Query copies
+ * every role/content block into its own storage, so the caller may
+ * free @p msgs (and every string it points into) as soon as this
+ * function returns.
+ *
+ * The Query does NOT read back from or write into its owning
+ * Session's rolling history — that is the Session layer's
+ * responsibility. What the Query produces during the run (assistant
+ * turns, tool_result entries) can be pulled out with
+ * ai_query_take_produced() after on_done has fired.
  *
  * Must be called at most once per Query. Calling it twice returns
- * xErrno_Busy. The message is shallow-copied: all string pointers
- * inside @p input (and its content blocks) must remain valid until
- * on_done fires.
+ * xErrno_Busy.
  *
- * @param q      Query handle (must not be NULL).
- * @param input  Message to run on (role is usually User).
- * @return       xErrno_Ok if the submit was accepted; xErrno_Busy
- *               if the Query is already running or finished;
- *               other xErrno on invalid input or allocation failure.
- *               On non-Ok returns no callbacks will fire.
+ * @param q     Query handle (must not be NULL).
+ * @param msgs  Message array the Query should run on. Must include
+ *              any system prompt and prior conversation history the
+ *              caller wants the provider to see. May be NULL iff
+ *              @p n is 0, in which case xErrno_InvalidArg is returned
+ *              (no content to send).
+ * @param n     Number of messages in @p msgs.
+ * @return      xErrno_Ok if the submit was accepted; xErrno_Busy
+ *              if the Query is already running or finished;
+ *              xErrno_InvalidArg on empty input; other xErrno on
+ *              allocation failure. On non-Ok returns no callbacks
+ *              will fire.
  */
-XCAPI(xErrno) xAiQueryRun(xAiQuery q, xAiMessage input);
+XCAPI(xErrno) xAiQueryRun(xAiQuery q, const xAiMessage *msgs, size_t n);
 
 /**
  * @brief Release the Query.

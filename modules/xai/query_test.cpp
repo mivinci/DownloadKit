@@ -67,6 +67,13 @@ TEST(QueryPublicApi, CreateRejectsNullArgs) {
 }
 
 TEST(QueryPublicApi, RunRejectsNullQuery) {
-  EXPECT_EQ(xAiQueryRun(nullptr, xAiMessageFromText("hi")),
-            xErrno_InvalidArg);
+  xAiMessage msg = xAiMessageFromText("hi");
+  EXPECT_EQ(xAiQueryRun(nullptr, &msg, 1), xErrno_InvalidArg);
+}
+
+TEST(QueryPublicApi, RunRejectsEmptyInput) {
+  /* A non-NULL Query + zero messages is rejected before the Query
+   * is touched (the early-return branch runs on NULL msgs or n == 0). */
+  auto dummy_q = reinterpret_cast<xAiQuery>(0x1);
+  EXPECT_EQ(xAiQueryRun(dummy_q, nullptr, 0), xErrno_InvalidArg);
 }

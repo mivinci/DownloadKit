@@ -29,6 +29,7 @@
 
 #include <xai/message.h>
 #include <xai/provider.h>
+#include <xai/query.h>
 #include <xai/session.h>
 #include <xai/tool.h>
 #include <xbase/base.h>
@@ -79,21 +80,19 @@ static void pending_reset(struct xAiQuery_ *q) {
 /* Append one pending tool_call. Copies every string. */
 static xErrno pending_append(struct xAiQuery_ *q, const xAiContent *call) {
   if (q->n_pending + 1 > q->cap_pending) {
-    size_t new_cap = q->cap_pending ? q->cap_pending * 2 : 4;
-    struct xAiQueryPending_ *np = (struct xAiQueryPending_ *)realloc(
-        q->pending, new_cap * sizeof(*np));
+    size_t                   new_cap = q->cap_pending ? q->cap_pending * 2 : 4;
+    struct xAiQueryPending_ *np =
+      (struct xAiQueryPending_ *)realloc(q->pending, new_cap * sizeof(*np));
     if (!np) return xErrno_NoMemory;
     q->pending     = np;
     q->cap_pending = new_cap;
   }
   struct xAiQueryPending_ *slot = &q->pending[q->n_pending];
   memset(slot, 0, sizeof(*slot));
-  slot->id        = dup_cstr(call->u.tool_use.id ? call->u.tool_use.id : "");
-  slot->name      = dup_cstr(call->u.tool_use.name ? call->u.tool_use.name
-                                                   : "");
-  slot->args_json = dup_cstr(call->u.tool_use.args_json
-                                 ? call->u.tool_use.args_json
-                                 : "{}");
+  slot->id   = dup_cstr(call->u.tool_use.id ? call->u.tool_use.id : "");
+  slot->name = dup_cstr(call->u.tool_use.name ? call->u.tool_use.name : "");
+  slot->args_json =
+    dup_cstr(call->u.tool_use.args_json ? call->u.tool_use.args_json : "{}");
   if (!slot->id || !slot->name || !slot->args_json) {
     pending_free_entry(slot);
     return xErrno_NoMemory;
@@ -105,11 +104,13 @@ static xErrno pending_append(struct xAiQuery_ *q, const xAiContent *call) {
 /* ── Round-scoped streaming accumulators ───────────────────────── */
 
 /* Append one byte range to the current-round assistant text buffer. */
-static xErrno assist_append(struct xAiQuery_ *q, const char *chunk, size_t len) {
+static xErrno assist_append(struct xAiQuery_ *q, const char *chunk,
+                            size_t len) {
   if (len == 0) return xErrno_Ok;
   if (q->assist_len + len + 1 > q->assist_cap) {
     size_t new_cap = q->assist_cap ? q->assist_cap : 256;
-    while (new_cap < q->assist_len + len + 1) new_cap *= 2;
+    while (new_cap < q->assist_len + len + 1)
+      new_cap *= 2;
     char *nb = (char *)realloc(q->assist_buf, new_cap);
     if (!nb) return xErrno_NoMemory;
     q->assist_buf = nb;
@@ -135,7 +136,8 @@ static xErrno reasoning_append(struct xAiQuery_ *q, const char *chunk,
   if (len == 0) return xErrno_Ok;
   if (q->reasoning_len + len + 1 > q->reasoning_cap) {
     size_t new_cap = q->reasoning_cap ? q->reasoning_cap : 256;
-    while (new_cap < q->reasoning_len + len + 1) new_cap *= 2;
+    while (new_cap < q->reasoning_len + len + 1)
+      new_cap *= 2;
     char *nb = (char *)realloc(q->reasoning_buf, new_cap);
     if (!nb) return xErrno_NoMemory;
     q->reasoning_buf = nb;
@@ -167,13 +169,12 @@ static void usage_accumulate(struct xAiQuery_ *q, const xAiUsage *round) {
   if (!round) return;
   q->saw_usage = 1;
 
-#define XAI_FOLD(field)                                                       \
-  do {                                                                        \
-    if (round->field >= 0) {                                                  \
-      q->usage.field = (q->usage.field < 0)                                   \
-                           ? round->field                                     \
-                           : q->usage.field + round->field;                   \
-    }                                                                         \
+#define XAI_FOLD(field)                                                      \
+  do {                                                                       \
+    if (round->field >= 0) {                                                 \
+      q->usage.field =                                                       \
+        (q->usage.field < 0) ? round->field : q->usage.field + round->field; \
+    }                                                                        \
   } while (0)
 
   XAI_FOLD(prompt_tokens);
@@ -221,17 +222,18 @@ static xErrno view_build(struct xAiQuery_ *q, struct view_ *out) {
   /* Count messages and blocks. */
   size_t n_msgs   = extra_system;
   size_t n_blocks = extra_system; /* system prompt gets one text block */
-  for (size_t i = 0; i < s->n_history; ) {
+  for (size_t i = 0; i < s->n_history;) {
     if (s->history[i].role == xAiRole_Assistant) {
       /* Fold all consecutive Assistant entries into one msg. */
       size_t j = i;
-      while (j < s->n_history && s->history[j].role == xAiRole_Assistant) j++;
-      n_msgs   += 1;
+      while (j < s->n_history && s->history[j].role == xAiRole_Assistant)
+        j++;
+      n_msgs += 1;
       n_blocks += (j - i);
       i = j;
     } else {
       /* One block per user/tool entry. */
-      n_msgs   += 1;
+      n_msgs += 1;
       n_blocks += 1;
       i += 1;
     }
@@ -252,17 +254,17 @@ static xErrno view_build(struct xAiQuery_ *q, struct view_ *out) {
   size_t bi = 0; /* block write index */
 
   if (extra_system) {
-    out->blocks[bi].type         = xAiContentType_Text;
-    out->blocks[bi].u.text.text  = s->system_prompt;
-    out->blocks[bi].u.text.len   = strlen(s->system_prompt);
-    out->msgs[mi].role           = xAiRole_System;
-    out->msgs[mi].contents       = &out->blocks[bi];
-    out->msgs[mi].n              = 1;
+    out->blocks[bi].type        = xAiContentType_Text;
+    out->blocks[bi].u.text.text = s->system_prompt;
+    out->blocks[bi].u.text.len  = strlen(s->system_prompt);
+    out->msgs[mi].role          = xAiRole_System;
+    out->msgs[mi].contents      = &out->blocks[bi];
+    out->msgs[mi].n             = 1;
     mi++;
     bi++;
   }
 
-  for (size_t i = 0; i < s->n_history; ) {
+  for (size_t i = 0; i < s->n_history;) {
     struct xAiSessionMsg_ *m = &s->history[i];
     if (m->role == xAiRole_Assistant) {
       size_t block_start = bi;
@@ -294,11 +296,11 @@ static xErrno view_build(struct xAiQuery_ *q, struct view_ *out) {
     } else {
       xAiContent *b = &out->blocks[bi];
       if (m->kind == xAiSessionEntry_ToolResult) {
-        b->type                      = xAiContentType_ToolResult;
-        b->u.tool_result.id          = m->tool_result_id;
-        b->u.tool_result.output      = m->tool_result_output;
-        b->u.tool_result.output_len  = m->tool_result_output_len;
-        b->u.tool_result.is_error    = m->tool_result_is_error;
+        b->type                     = xAiContentType_ToolResult;
+        b->u.tool_result.id         = m->tool_result_id;
+        b->u.tool_result.output     = m->tool_result_output;
+        b->u.tool_result.output_len = m->tool_result_output_len;
+        b->u.tool_result.is_error   = m->tool_result_is_error;
       } else {
         b->type        = xAiContentType_Text;
         b->u.text.text = m->text ? m->text : "";
@@ -331,7 +333,7 @@ static xErrno submit_round(struct xAiQuery_ *q) {
   struct xAiAgent_   *a = (struct xAiAgent_ *)s->agent;
 
   struct view_ v;
-  xErrno rc = view_build(q, &v);
+  xErrno       rc = view_build(q, &v);
   if (rc != xErrno_Ok) return rc;
 
   xAiProviderSubmitConf pc = {0};
@@ -374,7 +376,7 @@ static xAiTool find_tool(struct xAiAgent_ *a, const char *name) {
   if (!name) return NULL;
   for (size_t i = 0; i < a->n_tools; i++) {
     if (!a->tools[i]) continue;
-    xAiTool t = *a->tools[i];
+    xAiTool     t = *a->tools[i];
     const char *n = ai_tool_name(t);
     if (n && strcmp(n, name) == 0) return t;
   }
@@ -399,9 +401,9 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
       s->cbs.on_tool((xAiSession)s, p->name, /*started=*/1, s->cbs.user_data);
     }
 
-    xAiTool t = find_tool(a, p->name);
-    xAiContent out = {0};
-    int        is_error = 0;
+    xAiTool     t        = find_tool(a, p->name);
+    xAiContent  out      = {0};
+    int         is_error = 0;
     const char *out_text;
     size_t      out_text_len;
     char        err_buf[256];
@@ -417,12 +419,12 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
       out_text_len = strlen(err_buf);
       is_error     = 1;
     } else {
-      xAiContent in = {0};
+      xAiContent in           = {0};
       in.type                 = xAiContentType_ToolUse;
       in.u.tool_use.id        = p->id;
       in.u.tool_use.name      = p->name;
       in.u.tool_use.args_json = p->args_json;
-      xErrno trc = ai_tool_invoke(t, &in, &out);
+      xErrno trc              = ai_tool_invoke(t, &in, &out);
       if (trc != xErrno_Ok) {
         snprintf(err_buf, sizeof(err_buf),
                  "tool handler returned error (xErrno=%d)", (int)trc);
@@ -430,11 +432,10 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
         out_text_len = strlen(err_buf);
         is_error     = 1;
       } else if (out.type == xAiContentType_ToolResult) {
-        out_text     = out.u.tool_result.output ? out.u.tool_result.output
-                                                : "";
+        out_text     = out.u.tool_result.output ? out.u.tool_result.output : "";
         out_text_len = out.u.tool_result.output_len
-                           ? out.u.tool_result.output_len
-                           : strlen(out_text);
+                         ? out.u.tool_result.output_len
+                         : strlen(out_text);
         is_error     = out.u.tool_result.is_error ? 1 : 0;
       } else {
         /* Handler forgot to populate out — treat as error. */
@@ -444,8 +445,8 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
       }
     }
 
-    xErrno rc = ai_history_append_tool_result(s, p->id, out_text,
-                                              out_text_len, is_error);
+    xErrno rc =
+      ai_history_append_tool_result(s, p->id, out_text, out_text_len, is_error);
 
     if (s->cbs.on_tool) {
       s->cbs.on_tool((xAiSession)s, p->name, /*started=*/0, s->cbs.user_data);
@@ -502,20 +503,26 @@ static void commit_assistant_turn(struct xAiQuery_ *q) {
 /* Map a provider stop reason to the caller-visible done reason for
  * runs that are *not* continuing into another tool-loop iteration. */
 static xAiDoneReason translate_terminal(xAiProviderStopReason r,
-                                        int user_cancel) {
+                                        int                   user_cancel) {
   if (user_cancel) return xAiDoneReason_Aborted;
   switch (r) {
-    case xAiProviderStop_EndTurn:    return xAiDoneReason_Completed;
-    case xAiProviderStop_MaxTokens:  return xAiDoneReason_Completed;
-    case xAiProviderStop_StopSeq:    return xAiDoneReason_Stopped;
-    case xAiProviderStop_PromptLong: return xAiDoneReason_PromptTooLong;
-    case xAiProviderStop_Error:      return xAiDoneReason_ModelError;
-    case xAiProviderStop_Cancelled:  return xAiDoneReason_Aborted;
-    case xAiProviderStop_ToolUse:
-      /* Only reached if no pending calls survived (e.g. the model
-       * advertised ToolUse but sent zero tool_calls). Treat as a
-       * model error rather than silently looping. */
-      return xAiDoneReason_ToolError;
+  case xAiProviderStop_EndTurn:
+    return xAiDoneReason_Completed;
+  case xAiProviderStop_MaxTokens:
+    return xAiDoneReason_Completed;
+  case xAiProviderStop_StopSeq:
+    return xAiDoneReason_Stopped;
+  case xAiProviderStop_PromptLong:
+    return xAiDoneReason_PromptTooLong;
+  case xAiProviderStop_Error:
+    return xAiDoneReason_ModelError;
+  case xAiProviderStop_Cancelled:
+    return xAiDoneReason_Aborted;
+  case xAiProviderStop_ToolUse:
+    /* Only reached if no pending calls survived (e.g. the model
+     * advertised ToolUse but sent zero tool_calls). Treat as a
+     * model error rather than silently looping. */
+    return xAiDoneReason_ToolError;
   }
   return xAiDoneReason_ModelError;
 }
@@ -536,8 +543,8 @@ static void handle_error(struct xAiQuery_ *q, xErrno err) {
  * wait for the next on_provider_done callback. */
 static void handle_tool_loop_continuation(struct xAiQuery_ *q) {
   struct xAiSession_ *s = q->session;
-  int turn_limit = s->max_turns > 0 ? s->max_turns
-                                    : XAI_SESSION_DEFAULT_MAX_TURNS;
+  int                 turn_limit =
+    s->max_turns > 0 ? s->max_turns : XAI_SESSION_DEFAULT_MAX_TURNS;
   if (q->turn >= turn_limit) {
     /* Already emitted enough rounds; tell the caller we bailed. */
     ai_session_finish_run(s, xAiDoneReason_MaxTurns);
@@ -652,8 +659,8 @@ static void on_provider_done(xAiProviderStopReason reason, xErrno err,
 
   /* Continue the tool loop iff: (a) not cancelled, (b) provider said
    * ToolUse AND we buffered >=1 tool call, (c) max_turns not exceeded. */
-  int can_continue = !user_cancel && reason == xAiProviderStop_ToolUse &&
-                     q->n_pending > 0;
+  int can_continue =
+    !user_cancel && reason == xAiProviderStop_ToolUse && q->n_pending > 0;
 
   if (can_continue) {
     handle_tool_loop_continuation(q);
@@ -713,3 +720,54 @@ void ai_query_reset_round(struct xAiQuery_ *q) {
   q->cancelled = 0;
   q->turn      = 0;
 }
+
+/* ── Public API (declared in xai/query.h) ──────────────────────── */
+
+xAiQuery xAiSessionQuery(xAiSession sess) {
+  if (!sess) return NULL;
+  struct xAiSession_ *s = (struct xAiSession_ *)sess;
+  return (xAiQuery)&s->query;
+}
+
+void xAiQueryCancel(xAiQuery q) {
+  if (!q) return;
+  struct xAiQuery_ *qq = (struct xAiQuery_ *)q;
+  if (!qq->running) return;
+
+  ai_query_cancel_mark(qq);
+
+  struct xAiSession_ *s = qq->session;
+  if (s) {
+    struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
+    if (a) ai_provider_cancel(a->provider);
+  }
+  /* The provider's on_done will arrive with reason=Cancelled, or
+   * dispatch_pending_tools will notice q->cancelled between rounds. */
+}
+
+int xAiQueryIsRunning(xAiQuery q) {
+  if (!q) return 0;
+  return ((struct xAiQuery_ *)q)->running;
+}
+
+void xAiQueryUsage(xAiQuery q, xAiUsage *out) {
+  if (!out) return;
+  if (!q) {
+    out->prompt_tokens     = -1;
+    out->completion_tokens = -1;
+    out->total_tokens      = -1;
+    return;
+  }
+  *out = ((struct xAiQuery_ *)q)->usage;
+}
+
+xAiSession xAiQuerySession(xAiQuery q) {
+  if (!q) return NULL;
+  return (xAiSession)((struct xAiQuery_ *)q)->session;
+}
+
+int xAiQueryTurn(xAiQuery q) {
+  if (!q) return 0;
+  return ((struct xAiQuery_ *)q)->turn;
+}
+

@@ -52,10 +52,12 @@ struct FakeSession {
   FakeSession() {
     std::memset(&s, 0, sizeof(s));
   }
-  xAiSession_ *get() { return &s; }
+  xAiSession_ *get() {
+    return &s;
+  }
 };
 
-}  // namespace
+} // namespace
 
 /* ── ai_query_arm ─────────────────────────────────────────────────── */
 
@@ -77,10 +79,10 @@ TEST(QueryState, ArmResetsUsageToSentinels) {
   xAiQuery_   q;
   std::memset(&q, 0, sizeof(q));
   /* Prime the usage with stale non-sentinel data; arm must wipe it. */
-  q.saw_usage                = 1;
-  q.usage.prompt_tokens      = 42;
-  q.usage.completion_tokens  = 99;
-  q.usage.total_tokens       = 141;
+  q.saw_usage               = 1;
+  q.usage.prompt_tokens     = 42;
+  q.usage.completion_tokens = 99;
+  q.usage.total_tokens      = 141;
 
   ai_query_arm(&q, fs.get());
 
@@ -154,3 +156,77 @@ TEST(QueryState, DisposeAfterArmIsSafe) {
   ai_query_dispose(&q);
   SUCCEED();
 }
+
+/* ── Public API (xai/query.h) ─────────────────────────────────────
+ *
+ * These tests only exercise the Session-less accessor surface: the
+ * functions that read back state from an already-constructed Query
+ * handle. The driving side (Cancel triggering an actual provider
+ * abort) is covered end-to-end in session_test.cpp where a real
+ * provider is wired up.
+ */
+
+extern "C" {
+#include <xai/query.h>
+}
+
+TEST(QueryPublicApi, NullHandleIsSafe) {
+  EXPECT_EQ(xAiSessionQuery(nullptr), nullptr);
+  EXPECT_EQ(xAiQuerySession(nullptr), nullptr);
+  EXPECT_EQ(xAiQueryIsRunning(nullptr), 0);
+  EXPECT_EQ(xAiQueryTurn(nullptr), 0);
+
+  /* xAiQueryCancel on NULL is a silent no-op. */
+  xAiQueryCancel(nullptr);
+
+  /* xAiQueryUsage on NULL must populate the out struct with
+   * all-(-1) sentinels so callers can rely on a single shape. */
+  xAiUsage u{0, 0, 0};
+  xAiQueryUsage(nullptr, &u);
+  EXPECT_EQ(u.prompt_tokens, -1);
+  EXPECT_EQ(u.completion_tokens, -1);
+  EXPECT_EQ(u.total_tokens, -1);
+
+  /* NULL out pointer must not crash and must not write anywhere. */
+  xAiQueryUsage(nullptr, nullptr);
+  SUCCEED();
+}
+
+TEST(QueryPublicApi, AccessorsReadQueryState) {
+  FakeSession fs;
+  xAiQuery_   q;
+  std::memset(&q, 0, sizeof(q));
+  ai_query_arm(&q, fs.get());
+  q.turn                    = 2;
+  q.usage.prompt_tokens     = 7;
+  q.usage.completion_tokens = 11;
+  q.usage.total_tokens      = 18;
+
+  auto handle = reinterpret_cast<xAiQuery>(&q);
+
+  EXPECT_EQ(xAiQueryIsRunning(handle), 1);
+  EXPECT_EQ(xAiQueryTurn(handle), 2);
+  EXPECT_EQ(xAiQuerySession(handle),
+            reinterpret_cast<xAiSession>(fs.get()));
+
+  xAiUsage u{0, 0, 0};
+  xAiQueryUsage(handle, &u);
+  EXPECT_EQ(u.prompt_tokens, 7);
+  EXPECT_EQ(u.completion_tokens, 11);
+  EXPECT_EQ(u.total_tokens, 18);
+}
+
+TEST(QueryPublicApi, CancelOnIdleQueryIsSilentNoop) {
+  /* The Query has never been armed (running == 0). xAiQueryCancel
+   * must early-return without touching the provider (none exists
+   * here — we don't wire a FakeSession so the back-pointer is NULL
+   * too) and without flipping the cancelled flag. */
+  xAiQuery_ q;
+  std::memset(&q, 0, sizeof(q));
+
+  xAiQueryCancel(reinterpret_cast<xAiQuery>(&q));
+
+  EXPECT_EQ(q.cancelled, 0);
+  EXPECT_EQ(q.running, 0);
+}
+

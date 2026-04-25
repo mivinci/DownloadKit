@@ -1286,4 +1286,269 @@ TEST_F(SessionTest, ThinkingWithoutCallbackDoesNotCrash) {
   xAiSessionDestroy(sess);
 }
 
+/* ── Context-budget policy (xAiBudgetConf) ──────────────────────────
+ *
+ * End-to-end coverage for xAiSessionInput's pre-append budget gate.
+ * These tests exercise the branches of session_enforce_budget_():
+ *
+ *   - Disabled  → pass-through (regression anchor)
+ *   - Error     → return xErrno_PromptTooLong when the estimate
+ *                 exceeds max_tokens; NO history mutation, NO query
+ *                 submission observable to the caller
+ *   - Truncate  → drop the oldest user-anchored prefix so the new
+ *                 turn fits, then proceed normally; and return
+ *                 PromptTooLong when even the maximally aggressive
+ *                 trim still does not bring us under the ceiling
+ *
+ * The token estimator is coarse on purpose (bytes/4 + 8 per entry),
+ * so each test picks payload sizes that land comfortably on one
+ * side of the configured max_tokens, not right at the boundary.
+ *
+ * Helper: make_session_with_budget overrides only the budget field
+ * so every test stays independent of the default agent config. */
+namespace {
+
+xAiSession make_session_with_budget(xAiAgent agent,
+                                    const xAiSessionCallbacks &cbs,
+                                    xAiBudgetConf              budget) {
+  xAiSessionConf sc = {};
+  sc.cbs            = cbs;
+  sc.budget         = budget;
+  return xAiSessionCreate(agent, &sc);
+}
+
+}  // namespace
+
+/* Disabled (the zero-default) must behave identically to a session
+ * without any budget config: a huge user message that would blow
+ * through any realistic ceiling is still accepted, history is
+ * populated, and the Query runs. Regression anchor for the "no
+ * behaviour change on existing callers" promise. */
+TEST_F(SessionTest, BudgetDisabledAcceptsOversizedInput) {
+  Captured cap;
+  xAiBudgetConf budget{};              /* policy = Disabled (zero) */
+  budget.max_tokens        = 1;        /* deliberately absurd      */
+  budget.keep_recent_turns = 0;
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  /* ~400 bytes of 'x' — far above 1 token — still accepted. */
+  std::string big(400, 'x');
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText(big.c_str())),
+            xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+  EXPECT_EQ(cap.done_reason, xAiDoneReason_Completed);
+
+  xAiSessionDestroy(sess);
+}
+
+/* Error policy refuses the call synchronously with
+ * xErrno_PromptTooLong when the estimate exceeds max_tokens, and
+ * MUST NOT touch history — a future non-oversized call on the same
+ * session should still see an empty history, so the Busy check is
+ * the only state visible from a refused turn. */
+TEST_F(SessionTest, BudgetErrorPolicyRefusesOversizedInput) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy            = xAiBudgetPolicy_Error;
+  budget.max_tokens        = 20;       /* 20 tokens ≈ 80 payload bytes */
+  budget.keep_recent_turns = 0;
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* 200 bytes → ~58 tokens including envelope → well above 20. */
+  std::string big(200, 'x');
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText(big.c_str())),
+            xErrno_PromptTooLong);
+
+  /* Nothing fired on the caller side — no on_done, no on_error.
+   * The synchronous return value IS the failure signal. */
+  EXPECT_EQ(cap.done_fired, 0);
+  EXPECT_EQ(cap.error_fired, 0);
+
+  /* History must be clean: the refused turn leaves no trace. */
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  EXPECT_EQ(s->n_history, 0u);
+
+  /* The provider must never have been submitted to. */
+  EXPECT_TRUE(fake_->captured_msgs.empty());
+
+  xAiSessionDestroy(sess);
+}
+
+/* Error policy under the ceiling is a no-op: the gate lets the
+ * turn through and the Query runs as if the budget were Disabled.
+ * This pairs with the refusal test above to prove the gate is
+ * conditional on the estimate, not on the policy alone. */
+TEST_F(SessionTest, BudgetErrorPolicyAllowsUnderBudgetInput) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy     = xAiBudgetPolicy_Error;
+  budget.max_tokens = 200;             /* generous */
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+
+  xAiSessionDestroy(sess);
+}
+
+/* TruncateOldest: populate several user turns so the next input
+ * would put us over max_tokens, then verify the session drops the
+ * oldest prefix (at a user-turn boundary) and proceeds. The
+ * captured msgs on the second submit MUST NOT contain the dropped
+ * turn anywhere. */
+TEST_F(SessionTest, BudgetTruncateOldestDropsOldestUserTurns) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy            = xAiBudgetPolicy_TruncateOldest;
+  budget.max_tokens        = 80;       /* ~320 payload bytes total     */
+  budget.keep_recent_turns = 1;        /* always keep the last turn    */
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Prime 3 rounds. Each user msg is ~80 bytes → ~28 tokens with
+   * envelope. Three rounds put history over 80 tokens, forcing a
+   * trim before the 4th input can run. */
+  const std::string big(80, 'a');
+  for (int i = 0; i < 3; i++) {
+    fake_->script_queue.push_back({
+        SText("reply"),
+        SDone(xAiProviderStop_EndTurn),
+    });
+    ASSERT_EQ(xAiSessionInput(sess, xAiMessageFromText(big.c_str())),
+              xErrno_Ok);
+    ASSERT_EQ(cap.done_fired, i + 1);
+  }
+
+  /* 4th input: this alone (~28 tokens) plus the 6 accumulated
+   * history entries (3 user + 3 assistant, ≥ 48 payload + 48
+   * envelope = 60 tokens) breaches the 80 ceiling. The session
+   * must trim the oldest prefix but keep at least 1 recent user
+   * turn around the new input. */
+  fake_->script_queue.push_back({
+      SText("final"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+  const std::string marker = "MARKER-" + std::string(40, 'z');
+  ASSERT_EQ(xAiSessionInput(sess, xAiMessageFromText(marker.c_str())),
+            xErrno_Ok);
+  EXPECT_EQ(cap.done_reason, xAiDoneReason_Completed);
+
+  /* On the 4th submit, captured_msgs reflects what the provider
+   * saw. The new user message must be there; the very first user
+   * message (unique "big" string) may be gone — count how many
+   * big-user messages survived, and it should be strictly less
+   * than 3 because at least one was trimmed. */
+  ASSERT_GE(fake_->captured_msgs_per_submit.size(), 4u);
+  const auto &last_submit = fake_->captured_msgs_per_submit.back();
+
+  int big_user_msgs = 0;
+  bool saw_marker   = false;
+  for (const auto &m : last_submit) {
+    if (m.role == xAiRole_User) {
+      if (m.text == big) big_user_msgs++;
+      if (m.text.find("MARKER-") != std::string::npos) saw_marker = true;
+    }
+  }
+  EXPECT_TRUE(saw_marker) << "the new user turn must always be preserved";
+  EXPECT_LT(big_user_msgs, 3)
+      << "at least one oldest user turn must have been trimmed";
+
+  xAiSessionDestroy(sess);
+}
+
+/* TruncateOldest with keep_recent_turns too high to honour the
+ * budget at all (floor exceeds history's capacity under the
+ * ceiling): the session refuses with PromptTooLong rather than
+ * silently violating the keep-recent-turns floor. This is the
+ * "safety over compliance" path advertised in budget_private.h. */
+TEST_F(SessionTest, BudgetTruncateOldestRefusesWhenFloorUnreachable) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy            = xAiBudgetPolicy_TruncateOldest;
+  budget.max_tokens        = 30;       /* very tight                   */
+  budget.keep_recent_turns = 5;        /* absurdly high floor          */
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* History is empty → find_nth_user_turn returns NO_SUCH_TURN →
+   * earliest_keep returns 0 → trimmer cannot reduce pressure. A
+   * sufficiently large incoming message thus has nowhere to go. */
+  std::string big(400, 'x'); /* ~108 tokens, well above 30 */
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText(big.c_str())),
+            xErrno_PromptTooLong);
+
+  /* Same history cleanliness guarantee as the Error-policy refusal. */
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  EXPECT_EQ(s->n_history, 0u);
+  EXPECT_EQ(cap.done_fired, 0);
+  EXPECT_EQ(cap.error_fired, 0);
+
+  xAiSessionDestroy(sess);
+}
+
+/* Reserved policies (Callback, SummarizeOldest) must not
+ * accidentally behave like Disabled — a caller who opted into them
+ * expects enforcement and silently dropping to no-op would mask
+ * the budget violation. Until c4+ wires real implementations they
+ * fall through to the PromptTooLong refusal arm. */
+TEST_F(SessionTest, BudgetReservedPoliciesRefuseWhenOver) {
+  for (xAiBudgetPolicy p :
+       {xAiBudgetPolicy_Callback, xAiBudgetPolicy_SummarizeOldest}) {
+    Captured cap;
+    xAiBudgetConf budget{};
+    budget.policy     = p;
+    budget.max_tokens = 10;
+    xAiSession sess =
+        make_session_with_budget(agent_, make_cbs(&cap), budget);
+    ASSERT_NE(sess, nullptr);
+
+    std::string big(200, 'x');
+    EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText(big.c_str())),
+              xErrno_PromptTooLong)
+        << "policy=" << (int)p;
+
+    xAiSessionDestroy(sess);
+  }
+}
+
+/* Under-budget inputs with a non-Disabled policy must still run
+ * cleanly. Smoke test that the budget gate does not gratuitously
+ * reject when the estimate is below the ceiling, regardless of
+ * which enforcing policy is selected. */
+TEST_F(SessionTest, BudgetTruncatePolicyUnderBudgetIsNoop) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy     = xAiBudgetPolicy_TruncateOldest;
+  budget.max_tokens = 500;             /* roomy                        */
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+
+  /* History should reflect a clean single round (user + assistant). */
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  EXPECT_GT(s->n_history, 0u);
+
+  xAiSessionDestroy(sess);
+}
+
 

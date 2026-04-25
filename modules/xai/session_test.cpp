@@ -13,7 +13,6 @@
  */
 
 extern "C" {
-#include "agent_private.h"
 #include "provider_private.h"
 #include "session_private.h"
 

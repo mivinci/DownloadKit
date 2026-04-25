@@ -1,9 +1,19 @@
 # xai — TODO
 
-> **架构级状态（2026-04-24）**：human-like-ai MVP 扳机已扣下，详见
+> **架构级状态（2026-04-25）**：human-like-ai MVP 扳机已扣下，详见
 > [`docs/todo/human-like-ai.md`](../../docs/todo/human-like-ai.md) §6。
-> Session/Query 拆分 Step 1 前置已满足，**下一个动手项就是 Step 1**
-> （见 [`docs/todo/xai_architecture.md`](../../docs/todo/xai_architecture.md) §10）。
+> Session/Query 拆分 **Step 1 与 Step 2 核心已落地**：`xAiQuery` 已是
+> first-class public handle，与 `xAiSession` history 解耦，§8.1/§8.2/§8.3
+> 三条 Agent 预留勾子全部就位（observer list、input origin、finalizing
+> hook）。`npm test` 9/9 全绿。Step 3（`xAiQueryCreateStandalone`）按
+> 架构文档为"可选"，保持原计划仅在有真实用例时再做。
+>
+> 架构文档 §11.3 里写过的 "fake_submit → fake_query" 改造经评估**不再
+> 做**——`session_test.cpp` 当前通过 fake provider 驱动出 Query 的完整
+> 执行链，已经等价于"Session + Query 集成测试"；Query 白盒覆盖由新增的
+> `query_test.cpp` 独立承担。详见架构文档 §11.3 addendum。
+>
+> **下一个动手项：本文件 §6 context_budget α**（骨架四个 commit）。
 
 模块级落地细节清单。**架构级 / 跨层 TODO 不住这里**，看
 [`docs/todo/xai_architecture.md`](../../docs/todo/xai_architecture.md)
@@ -138,6 +148,139 @@
 - [ ] **Headers install 规则**。
   等 xKit 顶层 `install` target 定下来后，xai 的公共头按规则补上
   （`<xai/session.h>` / `<xai/provider.h>` / `<xai/message.h>` 等）。
+
+## 6. Context budget（历史长度管控）
+
+**问题**：一次 query 发起前，messages（system prompt + 历史 +
+tool_use/tool_result 对）累加的 token 可能超过模型 context window。
+模型侧典型反应是 400 或静默截断，两种都很糟：前者让 session 崩掉，
+后者让模型"失忆"但无告警。需要 xai 在 provider 之前把关。
+
+三个触发点本质是同一个：**即将把 messages 交给 provider 前**。我们只
+在这一个钩子上统一拦截——不管是 `xAiSessionInput` 刚开的新轮还是
+tool_result 回流后的下一轮，都走这里。
+
+### 6.1 分阶段落地
+
+**分两步走，不要一把梭**：α 铺骨架，β 复用 α 的 hook 做真正的智能压缩。
+
+- [ ] **α：硬截断骨架（方案 TruncateOldest）**。
+  零 LLM 调用、零延迟，把"预算检查 → trim → 保留边界"这条链路打通，
+  同时暴露 hook 给 β 复用。
+  拆成下列 commit：
+  1. `xAiBudgetPolicy` 枚举 + `xAiSessionConf.budget`
+     字段定义（默认 disabled，向后兼容）
+  2. Token 预估器（按字节数 /4 粗估，见 §6.3）+ "保留边界"工具函数
+     （system prompt / 当前 Input() 的新 user 消息 / 未配对的
+     tool_use↔tool_result 不能丢，见 §6.4）
+  3. Query 发起前的预算检查 + TruncateOldest 策略完整闭环
+  4. 单测：覆盖 "边界正好 / 刚好超 / 远超 / tool 对完整性" 四档
+
+- [ ] **β：summary query 调度**。
+  在 α 的 hook 点上，当策略为 `SummarizeOldest` 时，session 起一次
+  **短平快的内部 query**（复用同一 agent 的 provider，但带独立 system
+  prompt "Summarise this conversation segment in ≤200 words, preserve
+  names, numbers, decisions"），把老消息替换成一条
+  `role=System, content="[summary] ..."`。
+  - 这个内部 query 必须 **`budget_policy=Disabled`**，否则递归爆栈
+  - 压缩期间 session 对外状态是 "busy/compacting"，继续 Input() 依然
+    返 `xErrno_Busy`
+  - 失败（provider error / summary 自己超 budget）降级为 α 的硬截断，
+    不把压缩失败当致命错误
+  **动手时机**：α 跑通且有真实长对话 workload 后再做。没有实际 workload
+  的 β 等于过度设计。
+
+### 6.2 预算配置位置
+
+放 **`xAiSessionConf`**，不是 agent 也不是 query：
+
+- 不同 session 用途可能不同（正常对话 vs 压缩任务本身）
+- 压缩 query 需要能**单独关掉**预算检查（避免递归）→ 这要求 Query 层
+  保留一个 override 口子，`xAiQueryConf.budget_policy_override`
+  （可选，默认沿用 session）
+- Agent 层放预算会让多个 session 共享，但它们用同一个 model 不代表
+  用同一个预算（比如一个 session 只用来做 title 生成，预算 512；另一个
+  做主对话，预算 16k）
+
+字段草案（写到 `session.h`，不是独立头）：
+
+```c
+XDEF_ENUM(xAiBudgetPolicy) {
+  xAiBudgetPolicy_Disabled       = 0,  /* 默认：不做任何检查 */
+  xAiBudgetPolicy_Error          = 1,  /* 超预算直接 on_error，最安全 */
+  xAiBudgetPolicy_TruncateOldest = 2,  /* α 方案：从最旧开始丢 */
+  xAiBudgetPolicy_Callback       = 3,  /* 回调 on_compact 让调用方决定 */
+  xAiBudgetPolicy_SummarizeOldest= 4,  /* β 方案：起 summary query */
+};
+
+XDEF_STRUCT(xAiBudgetConf) {
+  xAiBudgetPolicy policy;
+  int             max_tokens;        /* 0 = policy 自带默认 */
+  int             keep_recent_turns; /* TruncateOldest/Summarize 必保留 */
+};
+```
+
+### 6.3 Token 预估
+
+三档选择：
+
+- (a) **字节数 /4 粗估**：0 依赖、误差 ±30%，对中文偏乐观
+- (b) 引入 tiktoken 或等价 bpe：准，但加依赖、加构建体积
+- (c) 依赖 provider 上一次返回的 `prompt_tokens` 做 ex-post 校准
+
+**采纳 (a) + (c)**：
+
+- (a) 先走通，作为基线
+- 每次 provider 返回 usage，把 "estimated / actual" 比值记成 session 层
+  的一个 rolling calibration factor（滑动平均），下次估算乘上这个因子
+- 不碰 (b)：tiktoken 依赖太重，而 (c) 校准后的 (a) 对"触发阈值"够用
+
+实现位置：`session.c` 内 `static size_t estimate_tokens(const xAiMessage *, size_t n)`，不暴露到头文件。
+
+### 6.4 保留边界（硬不变量）
+
+无论策略怎么选，**这四类消息绝不能被 trim 掉**：
+
+1. **System prompt**（首条 `role=System`）—— 丢了模型身份/工具说明全丢
+2. **当前 Input() 的新 user 消息** —— 正在处理的用户输入
+3. **未配对的 tool_use ↔ tool_result** —— 丢半边 provider 直接 400
+   （OpenAI: "tool_call_id not found"；Anthropic: "tool_use block
+   without matching tool_result"）。Trim 必须以"完整的
+   user+assistant(+tool pair)\*" 为原子单位
+4. **最近 `keep_recent_turns` 轮** —— 配置项，默认 2
+
+这块最容易埋 bug，拆一个 `trim_messages_preserving_pairs()` 出来，
+单测用 fixture 覆盖：只有 tool_use 没 tool_result、tool_result 跨轮、
+连续多个 tool_use 等 case。
+
+### 6.5 回调契约（Callback 策略 / Summarize 策略共用）
+
+```c
+/* session.h 追加 */
+XDEF_STRUCT(xAiSessionCallbacks) {
+  /* ...现有字段... */
+
+  /* 预算超标时触发。Session 已经算出 estimated/budget，让调用方
+   * 决定改写后的 messages。返回 Ok=接受改写；非 Ok=放弃本次 Input，
+   * session 走 on_error(xErrno_ResourceExhausted)。
+   * 改写必须保持 §6.4 的四条不变量，session 会再校验一次。*/
+  xErrno (*on_compact)(const xAiMessage *in, size_t n_in,
+                       xAiMessage **out, size_t *n_out,
+                       size_t estimated_tokens, size_t budget,
+                       void *user_data);
+};
+```
+
+Summarize 策略不暴露 on_compact——它自己内部实现，对用户透明。
+Callback 策略给高级用户用（自己接 tiktoken、自己决定丢哪条）。
+
+### 6.6 动手时机
+
+**Step 2（Session/Query 拆分）之后**。原因：Query 层会承接"发起
+provider 调用"这个动作，budget hook 装在 Query 里比装在 Session 里
+自然。而且 β 方案需要 Session "起一次内部 Query" 的能力——Query
+独立出来之后这是 trivial 的一行，现在还要绕 session.c 的内部状态机，
+不值得。
 
 ---
 

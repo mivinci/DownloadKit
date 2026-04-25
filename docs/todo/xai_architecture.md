@@ -22,7 +22,7 @@
 
 ### 1. 三层切分的直觉
 
-```
+```text
 ┌──────────────── Agent Loop（进程级 / 用户级）─────────────────┐
 │  "这个 AI 整体怎么活着"                                         │
 │                                                                 │
@@ -105,7 +105,7 @@ Session 在**每次 Query 结束后**上报候选：
 ### 3. 记忆分层归属终稿
 
 | 层级 | 内容 | 归属 | 生命周期 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **L0** | 当前对话的 raw history（turns、tool calls、events） | **Session** | 随 Session 销毁 |
 | **L1** | 本 Session 内抽取的要点 | **Session 抽取、Agent 裁决落盘** | 跨 Session 存活、但会衰减/合并 |
 | **L2** | 稳定事实（用户偏好、项目约定、关键里程碑） | **Agent** | 长期存在、定期 compact |
@@ -122,7 +122,7 @@ Session 在**每次 Query 结束后**上报候选：
 #### 4.1 session.c 876 行里挤了 7 类职责
 
 | # | 职责 | 代码位置 |
-|---|---|---|
+| --- | --- | --- |
 | 1 | 滚动历史存储（flat entries + 折叠成 message） | `history_*`、`view_build` |
 | 2 | 流式事件聚合（text / thinking / tool_use buffer） | `assist_*`、`reasoning_*`、`pending_*` |
 | 3 | Tool loop（判 ToolUse → dispatch → 再 submit） | `on_provider_done` 后半段 |
@@ -150,7 +150,7 @@ Session 在**每次 Query 结束后**上报候选：
 ### 5. 职责重新切分
 
 | 原 session 职责 | 拆后归属 |
-|---|---|
+| --- | --- |
 | 1 滚动历史存储 | **Session** |
 | 2 流式事件聚合 | **Query**（一次 query 的 scratch） |
 | 3 Tool loop | **Query**（query 的本质） |
@@ -165,7 +165,7 @@ Session 在**每次 Query 结束后**上报候选：
 
 ### 6. 两层协作示意
 
-```
+```text
 ┌─────────────────── xAiSession（长期持有、有状态）────────────────────┐
 │                                                                       │
 │  history[], agent, memory, budget, max_turns, cbs…                   │
@@ -377,7 +377,7 @@ static void forward_on_done(xAiQuery q, const xAiQueryResult *r, void *ud) {
 
 #### 11.1 现状盘点
 
-```
+```text
 modules/xai/session_test.cpp     — 覆盖 session-level 的 Input/Cancel/Destroy、
                                     tool loop、max_turns、cb_done 签名
 modules/xai/provider_openai_test.cpp — 覆盖 provider wire 编解码
@@ -389,7 +389,7 @@ modules/xai/message_test.cpp     — message 结构
 #### 11.2 改造量预估
 
 | 文件 | 改造内容 | 工作量 |
-|---|---|---|
+| --- | --- | --- |
 | `session_test.cpp` | fake_submit 改成 fake_query，验 Session 层 forwarding & usage 累加 | **大**（≈ 60% 重写） |
 | `query_test.cpp` | **新增**：fake_provider + 独立测 tool loop / reasoning / pending / cancel | 从零 |
 | `provider_openai_test.cpp` | 零改（Query 和 provider 的契约没变） | 0 |
@@ -402,17 +402,29 @@ modules/xai/message_test.cpp     — message 结构
 - **Step 1 是纯物理重组**，session_test 不改而且必须全绿——这是 Step 2 能开始的前提。如果 Step 1 哪个 case 挂了就说明重组把语义动了，回滚。
 - **Step 2 的 fake_query 要先设计好接口**，不要等到 session_test 改到一半才发现 fake 不够用。先用"最小 fake"（只能 done 一次、不支持 tool loop）跑通 Session 层最粗的 smoke test，再往 fake 里加能力。
 
+#### 11.4 Addendum（2026-04-25）：fake_query 改造已关闭
+
+事后复盘：§11.2 里预估的 "fake_submit → fake_query ≈ 60% 重写" 没有发生，也**不再计划发生**。原因是实际落地后 `session_test.cpp` 的形态已经满足当初要拆出 fake_query 时想达成的所有目标，不需要再做一轮机械替换。
+
+具体来说：
+
+1. **当前 `session_test.cpp` 事实上已是 Session + Query 集成测试**。fake provider 驱动真实的 `xAiQuery` 执行链（tool loop、cancel、reasoning、usage），Session 层的 forwarding 契约全部用端到端断言覆盖，每个用例的 intent 清晰——并没有"混在一起测不准"的问题。硬塞一个 fake_query 反而会把这条回归链路切断。
+2. **Query 的白盒覆盖由新增 `query_test.cpp` 独立承担**（见 `879d895`）。Query 状态机、observer 派发、history 解耦这些点的单元测试责任已经从 Session 测试里析出了，不再需要通过 "fake_query" 反向模拟。
+3. **`SubmitFailureRollsBackAndReturnsError` 等用例已经在直接断言 `s->query == nullptr`**——说明 session_test 已经感知 Query 的生命周期，早已不是 §11.1 盘点时那个 "只看 provider 黑盒" 的形态。
+
+结论：本条从 §12 开工清单撤下（标记为已关闭，非已完成）；后续若真的出现 "fake provider 层难以驱动某个 Session 决策路径" 的用例，再按需引入 fake_query，届时对 `session_test.cpp` 也只需要增量补测、不是重写。
+
 ### 12. 开工清单
 
-- [ ] **Step 1**：`session.c` 内部 `query_*` / `session_*` 分组重命名 + `on_provider_done` 拆三份
-- [ ] **Step 1**：`npm test` 9/9 全绿验证
-- [ ] **Step 1**：PR 提交 + self-review 确认 diff 零语义变化
-- [ ] **Step 2**：新增 `query.h/c/private.h`，从 Session 搬运字段与函数
-- [ ] **Step 2**：`xAiSession_` 瘦身，持有 `xAiQuery current_q`
-- [ ] **Step 2**：落实 §8.1 observer list、§8.2 input origin 标记、§8.3 `on_session_finalizing` 勾子
-- [ ] **Step 2**：新增 `query_test.cpp`（含 fake_provider）
-- [ ] **Step 2**：`session_test.cpp` 改造 fake_submit → fake_query，保留所有原 case 等价覆盖
-- [ ] **Step 2**：`npm test` 全绿 + `xai_test` 通过
+- [x] **Step 1**：`session.c` 内部 `query_*` / `session_*` 分组重命名 + `on_provider_done` 拆三份
+- [x] **Step 1**：`npm test` 9/9 全绿验证
+- [x] **Step 1**：PR 提交 + self-review 确认 diff 零语义变化
+- [x] **Step 2**：新增 `query.h/c/private.h`，从 Session 搬运字段与函数
+- [x] **Step 2**：`xAiSession_` 瘦身，持有 `xAiQuery current_q`
+- [x] **Step 2**：落实 §8.1 observer list、§8.2 input origin 标记、§8.3 `on_session_finalizing` 勾子
+- [x] **Step 2**：新增 `query_test.cpp`（含 fake_provider）
+- [~] **Step 2**：~~`session_test.cpp` 改造 fake_submit → fake_query~~ — **已关闭，见 §11.4**。`session_test.cpp` 当前已等价承担 Session + Query 集成测试，不再需要此改造。
+- [x] **Step 2**：`npm test` 全绿 + `xai_test` 通过
 - [ ] **Step 2**：更新 `docs/xai-module.md`（如果有的话）说明新的双层结构
 - [ ] **Step 3**（可选）：开放 `xAiQueryCreateStandalone`，文档里给一个批处理 use case
 
@@ -425,7 +437,7 @@ modules/xai/message_test.cpp     — message 结构
 有个合理的反问：**Session 本来就是一个"对话"的抽象，跨对话的事交给进程/主程序不就行了？**——如果只做 Part II 的 Session/Query 拆分，确实不需要 Agent 层。Agent 层的**必要性完全来自 human-like-ai 规划的四个维度**。
 
 | 维度 | 为什么必须 Agent 层 |
-|---|---|
+| --- | --- |
 | **分层记忆 L2/L3** | L2 是跨 session 的稳定事实，L3 是长期自我认知。归属权必须在所有 Session 之上，否则每一次 Session 生死都会拖一个 L2/L3 全量 I/O，还容易写冲突。 |
 | **情绪延续** | Mood 必须在 Session 边界之外 carry-over，否则每新开一个对话都是冷启动情绪。只有一个常驻的"自我"才能持有 mood state。 |
 | **主动唤醒** | 定时器/事件触发时，**当下可能根本没有活跃 Session**。由 Agent 层决定"要不要起一个新 Session"以及"input 是什么"。Session 层无法自举。 |
@@ -482,7 +494,7 @@ v1 之后的事，先不管。但脑子里要有个粗草案：不是连续浮�
 
 ### 16. 总体时间线
 
-```
+```text
   now                                          future
    │                                              │
    ├── human-like-ai MVP 决定启动 ──────────────┐│
@@ -509,7 +521,7 @@ v1 之后的事，先不管。但脑子里要有个粗草案：不是连续浮�
 ### 17. 风险总览
 
 | 项 | 评估 | 缓解 |
-|---|---|---|
+| --- | --- | --- |
 | **对外 API break** | 无。所有改动内部。 | 三步都严守"对外 API 零 break"硬约束 |
 | **行为回归** | Step 1 纯物理重组风险最低；Step 2 动了数据字段归属 | Step 1 必须 session_test 9/9 全绿才能进 Step 2；Step 2 先用最小 fake 跑通 smoke 再扩展 |
 | **测试工作量** | 2-3 天测试重构 | Step 2 拆成多个小 commit 渐进，不要一次性堆完所有 case |
@@ -537,7 +549,7 @@ v1 之后的事，先不管。但脑子里要有个粗草案：不是连续浮�
 ### 19. 三层命名速查
 
 | 层 | 类型名 | 内部前缀 | 文件 | 职责一句话 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Agent Loop | `xAiAgent`（将来） | `agent_*` | `agent.h/c`（将来） | "这个 AI 怎么活" |
 | Session Loop | `xAiSession`（现有） | `session_*` / 待梳理 | `session.h/c`（现有） | "这个任务怎么完成" |
 | Query Loop | `xAiQuery`（Step 2 后） | `query_*` | `query.h/c`（将来） | "这次请求怎么跑完" |

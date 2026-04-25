@@ -9,13 +9,20 @@
  * translation units must go through query.h.
  *
  * A Query owns exactly the transient state of one in-flight run of
- * the provider/tool loop. Durable state (history, configuration,
- * agent handle, caller callbacks) stays on xAiSession_. Each
- * accepted xAiSessionInput() spawns one heap-allocated Query via
- * xAiQueryCreate, runs it with xAiQueryRun, and destroys it with
- * xAiQueryDestroy once the terminal on_done has fired. The Query
- * keeps a back-pointer to its owning Session so provider callbacks
- * can reach history and agent-level configuration.
+ * the provider/tool loop. Durable state (conversation history,
+ * configuration, agent handle, caller callbacks) stays on xAiSession_.
+ *
+ * Phase β: the Query is stateless w.r.t. the Session's history. On
+ * xAiQueryCreate the Session hands in a @c xAiQueryConf; on
+ * xAiQueryRun the Session hands in the complete message array the
+ * Query should run on (System prompt + rolling history + the new
+ * user message). The Query deep-copies that array into @c inputs
+ * and, as rounds progress, appends its own output (assistant turns,
+ * tool_result entries) into @c produced. view_build walks
+ * @c inputs + @c produced in order and hands the concatenation to
+ * the provider. When the terminal on_done fires the Session pulls
+ * @c produced out (into its rolling history) and destroys the
+ * Query. The Query never reads or writes xAiSession_::history.
  */
 
 #ifndef XAI_QUERY_PRIVATE_H
@@ -28,6 +35,8 @@
 #include <xai/query.h>    /* xAiQueryCallbacks                         */
 #include <xai/session.h>  /* xAiDoneReason                             */
 #include <xbase/error.h>
+
+#include "turn_private.h" /* struct xAiSessionMsg_                     */
 
 /* Forward decl: Query holds a non-owning back-pointer to its owning
  * Session. The definition lives in session_private.h. */
@@ -69,7 +78,11 @@ struct xAiQueryPending_ {
 struct xAiQuery_ {
   /* Non-owning back-pointer to the Session that hosts this Query.
    * Stamped at xAiQueryCreate and never mutated afterwards. Used by
-   * provider callbacks to reach history and agent-level config. */
+   * provider callbacks to reach agent-level configuration (provider,
+   * tools, model). History is NO LONGER read or written through this
+   * pointer: the Query runs off its own @c inputs + @c produced
+   * turn-entry arrays below and the Session merges @c produced back
+   * into its history after the run terminates. */
   struct xAiSession_ *session;
 
   /* Streaming callbacks for this Query. Captured by value at
@@ -77,6 +90,30 @@ struct xAiQuery_ {
    * Session) and the user_data stored in this struct. The Session
    * layer wires this up to its own forwarding shims. */
   xAiQueryCallbacks cbs;
+
+  /* ── Run input: the messages this Query is running on ─────────
+   *
+   * Handed to xAiQueryRun by the Session layer and deep-copied into
+   * Query-owned storage. Every entry is one turn-entry record (same
+   * shape as Session history); the Query never mutates this list
+   * after Run accepts it. view_build walks this list first, then
+   * @c produced below. */
+  struct xAiSessionMsg_ *inputs;
+  size_t                 n_inputs;
+  size_t                 cap_inputs;
+
+  /* ── Run output: turns emitted during this run ────────────────
+   *
+   * Grown in round order: each committed assistant turn (thinking +
+   * text + tool_use entries) and each tool_result produced by
+   * dispatch_pending_tools lands here. view_build walks this list
+   * after @c inputs so follow-up rounds see the full conversation
+   * so far. On terminal on_done the Session merges this list into
+   * its history (copy or move, implementation detail) before the
+   * Query is destroyed. */
+  struct xAiSessionMsg_ *produced;
+  size_t                 n_produced;
+  size_t                 cap_produced;
 
   /* ── Assistant text accumulator for the current round ─────────── */
   char  *assist_buf;
@@ -111,20 +148,16 @@ struct xAiQuery_ {
 /* ── Internal API (consumed by session.c) ────────────────────────── */
 
 /**
- * @brief Submit one provider round over the Session's current history.
+ * @brief Submit one provider round over @c inputs + @c produced.
  *
- * Precondition: @c q->running == 1. Caller is responsible for
- * appending the triggering user message / tool_results into history
- * before calling. On success, provider callbacks will fire later;
- * the run terminates when the Query's on_done has been delivered.
+ * Precondition: @c q->running == 1 and the input list has been
+ * populated. Provider callbacks will fire later; the run terminates
+ * when the Query's on_done has been delivered.
  *
- * Exposed here (rather than only via xAiQueryRun) because session.c
- * drives the append-history-then-submit ordering during initial
- * xAiSessionInput, where the Query has already been created but
- * history must be written before the submit happens. In Phase β,
- * once history is fully owned by the Session and Queries run off
- * explicit message arrays, this entry point goes away and callers
- * use xAiQueryRun exclusively.
+ * Exposed as an entry point separate from xAiQueryRun so that the
+ * tool-loop continuation path (which has already populated
+ * @c produced with the previous round's tool_results) can submit
+ * without going through the Run front door again.
  *
  * @return xErrno_Ok if the submit was accepted; otherwise an error
  *         and no callbacks will fire.
@@ -139,5 +172,24 @@ xErrno ai_query_submit(struct xAiQuery_ *q);
  * call when already cancelled or not running.
  */
 void ai_query_cancel_mark(struct xAiQuery_ *q);
+
+/**
+ * @brief Detach and return the Query's @c produced list.
+ *
+ * Transfers ownership of the produced-turn array to the caller;
+ * afterwards @c q->produced is NULL / zero so xAiQueryDestroy will
+ * not free it. Caller is responsible for releasing each entry with
+ * ai_session_msg_free() and then freeing the outer array.
+ *
+ * Used by the Session's terminal forwarding to pull the Query's
+ * output into @c session->history before destroying the Query.
+ *
+ * @param q      Query handle.
+ * @param out    Receives the base pointer (may be NULL if the run
+ *               produced nothing).
+ * @param n_out  Receives the number of entries.
+ */
+void ai_query_take_produced(struct xAiQuery_ *q, struct xAiSessionMsg_ **out,
+                            size_t *n_out);
 
 #endif /* XAI_QUERY_PRIVATE_H */

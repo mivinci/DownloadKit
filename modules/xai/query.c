@@ -7,21 +7,30 @@
  *
  * One Query is one end-to-end run of the provider / tool loop:
  *
- *     Create → Run → submit round 1 → (tools?) → round 2 → ... → on_done
+ *     Create → Run(msgs[]) → round 1 → (tools?) → round 2 → ... → on_done
  *
- * Session owns the durable state (history, configuration, caller
- * callbacks). Each accepted xAiSessionInput() heap-allocates a fresh
- * Query via xAiQueryCreate, runs it, and destroys it from its
- * forwarding on_done once the terminal callback has fired. Query
- * owns the transient state of that single run (streaming buffers,
- * pending tool calls, cumulative usage, running/cancelled flags) and
- * fires its own @c q->cbs.* stream — the Session installs forwarding
- * shims that re-dispatch those calls to the caller's xAiSessionCallbacks.
+ * Session owns the durable state (conversation history,
+ * configuration, caller callbacks). Each accepted xAiSessionInput()
+ * heap-allocates a fresh Query via xAiQueryCreate, hands it the
+ * full message list it should run on via xAiQueryRun, and destroys
+ * it from its forwarding on_done once the terminal callback has
+ * fired. Query owns the transient state of that single run (input
+ * snapshot, produced turns, streaming buffers, pending tool calls,
+ * cumulative usage, running/cancelled flags) and fires its own
+ * @c q->cbs.* stream — the Session installs forwarding shims that
+ * re-dispatch those calls to the caller's xAiSessionCallbacks.
  *
- * This file is intentionally unaware of xAiAgent layering: it reaches
- * back into its owning Session via @c q->session (for history and
- * agent-level tools/provider access) and leaves policy like "when
- * does a run start?" / "who destroys the Session?" to session.c.
+ * Phase β: the Query is stateless w.r.t. the Session's history.
+ * view_build walks @c q->inputs + @c q->produced (not
+ * @c s->history). New assistant turns and tool_result entries land
+ * in @c q->produced; on terminal on_done the Session pulls
+ * @c produced out via ai_query_take_produced() and merges it into
+ * @c s->history before destroying the Query.
+ *
+ * This file reaches back into its owning Session via @c q->session
+ * only for agent-level configuration (provider, tools, model,
+ * max_tokens, max_turns) — everything conversation-shaped is
+ * Query-local.
  */
 
 #include "query_private.h"
@@ -62,6 +71,221 @@ static char *dup_bytes(const char *src, size_t len) {
 static char *dup_cstr(const char *src) {
   if (!src) return NULL;
   return dup_bytes(src, strlen(src));
+}
+
+/* ── Turn-entry buffer helpers (local to query.c) ───────────────────
+ *
+ * Both @c q->inputs and @c q->produced are flat arrays of
+ * struct xAiSessionMsg_ (same shape as xAiSession_::history; see
+ * turn_private.h for the rationale). These helpers own all their
+ * strings and release them through ai_session_msg_free(), which is
+ * shared with session.c.
+ *
+ * We keep the helpers local rather than promoting them to
+ * session_private.h: session.c has its own grow/append pair tuned
+ * for xAiSession_::history, and query.c only needs this handful for
+ * the two Query-local arrays. Sharing would save maybe 15 lines
+ * at the cost of cross-TU coupling we are actively trying to
+ * reduce. If a third buffer shows up we'll revisit.
+ */
+static struct xAiSessionMsg_ *turn_buf_grow(struct xAiSessionMsg_ **buf,
+                                            size_t *n, size_t *cap) {
+  if (*n + 1 > *cap) {
+    size_t new_cap = *cap ? *cap * 2 : 4;
+    struct xAiSessionMsg_ *nb = (struct xAiSessionMsg_ *)realloc(
+      *buf, new_cap * sizeof(**buf));
+    if (!nb) return NULL;
+    *buf = nb;
+    *cap = new_cap;
+  }
+  struct xAiSessionMsg_ *slot = &(*buf)[(*n)++];
+  memset(slot, 0, sizeof(*slot));
+  return slot;
+}
+
+static void turn_buf_free(struct xAiSessionMsg_ **buf, size_t *n, size_t *cap) {
+  if (*buf) {
+    for (size_t i = 0; i < *n; i++) ai_session_msg_free(&(*buf)[i]);
+    free(*buf);
+  }
+  *buf = NULL;
+  *n   = 0;
+  *cap = 0;
+}
+
+/* Append a single-content text entry with role @p role. The text is
+ * duplicated. Used to materialise user text and assistant text into
+ * turn-entry storage. */
+static xErrno turn_buf_append_text(struct xAiSessionMsg_ **buf, size_t *n,
+                                   size_t *cap, xAiRole role, const char *text,
+                                   size_t len) {
+  struct xAiSessionMsg_ *slot = turn_buf_grow(buf, n, cap);
+  if (!slot) return xErrno_NoMemory;
+  slot->role = role;
+  slot->kind = xAiSessionEntry_Text;
+  if (len > 0) {
+    slot->text = dup_bytes(text, len);
+    if (!slot->text) {
+      (*n)--;
+      return xErrno_NoMemory;
+    }
+    slot->text_len = len;
+  }
+  return xErrno_Ok;
+}
+
+/* Append an assistant thinking entry. @p text is duplicated. */
+static xErrno turn_buf_append_thinking(struct xAiSessionMsg_ **buf, size_t *n,
+                                       size_t *cap, const char *text,
+                                       size_t len) {
+  struct xAiSessionMsg_ *slot = turn_buf_grow(buf, n, cap);
+  if (!slot) return xErrno_NoMemory;
+  slot->role = xAiRole_Assistant;
+  slot->kind = xAiSessionEntry_Thinking;
+  if (len > 0) {
+    slot->text = dup_bytes(text, len);
+    if (!slot->text) {
+      (*n)--;
+      return xErrno_NoMemory;
+    }
+    slot->text_len = len;
+  }
+  return xErrno_Ok;
+}
+
+/* Append an assistant tool_use entry. Every string is duplicated. */
+static xErrno turn_buf_append_tool_use(struct xAiSessionMsg_ **buf, size_t *n,
+                                       size_t *cap, const char *id,
+                                       const char *name, const char *args) {
+  struct xAiSessionMsg_ *slot = turn_buf_grow(buf, n, cap);
+  if (!slot) return xErrno_NoMemory;
+  slot->role          = xAiRole_Assistant;
+  slot->kind          = xAiSessionEntry_ToolUse;
+  slot->tool_use_id   = dup_cstr(id ? id : "");
+  slot->tool_use_name = dup_cstr(name ? name : "");
+  slot->tool_use_args = dup_cstr(args ? args : "{}");
+  if (!slot->tool_use_id || !slot->tool_use_name || !slot->tool_use_args) {
+    ai_session_msg_free(slot);
+    (*n)--;
+    return xErrno_NoMemory;
+  }
+  return xErrno_Ok;
+}
+
+/* Append a tool_result entry. The output is duplicated. */
+static xErrno turn_buf_append_tool_result(struct xAiSessionMsg_ **buf,
+                                          size_t *n, size_t *cap,
+                                          const char *id, const char *output,
+                                          size_t output_len, int is_error) {
+  struct xAiSessionMsg_ *slot = turn_buf_grow(buf, n, cap);
+  if (!slot) return xErrno_NoMemory;
+  slot->role           = xAiRole_Tool;
+  slot->kind           = xAiSessionEntry_ToolResult;
+  slot->tool_result_id = dup_cstr(id ? id : "");
+  if (output_len > 0) {
+    slot->tool_result_output     = dup_bytes(output, output_len);
+    slot->tool_result_output_len = output_len;
+  } else if (output) {
+    slot->tool_result_output     = dup_cstr(output);
+    slot->tool_result_output_len = strlen(output);
+  } else {
+    slot->tool_result_output     = dup_cstr("");
+    slot->tool_result_output_len = 0;
+  }
+  slot->tool_result_is_error = is_error;
+  if (!slot->tool_result_id || !slot->tool_result_output) {
+    ai_session_msg_free(slot);
+    (*n)--;
+    return xErrno_NoMemory;
+  }
+  return xErrno_Ok;
+}
+
+/* Deep-copy one incoming xAiMessage into @p buf as one or more
+ * turn-entry records. We pick the shape by role+content:
+ *
+ *   - System / User / Tool with one-or-more Text blocks: concatenate
+ *     every Text block into a single Text entry (the wire protocol
+ *     re-splits if it cares, and this keeps our history compact).
+ *   - Assistant with any mix of Text / Thinking / ToolUse blocks:
+ *     one entry per block, preserving block order (view_build folds
+ *     consecutive Assistant entries back into one message).
+ *   - Tool with a ToolResult block: one ToolResult entry.
+ *
+ * Unknown / empty block combinations are skipped silently. */
+static xErrno turn_buf_append_message(struct xAiSessionMsg_ **buf, size_t *n,
+                                      size_t *cap, const xAiMessage *msg) {
+  if (!msg) return xErrno_InvalidArg;
+
+  if (msg->role == xAiRole_Assistant) {
+    for (size_t i = 0; i < msg->n; i++) {
+      const xAiContent *c = &msg->contents[i];
+      xErrno            rc;
+      switch (c->type) {
+      case xAiContentType_Text:
+        rc = turn_buf_append_text(buf, n, cap, xAiRole_Assistant,
+                                  c->u.text.text, c->u.text.len);
+        break;
+      case xAiContentType_Thinking:
+        rc = turn_buf_append_thinking(buf, n, cap, c->u.thinking.text,
+                                      c->u.thinking.len);
+        break;
+      case xAiContentType_ToolUse:
+        rc = turn_buf_append_tool_use(buf, n, cap, c->u.tool_use.id,
+                                      c->u.tool_use.name,
+                                      c->u.tool_use.args_json);
+        break;
+      default:
+        rc = xErrno_Ok; /* skip */
+      }
+      if (rc != xErrno_Ok) return rc;
+    }
+    return xErrno_Ok;
+  }
+
+  if (msg->role == xAiRole_Tool) {
+    for (size_t i = 0; i < msg->n; i++) {
+      const xAiContent *c = &msg->contents[i];
+      if (c->type != xAiContentType_ToolResult) continue;
+      xErrno rc = turn_buf_append_tool_result(
+        buf, n, cap, c->u.tool_result.id, c->u.tool_result.output,
+        c->u.tool_result.output_len, c->u.tool_result.is_error);
+      if (rc != xErrno_Ok) return rc;
+    }
+    return xErrno_Ok;
+  }
+
+  /* System / User: concatenate every Text block into one entry. */
+  size_t total = 0;
+  for (size_t i = 0; i < msg->n; i++) {
+    if (msg->contents[i].type == xAiContentType_Text) {
+      total += msg->contents[i].u.text.len;
+    }
+  }
+  if (total == 0) {
+    return turn_buf_append_text(buf, n, cap, msg->role, NULL, 0);
+  }
+  char *concat = (char *)malloc(total + 1);
+  if (!concat) return xErrno_NoMemory;
+  size_t off = 0;
+  for (size_t i = 0; i < msg->n; i++) {
+    if (msg->contents[i].type == xAiContentType_Text) {
+      size_t k = msg->contents[i].u.text.len;
+      if (k) memcpy(concat + off, msg->contents[i].u.text.text, k);
+      off += k;
+    }
+  }
+  concat[total]               = '\0';
+  struct xAiSessionMsg_ *slot = turn_buf_grow(buf, n, cap);
+  if (!slot) {
+    free(concat);
+    return xErrno_NoMemory;
+  }
+  slot->role     = msg->role;
+  slot->kind     = xAiSessionEntry_Text;
+  slot->text     = concat;
+  slot->text_len = total;
+  return xErrno_Ok;
 }
 
 /* ── Pending tool-call bookkeeping ──────────────────────────────── */
@@ -214,36 +438,48 @@ static void view_free(struct view_ *v) {
 }
 
 /* Fold consecutive Assistant entries into one xAiMessage (possibly
- * carrying both text and tool_use blocks); every other entry maps
- * 1:1 to an xAiMessage.
+ * carrying thinking / text / tool_use blocks together); every other
+ * entry maps 1:1 to an xAiMessage.
  *
- * First pass counts output sizes, second pass populates them. */
+ * The entry sequence the builder walks is @c q->inputs concatenated
+ * with @c q->produced: inputs carries whatever the Session handed
+ * to xAiQueryRun (System prompt + rolling history + the new user
+ * turn), produced carries everything this run has emitted so far
+ * (assistant turns + tool_results from previous rounds). The Query
+ * never reads @c s->history; session.c is responsible for baking
+ * the system prompt into @c inputs before Run. */
 static xErrno view_build(struct xAiQuery_ *q, struct view_ *out) {
-  struct xAiSession_ *s = q->session;
   memset(out, 0, sizeof(*out));
-  size_t extra_system = (s->system_prompt && s->system_prompt[0]) ? 1 : 0;
 
-  /* Count messages and blocks. */
-  size_t n_msgs   = extra_system;
-  size_t n_blocks = extra_system; /* system prompt gets one text block */
-  for (size_t i = 0; i < s->n_history;) {
-    if (s->history[i].role == xAiRole_Assistant) {
-      /* Fold all consecutive Assistant entries into one msg. */
+  /* We present inputs and produced as one logical sequence; the
+   * two dimension pairs make the fold loop below simpler than a
+   * runtime concat. */
+  struct xAiSessionMsg_ *arrs[2] = {q->inputs, q->produced};
+  size_t                 lens[2] = {q->n_inputs, q->n_produced};
+  size_t                 n_total = lens[0] + lens[1];
+  if (n_total == 0) return xErrno_InvalidArg;
+
+  /* Helper: address of logical entry i (across arrs[0]++arrs[1]). */
+#define XAI_ENTRY(i) \
+  (((i) < lens[0]) ? &arrs[0][(i)] : &arrs[1][(i) - lens[0]])
+
+  /* Pass 1: count output messages and content blocks. */
+  size_t n_msgs   = 0;
+  size_t n_blocks = 0;
+  for (size_t i = 0; i < n_total;) {
+    struct xAiSessionMsg_ *m = XAI_ENTRY(i);
+    if (m->role == xAiRole_Assistant) {
       size_t j = i;
-      while (j < s->n_history && s->history[j].role == xAiRole_Assistant)
-        j++;
+      while (j < n_total && XAI_ENTRY(j)->role == xAiRole_Assistant) j++;
       n_msgs += 1;
       n_blocks += (j - i);
       i = j;
     } else {
-      /* One block per user/tool entry. */
       n_msgs += 1;
       n_blocks += 1;
       i += 1;
     }
   }
-
-  if (n_msgs == 0) return xErrno_InvalidArg;
 
   out->msgs   = (xAiMessage *)calloc(n_msgs, sizeof(xAiMessage));
   out->blocks = (xAiContent *)calloc(n_blocks, sizeof(xAiContent));
@@ -254,27 +490,16 @@ static xErrno view_build(struct xAiQuery_ *q, struct view_ *out) {
   out->n_msgs   = n_msgs;
   out->n_blocks = n_blocks;
 
-  size_t mi = 0; /* msg write index */
-  size_t bi = 0; /* block write index */
-
-  if (extra_system) {
-    out->blocks[bi].type        = xAiContentType_Text;
-    out->blocks[bi].u.text.text = s->system_prompt;
-    out->blocks[bi].u.text.len  = strlen(s->system_prompt);
-    out->msgs[mi].role          = xAiRole_System;
-    out->msgs[mi].contents      = &out->blocks[bi];
-    out->msgs[mi].n             = 1;
-    mi++;
-    bi++;
-  }
-
-  for (size_t i = 0; i < s->n_history;) {
-    struct xAiSessionMsg_ *m = &s->history[i];
+  /* Pass 2: populate. */
+  size_t mi = 0;
+  size_t bi = 0;
+  for (size_t i = 0; i < n_total;) {
+    struct xAiSessionMsg_ *m = XAI_ENTRY(i);
     if (m->role == xAiRole_Assistant) {
       size_t block_start = bi;
       size_t j           = i;
-      while (j < s->n_history && s->history[j].role == xAiRole_Assistant) {
-        struct xAiSessionMsg_ *mm = &s->history[j];
+      while (j < n_total && XAI_ENTRY(j)->role == xAiRole_Assistant) {
+        struct xAiSessionMsg_ *mm = XAI_ENTRY(j);
         xAiContent            *b  = &out->blocks[bi++];
         if (mm->kind == xAiSessionEntry_Text) {
           b->type        = xAiContentType_Text;
@@ -319,6 +544,7 @@ static xErrno view_build(struct xAiQuery_ *q, struct view_ *out) {
     }
   }
 
+#undef XAI_ENTRY
   return xErrno_Ok;
 }
 
@@ -388,11 +614,11 @@ static xAiTool find_tool(struct xAiAgent_ *a, const char *name) {
 }
 
 /* Dispatch every buffered tool call, appending tool_result entries to
- * history. If the query is cancelled mid-dispatch we stop early and
- * let ai_session_finish_run surface Aborted.
+ * @c q->produced. If the query is cancelled mid-dispatch we stop
+ * early and let the caller surface Aborted.
  *
  * Returns xErrno_Ok if dispatch completed (successfully or with
- * individual tool errors folded back into history). Fatal failure
+ * individual tool errors folded back into produced). Fatal failure
  * (OOM building result entries) aborts with the returned code. */
 static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
   struct xAiSession_ *s = q->session;
@@ -450,7 +676,9 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
     }
 
     xErrno rc =
-      ai_history_append_tool_result(s, p->id, out_text, out_text_len, is_error);
+      turn_buf_append_tool_result(&q->produced, &q->n_produced,
+                                  &q->cap_produced, p->id, out_text,
+                                  out_text_len, is_error);
 
     if (q->cbs.on_tool) {
       q->cbs.on_tool((xAiQuery)q, p->name, /*started=*/0, q->cbs.user_data);
@@ -465,7 +693,6 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
 /* ── Assistant-turn commit ─────────────────────────────────────── */
 
 static void commit_assistant_turn(struct xAiQuery_ *q) {
-  struct xAiSession_ *s = q->session;
   /* Order matters on the wire: the thinking block (if any) goes
    * FIRST inside the assistant turn, then the text, then each tool_use
    * entry. moonshot's kimi-k2.6 doesn't appear to care about the
@@ -473,15 +700,20 @@ static void commit_assistant_turn(struct xAiQuery_ *q) {
    * blocks are documented as coming first, and putting reasoning
    * before tool_calls matches every upstream example I've seen. */
   if (q->reasoning_len > 0) {
-    (void)ai_history_append_thinking(s, q->reasoning_buf, q->reasoning_len);
+    (void)turn_buf_append_thinking(&q->produced, &q->n_produced,
+                                   &q->cap_produced, q->reasoning_buf,
+                                   q->reasoning_len);
   }
   if (q->assist_len > 0) {
-    (void)ai_history_append_text(s, xAiRole_Assistant, q->assist_buf,
-                                 q->assist_len);
+    (void)turn_buf_append_text(&q->produced, &q->n_produced,
+                               &q->cap_produced, xAiRole_Assistant,
+                               q->assist_buf, q->assist_len);
   }
   for (size_t i = 0; i < q->n_pending; i++) {
     struct xAiQueryPending_ *p = &q->pending[i];
-    (void)ai_history_append_tool_use(s, p->id, p->name, p->args_json);
+    (void)turn_buf_append_tool_use(&q->produced, &q->n_produced,
+                                   &q->cap_produced, p->id, p->name,
+                                   p->args_json);
   }
 }
 
@@ -698,6 +930,15 @@ void ai_query_cancel_mark(struct xAiQuery_ *q) {
   q->cancelled = 1;
 }
 
+void ai_query_take_produced(struct xAiQuery_ *q, struct xAiSessionMsg_ **out,
+                            size_t *n_out) {
+  if (out) *out = q->produced;
+  if (n_out) *n_out = q->n_produced;
+  q->produced     = NULL;
+  q->n_produced   = 0;
+  q->cap_produced = 0;
+}
+
 /* ── Public API (declared in xai/query.h) ──────────────────────── */
 
 xAiQuery xAiQueryCreate(xAiSession sess, const xAiQueryConf *conf) {
@@ -722,8 +963,9 @@ xAiQuery xAiQueryCreate(xAiSession sess, const xAiQueryConf *conf) {
   return (xAiQuery)q;
 }
 
-xErrno xAiQueryRun(xAiQuery q, xAiMessage input) {
+xErrno xAiQueryRun(xAiQuery q, const xAiMessage *msgs, size_t n) {
   if (!q) return xErrno_InvalidArg;
+  if (n == 0 || !msgs) return xErrno_InvalidArg;
   struct xAiQuery_ *qq = (struct xAiQuery_ *)q;
 
   /* Single-shot: a Query that's already running, or has already
@@ -735,24 +977,30 @@ xErrno xAiQueryRun(xAiQuery q, xAiMessage input) {
   struct xAiSession_ *s = qq->session;
   if (!s) return xErrno_InvalidArg;
 
-  /* Phase α: the Query still appends the input directly into its
-   * owning Session's history. Phase β will thread messages through
-   * as an explicit array so Queries become pure data-in/data-out. */
-  size_t history_checkpoint = s->n_history;
-  xErrno rc = ai_history_append_user_msg(s, input);
-  if (rc != xErrno_Ok) return rc;
+  /* Deep-copy every input message into Query-owned turn-entry
+   * storage. After this loop succeeds the caller's @p msgs buffers
+   * can be freed immediately; everything we need is in qq->inputs. */
+  for (size_t i = 0; i < n; i++) {
+    xErrno rc = turn_buf_append_message(&qq->inputs, &qq->n_inputs,
+                                        &qq->cap_inputs, &msgs[i]);
+    if (rc != xErrno_Ok) {
+      /* Roll back: release anything we managed to copy so the
+       * Query is still disposable via xAiQueryDestroy. */
+      turn_buf_free(&qq->inputs, &qq->n_inputs, &qq->cap_inputs);
+      return rc;
+    }
+  }
 
   qq->running = 1;
 
-  rc = submit_round(qq);
+  xErrno rc = submit_round(qq);
   if (rc != xErrno_Ok) {
-    /* Round never started — don't fire on_done. Undo the history
-     * append so the Session reflects what actually happened. */
+    /* Round never started — don't fire on_done. Clear running/turn
+     * so the Query is back to an idle shape and the caller can
+     * safely destroy it. inputs stay populated only for diagnostic
+     * purposes — xAiQueryDestroy will free them. */
     qq->running = 0;
     qq->turn    = 0;
-    while (s->n_history > history_checkpoint) {
-      ai_session_msg_free(&s->history[--s->n_history]);
-    }
   }
   return rc;
 }
@@ -787,6 +1035,10 @@ void xAiQueryDestroy(xAiQuery q) {
   free(qq->reasoning_buf);
   pending_reset(qq);
   free(qq->pending);
+
+  turn_buf_free(&qq->inputs, &qq->n_inputs, &qq->cap_inputs);
+  turn_buf_free(&qq->produced, &qq->n_produced, &qq->cap_produced);
+
   free(qq);
 }
 

@@ -47,6 +47,30 @@
 XDEF_HANDLE(xAiSession);
 
 /**
+ * @brief Who initiated the conversation this session is about to run.
+ *
+ * The session is an opaque conduit for tokens and tool calls; the
+ * xai core itself treats every input identically. The origin field
+ * is recorded so that higher layers (a future Agent layer in
+ * particular) can branch on "was this a real user talking, or an
+ * internally-synthesised nudge?" without sniffing the history.
+ *
+ * Concretely, a long-term memory extractor that runs on the L1
+ * candidates coming out of a session must NOT fold content from a
+ * @ref xAiInputOrigin_SystemSynthesized run into user preferences.
+ * Agent-initiated "main character reminders" / proactive wake-ups
+ * take this path.
+ *
+ * Callers that don't care leave the field zero — which maps to
+ * @ref xAiInputOrigin_User, the conservative default for
+ * human-driven conversations.
+ */
+XDEF_ENUM(xAiInputOrigin){
+  xAiInputOrigin_User              = 0, /**< Real user speaking (default)    */
+  xAiInputOrigin_SystemSynthesized = 1, /**< Agent-composed wake-up / nudge  */
+};
+
+/**
  * @brief Why the session's current run stopped.
  *
  * Delivered to the caller via xAiSessionCallbacks::on_done. This is
@@ -178,6 +202,32 @@ XDEF_STRUCT(xAiSessionCallbacks) {
 };
 
 /**
+ * @brief Late-teardown hook fired exactly once when a session is
+ *        destroyed.
+ *
+ * Runs from xAiSessionDestroy @em before any session-owned storage
+ * (history, query buffers) is released. The intended consumer is a
+ * future Agent layer that needs a final chance to digest the
+ * session (extract L1 memory candidates, record mood delta, emit
+ * analytics) with the full session state still intact. It is not
+ * meant for end-user callers — regular completion flows through
+ * xAiSessionCallbacks::on_done.
+ *
+ * Semantics:
+ *   - Fires exactly once per successfully-created session, during
+ *     xAiSessionDestroy, while @p sess is still fully live. The
+ *     handle MUST NOT be stored past the callback.
+ *   - If the session was still running when destroy was invoked,
+ *     cancellation is issued first and on_done has already fired
+ *     before this hook runs.
+ *   - NULL = no hook, which is the default.
+ *
+ * @param sess   The session about to be torn down.
+ * @param owner  The xAiSessionConf::finalizing_owner pointer.
+ */
+typedef void (*xAiSessionFinalizingFn)(xAiSession sess, void *owner);
+
+/**
  * @brief Configuration for creating a session.
  *
  * Zero-initialise for "inherit everything from the agent". All
@@ -199,6 +249,30 @@ XDEF_STRUCT(xAiSessionConf) {
                                   (0 = inherit).                        */
   size_t context_budget;     /**< Override the agent's context budget
                                   (0 = inherit).                        */
+
+  /**
+   * @brief Who this session speaks for.
+   *
+   * Stamped on the session at creation and never changes afterwards
+   * — it is a property of "this conversation", not of individual
+   * inputs. Readable via xAiSessionOrigin(); inspected by future
+   * Agent-layer hooks that need to discriminate user-driven runs
+   * from system-synthesised ones (L1 memory extraction, mood
+   * accounting). Zero defaults to xAiInputOrigin_User.
+   */
+  xAiInputOrigin origin;
+
+  /**
+   * @brief Optional late-teardown hook, paired with @ref finalizing_owner.
+   *
+   * See xAiSessionFinalizingFn for semantics. Leave NULL if not
+   * used. Regular application code does NOT need this — it exists
+   * so the future Agent layer can attach without a second round of
+   * API changes.
+   */
+  xAiSessionFinalizingFn on_finalizing;
+  void                  *finalizing_owner; /**< Passed back to
+                                                @ref on_finalizing. */
 };
 
 /**
@@ -258,8 +332,25 @@ XCAPI(void) xAiSessionCancel(xAiSession sess);
  * Implicitly cancels any active run and drains pending callbacks.
  * After this call the session handle is invalid.
  *
+ * If xAiSessionConf::on_finalizing was set at creation time, it is
+ * invoked exactly once during teardown, while the session is still
+ * fully live and its history is still intact.
+ *
  * @param sess  Session handle (NULL is a no-op).
  */
 XCAPI(void) xAiSessionDestroy(xAiSession sess);
+
+/**
+ * @brief Read back the session's input origin (see xAiInputOrigin).
+ *
+ * Stamped once at xAiSessionCreate time; never changes afterwards.
+ * Returns xAiInputOrigin_User for NULL or zero-origin sessions so
+ * callers can treat it as a safe conservative default.
+ *
+ * @param sess  Session handle.
+ * @return      The origin recorded at creation, or
+ *              xAiInputOrigin_User for NULL input.
+ */
+XCAPI(xAiInputOrigin) xAiSessionOrigin(xAiSession sess);
 
 #endif /* XAI_SESSION_H */

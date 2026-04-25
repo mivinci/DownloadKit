@@ -246,6 +246,14 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   s->context_budget = conf->context_budget > 0 ? conf->context_budget
                                                : a->context_budget;
 
+  /* Session-lifetime properties: stamped here, never mutated. Zero
+   * for @c origin collapses to xAiInputOrigin_User, which is also
+   * the conservative default for callers who simply calloc the
+   * conf. */
+  s->origin           = conf->origin;
+  s->on_finalizing    = conf->on_finalizing;
+  s->finalizing_owner = conf->finalizing_owner;
+
   /* Leave the Query in its zero-initialised idle shape: ai_query_arm
    * at xAiSessionInput time will set session back-pointer, reset
    * the usage accumulator to all-(-1), and flip running=1. */
@@ -304,10 +312,27 @@ void xAiSessionDestroy(xAiSession sess) {
     xAiSessionCancel(sess);
   }
 
+  /* Fire the late-teardown hook while the session is still fully
+   * live (history intact, Query buffers intact). Detach before
+   * calling so a misbehaving hook that triggers a second destroy
+   * won't re-enter here. Per contract the hook runs at most once. */
+  if (s->on_finalizing) {
+    xAiSessionFinalizingFn hook = s->on_finalizing;
+    void                  *owner = s->finalizing_owner;
+    s->on_finalizing    = NULL;
+    s->finalizing_owner = NULL;
+    hook(sess, owner);
+  }
+
   for (size_t i = 0; i < s->n_history; i++) {
     ai_session_msg_free(&s->history[i]);
   }
   free(s->history);
   ai_query_dispose(&s->query);
   free(s);
+}
+
+xAiInputOrigin xAiSessionOrigin(xAiSession sess) {
+  if (!sess) return xAiInputOrigin_User;
+  return ((struct xAiSession_ *)sess)->origin;
 }

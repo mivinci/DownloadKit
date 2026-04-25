@@ -386,6 +386,77 @@ TEST_F(SessionTest, CreateOverridesWinOverAgent) {
   xAiSessionDestroy(sess);
 }
 
+/* ── Session-lifetime properties: origin + on_finalizing ─────────── */
+
+TEST_F(SessionTest, OriginDefaultsToUserWhenUnset) {
+  xAiSessionConf sc = {};
+  xAiSession sess   = xAiSessionCreate(agent_, &sc);
+  ASSERT_NE(sess, nullptr);
+  EXPECT_EQ(xAiSessionOrigin(sess), xAiInputOrigin_User);
+  xAiSessionDestroy(sess);
+}
+
+TEST_F(SessionTest, OriginEchoesConfValue) {
+  xAiSessionConf sc = {};
+  sc.origin         = xAiInputOrigin_SystemSynthesized;
+  xAiSession sess   = xAiSessionCreate(agent_, &sc);
+  ASSERT_NE(sess, nullptr);
+  EXPECT_EQ(xAiSessionOrigin(sess), xAiInputOrigin_SystemSynthesized);
+  xAiSessionDestroy(sess);
+}
+
+TEST_F(SessionTest, OriginOnNullSessionReturnsUser) {
+  EXPECT_EQ(xAiSessionOrigin(nullptr), xAiInputOrigin_User);
+}
+
+/* on_finalizing must fire exactly once, with the configured owner,
+ * while the session handle is still live (history still reachable). */
+namespace {
+struct FinalizingCap {
+  int         calls       = 0;
+  xAiSession  seen_sess   = nullptr;
+  void       *seen_owner  = nullptr;
+  size_t      history_len = SIZE_MAX;
+};
+
+void cb_finalizing(xAiSession sess, void *owner) {
+  auto *cap = static_cast<FinalizingCap *>(owner);
+  cap->calls++;
+  cap->seen_sess   = sess;
+  cap->seen_owner  = owner;
+  /* Peek through the private layout to prove history isn't freed yet. */
+  cap->history_len = reinterpret_cast<xAiSession_ *>(sess)->n_history;
+}
+}  // namespace
+
+TEST_F(SessionTest, FinalizingHookFiresOnDestroyBeforeTeardown) {
+  FinalizingCap cap;
+  xAiSessionConf sc   = {};
+  sc.on_finalizing    = cb_finalizing;
+  sc.finalizing_owner = &cap;
+
+  xAiSession sess = xAiSessionCreate(agent_, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  /* Append one user turn so history has something to observe. */
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+  Captured dummy;
+  auto cbs_noop = xAiSessionCallbacks{};
+  cbs_noop.user_data = &dummy;
+  reinterpret_cast<xAiSession_ *>(sess)->cbs = cbs_noop;
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+
+  EXPECT_EQ(cap.calls, 0);
+  xAiSessionDestroy(sess);
+  EXPECT_EQ(cap.calls, 1);
+  EXPECT_EQ(cap.seen_sess, sess); /* hook sees its own handle */
+  EXPECT_EQ(cap.seen_owner, &cap);
+  EXPECT_GT(cap.history_len, 0u); /* history was still intact */
+}
+
 /* ── Text-only happy path ───────────────────────────────────────────── */
 
 TEST_F(SessionTest, TextOnlyRoundDeliversTextAndDone) {

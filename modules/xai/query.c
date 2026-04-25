@@ -7,17 +7,21 @@
  *
  * One Query is one end-to-end run of the provider / tool loop:
  *
- *     arm → submit round 1 → (tools?) → submit round 2 → ... → finish
+ *     Create → Run → submit round 1 → (tools?) → round 2 → ... → on_done
  *
  * Session owns the durable state (history, configuration, caller
- * callbacks) and embeds exactly one Query. Query owns the transient
- * state of a single run (streaming buffers, pending tool calls,
- * cumulative usage, running/cancelled flags).
+ * callbacks). Each accepted xAiSessionInput() heap-allocates a fresh
+ * Query via xAiQueryCreate, runs it, and destroys it from its
+ * forwarding on_done once the terminal callback has fired. Query
+ * owns the transient state of that single run (streaming buffers,
+ * pending tool calls, cumulative usage, running/cancelled flags) and
+ * fires its own @c q->cbs.* stream — the Session installs forwarding
+ * shims that re-dispatch those calls to the caller's xAiSessionCallbacks.
  *
  * This file is intentionally unaware of xAiAgent layering: it reaches
- * back into its owning Session via @c q->session and leaves policy
- * like "when does a run start?" / "who destroys the Session?" to
- * session.c.
+ * back into its owning Session via @c q->session (for history and
+ * agent-level tools/provider access) and leaves policy like "when
+ * does a run start?" / "who destroys the Session?" to session.c.
  */
 
 #include "query_private.h"
@@ -397,8 +401,8 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
   for (size_t i = 0; i < q->n_pending && !q->cancelled; i++) {
     struct xAiQueryPending_ *p = &q->pending[i];
 
-    if (s->cbs.on_tool) {
-      s->cbs.on_tool((xAiSession)s, p->name, /*started=*/1, s->cbs.user_data);
+    if (q->cbs.on_tool) {
+      q->cbs.on_tool((xAiQuery)q, p->name, /*started=*/1, q->cbs.user_data);
     }
 
     xAiTool     t        = find_tool(a, p->name);
@@ -448,8 +452,8 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
     xErrno rc =
       ai_history_append_tool_result(s, p->id, out_text, out_text_len, is_error);
 
-    if (s->cbs.on_tool) {
-      s->cbs.on_tool((xAiSession)s, p->name, /*started=*/0, s->cbs.user_data);
+    if (q->cbs.on_tool) {
+      q->cbs.on_tool((xAiQuery)q, p->name, /*started=*/0, q->cbs.user_data);
     }
 
     if (rc != xErrno_Ok) return rc;
@@ -527,13 +531,29 @@ static xAiDoneReason translate_terminal(xAiProviderStopReason r,
   return xAiDoneReason_ModelError;
 }
 
+/* Finalise the run: snapshot usage, clear the running flag, fire
+ * q->cbs.on_done. MUST be the last thing query.c does with @p q in
+ * the current call chain — the Session's forwarding on_done will
+ * (synchronously, in the same stack) call xAiQueryDestroy on us and
+ * free the memory. No member access past the callback is safe. */
+static void query_finalize(struct xAiQuery_ *q, xAiDoneReason reason) {
+  xAiUsage usage_snapshot = q->usage;
+  int      had_usage      = q->saw_usage;
+
+  q->running = 0;
+
+  if (q->cbs.on_done) {
+    q->cbs.on_done((xAiQuery)q, reason,
+                   had_usage ? &usage_snapshot : NULL, q->cbs.user_data);
+  }
+}
+
 /* Surface transport / model errors to the caller's on_error hook. The
  * run does not end here — the round's assistant output (if any) is
  * still committed and then translated to a terminal done reason. */
 static void handle_error(struct xAiQuery_ *q, xErrno err) {
-  struct xAiSession_ *s = q->session;
-  if (err != xErrno_Ok && s->cbs.on_error) {
-    s->cbs.on_error((xAiSession)s, err, NULL, s->cbs.user_data);
+  if (err != xErrno_Ok && q->cbs.on_error) {
+    q->cbs.on_error((xAiQuery)q, err, NULL, q->cbs.user_data);
   }
 }
 
@@ -547,7 +567,7 @@ static void handle_tool_loop_continuation(struct xAiQuery_ *q) {
     s->max_turns > 0 ? s->max_turns : XAI_SESSION_DEFAULT_MAX_TURNS;
   if (q->turn >= turn_limit) {
     /* Already emitted enough rounds; tell the caller we bailed. */
-    ai_session_finish_run(s, xAiDoneReason_MaxTurns);
+    query_finalize(q, xAiDoneReason_MaxTurns);
     return;
   }
 
@@ -556,31 +576,31 @@ static void handle_tool_loop_continuation(struct xAiQuery_ *q) {
   pending_reset(q);
 
   if (q->cancelled) {
-    ai_session_finish_run(s, xAiDoneReason_Aborted);
+    query_finalize(q, xAiDoneReason_Aborted);
     return;
   }
   if (drc != xErrno_Ok) {
     /* Catastrophic (e.g. OOM appending tool_result). Surface via
      * on_error to give the caller diagnostic detail, then close
      * the run. */
-    if (s->cbs.on_error) {
-      s->cbs.on_error((xAiSession)s, drc,
+    if (q->cbs.on_error) {
+      q->cbs.on_error((xAiQuery)q, drc,
                       "failed to record tool_result in history",
-                      s->cbs.user_data);
+                      q->cbs.user_data);
     }
-    ai_session_finish_run(s, xAiDoneReason_ToolError);
+    query_finalize(q, xAiDoneReason_ToolError);
     return;
   }
 
   /* Submit the next round. */
   xErrno src = submit_round(q);
   if (src != xErrno_Ok) {
-    if (s->cbs.on_error) {
-      s->cbs.on_error((xAiSession)s, src,
+    if (q->cbs.on_error) {
+      q->cbs.on_error((xAiQuery)q, src,
                       "failed to submit follow-up tool round",
-                      s->cbs.user_data);
+                      q->cbs.user_data);
     }
-    ai_session_finish_run(s, xAiDoneReason_ModelError);
+    query_finalize(q, xAiDoneReason_ModelError);
   }
 }
 
@@ -588,7 +608,7 @@ static void handle_tool_loop_continuation(struct xAiQuery_ *q) {
  * to a caller-visible done reason and close the run. */
 static void handle_terminal(struct xAiQuery_ *q, xAiProviderStopReason reason,
                             int user_cancel) {
-  ai_session_finish_run(q->session, translate_terminal(reason, user_cancel));
+  query_finalize(q, translate_terminal(reason, user_cancel));
 }
 
 /* ── Provider callbacks ────────────────────────────────────────── */
@@ -599,9 +619,8 @@ static void on_provider_text(const char *chunk, size_t len, void *arg) {
 
   (void)assist_append(q, chunk, len);
 
-  struct xAiSession_ *s = q->session;
-  if (s->cbs.on_text) {
-    s->cbs.on_text((xAiSession)s, chunk, len, s->cbs.user_data);
+  if (q->cbs.on_text) {
+    q->cbs.on_text((xAiQuery)q, chunk, len, q->cbs.user_data);
   }
 }
 
@@ -627,9 +646,8 @@ static void on_provider_thinking(const char *chunk, size_t len, void *arg) {
 
   (void)reasoning_append(q, chunk, len);
 
-  struct xAiSession_ *s = q->session;
-  if (s->cbs.on_thinking) {
-    s->cbs.on_thinking((xAiSession)s, chunk, len, s->cbs.user_data);
+  if (q->cbs.on_thinking) {
+    q->cbs.on_thinking((xAiQuery)q, chunk, len, q->cbs.user_data);
   }
 }
 
@@ -672,14 +690,6 @@ static void on_provider_done(xAiProviderStopReason reason, xErrno err,
 
 /* ── Internal API (declared in query_private.h) ────────────────── */
 
-void ai_query_arm(struct xAiQuery_ *q, struct xAiSession_ *session) {
-  q->session   = session;
-  q->running   = 1;
-  q->cancelled = 0;
-  q->turn      = 0;
-  usage_reset(q);
-}
-
 xErrno ai_query_submit(struct xAiQuery_ *q) {
   return submit_round(q);
 }
@@ -688,45 +698,102 @@ void ai_query_cancel_mark(struct xAiQuery_ *q) {
   q->cancelled = 1;
 }
 
-void ai_query_dispose(struct xAiQuery_ *q) {
-  free(q->assist_buf);
-  q->assist_buf = NULL;
-  q->assist_len = 0;
-  q->assist_cap = 0;
-  free(q->reasoning_buf);
-  q->reasoning_buf = NULL;
-  q->reasoning_len = 0;
-  q->reasoning_cap = 0;
-  pending_reset(q);
-  free(q->pending);
-  q->pending     = NULL;
-  q->cap_pending = 0;
-}
-
-/* ── Called from ai_session_finish_run ─────────────────────────
- *
- * session.c's ai_session_finish_run snapshots usage, invokes the
- * caller's on_done, then calls this hook so query.c can clear the
- * round-scoped state (buffers + pending + flags) and hand the Query
- * back to its idle shape. Kept as its own function (rather than
- * inlined in ai_query_dispose) because finish_run runs after every
- * round and must not free the buffers — only dispose does. */
-void ai_query_reset_round(struct xAiQuery_ *q) {
-  assist_reset(q);
-  reasoning_reset(q);
-  pending_reset(q);
-  usage_reset(q);
-  q->running   = 0;
-  q->cancelled = 0;
-  q->turn      = 0;
-}
-
 /* ── Public API (declared in xai/query.h) ──────────────────────── */
+
+xAiQuery xAiQueryCreate(xAiSession sess, const xAiQueryConf *conf) {
+  if (!sess || !conf) return NULL;
+  struct xAiSession_ *s = (struct xAiSession_ *)sess;
+
+  /* Single-flight: at most one live Query per Session today. The
+   * Session also enforces this via xAiSessionInput's Busy return,
+   * but we double-check here so the driving API is safe to call
+   * from code paths that don't go through xAiSessionInput. */
+  if (s->query) return NULL;
+
+  struct xAiQuery_ *q = (struct xAiQuery_ *)calloc(1, sizeof(*q));
+  if (!q) return NULL;
+
+  q->session = s;
+  q->cbs     = conf->cbs;
+  usage_reset(q);
+  /* running / cancelled / turn and all buffers start zero from calloc. */
+
+  s->query = q;
+  return (xAiQuery)q;
+}
+
+xErrno xAiQueryRun(xAiQuery q, xAiMessage input) {
+  if (!q) return xErrno_InvalidArg;
+  struct xAiQuery_ *qq = (struct xAiQuery_ *)q;
+
+  /* Single-shot: a Query that's already running, or has already
+   * completed one run, refuses further Run calls. Observable via
+   * xAiQueryIsRunning + "was it Destroyed yet?"; the latter is
+   * implicit (we just check running AND turn). */
+  if (qq->running || qq->turn > 0) return xErrno_Busy;
+
+  struct xAiSession_ *s = qq->session;
+  if (!s) return xErrno_InvalidArg;
+
+  /* Phase α: the Query still appends the input directly into its
+   * owning Session's history. Phase β will thread messages through
+   * as an explicit array so Queries become pure data-in/data-out. */
+  size_t history_checkpoint = s->n_history;
+  xErrno rc = ai_history_append_user_msg(s, input);
+  if (rc != xErrno_Ok) return rc;
+
+  qq->running = 1;
+
+  rc = submit_round(qq);
+  if (rc != xErrno_Ok) {
+    /* Round never started — don't fire on_done. Undo the history
+     * append so the Session reflects what actually happened. */
+    qq->running = 0;
+    qq->turn    = 0;
+    while (s->n_history > history_checkpoint) {
+      ai_session_msg_free(&s->history[--s->n_history]);
+    }
+  }
+  return rc;
+}
+
+void xAiQueryDestroy(xAiQuery q) {
+  if (!q) return;
+  struct xAiQuery_ *qq = (struct xAiQuery_ *)q;
+
+  /* If the Query is still running when Destroy is called, we'd need
+   * to cancel and await the terminal on_done before freeing. Doing
+   * that cleanly requires an async teardown path we don't have yet;
+   * for now the Session only calls Destroy from its forwarding
+   * on_done (after running has been cleared), so this branch is
+   * unreachable in practice. Leave the mark-cancel for when a
+   * future caller violates that contract — at least the provider
+   * will stop touching the freed arg. */
+  if (qq->running) {
+    ai_query_cancel_mark(qq);
+    struct xAiSession_ *s = qq->session;
+    if (s) {
+      struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
+      if (a) ai_provider_cancel(a->provider);
+    }
+  }
+
+  /* Detach from Session (if the Session still points at us). */
+  if (qq->session && qq->session->query == qq) {
+    qq->session->query = NULL;
+  }
+
+  free(qq->assist_buf);
+  free(qq->reasoning_buf);
+  pending_reset(qq);
+  free(qq->pending);
+  free(qq);
+}
 
 xAiQuery xAiSessionQuery(xAiSession sess) {
   if (!sess) return NULL;
   struct xAiSession_ *s = (struct xAiSession_ *)sess;
-  return (xAiQuery)&s->query;
+  return (xAiQuery)s->query;
 }
 
 void xAiQueryCancel(xAiQuery q) {

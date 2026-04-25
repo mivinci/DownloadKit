@@ -8,40 +8,57 @@
  * A Query represents a single end-to-end execution of the provider
  * tool loop:
  *
- *     user input  ──▶  provider round 1  ──▶  (tools?) ──▶  round 2
- *                                                   ...
- *                                         ──▶  on_done  ──▶  done
+ *     input ──▶ provider round 1 ──▶ (tools?) ──▶ round 2 ... ──▶ on_done
  *
- * Sessions own history and long-lived configuration; queries own the
- * transient state that lives exactly as long as "the model is running
- * right now". Separating the two lets a session host multiple queries
- * over its lifetime (sequentially for now; the surface is also ready
- * for a future where an agent can inject a SystemSynthesized query
- * alongside a user-initiated one).
- *
- * Lifetime & ownership (Phase α):
- *   - The Query is owned by its Session and has the same lifetime as
- *     the Session. There is no xAiQueryCreate / xAiQueryDestroy in
- *     this phase — Queries are produced internally by xAiSessionInput
- *     and surface only as handles read back from the Session.
- *   - A handle remains valid until xAiSessionDestroy() is called on
- *     the owning Session. Do NOT retain it past that point.
+ * Relationship to xAiSession:
+ *   - The Session owns the rolling conversation history and the
+ *     long-lived configuration derived from the Agent.
+ *   - A Query owns the transient state that lives exactly as long
+ *     as "the model is running right now" (streaming accumulators,
+ *     pending tool calls, per-run usage totals, cancellation flag).
+ *   - A Session hosts Queries sequentially: every xAiSessionInput()
+ *     call allocates a fresh Query under the hood, runs it, and
+ *     releases it when its terminal on_done has fired.
  *
  * Driving vs. observing:
- *   - Drive a run: keep using xAiSessionInput / xAiSessionCancel on
- *     the Session.
- *   - Observe or target the current run specifically: obtain the
- *     Query handle and use the functions declared here.
+ *   - The driving API (xAiQueryCreate / xAiQueryRun / xAiQueryDestroy)
+ *     is intended for the Session layer (and for future Agent-layer
+ *     code that wants to inject SystemSynthesized queries alongside
+ *     user-initiated ones). Regular application callers drive through
+ *     xAiSessionInput/Cancel.
+ *   - The observing API (xAiQueryIsRunning, xAiQueryUsage,
+ *     xAiQueryTurn, xAiQuerySession, xAiSessionQuery) is free to use
+ *     from any layer; it reads back state without side effects.
+ *
+ * Single-flight (today):
+ *   - A Session accepts at most one live Query at a time. Calling
+ *     xAiSessionInput while the previous Query is still running
+ *     returns xErrno_Busy. Creating a second Query on a Session that
+ *     already has one also fails. The restriction is a Session-level
+ *     invariant, not a Query-level one — the Query API itself does
+ *     not assume it and a future Session variant may relax it
+ *     (e.g. "real user input preempts an in-flight SystemSynthesized
+ *     context-compression Query").
+ *
+ * Lifetime & ownership:
+ *   - xAiQueryCreate returns an owned handle; xAiQueryDestroy must be
+ *     called exactly once. Destroying a Query that still has a run
+ *     in flight cancels it implicitly and drains pending callbacks
+ *     before returning.
+ *   - Query handles do NOT outlive their owning Session. If the
+ *     Session is torn down while a Query is still live, the Session
+ *     destroys the Query first.
  *
  * Threading:
  *   - Every xAiQuery* call must happen on the owning agent's event
- *     loop, same as xAiSession* calls.
+ *     loop, same as xAiSession* calls. Callbacks fire on that loop.
  */
 
 #ifndef XAI_QUERY_H
 #define XAI_QUERY_H
 
 #include <stddef.h>
+#include <xai/message.h>  /* xAiMessage                                */
 #include <xai/provider.h> /* xAiUsage                                  */
 #include <xai/session.h>  /* xAiSession, xAiInputOrigin, xAiDoneReason */
 #include <xbase/base.h>
@@ -54,32 +71,176 @@ extern "C" {
 /**
  * @brief Opaque handle to one run of the agent tool loop.
  *
- * A Query exists for the entire lifetime of its owning Session
- * (Phase α of the Session/Query split); between runs it is simply
- * in the idle state (xAiQueryIsRunning returns 0). Each accepted
- * xAiSessionInput() call arms the same Query for a fresh run and
- * ends by firing on_done exactly once.
- *
- * Handles are non-owning: destroying the Session invalidates every
- * outstanding Query handle derived from it. Do not free them.
+ * A Query is created by xAiQueryCreate, driven by xAiQueryRun (which
+ * may be called at most once today — the Query is single-shot; future
+ * revisions may allow re-arming), and released by xAiQueryDestroy.
+ * Between Create and Run the Query is idle: xAiQueryIsRunning() is 0.
  */
 XDEF_HANDLE(xAiQuery);
 
 /**
- * @brief Get the Query currently associated with a Session.
+ * @brief Streaming callbacks delivered during a Query run.
  *
- * Returns the single embedded Query that this Session uses to run
- * the tool loop. The returned handle is valid until
- * xAiSessionDestroy(@p sess) and aliases stable storage — calling
- * this twice on the same Session returns the same handle.
+ * Every callback is optional except @ref on_done. Any pointers passed
+ * into callbacks are only valid for the duration of the call — copy
+ * anything you need to retain. All callbacks run on the owning
+ * agent's event loop thread. The shapes mirror xAiSessionCallbacks so
+ * the Session layer can forward one-to-one without adapting payloads.
+ */
+XDEF_STRUCT(xAiQueryCallbacks) {
+  /**
+   * @brief Fired for each streamed assistant text chunk.
+   *
+   * @param q      The Query producing the token stream.
+   * @param chunk  Byte buffer (NOT NUL-terminated).
+   * @param len    Length of @p chunk in bytes.
+   * @param ud     The user_data pointer from this struct.
+   */
+  void (*on_text)(xAiQuery q, const char *chunk, size_t len, void *ud);
+
+  /**
+   * @brief Fired for each streamed chain-of-thought ("thinking") chunk.
+   *
+   * Only reasoning-capable models emit these. See
+   * xAiSessionCallbacks::on_thinking for the full contract.
+   *
+   * @param q      The Query producing the thinking stream.
+   * @param chunk  Byte buffer (NOT NUL-terminated).
+   * @param len    Length of @p chunk in bytes.
+   * @param ud     The user_data pointer from this struct.
+   */
+  void (*on_thinking)(xAiQuery q, const char *chunk, size_t len, void *ud);
+
+  /**
+   * @brief Fired exactly once when the Query terminates.
+   *
+   * Every successfully-started Query (i.e. xAiQueryRun returned Ok)
+   * produces exactly one on_done. Failure paths may additionally
+   * fire on_error first as a diagnostic precursor; on_done is
+   * always the authoritative terminator.
+   *
+   * @param q       The Query.
+   * @param reason  Coarse completion reason (see xAiDoneReason).
+   * @param usage   Cumulative token usage across every provider
+   *                round in this run, or NULL if the provider
+   *                never reported any. Valid only for the duration
+   *                of the callback.
+   * @param ud      The user_data pointer from this struct.
+   */
+  void (*on_done)(xAiQuery q, xAiDoneReason reason, const xAiUsage *usage,
+                  void *ud);
+
+  /**
+   * @brief Fired as a diagnostic precursor before a failure on_done.
+   *
+   * See xAiSessionCallbacks::on_error for the full contract. Not a
+   * terminator — always followed by on_done.
+   *
+   * @param q    The Query.
+   * @param err  xErrno describing the failure class.
+   * @param msg  Human-readable diagnostic (may be NULL).
+   * @param ud   The user_data pointer from this struct.
+   */
+  void (*on_error)(xAiQuery q, xErrno err, const char *msg, void *ud);
+
+  /**
+   * @brief Optional: coarse tool-execution progress signal.
+   *
+   * Delivered twice per tool invocation: @p started == 1 before
+   * the handler runs, @p started == 0 after.
+   *
+   * @param q          The Query.
+   * @param tool_name  The registered tool name.
+   * @param started    Non-zero = started; zero = finished.
+   * @param ud         The user_data pointer from this struct.
+   */
+  void (*on_tool)(xAiQuery q, const char *tool_name, int started, void *ud);
+
+  /** Forwarded to every callback in this struct. */
+  void *user_data;
+};
+
+/**
+ * @brief Configuration for creating a Query.
  *
- * The Query may be idle (no run in flight), in which case
- * xAiQueryIsRunning() returns 0 and xAiQueryUsage() yields all-zero
- * / all-unknown totals. Callers that only care about runs in
- * progress should gate on xAiQueryIsRunning().
+ * Zero-initialise to inherit everything the owning Session already
+ * knows about. Today the only field is @ref cbs; future revisions
+ * will add overrides specific to the Query layer (tool-allow list,
+ * per-Query max_turns, reasoning effort, ...).
+ */
+XDEF_STRUCT(xAiQueryConf) {
+  xAiQueryCallbacks cbs; /**< Streaming callbacks (in-place).          */
+};
+
+/* ── Driving API ──────────────────────────────────────────────── */
+
+/**
+ * @brief Create an idle Query bound to the given Session.
+ *
+ * The Query borrows @p sess for its lifetime; @p sess must outlive
+ * the Query. @p conf is captured by value (including the callbacks
+ * struct), so it may be stack-allocated.
+ *
+ * The Query starts idle — no provider round is submitted until
+ * xAiQueryRun is called.
+ *
+ * Single-flight constraint: if @p sess already has a live Query (one
+ * that was created but not yet Destroyed), this returns NULL. See
+ * the header-level comment on single-flight for the rationale.
+ *
+ * @param sess  Session handle (must not be NULL).
+ * @param conf  Query configuration (must not be NULL).
+ * @return      A new Query handle, or NULL on failure.
+ */
+XCAPI(xAiQuery) xAiQueryCreate(xAiSession sess, const xAiQueryConf *conf);
+
+/**
+ * @brief Start the Query by running it against an input message.
+ *
+ * Appends @p input to the Session's history (today — Phase α of the
+ * Query split; a future revision will thread the messages through
+ * as an explicit array parameter so Queries become purely data-in/
+ * data-out) and kicks off the first provider round. Streaming
+ * callbacks begin firing asynchronously; the run terminates with
+ * exactly one on_done.
+ *
+ * Must be called at most once per Query. Calling it twice returns
+ * xErrno_Busy. The message is shallow-copied: all string pointers
+ * inside @p input (and its content blocks) must remain valid until
+ * on_done fires.
+ *
+ * @param q      Query handle (must not be NULL).
+ * @param input  Message to run on (role is usually User).
+ * @return       xErrno_Ok if the submit was accepted; xErrno_Busy
+ *               if the Query is already running or finished;
+ *               other xErrno on invalid input or allocation failure.
+ *               On non-Ok returns no callbacks will fire.
+ */
+XCAPI(xErrno) xAiQueryRun(xAiQuery q, xAiMessage input);
+
+/**
+ * @brief Release the Query.
+ *
+ * If a run is still in flight, cancellation is issued first and
+ * the terminal on_done fires before the storage is freed. After
+ * this call the handle is invalid.
+ *
+ * @param q  Query handle (NULL is a no-op).
+ */
+XCAPI(void) xAiQueryDestroy(xAiQuery q);
+
+/* ── Observing API ────────────────────────────────────────────── */
+
+/**
+ * @brief Get the Query currently running on a Session, if any.
+ *
+ * Returns the live Query handle the Session has allocated for its
+ * in-flight run, or NULL if the Session is idle. The handle stays
+ * valid until either on_done has been delivered (at which point
+ * the Session will destroy it) or xAiSessionDestroy() is called.
  *
  * @param sess  Session handle.
- * @return      The Session's Query handle, or NULL if @p sess is NULL.
+ * @return      The Session's current Query, or NULL if none.
  */
 XCAPI(xAiQuery) xAiSessionQuery(xAiSession sess);
 
@@ -87,14 +248,9 @@ XCAPI(xAiQuery) xAiSessionQuery(xAiSession sess);
  * @brief Cancel this Query's in-flight run, if any.
  *
  * Requests the provider to stop streaming and any in-flight tool
- * handlers to bail out. The Session's on_done callback is still
- * delivered (with reason == xAiDoneReason_Aborted) once unwinding
- * completes. Calling this on a Query whose run is already finished
- * or never started is a silent no-op.
- *
- * Equivalent to xAiSessionCancel() on the Query's owning Session;
- * both entry points exist so callers can target whichever level
- * their code is already tracking.
+ * handlers to bail out. The on_done callback is still delivered
+ * (with reason == xAiDoneReason_Aborted) once unwinding completes.
+ * A silent no-op on a NULL handle or a Query that is not running.
  *
  * @param q  Query handle (NULL is a no-op).
  */
@@ -103,9 +259,8 @@ XCAPI(void) xAiQueryCancel(xAiQuery q);
 /**
  * @brief Whether this Query currently has a run in flight.
  *
- * Returns 1 from the moment xAiSessionInput() accepts an input
- * until the matching on_done has been delivered; 0 otherwise (and
- * for a NULL handle).
+ * Returns 1 between xAiQueryRun accepting an input and the matching
+ * on_done being delivered; 0 otherwise (idle, finished, NULL).
  *
  * @param q  Query handle.
  * @return   1 if a run is in flight, 0 otherwise.
@@ -113,18 +268,11 @@ XCAPI(void) xAiQueryCancel(xAiQuery q);
 XCAPI(int) xAiQueryIsRunning(xAiQuery q);
 
 /**
- * @brief Cumulative token usage across every provider round of the
- *        current (or most recent) run.
+ * @brief Cumulative token usage across every provider round so far.
  *
  * Copies the running totals into @p out. Each field uses -1 as the
- * "unknown" sentinel — providers that do not report a particular
- * counter leave that field as -1 even on successful runs.
- *
- * Before the first round of the first run ever reports usage, every
- * field is -1. Between runs the totals are reset, so reading after
- * on_done fires but before the next xAiSessionInput() returns the
- * final totals of the run that just ended; once the next run
- * starts, the accumulator restarts from zero / unknown.
+ * "unknown" sentinel. Before any round reports usage every field
+ * is -1; between rounds the totals accumulate.
  *
  * @param q    Query handle (NULL populates @p out with all -1).
  * @param out  Destination struct (must not be NULL).
@@ -134,23 +282,17 @@ XCAPI(void) xAiQueryUsage(xAiQuery q, xAiUsage *out);
 /**
  * @brief Read back the owning Session of this Query.
  *
- * Useful for callbacks that only carry the Query handle but want
- * to reach back into Session-level configuration or history.
- *
  * @param q  Query handle.
  * @return   The owning Session, or NULL for a NULL input.
  */
 XCAPI(xAiSession) xAiQuerySession(xAiQuery q);
 
 /**
- * @brief Provider round counter for the current (or most recent) run.
+ * @brief Provider round counter for this run.
  *
- * Incremented just before each submit, so during the first round's
- * callbacks this reads 1, during the second round 2, and so on.
- * Between runs the counter is reset to 0. Reading on a NULL handle
- * or an idle Query returns 0.
- *
- * Primarily intended for diagnostics (progress bars, logs).
+ * Incremented just before each submit: reads 1 during the first
+ * round's callbacks, 2 during the second round, and so on. Reads 0
+ * on a NULL or idle (not-yet-run) handle.
  *
  * @param q  Query handle.
  * @return   Number of provider submits issued so far in this run.

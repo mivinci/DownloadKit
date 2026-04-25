@@ -12,9 +12,8 @@ extern "C" {
 #include <xai/message.h>
 }
 
-#include <cstring>
 #include <atomic>
-#include <string>
+#include <cstring>
 #include <thread>
 
 /* ── xAiContentText ───────────────────────────────────────────────────── */
@@ -82,7 +81,7 @@ TEST(XaiMessage, FromTextProducesUserRole) {
 }
 
 TEST(XaiMessage, FromTextSecondCallOverwritesTlsSlot) {
-  xAiMessage first  = xAiMessageFromText("first");
+  xAiMessage first = xAiMessageFromText("first");
   /* Record the slot pointer before the second call. */
   const xAiContent *first_slot = first.contents;
 

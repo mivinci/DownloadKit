@@ -611,7 +611,7 @@ TEST_F(SessionTest, SubmitFailureRollsBackAndReturnsError) {
   /* History rolled back. */
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
   EXPECT_EQ(s->n_history, 0u);
-  EXPECT_EQ(s->running, 0);
+  EXPECT_EQ(s->query.running, 0);
 
   /* And a fresh attempt is allowed. */
   fake_->submit_return = xErrno_Ok;

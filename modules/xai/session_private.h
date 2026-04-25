@@ -14,6 +14,8 @@
 
 #include <xai/session.h>
 
+#include "query_private.h"
+
 #include <stddef.h>
 
 /**
@@ -71,24 +73,16 @@ struct xAiSessionMsg_ {
 };
 
 /**
- * @brief One pending tool call captured from the provider stream.
- *
- * session.c buffers the whole set while the assistant turn is still
- * streaming (tool_use arrives as part of the stream, but dispatch
- * must wait until on_done(ToolUse) so we know the assistant message
- * is complete and every call has its full arguments string).
- */
-struct xAiSessionPending_ {
-  char *id;        /* tool_use_id supplied by the provider        */
-  char *name;      /* tool name                                    */
-  char *args_json; /* arguments JSON (owned copy)                  */
-};
-
-/**
  * @brief The session instance.
  *
  * Accessed by session.c only; the header is exposed through the
  * private tree (session_private.h) for the test suite.
+ *
+ * Session holds everything that is durable across the lifetime of a
+ * conversation: agent reference, caller-facing callbacks, resolved
+ * configuration, and the rolling history. Everything that belongs to
+ * "one in-flight run of the tool loop" lives on the embedded Query
+ * (@c query) — see query_private.h.
  */
 struct xAiSession_ {
   xAiAgent            agent; /* borrowed                              */
@@ -106,35 +100,13 @@ struct xAiSession_ {
   size_t                 n_history;
   size_t                 cap_history;
 
-  /* ── Assistant text accumulator for the current round ─────────── */
-  char  *assist_buf;
-  size_t assist_len;
-  size_t assist_cap;
-
-  /* ── Assistant reasoning / thinking accumulator (current round) ── */
-  char  *reasoning_buf;
-  size_t reasoning_len;
-  size_t reasoning_cap;
-
-  /* ── Pending tool calls captured during the current round ─────── */
-  struct xAiSessionPending_ *pending;
-  size_t                     n_pending;
-  size_t                     cap_pending;
-
-  /* ── Run-wide state ───────────────────────────────────────────── */
-  int running;       /* 1 from Input accept to final on_done           */
-  int cancelled;     /* xAiSessionCancel() sets this                   */
-  int turn;          /* number of provider submits this run (>=1)      */
-
-  /* Cumulative token usage across every provider round of this run.
-   * Each on_provider_done folds the round's per-request numbers in;
-   * finish_run hands a pointer to this struct (or NULL if no round
-   * ever reported usage) to the caller's on_done. We treat -1 as
-   * "unknown" on input AND on output; the accumulator keeps that
-   * sentinel intact until the first field we can actually add.
-   * Reset to all-(-1) at the start of every xAiSessionInput run. */
-  int      saw_usage;      /* 1 once any round reported usage           */
-  xAiUsage usage;          /* running totals                            */
+  /* ── In-flight run state ──────────────────────────────────────── */
+  /* One Query at a time for now. Embedded, not heap-allocated: the
+   * struct is small and we never observe more than one concurrent
+   * run per Session. Promotion to a pointer (or a list) is a
+   * follow-up when SystemSynthesized queries start coexisting with
+   * user-initiated ones — see docs/todo/xai_architecture.md §8. */
+  struct xAiQuery_ query;
 };
 
 #endif /* XAI_SESSION_PRIVATE_H */

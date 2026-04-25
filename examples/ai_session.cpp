@@ -36,6 +36,17 @@
 #include <xbase/event.h>
 #include <xhttp/client.h>
 
+/* Reach into xai's private layout to print a budget-calibrator
+ * snapshot at the end of every round. The calibrator has no
+ * public accessor by design (see session_test.cpp's
+ * BudgetCalibrator suite: "session-internal diagnostics, we'd
+ * rather not grow the surface area for a getter that exists only
+ * to feed tests / demos"). This demo is knowingly on the
+ * diagnostic side of that fence — the CMakeLists.txt entry for
+ * ai_session carries the same caveat. Do NOT copy this pattern
+ * into production code; go through the public xAiSession* API. */
+#include "xai/session_private.h"
+
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -670,6 +681,26 @@ static void on_done(xAiSession sess, xAiDoneReason reason,
       std::printf(" total=%d", usage->total_tokens);
     }
   }
+  /* Budget-calibrator snapshot. `factor` is the EWMA-smoothed
+   * multiplier that bytes/4 gets scaled by before the gate check;
+   * it starts at 1.0 and drifts toward (actual_prompt_tokens /
+   * estimated_prompt_tokens) one step per clean single-round
+   * observation. `samples` is the saturating count of accepted
+   * observations — multi-round tool runs and rounds without a
+   * usage block don't contribute (see sess_fwd_on_done's opt-in
+   * comment). `est` is the calibrated pre-submit estimate that
+   * cleared the gate for *this* run; it's cleared back to 0 after
+   * the update so a stale value can't leak into the next turn.
+   * Seeing est ≈ usage.prompt_tokens after a couple of turns is
+   * the whole point — it means the calibrator has caught up to
+   * the provider's tokenisation. */
+  {
+    auto  *s = reinterpret_cast<struct xAiSession_ *>(sess);
+    double f = s->budget_calibrator.factor;
+    size_t n = s->budget_calibrator.samples;
+    size_t e = s->last_prompt_estimate;
+    std::printf(" budget=%.3fx samples=%zu est=%zu", f, n, e);
+  }
   std::fputs("\x1b[0m\n\n", stdout);
   std::fflush(stdout);
   xEventLoopStop(ctx->loop);
@@ -685,8 +716,24 @@ static void on_error(xAiSession sess, xErrno err, const char *msg, void *ud) {
   bool after_thinking = ctx->in_thinking;
   end_thinking(ctx);
   if (!after_thinking) std::fputc('\n', stderr);
-  std::fprintf(stderr, "\x1b[1;31m[error] errno=%d msg=%s\x1b[0m\n\n", (int)err,
+  std::fprintf(stderr, "\x1b[1;31m[error] errno=%d msg=%s\x1b[0m\n", (int)err,
                msg ? msg : "(none)");
+  /* Surface the budget gate explicitly. PromptTooLong is the one
+   * errno most likely to surprise a demo user ("I didn't do
+   * anything weird, why did my innocuous follow-up get rejected?")
+   * — it means either the rolling history plus the incoming
+   * message overflowed sconf.budget.max_tokens with no room to
+   * trim below keep_recent_turns, or the incoming message alone
+   * is bigger than the cap. The fix is almost always "raise the
+   * cap" for a calibrator demo; production callers would
+   * typically switch to SummarizeOldest or a Callback policy. */
+  if (err == xErrno_PromptTooLong) {
+    std::fprintf(stderr,
+                 "\x1b[1;31m        hit budget cap — raise "
+                 "sconf.budget.max_tokens or lower "
+                 "keep_recent_turns\x1b[0m\n");
+  }
+  std::fputc('\n', stderr);
   std::fflush(stderr);
   xEventLoopStop(ctx->loop);
 }
@@ -875,6 +922,28 @@ int main() {
   sconf.cbs.on_error    = on_error;
   sconf.cbs.user_data   = &ctx;
 
+  /* Opt into the structured budget pipeline so the calibrator
+   * actually runs. Without a non-Disabled policy the gate short-
+   * circuits, last_prompt_estimate stays zero, and on_done's
+   * calibrator update bails out — factor would forever read 1.0
+   * and samples 0, defeating the whole point of this demo.
+   *
+   * 8192 was picked empirically: large enough that a single
+   * long-form answer (think: a derivation with multi-paragraph
+   * reasoning) plus the floor pinned by keep_recent_turns won't
+   * trip the gate on turn #2, but small enough that a handful of
+   * sustained turns will eventually push the rolling history
+   * past the cap and exercise TruncateOldest. keep_recent_turns
+   * =2 is the floor — the current user turn and the immediately
+   * prior assistant turn are never discarded, so the model keeps
+   * local context even when the trimmer fires. If you shrink
+   * max_tokens below ~4096 expect xErrno_PromptTooLong (which the
+   * REPL and on_error both surface with a hint line below), and
+   * see session.c's keep_recent_turns floor logic for why. */
+  sconf.budget.policy            = xAiBudgetPolicy_TruncateOldest;
+  sconf.budget.max_tokens        = 2048;
+  sconf.budget.keep_recent_turns = 1;
+
   xAiSession sess = xAiSessionCreate(agent, &sconf);
   if (!sess) {
     std::fprintf(stderr, "failed to create session\n");
@@ -920,7 +989,19 @@ int main() {
     xAiMessage m   = xAiMessageFromText(line);
     xErrno     err = xAiSessionInput(sess, m);
     if (err != xErrno_Ok) {
+      /* Synchronous rejection path: the gate fires before the
+       * Query is even handed off, so on_error never runs. Mirror
+       * the PromptTooLong hint from on_error here so the same
+       * advice reaches users regardless of which path triggered.
+       * Other errnos (Busy, InvalidState) have no budget-side
+       * remedy, so they just print the bare code. */
       std::fprintf(stderr, "[error] input rejected (errno=%d)\n", (int)err);
+      if (err == xErrno_PromptTooLong) {
+        std::fprintf(stderr,
+                     "        hit budget cap — raise "
+                     "sconf.budget.max_tokens or lower "
+                     "keep_recent_turns\n");
+      }
       continue;
     }
 

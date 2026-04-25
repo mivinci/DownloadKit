@@ -46,5 +46,15 @@ target_include_directories(ai_openai PRIVATE
 # Canonical end-to-end demo: xAiProvider -> xAiAgent -> xAiSession.
 # The session layer hides the tool-call loop entirely, so this demo
 # never touches provider internals.
+#
+# It *does* reach into xai/session_private.h to print a one-line
+# budget-calibrator snapshot in on_done (see the file-header
+# comment in ai_session.cpp). That is an intentional diagnostic
+# escape hatch — the calibrator has no public accessor by design
+# (session-internal diagnostics, see session_test.cpp's
+# BudgetCalibrator suite) and we'd rather keep the surface small
+# than export a getter that exists only to feed a demo.
 add_executable(ai_session ai_session.cpp)
 target_link_libraries(ai_session PRIVATE xai xhttp xbase)
+target_include_directories(ai_session PRIVATE
+  ${CMAKE_SOURCE_DIR}/modules)

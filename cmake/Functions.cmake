@@ -4,7 +4,6 @@ function(xk_add_benchmark name)
   add_executable(${name} ${BENCH_SOURCES})
   target_link_libraries(${name} PRIVATE
     ${BENCH_LIBS}
-    GBenchmark::benchmark
     GBenchmark::benchmark_main
   )
   # Disable -Werror for benchmark C++ code

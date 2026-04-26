@@ -197,6 +197,41 @@ xErrno xArrayRemoveRange(xArray arr, size_t start, size_t count) {
   return xErrno_Ok;
 }
 
+xErrno xArrayInsert(xArray *arrp, size_t idx, const void *elem) {
+  struct xArray_ *a;
+  xErrno          err;
+
+  if (!arrp || !*arrp || !elem) return xErrno_InvalidArg;
+
+  a = ar(*arrp);
+
+  if (idx > a->len) return xErrno_InvalidArg;
+
+  /* Grow by one. */
+  err = arr_grow(&a, a->len + 1);
+  if (err != xErrno_Ok) return err;
+
+  *arrp = (xArray)a;
+
+  /* Shift elements right to make room at idx. */
+  if (idx < a->len) {
+    memmove(a->data + (idx + 1) * a->elem_size,
+            a->data + idx * a->elem_size,
+            (a->len - idx) * a->elem_size);
+  }
+
+  /* Copy the new element into position. */
+  memcpy(a->data + idx * a->elem_size, elem, a->elem_size);
+
+  /* Update length. */
+  a->len++;
+
+  /* Retain the newly inserted element. */
+  arr_call_retain(a, a->data + idx * a->elem_size);
+
+  return xErrno_Ok;
+}
+
 /* ───────────────────── Accessors ───────────────────── */
 
 void *xArrayAt(xArray arr, size_t idx) {

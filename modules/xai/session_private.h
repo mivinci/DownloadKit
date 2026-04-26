@@ -16,7 +16,6 @@
 #include <xai/session.h>
 
 #include "query_private.h"
-#include "turn_private.h" /* struct xAiSessionMsg_, ai_session_msg_free */
 #include "budget_private.h" /* xAiBudgetCalibrator                    */
 
 #include <stddef.h>
@@ -50,6 +49,13 @@ struct xAiSession_ {
    * inherited from the agent today — see session.h for rationale. */
   xAiBudgetConf budget;
 
+  /* Budget-event callback, copied from budget.on_budget_event at
+   * create time. Stored separately so the session can fire events
+   * without re-reading the budget conf (the callback pointer lives
+   * alongside the other session-level callbacks for locality). */
+xAiBudgetEventFunc on_budget_event;
+  void            *budget_event_ud;
+
   /* Online calibration state for the token estimator. Initialised
    * to identity (factor = 1.0) by xAiSessionCreate; updated from
    * sess_fwd_on_done whenever a single-round run returns a usage
@@ -67,10 +73,30 @@ struct xAiSession_ {
    * clean (single-round, text-only) run. */
   size_t last_prompt_estimate;
 
+  /* ── Compact-in-progress state (SummarizeOldest policy) ──────
+   *
+   * When the budget gate fires on SummarizeOldest, the Session
+   * launches an internal summary Query that compresses old history
+   * into one System entry. During this compaction:
+   *   - compacting == 1 signals "compact query in flight";
+   *   - compact_keep_idx records the earliest history index that
+   *     survives the compact (entries before it will be replaced by
+   *     the summary);
+   *   - budget_policy_override overrides the internal Query's
+   *     budget policy to Disabled so the compact query does not
+   *     trigger another budget check (recursion guard).
+   *
+   * All three are zero when no compact is in progress.
+   */
+  int compacting;            /* 1 = compact query in flight           */
+  size_t compact_keep_idx;   /* earliest index to keep after compact  */
+  xAiBudgetPolicy budget_policy_override; /* overrides query budget policy
+                                           * (default Disabled)           */
+
   /* ── Session-lifetime properties (stamped at create, immutable) ── */
-  xAiInputOrigin         origin;           /* default User on zero    */
-  xAiSessionFinalizingFn on_finalizing;    /* NULL = no hook          */
-  void                  *finalizing_owner; /* passed back verbatim    */
+  xAiInputOrigin          origin;           /* default User on zero    */
+  xAiSessionFinalizingFunc on_finalizing;    /* NULL = no hook          */
+  void                   *finalizing_owner; /* passed back verbatim    */
 
   /* ── Rolling history (session-owned, flat entries) ────────────── */
   xArray history_arr;
@@ -89,6 +115,16 @@ struct xAiSession_ {
 /* Fallback cap if neither the caller nor the agent set max_turns.
  * Placed in the shared header so query.c can honour it too. */
 #define XAI_SESSION_DEFAULT_MAX_TURNS 16
+
+/* System prompt used by the internal summary Query when the
+ * SummarizeOldest budget policy is active. Instructs the model to
+ * produce a concise summary of the conversation segment it receives.
+ * The placeholder [N] will be replaced with the number of messages
+ * being summarised. */
+#define XAI_SUMMARY_SYSTEM_PROMPT \
+  "Summarise the following %zu messages concisely in no more than 200 " \
+  "words. Preserve all names, numbers, decisions and key facts. " \
+  "Do NOT add any information that was not in the original messages."
 
 /* ── Cross-TU helpers (session.c implementers, query.c consumers) ── */
 

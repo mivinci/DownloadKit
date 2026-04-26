@@ -197,3 +197,46 @@ void ai_budget_calibrator_update(xAiBudgetCalibrator *c, size_t estimated,
 
   if (c->samples != (size_t)-1) c->samples++;
 }
+
+/* ─────────────────────────────────────────────────────────────────
+ * ai_budget_tool_ratio
+ *
+ * Weighted ratio: how much of the estimated token cost comes from
+ * ToolUse / ToolResult entries? Uses the same per-kind byte formula
+ * as ai_budget_estimate_tokens so the ratio is consistent with what
+ * the gate sees.
+ * ──────────────────────────────────────────────────────────────── */
+double ai_budget_tool_ratio(const struct xAiSessionMsg_ *msgs, size_t n) {
+  if (!msgs || n == 0) return 0.0;
+
+  size_t total_bytes = 0;
+  size_t tool_bytes  = 0;
+
+  for (size_t i = 0; i < n; ++i) {
+    const struct xAiSessionMsg_ *m = &msgs[i];
+
+    switch (m->kind) {
+    case xAiSessionEntry_Text:
+    case xAiSessionEntry_Thinking:
+      total_bytes += m->text_len;
+      break;
+
+    case xAiSessionEntry_ToolUse: {
+      size_t sz = 0;
+      if (m->tool_use_name) sz += strlen(m->tool_use_name);
+      if (m->tool_use_args) sz += strlen(m->tool_use_args);
+      total_bytes += sz;
+      tool_bytes  += sz;
+      break;
+    }
+
+    case xAiSessionEntry_ToolResult:
+      total_bytes += m->tool_result_output_len;
+      tool_bytes  += m->tool_result_output_len;
+      break;
+    }
+  }
+
+  if (total_bytes == 0) return 0.0;
+  return (double)tool_bytes / (double)total_bytes;
+}

@@ -184,6 +184,24 @@ XCAPI(xErrno) xArrayRemoveRange(xArray arr, size_t start, size_t count);
 /* ───────────────────── Accessors ───────────────────── */
 
 /**
+ * @brief Insert an element at @p idx, shifting existing elements right.
+ *
+ * Elements at index @p idx and beyond are shifted one position to the
+ * right to make room. The array grows if needed. If the retain
+ * callback is set, it is called on the new element after it is
+ * copied into position. If the allocation fails, the array is
+ * unchanged and xErrno_NoMemory is returned.
+ *
+ * @param arrp  Pointer to the array handle (must not be NULL).
+ * @param idx   Index at which to insert (0 <= idx <= xArrayLen(*arrp)).
+ * @param elem  Pointer to the element to copy in (must not be NULL,
+ *              element size must match the array's elem_size).
+ * @return xErrno_Ok on success, xErrno_NoMemory on allocation failure,
+ *         xErrno_InvalidArg on invalid arguments.
+ */
+XCAPI(xErrno) xArrayInsert(xArray *arrp, size_t idx, const void *elem);
+
+/**
  * @brief Return a pointer to the element at index @p idx.
  *
  * @param arr  Array.

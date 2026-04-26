@@ -135,6 +135,11 @@ struct xAiQuery_ {
    * that sentinel intact until the first field we can actually add. */
   int      saw_usage; /* 1 once any round reported usage           */
   xAiUsage usage;     /* running totals                            */
+
+  /* Free-list link: reused when the Query is returned to the
+   * per-thread free list. Only valid when the Query is NOT in
+   * active use (i.e. after xAiQueryDestroy puts it back). */
+  struct xAiQuery_ *next;
 };
 
 /* ── Internal API (consumed by session.c) ────────────────────────── */

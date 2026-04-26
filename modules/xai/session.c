@@ -71,6 +71,7 @@
 #include <xai/session.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
+#include <xbase/array.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -102,34 +103,33 @@ void ai_session_msg_free(struct xAiSessionMsg_ *m) {
   memset(m, 0, sizeof(*m));
 }
 
-/* Grow history by one slot, zero-initialised. Returns the slot or
- * NULL on allocation failure. */
-static struct xAiSessionMsg_ *history_grow(struct xAiSession_ *s) {
-  if (s->n_history + 1 > s->cap_history) {
-    size_t                 new_cap = s->cap_history ? s->cap_history * 2 : 8;
-    struct xAiSessionMsg_ *nh =
-      (struct xAiSessionMsg_ *)realloc(s->history, new_cap * sizeof(*nh));
-    if (!nh) return NULL;
-    s->history     = nh;
-    s->cap_history = new_cap;
-  }
-  struct xAiSessionMsg_ *slot = &s->history[s->n_history++];
-  memset(slot, 0, sizeof(*slot));
-  return slot;
+/* xArray release callback for xAiSessionMsg_ elements. */
+static void session_msg_release(void *elem) {
+  ai_session_msg_free((struct xAiSessionMsg_ *)elem);
+}
+
+/* xArray callbacks for session history: release only (no retain, no equal).
+ * Push returns a zero-initialised slot; the caller fills it manually. */
+static const xArrayCallbacks kHistoryCbs = { NULL, session_msg_release, NULL };
+
+/* Push a new zero-initialised slot onto the history array.
+ * Returns the slot pointer, or NULL on allocation failure. */
+static struct xAiSessionMsg_ *history_push(struct xAiSession_ *s) {
+  return (struct xAiSessionMsg_ *)xArrayPush(&s->history_arr);
 }
 
 /* ── History append API (shared with query.c via session_private.h) ── */
 
 xErrno ai_history_append_text(struct xAiSession_ *s, xAiRole role,
                               const char *text, size_t len) {
-  struct xAiSessionMsg_ *slot = history_grow(s);
+  struct xAiSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
   slot->role = role;
   slot->kind = xAiSessionEntry_Text;
   if (len > 0) {
     slot->text = dup_bytes(text, len);
     if (!slot->text) {
-      s->n_history--;
+      xArrayPop(s->history_arr);
       return xErrno_NoMemory;
     }
     slot->text_len = len;
@@ -139,7 +139,7 @@ xErrno ai_history_append_text(struct xAiSession_ *s, xAiRole role,
 
 xErrno ai_history_append_tool_use(struct xAiSession_ *s, const char *id,
                                   const char *name, const char *args) {
-  struct xAiSessionMsg_ *slot = history_grow(s);
+  struct xAiSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
   slot->role          = xAiRole_Assistant;
   slot->kind          = xAiSessionEntry_ToolUse;
@@ -147,8 +147,9 @@ xErrno ai_history_append_tool_use(struct xAiSession_ *s, const char *id,
   slot->tool_use_name = dup_cstr(name ? name : "");
   slot->tool_use_args = dup_cstr(args ? args : "{}");
   if (!slot->tool_use_id || !slot->tool_use_name || !slot->tool_use_args) {
-    ai_session_msg_free(slot);
-    s->n_history--;
+    /* xArrayPop calls session_msg_release which frees the partial
+     * fields we just allocated. */
+    xArrayPop(s->history_arr);
     return xErrno_NoMemory;
   }
   return xErrno_Ok;
@@ -158,14 +159,14 @@ xErrno ai_history_append_tool_use(struct xAiSession_ *s, const char *id,
  * ai_session_msg_free() stays uniform. */
 xErrno ai_history_append_thinking(struct xAiSession_ *s, const char *text,
                                   size_t len) {
-  struct xAiSessionMsg_ *slot = history_grow(s);
+  struct xAiSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
   slot->role = xAiRole_Assistant;
   slot->kind = xAiSessionEntry_Thinking;
   if (len > 0) {
     slot->text = dup_bytes(text, len);
     if (!slot->text) {
-      s->n_history--;
+      xArrayPop(s->history_arr);
       return xErrno_NoMemory;
     }
     slot->text_len = len;
@@ -176,7 +177,7 @@ xErrno ai_history_append_thinking(struct xAiSession_ *s, const char *text,
 xErrno ai_history_append_tool_result(struct xAiSession_ *s, const char *id,
                                      const char *output, size_t output_len,
                                      int is_error) {
-  struct xAiSessionMsg_ *slot = history_grow(s);
+  struct xAiSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
   slot->role           = xAiRole_Tool;
   slot->kind           = xAiSessionEntry_ToolResult;
@@ -193,8 +194,9 @@ xErrno ai_history_append_tool_result(struct xAiSession_ *s, const char *id,
   }
   slot->tool_result_is_error = is_error;
   if (!slot->tool_result_id || !slot->tool_result_output) {
-    ai_session_msg_free(slot);
-    s->n_history--;
+    /* xArrayPop calls session_msg_release which frees the partial
+     * fields we just allocated. */
+    xArrayPop(s->history_arr);
     return xErrno_NoMemory;
   }
   return xErrno_Ok;
@@ -229,7 +231,7 @@ static xErrno history_append_user_msg(struct xAiSession_ *s, xAiMessage msg) {
   }
   buf[total] = '\0';
 
-  struct xAiSessionMsg_ *slot = history_grow(s);
+  struct xAiSessionMsg_ *slot = history_push(s);
   if (!slot) {
     free(buf);
     return xErrno_NoMemory;
@@ -297,15 +299,8 @@ static size_t estimate_incoming_user_tokens_(xAiMessage msg) {
  * churn realloc. */
 static void session_trim_history_front_(struct xAiSession_ *s,
                                         size_t              keep_idx) {
-  if (keep_idx == 0 || keep_idx >= s->n_history) return;
-
-  for (size_t i = 0; i < keep_idx; i++) {
-    ai_session_msg_free(&s->history[i]);
-  }
-  size_t remaining = s->n_history - keep_idx;
-  memmove(&s->history[0], &s->history[keep_idx],
-          remaining * sizeof(s->history[0]));
-  s->n_history = remaining;
+  if (keep_idx == 0 || keep_idx >= xArrayLen(s->history_arr)) return;
+  xArrayRemoveRange(s->history_arr, 0, keep_idx);
 }
 
 /* Resolve the effective token ceiling for this session. A zero
@@ -340,7 +335,8 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s,
   size_t incoming = estimate_incoming_user_tokens_(msg);
   double factor   = s->budget_calibrator.factor;
   size_t current  = ai_budget_estimate_tokens_calibrated(
-    s->history, s->n_history, factor);
+    (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
+    xArrayLen(s->history_arr), factor);
 
   if (current + incoming <= limit) {
     /* Remember what the gate saw so sess_fwd_on_done can compare
@@ -359,12 +355,15 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s,
        * keep_recent_turns. If that is 0 (floor exceeds what we
        * have, or no user turns to anchor on) we have nowhere to
        * trim — fall through to the refusal branch below. */
-      size_t keep = ai_budget_earliest_keep(s->history, s->n_history,
-                                            s->budget.keep_recent_turns);
+      size_t keep = ai_budget_earliest_keep(
+        (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
+        xArrayLen(s->history_arr),
+        s->budget.keep_recent_turns);
       if (keep > 0) {
         session_trim_history_front_(s, keep);
         current = ai_budget_estimate_tokens_calibrated(
-          s->history, s->n_history, factor);
+          (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
+          xArrayLen(s->history_arr), factor);
         if (current + incoming <= limit) {
           s->last_prompt_estimate = current + incoming;
           return xErrno_Ok;
@@ -427,10 +426,15 @@ static xErrno sess_input_view_build(struct xAiSession_      *s,
   /* Pass 1: count. */
   size_t n_msgs   = extra_system;
   size_t n_blocks = extra_system;
-  for (size_t i = 0; i < s->n_history;) {
-    if (s->history[i].role == xAiRole_Assistant) {
+  size_t hist_len = xArrayLen(s->history_arr);
+  for (size_t i = 0; i < hist_len;) {
+    struct xAiSessionMsg_ *m =
+      (struct xAiSessionMsg_ *)xArrayAt(s->history_arr, i);
+    if (m->role == xAiRole_Assistant) {
       size_t j = i;
-      while (j < s->n_history && s->history[j].role == xAiRole_Assistant)
+      while (j < hist_len &&
+             ((struct xAiSessionMsg_ *)xArrayAt(s->history_arr, j))->role
+               == xAiRole_Assistant)
         j++;
       n_msgs += 1;
       n_blocks += (j - i);
@@ -467,14 +471,17 @@ static xErrno sess_input_view_build(struct xAiSession_      *s,
     bi++;
   }
 
-  for (size_t i = 0; i < s->n_history;) {
-    struct xAiSessionMsg_ *m = &s->history[i];
+  for (size_t i = 0; i < hist_len;) {
+    struct xAiSessionMsg_ *m =
+      (struct xAiSessionMsg_ *)xArrayAt(s->history_arr, i);
     if (m->role == xAiRole_Assistant) {
       size_t block_start = bi;
       size_t j           = i;
-      while (j < s->n_history && s->history[j].role == xAiRole_Assistant) {
-        struct xAiSessionMsg_ *mm = &s->history[j];
-        xAiContent            *b  = &out->blocks[bi++];
+      while (j < hist_len) {
+        struct xAiSessionMsg_ *mm =
+          (struct xAiSessionMsg_ *)xArrayAt(s->history_arr, j);
+        if (mm->role != xAiRole_Assistant) break;
+        xAiContent *b = &out->blocks[bi++];
         if (mm->kind == xAiSessionEntry_Text) {
           b->type        = xAiContentType_Text;
           b->u.text.text = mm->text ? mm->text : "";
@@ -627,25 +634,21 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
    * fires on_done without having gone through the gate. */
   s->last_prompt_estimate = 0;
 
-  /* Append every produced entry into history by bitwise move: the
-   * struct owns its strings, and history_grow hands us a freshly
-   * zeroed slot, so we can just copy the struct across. On growth
-   * failure the remainder (and whatever we haven't moved yet) is
-   * released via ai_session_msg_free + free(produced) below. */
+  /* Append every produced entry into history. Because the produced
+   * array is now owned by xArray (which will release every element
+   * when the Query is destroyed), we must deep-copy each entry's
+   * heap strings rather than doing a bitwise move. */
   for (size_t i = 0; i < n_produced; i++) {
-    struct xAiSessionMsg_ *slot = history_grow(s);
-    if (!slot) {
-      /* OOM merging: release the rest of the produced list. What
-       * we've already committed stays in history. */
-      for (size_t j = i; j < n_produced; j++) {
-        ai_session_msg_free(&produced[j]);
-      }
-      break;
-    }
-    *slot = produced[i];
-    memset(&produced[i], 0, sizeof(produced[i])); /* moved */
+    struct xAiSessionMsg_ *src = &produced[i];
+    struct xAiSessionMsg_ *dst = history_push(s);
+    if (!dst) break; /* OOM: remaining produced entries stay for
+                      * xAiQueryDestroy to clean up. */
+    *dst = *src;
+    /* Clear src so xArrayPop/release won't double-free the strings
+     * we just moved. */
+    memset(src, 0, sizeof(*src));
   }
-  free(produced);
+  /* No free(produced) — the xArray owns the buffer. */
 
   if (s->cbs.on_done) {
     s->cbs.on_done((xAiSession)s, reason, usage, s->cbs.user_data);
@@ -709,6 +712,16 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   /* @c s->query starts NULL (from calloc). A Query is allocated on
    * demand by xAiSessionInput and released from sess_fwd_on_done. */
 
+  /* Create the history array with a release callback that frees
+   * per-element heap resources. No retain — callers fill the
+   * zero-initialised slot manually after xArrayPush(). */
+  s->history_arr = xArrayCreate(sizeof(struct xAiSessionMsg_), 8,
+                                &kHistoryCbs);
+  if (!s->history_arr) {
+    free(s);
+    return NULL;
+  }
+
   return (xAiSession)s;
 }
 
@@ -732,7 +745,7 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   /* Commit the user message to history first so the input view
    * below includes it. If the Query submit later fails we'll roll
    * this back. */
-  size_t history_checkpoint = s->n_history;
+  size_t history_checkpoint = xArrayLen(s->history_arr);
   rc                        = history_append_user_msg(s, msg);
   if (rc != xErrno_Ok) return rc;
 
@@ -742,8 +755,8 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   rc = sess_input_view_build(s, &view);
   if (rc != xErrno_Ok) {
     /* Roll back the user append — nothing observable happened. */
-    while (s->n_history > history_checkpoint) {
-      ai_session_msg_free(&s->history[--s->n_history]);
+    while (xArrayLen(s->history_arr) > history_checkpoint) {
+      xArrayPop(s->history_arr);
     }
     return rc;
   }
@@ -758,8 +771,8 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   xAiQuery q = xAiQueryCreate(sess, &qc);
   if (!q) {
     sess_input_view_free(&view);
-    while (s->n_history > history_checkpoint) {
-      ai_session_msg_free(&s->history[--s->n_history]);
+    while (xArrayLen(s->history_arr) > history_checkpoint) {
+      xArrayPop(s->history_arr);
     }
     return xErrno_NoMemory;
   }
@@ -774,8 +787,8 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
     xAiQueryDestroy(q); /* Clears s->query back to NULL. */
     /* No on_done fires on the failure path — roll back the user
      * message too so history reflects what actually happened. */
-    while (s->n_history > history_checkpoint) {
-      ai_session_msg_free(&s->history[--s->n_history]);
+    while (xArrayLen(s->history_arr) > history_checkpoint) {
+      xArrayPop(s->history_arr);
     }
     return rc;
   }
@@ -815,10 +828,9 @@ void xAiSessionDestroy(xAiSession sess) {
     hook(sess, owner);
   }
 
-  for (size_t i = 0; i < s->n_history; i++) {
-    ai_session_msg_free(&s->history[i]);
-  }
-  free(s->history);
+  /* xArrayDestroy calls the release callback (ai_session_msg_free)
+   * for every element still in the array. */
+  xArrayDestroy(s->history_arr);
   free(s);
 }
 

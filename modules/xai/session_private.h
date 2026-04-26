@@ -20,6 +20,7 @@
 #include "budget_private.h" /* xAiBudgetCalibrator                    */
 
 #include <stddef.h>
+#include <xbase/array.h>
 
 /**
  * @brief The session instance.
@@ -72,9 +73,7 @@ struct xAiSession_ {
   void                  *finalizing_owner; /* passed back verbatim    */
 
   /* ── Rolling history (session-owned, flat entries) ────────────── */
-  struct xAiSessionMsg_ *history;
-  size_t                 n_history;
-  size_t                 cap_history;
+  xArray history_arr;
 
   /* ── In-flight run state ──────────────────────────────────────── */
   /* At most one Query alive at a time today; the Session itself

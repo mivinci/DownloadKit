@@ -32,6 +32,16 @@ extern "C" {
 
 #include <gtest/gtest.h>
 
+/* ── Helpers for accessing xArray-backed history ─────────────────── */
+
+static size_t hist_len(const struct xAiSession_ *s) {
+  return xArrayLen(s->history_arr);
+}
+
+static struct xAiSessionMsg_ *hist_at(const struct xAiSession_ *s, size_t i) {
+  return (struct xAiSessionMsg_ *)xArrayAt(s->history_arr, i);
+}
+
 /* ── Fake provider ──────────────────────────────────────────────────── */
 
 struct FakeScript {
@@ -425,7 +435,7 @@ void cb_finalizing(xAiSession sess, void *owner) {
   cap->seen_sess   = sess;
   cap->seen_owner  = owner;
   /* Peek through the private layout to prove history isn't freed yet. */
-  cap->history_len = reinterpret_cast<xAiSession_ *>(sess)->n_history;
+  cap->history_len = xArrayLen(reinterpret_cast<xAiSession_ *>(sess)->history_arr);
 }
 }  // namespace
 
@@ -481,11 +491,11 @@ TEST_F(SessionTest, TextOnlyRoundDeliversTextAndDone) {
 
   /* History: system is not stored, so we expect user + assistant. */
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
-  ASSERT_EQ(s->n_history, 2u);
-  EXPECT_EQ(s->history[0].role, xAiRole_User);
-  EXPECT_STREQ(s->history[0].text, "hi");
-  EXPECT_EQ(s->history[1].role, xAiRole_Assistant);
-  EXPECT_STREQ(s->history[1].text, "hello world");
+  ASSERT_EQ(hist_len(s), 2u);
+  EXPECT_EQ(hist_at(s, 0)->role, xAiRole_User);
+  EXPECT_STREQ(hist_at(s, 0)->text, "hi");
+  EXPECT_EQ(hist_at(s, 1)->role, xAiRole_Assistant);
+  EXPECT_STREQ(hist_at(s, 1)->text, "hello world");
 
   xAiSessionDestroy(sess);
 }
@@ -526,11 +536,11 @@ TEST_F(SessionTest, MultiTurnAccumulatesHistory) {
 
   /* 2 users + 2 assistants. */
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
-  ASSERT_EQ(s->n_history, 4u);
-  EXPECT_STREQ(s->history[0].text, "q1");
-  EXPECT_STREQ(s->history[1].text, "round1");
-  EXPECT_STREQ(s->history[2].text, "q2");
-  EXPECT_STREQ(s->history[3].text, "round2");
+  ASSERT_EQ(hist_len(s), 4u);
+  EXPECT_STREQ(hist_at(s, 0)->text, "q1");
+  EXPECT_STREQ(hist_at(s, 1)->text, "round1");
+  EXPECT_STREQ(hist_at(s, 2)->text, "q2");
+  EXPECT_STREQ(hist_at(s, 3)->text, "round2");
 
   /* Second submit sees system + [q1, round1, q2] = 4 messages.
    * The second assistant reply (round2) is only committed to history
@@ -566,8 +576,8 @@ TEST_F(SessionTest, ProviderErrorMapsToModelErrorAndFiresOnError) {
 
   /* Partial assistant text still makes it into history. */
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
-  ASSERT_EQ(s->n_history, 2u);
-  EXPECT_STREQ(s->history[1].text, "partial");
+  ASSERT_EQ(hist_len(s), 2u);
+  EXPECT_STREQ(hist_at(s, 1)->text, "partial");
 
   xAiSessionDestroy(sess);
 }
@@ -650,8 +660,8 @@ TEST_F(SessionTest, CancelBeforeDoneMapsToAborted) {
 
   /* Partial text preserved in history. */
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
-  ASSERT_EQ(s->n_history, 2u);
-  EXPECT_STREQ(s->history[1].text, "partial");
+  ASSERT_EQ(hist_len(s), 2u);
+  EXPECT_STREQ(hist_at(s, 1)->text, "partial");
 
   xAiSessionDestroy(sess);
 }
@@ -680,7 +690,7 @@ TEST_F(SessionTest, SubmitFailureRollsBackAndReturnsError) {
 
   /* History rolled back. */
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
-  EXPECT_EQ(s->n_history, 0u);
+  EXPECT_EQ(hist_len(s), 0u);
   EXPECT_EQ(s->query, nullptr);
 
   /* And a fresh attempt is allowed. */
@@ -839,24 +849,24 @@ TEST_F(ToolLoopFixture, SingleToolRoundTrip) {
    *   [3] tool tool_result (call_42, args echoed back)
    *   [4] assistant text "done." */
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
-  ASSERT_EQ(s->n_history, 5u);
-  EXPECT_EQ(s->history[0].role, xAiRole_User);
-  EXPECT_EQ(s->history[1].role, xAiRole_Assistant);
-  EXPECT_EQ(s->history[1].kind, xAiSessionEntry_Text);
-  EXPECT_STREQ(s->history[1].text, "thinking... ");
-  EXPECT_EQ(s->history[2].role, xAiRole_Assistant);
-  EXPECT_EQ(s->history[2].kind, xAiSessionEntry_ToolUse);
-  EXPECT_STREQ(s->history[2].tool_use_name, "echo");
-  EXPECT_STREQ(s->history[2].tool_use_id, "call_42");
-  EXPECT_EQ(s->history[3].role, xAiRole_Tool);
-  EXPECT_EQ(s->history[3].kind, xAiSessionEntry_ToolResult);
-  EXPECT_STREQ(s->history[3].tool_result_id, "call_42");
-  EXPECT_EQ(std::string(s->history[3].tool_result_output,
-                         s->history[3].tool_result_output_len),
+  ASSERT_EQ(hist_len(s), 5u);
+  EXPECT_EQ(hist_at(s, 0)->role, xAiRole_User);
+  EXPECT_EQ(hist_at(s, 1)->role, xAiRole_Assistant);
+  EXPECT_EQ(hist_at(s, 1)->kind, xAiSessionEntry_Text);
+  EXPECT_STREQ(hist_at(s, 1)->text, "thinking... ");
+  EXPECT_EQ(hist_at(s, 2)->role, xAiRole_Assistant);
+  EXPECT_EQ(hist_at(s, 2)->kind, xAiSessionEntry_ToolUse);
+  EXPECT_STREQ(hist_at(s, 2)->tool_use_name, "echo");
+  EXPECT_STREQ(hist_at(s, 2)->tool_use_id, "call_42");
+  EXPECT_EQ(hist_at(s, 3)->role, xAiRole_Tool);
+  EXPECT_EQ(hist_at(s, 3)->kind, xAiSessionEntry_ToolResult);
+  EXPECT_STREQ(hist_at(s, 3)->tool_result_id, "call_42");
+  EXPECT_EQ(std::string(hist_at(s, 3)->tool_result_output,
+                         hist_at(s, 3)->tool_result_output_len),
             "{\"hello\":\"world\"}");
-  EXPECT_EQ(s->history[3].tool_result_is_error, 0);
-  EXPECT_EQ(s->history[4].role, xAiRole_Assistant);
-  EXPECT_STREQ(s->history[4].text, "done.");
+  EXPECT_EQ(hist_at(s, 3)->tool_result_is_error, 0);
+  EXPECT_EQ(hist_at(s, 4)->role, xAiRole_Assistant);
+  EXPECT_STREQ(hist_at(s, 4)->text, "done.");
 
   /* The second submit should have carried the full assistant turn
    * (text + tool_use blocks folded into ONE message) plus the
@@ -1120,11 +1130,11 @@ TEST_F(ToolLoopFixture, AssistantThinkingEchoedInFollowUpRound) {
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
   /* [0] user, [1] assistant thinking, [2] assistant tool_use,
    * [3] tool result, [4] assistant text "ok" */
-  ASSERT_EQ(s->n_history, 5u);
-  EXPECT_EQ(s->history[1].role, xAiRole_Assistant);
-  EXPECT_EQ(s->history[1].kind, xAiSessionEntry_Thinking);
-  EXPECT_STREQ(s->history[1].text, "I should call echo.");
-  EXPECT_EQ(s->history[2].kind, xAiSessionEntry_ToolUse);
+  ASSERT_EQ(hist_len(s), 5u);
+  EXPECT_EQ(hist_at(s, 1)->role, xAiRole_Assistant);
+  EXPECT_EQ(hist_at(s, 1)->kind, xAiSessionEntry_Thinking);
+  EXPECT_STREQ(hist_at(s, 1)->text, "I should call echo.");
+  EXPECT_EQ(hist_at(s, 2)->kind, xAiSessionEntry_ToolUse);
 
   /* Second submit: the assistant message carries thinking + tool_use
    * as distinct content blocks. Provider serialisers (OpenAI-compat)
@@ -1373,7 +1383,7 @@ TEST_F(SessionTest, BudgetErrorPolicyRefusesOversizedInput) {
 
   /* History must be clean: the refused turn leaves no trace. */
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
-  EXPECT_EQ(s->n_history, 0u);
+  EXPECT_EQ(hist_len(s), 0u);
 
   /* The provider must never have been submitted to. */
   EXPECT_TRUE(fake_->captured_msgs.empty());
@@ -1492,7 +1502,7 @@ TEST_F(SessionTest, BudgetTruncateOldestRefusesWhenFloorUnreachable) {
 
   /* Same history cleanliness guarantee as the Error-policy refusal. */
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
-  EXPECT_EQ(s->n_history, 0u);
+  EXPECT_EQ(hist_len(s), 0u);
   EXPECT_EQ(cap.done_fired, 0);
   EXPECT_EQ(cap.error_fired, 0);
 
@@ -1546,7 +1556,7 @@ TEST_F(SessionTest, BudgetTruncatePolicyUnderBudgetIsNoop) {
 
   /* History should reflect a clean single round (user + assistant). */
   auto *s = reinterpret_cast<xAiSession_ *>(sess);
-  EXPECT_GT(s->n_history, 0u);
+  EXPECT_GT(hist_len(s), 0u);
 
   xAiSessionDestroy(sess);
 }

@@ -35,6 +35,7 @@
 #include <xai/query.h>    /* xAiQueryCallbacks                         */
 #include <xai/session.h>  /* xAiDoneReason                             */
 #include <xbase/error.h>
+#include <xbase/array.h>
 #include <xbuf/buf.h>    /* xBuffer                                    */
 
 #include "turn_private.h" /* struct xAiSessionMsg_                     */
@@ -99,9 +100,7 @@ struct xAiQuery_ {
    * shape as Session history); the Query never mutates this list
    * after Run accepts it. view_build walks this list first, then
    * @c produced below. */
-  struct xAiSessionMsg_ *inputs;
-  size_t                 n_inputs;
-  size_t                 cap_inputs;
+  xArray inputs_arr;
 
   /* ── Run output: turns emitted during this run ────────────────
    *
@@ -112,9 +111,7 @@ struct xAiQuery_ {
    * so far. On terminal on_done the Session merges this list into
    * its history (copy or move, implementation detail) before the
    * Query is destroyed. */
-  struct xAiSessionMsg_ *produced;
-  size_t                 n_produced;
-  size_t                 cap_produced;
+  xArray produced_arr;
 
   /* ── Assistant text accumulator for the current round ─────────── */
   xBuffer assist;   /* lazy-created on first append; NULL when unused */
@@ -123,9 +120,7 @@ struct xAiQuery_ {
   xBuffer reasoning; /* lazy-created on first append; NULL when unused */
 
   /* ── Pending tool calls captured during the current round ─────── */
-  struct xAiQueryPending_ *pending;
-  size_t                   n_pending;
-  size_t                   cap_pending;
+  xArray pending_arr;
 
   /* ── Run-wide state ───────────────────────────────────────────── */
   int running;   /* 1 from Run until terminal on_done has fired    */
@@ -171,15 +166,15 @@ xErrno ai_query_submit(struct xAiQuery_ *q);
 void ai_query_cancel_mark(struct xAiQuery_ *q);
 
 /**
- * @brief Detach and return the Query's @c produced list.
+ * @brief Return the Query's @c produced list for merging.
  *
- * Transfers ownership of the produced-turn array to the caller;
- * afterwards @c q->produced is NULL / zero so xAiQueryDestroy will
- * not free it. Caller is responsible for releasing each entry with
- * ai_session_msg_free() and then freeing the outer array.
+ * Returns a pointer into the xArray's internal storage and the
+ * element count. The caller (session.c) must consume the data
+ * BEFORE calling xAiQueryDestroy, which will release every
+ * element via the array's release callback.
  *
- * Used by the Session's terminal forwarding to pull the Query's
- * output into @c session->history before destroying the Query.
+ * Unlike the pre-xArray version this does NOT transfer ownership
+ * of the outer buffer — the xArray still owns it.
  *
  * @param q      Query handle.
  * @param out    Receives the base pointer (may be NULL if the run

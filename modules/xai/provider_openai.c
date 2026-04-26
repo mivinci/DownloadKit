@@ -36,6 +36,7 @@
 #include <xbase/error.h>
 #include <xbase/event.h>
 #include <xbase/log.h>
+#include <xbuf/buf.h>
 #include <xhttp/client.h>
 
 #include <cJSON.h>
@@ -205,21 +206,17 @@ static cJSON *oai_message_to_json(const xAiMessage *m) {
      * thinking stream for us; here we serialise it alongside content
      * and tool_calls. */
     cJSON  *tool_calls     = NULL;
-    size_t  text_len       = 0;
-    char   *text_buf       = NULL;
-    size_t  text_cap       = 0;
-    size_t  reasoning_len  = 0;
-    char   *reasoning_buf  = NULL;
-    size_t  reasoning_cap  = 0;
+    xBuffer text_buf       = NULL;
+    xBuffer reasoning_buf  = NULL;
     for (size_t i = 0; i < m->n; i++) {
       const xAiContent *c = &m->contents[i];
       if (c->type == xAiContentType_Text && c->u.text.text) {
-        oai_str_append(&text_buf, &text_len, &text_cap,
-                       c->u.text.text, c->u.text.len);
+        if (!text_buf) text_buf = xBufferCreate(256);
+        if (text_buf) xBufferAppendStr(&text_buf, c->u.text.text);
       } else if (c->type == xAiContentType_Thinking &&
                  c->u.thinking.text) {
-        oai_str_append(&reasoning_buf, &reasoning_len, &reasoning_cap,
-                       c->u.thinking.text, c->u.thinking.len);
+        if (!reasoning_buf) reasoning_buf = xBufferCreate(256);
+        if (reasoning_buf) xBufferAppendStr(&reasoning_buf, c->u.thinking.text);
       } else if (c->type == xAiContentType_ToolUse) {
         if (!tool_calls) tool_calls = cJSON_CreateArray();
         cJSON *tc = cJSON_CreateObject();
@@ -236,33 +233,39 @@ static cJSON *oai_message_to_json(const xAiMessage *m) {
         cJSON_AddItemToArray(tool_calls, tc);
       }
     }
-    if (text_buf && text_len > 0) {
-      cJSON_AddStringToObject(obj, "content", text_buf);
+    if (text_buf && xBufferLen(text_buf) > 0) {
+      xBufferAppend(&text_buf, "", 1); /* NUL-terminate for cJSON */
+      cJSON_AddStringToObject(obj, "content", (const char *)xBufferData(text_buf));
     } else {
       cJSON_AddNullToObject(obj, "content");
     }
-    if (reasoning_buf && reasoning_len > 0) {
-      cJSON_AddStringToObject(obj, "reasoning_content", reasoning_buf);
+    if (reasoning_buf && xBufferLen(reasoning_buf) > 0) {
+      xBufferAppend(&reasoning_buf, "", 1); /* NUL-terminate for cJSON */
+      cJSON_AddStringToObject(obj, "reasoning_content", (const char *)xBufferData(reasoning_buf));
     }
     if (tool_calls) cJSON_AddItemToObject(obj, "tool_calls", tool_calls);
-    free(text_buf);
-    free(reasoning_buf);
+    xBufferDestroy(text_buf);
+    xBufferDestroy(reasoning_buf);
     return obj;
   }
 
   /* system / user: concatenate all text blocks. */
-  char   *text_buf = NULL;
-  size_t  text_len = 0;
-  size_t  text_cap = 0;
+  xBuffer text_buf = NULL;
   for (size_t i = 0; i < m->n; i++) {
     if (m->contents[i].type == xAiContentType_Text &&
         m->contents[i].u.text.text) {
-      oai_str_append(&text_buf, &text_len, &text_cap,
-                     m->contents[i].u.text.text, m->contents[i].u.text.len);
+      if (!text_buf) text_buf = xBufferCreate(256);
+      if (text_buf)
+        xBufferAppendStr(&text_buf, m->contents[i].u.text.text);
     }
   }
-  cJSON_AddStringToObject(obj, "content", text_buf ? text_buf : "");
-  free(text_buf);
+  if (text_buf && xBufferLen(text_buf) > 0) {
+    xBufferAppend(&text_buf, "", 1); /* NUL-terminate for cJSON */
+    cJSON_AddStringToObject(obj, "content", (const char *)xBufferData(text_buf));
+  } else {
+    cJSON_AddStringToObject(obj, "content", "");
+  }
+  xBufferDestroy(text_buf);
   return obj;
 }
 

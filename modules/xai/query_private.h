@@ -35,6 +35,7 @@
 #include <xai/query.h>    /* xAiQueryCallbacks                         */
 #include <xai/session.h>  /* xAiDoneReason                             */
 #include <xbase/error.h>
+#include <xbuf/buf.h>    /* xBuffer                                    */
 
 #include "turn_private.h" /* struct xAiSessionMsg_                     */
 
@@ -116,14 +117,10 @@ struct xAiQuery_ {
   size_t                 cap_produced;
 
   /* ── Assistant text accumulator for the current round ─────────── */
-  char  *assist_buf;
-  size_t assist_len;
-  size_t assist_cap;
+  xBuffer assist;   /* lazy-created on first append; NULL when unused */
 
   /* ── Assistant reasoning / thinking accumulator (current round) ── */
-  char  *reasoning_buf;
-  size_t reasoning_len;
-  size_t reasoning_cap;
+  xBuffer reasoning; /* lazy-created on first append; NULL when unused */
 
   /* ── Pending tool calls captured during the current round ─────── */
   struct xAiQueryPending_ *pending;

@@ -21,6 +21,9 @@
 #include "session_private.h"
 
 #include <stdlib.h>
+#include <string.h>
+
+/* ── xAiAgentCreate ────────────────────────────────────────────────── */
 
 xAiAgent xAiAgentCreate(const xAiAgentConf *conf) {
   if (!conf || !conf->loop || !conf->provider) return NULL;
@@ -62,6 +65,8 @@ xAiAgent xAiAgentCreate(const xAiAgentConf *conf) {
   return (xAiAgent)a;
 }
 
+/* ── xAiAgentDestroy ───────────────────────────────────────────────── */
+
 void xAiAgentDestroy(xAiAgent agent) {
   if (!agent) return;
   struct xAiAgent_ *a = (struct xAiAgent_ *)agent;
@@ -80,78 +85,14 @@ void xAiAgentDestroy(xAiAgent agent) {
   free(agent);
 }
 
-/* ── Agent-layer hooks injected into Agent-created sessions ────────── */
-
-/**
- * @brief Agent's L1 extraction hook.
- *
- * Fires in sess_fwd_on_done after produced entries have been
- * merged into history but before the caller's on_done. The agent
- * receives the full produced list and usage so it can extract
- * L1 memory candidates (structured observations from the
- * conversation output).
- *
- * @param sess        The session.
- * @param produced    Array of produced message entries (still alive;
- *                    owned by the Query's xArray).
- * @param n_produced  Number of entries in @p produced.
- * @param usage       Cumulative token usage for this run (may be NULL).
- * @param ud          The agent itself (passed as on_produced_ud).
- */
-static void agent_on_produced(xAiSession                    sess,
-                              const struct xAiSessionMsg_  *produced,
-                              size_t                        n_produced,
-                              const xAiUsage               *usage,
-                              void                         *ud) {
-  /* L1 memory extraction is not yet implemented. This hook is
-   * wired in now so xAiAgentCreateSession callers can start
-   * relying on it firing; a future commit will add the actual
-   * extraction logic here. */
-  (void)sess;
-  (void)produced;
-  (void)n_produced;
-  (void)usage;
-  (void)ud;
-}
-
-/**
- * @brief Agent's late-teardown hook.
- *
- * Fires during xAiSessionDestroy, while the session is still fully
- * live and its history is intact. Gives the agent a final chance
- * to digest the session for L1 memory, mood delta, analytics, etc.
- *
- * @param sess   The session about to be torn down.
- * @param owner  The agent itself (passed as finalizing_owner).
- */
-static void agent_on_finalizing(xAiSession sess, void *owner) {
-  /* L1 finalization is not yet implemented. Same as on_produced —
-   * the hook is wired now so the API is in place. */
-  (void)sess;
-  (void)owner;
-}
-
 /* ── xAiAgentCreateSession ─────────────────────────────────────────── */
 
 xAiSession xAiAgentCreateSession(xAiAgent             agent,
                                  const xAiSessionConf *conf) {
   if (!agent || !conf) return NULL;
 
-  /* 1. Create the session normally via xAiSessionCreate. */
+  /* Create the session normally via xAiSessionCreate. */
   xAiSession sess = xAiSessionCreate(agent, conf);
-  if (!sess) return NULL;
-
-  /* 2. Inject the agent's on_produced (L1 extraction hook).
-   *    The session's internal copy of cbs is already made by
-   *    xAiSessionCreate, so we patch the session struct directly. */
-  struct xAiSession_ *s = (struct xAiSession_ *)sess;
-  s->on_produced    = agent_on_produced;
-  s->on_produced_ud = agent;  /* the agent itself */
-
-  /* 3. Inject on_finalizing if the agent needs it. */
-  s->on_finalizing     = agent_on_finalizing;
-  s->finalizing_owner  = agent;
-
   return sess;
 }
 

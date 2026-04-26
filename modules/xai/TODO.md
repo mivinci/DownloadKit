@@ -4,8 +4,10 @@
 > [`docs/todo/human-like-ai.md`](../../docs/todo/human-like-ai.md) §6。
 > Session/Query 拆分 **Step 1 与 Step 2 核心已落地**：`xAiQuery` 已是
 > first-class public handle，与 `xAiSession` history 解耦，§8.1/§8.2/§8.3
-> 三条 Agent 预留勾子全部就位（observer list、input origin、finalizing
-> hook）。`npm test` 9/9 全绿。Step 3（`xAiQueryCreateStandalone`）按
+> 三条 Agent 预留勾子就位两条（observer list、finalizing
+> hook），`on_produced` 已移除（只能拿到 assistant 侧产出，
+> 拿不到 user 消息，做 L1 全量采集注定残缺）。`npm test` 9/9 全绿。
+> Step 3（`xAiQueryCreateStandalone`）按
 > 架构文档为"可选"，保持原计划仅在有真实用例时再做。
 >
 > 架构文档 §11.3 里写过的 "fake_submit → fake_query" 改造经评估**不再
@@ -73,8 +75,9 @@
 
 ## 2. Agent 分层记忆体系（L1–L4）
 
-Agent 层的四层记忆 / 行为体系。L1 钩子已预留（`on_produced` +
-`on_finalizing`），L2–L4 待落地。
+Agent 层的四层记忆 / 行为体系。L1 钩子已预留（`on_finalizing`），
+`on_produced` 已移除（只能拿到 assistant 侧产出，拿不到 user 消息），
+L2–L4 待落地。
 
 三种 session 的交互模型：
 
@@ -84,24 +87,69 @@ Agent 层的四层记忆 / 行为体系。L1 钩子已预留（`on_produced` +
 | 用户新开 Session | `User` | 用户调 `xAiAgentCreateSession` | 用户调 `xAiSessionDestroy` | 用户控制 |
 | Agent 主动唤醒 Session | `SystemSynthesized` | Agent 内部 | Agent 内部 | Agent 控制 |
 
-### L1 — 即时记忆提取（Immediate Memory Extraction）
+### L1 — Session 即时记忆（全量）（Full Session Memory）
 
-- [x] **`on_produced` 钩子**。
-  位置：session 每轮 provider 产出后、`on_done` 前。Agent 通过
-  `xAiAgentCreateSession` 注入。当前实现为 stub（空回调）。
-  提取目标：用户偏好、关键事实、决策记录等结构化观察。
+L1 是 Session 的**即时记忆**，保存 Session 内发生的**全部消息**——
+System、User、Assistant、Tool，不遗漏任何角色和类型。
+L1 的语义是"这次会话发生了什么"——完整对话记录，是 L2 提取的原始素材。
+
+**核心原则：L1 是全量，不是摘要。**
 
 - [x] **`on_finalizing` 钩子**。
   位置：session 销毁前（`xAiSessionDestroy` 内）。Agent 注入。
   当前实现为 stub。提取目标：会话级摘要、情绪 delta、整体印象。
+  **注意**：`on_produced` 钩子已被移除（原因：只能拿到 assistant 侧产出，
+  拿不到 user 消息，做 L1 采集注定残缺）。
 
-- [ ] **L1 提取逻辑实现**。
-  当前两个钩子是空 stub。需要：
-  1. 设计提取产物的结构化 schema（偏好 / 事实 / 决策各是什么格式）
-  2. 实现 `on_produced` 内的提取逻辑（可能用一次内部 LLM 调用
-     "extract observations from this exchange"）
-  3. 实现 `on_finalizing` 内的汇总逻辑
-  4. 提取结果交付给 L2 持久化
+- [ ] **L1 数据写入机制**。
+  `on_produced` 已移除后，L1 的全量消息采集机制待定。三种候选方案：
+
+  1. **在 `sess_fwd_on_done` 中直接采集全量**：produced 合入 history 后，
+     从 `session.history_arr` 取全量快照推入 L1 队列。需去重
+     （每次 done 都触发，不能重复推已有消息）。
+  2. **在 `xAiSessionInput` 入口处采集 user 消息 + 在 `sess_fwd_on_done`
+     处采集 produced 增量**：两部分拼出完整增量流，无需去重。
+  3. **在 `on_finalizing` 做一次性全量快照**：Session 销毁时从 history
+     取全量，一次性推入 L1 队列。简单但有延迟（L1 不是即时的，而是
+     事后补录的）。
+
+  **动手时机**：确定方案后实现。
+
+- [ ] **L1 → L2 提取逻辑实现**。
+  当前钩子是空 stub。实现步骤：
+
+  1. **L2 的产物结构化 schema**（存储格式）：
+
+  ```c
+  XDEF_ENUM(xAiObservationKind) {
+    xAiObservationKind_Preference,   /* "我喜欢简洁的代码风格" */
+    xAiObservationKind_Fact,         /* "项目使用 UTF-8 编码" */
+    xAiObservationKind_Decision,     /* "决定用 SQLite 而不是 JSONL" */
+  };
+
+  XDEF_STRUCT(xAiObservation) {
+    xAiObservationKind kind;
+    const char *content;    /* 结构化摘要，非原文 */
+    float       confidence; /* 0..1，规则路径给 1.0，LLM 路径给模型输出 */
+    const char *source_id;  /* 产出它的 session id，供 L2 去重 */
+  };
+  ```
+
+  2. **提取策略**（在 Agent 层从 L1 全量消息中提取 L2 观察）。两阶段：
+     - **规则先过**：检测硬特征（专有名词、数字、时间、URL、明确偏好词
+       "我喜欢/讨厌/用…"），匹配则直接构造 `xAiObservation`，
+       confidence=1.0。
+     - **不确定时调 LLM**：一次 prompt ≤ 200 tokens，让模型判断
+       yes/no + 提取摘要。这个 LLM call 复用 Agent 配置的 provider。
+
+  3. **`on_finalizing` 内的汇总逻辑**。用一次 LLM call 做会话级摘要，
+     输出若干 `xAiObservation` + mood delta + 未完结话题。
+
+  4. **提取结果交付给 L2**。L2 模块裁决是否落盘（去重、合并、淘汰）。
+
+  **提取的成本控制**：MVP-a 阶段目标 ≥ 60% 的观察不需要 LLM call 就能
+  决定入库与否。规则快速路径覆盖明确偏好和硬事实；只有模糊陈述才走 LLM。
+  这样 90% 的写入走零成本路径。
 
 ### L2 — 长期记忆存储与检索（Long-term Memory Store & Retrieval）
 
@@ -396,5 +444,10 @@ Git log 里能查到，这里只留大颗粒里程碑作为阅读指引：
   TruncateOldest 裁剪闭环 /
   保留边界（system prompt / 当前 input / tool 对完整性 / keep_recent_turns）/
   46 个测试全绿（budget_test 33 + session_test Budget* 13）
+- L1/L2 记忆体系重新定义：
+  L1 = Session 即时记忆（全量消息），
+  L2 = Agent 抽象记忆（从 L1 全量中提取结构化观察），
+  `on_produced` 钩子已移除（只能拿到 assistant 侧产出，
+  拿不到 user 消息，做 L1 全量采集注定残缺）
 
 具体细节看 git history 和 `MEMORY.md`。

@@ -22,7 +22,7 @@
 #include <xbase/event.h>
 #include <xbase/task.h>
 
-struct xAiSession_;  /* forward — full definition in session_private.h */
+struct xAiSession_; /* forward — full definition in session_private.h */
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,23 +36,82 @@ extern "C" {
  * array are borrowed from the caller, as documented in agent.h.
  */
 struct xAiAgent_ {
-  xEventLoop         loop;           /**< Event loop (never NULL).       */
-  xAiProvider        provider;       /**< Backing provider (never NULL). */
 
-  const char        *model;          /**< Default model id, borrowed.    */
-  const char        *system_prompt;  /**< Default system prompt.         */
+  /**
+   * Event loop that owns this agent. Every xAi* API call that
+   * touches the agent or any of its sessions must happen on this
+   * loop's thread. Never NULL after construction.
+   */
+  xEventLoop loop;
 
-  const xAiTool    **tools;          /**< Borrowed tool array.           */
-  size_t             n_tools;
+  /**
+   * Backing LLM provider used by all sessions derived from this
+   * agent. Borrowed from xAiAgentConf::provider; the caller must
+   * keep it alive until every session has been destroyed and
+   * xAiAgentDestroy() has been called. Never NULL.
+   */
+  xAiProvider provider;
 
-  xTaskGroup         task_group;     /**< Optional worker pool.          */
+  /**
+   * Default model identifier sent to the provider when a session
+   * does not override it. Borrowed from xAiAgentConf::model; may
+   * be NULL, in which case the provider's own default is used.
+   */
+  const char *model;
 
-  int                max_turns;      /**< 0 = library default.           */
-  int                max_tokens;     /**< 0 = provider default.          */
+  /**
+   * Default system prompt injected into every session that does
+   * not supply its own. Borrowed from xAiAgentConf::system_prompt;
+   * may be NULL.
+   */
+  const char *system_prompt;
 
-  struct xAiSession_ *default_session; /**< Built-in alignment session,
-                                            or NULL if the agent was
-                                            created without one. Owned. */
+  /**
+   * Array of tool definitions available to sessions derived from
+   * this agent. Borrowed from xAiAgentConf::tools; individual
+   * entries may be shared across multiple agents. May be NULL
+   * when no tools are configured.
+   */
+  const xAiTool **tools;
+
+  /**
+   * Number of entries in the @ref tools array. Zero when no tools
+   * are configured.
+   */
+  size_t n_tools;
+
+  /**
+   * Optional worker pool used to execute tool handlers that are
+   * marked concurrent_safe. May be NULL, in which case all tool
+   * handlers run on the agent's event loop. Pass xTaskGroupGlobal()
+   * to share the process-wide pool.
+   */
+  xTaskGroup task_group;
+
+  /**
+   * Default per-session LLM round-trip cap. Sessions that do not
+   * override this in their xAiSessionConf inherit the value from
+   * here. Zero means "use the library default" (currently 16).
+   */
+  int max_turns;
+
+  /**
+   * Default per-round token cap forwarded to the provider. Sessions
+   * that do not override this in their xAiSessionConf inherit the
+   * value from here. Zero means "use the provider's default".
+   */
+  int max_tokens;
+
+  /**
+   * Built-in alignment session, or NULL if the agent was created
+   * without one (i.e. xAiAgentConf::default_session_conf was NULL).
+   * Owned by the agent — destroyed automatically in
+   * xAiAgentDestroy(). This session serves as the user's primary
+   * conversation entry with the agent and is used for initial
+   * alignment conversations where the agent learns user preferences,
+   * communication style, and task patterns.
+   */
+  struct xAiSession_ *default_session;
 };
 
 #ifdef __cplusplus

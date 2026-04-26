@@ -340,9 +340,8 @@ static size_t session_budget_limit_(const struct xAiSession_ *s) {
  * if trimming freed enough space, xErrno_PromptTooLong otherwise.
  * Fires xAiBudgetEvent_Truncated on success.
  */
-static xErrno session_try_truncate_(struct xAiSession_ *s,
-                                     size_t incoming, double factor,
-                                     size_t limit) {
+static xErrno session_try_truncate_(struct xAiSession_ *s, size_t incoming,
+                                    double factor, size_t limit) {
   size_t keep = ai_budget_earliest_keep(
     (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
     xArrayLen(s->history_arr), s->budget.keep_recent_turns);
@@ -432,7 +431,7 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
   }
 
   case xAiBudgetPolicy_SummarizeOldest: {
-auto_summarize:;
+  auto_summarize:;
     /* ── SummarizeOldest: compress old history into a summary ──
      *
      * The idea: instead of truncating history outright (losing
@@ -1011,19 +1010,6 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
     memset(src, 0, sizeof(*src));
   }
   /* No free(produced) — the xArray owns the buffer. */
-
-  /* ── Agent-layer L1 extraction hook ───────────────────────────
-   *
-   * Fire on_produced (if wired) after produced entries have been
-   * merged into history but before the caller's on_done. The
-   * produced array is still alive at this point (xArray owns it),
-   * and the history is fully up to date so the hook can read it.
-   * The hook is only present when the session was created via
-   * xAiAgentCreateSession(). */
-  if (s->on_produced) {
-    s->on_produced((xAiSession)s, produced, n_produced, usage,
-                   s->on_produced_ud);
-  }
 
   if (s->cbs.on_done) {
     s->cbs.on_done((xAiSession)s, reason, usage, s->cbs.user_data);

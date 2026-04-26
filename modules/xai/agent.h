@@ -96,6 +96,13 @@ XDEF_STRUCT(xAiAgentConf) {
                               sessions that don't override. Forwarded
                               to the provider. 0 = provider default.    */
 
+  const char *memory_dir; /**< Directory for L2 memory persistence
+                               (borrowed, may be NULL).
+                               When non-NULL, the agent persists
+                               L1-extracted observations to JSONL
+                               files under this directory via a
+                               background timer.                      */
+
   /**
    * @brief Configuration template for the agent's built-in default
    *        session (borrowed, may be NULL).
@@ -154,6 +161,25 @@ XCAPI(xAiAgent) xAiAgentCreate(const xAiAgentConf *conf);
  * @param agent  Agent handle (NULL is a no-op).
  */
 XCAPI(void) xAiAgentDestroy(xAiAgent agent);
+
+/**
+ * @brief Start the agent's background services.
+ *
+ * Currently this starts the memory persistence timer that
+ * periodically drains the MPSC queue and writes L1-extracted
+ * observations to JSONL files under the directory specified in
+ * @ref xAiAgentConf::memory_dir.
+ *
+ * Must be called after xAiAgentCreate(). Safe to call multiple
+ * times; subsequent calls are no-ops if the timer is already
+ * running.
+ *
+ * @param agent  Agent handle (must not be NULL).
+ * @return       xErrno_Ok on success, xErrno_InvalidArg if agent is
+ *               NULL or has no memory_dir, xErrno_InvalidState if
+ *               the timer is already running or creation fails.
+ */
+XCAPI(xErrno) xAiAgentStart(xAiAgent agent);
 
 /**
  * @brief Return the agent's built-in default session.

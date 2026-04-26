@@ -20,6 +20,7 @@
 #include <xai/tool.h>
 #include <xbase/base.h>
 #include <xbase/event.h>
+#include <xbase/mpsc.h>
 #include <xbase/task.h>
 
 struct xAiSession_;  /* forward — full definition in session_private.h */
@@ -49,6 +50,25 @@ struct xAiAgent_ {
 
   int                max_turns;      /**< 0 = library default.           */
   int                max_tokens;     /**< 0 = provider default.          */
+
+  /* ── L2 Memory persistence ──────────────────────────────────────────
+   *
+   * When memory_dir is non-NULL the agent maintains an MPSC queue
+   * (memory_head / memory_tail) for L1-extracted observations and
+   * a periodic timer (memory_timer) that drains the queue and writes
+   * each observation as one JSONL line to a file under memory_dir.
+   *
+   * File layout:
+   *   <memory_dir>/<agent_id>/observations.jsonl
+   *
+   * The timer fires at a configurable interval (default 30 seconds)
+   * and is created by xAiAgentStart(). It is cancelled and drained
+   * in xAiAgentDestroy().
+   */
+  const char        *memory_dir;     /**< Borrowed from conf, may be NULL. */
+  xMpsc             *memory_head;    /**< MPSC queue head (or NULL).       */
+  xMpsc             *memory_tail;    /**< MPSC queue tail (or NULL).       */
+  xEventTimer        memory_timer;   /**< Periodic drain timer (or NULL).  */
 
   struct xAiSession_ *default_session; /**< Built-in alignment session,
                                             or NULL if the agent was

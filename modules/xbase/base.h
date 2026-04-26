@@ -16,6 +16,12 @@
 
 #endif
 
+#ifdef __cplusplus
+#define XCAPI_INLINE(T) extern "C" inline T
+#else
+#define XCAPI_INLINE(T) static inline T
+#endif
+
 #define XDEF_STRUCT(T) \
   typedef struct T T;  \
   struct T

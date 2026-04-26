@@ -42,6 +42,7 @@ graph TD
     subgraph "Data Structures & Concurrency"
         HEAP["heap.h<br/>Min-Heap"]
         MAP["map.h<br/>Generic Map"]
+        LIST["list.h<br/>Doubly-Linked List"]
         MPSC["mpsc.h<br/>Lock-Free MPSC Queue"]
         ATOMIC["atomic.h<br/>Atomic Operations"]
     end
@@ -76,6 +77,7 @@ graph TD
     style TIME fill:#50b86c,color:#fff
     style HEAP fill:#f5a623,color:#fff
     style MAP fill:#f5a623,color:#fff
+    style LIST fill:#f5a623,color:#fff
     style MPSC fill:#f5a623,color:#fff
     style ATOMIC fill:#f5a623,color:#fff
 ```
@@ -97,6 +99,7 @@ graph TD
 | [`mpsc.h`](mpsc.md) | [mpsc.md](mpsc.md) | Lock-free multi-producer / single-consumer intrusive queue |
 | [`atomic.h`](atomic.md) | [atomic.md](atomic.md) | Compiler-portable atomic operations (GCC/Clang `__atomic` builtins) |
 | [`io.h`](io.md) | [io.md](io.md) | Abstract I/O interfaces (Reader, Writer, Seeker, Closer) with convenience helpers (xReadFull, xReadAll, xWritev, etc.) |
+| `list.h` | [list.md](list.md) | Intrusive doubly-linked circular list — zero-allocation, inline implementation derived from Linux kernel's `list.h` |
 | `hex.h` | [hex.md](hex.md) | Hex (base16) encode/decode — binary to/from ASCII hex string (lower-case output, case-insensitive decode) |
 | `base64.h` | [base64.md](base64.md) | Base64 encode/decode (RFC 4648) — standard and URL-safe alphabets, with or without `=` padding |
 | `time.h` | — | Time utilities: `xMonoMs()` (monotonic) and `xWallMs()` (wall-clock) in milliseconds |
@@ -116,6 +119,7 @@ graph TD
 | Handle error codes uniformly | [`error.h`](error.md) — `xErrno` enum + `xstrerror()` |
 | Build a priority queue | [`heap.h`](heap.md) — generic min-heap with index tracking |
 | Store key-value pairs with O(1) or O(log n) access | [`map.h`](map.md) — generic map with hash, flat, and tree backends |
+| Chain elements in an intrusive doubly-linked list | [`list.h`](list.md) — zero-allocation circular list with `xContainerOf` entry access |
 | Pass messages between threads lock-free | [`mpsc.h`](mpsc.md) — intrusive MPSC queue |
 | Perform atomic read-modify-write | [`atomic.h`](atomic.md) — macro wrappers over compiler builtins |
 | Get current time in milliseconds | `time.h` — `xMonoMs()` for elapsed time, `xWallMs()` for wall-clock |

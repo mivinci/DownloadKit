@@ -28,34 +28,34 @@ on:
       - '.github/workflows/ci.yml'
 
 jobs:
+  # ── Detect which modules have changes ────────────────────────────────────
+  detect:
+    name: Detect changed modules
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.deps.outputs.matrix }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed modules and build matrix
+        id: deps
+        run: scripts/ci-detect-changes.sh "${{ github.event_name }}" "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.event.pull_request.head.sha || github.event.after }}"
+
+  # ── Build & Test per module ──────────────────────────────────────────────
   test:
-    name: Build & Test (${{ matrix.os }} / ${{ matrix.compiler }} / TLS=${{ matrix.tls_backend }})
+    name: Test ${{ matrix.module }} (${{ matrix.os }} / ${{ matrix.compiler }} / TLS=${{ matrix.tls_backend }})
     runs-on: ${{ matrix.os }}
+    needs: detect
+    if: needs.detect.outputs.matrix != '[]'
 
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-latest
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            tls_backend: openssl
-          - os: macos-latest
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            tls_backend: mbedtls
-          - os: ubuntu-latest
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            tls_backend: openssl
-          - os: ubuntu-latest
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            tls_backend: mbedtls
+        include: ${{ fromJson(needs.detect.outputs.matrix) }}
 
     steps:
       - name: Checkout
@@ -65,20 +65,7 @@ jobs:
 
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y libgtest-dev libgmock-dev libnghttp2-dev cmake \
-            libssl-dev libcurl4-openssl-dev libmbedtls-dev libcjson-dev
-          # Install llhttp from source (no apt package available)
-          git clone --depth 1 --branch release/v9.3.1 https://github.com/nodejs/llhttp.git /tmp/llhttp
-          cmake -S /tmp/llhttp -B /tmp/llhttp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
-          cmake --build /tmp/llhttp/build
-          sudo cmake --install /tmp/llhttp/build
-          # Install usrsctp from source (no apt package available)
-          git clone --depth 1 https://github.com/sctplab/usrsctp.git /tmp/usrsctp
-          cmake -S /tmp/usrsctp -B /tmp/usrsctp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -Dsctp_build_programs=OFF
-          cmake --build /tmp/usrsctp/build
-          sudo cmake --install /tmp/usrsctp/build
+        run: scripts/ci-install-deps-ubuntu.sh
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
@@ -90,9 +77,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build
-          key: build-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.tls_backend }}-${{ hashFiles('**/CMakeLists.txt') }}
+          key: build-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.tls_backend }}-${{ matrix.module }}-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: |
-            build-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.tls_backend }}-
+            build-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.tls_backend }}-${{ matrix.module }}-
 
       # ── Build ─────────────────────────────────────────────────────────────
 
@@ -121,29 +108,13 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
             $CMAKE_EXTRA_ARGS
 
-      - name: Build
-        run: cmake --build build --parallel
+      - name: Build module
+        run: cmake --build build --target ${{ matrix.module }}_test --parallel
 
       # ── Test ──────────────────────────────────────────────────────────────
 
       - name: Run tests
-        env:
-          ASAN_OPTIONS: detect_leaks=0
-        run: |
-          max_attempts=3
-          for attempt in $(seq 1 $max_attempts); do
-            echo "── Attempt $attempt / $max_attempts ──"
-            if ctest --test-dir build --output-on-failure --parallel 4; then
-              echo "✅ Tests passed on attempt $attempt"
-              exit 0
-            fi
-            if [ "$attempt" -lt "$max_attempts" ]; then
-              echo "⚠️  Tests failed, retrying..."
-              sleep 2
-            fi
-          done
-          echo "❌ Tests failed after $max_attempts attempts"
-          exit 1
+        run: scripts/ci-run-tests.sh "${{ matrix.module }}_test"
 
   # ── Branch naming lint ────────────────────────────────────────────────────
 

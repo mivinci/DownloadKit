@@ -13,6 +13,7 @@
     - [Error Codes](modules/xbase/error.md)
     - [Min-Heap](modules/xbase/heap.md)
     - [Generic Map](modules/xbase/map.md)
+    - [Doubly-Linked List](modules/xbase/list.md)
     - [MPSC Queue](modules/xbase/mpsc.md)
     - [Atomic Operations](modules/xbase/atomic.md)
     - [Logging](modules/xbase/log.md)

@@ -132,9 +132,9 @@ This means any pointer obtained from `xArrayAt` / `xArrayData` is invalidated by
 | --- | --- |
 | `xArray` | Opaque handle to a dynamic array (`XDEF_HANDLE`). |
 | `xArrayCallbacks` | Struct with optional `retain`, `release`, and `equal` callbacks. |
-| `xArrayRetain` | Callback type: `void (*)(void *elem)`. Called when an element is added. |
-| `xArrayRelease` | Callback type: `void (*)(void *elem)`. Called when an element is removed. |
-| `xArrayEqual` | Callback type: `int (*)(const void *elem, const void *key)`. Called by `xArrayFind`. |
+| `xArrayRetainFunc` | Callback type: `void (*)(void *elem)`. Called when an element is added. |
+| `xArrayReleaseFunc` | Callback type: `void (*)(void *elem)`. Called when an element is removed. |
+| `xArrayEqualFunc` | Callback type: `int (*)(const void *elem, const void *key)`. Called by `xArrayFind`. |
 
 ### Lifecycle Functions
 

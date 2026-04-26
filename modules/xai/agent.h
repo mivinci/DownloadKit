@@ -65,43 +65,79 @@ XDEF_HANDLE(xAiAgent);
  * agent.
  */
 XDEF_STRUCT(xAiAgentConf) {
-  xEventLoop loop;       /**< Event loop owning the agent
-                              (must not be NULL).                        */
-  xAiProvider provider;  /**< LLM provider to drive (borrowed, must not
-                              be NULL).                                  */
 
-  const char *model;     /**< Default model id, may be NULL to fall back
-                              to the provider's default.                 */
-  const char *system_prompt; /**< Base persona description (borrowed, may
-                                  be NULL). The agent may augment this
-                                  with memory prefixes / style constraints
-                                  before injecting it into a session;
-                                  this field is the raw template.       */
+  /**
+   * @brief Event loop that owns the agent.
+   *
+   * Every xAi* API call that touches this agent or any of its
+   * sessions must happen on this loop's thread. Must not be NULL.
+   */
+  xEventLoop loop;
 
-  const xAiTool **tools; /**< Tool array (borrowed, may be NULL).
-                              Individual tools may be shared across
-                              multiple agents.                           */
-  size_t n_tools;        /**< Number of entries in @p tools              */
+  /**
+   * @brief LLM provider to drive conversations.
+   *
+   * Borrowed from the caller; the agent does not take ownership.
+   * Must not be NULL. Must remain alive until every session has
+   * been destroyed and xAiAgentDestroy() has been called.
+   */
+  xAiProvider provider;
 
-  xTaskGroup task_group; /**< Worker pool used to run concurrent-safe
-                              tool handlers. May be NULL, in which case
-                              all tool handlers run on @p loop.
-                              Pass xTaskGroupGlobal() to share the
-                              process-wide pool.                         */
+  /**
+   * @brief Default model identifier.
+   *
+   * May be NULL to fall back to the provider's default model.
+   * Borrowed from the caller; sessions that do not override this
+   * in their xAiSessionConf inherit the value from here.
+   */
+  const char *model;
 
-  int    max_turns;      /**< Default per-session LLM round-trip cap,
-                              inherited by sessions that don't override.
-                              0 = library default.                      */
-  int    max_tokens;     /**< Default per-round token cap, inherited by
-                              sessions that don't override. Forwarded
-                              to the provider. 0 = provider default.    */
+  /**
+   * @brief Base persona description (system prompt).
+   *
+   * Borrowed from the caller; may be NULL. This field is the raw
+   * template — the final system prompt seen by the session may
+   * differ.
+   */
+  const char *system_prompt;
 
-  const char *memory_dir; /**< Directory for L2 memory persistence
-                               (borrowed, may be NULL).
-                               When non-NULL, the agent persists
-                               L1-extracted observations to JSONL
-                               files under this directory via a
-                               background timer.                      */
+  /**
+   * @brief Array of tool definitions available to the agent.
+   *
+   * Borrowed from the caller; individual tools may be shared across
+   * multiple agents. May be NULL when no tools are needed.
+   */
+  const xAiTool **tools;
+
+  /**
+   * @brief Number of entries in the @ref tools array.
+   */
+  size_t n_tools;
+
+  /**
+   * @brief Worker pool for concurrent-safe tool handlers.
+   *
+   * May be NULL, in which case all tool handlers run on the agent's
+   * event loop (@ref loop). Pass xTaskGroupGlobal() to share the
+   * process-wide pool.
+   */
+  xTaskGroup task_group;
+
+  /**
+   * @brief Default per-session LLM round-trip cap.
+   *
+   * Inherited by sessions that don't override this in their
+   * xAiSessionConf. Zero means "use the library default".
+   */
+  int max_turns;
+
+  /**
+   * @brief Default per-round token cap forwarded to the provider.
+   *
+   * Inherited by sessions that don't override this in their
+   * xAiSessionConf. Zero means "use the provider's default".
+   */
+  int max_tokens;
 
   /**
    * @brief Configuration template for the agent's built-in default
@@ -163,25 +199,6 @@ XCAPI(xAiAgent) xAiAgentCreate(const xAiAgentConf *conf);
 XCAPI(void) xAiAgentDestroy(xAiAgent agent);
 
 /**
- * @brief Start the agent's background services.
- *
- * Currently this starts the memory persistence timer that
- * periodically drains the MPSC queue and writes L1-extracted
- * observations to JSONL files under the directory specified in
- * @ref xAiAgentConf::memory_dir.
- *
- * Must be called after xAiAgentCreate(). Safe to call multiple
- * times; subsequent calls are no-ops if the timer is already
- * running.
- *
- * @param agent  Agent handle (must not be NULL).
- * @return       xErrno_Ok on success, xErrno_InvalidArg if agent is
- *               NULL or has no memory_dir, xErrno_InvalidState if
- *               the timer is already running or creation fails.
- */
-XCAPI(xErrno) xAiAgentStart(xAiAgent agent);
-
-/**
  * @brief Return the agent's built-in default session.
  *
  * The default session is a long-lived conversation that exists for
@@ -209,28 +226,18 @@ XCAPI(xErrno) xAiAgentStart(xAiAgent agent);
 XCAPI(xAiSession) xAiAgentDefaultSession(xAiAgent agent);
 
 /**
- * @brief Create a session bound to the agent with agent-layer hooks
- *        injected automatically.
+ * @brief Create a session bound to the agent.
  *
- * This is the agent-scoped counterpart to xAiSessionCreate(). The
- * agent injects its own internal callbacks (on_produced for L1
- * memory extraction, on_finalizing for late teardown) before
- * returning the session to the caller. The caller's
- * xAiSessionConf::cbs are preserved on top — the caller keeps
- * control of on_text / on_done / etc., while the agent reserves
- * on_produced and on_finalizing for itself.
- *
+ * This is the agent-scoped counterpart to xAiSessionCreate().
  * The returned session is fully initialised; the caller should use
- * it exactly like one created via xAiSessionCreate(). The only
- * difference is that the agent's hooks fire transparently during
- * the session's lifecycle.
+ * it exactly like one created via xAiSessionCreate().
  *
  * @param agent  Agent to derive the session from (must not be NULL).
  * @param conf   Session configuration (must not be NULL; conf->cbs.on_done
  *               should usually be set).
  * @return       A new session handle, or NULL on failure.
  */
-XCAPI(xAiSession) xAiAgentCreateSession(xAiAgent             agent,
-                                         const xAiSessionConf *conf);
+XCAPI(xAiSession) xAiAgentCreateSession(xAiAgent              agent,
+                                        const xAiSessionConf *conf);
 
 #endif /* XAI_AGENT_H */

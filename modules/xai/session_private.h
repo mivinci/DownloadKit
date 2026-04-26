@@ -15,8 +15,8 @@
 
 #include <xai/session.h>
 
-#include "query_private.h"
 #include "budget_private.h" /* xAiBudgetCalibrator                    */
+#include "query_private.h"
 
 #include <stddef.h>
 #include <xbase/array.h>
@@ -52,8 +52,8 @@ struct xAiSession_ {
    * create time. Stored separately so the session can fire events
    * without re-reading the budget conf (the callback pointer lives
    * alongside the other session-level callbacks for locality). */
-xAiBudgetEventFunc on_budget_event;
-  void            *budget_event_ud;
+  xAiBudgetEventFunc on_budget_event;
+  void              *budget_event_ud;
 
   /* Online calibration state for the token estimator. Initialised
    * to identity (factor = 1.0) by xAiSessionCreate; updated from
@@ -87,15 +87,15 @@ xAiBudgetEventFunc on_budget_event;
    *
    * All three are zero when no compact is in progress.
    */
-  int compacting;            /* 1 = compact query in flight           */
-  size_t compact_keep_idx;   /* earliest index to keep after compact  */
+  int             compacting;       /* 1 = compact query in flight           */
+  size_t          compact_keep_idx; /* earliest index to keep after compact  */
   xAiBudgetPolicy budget_policy_override; /* overrides query budget policy
                                            * (default Disabled)           */
 
   /* ── Session-lifetime properties (stamped at create, immutable) ── */
-  xAiInputOrigin          origin;           /* default User on zero    */
+  xAiInputOrigin           origin;           /* default User on zero    */
   xAiSessionFinalizingFunc on_finalizing;    /* NULL = no hook          */
-  void                   *finalizing_owner; /* passed back verbatim    */
+  void                    *finalizing_owner; /* passed back verbatim    */
 
   /* ── Rolling history (session-owned, flat entries) ────────────── */
   xArray history_arr;
@@ -109,24 +109,6 @@ xAiBudgetEventFunc on_budget_event;
    * follow-up for when SystemSynthesized queries start coexisting
    * with user-initiated ones — see docs/todo/xai_architecture.md §8. */
   struct xAiQuery_ *query;
-
-  /* ── Agent-layer L1 extraction hook ──────────────────────────
-   *
-   * Injected by xAiAgentCreateSession (not by the caller). Fires
-   * in sess_fwd_on_done after produced entries have been merged
-   * into history but before the caller's on_done. The Agent uses
-   * this to extract L1 memory candidates from the conversation
-   * output.
-   *
-   * NULL when the session was created via xAiSessionCreate() (no
-   * agent-layer participation). */
-  void (*on_produced)(xAiSession sess,
-                      const struct xAiSessionMsg_ *produced,
-                      size_t n_produced,
-                      const xAiUsage *usage,
-                      void *ud);
-  void *on_produced_ud;   /* Agent's context (typically the agent
-                           * itself). */
 };
 
 /* Fallback cap if neither the caller nor the agent set max_turns.
@@ -138,9 +120,9 @@ xAiBudgetEventFunc on_budget_event;
  * produce a concise summary of the conversation segment it receives.
  * The placeholder [N] will be replaced with the number of messages
  * being summarised. */
-#define XAI_SUMMARY_SYSTEM_PROMPT \
+#define XAI_SUMMARY_SYSTEM_PROMPT                                       \
   "Summarise the following %zu messages concisely in no more than 200 " \
-  "words. Preserve all names, numbers, decisions and key facts. " \
+  "words. Preserve all names, numbers, decisions and key facts. "       \
   "Do NOT add any information that was not in the original messages."
 
 /* ── Cross-TU helpers (session.c implementers, query.c consumers) ── */

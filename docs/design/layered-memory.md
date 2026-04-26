@@ -1,6 +1,6 @@
 # 分层记忆体系：L1–L4 的职责、协议与落地路径
 
-> 一套在 **不推翻现有三层架构（Agent / Session / Query）**、**不破坏公开 API** 的前提下，给 `xAiAgent` 加上"即时提取 → 长期存储 → 情绪追踪 → 主动唤醒"四层能力的结构化方案。
+> 一套在 **不推翻现有三层架构（Agent / Session / Query）**、**不破坏公开 API** 的前提下，给 `xAiAgent` 加上"全量记忆 → 长期存储 → 情绪追踪 → 自我认知与主动行为"四层能力的结构化方案。
 >
 > 本文面向已经熟悉 xKit 三层会话模型（[Agent / Session / Query](three-layer-conversation-model.md)）、[上下文预算](context-budget.md)和 [类人 AI 四维度](../todo/human-like-ai.md)的读者，描述 L1–L4 每一层住在哪里、跟谁交互、数据怎么流动，以及每层的落地次序。
 
@@ -11,11 +11,11 @@
 四层从底到顶，每一层只依赖下面的层，不反向穿透：
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│ L4  主动唤醒 / 调度                                      │
-│   Agent 决定"要不要主动起一个 Session 叫用户"              │
-│   依赖：L3 状态量 + L2 记忆 + 外部事件                    │
-├─────────────────────────────────────────────────────────┤
+┌───────────────────────────────────────────────────────┐
+│ L4  自我认知与主动行为                                   │
+│   Agent 知道"我是谁"、能力边界、该不该主动开口           │
+│   依赖：L2 记忆 + L3 状态量 + 自身人格设定              │
+├───────────────────────────────────────────────────────┤
 │ L3  情绪 / 状态追踪                                      │
 │   追踪 mood delta、活跃度、疲劳度                         │
 │   依赖：L1 的产出信号                                    │
@@ -24,18 +24,18 @@
 │   持久化 L1 提取物；创建 Session 时注入相关记忆            │
 │   依赖：L1 的提取结果                                    │
 ├─────────────────────────────────────────────────────────┤
-│ L1  即时记忆提取                                          │
-│   从每次对话产出中提取结构化观察                           │
+│ L1  Session 即时记忆（全量）                              │
+│   保存 Session 内全部消息（user + assistant + tool）       │
 │   依赖：Session / Query 的回调钩子                       │
 └─────────────────────────────────────────────────────────┘
 ```
 
 | 层 | 住哪 | 有状态 | 核心动作 | 落地状态 |
 | --- | --- | --- | --- | --- |
-| **L1** | `xAiSession` 的 `on_produced` + `on_finalizing` 钩子 | 无（提取即交出） | 每轮产出后抽取观察；session 销毁前做最终汇总 | ✅ 钩子已预留，提取逻辑待实现 |
+| **L1** | `xAiSession` 的 `on_finalizing` 钩子 | 无（全量消息即交出） | 保存 Session 全量消息；session 销毁前交付给 L2 | ⚠️ 钩子已预留，采集机制待定 |
 | **L2** | `xAiAgent` 内部 | 有（持久化存储） | 存储 L1 产物；`xAiAgentCreateSession` 时注入 | ❌ 未开始 |
 | **L3** | `xAiAgent` 内部 | 有（running state） | 追踪 mood / 活跃度 / 疲劳度 | ❌ 未开始 |
-| **L4** | `xAiAgent` 内部 | 有（调度器 + timer） | 主动创建 `origin=SystemSynthesized` Session | ❌ 未开始 |
+| **L4** | `xAiAgent` 内部 | 有（人格 + 调度器） | 人格渲染 + 主动创建 `origin=SystemSynthesized` Session | ❌ 未开始 |
 
 ---
 
@@ -53,57 +53,79 @@
 
 ---
 
-## L1：即时记忆提取
+## L1：Session 即时记忆（全量）
 
-### 职责 — 即时提取
+### 职责 — 全量对话记录
 
-从每次对话产出中提取**结构化观察**——用户偏好、关键事实、决策记录——然后交给 L2 裁决落盘。
+L1 是 Session 的**即时记忆**，保存该 Session 内发生的**全部消息**——System、User、Assistant、Tool，不遗漏任何角色和类型。
 
-**L1 自己不存任何东西**。它是纯提取器，提取完了就交出产物，不保留副本。这保证了一个硬不变量：**Session 销毁后 L1 痕迹为零**，留给后续 Session 看到的一定是已经经过 L2 裁决的内容。
+L1 的语义是 **"这次会话发生了什么"**——完整的对话记录，是后续所有提取、汇总、情绪推断的原始素材。
 
-### 钩子挂载点
+### 核心原则：L1 是全量，不是摘要
 
-两个钩子已经在 Session 层预留：
+L1 保存的是 Session 的**全量消息流**——user + assistant + tool 全角色全类型，而非仅从 assistant 产出中提取的摘要。
 
-#### `on_produced` — 每轮产出后
+**为什么必须是全量？**
 
-```c
-/* session_private.h 中已有 */
-void (*on_produced)(xAiSession sess,
-                    const struct xAiSessionMsg_ *produced,
-                    size_t n_produced,
-                    const xAiUsage *usage,
-                    void *ud);
+1. **因果链完整**：用户说"我喜欢 Python"，assistant 回复"好的"。如果 L1 只有 assistant text，就只看到"好的"——根本无法提取出用户偏好。没有 user 消息，L2 提取就缺了关键的因果链。
+2. **上下文不丢失**：tool 调用的参数和结果、assistant 的思考过程，都是后续提取不可缺失的素材。
+3. **L2 提取的输入质量**：L1 全量 → L2 能理解因果、意图、偏好；L1 只有 assistant → L2 只能做浅层关键词匹配。
+
+### L1 与 L2 的关系
+
+```text
+┌──────────────────────────────────────────────────┐
+│  L1 - Session 即时记忆 (全量)                      │
+│                                                    │
+│  来源: session.history_arr (全角色全类型)            │
+│  内容: System + User + Assistant + Tool 全量消息    │
+│  语义: "这次会话发生了什么" — 完整对话记录            │
+│  存储: 每条消息一个 L1 记录，保存原始文本             │
+│  生命周期: 跟随 Session，Session 销毁时 L1 消失      │
+├──────────────────────────────────────────────────┤
+│  L2 - Agent 抽象记忆 (提取后)                       │
+│                                                    │
+│  来源: 从 L1 全量消息中提取                          │
+│  内容: Preference / Fact / Decision / Summary       │
+│  语义: "Agent 从会话中学到了什么"                    │
+│  存储: JSONL observations.jsonl                     │
+│  生命周期: 跨 Session 持久化                         │
+└──────────────────────────────────────────────────┘
 ```
 
-- **触发时机**：`sess_fwd_on_done` 里，produced entries 已合并进 history，但**在** caller 的 `on_done` **之前**。
-- **注入者**：`xAiAgentCreateSession`。
-- **提取目标**：本轮 assistant 产出的关键信息——用户明确表达的偏好、涉及专有名词/数字/时间的陈述、工具调用的决策理由。
+| 维度 | L1（Session 即时记忆） | L2（Agent 抽象记忆） |
+| --- | --- | --- |
+| **范围** | 全量消息 (user + assistant + tool) | 结构化观察 (preference / fact / decision) |
+| **存储形式** | 原始文本 | 结构化摘要 |
+| **归属** | Session | Agent |
+| **生命周期** | 随 Session 生死 | 跨 Session 持久 |
+| **消费者** | L2 提取器 | 新 Session 注入、L4 唤醒决策 |
 
-#### `on_finalizing` — Session 销毁前
-
-```c
-/* session_private.h 中已有 */
-xAiSessionFinalizingFunc on_finalizing;
-void                    *finalizing_owner;
-```
-
-- **触发时机**：`xAiSessionDestroy` 内部，资源释放之前。
-- **注入者**：`xAiAgentCreateSession`。
-- **提取目标**：会话级汇总——整体印象、情绪 delta、未完结话题。
-
-### 为什么"提取在 Session，裁决在 Agent"
+### 为什么"L1 全量在 Session，L2 提取在 Agent"
 
 这是从 [xai_architecture.md](../todo/xai_architecture.md) §2.3 继承的硬要求。简述：
 
 - **多 Session 并存时的写冲突**：Session A 和 Session B 同时上报"用户偏好 tab"，Agent 层能去重；Session 层各写各的就会留两条。
 - **全局视野缺失**：某条事实在单个 Session 里价值一般，但**跨 Session 反复出现 5 次**才显出它是稳定事实。去重计数必须由"看得到全局"的层做。
+- **L1 是单 Session 维度的完整快照，L2 才有跨 Session 的全局视野**。
+
+### L1 数据写入点
+
+L1 的写入（即 Session 全量消息的采集）发生在 Session 层，但**具体机制待定**。
+
+可选方案：
+
+1. **在 `sess_fwd_on_done` 中直接采集全量**：produced 合入 history 后，从 `session.history_arr` 取全量快照推入 L1 队列。需要去重（每次 done 都会触发，不能重复推已有消息）。
+2. **在 `xAiSessionInput` 入口处采集 user 消息 + 在 `sess_fwd_on_done` 处采集 produced 增量**：两部分拼出完整增量流，无需去重。
+3. **在 `on_finalizing` 做一次性全量快照**：Session 销毁时从 history 取全量，一次性推入 L1 队列。简单但有延迟（L1 不是即时的，而是事后补录的）。
+
+**当前状态**：钩子字段已预留（`on_finalizing`），L1 的写入机制将在确定方案后实现。
 
 ### L1 提取逻辑的实现路径
 
-当前两个钩子是空 stub。实现步骤：
+L1 作为全量即时记忆，其提取逻辑（L1 → L2 的转化）在 Agent 层执行：
 
-1. **设计提取产物的结构化 schema**。初步方向：
+1. **L1 的产物结构化 schema**（L2 存储格式）：
 
 ```c
 XDEF_ENUM(xAiObservationKind) {
@@ -120,13 +142,13 @@ XDEF_STRUCT(xAiObservation) {
 };
 ```
 
-1. **`on_produced` 内的提取逻辑**。两阶段：
+2. **提取策略**（在 Agent 层从 L1 全量消息中提取 L2 观察）。两阶段：
    - **规则先过**：检测硬特征（专有名词、数字、时间、URL、明确偏好词"我喜欢/讨厌/用…"），匹配则直接构造 `xAiObservation`，confidence=1.0。
    - **不确定时调 LLM**：一次 prompt ≤ 200 tokens，让模型判断 yes/no + 提取摘要。这个 LLM call 复用 Agent 配置的 provider。
 
-2. **`on_finalizing` 内的汇总逻辑**。用一次 LLM call 做会话级摘要，输出若干 `xAiObservation` + mood delta + 未完结话题。
+3. **`on_finalizing` 内的汇总逻辑**。用一次 LLM call 做会话级摘要，输出若干 `xAiObservation` + mood delta + 未完结话题。
 
-3. **提取结果交付给 L2**。`on_produced` 和 `on_finalizing` 的产物通过回调交给 Agent 层，Agent 层的 L2 模块裁决是否落盘。
+4. **提取结果交付给 L2**。L2 模块裁决是否落盘（去重、合并、淘汰）。
 
 ### 提取的成本控制
 
@@ -251,13 +273,20 @@ XDEF_STRUCT(xAiAgentVitality) {
 - **activity_score** → 影响 L4 的唤醒频率（活跃时少打扰，空闲时可以提醒）。
 - **fatigue_score** → 触发 context budget 更激进的压缩策略（累的时候上下文要更精简）。
 
+两者的信号都上报给 L4，作为唤醒决策的输入。
+
 ---
 
-## L4：主动唤醒 / 调度
+## L4：自我认知与主动行为
 
-### 职责 — 主动唤醒
+### 职责 — 自我认知与主动行为
 
-Agent 自行决策何时主动创建 `origin=SystemSynthesized` 的 Session，调 `xAiSessionInput` 发起主动对话。
+L4 是 Agent 的**自我认知层**，回答"我是谁"和"我该不该行动"两个问题：
+
+1. **自我认知**：持有并渲染 Agent 的人格设定（persona），决定"我以什么身份说话"、"我擅长什么"、"我的边界在哪里"。
+2. **主动行为**：基于自我认知 + L2 记忆 + L3 状态，决策是否主动创建 `origin=SystemSynthesized` 的 Session，调 `xAiSessionInput` 发起主动对话。
+
+人格设定（persona）之所以放在 L4 而非 L3，是因为：人格是**静态配置 + 记忆沉淀**的组合体，它的消费者是"决定以什么身份主动开口"——这正是 L4 的职责。L3 只负责情绪/状态的动态追踪，不需要理解"我是谁"。
 
 ### 三种 Session 的交互模型
 
@@ -319,24 +348,24 @@ graph TB
   subgraph "Agent 层（持久）"
     L2["🟡 L2 长期记忆<br/>Fact / Episode / Persona"]
     L3["🟡 L3 情绪/状态<br/>Mood / Vitality"]
-    L4["🟡 L4 调度器<br/>Timer / Event"]
+    L4["🟡 L4 自我认知与主动行为<br/>Persona / Timer / Event"]
   end
 
   subgraph "Session 层（临时）"
-    L1_extract["🔵 L1 提取器<br/>on_produced + on_finalizing"]
+    L1_extract["🔵 L1 提取器<br/>on_finalizing"]
     L0["🔵 L0 工作记忆<br/>messages 数组"]
   end
 
   U["👤 User"] -->|"input"| L0
-  L0 -->|"produced entries"| L1_extract
+  L0 -->|"全量消息"| L1_extract
   L1_extract -->|"xAiObservation[]"| L2
   L1_extract -->|"mood delta"| L3
 
   L2 -->|"记忆前缀注入"| L0
   L3 -->|"mood 初始值"| L0
-  L4 -->|"唤醒建议"| L0
+  L4 -->|"persona + 唤醒建议"| L0
 
-  L3 -->|"活跃度/疲劳度"| L4
+  L3 -->|"活跃度/疲劳度 + persona 微调"| L4
   L2 -->|"未完结 episode"| L4
 
   L4 -->|"SystemSynthesized"| NEW_SESS["🔵 新 Session"]
@@ -353,8 +382,8 @@ graph TB
 **读路径**（每个 Session 创建时）：
 
 ```text
-Agent → Session 注入三样东西：
-  1. persona_prefix  (来自 L3 的自我认知)
+Agent → Session 注入四样东西：
+  1. persona_prefix  (来自 L4 的自我认知)
   2. memory_prefix   (来自 L2 的检索结果)
   3. mood_init       (来自 L3 的当前状态)
   + scheduler_hint   (来自 L4 的唤醒建议，如果有)
@@ -363,10 +392,11 @@ Agent → Session 注入三样东西：
 **写路径**（每个 Session 结束时）：
 
 ```text
-Session → Agent 上报三样东西：
+Session → Agent 上报四样东西：
   1. L1 观察候选 → L2 裁决落盘
   2. mood delta → L3 更新 running state
-  3. 生命周期事件 → L4 更新调度状态
+  3. 人格微调信号 → L4 更新 persona
+  4. 生命周期事件 → L4 更新调度状态
 ```
 
 ---
@@ -379,7 +409,7 @@ L1–L4 不是"另外一套架构"，是**三层会话模型在记忆维度的�
 | --- | --- | --- |
 | **Query** | 不涉及 | Query 无状态，不碰记忆 |
 | **Session** | L0 + L1 | Session 拥有 messages（L0），负责 L1 提取 |
-| **Agent** | L2 + L3 + L4 | 跨 Session 持久的状态必须挂在 Agent 上 |
+| **Agent** | L2 + L3 + L4(含自我认知) | 跨 Session 持久的状态和自我认知必须挂在 Agent 上 |
 
 这和 [three-layer-conversation-model.md](three-layer-conversation-model.md) 里"Session 结束时有一个沉淀时刻"的判断完全一致——L1 → L2 的裁决就是那个沉淀。
 
@@ -389,16 +419,16 @@ L1–L4 不是"另外一套架构"，是**三层会话模型在记忆维度的�
 
 | 代码位置 | 已有 | 待加 |
 | --- | --- | --- |
-| `session_private.h` :: `on_produced` | ✅ 钩子字段 | L1 提取逻辑 |
 | `session_private.h` :: `on_finalizing` | ✅ 钩子字段 | L1 汇总逻辑 |
 | `agent.h` :: `xAiAgentCreateSession` | ✅ 注入钩子 | L2 记忆注入、L3 mood 注入 |
 | `agent.h` :: `xAiAgentCreateSession` | ✅ 创建 Session | L4 SystemSynthesized Session 创建 |
 | `session.h` :: `xAiInputOrigin` | ✅ `User` / `SystemSynthesized` 枚举 | — |
 | `agent.c` / `agent.h` | — | `xAiMemory` 内部组件 |
 | `agent.c` / `agent.h` | — | `xAiMoodTracker` 内部组件 |
+| `agent.c` / `agent.h` | — | `xAiPersona` 内部组件 |
 | `agent.c` / `agent.h` | — | `xAiScheduler` 内部组件 |
 
-**核心原则**：这三个组件的更新都在 `xAiSession` 内部完成（通过预留的钩子），使用方从不直接操作 memory / mood / scheduler。公开 API 几乎不用动。
+**核心原则**：这些组件的更新都在 `xAiSession` 内部完成（通过预留的钩子），使用方从不直接操作 memory / mood / scheduler / persona。公开 API 几乎不用动。
 
 ---
 
@@ -408,10 +438,9 @@ L1–L4 不是"另外一套架构"，是**三层会话模型在记忆维度的�
   now                                                    future
    │                                                        │
    ├── L1 提取逻辑实现（当前钩子是空 stub）──┐              │
-   │   ● xAiObservation schema               │              │
-   │   ● on_produced 规则 + LLM 提取          │              │
-   │   ● on_finalizing 会话级汇总             │              │
-   │   ● 提取结果交付接口                     ↓              │
+   │   ● xAiObservation schema                       │              │
+   │   ● on_finalizing 规则 + LLM 提取              │              │
+   │   ● 提取结果交付接口                             ↓              │
    │                                                        │
    ├── L2 长期记忆 ─────────────────────────────────┐      │
    │   ● MVP-a: JSONL 存储                          │      │
@@ -424,10 +453,11 @@ L1–L4 不是"另外一套架构"，是**三层会话模型在记忆维度的�
    │   ● Mood delta 追踪                             │      │
    │   ● 活跃度 / 疲劳度模型                         ↓      │
    │                                                        │
-   └── L4 主动唤醒 / 调度 ──────────────────────────┘      │
-       ● 定时 / 事件驱动唤醒框架                                │
-       ● 唤醒策略（基于 L2+L3 状态量）                        │
-       ● SystemSynthesized Session 生命周期管理                │
+   └── L4 自我认知与主动行为 ────────────────────┘      │
+       ● Persona 人格渲染与注入                            │
+       ● 定时 / 事件驱动唤醒框架                          │
+       ● 唤醒策略（基于 L2+L3 状态量）                    │
+       ● SystemSynthesized Session 生命周期管理            │
                                                              │
 ```
 

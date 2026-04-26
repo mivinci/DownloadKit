@@ -47,6 +47,7 @@
 #include <xai/tool.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
+#include <xbuf/buf.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -331,28 +332,21 @@ static xErrno pending_append(struct xAiQuery_ *q, const xAiContent *call) {
 
 /* ── Round-scoped streaming accumulators ───────────────────────── */
 
-/* Append one byte range to the current-round assistant text buffer. */
+/* Append one byte range to the current-round assistant text buffer.
+ * The xBuffer is lazy-created on first append so queries that never
+ * receive text (e.g. tool-use only) avoid a needless allocation. */
 static xErrno assist_append(struct xAiQuery_ *q, const char *chunk,
                             size_t len) {
   if (len == 0) return xErrno_Ok;
-  if (q->assist_len + len + 1 > q->assist_cap) {
-    size_t new_cap = q->assist_cap ? q->assist_cap : 256;
-    while (new_cap < q->assist_len + len + 1)
-      new_cap *= 2;
-    char *nb = (char *)realloc(q->assist_buf, new_cap);
-    if (!nb) return xErrno_NoMemory;
-    q->assist_buf = nb;
-    q->assist_cap = new_cap;
+  if (!q->assist) {
+    q->assist = xBufferCreate(256);
+    if (!q->assist) return xErrno_NoMemory;
   }
-  memcpy(q->assist_buf + q->assist_len, chunk, len);
-  q->assist_len += len;
-  q->assist_buf[q->assist_len] = '\0';
-  return xErrno_Ok;
+  return xBufferAppend(&q->assist, chunk, len);
 }
 
 static void assist_reset(struct xAiQuery_ *q) {
-  q->assist_len = 0;
-  if (q->assist_buf) q->assist_buf[0] = '\0';
+  if (q->assist) xBufferReset(q->assist);
 }
 
 /* Same shape as assist_append, but for the current-round reasoning /
@@ -362,24 +356,15 @@ static void assist_reset(struct xAiQuery_ *q) {
 static xErrno reasoning_append(struct xAiQuery_ *q, const char *chunk,
                                size_t len) {
   if (len == 0) return xErrno_Ok;
-  if (q->reasoning_len + len + 1 > q->reasoning_cap) {
-    size_t new_cap = q->reasoning_cap ? q->reasoning_cap : 256;
-    while (new_cap < q->reasoning_len + len + 1)
-      new_cap *= 2;
-    char *nb = (char *)realloc(q->reasoning_buf, new_cap);
-    if (!nb) return xErrno_NoMemory;
-    q->reasoning_buf = nb;
-    q->reasoning_cap = new_cap;
+  if (!q->reasoning) {
+    q->reasoning = xBufferCreate(256);
+    if (!q->reasoning) return xErrno_NoMemory;
   }
-  memcpy(q->reasoning_buf + q->reasoning_len, chunk, len);
-  q->reasoning_len += len;
-  q->reasoning_buf[q->reasoning_len] = '\0';
-  return xErrno_Ok;
+  return xBufferAppend(&q->reasoning, chunk, len);
 }
 
 static void reasoning_reset(struct xAiQuery_ *q) {
-  q->reasoning_len = 0;
-  if (q->reasoning_buf) q->reasoning_buf[0] = '\0';
+  if (q->reasoning) xBufferReset(q->reasoning);
 }
 
 /* ── Usage accumulator ─────────────────────────────────────────── */
@@ -699,15 +684,17 @@ static void commit_assistant_turn(struct xAiQuery_ *q) {
    * exact ordering inside the message, but Anthropic's thinking
    * blocks are documented as coming first, and putting reasoning
    * before tool_calls matches every upstream example I've seen. */
-  if (q->reasoning_len > 0) {
+  if (q->reasoning && xBufferLen(q->reasoning) > 0) {
     (void)turn_buf_append_thinking(&q->produced, &q->n_produced,
-                                   &q->cap_produced, q->reasoning_buf,
-                                   q->reasoning_len);
+                                   &q->cap_produced,
+                                   (const char *)xBufferData(q->reasoning),
+                                   xBufferLen(q->reasoning));
   }
-  if (q->assist_len > 0) {
+  if (q->assist && xBufferLen(q->assist) > 0) {
     (void)turn_buf_append_text(&q->produced, &q->n_produced,
                                &q->cap_produced, xAiRole_Assistant,
-                               q->assist_buf, q->assist_len);
+                               (const char *)xBufferData(q->assist),
+                               xBufferLen(q->assist));
   }
   for (size_t i = 0; i < q->n_pending; i++) {
     struct xAiQueryPending_ *p = &q->pending[i];
@@ -1031,8 +1018,8 @@ void xAiQueryDestroy(xAiQuery q) {
     qq->session->query = NULL;
   }
 
-  free(qq->assist_buf);
-  free(qq->reasoning_buf);
+  xBufferDestroy(qq->assist);
+  xBufferDestroy(qq->reasoning);
   pending_reset(qq);
   free(qq->pending);
 

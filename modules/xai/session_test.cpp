@@ -1509,14 +1509,14 @@ TEST_F(SessionTest, BudgetTruncateOldestRefusesWhenFloorUnreachable) {
   xAiSessionDestroy(sess);
 }
 
-/* Reserved policies (Callback, SummarizeOldest) must not
- * accidentally behave like Disabled — a caller who opted into them
- * expects enforcement and silently dropping to no-op would mask
- * the budget violation. Until c4+ wires real implementations they
- * fall through to the PromptTooLong refusal arm. */
+/* Reserved policies (Callback only) must not accidentally behave like
+ * Disabled — a caller who opted into them expects enforcement and
+ * silently dropping to no-op would mask the budget violation.
+ * SummarizeOldest is now implemented (β phase) and has its own
+ * dedicated tests below. */
 TEST_F(SessionTest, BudgetReservedPoliciesRefuseWhenOver) {
   for (xAiBudgetPolicy p :
-       {xAiBudgetPolicy_Callback, xAiBudgetPolicy_SummarizeOldest}) {
+       {xAiBudgetPolicy_Callback}) {
     Captured cap;
     xAiBudgetConf budget{};
     budget.policy     = p;
@@ -1765,4 +1765,230 @@ TEST_F(SessionTest, BudgetCalibratorFeedsBackIntoNextGate) {
   xAiSessionDestroy(sess);
 }
 
+/* ── Context-budget: SummarizeOldest (β phase) ────────────────────
+ *
+ * End-to-end coverage for the SummarizeOldest budget policy.
+ *
+ * Key behaviour:
+ *   - When the budget is exceeded, the session launches an internal
+ *     compact Query that asks the model to summarise the old history.
+ *   - The caller's xAiSessionInput returns xErrno_Busy while the
+ *     compact is in flight.
+ *   - When the compact completes (synchronously with the fake
+ *     provider), the old history entries are replaced by a single
+ *     System summary entry with a "[summary] " prefix.
+ *   - The caller can then re-submit their original message; the
+ *     budget gate should now let it through.
+ *   - If the compact fails (empty output / OOM), the session
+ *     degrades to TruncateOldest behaviour.
+ */
 
+/* SummarizeOldest returns Busy when the budget is exceeded,
+ * indicating a compact Query is in flight. With the synchronous
+ * fake provider the compact completes before xAiQueryRun returns,
+ * so by the time xAiSessionInput yields Busy the history has
+ * already been compressed. A second Input call on the same
+ * message should then pass the budget gate and run normally. */
+TEST_F(SessionTest, BudgetSummarizeOldestCompactsHistory) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy            = xAiBudgetPolicy_SummarizeOldest;
+  budget.max_tokens        = 200;      /* enough for 3 primer rounds  */
+  budget.keep_recent_turns = 1;        /* always keep the last turn    */
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Prime 3 rounds. Each user msg is ~30 tokens (80/4 + 10).
+   * After 3 rounds history ≈ 3×(30+10) = 120 tokens.
+   * With limit = 200 the primer rounds should pass. */
+  const std::string big(80, 'a');
+  for (int i = 0; i < 3; i++) {
+    fake_->script_queue.push_back({
+        SText("reply"),
+        SDone(xAiProviderStop_EndTurn),
+    });
+    ASSERT_EQ(xAiSessionInput(sess, xAiMessageFromText(big.c_str())),
+              xErrno_Ok);
+    ASSERT_EQ(cap.done_fired, i + 1);
+  }
+
+  /* 4th input overflows the budget. Current history ≈ 120 tokens,
+   * incoming ≈ 30 tokens, total ≈ 150. With max_tokens = 200 it
+   * still fits — so we need a BIGGER payload to trigger overflow.
+   * A 400-byte string → ~110 tokens incoming; 120+110 = 230 > 200. */
+  fake_->script_queue.push_back({
+      SText("This is a summary of the conversation."),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  const std::string overflow_msg(400, 'b');
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText(overflow_msg.c_str())),
+            xErrno_Busy);
+
+  /* The compact has completed synchronously. History should now
+   * contain a System summary entry at the beginning. */
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  size_t hlen = hist_len(s);
+  ASSERT_GT(hlen, 0u);
+
+  /* The first history entry should be the System summary. */
+  auto *msgs = (const xAiSessionMsg_ *)xArrayData(s->history_arr);
+  ASSERT_NE(msgs, nullptr);
+  EXPECT_EQ(msgs[0].role, xAiRole_System);
+  EXPECT_NE(msgs[0].text, nullptr);
+  EXPECT_NE(std::string(msgs[0].text, msgs[0].text_len).find("[summary]"),
+            std::string::npos)
+      << "compact should produce a [summary] entry";
+
+  /* The old user turns (3 × "aaa…") should have been replaced —
+   * at most 1 should remain (from keep_recent_turns = 1). */
+  int old_user_count = 0;
+  for (size_t i = 0; i < hlen; i++) {
+    if (msgs[i].role == xAiRole_User &&
+        std::string(msgs[i].text, msgs[i].text_len) == big) {
+      old_user_count++;
+    }
+  }
+  EXPECT_LE(old_user_count, 1)
+      << "at most 1 old user turn should remain after compact";
+
+  /* The caller's on_done must NOT have fired — only the internal
+   * compact's on_done fired, and the caller's message was never
+   * submitted. They need to re-submit. */
+  EXPECT_EQ(cap.done_fired, 3)
+      << "only the 3 primer rounds should have fired on_done";
+
+  /* Re-submit the overflow message. Budget should now pass because
+   * the history has been compressed. */
+  fake_->script_queue.push_back({
+      SText("final"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText(overflow_msg.c_str())),
+            xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 4);
+
+  xAiSessionDestroy(sess);
+}
+
+/* SummarizeOldest under budget is a no-op: the gate lets the turn
+ * through without launching a compact Query. */
+TEST_F(SessionTest, BudgetSummarizeOldestUnderBudgetIsNoop) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy     = xAiBudgetPolicy_SummarizeOldest;
+  budget.max_tokens = 500;             /* generous */
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+
+  /* History should have the user message (no summary). */
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  auto *msgs = (const xAiSessionMsg_ *)xArrayData(s->history_arr);
+  ASSERT_GT(hist_len(s), 0u);
+  /* First user entry should NOT be a summary. */
+  for (size_t i = 0; i < hist_len(s); i++) {
+    if (msgs[i].role == xAiRole_User) {
+      EXPECT_NE(std::string(msgs[i].text, msgs[i].text_len).find("[summary]"),
+                0u)
+          << "no summary entry when under budget";
+      break;
+    }
+  }
+
+  xAiSessionDestroy(sess);
+}
+
+/* SummarizeOldest degrades to TruncateOldest when the compact Query
+ * produces no text (empty output). The old entries are simply
+ * removed, no summary is inserted. */
+TEST_F(SessionTest, BudgetSummarizeOldestDegradesOnEmptySummary) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy            = xAiBudgetPolicy_SummarizeOldest;
+  budget.max_tokens        = 200;
+  budget.keep_recent_turns = 1;
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Prime 3 rounds to fill history. */
+  const std::string big(80, 'a');
+  for (int i = 0; i < 3; i++) {
+    fake_->script_queue.push_back({
+        SText("reply"),
+        SDone(xAiProviderStop_EndTurn),
+    });
+    ASSERT_EQ(xAiSessionInput(sess, xAiMessageFromText(big.c_str())),
+              xErrno_Ok);
+    ASSERT_EQ(cap.done_fired, i + 1);
+  }
+
+  /* The compact Query returns no text (model responds with empty).
+   * This should trigger the TruncateOldest degradation path. */
+  fake_->script_queue.push_back({
+      SDone(xAiProviderStop_EndTurn),     /* no SText — empty output */
+  });
+
+  const std::string overflow_msg(400, 'b');
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText(overflow_msg.c_str())),
+            xErrno_Busy);
+
+  /* After degradation, the old entries should have been removed
+   * (truncated) but no [summary] entry should exist. */
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  auto *msgs = (const xAiSessionMsg_ *)xArrayData(s->history_arr);
+  size_t hlen = hist_len(s);
+
+  int summary_count = 0;
+  for (size_t i = 0; i < hlen; i++) {
+    if (msgs[i].role == xAiRole_System && msgs[i].text &&
+        std::string(msgs[i].text, msgs[i].text_len).find("[summary]") !=
+            std::string::npos) {
+      summary_count++;
+    }
+  }
+  EXPECT_EQ(summary_count, 0)
+      << "no summary entry after empty-output degradation";
+
+  /* Re-submit should now work (history was truncated). */
+  fake_->script_queue.push_back({
+      SText("final"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText(overflow_msg.c_str())),
+            xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 4);
+
+  xAiSessionDestroy(sess);
+}
+
+/* SummarizeOldest with keep_recent_turns too high (no user turn
+ * boundary to compress) must refuse with PromptTooLong, same as
+ * TruncateOldest. */
+TEST_F(SessionTest, BudgetSummarizeOldestRefusesWhenFloorUnreachable) {
+  Captured cap;
+  xAiBudgetConf budget{};
+  budget.policy            = xAiBudgetPolicy_SummarizeOldest;
+  budget.max_tokens        = 30;       /* very tight                   */
+  budget.keep_recent_turns = 5;        /* absurdly high floor          */
+  xAiSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  std::string big(400, 'x');
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText(big.c_str())),
+            xErrno_PromptTooLong);
+
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  EXPECT_EQ(hist_len(s), 0u);
+  EXPECT_EQ(cap.done_fired, 0);
+  EXPECT_EQ(cap.error_fired, 0);
+
+  xAiSessionDestroy(sess);
+}

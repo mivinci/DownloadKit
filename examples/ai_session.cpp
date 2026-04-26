@@ -738,6 +738,60 @@ static void on_error(xAiSession sess, xErrno err, const char *msg, void *ud) {
   xEventLoopStop(ctx->loop);
 }
 
+/* ── Budget-event callback ────────────────────────────────────────────
+ *
+ * Registered via sconf.budget.on_budget_event so the REPL user can
+ * observe the SummarizeOldest / TruncateOldest lifecycle in real time.
+ * All three events are informational; ignoring them doesn't change
+ * session behaviour, but surfacing them makes the budget demo much
+ * easier to follow — the user sees why a subsequent xAiSessionInput
+ * returned Busy (Compacting) and knows when to retry (CompactDone). */
+static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
+                            const void *info, void *ud) {
+  (void)sess;
+  auto *ctx            = static_cast<ReplCtx *>(ud);
+  bool  after_thinking = ctx->in_thinking;
+  end_thinking(ctx);
+  /* Budget events are chrome — render faint, same as [tool]/[done]. */
+  if (!after_thinking) std::putchar('\n');
+  std::fputs("\x1b[2m", stdout);
+  switch (event) {
+  case xAiBudgetEvent_Compacting: {
+    auto *ci = static_cast<const xAiBudgetCompactInfo *>(info);
+    std::printf("[budget] compacting %zu old entries...",
+                ci ? ci->entries_compacted : 0);
+    break;
+  }
+  case xAiBudgetEvent_CompactDone: {
+    auto *cdi = static_cast<const xAiBudgetCompactDoneInfo *>(info);
+    if (cdi && cdi->summary_ok) {
+      std::printf("[budget] compact done — summary %zu tokens, "
+                  "%zu entries affected",
+                  cdi->summary_tokens, cdi->entries_affected);
+    } else {
+      std::printf("[budget] compact degraded to truncate — %zu entries affected",
+                  cdi ? cdi->entries_affected : 0);
+    }
+    /* Compact is done — stop the event loop so the REPL's
+     * xEventLoopRun returns and the auto-retry after Busy
+     * can proceed. Without this the loop blocks forever
+     * because the compact on_done path does NOT call
+     * xEventLoopStop (it's an internal operation, not a
+     * user-visible Query completion). */
+    xEventLoopStop(ctx->loop);
+    break;
+  }
+  case xAiBudgetEvent_Truncated: {
+    auto *ti = static_cast<const xAiBudgetTruncateInfo *>(info);
+    std::printf("[budget] truncated %zu old entries",
+                ti ? ti->entries_removed : 0);
+    break;
+  }
+  }
+  std::fputs("\x1b[0m\n", stdout);
+  std::fflush(stdout);
+}
+
 /* ── Main ───────────────────────────────────────────────────────────── */
 
 int main() {
@@ -940,9 +994,11 @@ int main() {
    * max_tokens below ~4096 expect xErrno_PromptTooLong (which the
    * REPL and on_error both surface with a hint line below), and
    * see session.c's keep_recent_turns floor logic for why. */
-  sconf.budget.policy            = xAiBudgetPolicy_TruncateOldest;
-  sconf.budget.max_tokens        = 2048;
-  sconf.budget.keep_recent_turns = 1;
+  sconf.budget.policy            = xAiBudgetPolicy_Auto;
+  sconf.budget.max_tokens        = 8192;
+  sconf.budget.keep_recent_turns = 2;
+  sconf.budget.on_budget_event   = on_budget_event;
+  sconf.budget.budget_event_ud   = &ctx;
 
   xAiSession sess = xAiSessionCreate(agent, &sconf);
   if (!sess) {
@@ -988,6 +1044,18 @@ int main() {
      * iteration is safe. */
     xAiMessage m   = xAiMessageFromText(line);
     xErrno     err = xAiSessionInput(sess, m);
+    if (err == xErrno_Busy) {
+      /* Busy from SummarizeOldest is expected — the on_budget_event
+       * callback already printed "[budget] compacting ...". Run the
+       * event loop so the compact Query can complete; on_budget_event
+       * will print "[budget] compact done" and then we auto-retry
+       * the user's input. If Busy is from a regular Query still in
+       * flight (shouldn't happen in this single-flight REPL), the
+       * loop returns immediately and we report it below. */
+      xEventLoopRun(loop);
+      /* Compact done — session is idle now, retry the input. */
+      err = xAiSessionInput(sess, m);
+    }
     if (err != xErrno_Ok) {
       /* Synchronous rejection path: the gate fires before the
        * Query is even handed off, so on_error never runs. Mirror

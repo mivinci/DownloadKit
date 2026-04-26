@@ -69,12 +69,18 @@
 #include <xai/provider.h>
 #include <xai/query.h>
 #include <xai/session.h>
+#include <xbase/array.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
-#include <xbase/array.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* ── Forward declarations ──────────────────────────────────────────── */
+
+static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
+                             const xAiUsage *usage, void *ud);
 
 /* ── Small helpers ──────────────────────────────────────────────────── */
 
@@ -110,7 +116,7 @@ static void session_msg_release(void *elem) {
 
 /* xArray callbacks for session history: release only (no retain, no equal).
  * Push returns a zero-initialised slot; the caller fills it manually. */
-static const xArrayCallbacks kHistoryCbs = { NULL, session_msg_release, NULL };
+static const xArrayCallbacks kHistoryCbs = {NULL, session_msg_release, NULL};
 
 /* Push a new zero-initialised slot onto the history array.
  * Returns the slot pointer, or NULL on allocation failure. */
@@ -327,8 +333,39 @@ static size_t session_budget_limit_(const struct xAiSession_ *s) {
  * the "can I trim enough to fit?" question honest: including it
  * would make an over-large system prompt look like regular history
  * pressure and yield no-op trims. */
-static xErrno session_enforce_budget_(struct xAiSession_ *s,
-                                      xAiMessage          msg) {
+/* ── Truncate oldest history and check budget ──────────────────
+ *
+ * Shared by the TruncateOldest case and the truncate_fallback
+ * degradation path (SummarizeOldest failure). Returns xErrno_Ok
+ * if trimming freed enough space, xErrno_PromptTooLong otherwise.
+ * Fires xAiBudgetEvent_Truncated on success.
+ */
+static xErrno session_try_truncate_(struct xAiSession_ *s,
+                                     size_t incoming, double factor,
+                                     size_t limit) {
+  size_t keep = ai_budget_earliest_keep(
+    (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
+    xArrayLen(s->history_arr), s->budget.keep_recent_turns);
+  if (keep > 0) {
+    session_trim_history_front_(s, keep);
+    size_t current = ai_budget_estimate_tokens_calibrated(
+      (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
+      xArrayLen(s->history_arr), factor);
+    if (current + incoming <= limit) {
+      s->last_prompt_estimate = current + incoming;
+      if (s->on_budget_event) {
+        struct xAiBudgetTruncateInfo ti;
+        ti.entries_removed = keep;
+        s->on_budget_event((xAiSession)s, xAiBudgetEvent_Truncated, &ti,
+                           s->budget_event_ud);
+      }
+      return xErrno_Ok;
+    }
+  }
+  return xErrno_PromptTooLong;
+}
+
+static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
   if (s->budget.policy == xAiBudgetPolicy_Disabled) return xErrno_Ok;
 
   size_t limit    = session_budget_limit_(s);
@@ -349,47 +386,223 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s,
   }
 
   switch (s->budget.policy) {
-    case xAiBudgetPolicy_TruncateOldest: {
-      /* Ask the policy primitive for the earliest point we are
-       * allowed to keep from while still honouring
-       * keep_recent_turns. If that is 0 (floor exceeds what we
-       * have, or no user turns to anchor on) we have nowhere to
-       * trim — fall through to the refusal branch below. */
-      size_t keep = ai_budget_earliest_keep(
-        (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
-        xArrayLen(s->history_arr),
-        s->budget.keep_recent_turns);
-      if (keep > 0) {
-        session_trim_history_front_(s, keep);
-        current = ai_budget_estimate_tokens_calibrated(
-          (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
-          xArrayLen(s->history_arr), factor);
-        if (current + incoming <= limit) {
-          s->last_prompt_estimate = current + incoming;
-          return xErrno_Ok;
-        }
-      }
-      /* Even the maximally-aggressive trim still does not fit —
-       * that means either keep_recent_turns is larger than the
-       * budget can realistically serve, or the incoming message
-       * alone overflows. Refuse rather than silently violate the
-       * floor. */
-      return xErrno_PromptTooLong;
+  case xAiBudgetPolicy_TruncateOldest: {
+    /* Ask the policy primitive for the earliest point we are
+     * allowed to keep from while still honouring
+     * keep_recent_turns. If that is 0 (floor exceeds what we
+     * have, or no user turns to anchor on) we have nowhere to
+     * trim — fall through to the refusal branch below. */
+    return session_try_truncate_(s, incoming, factor, limit);
+  }
+
+  case xAiBudgetPolicy_Error:
+    return xErrno_PromptTooLong;
+
+  case xAiBudgetPolicy_Auto: {
+    /* ── Auto: dynamically pick the best strategy ───────────────
+     *
+     * Decision heuristic based on the current history content:
+     *
+     *   1. Compute the tool-entry token ratio. When tool entries
+     *      (ToolUse + ToolResult) dominate (≥ threshold),
+     *      SummarizeOldest is a poor choice — LLMs cannot
+     *      meaningfully compress structured JSON, and a bad
+     *      summary may drop critical IDs or parameters.
+     *      TruncateOldest is safer and faster in that regime.
+     *
+     *   2. When the conversation is predominantly text (ratio
+     *      below threshold), SummarizeOldest has a good chance
+     *      of preserving the gist, so we prefer it.
+     *
+     *   3. If SummarizeOldest is chosen but fails (OOM, provider
+     *      error, empty summary), sess_fwd_on_done automatically
+     *      degrades to TruncateOldest — no special handling here.
+     */
+    double ratio = ai_budget_tool_ratio(
+      (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
+      xArrayLen(s->history_arr));
+
+    if (ratio >= XAI_BUDGET_AUTO_TOOL_RATIO_THRESHOLD) {
+      /* Tool-heavy history → truncate is safer. */
+      return session_try_truncate_(s, incoming, factor, limit);
+    }
+    /* Text-heavy history → try summarise (with truncate fallback
+     * on failure). Fall through to SummarizeOldest logic. */
+    goto auto_summarize;
+  }
+
+  case xAiBudgetPolicy_SummarizeOldest: {
+auto_summarize:;
+    /* ── SummarizeOldest: compress old history into a summary ──
+     *
+     * The idea: instead of truncating history outright (losing
+     * information), we launch a short internal Query that asks
+     * the model to summarise the oldest portion of the
+     * conversation. The summary replaces those entries, freeing
+     * up budget space while preserving key facts.
+     *
+     * Steps:
+     *   1. Find the earliest-keep boundary (same primitive as
+     *      TruncateOldest).
+     *   2. Bail if keep == 0 (nothing to summarise / floor
+     *      exceeds history).
+     *   3. If already compacting, return Busy.
+     *   4. Build a summary system prompt + concatenate old
+     *      messages as user content.
+     *   5. Create an internal Query with budget_policy_override
+     *      = Disabled (recursion guard).
+     *   6. Run it.
+     *   7. Return Busy — the caller waits for compact to
+     *      finish; sess_fwd_on_done handles the rest.
+     *
+     * The compact completes asynchronously (the internal Query
+     * runs on the same event loop). On completion,
+     * sess_fwd_on_done detects the compacting state and
+     * replaces the old history entries with the summary.
+     */
+    size_t keep = ai_budget_earliest_keep(
+      (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
+      xArrayLen(s->history_arr), s->budget.keep_recent_turns);
+
+    /* Nothing to summarise or floor exceeds history. */
+    if (keep == 0) return xErrno_PromptTooLong;
+
+    /* Re-entrance guard: only one compact at a time. */
+    if (s->compacting) return xErrno_Busy;
+
+    /* Record the earliest index to keep after the compact
+     * completes. Everything before this index will be replaced
+     * by the summary. */
+    s->compact_keep_idx = keep;
+
+    /* ── Notify caller: compact is starting ───────────────
+     * Fire the Compacting event BEFORE marking compacting=1 so
+     * the caller can distinguish "Busy because compacting" from
+     * "Busy because a normal Query is in flight". The info
+     * struct tells them how many old entries are being compacted.
+     * ────────────────────────────────────────────────────── */
+    if (s->on_budget_event) {
+      struct xAiBudgetCompactInfo ci;
+      ci.entries_compacted = keep;
+      s->on_budget_event((xAiSession)s, xAiBudgetEvent_Compacting, &ci,
+                         s->budget_event_ud);
     }
 
-    case xAiBudgetPolicy_Error:
-      return xErrno_PromptTooLong;
+    /* Build the summary system prompt with the message count. */
+    char summary_sys[256];
+    snprintf(summary_sys, sizeof(summary_sys), XAI_SUMMARY_SYSTEM_PROMPT, keep);
 
-    case xAiBudgetPolicy_Callback:
-    case xAiBudgetPolicy_SummarizeOldest:
-    case xAiBudgetPolicy_Disabled:
-    default:
-      /* Reserved policies are not implemented yet. Refuse by
-       * default so a caller who asked for one does not silently
-       * get Disabled behaviour — that could mask bugs for years.
-       * c4+ replaces these arms with real wiring. */
-      return xErrno_PromptTooLong;
+    /* Concatenate the old messages (entries [0, keep)) into one
+     * user message string. We build a single text blob that the
+     * model can summarise. */
+    size_t old_bytes = 0;
+    for (size_t i = 0; i < keep; i++) {
+      struct xAiSessionMsg_ *m =
+        (struct xAiSessionMsg_ *)xArrayAt(s->history_arr, i);
+      if (m->text && m->text_len > 0) old_bytes += m->text_len;
+      /* Rough separator between messages. */
+      old_bytes += 2; /* "\n\n" */
+    }
+    char *old_text = NULL;
+    if (old_bytes > 0) {
+      old_text = (char *)calloc(old_bytes + 1, 1);
+      if (!old_text) return xErrno_NoMemory;
+      size_t off = 0;
+      for (size_t i = 0; i < keep; i++) {
+        struct xAiSessionMsg_ *m =
+          (struct xAiSessionMsg_ *)xArrayAt(s->history_arr, i);
+        if (m->text && m->text_len > 0) {
+          memcpy(old_text + off, m->text, m->text_len);
+          off += m->text_len;
+        }
+        if (i + 1 < keep) {
+          memcpy(old_text + off, "\n\n", 2);
+          off += 2;
+        }
+      }
+    }
+
+    /* Create an internal Query for the summary task.
+     * - budget_policy_override = Disabled prevents the internal
+     *   Query from triggering another budget check (recursion).
+     * - The Query's only callback is on_done so we can harvest
+     *   the summary text.
+     * - We pass the summary system prompt + old text as the
+     *   messages. */
+    xAiQueryConf qc           = {0};
+    qc.cbs.on_done            = sess_fwd_on_done;
+    qc.cbs.user_data          = s;
+    qc.budget_policy_override = xAiBudgetPolicy_Disabled;
+
+    xAiQuery q = xAiQueryCreate((xAiSession)s, &qc);
+    if (!q) {
+      free(old_text);
+      return xErrno_NoMemory;
+    }
+
+    /* Build the message array for the summary Query:
+     *   1. System message with the summary prompt.
+     *   2. User message with the concatenated old text. */
+    xAiMessage msgs[2];
+    xAiContent sys_blocks[1];
+    xAiContent usr_blocks[1];
+
+    /* System message. */
+    sys_blocks[0].type        = xAiContentType_Text;
+    sys_blocks[0].u.text.text = summary_sys;
+    sys_blocks[0].u.text.len  = strlen(summary_sys);
+    msgs[0].role              = xAiRole_System;
+    msgs[0].contents          = sys_blocks;
+    msgs[0].n                 = 1;
+
+    /* User message with old conversation text. */
+    usr_blocks[0].type        = xAiContentType_Text;
+    usr_blocks[0].u.text.text = old_text ? old_text : "";
+    usr_blocks[0].u.text.len  = old_text ? strlen(old_text) : 0;
+    msgs[1].role              = xAiRole_User;
+    msgs[1].contents          = usr_blocks;
+    msgs[1].n                 = 1;
+
+    /* Mark compacting before Run so the Session rejects new
+     * inputs during the compact. */
+    s->compacting             = 1;
+    s->budget_policy_override = xAiBudgetPolicy_Disabled;
+
+    xErrno rc = xAiQueryRun(q, msgs, 2);
+    free(old_text);
+
+    if (rc != xErrno_Ok) {
+      /* Compact query failed to start — clean up and degrade to
+       * TruncateOldest. */
+      s->compacting             = 0;
+      s->budget_policy_override = xAiBudgetPolicy_Disabled;
+      xAiQueryDestroy(q);
+      /* Fall through to TruncateOldest as degradation path. */
+      goto truncate_fallback;
+    }
+
+    /* Compact query is now in flight. Return Busy so the caller
+     * knows to wait. sess_fwd_on_done will handle the compact
+     * completion. */
+    return xErrno_Busy;
   }
+
+  case xAiBudgetPolicy_Callback:
+  case xAiBudgetPolicy_Disabled:
+  default:
+    /* Reserved policies are not implemented yet. Refuse by
+     * default so a caller who asked for one does not silently
+     * get Disabled behaviour — that could mask bugs for years.
+     * c4+ replaces these arms with real wiring. */
+    return xErrno_PromptTooLong;
+  }
+
+truncate_fallback:
+  /* Degradation path: if SummarizeOldest fails (OOM, Query submit
+   * error), fall back to TruncateOldest. This is the same logic as
+   * the TruncateOldest case above but extracted as a goto target
+   * for the SummarizeOldest branch to jump to on failure. */
+  return session_try_truncate_(s, incoming, factor, limit);
 }
 /* ── Building the Query input from Session state ────────────────────
  *
@@ -433,8 +646,8 @@ static xErrno sess_input_view_build(struct xAiSession_      *s,
     if (m->role == xAiRole_Assistant) {
       size_t j = i;
       while (j < hist_len &&
-             ((struct xAiSessionMsg_ *)xArrayAt(s->history_arr, j))->role
-               == xAiRole_Assistant)
+             ((struct xAiSessionMsg_ *)xArrayAt(s->history_arr, j))->role ==
+               xAiRole_Assistant)
         j++;
       n_msgs += 1;
       n_blocks += (j - i);
@@ -598,6 +811,155 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
   size_t                 n_produced = 0;
   ai_query_take_produced((struct xAiQuery_ *)q, &produced, &n_produced);
 
+  /* ── SummarizeOldest compact completion ─────────────────────────
+   *
+   * When a compact (summary) Query completes, we need to:
+   *   1. Extract the summary text from the produced entries.
+   *   2. Replace the old history entries [0, compact_keep_idx)
+   *      with one System summary entry.
+   *   3. Re-check the budget — if still over, degrade to
+   *      TruncateOldest.
+   *   4. If budget is OK, the caller's original xAiSessionInput
+   *      will be retried on the next call (we do NOT auto-retry
+   *      here because the caller needs to know the compact
+   *      happened).
+   *
+   * The compact on_done does NOT fire the caller's on_done —
+   * this is an internal operation. The caller is still waiting
+   * (they received xErrno_Busy from xAiSessionInput). */
+  if (s->compacting) {
+    /* Extract summary text: concatenate all text entries from
+     * produced. */
+    size_t summary_bytes = 0;
+    for (size_t i = 0; i < n_produced; i++) {
+      if (produced[i].kind == xAiSessionEntry_Text && produced[i].text) {
+        summary_bytes += produced[i].text_len;
+      }
+    }
+
+    /* Build the summary string with a "[summary]" prefix so
+     * downstream consumers can identify it. */
+    static const char kSummaryPrefix[] = "[summary] ";
+    size_t            prefix_len       = strlen(kSummaryPrefix);
+    char             *summary_text     = NULL;
+
+    if (summary_bytes > 0) {
+      summary_text = (char *)calloc(prefix_len + summary_bytes + 1, 1);
+      if (summary_text) {
+        memcpy(summary_text, kSummaryPrefix, prefix_len);
+        size_t off = prefix_len;
+        for (size_t i = 0; i < n_produced; i++) {
+          if (produced[i].kind == xAiSessionEntry_Text && produced[i].text) {
+            memcpy(summary_text + off, produced[i].text, produced[i].text_len);
+            off += produced[i].text_len;
+          }
+        }
+      }
+    }
+
+    /* Compact succeeded (we got a non-empty summary) — replace
+     * the old history entries with one System summary entry.
+     * Compact failed (empty summary / OOM) — fall through to
+     * TruncateOldest degradation. */
+    size_t keep_idx   = s->compact_keep_idx;
+    int    compact_ok = (summary_text != NULL && summary_bytes > 0);
+
+    if (compact_ok) {
+      /* Remove the old entries [0, keep_idx). */
+      session_trim_history_front_(s, keep_idx);
+
+      /* Insert the summary entry at the beginning of history. We
+       * build it as a temporary xAiSessionMsg_ and splice it in
+       * via xArrayInsert. */
+      struct xAiSessionMsg_ summary_entry;
+      memset(&summary_entry, 0, sizeof(summary_entry));
+      summary_entry.role     = xAiRole_System;
+      summary_entry.kind     = xAiSessionEntry_Text;
+      summary_entry.text     = summary_text;
+      summary_entry.text_len = prefix_len + summary_bytes;
+
+      /* xArrayInsert shifts existing elements up and copies the
+       * new element into position 0. */
+      if (xArrayInsert(&s->history_arr, 0, &summary_entry) != xErrno_Ok) {
+        /* OOM on insert — free the summary text and degrade. */
+        free(summary_text);
+        compact_ok = 0;
+      } else {
+        /* summary_text is now owned by the history array (it will
+         * be freed by session_msg_release on removal). Clear the
+         * local pointer so we don't double-free below. */
+        summary_text = NULL;
+      }
+    }
+
+    if (!compact_ok) {
+      /* Degradation: truncate the same range we tried to
+       * summarise. This matches the TruncateOldest behaviour. */
+      free(summary_text);
+      if (keep_idx > 0 && keep_idx < xArrayLen(s->history_arr)) {
+        session_trim_history_front_(s, keep_idx);
+      }
+    }
+
+    /* Reset compacting state. */
+    s->compacting             = 0;
+    s->compact_keep_idx       = 0;
+    s->budget_policy_override = xAiBudgetPolicy_Disabled;
+
+    /* ── Notify caller: compact finished ──────────────────────
+     * Fire CompactDone so the caller knows the session is now idle
+     * and can retry xAiSessionInput. summary_ok tells them whether
+     * the old history was replaced by a summary or degraded to a
+     * truncation. summary_tokens gives the token count of the new
+     * summary entry (0 if no summary was produced). entries_affected
+     * is the number of original entries that were replaced or
+     * removed.
+     * ────────────────────────────────────────────────────────── */
+    if (s->on_budget_event) {
+      struct xAiBudgetCompactDoneInfo cdi;
+      cdi.summary_ok = compact_ok;
+      cdi.summary_tokens =
+        compact_ok
+          ? ai_budget_estimate_tokens_calibrated(
+              (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
+              1, /* just the summary entry */
+              s->budget_calibrator.factor)
+          : 0;
+      cdi.entries_affected = keep_idx;
+      s->on_budget_event((xAiSession)s, xAiBudgetEvent_CompactDone, &cdi,
+                         s->budget_event_ud);
+    }
+
+    /* Also fire Truncated if we degraded (compact_ok == 0 and we
+     * actually truncated some entries). */
+    if (!compact_ok && keep_idx > 0 && keep_idx < xArrayLen(s->history_arr)) {
+      if (s->on_budget_event) {
+        struct xAiBudgetTruncateInfo ti;
+        ti.entries_removed = keep_idx;
+        s->on_budget_event((xAiSession)s, xAiBudgetEvent_Truncated, &ti,
+                           s->budget_event_ud);
+      }
+    }
+
+    /* Free produced entries that the compact Query generated
+     * (they're NOT merged into history — only the summary is). */
+    for (size_t i = 0; i < n_produced; i++) {
+      ai_session_msg_free(&produced[i]);
+    }
+
+    /* Destroy the compact Query. */
+    xAiQueryDestroy(q);
+
+    /* The compact is done. The caller's on_done is NOT fired here
+     * — they're still holding a Busy result. The next time they
+     * call xAiSessionInput, the budget gate will see the
+     * (hopefully reduced) history and either let the turn through
+     * or apply further policy. */
+    return;
+  }
+
+  /* ── Normal (non-compact) on_done path ──────────────────────── */
+
   /* Calibration opt-in check — done BEFORE we move produced into
    * history so the scan is cheap (small, local array) and
    * independent of future history growth.
@@ -625,8 +987,7 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
     }
   }
   if (single_round && usage && s->last_prompt_estimate > 0) {
-    ai_budget_calibrator_update(&s->budget_calibrator,
-                                s->last_prompt_estimate,
+    ai_budget_calibrator_update(&s->budget_calibrator, s->last_prompt_estimate,
                                 usage->prompt_tokens);
   }
   /* Reset for the next run either way — a stale estimate crossing
@@ -641,8 +1002,9 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
   for (size_t i = 0; i < n_produced; i++) {
     struct xAiSessionMsg_ *src = &produced[i];
     struct xAiSessionMsg_ *dst = history_push(s);
-    if (!dst) break; /* OOM: remaining produced entries stay for
-                      * xAiQueryDestroy to clean up. */
+    if (!dst)
+      break; /* OOM: remaining produced entries stay for
+              * xAiQueryDestroy to clean up. */
     *dst = *src;
     /* Clear src so xArrayPop/release won't double-free the strings
      * we just moved. */
@@ -694,6 +1056,12 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
    * will light it up. */
   s->budget = conf->budget;
 
+  /* Budget-event callback is lifted out of budget conf into its
+   * own slot for locality (avoids chasing budget. every time the
+   * session fires an event). */
+  s->on_budget_event = conf->budget.on_budget_event;
+  s->budget_event_ud = conf->budget.budget_event_ud;
+
   /* Token-estimate calibrator boots at identity (factor = 1.0);
    * it accumulates observations from sess_fwd_on_done on clean
    * single-round runs. last_prompt_estimate is zero until the
@@ -715,8 +1083,7 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   /* Create the history array with a release callback that frees
    * per-element heap resources. No retain — callers fill the
    * zero-initialised slot manually after xArrayPush(). */
-  s->history_arr = xArrayCreate(sizeof(struct xAiSessionMsg_), 8,
-                                &kHistoryCbs);
+  s->history_arr = xArrayCreate(sizeof(struct xAiSessionMsg_), 8, &kHistoryCbs);
   if (!s->history_arr) {
     free(s);
     return NULL;
@@ -821,10 +1188,10 @@ void xAiSessionDestroy(xAiSession sess) {
    * hook that triggers a second destroy won't re-enter here. Per
    * contract the hook runs at most once. */
   if (s->on_finalizing) {
-    xAiSessionFinalizingFn hook  = s->on_finalizing;
-    void                  *owner = s->finalizing_owner;
-    s->on_finalizing             = NULL;
-    s->finalizing_owner          = NULL;
+    xAiSessionFinalizingFunc hook  = s->on_finalizing;
+    void                    *owner = s->finalizing_owner;
+    s->on_finalizing               = NULL;
+    s->finalizing_owner            = NULL;
     hook(sess, owner);
   }
 

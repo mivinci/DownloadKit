@@ -332,6 +332,44 @@ size_t ai_budget_find_nth_user_turn(const struct xAiSessionMsg_ *msgs, size_t n,
 size_t ai_budget_earliest_keep(const struct xAiSessionMsg_ *msgs, size_t n,
                                size_t keep_recent_turns);
 
+/**
+ * @brief Compute the fraction of token cost attributable to tool-use
+ *        / tool-result entries in the given slice.
+ *
+ * Returns a value in [0.0, 1.0] where 1.0 means every token in the
+ * slice comes from ToolUse or ToolResult entries, and 0.0 means none
+ * of them do (pure text / thinking conversation). Used by the Auto
+ * budget policy to decide whether SummarizeOldest (good for text) or
+ * TruncateOldest (safer for structured tool data) is the better
+ * strategy.
+ *
+ * The ratio is weighted by estimated token cost (payload + envelope),
+ * not by raw entry count — a single 2 KiB tool_result should count
+ * more than three 10-byte text entries.
+ *
+ * Returns 0.0 for empty inputs.
+ *
+ * @param msgs  Entry array.
+ * @param n     Number of entries at @p msgs.
+ * @return      Tool-entry token ratio in [0.0, 1.0].
+ */
+double ai_budget_tool_ratio(const struct xAiSessionMsg_ *msgs, size_t n);
+
+/**
+ * @brief Threshold above which the Auto policy prefers TruncateOldest
+ *        over SummarizeOldest.
+ *
+ * When tool entries dominate the token budget (≥ 40 %), summarising
+ * is counter-productive: the LLM cannot meaningfully compress
+ * structured JSON tool arguments / results, and a bad summary may
+ * drop critical IDs or parameters. Truncating is safer and faster
+ * in that regime.
+ *
+ * Below this threshold, the conversation is predominantly text and
+ * SummarizeOldest has a good chance of preserving the gist.
+ */
+#define XAI_BUDGET_AUTO_TOOL_RATIO_THRESHOLD 0.4
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -224,7 +224,7 @@ XDEF_STRUCT(xAiSessionCallbacks) {
  * @param sess   The session about to be torn down.
  * @param owner  The xAiSessionConf::finalizing_owner pointer.
  */
-typedef void (*xAiSessionFinalizingFn)(xAiSession sess, void *owner);
+typedef void (*xAiSessionFinalizingFunc)(xAiSession sess, void *owner);
 
 /**
  * @brief Strategy for keeping the serialized prompt under the
@@ -261,8 +261,101 @@ XDEF_ENUM(xAiBudgetPolicy){
   xAiBudgetPolicy_Error           = 1, /**< Fail with PromptTooLong   */
   xAiBudgetPolicy_TruncateOldest  = 2, /**< Drop oldest non-pinned    */
   xAiBudgetPolicy_Callback        = 3, /**< Reserved: caller-supplied */
-  xAiBudgetPolicy_SummarizeOldest = 4, /**< Reserved: async summary   */
+  xAiBudgetPolicy_SummarizeOldest = 4, /**< Compress old history     */
+  xAiBudgetPolicy_Auto             = 5, /**< Auto: dynamic policy picker */
 };
+
+/**
+ * @brief Budget-policy lifecycle events delivered to the caller.
+ *
+ * These are side-channel notifications that fire alongside (not
+ * instead of) the regular xAiSessionCallbacks. They exist so the
+ * caller can:
+ *   - distinguish xErrno_Busy caused by an in-flight compact from
+ *     Busy caused by a normal user Query still running;
+ *   - learn when a compact finishes so it can retry the input;
+ *   - learn when TruncateOldest silently drops history so it can
+ *     update UI or log the event.
+ *
+ * All events are informational — ignoring them does not change the
+ * session's behaviour. The callback runs on the agent event loop.
+ *
+ * @see xAiBudgetEventFunc — the callback signature.
+ * @see xAiBudgetConf::on_budget_event — where to register it.
+ */
+XDEF_ENUM(xAiBudgetEvent){
+  /** SummarizeOldest: an internal compact Query has been launched
+   *  to compress old history. The session is now Busy until the
+   *  compact finishes (xAiBudgetEvent_CompactDone). The caller's
+   *  xAiSessionInput has returned xErrno_Busy. */
+  xAiBudgetEvent_Compacting  = 0,
+
+  /** SummarizeOldest: the compact Query has finished. @p info
+   *  carries a xAiBudgetCompactInfo with the result. The session
+   *  is now idle and the caller can retry xAiSessionInput. */
+  xAiBudgetEvent_CompactDone = 1,
+
+  /** TruncateOldest: history entries were silently dropped to fit
+   *  the budget. @p info carries a xAiBudgetTruncateInfo with the
+   *  count of entries removed. */
+  xAiBudgetEvent_Truncated   = 2,
+};
+
+/**
+ * @brief Extra detail passed with xAiBudgetEvent_Compacting.
+ */
+XDEF_STRUCT(xAiBudgetCompactInfo) {
+  /** Number of history entries being summarised (entries [0, n)
+   *  are the ones being compacted). */
+  size_t entries_compacted;
+};
+
+/**
+ * @brief Extra detail passed with xAiBudgetEvent_CompactDone.
+ */
+XDEF_STRUCT(xAiBudgetCompactDoneInfo) {
+  /** Non-zero if the compact produced a usable summary; zero if
+   *  it degraded to TruncateOldest instead (empty summary, OOM,
+   *  or provider error). When zero the caller should assume old
+   *  history was truncated, not summarised. */
+  int summary_ok;
+
+  /** Token count of the new summary entry (0 if summary_ok == 0
+   *  or the estimator was not run on the result). */
+  size_t summary_tokens;
+
+  /** Number of original entries that were replaced or removed. */
+  size_t entries_affected;
+};
+
+/**
+ * @brief Extra detail passed with xAiBudgetEvent_Truncated.
+ */
+XDEF_STRUCT(xAiBudgetTruncateInfo) {
+  /** Number of history entries that were removed. */
+  size_t entries_removed;
+};
+
+/**
+ * @brief Callback invoked when a budget-policy lifecycle event fires.
+ *
+ * @p info is event-specific; its concrete type depends on @p event:
+ *   - Compacting  → xAiBudgetCompactInfo
+ *   - CompactDone → xAiBudgetCompactDoneInfo
+ *   - Truncated   → xAiBudgetTruncateInfo
+ *
+ * @p info may be NULL if the implementation cannot provide detail
+ * (e.g. OOM while building the struct). The caller must check.
+ *
+ * @param sess   The session.
+ * @param event  Which budget event fired.
+ * @param info   Event-specific detail (may be NULL).
+ * @param ud     The user_data from xAiBudgetConf.
+ */
+typedef void (*xAiBudgetEventFunc)(xAiSession      sess,
+                                  xAiBudgetEvent  event,
+                                  const void     *info,
+                                  void           *ud);
 
 /**
  * @brief Configuration for the session's context-budget enforcement.
@@ -310,9 +403,27 @@ XDEF_STRUCT(xAiBudgetConf) {
    * pathological budget could otherwise leave the model with only
    * the current input and no conversational context. The session
    * may clamp very high values downward if honouring them would
-   * itself violate @ref max_tokens.
+   *     itself violate @ref max_tokens.
    */
   size_t keep_recent_turns;
+
+  /**
+   * @brief Optional callback for budget-policy lifecycle events.
+   *
+   * Fires when the budget gate takes observable action (compacting
+   * old history, completing a compact, truncating entries). Leave
+   * NULL if you don't need these notifications — the session's
+   * behaviour is the same either way.
+   *
+   * This is a side-channel: it does NOT replace on_done or any
+   * xAiSessionCallbacks entry. It exists so callers can
+   * distinguish "Busy because compacting" from "Busy because a
+   * user Query is in flight" and know when to retry.
+   */
+  xAiBudgetEventFunc on_budget_event;
+
+  /** Forwarded to every invocation of @ref on_budget_event. */
+  void *budget_event_ud;
 };
 
 /**
@@ -372,12 +483,12 @@ XDEF_STRUCT(xAiSessionConf) {
   /**
    * @brief Optional late-teardown hook, paired with @ref finalizing_owner.
    *
-   * See xAiSessionFinalizingFn for semantics. Leave NULL if not
+   * See xAiSessionFinalizingFunc for semantics. Leave NULL if not
    * used. Regular application code does NOT need this — it exists
    * so the future Agent layer can attach without a second round of
    * API changes.
    */
-  xAiSessionFinalizingFn on_finalizing;
+  xAiSessionFinalizingFunc on_finalizing;
   void                  *finalizing_owner; /**< Passed back to
                                                 @ref on_finalizing. */
 };

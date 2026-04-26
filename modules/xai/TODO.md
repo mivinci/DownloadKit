@@ -14,7 +14,7 @@
 > `query_test.cpp` 独立承担。详见架构文档 §11.3 addendum。
 >
 > **下一个动手项：§1 Async teardown**（与 Session/Query 拆分 Step 2 一同落地）。
-> §6 context_budget α 已完成（四个 commit 全部落地 + EWMA 校准器增强，
+> §7 context_budget α 已完成（四个 commit 全部落地 + EWMA 校准器增强，
 > 46 个测试全绿），详见已完成归档。
 
 模块级落地细节清单。**架构级 / 跨层 TODO 不住这里**，看
@@ -71,7 +71,99 @@
   back-pressure 不变**，这个不能改。
   **动手时机**：真有两个 caller 场景后再做，现在纯投机。
 
-## 2. Provider 扩展
+## 2. Agent 分层记忆体系（L1–L4）
+
+Agent 层的四层记忆 / 行为体系。L1 钩子已预留（`on_produced` +
+`on_finalizing`），L2–L4 待落地。
+
+三种 session 的交互模型：
+
+| 场景 | Origin | 谁创建 | 谁销毁 | 生命周期 |
+| ------ | -------- | -------- | -------- | ---------- |
+| Default Session | `User` | Agent 创建时自动 | Agent 销毁时自动 | 跟 Agent 同生共死 |
+| 用户新开 Session | `User` | 用户调 `xAiAgentCreateSession` | 用户调 `xAiSessionDestroy` | 用户控制 |
+| Agent 主动唤醒 Session | `SystemSynthesized` | Agent 内部 | Agent 内部 | Agent 控制 |
+
+### L1 — 即时记忆提取（Immediate Memory Extraction）
+
+- [x] **`on_produced` 钩子**。
+  位置：session 每轮 provider 产出后、`on_done` 前。Agent 通过
+  `xAiAgentCreateSession` 注入。当前实现为 stub（空回调）。
+  提取目标：用户偏好、关键事实、决策记录等结构化观察。
+
+- [x] **`on_finalizing` 钩子**。
+  位置：session 销毁前（`xAiSessionDestroy` 内）。Agent 注入。
+  当前实现为 stub。提取目标：会话级摘要、情绪 delta、整体印象。
+
+- [ ] **L1 提取逻辑实现**。
+  当前两个钩子是空 stub。需要：
+  1. 设计提取产物的结构化 schema（偏好 / 事实 / 决策各是什么格式）
+  2. 实现 `on_produced` 内的提取逻辑（可能用一次内部 LLM 调用
+     "extract observations from this exchange"）
+  3. 实现 `on_finalizing` 内的汇总逻辑
+  4. 提取结果交付给 L2 持久化
+
+### L2 — 长期记忆存储与检索（Long-term Memory Store & Retrieval）
+
+- [ ] **记忆存储后端**。
+  持久化 L1 提取的结构化记忆。设计选项：
+  - (a) 简单文件 / SQLite（嵌入式，零依赖）
+  - (b) 向量数据库（语义检索，但加重依赖）
+  初期倾向 (a)，等真实 workload 再评估 (b)。
+
+- [ ] **记忆注入到新 session**。
+  `xAiAgentCreateSession` 创建 session 时，从 L2 检索与当前上下文
+  相关的记忆，注入到 system prompt 或 history 前缀。这是用户说的
+  "认知、记忆之类的由 agent 在创建的时候注入"。
+
+- [ ] **记忆淘汰 / 合并策略**。
+  长期运行后记忆条目会膨胀。需要：
+  - 相似记忆合并（"喜欢简洁" + "偏好简短" → 合并）
+  - 过期淘汰（时间衰减权重）
+  - 容量上限（LRU 或优先级排序）
+
+### L3 — 情绪 / 状态追踪（Mood & State Tracking）
+
+- [ ] **Mood delta 追踪**。
+  在 `on_finalizing` 中记录每次会话的情绪变化量：
+  - 情绪维度：满意度、困惑度、紧迫感等
+  - 累积方式：session 级 delta → agent 级 running average
+  - 不需要 LLM 调用，可以从 usage pattern / 对话长度 / tool 调用频率
+    等信号量推断
+
+- [ ] **活跃度 / 疲劳度模型**。
+  追踪 agent 的"工作状态"：
+  - 近 N 小时内的 session 数 / token 消耗量
+  - 活跃度评分 → 影响 L4 的唤醒频率（活跃时少打扰，空闲时可以提醒）
+  - 疲劳度 → 触发 context budget 更激进的压缩策略
+
+### L4 — 主动唤醒 / 调度（Proactive Wake-up & Scheduling）
+
+- [ ] **定时 / 事件驱动唤醒框架**。
+  Agent 自行决策何时主动创建 `origin=SystemSynthesized` 的 session，
+  调 `xAiSessionInput` 发起主动对话。场景：
+  - 定时提醒（"该复查代码了"）
+  - 任务完成通知（后台 tool 执行完毕）
+  - 主动建议（"我发现一个优化点"）
+
+- [ ] **唤醒策略**。
+  基于状态量决定是否唤醒：
+  - L3 的活跃度 / 疲劳度 → 唤醒频率控制
+  - L2 的记忆 → 唤醒内容的个性化
+  - 外部事件 → tool 返回的 deferred result / 文件变更通知等
+
+- [ ] **唤醒 session 的生命周期管理**。
+  - 创建：agent 内部调 `xAiAgentCreateSession`，origin 设为
+    `SystemSynthesized`
+  - 运行：组装 agent nudge 消息，调 `xAiSessionInput`
+  - 销毁：对话结束后 `xAiSessionDestroy`
+  - 与 default session 的关系：两者独立，互不干扰。Default session
+    是用户的默认入口（origin=User），唤醒 session 是 agent 主动发起
+    （origin=SystemSynthesized）。
+
+---
+
+## 3. Provider 扩展
 
 - [ ] **`provider_anthropic.{h,c}`** — Anthropic Messages API。
   - 独立头文件 `<xai/provider_anthropic.h>` + 自己的 `xAiAnthropicConf`
@@ -104,7 +196,7 @@
     catalog + 稳定的 few-shot）
   **动手时机**：Anthropic provider 落地后自然触发。
 
-## 3. Tool 工程
+## 4. Tool 工程
 
 - [ ] **MCP (Model Context Protocol) adapter**。
   - 薄薄一层 shim：把一个 MCP server 暴露的 tool catalog 翻译成
@@ -127,7 +219,7 @@
     "aborted"，session 按"handler error"回流
   **动手时机**：有真实长跑 tool 时再做。现在 tool 都是毫秒级同步计算。
 
-## 4. 测试
+## 5. 测试
 
 - [ ] **E2E smoke test**：起一个 local OpenAI-compatible endpoint
   （llama.cpp server 或自写 stub），跑完整 session → tool → session
@@ -137,7 +229,7 @@
   **动手时机**：Session/Query 拆分的 Step 2 做完时顺手补——拆出
   `xAiQuery` 之后恰好是测"单次 query 端到端"的最小单元。
 
-## 5. 构建 / 打包
+## 6. 构建 / 打包
 
 - [ ] **cJSON vs 手写 parser 的最终抉择**。
   现状：`provider_openai.c` 用 cJSON。xfer 已经 PRIVATE link 了 cJSON，
@@ -151,7 +243,7 @@
   等 xKit 顶层 `install` target 定下来后，xai 的公共头按规则补上
   （`<xai/session.h>` / `<xai/provider.h>` / `<xai/message.h>` 等）。
 
-## 6. Context budget（历史长度管控）
+## 7. Context budget（历史长度管控）
 
 **问题**：一次 query 发起前，messages（system prompt + 历史 +
 tool_use/tool_result 对）累加的 token 可能超过模型 context window。
@@ -162,7 +254,7 @@ tool_use/tool_result 对）累加的 token 可能超过模型 context window。
 在这一个钩子上统一拦截——不管是 `xAiSessionInput` 刚开的新轮还是
 tool_result 回流后的下一轮，都走这里。
 
-### 6.1 分阶段落地
+### 7.1 分阶段落地
 
 **分两步走，不要一把梭**：α 铺骨架，β 复用 α 的 hook 做真正的智能压缩。
 
@@ -172,13 +264,13 @@ tool_result 回流后的下一轮，都走这里。
   拆成下列 commit：
   1. `xAiBudgetPolicy` 枚举 + `xAiSessionConf.budget`
      字段定义（默认 disabled，向后兼容）
-  2. Token 预估器（按字节数 /4 粗估，见 §6.3）+ "保留边界"工具函数
+  2. Token 预估器（按字节数 /4 粗估，见 §7.3）+ "保留边界"工具函数
      （system prompt / 当前 Input() 的新 user 消息 / 未配对的
-     tool_use↔tool_result 不能丢，见 §6.4）
+    tool_use↔tool_result 不能丢，见 §7.4）
   3. Query 发起前的预算检查 + TruncateOldest 策略完整闭环
   4. 单测：覆盖 "边界正好 / 刚好超 / 远超 / tool 对完整性" 四档
 
-- [ ] **β：summary query 调度**。
+- [x] **β：summary query 调度**。
   在 α 的 hook 点上，当策略为 `SummarizeOldest` 时，session 起一次
   **短平快的内部 query**（复用同一 agent 的 provider，但带独立 system
   prompt "Summarise this conversation segment in ≤200 words, preserve
@@ -192,7 +284,7 @@ tool_result 回流后的下一轮，都走这里。
   **动手时机**：α 跑通且有真实长对话 workload 后再做。没有实际 workload
   的 β 等于过度设计。
 
-### 6.2 预算配置位置
+### 7.2 预算配置位置
 
 放 **`xAiSessionConf`**，不是 agent 也不是 query：
 
@@ -222,7 +314,7 @@ XDEF_STRUCT(xAiBudgetConf) {
 };
 ```
 
-### 6.3 Token 预估
+### 7.3 Token 预估
 
 三档选择：
 
@@ -239,7 +331,7 @@ XDEF_STRUCT(xAiBudgetConf) {
 
 实现位置：`session.c` 内 `static size_t estimate_tokens(const xAiMessage *, size_t n)`，不暴露到头文件。
 
-### 6.4 保留边界（硬不变量）
+### 7.4 保留边界（硬不变量）
 
 无论策略怎么选，**这四类消息绝不能被 trim 掉**：
 
@@ -255,7 +347,7 @@ XDEF_STRUCT(xAiBudgetConf) {
 单测用 fixture 覆盖：只有 tool_use 没 tool_result、tool_result 跨轮、
 连续多个 tool_use 等 case。
 
-### 6.5 回调契约（Callback 策略 / Summarize 策略共用）
+### 7.5 回调契约（Callback 策略 / Summarize 策略共用）
 
 ```c
 /* session.h 追加 */
@@ -265,7 +357,7 @@ XDEF_STRUCT(xAiSessionCallbacks) {
   /* 预算超标时触发。Session 已经算出 estimated/budget，让调用方
    * 决定改写后的 messages。返回 Ok=接受改写；非 Ok=放弃本次 Input，
    * session 走 on_error(xErrno_ResourceExhausted)。
-   * 改写必须保持 §6.4 的四条不变量，session 会再校验一次。*/
+   * 改写必须保持 §7.4 的四条不变量，session 会再校验一次。*/
   xErrno (*on_compact)(const xAiMessage *in, size_t n_in,
                        xAiMessage **out, size_t *n_out,
                        size_t estimated_tokens, size_t budget,
@@ -276,7 +368,7 @@ XDEF_STRUCT(xAiSessionCallbacks) {
 Summarize 策略不暴露 on_compact——它自己内部实现，对用户透明。
 Callback 策略给高级用户用（自己接 tiktoken、自己决定丢哪条）。
 
-### 6.6 动手时机
+### 7.6 动手时机
 
 **Step 2（Session/Query 拆分）之后**。原因：Query 层会承接"发起
 provider 调用"这个动作，budget hook 装在 Query 里比装在 Session 里

@@ -59,7 +59,7 @@ XDEF_HANDLE(xArray);
  *
  * @param elem  Pointer to the newly added element (type-erased).
  */
-typedef void (*xArrayRetain)(void *elem);
+typedef void (*xArrayRetainFunc)(void *elem);
 
 /**
  * @brief Per-element release callback.
@@ -69,7 +69,7 @@ typedef void (*xArrayRetain)(void *elem);
  *
  * @param elem  Pointer to the element being removed (type-erased).
  */
-typedef void (*xArrayRelease)(void *elem);
+typedef void (*xArrayReleaseFunc)(void *elem);
 
 /**
  * @brief Per-element equality callback.
@@ -80,7 +80,7 @@ typedef void (*xArrayRelease)(void *elem);
  * @param key   Pointer to the key passed to xArrayFind().
  * @return Non-zero if the element matches the key, 0 otherwise.
  */
-typedef int (*xArrayEqual)(const void *elem, const void *key);
+typedef int (*xArrayEqualFunc)(const void *elem, const void *key);
 
 /**
  * @brief Lifecycle and comparison callbacks for xArray.
@@ -88,9 +88,9 @@ typedef int (*xArrayEqual)(const void *elem, const void *key);
  * All fields are optional (may be NULL).
  */
 XDEF_STRUCT(xArrayCallbacks) {
-  xArrayRetain  retain;
-  xArrayRelease release;
-  xArrayEqual   equal;
+  xArrayRetainFunc  retain;
+  xArrayReleaseFunc release;
+  xArrayEqualFunc   equal;
 };
 
 /* ───────────────────── Lifecycle ───────────────────── */

@@ -13,7 +13,12 @@ BASE_SHA="${2:-}"
 HEAD_SHA="${3:-}"
 
 # ── Module dependency map ────────────────────────────────────────────────
-# module -> all modules that transitively depend on it (including itself)
+# Requires bash >= 4 for associative arrays
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  echo "ERROR: This script requires bash >= 4 (found ${BASH_VERSION:-unknown})." >&2
+  exit 1
+fi
+
 declare -A DEPENDENTS
 DEPENDENTS[xbase]="xbase xlog xbuf xnet xcrypto xhttp xp2p xfer xai"
 DEPENDENTS[xlog]="xlog"
@@ -87,10 +92,10 @@ for module in $AFFECTED_MODULES; do
 done
 MATRIX_INCLUDE="$MATRIX_INCLUDE]"
 
-# ── Write output ─────────────────────────────────────────────────────────
+# ── Write output ─────────────────────────────────────────────────────────────────
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
-  echo "matrix=$MATRIX_INCLUDE" >> "$GITHUB_OUTPUT"
+  COMPACT_MATRIX=$(echo "$MATRIX_INCLUDE" | jq -c .)
+  echo "matrix=$COMPACT_MATRIX" >> "$GITHUB_OUTPUT"
 fi
-
 echo "Generated matrix:"
 echo "$MATRIX_INCLUDE" | jq .

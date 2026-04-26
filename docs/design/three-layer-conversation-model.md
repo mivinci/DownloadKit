@@ -93,6 +93,7 @@ graph LR
 ```
 
 特点：
+
 - **State 是一个扁平对象**，messages / tools / permissions / todos 都在里面。
 - **没有"会话"这个概念**——一次 `query()` 调用从开始到结束就是全部生命周期。
 - **没有"身份"这个概念**——AI 是谁由 system prompt + CLAUDE.md 等外部文件隐式组成，不是一等公民。
@@ -120,6 +121,7 @@ graph LR
 ```
 
 特点：
+
 - Memory 是**可插拔组件**，有很多种实现（`ConversationBufferMemory`、`ConversationSummaryMemory`、`VectorStoreRetrieverMemory`）。
 - 但 Memory 的**生存期跟谁绑**没有统一答案——用户常常自己 new 一个 Memory 挂到 AgentExecutor 上，然后靠业务代码维护它和"某个用户的某次对话"的对应关系。
 - "Agent 是谁"和"这次对话"的边界由使用者自己划，框架不管。
@@ -145,6 +147,7 @@ graph TD
 ```
 
 特点：
+
 - 核心是 **Thought → Action → Observation** 循环，为**完成一个 goal** 服务。
 - 没有对话概念——一次运行就是一个任务实例。
 - 长期记忆通常通过外挂向量库实现，但"AI 跨任务的自我"基本不存在。
@@ -173,6 +176,7 @@ graph LR
 ```
 
 特点：
+
 - Agent 是一等公民，而且是**持久化**的——这比 Claude Code 和 LangChain 都进了一步。
 - Core / Archival / Recall 三种 memory 让记忆分层了。
 - 但仍然**没有 Session 这一层**——多次对话和一次对话在数据模型上没有边界，都是 recall memory 里的连续消息流。
@@ -199,6 +203,7 @@ graph LR
 Agent 是一个**有持久身份的实体**。它的生存期是"从被创造出来到被销毁"，跨越任意次进程重启。
 
 承载的内容：
+
 - **谁**：名字、角色、system prompt、人格设定
 - **长期记忆**：经年累月积累下来的事实、经验、偏好
 - **情绪基线**：这个 AI 的"性格倾向"——容易开心？容易焦虑？
@@ -211,6 +216,7 @@ Agent **不直接处理请求**。当一个对话要发生时，它派生出一�
 Session 是一次**有明确开始和结束的对话实例**。它的生存期从"开始聊"到"结束聊"，短则几分钟，长则几小时。
 
 承载的内容：
+
 - **短期记忆**：这次对话的上下文——最近说过什么、共同约定了什么
 - **当前情绪状态**：mood 在这次对话里的演化（被骂了会沮丧，得到感谢会愉悦）
 - **工具启用集**：这次对话能用哪些工具（可以是 Agent 能力目录的子集）
@@ -223,6 +229,7 @@ Session 结束时有一个**关键时刻**：决定短期记忆里的哪些内�
 Query 是**一次 user turn 到 assistant 完成**的过程。它的生存期从"用户发来一条消息"到"AI 完成所有回复和 tool call"。
 
 承载的内容：
+
 - **这次的消息对**：user message + assistant reply（可能穿插若干 tool call）
 - **tool call loop**：ReAct 风格的 think→act→observe 在这里发生
 - **取消作用域**：用户按 Ctrl+C 取消的是**这一次 Query**，不影响 Session 或 Agent
@@ -430,6 +437,7 @@ sequenceDiagram
 ```
 
 **关键点**：
+
 - 触发器在 **Agent 层**——`while (true) { sleep; check_memory; maybe_speak; }` 这类 dormant loop 必须是 Agent 的一部分，不能挂在任何 Session 下。
 - 对话渠道由 Agent 主动**创建或复用** Session——这意味着 Session 不能是"user 来了才创建"的被动资源。
 - "要不要开口"的决策需要访问**跨 Session 的历史**——只有 Agent 层持有这个视角。
@@ -462,6 +470,7 @@ sequenceDiagram
 ```
 
 **关键点**：
+
 - 触发器在 **Session 层**——是 Session 对"上一个 Query 结果不完整"的**反应策略**。
 - 不需要创建新 Session，也不需要访问跨会话记忆。
 - **Query N+0.5** 是 assistant-initiated 的——messages 数组里多一条 assistant 消息，但它不是对某条 user message 的回复。
@@ -555,4 +564,3 @@ xKit 的 `xai` 模块大体就是按这个切法做的：
 - MemGPT: Towards LLMs as Operating Systems（Packer et al., 2023）
 - LangChain Agent 文档（memory-as-plugin 范式）
 - ReAct: Synergizing Reasoning and Acting in Language Models（Yao et al., 2022）
-

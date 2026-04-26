@@ -55,7 +55,7 @@
 
 ## L1：即时记忆提取
 
-### 职责
+### 职责 — 即时提取
 
 从每次对话产出中提取**结构化观察**——用户偏好、关键事实、决策记录——然后交给 L2 裁决落盘。
 
@@ -120,13 +120,13 @@ XDEF_STRUCT(xAiObservation) {
 };
 ```
 
-2. **`on_produced` 内的提取逻辑**。两阶段：
+1. **`on_produced` 内的提取逻辑**。两阶段：
    - **规则先过**：检测硬特征（专有名词、数字、时间、URL、明确偏好词"我喜欢/讨厌/用…"），匹配则直接构造 `xAiObservation`，confidence=1.0。
    - **不确定时调 LLM**：一次 prompt ≤ 200 tokens，让模型判断 yes/no + 提取摘要。这个 LLM call 复用 Agent 配置的 provider。
 
-3. **`on_finalizing` 内的汇总逻辑**。用一次 LLM call 做会话级摘要，输出若干 `xAiObservation` + mood delta + 未完结话题。
+2. **`on_finalizing` 内的汇总逻辑**。用一次 LLM call 做会话级摘要，输出若干 `xAiObservation` + mood delta + 未完结话题。
 
-4. **提取结果交付给 L2**。`on_produced` 和 `on_finalizing` 的产物通过回调交给 Agent 层，Agent 层的 L2 模块裁决是否落盘。
+3. **提取结果交付给 L2**。`on_produced` 和 `on_finalizing` 的产物通过回调交给 Agent 层，Agent 层的 L2 模块裁决是否落盘。
 
 ### 提取的成本控制
 
@@ -136,7 +136,7 @@ MVP-a 阶段的目标：**≥ 60% 的观察不需要 LLM call 就能决定入库
 
 ## L2：长期记忆存储与检索
 
-### 职责
+### 职责 — 持久化与注入
 
 1. **持久化** L1 提取的结构化记忆。
 2. 在 `xAiAgentCreateSession` 创建新 Session 时，**检索与当前上下文相关的记忆，注入到 system prompt**。
@@ -194,7 +194,7 @@ xAiAgentCreateSession(agent, conf)
 
 ## L3：情绪 / 状态追踪
 
-### 职责
+### 职责 — 状态追踪
 
 1. 追踪每次会话的**情绪变化量**（mood delta）。
 2. 维护 Agent 级的**活跃度 / 疲劳度**模型。
@@ -255,7 +255,7 @@ XDEF_STRUCT(xAiAgentVitality) {
 
 ## L4：主动唤醒 / 调度
 
-### 职责
+### 职责 — 主动唤醒
 
 Agent 自行决策何时主动创建 `origin=SystemSynthesized` 的 Session，调 `xAiSessionInput` 发起主动对话。
 

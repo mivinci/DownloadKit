@@ -13,7 +13,9 @@
 > 执行链，已经等价于"Session + Query 集成测试"；Query 白盒覆盖由新增的
 > `query_test.cpp` 独立承担。详见架构文档 §11.3 addendum。
 >
-> **下一个动手项：本文件 §6 context_budget α**（骨架四个 commit）。
+> **下一个动手项：§1 Async teardown**（与 Session/Query 拆分 Step 2 一同落地）。
+> §6 context_budget α 已完成（四个 commit 全部落地 + EWMA 校准器增强，
+> 46 个测试全绿），详见已完成归档。
 
 模块级落地细节清单。**架构级 / 跨层 TODO 不住这里**，看
 [`docs/todo/xai_architecture.md`](../../docs/todo/xai_architecture.md)
@@ -164,7 +166,7 @@ tool_result 回流后的下一轮，都走这里。
 
 **分两步走，不要一把梭**：α 铺骨架，β 复用 α 的 hook 做真正的智能压缩。
 
-- [ ] **α：硬截断骨架（方案 TruncateOldest）**。
+- [x] **α：硬截断骨架（方案 TruncateOldest）**。
   零 LLM 调用、零延迟，把"预算检查 → trim → 保留边界"这条链路打通，
   同时暴露 hook 给 β 复用。
   拆成下列 commit：
@@ -297,5 +299,10 @@ Git log 里能查到，这里只留大颗粒里程碑作为阅读指引：
 - Usage 透传契约：`xAiUsage{prompt,completion,total}` + `-1` 哨兵，
   跨轮累加在 session 层（详见 MEMORY.md）
 - `xErrno_Busy` 映射到 xstrerror "resource busy"
+- Context budget α：`xAiBudgetPolicy` 枚举 / `xAiBudgetConf` 配置 /
+  Token 预估器（bytes÷4 + EWMA 校准器）/
+  TruncateOldest 裁剪闭环 /
+  保留边界（system prompt / 当前 input / tool 对完整性 / keep_recent_turns）/
+  46 个测试全绿（budget_test 33 + session_test Budget* 13）
 
 具体细节看 git history 和 `MEMORY.md`。

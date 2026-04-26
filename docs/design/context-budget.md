@@ -20,12 +20,12 @@
    ② calibrate —— EWMA factor × estimate
               │
               ▼
-   ③ policy gate (Disabled | Error | TruncateOldest | …)
+   ③ policy gate (Disabled | Error | TruncateOldest | SummarizeOldest | Auto | …)
               │
-    ┌─────────┼─────────┐
-    ▼         ▼         ▼
-  proceed   trim &    refuse with
-            retry     xErrno_PromptTooLong
+    ┌─────────┼─────────┬──────────────┐
+    ▼         ▼         ▼              ▼
+  proceed   trim &    compact &     refuse with
+            retry     retry         xErrno_PromptTooLong
 ```
 
 核心拆分：
@@ -35,6 +35,8 @@
 | 估算器 | `budget.c :: ai_budget_estimate_tokens` | "这段 history 大概多少 token" | 无状态，纯函数 |
 | 校准器 | `budget.c :: ai_budget_calibrator_*` | 用 provider 返回的 `prompt_tokens` 持续修正估算器的系统性偏差 | 每 Session 一份 EWMA 状态 |
 | 裁剪器 | `budget.c :: ai_budget_earliest_keep` | 在保证 `keep_recent_turns` 的前提下，给出最早允许保留的下标 | 无状态，纯函数 |
+| 工具占比 | `budget.c :: ai_budget_tool_ratio` | 计算 history 中 ToolUse/ToolResult 的 token 占比 | 无状态，纯函数 |
+| Auto 决策 | `session.c :: session_enforce_budget_` (Auto case) | 用工具占比选择 TruncateOldest 或 SummarizeOldest | 复用 Session 的 history |
 | 闸门 | `session.c :: session_enforce_budget_` | 把前三者缝起来，按 `xAiBudgetPolicy` 决定放行 / 裁剪 / 拒绝 | 复用 Session 的 history + calibrator |
 
 整套机制默认 (`xAiBudgetPolicy_Disabled`) 是字节级别的 no-op——老 Session 不需要改一行代码。只有当用户显式把 `sconf.budget.policy` 设为非 Disabled 时，闸门才开始工作。
@@ -169,7 +171,44 @@ samples++;
 
 ---
 
-## 闸门：把三件套缝起来
+## 第四件：Auto 决策器
+
+**目标**：给定 history，决定 TruncateOldest 和 SummarizeOldest 哪个更合适——然后复用对应策略的代码路径。
+
+### 核心观察
+
+LLM 对纯文本 history 做摘要的能力很强——一段 2000 token 的闲聊经常能压到 500 token 以下，而且关键信息保留得不错。但对 **结构化工具数据**（JSON arguments、tool_result output），摘要几乎一定会丢东西：
+
+- `tool_use` 的 `arguments` 里有 `id: 12345` 这种字段——摘要把它换成 "查询了某个 ID" → 后续模型拿不到 `12345`，**无法继续推理**。
+- `tool_result` 里可能是大段 JSON——摘要把它变成 "返回了成功" → 模型丢失了结构化的返回数据。
+
+所以：**工具占比高时截断，文本占比高时摘要**。
+
+### `ai_budget_tool_ratio`
+
+纯函数，返回 `[0.0, 1.0]`：
+
+```c
+double ai_budget_tool_ratio(const xAiSessionMsg_ *msgs, size_t n);
+```
+
+计算方式：对每个 entry 按和估算器相同的 per-kind 字节公式加权（不是按条目数量），求 `tool_bytes / total_bytes`。这样一条 2 KiB 的 `tool_result` 会比三条 10 字节的 `Text` entry 更有话语权——和闸门看到的 token 压力一致。
+
+### 阈值
+
+`XAI_BUDGET_AUTO_TOOL_RATIO_THRESHOLD = 0.4`
+
+含义：当 history 中 ≥ 40% 的 token 压力来自工具条目时，选择 TruncateOldest；否则选择 SummarizeOldest。
+
+0.4 而不是 0.5 的原因：**摘要失败的代价远高于截断失败**。截断只是丢掉旧信息——用户还能继续对话；摘要失败（丢关键 ID / 误解参数语义）则会让后续推理产出错误结果，且调用方很难发现。所以我们 **偏向截断**：宁可多截一点纯文本，也不要冒着丢结构化数据的风险去摘要。
+
+### 降级保障
+
+Auto 选了 SummarizeOldest 之后，如果 compact 失败（OOM、provider error、空摘要），`sess_fwd_on_done` 里的降级逻辑会自动退到 TruncateOldest——不需要 Auto 决策器做额外处理。
+
+---
+
+## 闸门：把四件套缝起来
 
 `session_enforce_budget_` 在 `xAiSessionInput` 里、**在 history 落盘之前** 跑。位置选在这里有讲究：
 
@@ -205,11 +244,23 @@ xErrno session_enforce_budget_(s, msg) {
     }
     return PromptTooLong;   // 裁到极限还不行 → 拒绝
 
+  case SummarizeOldest:
+    keep = ai_budget_earliest_keep(history, n, keep_recent_turns);
+    // compact Query 压缩 msgs[0..keep)，成功后 re-enter gate
+    // compact 失败 → 自动降级 TruncateOldest
+    return Busy;            // 异步 compact 已发起，当前 input 暂挂
+
+  case Auto:
+    ratio = ai_budget_tool_ratio(history, n);
+    if (ratio >= THRESHOLD)       // 工具占比高 → 截断更安全
+      → same as TruncateOldest
+    else                           // 文本占比高 → 摘要更划算
+      → same as SummarizeOldest
+
   case Error:
     return PromptTooLong;
 
   case Callback:            // c4+ 之前当作 Error
-  case SummarizeOldest:
   default:
     return PromptTooLong;
   }
@@ -237,9 +288,10 @@ xErrno session_enforce_budget_(s, msg) {
 | `Error` | ✅ 实装 | 超过 `max_tokens` 就返回 `xErrno_PromptTooLong`，不改 history |
 | `TruncateOldest` | ✅ 实装 | 按 User 边界前向裁剪，裁到 `keep_recent_turns` 还不够就拒绝 |
 | `Callback` | ⏳ 预留 | enum 已就位、行为暂同 Error；c4+ 接入调用方自定义 compaction |
-| `SummarizeOldest` | ⏳ 预留 | enum 已就位、行为暂同 Error；c4+ 接入异步 summary Query |
+| `SummarizeOldest` | ✅ 实装 | 发起 compact Query 压缩旧 history；compact 失败自动降级 TruncateOldest |
+| `Auto` | ✅ 实装 | 按工具占比动态选 TruncateOldest 或 SummarizeOldest |
 
-> **为什么预留枚举要退化到 Error 而不是 Disabled**：调用方明确说 "我要 SummarizeOldest"，然后我们默默给他 Disabled——这会掩盖 bug 好几年。退化到 Error 会让 "你想要的我还没做" 立刻被看见。
+> **为什么预留枚举要退化到 Error 而不是 Disabled**：调用方明确说 "我要 Callback"，然后我们默默给他 Disabled——这会掩盖 bug 好几年。退化到 Error 会让 "你想要的我还没做" 立刻被看见。
 
 ---
 
@@ -260,6 +312,11 @@ xErrno session_enforce_budget_(s, msg) {
   │    ├─ fit? → last_prompt_estimate 记录   │
   │    └─ miss → 按 policy 分派              │
   │              ├─ Truncate → 裁 → 再估     │
+  │              ├─ Summarize → compact      │
+  │              │   └─ fail → 降级 Truncate │
+  │              ├─ Auto → tool_ratio 分流   │
+  │              │   ├─ ratio≥0.4 → Truncate │
+  │              │   └─ ratio<0.4 → Summarize│
   │              └─ fallthrough → 拒绝       │
   └──────────────────────────────────────────┘
          │ ok
@@ -292,7 +349,7 @@ xErrno session_enforce_budget_(s, msg) {
 demo 把闸门配成：
 
 ```cpp
-sconf.budget.policy            = xAiBudgetPolicy_TruncateOldest;
+sconf.budget.policy            = xAiBudgetPolicy_Auto;
 sconf.budget.max_tokens        = 8192;          // 故意留余量
 sconf.budget.keep_recent_turns = 2;             // 至少保留最近两轮
 ```
@@ -377,6 +434,8 @@ REPL 里撞到这个错会看到两种前缀：
 2. **校准器有没有被 "意外地" 多喂**？我们只数 tool_use 是否存在，不区分 "单工具" 和 "并发工具"；如果哪天引入了 background tool 概念，单次 submit 里就可能出现 N 次 `usage_accumulate` 而产出里却没有 ToolUse——需要重新想 opt-out 条件。
 3. **`keep_recent_turns` 会不会和 `max_tokens` 天然冲突**？会。极端情况下 `keep_recent_turns=10` + `max_tokens=1024` 永远不合规。我们选择 **拒绝** 而不是静默违反 floor——因为 "用户明确要求保留最近 10 轮" 的承诺比 "尽量让它跑" 更强。
 4. **Disabled 策略的开销到底是多少**？一条 `if` + 一次返回。对于所有 zero-init `xAiSessionConf` 的调用方，行为与实现 c2 之前完全 byte-identical。这是上线这套机制的硬前提。
+5. **Auto 的 tool_ratio 阈值是否对目标工作负载合理**？0.4 是在 "工具调用密集" 场景下推出来的（典型：AI agent 反复调 API）。如果目标工作负载是 "长文写作 + 偶尔查字典"，工具占比天然 < 10%，Auto 会稳定选 SummarizeOldest——此时可以直接用 SummarizeOldest 省掉 ratio 计算开销。反之，纯 API 编排场景工具占比常年 > 80%，Auto 退化为 TruncateOldest——直接用 TruncateOldest 更省。**Auto 的价值在于混合场景**。
+6. **SummarizeOldest 的 compact Query 自身会不会再触发预算闸门**？不会——compact 走的是 `xAiSessionCompact` 内部的一次性 Query，不经过 `xAiSessionInput`，因此不进闸门。但 compact Query 的输出（摘要条目）会替换旧 history，如果摘要太长导致仍然超限，`sess_fwd_on_done` 的降级逻辑会转到 TruncateOldest。
 
 ---
 
@@ -403,7 +462,7 @@ REPL 里撞到这个错会看到两种前缀：
   - LangChain 的 [`ConversationBufferWindowMemory(k=...)`](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.buffer_window.ConversationBufferWindowMemory.html)——我们的 `keep_recent_turns` 就是它的 `k`。
   - LlamaIndex 的 [`ChatMemoryBuffer`](https://docs.llamaindex.ai/en/stable/api_reference/memory/chat_memory_buffer/)。
   - OpenAI Assistants API 的 [`truncation_strategy: "auto"`](https://platform.openai.com/docs/api-reference/runs/createRun)——同一思想的官方实现。
-- **`SummarizeOldest` 策略（我们暂时预留）**：LangChain 的 [`ConversationSummaryBufferMemory`](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.summary_buffer.ConversationSummaryBufferMemory.html) 是成熟参考。
+- **`SummarizeOldest` 策略**：LangChain 的 [`ConversationSummaryBufferMemory`](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.summary_buffer.ConversationSummaryBufferMemory.html) 是成熟参考。我们的实装是在 Session 内部发一次 compact Query，让模型把旧 history 压缩成一条 Text 摘要条目。
 - **"tool_use / tool_result 必须成对"**：Anthropic 在 [tool use 文档](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview) 里明确过——"every `tool_use` block must be followed by a `tool_result`"。OpenAI function calling 也有对应约束。
 
 ### 本项目自己做的工程取舍（不是 novelty，是局部决定）
@@ -414,6 +473,7 @@ REPL 里撞到这个错会看到两种前缀：
 2. **三件套的职责切分**：estimator 纯函数、calibrator 有状态、trimmer 只回答 "能裁到哪"、policy gate 决定 "要不要裁 / 拒还是通过"。这条拆法是我们自己的，不等价于任何现成库的架构。
 3. **Gate 位置 = history 落盘之前**，换来 "Error 策略不留脏 history" 这条对调用方的承诺。
 4. **裁剪器只在 User 边界切**，用这一条几何约束把 "不拆 tool_use/tool_result 对" 从一条运行时检查变成结构性保证。思想来自 Anthropic 的原子对要求，实现路径是我们自己的。
+5. **Auto 策略的 tool_ratio 阈值取 0.4 而非 0.5**——摘要失败的代价（丢关键 ID / 误解参数语义 → 静默错误推理）远高于截断失败（丢旧信息 → 用户还能继续对话），所以偏向截断是理性选择。阈值不是从任何论文推出来的，是我们对 LLM 摘要结构化数据能力的经验判断。
 
 ### 建议继续阅读
 

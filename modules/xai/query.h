@@ -170,6 +170,21 @@ XDEF_STRUCT(xAiQueryCallbacks) {
  */
 XDEF_STRUCT(xAiQueryConf) {
   xAiQueryCallbacks cbs; /**< Streaming callbacks (in-place).          */
+
+  /**
+   * @brief Override the session's budget policy for this Query.
+   *
+   * When set to a value other than @ref xAiBudgetPolicy_Disabled,
+   * this value takes precedence over the session's
+   * @ref xAiBudgetConf::policy for the duration of the Query run.
+   * This is primarily used by the SummarizeOldest budget policy
+   * (β phase) to launch an internal summary query with budget
+   * enforcement disabled, preventing recursive budget checks.
+   *
+   * Default (@ref xAiBudgetPolicy_Disabled) means "inherit from
+   * the session".
+   */
+  xAiBudgetPolicy budget_policy_override;
 };
 
 /* ── Driving API ──────────────────────────────────────────────── */

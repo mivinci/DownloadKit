@@ -75,6 +75,45 @@ static char *dup_cstr(const char *src) {
   return dup_bytes(src, strlen(src));
 }
 
+/* ── Per-thread free list for Query objects ───────────────────────
+ *
+ * xAiQueryCreate / Destroy are called on every Session input cycle,
+ * making them a hot path.  A per-thread free list avoids
+ * malloc/free overhead entirely — zero locks, zero atomics.
+ *
+ * We reuse query->next as the freelist link pointer (zero extra
+ * memory). A per-thread cap prevents unbounded caching.
+ */
+#define QUERY_FREELIST_CAP 16
+
+struct query_freelist {
+  struct xAiQuery_ *head;
+  size_t            count;
+};
+
+static __thread struct query_freelist tl_qfree = {NULL, 0};
+
+static struct xAiQuery_ *query_alloc(void) {
+  if (tl_qfree.head) {
+    struct xAiQuery_ *q = tl_qfree.head;
+    tl_qfree.head       = q->next;
+    tl_qfree.count--;
+    q->next = NULL;
+    return q;
+  }
+  return (struct xAiQuery_ *)calloc(1, sizeof(struct xAiQuery_));
+}
+
+static void query_free(struct xAiQuery_ *q) {
+  if (tl_qfree.count >= QUERY_FREELIST_CAP) {
+    free(q);
+    return;
+  }
+  q->next          = tl_qfree.head;
+  tl_qfree.head    = q;
+  tl_qfree.count++;
+}
+
 /* ── xArray callbacks for turn-entry arrays ──────────────────────
  *
  * Both inputs_arr and produced_arr store struct xAiSessionMsg_
@@ -911,7 +950,7 @@ xAiQuery xAiQueryCreate(xAiSession sess, const xAiQueryConf *conf) {
    * from code paths that don't go through xAiSessionInput. */
   if (s->query) return NULL;
 
-  struct xAiQuery_ *q = (struct xAiQuery_ *)calloc(1, sizeof(*q));
+  struct xAiQuery_ *q = query_alloc();
   if (!q) return NULL;
 
   q->session = s;
@@ -1008,7 +1047,10 @@ void xAiQueryDestroy(xAiQuery q) {
   xArrayDestroy(qq->inputs_arr);
   xArrayDestroy(qq->produced_arr);
 
-  free(qq);
+  /* Zero the struct (keeps it clean for the next query_alloc
+   * consumer) and return it to the per-thread free list. */
+  memset(qq, 0, sizeof(*qq));
+  query_free(qq);
 }
 
 xAiQuery xAiSessionQuery(xAiSession sess) {

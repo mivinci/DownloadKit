@@ -19,3 +19,9 @@ intended to be readable on their own, without prior knowledge of xKit internals.
   bleeding history ownership into Provider or Query. Covers the three-piece
   split (estimator / EWMA calibrator / front-trimmer), the policy gate wiring,
   and walks through the live numbers printed by `examples/ai_session.cpp`.
+- [Layered Memory](layered-memory.md) —
+  The four-layer memory / behaviour stack that sits on top of the three-layer
+  conversation model: L1 immediate extraction, L2 long-term store & retrieval,
+  L3 mood & vitality tracking, L4 proactive wake-up & scheduling. Covers the
+  data flow, the per-layer protocols, the three-type session interaction model,
+  and the MVP landing sequence.

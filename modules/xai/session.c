@@ -1012,6 +1012,19 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
   }
   /* No free(produced) — the xArray owns the buffer. */
 
+  /* ── Agent-layer L1 extraction hook ───────────────────────────
+   *
+   * Fire on_produced (if wired) after produced entries have been
+   * merged into history but before the caller's on_done. The
+   * produced array is still alive at this point (xArray owns it),
+   * and the history is fully up to date so the hook can read it.
+   * The hook is only present when the session was created via
+   * xAiAgentCreateSession(). */
+  if (s->on_produced) {
+    s->on_produced((xAiSession)s, produced, n_produced, usage,
+                   s->on_produced_ud);
+  }
+
   if (s->cbs.on_done) {
     s->cbs.on_done((xAiSession)s, reason, usage, s->cbs.user_data);
   }
@@ -1047,8 +1060,6 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   s->model      = conf->model ? conf->model : a->model;
   s->max_turns  = conf->max_turns > 0 ? conf->max_turns : a->max_turns;
   s->max_tokens = conf->max_tokens > 0 ? conf->max_tokens : a->max_tokens;
-  s->context_budget =
-    conf->context_budget > 0 ? conf->context_budget : a->context_budget;
 
   /* Structured budget config is a plain value copy: Disabled (the
    * zero default) keeps the session behaving exactly as before,
@@ -1097,8 +1108,10 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   struct xAiSession_ *s = (struct xAiSession_ *)sess;
 
   /* Single-flight: one live Query per Session. If the previous run
-   * is still in flight refuse with Busy. */
-  if (s->query) return xErrno_Busy;
+   * is still in flight refuse with Busy. Also refuse if a compact
+   * (SummarizeOldest) Query is in flight — the caller must wait
+   * for the compact to finish before submitting new input. */
+  if (s->query || s->compacting) return xErrno_Busy;
 
   /* Budget gate: consulted BEFORE any history mutation so the
    * Error policy can refuse without leaving partial state behind,

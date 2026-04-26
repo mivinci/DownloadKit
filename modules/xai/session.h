@@ -446,13 +446,12 @@ XDEF_STRUCT(xAiSessionConf) {
                               (0 = inherit).                        */
   int max_tokens;        /**< Override per-round token cap
                               (0 = inherit).                        */
-  size_t context_budget; /**< Legacy soft byte cap on the serialized
-                              prompt (0 = inherit from agent). New
-                              code should prefer @ref budget below;
-                              this field is retained so that older
-                              callers keep building unchanged while
-                              context_budget \u03b1 is being rolled out. */
-
+  size_t context_budget; /**< DEPRECATED: use @ref budget instead.
+                              This field is no longer inherited from
+                              the agent and is ignored by the session
+                              when @ref budget is configured. Retained
+                              for ABI compatibility only; will be
+                              removed in a future release.             */
   /**
    * @brief Structured context-budget policy for this session.
    *

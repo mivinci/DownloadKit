@@ -40,7 +40,6 @@ struct xAiSession_ {
   const char *model;         /* borrowed from conf or agent           */
   int         max_turns;     /* resolved (>0) or 0 = unlimited        */
   int         max_tokens;    /* resolved per-round cap                */
-  size_t      context_budget;
 
   /* Structured context-budget policy, captured from conf by value
    * at create time. Zero-initialised (Disabled) means "no budget
@@ -110,6 +109,24 @@ xAiBudgetEventFunc on_budget_event;
    * follow-up for when SystemSynthesized queries start coexisting
    * with user-initiated ones — see docs/todo/xai_architecture.md §8. */
   struct xAiQuery_ *query;
+
+  /* ── Agent-layer L1 extraction hook ──────────────────────────
+   *
+   * Injected by xAiAgentCreateSession (not by the caller). Fires
+   * in sess_fwd_on_done after produced entries have been merged
+   * into history but before the caller's on_done. The Agent uses
+   * this to extract L1 memory candidates from the conversation
+   * output.
+   *
+   * NULL when the session was created via xAiSessionCreate() (no
+   * agent-layer participation). */
+  void (*on_produced)(xAiSession sess,
+                      const struct xAiSessionMsg_ *produced,
+                      size_t n_produced,
+                      const xAiUsage *usage,
+                      void *ud);
+  void *on_produced_ud;   /* Agent's context (typically the agent
+                           * itself). */
 };
 
 /* Fallback cap if neither the caller nor the agent set max_turns.

@@ -22,6 +22,8 @@
 #include <xbase/event.h>
 #include <xbase/task.h>
 
+struct xAiSession_;  /* forward — full definition in session_private.h */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -47,7 +49,10 @@ struct xAiAgent_ {
 
   int                max_turns;      /**< 0 = library default.           */
   int                max_tokens;     /**< 0 = provider default.          */
-  size_t             context_budget; /**< 0 = library default.           */
+
+  struct xAiSession_ *default_session; /**< Built-in alignment session,
+                                            or NULL if the agent was
+                                            created without one. Owned. */
 };
 
 #ifdef __cplusplus

@@ -8,7 +8,7 @@
  * Scope
  * -----
  * Pure, side-effect-free utilities plus a tiny online calibrator
- * that support the context_budget enforcement path from
+ * that support the xAiBudgetConf enforcement path from
  * modules/xai/TODO.md §6. Wired into xAiSessionInput and
  * sess_fwd_on_done by session.c as of c3/c4; this header only
  * publishes the pieces, not the policy decisions.

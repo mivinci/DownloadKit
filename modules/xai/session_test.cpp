@@ -327,7 +327,6 @@ class SessionTest : public ::testing::Test {
     ac.system_prompt   = "you are a test";
     ac.max_turns       = 5;
     ac.max_tokens      = 1024;
-    ac.context_budget  = 8192;
     agent_             = xAiAgentCreate(&ac);
     ASSERT_NE(agent_, nullptr);
   }
@@ -378,7 +377,6 @@ TEST_F(SessionTest, CreateInheritsSystemPromptAndModel) {
   EXPECT_STREQ(s->model, "fake-model");
   EXPECT_EQ(s->max_turns, 5);
   EXPECT_EQ(s->max_tokens, 1024);
-  EXPECT_EQ(s->context_budget, 8192u);
   xAiSessionDestroy(sess);
 }
 
@@ -777,7 +775,6 @@ class ToolLoopFixture : public SessionTest {
     ac.system_prompt  = "you are a test";
     ac.max_turns      = 5;
     ac.max_tokens     = 1024;
-    ac.context_budget = 8192;
     ac.tools          = kTools;
     ac.n_tools        = 2;
     agent_            = xAiAgentCreate(&ac);

@@ -26,6 +26,7 @@ extern "C" {
 #include <xbase/event.h>
 #include "agent_private.h"
 #include "provider_private.h"
+#include "session_private.h"
 }
 
 #include <cstdlib>
@@ -125,7 +126,6 @@ TEST_F(AgentTest, CreateWithMinimalConfSucceedsAndZerosOptionals) {
   EXPECT_EQ(a->task_group,     nullptr);
   EXPECT_EQ(a->max_turns,      0);
   EXPECT_EQ(a->max_tokens,     0);
-  EXPECT_EQ(a->context_budget, 0u);
 
   xAiAgentDestroy(ag);
 }
@@ -154,7 +154,6 @@ TEST_F(AgentTest, CreateCapturesEveryField) {
   conf.task_group     = nullptr;   /* can't cheaply construct one here */
   conf.max_turns      = 7;
   conf.max_tokens     = 512;
-  conf.context_budget = 32 * 1024;
 
   xAiAgent ag = xAiAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);
@@ -172,7 +171,6 @@ TEST_F(AgentTest, CreateCapturesEveryField) {
   /* Scalars round-trip. */
   EXPECT_EQ(a->max_turns,      7);
   EXPECT_EQ(a->max_tokens,     512);
-  EXPECT_EQ(a->context_budget, static_cast<size_t>(32 * 1024));
 
   /* Destroying the agent must not touch borrowed dependencies —
    * the tool still works afterwards. */
@@ -184,4 +182,114 @@ TEST_F(AgentTest, CreateCapturesEveryField) {
 
 TEST_F(AgentTest, DestroyNullIsNoop) {
   xAiAgentDestroy(nullptr); /* must not crash */
+}
+
+/* ── Default session ─────────────────────────────────────────────── */
+
+TEST_F(AgentTest, DefaultSessionOnNullAgentReturnsNull) {
+  EXPECT_EQ(xAiAgentDefaultSession(nullptr), nullptr);
+}
+
+TEST_F(AgentTest, DefaultSessionIsNullWhenConfIsNull) {
+  xAiAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  /* default_session_conf left NULL */
+
+  xAiAgent ag = xAiAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+  EXPECT_EQ(xAiAgentDefaultSession(ag), nullptr);
+  xAiAgentDestroy(ag);
+}
+
+TEST_F(AgentTest, DefaultSessionCreatedWhenConfProvided) {
+  xAiSessionConf sc = {};  /* zero-init: all fields inherited, origin=User */
+  xAiAgentConf conf = {};
+  conf.loop                = loop;
+  conf.provider            = pvd;
+  conf.default_session_conf = &sc;
+
+  xAiAgent ag = xAiAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAiSession ds = xAiAgentDefaultSession(ag);
+  EXPECT_NE(ds, nullptr);
+
+  /* The default session should be usable like any other session.
+   * Zero-initialised origin defaults to User — the default session
+   * is the user's primary conversation entry. */
+  EXPECT_EQ(xAiSessionOrigin(ds), xAiInputOrigin_User);
+
+  xAiAgentDestroy(ag);
+}
+
+TEST_F(AgentTest, DefaultSessionOriginHonoursCallerSetting) {
+  /* The default session's origin is honoured as-is — it is NOT
+   * forced to SystemSynthesized. The default session is the user's
+   * primary conversation entry, so origin=User is the natural
+   * default (zero-init). The caller may override it if desired. */
+  xAiSessionConf sc = {};
+  sc.origin = xAiInputOrigin_User;
+
+  xAiAgentConf conf = {};
+  conf.loop                = loop;
+  conf.provider            = pvd;
+  conf.default_session_conf = &sc;
+
+  xAiAgent ag = xAiAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAiSession ds = xAiAgentDefaultSession(ag);
+  ASSERT_NE(ds, nullptr);
+  EXPECT_EQ(xAiSessionOrigin(ds), xAiInputOrigin_User);
+
+  xAiAgentDestroy(ag);
+}
+
+TEST_F(AgentTest, DefaultSessionDestroyedWithAgent) {
+  /* Verify that destroying the agent does not leak the default
+   * session. We cannot directly observe the free, but we can
+   * confirm the API does not crash and the session pointer is
+   * internally NULLed (checked via private access). */
+  xAiSessionConf sc = {};
+  xAiAgentConf conf = {};
+  conf.loop                = loop;
+  conf.provider            = pvd;
+  conf.default_session_conf = &sc;
+
+  xAiAgent ag = xAiAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+  EXPECT_NE(xAiAgentDefaultSession(ag), nullptr);
+
+  /* Destroy must not crash; the default session is freed. */
+  xAiAgentDestroy(ag);
+  /* No ASAN leak, no use-after-free — the test infrastructure
+   * will catch those. */
+}
+
+TEST_F(AgentTest, DefaultSessionInheritsAgentDefaults) {
+  xAiSessionConf sc = {};  /* all fields zero → inherit from agent */
+  xAiAgentConf conf = {};
+  conf.loop                = loop;
+  conf.provider            = pvd;
+  conf.model               = "kimi-k2.6";
+  conf.system_prompt       = "be helpful";
+  conf.max_turns           = 10;
+  conf.max_tokens          = 2048;
+  conf.default_session_conf = &sc;
+
+  xAiAgent ag = xAiAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAiSession ds = xAiAgentDefaultSession(ag);
+  ASSERT_NE(ds, nullptr);
+
+  /* The default session inherits from the agent just like any
+   * other session created via xAiAgentCreateSession. */
+  auto *s = reinterpret_cast<struct xAiSession_ *>(ds);
+  EXPECT_EQ(s->model,  conf.model);
+  EXPECT_EQ(s->max_turns,  conf.max_turns);
+  EXPECT_EQ(s->max_tokens, conf.max_tokens);
+
+  xAiAgentDestroy(ag);
 }

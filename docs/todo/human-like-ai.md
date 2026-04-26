@@ -36,7 +36,7 @@
 真正让人觉得"像人"的，是**这四个维度的组合**：
 
 | 维度 | 一句话 | 工业 SOTA |
-|---|---|---|
+| --- | --- | --- |
 | 分层记忆 | 区分当下、近期、长期、身份 | ⭐⭐⭐ MemGPT/Letta/A-MEM 在做 |
 | 情绪延续 | mood 跨对话 carry-over | ⭐ 基本空白 |
 | 选择性遗忘 | 压缩废话，保留高价值节点 | ⭐⭐ 多数是简单 time-decay |
@@ -61,6 +61,7 @@
 - **像人 AI**：`早。昨天说很累，睡得还行吗？`
 
 差距在哪儿？
+
 1. **分层记忆**命中了"昨天聊过什么"（长期）+"刚打招呼"（当前）
 2. **情绪延续**记住了"累"这个 mood，没强行 reset
 3. **主动唤醒**：用户没问，AI 先提——从 pull 切到 push
@@ -77,12 +78,14 @@
 #### 现象
 
 人脑的记忆是分层的：
+
 - **工作记忆**（当下对话，7±2 项）
 - **情景记忆**（最近几天的具体事件）
 - **语义记忆**（长期稳定的事实 / 概念）
 - **自传体记忆**（关于"这个人是谁"的连贯叙事）
 
 AI 如果全部塞 context window，两个问题：
+
 1. **容量天花板**——128k 也就聊几天就爆
 2. **信号淹没**——废话和重要的事同等权重，模型注意力被稀释
 
@@ -97,7 +100,7 @@ AI 如果全部塞 context window，两个问题：
 **六大方案的详细对比：**
 
 | 方案 | 分层架构 | 写入策略 | 读取策略 | 一致性处理 | 端侧适用 |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | **MemGPT / Letta** | 两级：Main Context（system + working + FIFO 消息）/ External Context（Archival 向量库 + Recall 消息历史） | **LLM self-edit**：模型自主调 `core_memory_append/replace`、`archival_insert` 等函数 | 溢出触发 recursive summarization | 靠 LLM 自己覆写 memory block | ❌ 依赖大模型 self-management |
 | **A-MEM** | 扁平 + 原子笔记（每条 `{content, timestamp, keywords, tags, context, embedding, links}`） | **LLM 三步**：生成语义属性 → 向量检索 Top-k 邻居 → LLM 决定链接 | 向量 Top-k + 沿链接"同盒子"扩展 | **Memory Evolution**：新记忆会反向改写老邻居的 context/tags | ⚠️ 每次写入 ~1200 tokens LLM call，~$0.0003/次 |
 | **Mem0** | User/Session/Agent 三作用域 + Factual/Episodic/Semantic 逻辑分层 + v1.1 图记忆 | **LLM 做 Add/Update/Delete/NOOP 四选一**：新事实与旧记忆冲突时自动 invalidate | 向量检索 + 图关系 | 冲突覆盖（显式） | ⚠️ 写入频繁调 LLM |
@@ -113,6 +116,7 @@ AI 如果全部塞 context window，两个问题：
 - **暴力派**（ChatGPT Memory）：赌 Sutton 的 *Bitter Lesson*——不做检索脚手架，全量塞，等模型和 context 窗口解决一切。代价是端侧和 API 用户用不起。
 
 **对 xai 的启示**：
+
 - xai 跑在**端侧**，context 成本硬约束——**不能走 ChatGPT 的暴力路线**，必须分层 + 检索。
 - A-MEM 的 **Memory Evolution**（新记忆反向改写旧记忆）是真创新，解决了"用户前后矛盾怎么办"的一致性问题。值得吸收。
 - Mem0 的 **Add/Update/Delete/NOOP 四选一**是比 A-MEM 更轻的一致性方案，端侧可能更适合。
@@ -122,7 +126,7 @@ AI 如果全部塞 context window，两个问题：
 
 四层存储：
 
-```
+```text
 ┌─────────────────────────────────────┐
 │ L0: Working Memory                  │  = xAiSession 内 messages 数组
 │   当前对话的 message 流              │    （已经有了，不用改）
@@ -140,7 +144,7 @@ AI 如果全部塞 context window，两个问题：
 
 **写入价值函数**（避免"LLM 自己决定"的黑箱）：
 
-```
+```text
 value(event) = α·recency + β·specificity + γ·emotional_intensity + δ·user_reference_count
 
 α=0.2, β=0.3, γ=0.3, δ=0.2  # 初始权重，后续可学习
@@ -163,7 +167,7 @@ value(event) = α·recency + β·specificity + γ·emotional_intensity + δ·use
 
 **选 Mem0 路线**，但优化：
 
-```
+```text
 每次要写入 L2 fact 时：
   1. 向量检索出语义最近的 3 条老 fact
   2. 如果相似度 < 0.6：直接 Add（无冲突）            ← 90% 的情况在这里结束，零 LLM call
@@ -176,7 +180,7 @@ value(event) = α·recency + β·specificity + γ·emotional_intensity + δ·use
 
 ### 2.2 情绪延续（Emotional Continuity）
 
-#### 现象
+#### 现象（情绪延续）
 
 "记住的不只是事实，还有情绪上下文。" 用户上次聊天累了，这次开场看到"累"这个上下文应该**自然承接疲惫基调**，而不是冷启动回到标准礼貌模式。
 
@@ -190,7 +194,7 @@ value(event) = α·recency + β·specificity + γ·emotional_intensity + δ·use
 
 第二个显然更像人。差别在于：昨天的 mood（疲惫）**没有因为新对话开始而被清零**。
 
-#### 为什么难
+#### 为什么难（情绪延续）
 
 - **情绪不是 fact**——它没有好的结构化表示（"疲惫"能存成 tuple 吗？）
 - **衰减曲线不线性**——强情绪可以 carry 几天，弱情绪一觉就散
@@ -199,7 +203,7 @@ value(event) = α·recency + β·specificity + γ·emotional_intensity + δ·use
 
 这个维度**没有现成工业方案**。Character.AI 有情绪但不持久；Replika 有持久但模型很小 mood 表达粗糙。
 
-#### xai 落地思路
+#### xai 落地思路（情绪延续）
 
 引入 `xAiMoodState`，一个**小维度向量**而非 one-hot：
 
@@ -217,7 +221,7 @@ XDEF_STRUCT(xAiMoodState) {
 
 **更新**：每轮对话结束时，由一个小 classifier（可以是另一个小模型 call，也可以是规则 + 关键词）给 user mood 打分，指数衰减合并到 `xAiMoodState`。
 
-```
+```text
 mood_new = λ·mood_observed + (1-λ)·mood_prev·decay(Δt)
 λ=0.3, decay(Δt) = exp(-Δt / half_life)
 half_life = 12 小时（可配置）
@@ -229,26 +233,27 @@ half_life = 12 小时（可配置）
 
 ### 2.3 选择性遗忘（Selective Forgetting）
 
-#### 现象
+#### 现象（选择性遗忘）
 
 人会忘。而且忘得**有选择**——忘掉细节，记住感觉；忘掉"吃了什么"，记住"那天很开心"。
 
 AI 如果啥都记，有两个问题：
+
 1. **存储爆炸**
 2. **检索污染**——关键信号被海量废话稀释
 
-#### 为什么难
+#### 为什么难（选择性遗忘）
 
 - "什么是废话"没有客观定义
 - 压缩（丢信息）是不可逆的，必须谨慎
 - 过度压缩 → AI 显得"健忘不靠谱"；压缩不足 → 性能崩溃
 
-#### SOTA 现状（2025 年底）
+#### SOTA 现状（选择性遗忘）（2025 年底）
 
 这一维的**业界方案比 2.1 维分裂得多**——基本没有共识，每家用自己的土办法：
 
 | 方案 | 遗忘策略 | 机制本质 | 问题 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Claude Code / Cline compact** | 对话长度到阈值时整段压缩成摘要 | Lossy summarization | 粗暴一刀切，不分重要性 |
 | **MemGPT / Letta** | Recursive summarization：旧消息递归总结归档 | 只压缩，不删 | 摘要会越来越长，二次信息失真 |
 | **MemoryBank** | **艾宾浩斯遗忘曲线**：每条记忆有 strength，随时间衰减，被访问时增强 | Time + access decay | 接近人类机制，但没看重要性 |
@@ -266,23 +271,27 @@ AI 如果啥都记，有两个问题：
 4. **没有"情绪峰值保留"**——重要的是情绪强度，不是语义密度
 
 **对 xai 的启示**：
+
 - MemoryBank 的**艾宾浩斯曲线**是最接近人脑的，可以借鉴
 - A-MEM 的**演化**太贵，但它的"不删只改写"哲学可以用于 L3 Persona
 - Mem0 的**冲突驱动覆盖**轻量，可以用于 L2 Fact（我们在 2.1 已经借鉴）
 - **没人做"情绪峰值保留"**——这是我们的机会
 
-#### xai 落地思路
+#### xai 落地思路（选择性遗忘）
 
 双层压缩机制，参考 Claude Code 但做得更细：
 
-**Layer A: 实时微压缩（每 N 轮触发一次）**
+##### Layer A: 实时微压缩（每 N 轮触发一次）
+
 - 把最老的 k 轮原始消息合并成一条摘要（`xAiMessage` role = System，content = "Earlier: ..."）
 - 保留用户/AI 的**关键发言原文**（判据：在 mood 峰值 / 包含专有名词 / 用户后续引用过）
 - 其余用摘要替代
 
-**Layer B: 晚期整合（会话结束后异步跑）**
+##### Layer B: 晚期整合（会话结束后异步跑）
+
 - 把当前会话的完整内容抽成一条 Episode（存 L1）
 - Episode 结构：
+
   ```c
   XDEF_STRUCT(xAiEpisode) {
     uint64_t started_ms;
@@ -294,6 +303,7 @@ AI 如果啥都记，有两个问题：
     size_t fact_ref_count;
   };
   ```
+
 - Episode 级别用 value function 决定哪些 fact 升 L2
 
 **遗忘曲线**：Episode 本身也会衰减。超过 30 天且从未被引用过 → 降级为纯 summary，丢掉 highlights。超过 180 天且仍未引用 → 删除。
@@ -302,7 +312,7 @@ AI 如果啥都记，有两个问题：
 
 ### 2.4 主动唤醒（Proactive Recall）
 
-#### 现象
+#### 现象（主动唤醒）
 
 老朋友的定义之一：**在合适时机主动提起旧事**。
 
@@ -311,20 +321,22 @@ AI 如果啥都记，有两个问题：
 
 这是**push**，不是 pull。现在所有 AI 产品（除了少数推送式日程提醒）都是 pull——用户不问就永远沉默。
 
-#### 为什么难
+#### 为什么难（主动唤醒）
 
 技术上：
+
 - **时机判断**需要 background scheduler（现有架构都是 event-driven reactive）
 - **合适与否**是个品味问题——push 太勤烦人、太稀形同没有
 - **内容选择**：哪件旧事值得提？（和"遗忘"反着用同一个 value function）
 
 产品上：
+
 - **边界极其敏感**——push 过度会让用户觉得 AI "监视我"
 - 必须对用户可控（静默模式、只在对话中主动提、不做通知推送）
 
 SOTA：**几乎无**。Replika 有一个定时问候但极其机械。
 
-#### xai 落地思路
+#### xai 落地思路（主动唤醒）
 
 加一个后台组件 `xAiScheduler`，架构上和 `xEventLoop` 的 timer 机制对齐：
 
@@ -357,7 +369,7 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 
 在现有 plan.md 描述的两层对象模型上，**不推翻任何公开 API**，加三个内部组件：
 
-```
+```c
 ┌──────────────────────────────────────────────┐
 │                xAiAgent                      │
 │  (能力模板，长生命周期)                        │
@@ -391,11 +403,13 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 ```
 
 **为什么放 Agent 不放 Session**：
+
 - Memory/Mood/Persona 是**跨会话**的——必须随 Agent 生命周期
 - Session 是一次对话，短生命；Memory 要比它活得久
 - 多个 Session 并发时共享同一份 Memory（带锁，但多数是读多写少）
 
 **为什么公开 API 不用动**：
+
 - 这三个组件的更新都在 `xAiSession` 内部完成（每次 input/done）
 - 使用方从不直接操作 memory/mood
 - 暴露点仅两个可选配置项加到 `xAiAgentConf`：`memory_backend` 和 `persona_init`
@@ -409,27 +423,32 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 ### MVP：分层记忆 + 选择性遗忘（6-8 周）
 
 **交付**：
+
 - `xAiMemory`（L0 复用现有 messages，L1 Episode，L2 Fact）
 - Layer A 实时微压缩
 - 基础 value function
 
 **指标**：
+
 - 长对话（>100 轮）不崩，上下文命中率 ≥ 70%
 - 存储增长：每轮 < 500 bytes 平均
 - 用户主动引用过的旧事，回忆准确率 ≥ 85%（人工标注 200 条）
 
 **依赖**：
+
 - 需要一个本地嵌入模型（bge-small / all-MiniLM）做向量检索
 - SQLite + sqlite-vec（已成熟，别发明轮子）
 
 ### v1：情绪延续（4-6 周）
 
 **交付**：
+
 - `xAiMoodTracker`
 - mood classifier（小模型 call 或规则）
 - system prompt 注入
 
 **指标**：
+
 - Mood carry-over benchmark：20 组"前后对话"测试，跨会话 mood 连续性人工评分 ≥ 7/10
 - A/B：开 mood vs 不开 mood，用户留存 / 满意度对比
 - 无 regression：mood on 不应导致回复质量下降（对照组 blind 评测）
@@ -437,11 +456,13 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 ### v2：主动唤醒（6-8 周）
 
 **交付**：
+
 - `xAiScheduler`
 - 集成到 Session 首轮 prompt
 - 用户控制（关 / 频率 / 场景白名单）
 
 **指标**：
+
 - Push 准确率：人工标注 50 次 push，"合适"率 ≥ 80%
 - 骚扰率：≤ 5%（用户打分"烦"的次数 / 总 push 次数）
 - 上面 Part I.3 的"早"测试，盲评通过率 ≥ 60%
@@ -472,7 +493,7 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 ## 附录 A：与 xKit 现有设计的一致性检查
 
 | xKit 惯例 | 本方案是否符合 |
-|---|---|
+| --- | --- |
 | 纯 C99、`XDEF_HANDLE` 不透明句柄 | ✅ `xAiMemory` / `xAiMoodTracker` / `xAiScheduler` 都走 handle |
 | 事件循环为一等入参 | ✅ scheduler 用 `xEventLoopTimerAfter`，memory 异步写 |
 | 依赖显式传入，不自 new | ✅ memory 用到的 sqlite handle 由调用方传入 |
@@ -535,7 +556,7 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 所以拆成两段，**MVP-a 跑起来 → 看到跨 session 效果 → 再决定要不要做 MVP-b**：
 
 | 段 | 周期 | 核心交付 | 依赖 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **MVP-a** | 3-4 周 | L0 复用 + L1 Episode 抽取 + JSONL 持久化 + Agent 层 memory 勾子雏形 | 零新依赖（只加 JSONL 文本 IO） |
 | **MVP-b** | 3-4 周 | L2 Fact 向量检索 + SQLite + sqlite-vec + embedding 模型集成 | 依赖评估：sqlite-vec 成熟度、embedding 模型选型（bge-small / all-MiniLM） |
 
@@ -577,7 +598,7 @@ MVP-a 不触 L2，意味着跨 session **只有时间索引 + 文本摘要**，�
 
 **序列（硬依赖，不可并行）**：
 
-```
+```c
 Step 1 (xai_architecture.md §10)  [2026-04-24 起，约 3-5 天]
   └─ session.c 内部 query_*/session_* 分组 + on_provider_done 拆三份
   └─ session_test 9/9 全绿作为 Step 2 开工门槛
@@ -627,7 +648,7 @@ Part I.3 的"早"测试**不在 MVP-a 验收里**——那个需要 mood（v1）
 ### 6.5 修订记录
 
 | 日期 | 修订 | 理由 |
-|---|---|---|
+| --- | --- | --- |
 | 2026-04-24 | MVP 启动，拆 a/b 两段，钉死四条决策 | 决定扣扳机，动 Session/Query 拆分 |
 
 ---

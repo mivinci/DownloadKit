@@ -14,6 +14,7 @@
     - [Min-Heap](modules/xbase/heap.md)
     - [Generic Map](modules/xbase/map.md)
     - [Doubly-Linked List](modules/xbase/list.md)
+    - [Dynamic Array](modules/xbase/array.md)
     - [MPSC Queue](modules/xbase/mpsc.md)
     - [Atomic Operations](modules/xbase/atomic.md)
     - [Logging](modules/xbase/log.md)

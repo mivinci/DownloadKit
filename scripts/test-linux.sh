@@ -88,10 +88,10 @@ else
     GREEN='\033[0;32m' YELLOW='\033[1;33m' RED='\033[0;31m' CYAN='\033[0;36m' NC='\033[0m'
 fi
 
-info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
-warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
-error() { echo -e "${RED}[ERR]${NC} $*"; }
-step()  { echo -e "${CYAN}[STEP]${NC} $*"; }
+info()  { echo -e "${GREEN}[INFO]${NC} $*" >&2; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $*" >&2; }
+error() { echo -e "${RED}[ERR]${NC} $*" >&2; }
+step()  { echo -e "${CYAN}[STEP]${NC} $*" >&2; }
 
 # ── Module dependency map ──────────────────────────────────────────────
 declare -A MODULE_DEPS

@@ -21,7 +21,7 @@
 #   - container system start
 #
 # Prerequisites (CI / native Linux):
-#   apt-get install libgtest-dev llhttp-dev libnghttp2-dev libssl-dev libmbedtls-dev ...
+#   apt-get install libgtest-dev libnghttp2-dev libssl-dev libmbedtls-dev ...
 
 set -euo pipefail
 

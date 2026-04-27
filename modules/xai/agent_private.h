@@ -112,6 +112,27 @@ struct xAiAgent_ {
    * communication style, and task patterns.
    */
   struct xAiSession_ *default_session;
+
+  /**
+   * Unique identifier for this agent instance. Borrowed from
+   * xAiAgentConf::agent_id; may be NULL. Used as part of the
+   * L1 memory file path.
+   */
+  const char *agent_id;
+
+  /**
+   * Root directory for persistent agent data. Borrowed from
+   * xAiAgentConf::data_dir; may be NULL. When both agent_id
+   * and data_dir are non-NULL, the agent auto-wires L1
+   * persistence into every session it creates.
+   */
+  const char *data_dir;
+
+  /**
+   * Monotonically increasing session counter used to generate
+   * session IDs when the caller does not supply one.
+   */
+  uint64_t session_seq;
 };
 
 #ifdef __cplusplus

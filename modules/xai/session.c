@@ -346,6 +346,16 @@ static xErrno session_try_truncate_(struct xAiSession_ *s, size_t incoming,
     (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
     xArrayLen(s->history_arr), s->budget.keep_recent_turns);
   if (keep > 0) {
+    /* L1 preserve: deliver the about-to-be-dropped entries [0, keep)
+     * before they are permanently lost. The callback receives a
+     * read-only slice — it must deep-copy anything it wants to
+     * retain. This fires BEFORE the actual trim so the entries
+     * are still valid in the history array. */
+    if (s->on_l1_preserve) {
+      s->on_l1_preserve((xAiSession)s,
+                        (const xAiSessionMsg *)xArrayData(s->history_arr), keep,
+                        xAiL1PreserveReason_Truncated, s->l1_preserve_owner);
+    }
     session_trim_history_front_(s, keep);
     size_t current = ai_budget_estimate_tokens_calibrated(
       (const struct xAiSessionMsg_ *)xArrayData(s->history_arr),
@@ -381,6 +391,21 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
      * incoming), which is what the provider will actually count —
      * not just the history side. */
     s->last_prompt_estimate = current + incoming;
+
+    /* Notify the caller that the gate passed, including the
+     * token breakdown so they can display remaining capacity. */
+    if (s->on_budget_event) {
+      struct xAiBudgetGateInfo gi;
+      gi.limit                          = limit;
+      gi.estimated                      = current + incoming;
+      gi.remaining                      = limit - gi.estimated;
+      gi.calibrator_factor              = s->budget_calibrator.factor;
+      gi.calibrator_samples             = s->budget_calibrator.samples;
+      gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
+      s->on_budget_event((xAiSession)s, xAiBudgetEvent_GatePassed, &gi,
+                         s->budget_event_ud);
+    }
+
     return xErrno_Ok;
   }
 
@@ -864,6 +889,15 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
     int    compact_ok = (summary_text != NULL && summary_bytes > 0);
 
     if (compact_ok) {
+      /* L1 preserve: deliver the about-to-be-replaced entries [0, keep_idx)
+       * before they are swapped out by the summary. The consumer may want
+       * the original full-fidelity entries even though a summary will take
+       * their place in the session's history. This fires BEFORE the trim. */
+      if (s->on_l1_preserve && keep_idx > 0) {
+        s->on_l1_preserve(
+          (xAiSession)s, (const xAiSessionMsg *)xArrayData(s->history_arr),
+          keep_idx, xAiL1PreserveReason_Compacted, s->l1_preserve_owner);
+      }
       /* Remove the old entries [0, keep_idx). */
       session_trim_history_front_(s, keep_idx);
 
@@ -959,36 +993,43 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
 
   /* ── Normal (non-compact) on_done path ──────────────────────── */
 
-  /* Calibration opt-in check — done BEFORE we move produced into
-   * history so the scan is cheap (small, local array) and
-   * independent of future history growth.
+  /* Private Query handle — needed for first_round_prompt_tokens. */
+  struct xAiQuery_ *q_priv = (struct xAiQuery_ *)q;
+
+  /* ── Calibrator update ──────────────────────────────────────────
    *
-   * Rationale for "single round only": Query.usage is accumulated
-   * across every provider round (see query.c:usage_accumulate —
-   * each round's prompt_tokens counts the cumulative inputs +
-   * prior tool_results the model saw on that round). Feeding that
-   * sum into a calibrator that estimates a SINGLE-submit prompt
-   * would inflate the factor by a factor-of-rounds each time and
-   * make the gate pathologically conservative after a few tool
-   * sessions. Detecting single-round is cheap and reliable: a
-   * tool_use in produced means there was at least a second round
-   * to deliver the tool_result. No tool_use → exactly one round
-   * → usage->prompt_tokens maps cleanly to last_prompt_estimate.
+   * We compare the gate's pre-submit estimate (last_prompt_estimate)
+   * against the FIRST round's provider-reported prompt_tokens. This
+   * works for both single-round and multi-round tool-loop runs:
+   *
+   *   - The gate runs once per xAiSessionInput, BEFORE the Query is
+   *     submitted. Its estimate reflects the token count the provider
+   *     will see on the FIRST round.
+   *   - Subsequent tool-loop rounds add tool_results to the prompt,
+   *     inflating later rounds' prompt_tokens beyond what the gate
+   *     estimated. Using those later values would systematically
+   *     inflate the factor.
+   *   - The first round's prompt_tokens maps cleanly to the gate
+   *     estimate in ALL cases — single-round text conversations AND
+   *     multi-round tool loops alike. This eliminates the old
+   *     "single_round" opt-out that left the calibrator permanently
+   *     stuck at 1.0x / 0 samples for any session that used tools.
    *
    * Other opt-outs handled inside ai_budget_calibrator_update():
-   *   - usage == NULL or prompt_tokens <= 0 (unknown)
+   *   - usage == NULL or first_round_prompt_tokens < 0 (unknown)
    *   - last_prompt_estimate == 0 (gate was Disabled or not run) */
-  int single_round = 1;
-  for (size_t i = 0; i < n_produced; i++) {
-    if (produced[i].kind == xAiSessionEntry_ToolUse) {
-      single_round = 0;
-      break;
-    }
-  }
-  if (single_round && usage && s->last_prompt_estimate > 0) {
+  if (usage && q_priv->first_round_prompt_tokens >= 0 &&
+      s->last_prompt_estimate > 0) {
     ai_budget_calibrator_update(&s->budget_calibrator, s->last_prompt_estimate,
-                                usage->prompt_tokens);
+                                q_priv->first_round_prompt_tokens);
   }
+  /* Stash the first-round prompt_tokens for the next GatePassed
+   * event — callers can display "estimated vs actual" without
+   * the inflation that later tool-loop rounds would introduce.
+   * We save this even when calibrator didn't update (e.g. gate
+   * was Disabled) so the caller always sees the actual value
+   * when available. */
+  s->last_first_round_prompt_tokens = q_priv->first_round_prompt_tokens;
   /* Reset for the next run either way — a stale estimate crossing
    * query boundaries would be a foot-gun if some future code path
    * fires on_done without having gone through the gate. */
@@ -1064,7 +1105,8 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
    * single-round runs. last_prompt_estimate is zero until the
    * first gate run records one. */
   ai_budget_calibrator_init(&s->budget_calibrator);
-  s->last_prompt_estimate = 0;
+  s->last_prompt_estimate            = 0;
+  s->last_first_round_prompt_tokens  = -1;
 
   /* Session-lifetime properties: stamped here, never mutated. Zero
    * for @c origin collapses to xAiInputOrigin_User, which is also
@@ -1073,6 +1115,15 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   s->origin           = conf->origin;
   s->on_finalizing    = conf->on_finalizing;
   s->finalizing_owner = conf->finalizing_owner;
+
+  /* L1 memory-preservation hook: copied from conf for locality
+   * (same pattern as on_budget_event). NULL = no L1 delivery. */
+  s->on_l1_preserve    = conf->on_l1_preserve;
+  s->l1_preserve_owner = conf->l1_preserve_owner;
+
+  /* Session identifier: borrowed from conf, or auto-generated by
+   * the agent in xAiAgentCreateSession. May be NULL. */
+  s->session_id = conf->session_id;
 
   /* @c s->query starts NULL (from calloc). A Query is allocated on
    * demand by xAiSessionInput and released from sess_fwd_on_done. */
@@ -1186,6 +1237,24 @@ void xAiSessionDestroy(xAiSession sess) {
    * live (history intact). Detach before calling so a misbehaving
    * hook that triggers a second destroy won't re-enter here. Per
    * contract the hook runs at most once. */
+
+  /* L1 preserve: deliver the full remaining history as a final
+   * snapshot before the session is torn down. This ensures
+   * sessions that never triggered a budget event still deliver
+   * their complete conversation to L1. Fires before
+   * on_finalizing so the consumer sees the data first. */
+  if (s->on_l1_preserve) {
+    xAiSessionL1PreserveFunc hook  = s->on_l1_preserve;
+    void                    *owner = s->l1_preserve_owner;
+    s->on_l1_preserve              = NULL;
+    s->l1_preserve_owner           = NULL;
+    size_t hist_len                = xArrayLen(s->history_arr);
+    if (hist_len > 0) {
+      hook(sess, (const xAiSessionMsg *)xArrayData(s->history_arr), hist_len,
+           xAiL1PreserveReason_Finalizing, owner);
+    }
+  }
+
   if (s->on_finalizing) {
     xAiSessionFinalizingFunc hook  = s->on_finalizing;
     void                    *owner = s->finalizing_owner;
@@ -1203,4 +1272,9 @@ void xAiSessionDestroy(xAiSession sess) {
 xAiInputOrigin xAiSessionOrigin(xAiSession sess) {
   if (!sess) return xAiInputOrigin_User;
   return ((struct xAiSession_ *)sess)->origin;
+}
+
+const char *xAiSessionId(xAiSession sess) {
+  if (!sess) return NULL;
+  return ((struct xAiSession_ *)sess)->session_id;
 }

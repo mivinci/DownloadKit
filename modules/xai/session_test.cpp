@@ -1175,11 +1175,13 @@ TEST_F(ToolLoopFixture, UsageAccumulatesAcrossToolLoop) {
   EXPECT_EQ(cap.done_fired, 1);
   EXPECT_EQ(cap.done_reason, xAiDoneReason_Completed);
 
-  /* Cumulative totals — not just the last round. */
+  /* prompt_tokens is the maximum across rounds (each round reports
+   * the full input size it saw, not a delta). completion_tokens and
+   * total_tokens are cumulative (additive). */
   ASSERT_TRUE(cap.has_usage);
-  EXPECT_EQ(cap.usage.prompt_tokens, 250);
-  EXPECT_EQ(cap.usage.completion_tokens, 50);
-  EXPECT_EQ(cap.usage.total_tokens, 300);
+  EXPECT_EQ(cap.usage.prompt_tokens, 150);   /* max(100, 150) */
+  EXPECT_EQ(cap.usage.completion_tokens, 50); /* 20 + 30       */
+  EXPECT_EQ(cap.usage.total_tokens, 300);     /* 120 + 180     */
 
   xAiSessionDestroy(sess);
 }
@@ -1988,4 +1990,274 @@ TEST_F(SessionTest, BudgetSummarizeOldestRefusesWhenFloorUnreachable) {
   EXPECT_EQ(cap.error_fired, 0);
 
   xAiSessionDestroy(sess);
+}
+
+/* ── L1 memory-preservation callback ───────────────────────────────── */
+
+namespace {
+
+/* Capture struct that records every L1 preserve callback invocation. */
+struct L1PreserveCap {
+  struct Call {
+    std::vector<std::string>  texts;   /* text field from each msg  */
+    std::vector<xAiRole>      roles;   /* role field from each msg  */
+    std::vector<xAiSessionEntryKind> kinds;
+    xAiL1PreserveReason       reason  = (xAiL1PreserveReason)-1;
+    size_t                    n_msgs  = 0;
+  };
+  std::vector<Call> calls;
+};
+
+void cb_l1_preserve(xAiSession sess, const xAiSessionMsg *msgs,
+                    size_t n_msgs, xAiL1PreserveReason reason,
+                    void *owner) {
+  (void)sess;
+  auto *cap       = static_cast<L1PreserveCap *>(owner);
+  auto  call      = L1PreserveCap::Call{};
+  call.reason     = reason;
+  call.n_msgs     = n_msgs;
+  for (size_t i = 0; i < n_msgs; i++) {
+    call.texts.push_back(msgs[i].text ? std::string(msgs[i].text,
+                                                     msgs[i].text_len)
+                                      : std::string());
+    call.roles.push_back(msgs[i].role);
+    call.kinds.push_back(msgs[i].kind);
+  }
+  cap->calls.push_back(std::move(call));
+}
+
+}  // namespace
+
+/* L1 preserve fires with Finalizing reason when the session is
+ * destroyed, delivering the full remaining history. */
+TEST_F(SessionTest, L1PreserveFinalizingOnDestroy) {
+  L1PreserveCap l1;
+  Captured cap;
+
+  xAiSessionConf sc      = {};
+  sc.cbs                  = make_cbs(&cap);
+  sc.on_l1_preserve       = cb_l1_preserve;
+  sc.l1_preserve_owner    = &l1;
+
+  xAiSession sess = xAiSessionCreate(agent_, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  /* Run one round to populate history. */
+  fake_->script_queue.push_back({
+      SText("hello"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+  ASSERT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+
+  /* History now has: [User: "hi", Assistant: "hello"] */
+  EXPECT_EQ(l1.calls.size(), 0u);
+
+  xAiSessionDestroy(sess);
+
+  /* Should have fired exactly once with Finalizing reason. */
+  ASSERT_EQ(l1.calls.size(), 1u);
+  EXPECT_EQ(l1.calls[0].reason, xAiL1PreserveReason_Finalizing);
+  EXPECT_EQ(l1.calls[0].n_msgs, 2u);
+  ASSERT_EQ(l1.calls[0].roles.size(), 2u);
+  EXPECT_EQ(l1.calls[0].roles[0], xAiRole_User);
+  EXPECT_EQ(l1.calls[0].roles[1], xAiRole_Assistant);
+  EXPECT_EQ(l1.calls[0].texts[0], "hi");
+  EXPECT_EQ(l1.calls[0].texts[1], "hello");
+}
+
+/* L1 preserve does NOT fire on destroy when the callback is NULL. */
+TEST_F(SessionTest, L1PreserveNullCallbackIsNoop) {
+  Captured cap;
+  xAiSessionConf sc = {};
+  sc.cbs             = make_cbs(&cap);
+  /* on_l1_preserve left as NULL (default) */
+
+  xAiSession sess = xAiSessionCreate(agent_, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+  ASSERT_EQ(xAiSessionInput(sess, xAiMessageFromText("hello")), xErrno_Ok);
+
+  /* Destroy should not crash even though no L1 callback is set. */
+  xAiSessionDestroy(sess);
+}
+
+/* L1 preserve fires with Truncated reason when TruncateOldest policy
+ * drops history entries. The callback receives the about-to-be-dropped
+ * entries, not the surviving ones. */
+TEST_F(SessionTest, L1PreserveTruncatedOnBudgetTrim) {
+  L1PreserveCap l1;
+  Captured cap;
+
+  xAiBudgetConf budget{};
+  budget.policy            = xAiBudgetPolicy_TruncateOldest;
+  budget.max_tokens        = 80;
+  budget.keep_recent_turns = 1;
+
+  xAiSessionConf sc       = {};
+  sc.cbs                   = make_cbs(&cap);
+  sc.budget                = budget;
+  sc.on_l1_preserve        = cb_l1_preserve;
+  sc.l1_preserve_owner     = &l1;
+
+  xAiSession sess = xAiSessionCreate(agent_, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  /* Prime 3 rounds to build up history. Trim may fire during these
+   * rounds too if the budget ceiling is already breached. */
+  const std::string big(80, 'a');
+  for (int i = 0; i < 3; i++) {
+    fake_->script_queue.push_back({
+        SText("reply"),
+        SDone(xAiProviderStop_EndTurn),
+    });
+    ASSERT_EQ(xAiSessionInput(sess, xAiMessageFromText(big.c_str())),
+              xErrno_Ok);
+    ASSERT_EQ(cap.done_fired, i + 1);
+  }
+
+  /* 4th input: guaranteed to trigger a trim if one hasn't fired yet. */
+  fake_->script_queue.push_back({
+      SText("final"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+  const std::string marker = "MARKER";
+  ASSERT_EQ(xAiSessionInput(sess, xAiMessageFromText(marker.c_str())),
+            xErrno_Ok);
+
+  /* At least one Truncated L1 callback must have fired by now. */
+  bool saw_truncated = false;
+  for (const auto &c : l1.calls) {
+    if (c.reason == xAiL1PreserveReason_Truncated) {
+      saw_truncated = true;
+      EXPECT_GT(c.n_msgs, 0u) << "truncated callback must deliver entries";
+      for (size_t i = 0; i < c.n_msgs; i++) {
+        EXPECT_NE(c.kinds[i], (xAiSessionEntryKind)-1);
+      }
+    }
+  }
+  EXPECT_TRUE(saw_truncated) << "L1 preserve should fire on TruncateOldest";
+
+  /* Destroy triggers Finalizing with the remaining history. */
+  xAiSessionDestroy(sess);
+
+  bool saw_finalizing = false;
+  for (const auto &c : l1.calls) {
+    if (c.reason == xAiL1PreserveReason_Finalizing) {
+      saw_finalizing = true;
+      EXPECT_GT(c.n_msgs, 0u) << "final history must be non-empty";
+    }
+  }
+  EXPECT_TRUE(saw_finalizing) << "L1 preserve should fire Finalizing on destroy";
+}
+
+/* L1 preserve fires with Compacted reason when SummarizeOldest
+ * replaces old history entries with a summary. The callback delivers
+ * the original entries before they are replaced. */
+TEST_F(SessionTest, L1PreserveCompactedOnSummarize) {
+  L1PreserveCap l1;
+  Captured cap;
+
+  xAiBudgetConf budget{};
+  budget.policy            = xAiBudgetPolicy_SummarizeOldest;
+  budget.max_tokens        = 80;
+  budget.keep_recent_turns = 1;
+
+  xAiSessionConf sc       = {};
+  sc.cbs                   = make_cbs(&cap);
+  sc.budget                = budget;
+  sc.on_l1_preserve        = cb_l1_preserve;
+  sc.l1_preserve_owner     = &l1;
+
+  xAiSession sess = xAiSessionCreate(agent_, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  /* Prime rounds to build up history. SummarizeOldest may trigger an
+   * async compact at any point once the budget ceiling is breached,
+   * in which case xAiSessionInput returns Busy. We keep scripting
+   * provider responses and retrying until we observe the compact. */
+  const std::string big(80, 'a');
+  for (int i = 0; i < 4; i++) {
+    fake_->script_queue.push_back({
+        SText("summary-text"),
+        SDone(xAiProviderStop_EndTurn),
+    });
+    xErrno rc = xAiSessionInput(sess, xAiMessageFromText(big.c_str()));
+    /* Either the round completes normally, or the compact kicks in
+     * and returns Busy. Both are valid. */
+    ASSERT_TRUE(rc == xErrno_Ok || rc == xErrno_Busy);
+  }
+
+  /* Look for a Compacted L1 preserve callback. It may have fired
+   * during any of the rounds above. */
+  bool saw_compacted = false;
+  for (const auto &c : l1.calls) {
+    if (c.reason == xAiL1PreserveReason_Compacted) {
+      saw_compacted = true;
+      EXPECT_GT(c.n_msgs, 0u) << "compacted callback must deliver entries";
+    }
+  }
+  EXPECT_TRUE(saw_compacted) << "L1 preserve should fire on SummarizeOldest compact";
+
+  xAiSessionDestroy(sess);
+}
+
+/* L1 preserve Finalizing fires before on_finalizing, and both see the
+ * same (still-intact) history. */
+TEST_F(SessionTest, L1PreserveFinalizingFiresBeforeOnFinalizing) {
+  L1PreserveCap l1;
+  FinalizingCap fin_cap;
+
+  xAiSessionConf sc       = {};
+  sc.on_l1_preserve       = cb_l1_preserve;
+  sc.l1_preserve_owner    = &l1;
+  sc.on_finalizing        = cb_finalizing;
+  sc.finalizing_owner     = &fin_cap;
+
+  xAiSession sess = xAiSessionCreate(agent_, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  /* One round of conversation. */
+  fake_->script_queue.push_back({
+      SText("reply"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+  Captured dummy;
+  auto cbs_noop = xAiSessionCallbacks{};
+  cbs_noop.user_data = &dummy;
+  reinterpret_cast<xAiSession_ *>(sess)->cbs = cbs_noop;
+  ASSERT_EQ(xAiSessionInput(sess, xAiMessageFromText("hi")), xErrno_Ok);
+
+  xAiSessionDestroy(sess);
+
+  /* Both hooks should have fired. */
+  EXPECT_EQ(l1.calls.size(), 1u);
+  EXPECT_EQ(fin_cap.calls, 1);
+
+  /* L1 should have seen the same history length as on_finalizing. */
+  ASSERT_EQ(l1.calls.size(), 1u);
+  EXPECT_EQ(l1.calls[0].n_msgs, fin_cap.history_len);
+  EXPECT_EQ(l1.calls[0].reason, xAiL1PreserveReason_Finalizing);
+}
+
+/* L1 preserve Finalizing does not fire when history is empty. */
+TEST_F(SessionTest, L1PreserveFinalizingSkipsEmptyHistory) {
+  L1PreserveCap l1;
+
+  xAiSessionConf sc       = {};
+  sc.on_l1_preserve       = cb_l1_preserve;
+  sc.l1_preserve_owner    = &l1;
+
+  xAiSession sess = xAiSessionCreate(agent_, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  /* No inputs, so history is empty. */
+  xAiSessionDestroy(sess);
+
+  /* Finalizing should not fire because there are no entries. */
+  EXPECT_EQ(l1.calls.size(), 0u);
 }

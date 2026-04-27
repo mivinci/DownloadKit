@@ -390,7 +390,31 @@ static void usage_accumulate(struct xAiQuery_ *q, const xAiUsage *round) {
   if (!round) return;
   q->saw_usage = 1;
 
-#define XAI_FOLD(field)                                                      \
+  /* prompt_tokens is a snapshot: each round's value represents the
+   * TOTAL input the provider saw on that round (system prompt +
+   * tools + full history + current turn). It is NOT incremental —
+   * later rounds always report a value >= earlier ones because the
+   * conversation only grows. We therefore take the maximum (i.e.
+   * the last round's value) rather than adding, which would
+   * inflate the count by a factor-of-rounds after tool loops.
+   *
+   * completion_tokens and total_tokens ARE incremental per round
+   * (each round generates its own output), so those remain additive.
+   *
+   * We also capture the FIRST round's prompt_tokens separately so
+   * the calibrator can compare it against the gate's pre-submit
+   * estimate (which was computed before any tool-loop rounds). */
+#define XAI_FOLD_MAX(field)                                                 \
+  do {                                                                       \
+    if (round->field >= 0) {                                                 \
+      q->usage.field = (q->usage.field < 0) ? round->field                  \
+                         : (q->usage.field > round->field                    \
+                              ? q->usage.field                               \
+                              : round->field);                               \
+    }                                                                        \
+  } while (0)
+
+#define XAI_FOLD_ADD(field)                                                 \
   do {                                                                       \
     if (round->field >= 0) {                                                 \
       q->usage.field =                                                       \
@@ -398,18 +422,31 @@ static void usage_accumulate(struct xAiQuery_ *q, const xAiUsage *round) {
     }                                                                        \
   } while (0)
 
-  XAI_FOLD(prompt_tokens);
-  XAI_FOLD(completion_tokens);
-  XAI_FOLD(total_tokens);
+  XAI_FOLD_MAX(prompt_tokens);
+  XAI_FOLD_ADD(completion_tokens);
+  XAI_FOLD_ADD(total_tokens);
 
-#undef XAI_FOLD
+#undef XAI_FOLD_MAX
+#undef XAI_FOLD_ADD
+
+  /* Capture first-round prompt_tokens for calibrator use. The gate
+   * estimate (last_prompt_estimate) is computed before the Query is
+   * submitted, so it maps to the FIRST round's prompt_tokens, not
+   * the accumulated maximum. Subsequent rounds add tool_results to
+   * the prompt — those extra tokens were never estimated by the gate
+   * and would systematically inflate the ratio if included. */
+  if (q->turn == 1 && round->prompt_tokens >= 0 &&
+      q->first_round_prompt_tokens < 0) {
+    q->first_round_prompt_tokens = round->prompt_tokens;
+  }
 }
 
 static void usage_reset(struct xAiQuery_ *q) {
-  q->saw_usage               = 0;
-  q->usage.prompt_tokens     = -1;
-  q->usage.completion_tokens = -1;
-  q->usage.total_tokens      = -1;
+  q->saw_usage                    = 0;
+  q->usage.prompt_tokens          = -1;
+  q->usage.completion_tokens      = -1;
+  q->usage.total_tokens           = -1;
+  q->first_round_prompt_tokens    = -1;
 }
 
 /* ── Submit-view construction ──────────────────────────────────── */

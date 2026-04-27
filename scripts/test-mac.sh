@@ -172,8 +172,9 @@ detect_changed_modules() {
     # Map changed files to modules
     local -A changed_mods=([__none__]=1)
     for f in $changed_files; do
-        if [[ "$f" =~ ^modules/([^/]+)/ ]]; then
-            local mod="${match[1]}"
+        if [[ "$f" == modules/*/* ]]; then
+            local mod="${f#modules/}"
+            mod="${mod%%/*}"
             # Only count if it's a known module
             for m in "${ALL_MODULES[@]}"; do
                 if [[ "$mod" == "$m" ]]; then
@@ -196,19 +197,27 @@ detect_changed_modules() {
         return
     fi
 
-    local direct_changes="${(k)changed_mods[*]}"
+    local direct_changes=""
+    for k in "${(@k)changed_mods[@]}"; do
+        [[ -n "$direct_changes" ]] && direct_changes+=" "
+        direct_changes+="$k"
+    done
     info "Directly changed: $direct_changes"
 
     # Expand to include dependents
     local affected
-    affected=$(compute_affected ${!changed_mods[@]})
+    affected=$(compute_affected "${(@k)changed_mods[@]}")
     info "Affected modules (with dependents): $(echo $affected | tr '\n' ' ')"
 
     echo "$affected"
 }
 
 # ── Main ────────────────────────────────────────────────────────────────
-AFFECTED=(${(f)"$(detect_changed_modules)"})
+AFFECTED=()
+local _line
+detect_changed_modules | while IFS= read -r _line; do
+    AFFECTED+=("$_line")
+done
 
 if [[ ${#AFFECTED[@]} -eq 0 ]]; then
     info "No modules to test"

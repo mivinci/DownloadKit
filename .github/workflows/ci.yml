@@ -28,59 +28,16 @@ on:
       - '.github/workflows/ci.yml'
 
 jobs:
-  # ── Detect which modules have changes ────────────────────────────────────
-  detect:
-    name: Detect changed modules
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.deps.outputs.matrix }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect changed modules and build matrix
-        id: deps
-        run: |
-          BASE_SHA="${{ github.event.pull_request.base.sha || github.event.before }}"
-          HEAD_SHA="${{ github.event.pull_request.head.sha || github.event.after }}"
-
-          # Run detect-only on both OS to get the same affected module list
-          AFFECTED=$(bash scripts/test-linux.sh --ci --detect-only --base-sha "$BASE_SHA")
-
-          if [[ -z "$AFFECTED" ]]; then
-            echo "matrix=[]" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Build matrix JSON: one entry per (module × os × tls_backend)
-          MATRIX_ENTRIES=()
-          for m in $AFFECTED; do
-            for os in ubuntu-latest macos-latest; do
-              for tls in openssl mbedtls; do
-                MATRIX_ENTRIES+=("{\"module\":\"${m}\",\"os\":\"${os}\",\"tls_backend\":\"${tls}\"}")
-              done
-            done
-          done
-
-          # Join with comma
-          MATRIX_JSON=$(IFS=,; echo "[${MATRIX_ENTRIES[*]}]")
-          echo "matrix=${MATRIX_JSON}" >> "$GITHUB_OUTPUT"
-          echo "Matrix: $MATRIX_JSON"
-
-  # ── Build & Test per module ──────────────────────────────────────────────
+  # ── Build & Test ────────────────────────────────────────────────────────
   test:
-    name: Test ${{ matrix.module }} (${{ matrix.os }} / TLS=${{ matrix.tls_backend }})
+    name: Test (${{ matrix.os }} / TLS=${{ matrix.tls_backend }})
     runs-on: ${{ matrix.os }}
-    needs: detect
-    if: needs.detect.outputs.matrix != '[]'
 
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.detect.outputs.matrix) }}
+        os: [ubuntu-latest, macos-latest]
+        tls_backend: [openssl, mbedtls]
 
     steps:
       - name: Checkout
@@ -108,9 +65,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build
-          key: build-${{ matrix.os }}-${{ matrix.tls_backend }}-${{ matrix.module }}-${{ hashFiles('**/CMakeLists.txt') }}
+          key: build-${{ matrix.os }}-${{ matrix.tls_backend }}-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: |
-            build-${{ matrix.os }}-${{ matrix.tls_backend }}-${{ matrix.module }}-
+            build-${{ matrix.os }}-${{ matrix.tls_backend }}-
 
       # ── Run test script ───────────────────────────────────────────────────
 
@@ -124,8 +81,7 @@ jobs:
             --base-sha "$BASE_SHA" \
             -t ${{ matrix.tls_backend }} \
             -j "$(nproc)" \
-            -B build \
-            --all
+            -B build
 
       - name: Run tests (macOS)
         if: runner.os == 'macOS'
@@ -137,8 +93,7 @@ jobs:
             --base-sha "$BASE_SHA" \
             -t ${{ matrix.tls_backend }} \
             -j "$(sysctl -n hw.ncpu)" \
-            -B build \
-            --all
+            -B build
 
   # ── Branch naming lint ────────────────────────────────────────────────────
 

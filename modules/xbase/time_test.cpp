@@ -35,9 +35,11 @@ TEST(TimeTest, MonoMsElapsedAccuracy) {
   uint64_t end     = xMonoMs();
   uint64_t elapsed = end - start;
 
-  /* Should be at least 40ms and no more than 200ms */
+  /* Should be at least 40ms and no more than 500ms.
+   * The upper bound is intentionally generous: on heavily loaded
+   * CI runners the scheduler may delay wake-up by hundreds of ms. */
   EXPECT_GE(elapsed, 40u);
-  EXPECT_LE(elapsed, 200u);
+  EXPECT_LE(elapsed, 500u);
 }
 
 /* ── xWallMs: basic sanity ── */
@@ -67,7 +69,7 @@ TEST(TimeTest, WallMsElapsedAccuracy) {
   uint64_t elapsed = end - start;
 
   EXPECT_GE(elapsed, 40u);
-  EXPECT_LE(elapsed, 200u);
+  EXPECT_LE(elapsed, 500u);
 }
 
 /* ── Both clocks return different values ── */

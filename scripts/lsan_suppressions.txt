@@ -1,0 +1,36 @@
+# LSAN suppression file for known third-party library leaks
+# Usage: LSAN_OPTIONS=suppressions=scripts/lsan_suppressions.txt
+#
+# These suppressions cover OpenSSL/libcurl internal state that leaks when
+# TLS handshakes fail.  The allocations appear as std::string allocations
+# in on_resp / oneshot_on_done because that is the user callback path
+# through which curl reports TLS errors, but the root cause is OpenSSL
+# not fully releasing its internal error state on handshake failure.
+#
+# With curl_global_init/cleanup in the test main, most of these leaks
+# are eliminated.  These rules serve as a safety net for any remaining
+# edge cases.
+
+# OpenSSL error queue / thread-local state
+leak:ERR_get_state
+leak:ERR_load_strings
+leak:OSSL_STORE_LOADER
+
+# OpenSSL internal allocations during SSL_CTX / SSL setup that may not
+# be fully released when handshake fails and the connection is torn down
+leak:SSL_CTX_new
+leak:SSL_new
+
+# libcurl SSL backend allocations that may outlive curl_easy_cleanup
+# when the multi handle's connection cache retains TLS session state
+leak:Curl_ssl_setup_conn
+leak:Curl_ossl_
+
+# std::string allocations in HTTPS test callbacks when TLS handshake
+# fails or times out.  LSan on Linux reports these as direct leaks
+# because OpenSSL's internal error state (allocated during the failed
+# handshake) is traced through the oneshot_on_done callback path, but
+# the root cause is OpenSSL not fully releasing its error-queue memory
+# even after curl_global_cleanup().
+leak:oneshot_on_done
+

@@ -81,6 +81,12 @@ static void txn_free(xStunTxnMgr *mgr, int index) {
     xEventLoopTimerCancel(mgr->loop, txn->timer);
     txn->timer = NULL;
   }
+  /* Notify callback so it can release cb_arg (e.g. CheckCtx).
+   * Pass NULL msg to signal cancellation/timeout. */
+  if (!txn->cancelled && txn->on_complete) {
+    txn->cancelled = true;
+    txn->on_complete(NULL, NULL, txn->ctx);
+  }
   /* Compact array */
   mgr->count--;
   if (index < mgr->count) {

@@ -399,6 +399,10 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
   CURLMcode mc = curl_multi_add_handle(c->multi, easy);
   if (mc != CURLM_OK) goto fail_easy;
 
+  /* Track in client's request list so destroy_req can clean up */
+  req->base.next = c->reqs;
+  c->reqs        = &req->base;
+
   return xErrno_Ok;
 
 fail_easy:

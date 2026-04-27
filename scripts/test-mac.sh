@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env zsh
 #
 # test-mac.sh - Run unit tests for changed modules on macOS
 #
@@ -173,7 +173,7 @@ detect_changed_modules() {
     local -A changed_mods=([__none__]=1)
     for f in $changed_files; do
         if [[ "$f" =~ ^modules/([^/]+)/ ]]; then
-            local mod="${BASH_REMATCH[1]}"
+            local mod="${match[1]}"
             # Only count if it's a known module
             for m in "${ALL_MODULES[@]}"; do
                 if [[ "$mod" == "$m" ]]; then
@@ -196,7 +196,7 @@ detect_changed_modules() {
         return
     fi
 
-    local direct_changes="${!changed_mods[*]}"
+    local direct_changes="${(k)changed_mods[*]}"
     info "Directly changed: $direct_changes"
 
     # Expand to include dependents
@@ -208,22 +208,22 @@ detect_changed_modules() {
 }
 
 # ── Main ────────────────────────────────────────────────────────────────
-AFFECTED=$(detect_changed_modules)
+AFFECTED=(${(f)"$(detect_changed_modules)"})
 
-if [[ -z "$AFFECTED" ]]; then
+if [[ ${#AFFECTED[@]} -eq 0 ]]; then
     info "No modules to test"
     exit 0
 fi
 
 # --detect-only: just print affected module names and exit
 if [[ $DETECT_ONLY -eq 1 ]]; then
-    echo "$AFFECTED"
+    printf '%s\n' "${AFFECTED[@]}"
     exit 0
 fi
 
 # Collect test targets
 TEST_TARGETS=()
-for m in $AFFECTED; do
+for m in "${AFFECTED[@]}"; do
     TEST_TARGETS+=("${m}_test")
 done
 
@@ -232,26 +232,26 @@ info "Test targets: ${TEST_TARGETS[*]}"
 # ── CMake configure ────────────────────────────────────────────────────
 step "Configuring build (TLS=$TLS_BACKEND, type=$BUILD_TYPE)"
 
-CMAKE_EXTRA_ARGS="-DXK_TLS_BACKEND=$TLS_BACKEND"
+CMAKE_EXTRA_ARGS=(-DXK_TLS_BACKEND=$TLS_BACKEND)
 
 if [[ $ASAN -eq 1 ]]; then
-    CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DXK_ENABLE_ASAN=ON"
+    CMAKE_EXTRA_ARGS+=(-DXK_ENABLE_ASAN=ON)
 fi
 
 # Homebrew OpenSSL / mbedTLS are keg-only
 OPENSSL_PREFIX="$(brew --prefix openssl 2>/dev/null || true)"
 if [[ -n "$OPENSSL_PREFIX" ]]; then
-    CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX"
+    CMAKE_EXTRA_ARGS+=(-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX)
 fi
 MBEDTLS_PREFIX="$(brew --prefix mbedtls 2>/dev/null || true)"
 if [[ -n "$MBEDTLS_PREFIX" ]]; then
-    CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DMBEDTLS_ROOT_DIR=$MBEDTLS_PREFIX"
+    CMAKE_EXTRA_ARGS+=(-DMBEDTLS_ROOT_DIR=$MBEDTLS_PREFIX)
 fi
 
 cmake -S . -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DBUILD_TESTING=ON \
-    $CMAKE_EXTRA_ARGS
+    "${CMAKE_EXTRA_ARGS[@]}"
 
 # ── Build ──────────────────────────────────────────────────────────────
 step "Building test targets"

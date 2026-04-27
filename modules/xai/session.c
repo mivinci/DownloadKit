@@ -1249,10 +1249,12 @@ void xAiSessionDestroy(xAiSession sess) {
     s->on_l1_preserve              = NULL;
     s->l1_preserve_owner           = NULL;
     size_t hist_len                = xArrayLen(s->history_arr);
-    if (hist_len > 0) {
-      hook(sess, (const xAiSessionMsg *)xArrayData(s->history_arr), hist_len,
-           xAiL1PreserveReason_Finalizing, owner);
-    }
+    /* Always invoke the hook on Finalizing so the owner can free
+     * its context even when the history is empty.  Pass the
+     * (possibly empty) array and its length; the callback is
+     * responsible for handling n_msgs == 0 gracefully. */
+    hook(sess, (const xAiSessionMsg *)xArrayData(s->history_arr), hist_len,
+         xAiL1PreserveReason_Finalizing, owner);
   }
 
   if (s->on_finalizing) {

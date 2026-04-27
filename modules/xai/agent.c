@@ -205,10 +205,21 @@ static void agent_l1_preserve_cb_(xAiSession sess, const xAiSessionMsg *msgs,
                                   size_t n_msgs, xAiL1PreserveReason reason,
                                   void *owner) {
   (void)sess;
-  if (!owner || !msgs || n_msgs == 0) return;
+  if (!owner) return;
 
   struct agent_l1_ctx_ *ctx = (struct agent_l1_ctx_ *)owner;
   struct xAiAgent_     *a   = ctx->agent;
+
+  /* On Finalizing we must always free the owner context, even if
+   * there is nothing to persist — otherwise the strdup'd session_id
+   * and the ctx struct itself would leak. */
+  if (!msgs || n_msgs == 0) {
+    if (reason == xAiL1PreserveReason_Finalizing) {
+      free(ctx->session_id);
+      free(ctx);
+    }
+    return;
+  }
 
   if (!a->data_dir || !a->agent_id || !ctx->session_id) return;
 

@@ -2244,7 +2244,9 @@ TEST_F(SessionTest, L1PreserveFinalizingFiresBeforeOnFinalizing) {
   EXPECT_EQ(l1.calls[0].reason, xAiL1PreserveReason_Finalizing);
 }
 
-/* L1 preserve Finalizing does not fire when history is empty. */
+/* L1 preserve Finalizing fires even when history is empty so the
+ * owner gets a chance to release resources (e.g. heap-allocated
+ * context created by xAiAgentCreateSession). */
 TEST_F(SessionTest, L1PreserveFinalizingSkipsEmptyHistory) {
   L1PreserveCap l1;
 
@@ -2258,6 +2260,9 @@ TEST_F(SessionTest, L1PreserveFinalizingSkipsEmptyHistory) {
   /* No inputs, so history is empty. */
   xAiSessionDestroy(sess);
 
-  /* Finalizing should not fire because there are no entries. */
-  EXPECT_EQ(l1.calls.size(), 0u);
+  /* Finalizing still fires (with n_msgs == 0) so the owner can
+   * free its context. */
+  ASSERT_EQ(l1.calls.size(), 1u);
+  EXPECT_EQ(l1.calls[0].n_msgs, 0u);
+  EXPECT_EQ(l1.calls[0].reason, xAiL1PreserveReason_Finalizing);
 }

@@ -38,6 +38,7 @@
 #include <stddef.h>
 #include <xai/agent.h>
 #include <xai/message.h>
+#include <xai/query.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
 
@@ -73,19 +74,9 @@ XDEF_ENUM(xAiInputOrigin){
 /**
  * @brief Why the session's current run stopped.
  *
- * Delivered to the caller via xAiSessionCallbacks::on_done. This is
- * the coarse, caller-facing signal; the session layer internally
- * maintains a finer-grained state machine that is not exposed.
+ * Defined in <xai/query.h>. That header is included by this one
+ * so the type is always available to session.h consumers.
  */
-XDEF_ENUM(xAiDoneReason){
-  xAiDoneReason_Completed     = 0, /**< Run finished naturally        */
-  xAiDoneReason_MaxTurns      = 1, /**< Agent's max_turns reached     */
-  xAiDoneReason_PromptTooLong = 2, /**< Context budget exhausted      */
-  xAiDoneReason_Aborted       = 3, /**< xAiSessionCancel() was called */
-  xAiDoneReason_ModelError    = 4, /**< Provider/model returned error */
-  xAiDoneReason_ToolError     = 5, /**< Tool handler returned error   */
-  xAiDoneReason_Stopped       = 6, /**< Stopped by internal policy    */
-};
 
 /**
  * @brief Streaming callbacks delivered to the caller.
@@ -768,5 +759,18 @@ XCAPI(xAiInputOrigin) xAiSessionOrigin(xAiSession sess);
  * @return      The session id string, or NULL.
  */
 XCAPI(const char *) xAiSessionId(xAiSession sess);
+
+/**
+ * @brief Get the Query currently running on a Session, if any.
+ *
+ * Returns the live Query handle the Session has allocated for its
+ * in-flight run, or NULL if the Session is idle. The handle stays
+ * valid until either on_done has been delivered (at which point
+ * the Session will destroy it) or xAiSessionDestroy() is called.
+ *
+ * @param sess  Session handle (NULL returns NULL).
+ * @return      The Session's current Query, or NULL if none.
+ */
+XCAPI(xAiQuery) xAiSessionQuery(xAiSession sess);
 
 #endif /* XAI_SESSION_H */

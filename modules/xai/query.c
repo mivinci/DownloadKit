@@ -27,10 +27,11 @@
  * @c produced out via ai_query_take_produced() and merges it into
  * @c s->history before destroying the Query.
  *
- * This file reaches back into its owning Session via @c q->session
- * only for agent-level configuration (provider, tools, model,
- * max_tokens, max_turns) — everything conversation-shaped is
- * Query-local.
+ * This file is fully self-contained: the Query carries its own
+ * provider, tools, model, and limits — it never reaches back into
+ * any Session for runtime configuration. The optional session
+ * back-pointer is used exclusively by the observational
+ * xAiQuerySession() API and the single-flight guard.
  */
 
 #include "query_private.h"
@@ -592,21 +593,18 @@ static void on_provider_done(xAiProviderStopReason reason, xErrno err,
 /* ── Submit ────────────────────────────────────────────────────── */
 
 static xErrno submit_round(struct xAiQuery_ *q) {
-  struct xAiSession_ *s = q->session;
-  struct xAiAgent_   *a = (struct xAiAgent_ *)s->agent;
-
   struct view_ v;
   xErrno       rc = view_build(q, &v);
   if (rc != xErrno_Ok) return rc;
 
   xAiProviderSubmitConf pc = {0};
-  pc.model                 = s->model;
+  pc.model                 = q->model;
   pc.messages              = v.msgs;
   pc.n_messages            = v.n_msgs;
-  pc.tools                 = (const xAiTool **)a->tools;
-  pc.n_tools               = a->n_tools;
+  pc.tools                 = q->tools;
+  pc.n_tools               = q->n_tools;
   pc.temperature           = -1;
-  pc.max_tokens            = s->max_tokens;
+  pc.max_tokens            = q->max_tokens;
   pc.stop                  = NULL;
 
   xAiProviderStreamCallbacks cbs = {0};
@@ -620,7 +618,7 @@ static xErrno submit_round(struct xAiQuery_ *q) {
   pending_reset(q);
   q->turn++;
 
-  rc = ai_provider_submit(a->provider, &pc, &cbs, q);
+  rc = ai_provider_submit(q->provider, &pc, &cbs, q);
   view_free(&v);
   return rc;
 }
@@ -635,11 +633,12 @@ static xErrno submit_round(struct xAiQuery_ *q) {
  * Do NOT short-circuit with a C-style cast: we burned that before
  * (04-23 provider_openai.c bug), the compiler can't catch it and the
  * lookup reads a bogus address. */
-static xAiTool find_tool(struct xAiAgent_ *a, const char *name) {
+static xAiTool find_tool(const xAiTool **tools, size_t n_tools,
+                        const char *name) {
   if (!name) return NULL;
-  for (size_t i = 0; i < a->n_tools; i++) {
-    if (!a->tools[i]) continue;
-    xAiTool     t = *a->tools[i];
+  for (size_t i = 0; i < n_tools; i++) {
+    if (!tools[i]) continue;
+    xAiTool     t = *tools[i];
     const char *n = ai_tool_name(t);
     if (n && strcmp(n, name) == 0) return t;
   }
@@ -654,9 +653,6 @@ static xAiTool find_tool(struct xAiAgent_ *a, const char *name) {
  * individual tool errors folded back into produced). Fatal failure
  * (OOM building result entries) aborts with the returned code. */
 static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
-  struct xAiSession_ *s = q->session;
-  struct xAiAgent_   *a = (struct xAiAgent_ *)s->agent;
-
   for (size_t i = 0; i < xArrayLen(q->pending_arr) && !q->cancelled; i++) {
     struct xAiQueryPending_ *p =
       (struct xAiQueryPending_ *)xArrayAt(q->pending_arr, i);
@@ -665,7 +661,7 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
       q->cbs.on_tool((xAiQuery)q, p->name, /*started=*/1, q->cbs.user_data);
     }
 
-    xAiTool     t        = find_tool(a, p->name);
+    xAiTool     t        = find_tool(q->tools, q->n_tools, p->name);
     xAiContent  out      = {0};
     int         is_error = 0;
     const char *out_text;
@@ -828,9 +824,8 @@ static void handle_error(struct xAiQuery_ *q, xErrno err) {
  * run with the appropriate done reason. On success we return and
  * wait for the next on_provider_done callback. */
 static void handle_tool_loop_continuation(struct xAiQuery_ *q) {
-  struct xAiSession_ *s = q->session;
-  int                 turn_limit =
-    s->max_turns > 0 ? s->max_turns : XAI_SESSION_DEFAULT_MAX_TURNS;
+  int turn_limit =
+    q->max_turns > 0 ? q->max_turns : XAI_SESSION_DEFAULT_MAX_TURNS;
   if (q->turn >= turn_limit) {
     /* Already emitted enough rounds; tell the caller we bailed. */
     query_finalize(q, xAiDoneReason_MaxTurns);
@@ -977,21 +972,35 @@ void ai_query_take_produced(struct xAiQuery_ *q, struct xAiSessionMsg_ **out,
 
 /* ── Public API (declared in xai/query.h) ──────────────────────── */
 
-xAiQuery xAiQueryCreate(xAiSession sess, const xAiQueryConf *conf) {
-  if (!sess || !conf) return NULL;
-  struct xAiSession_ *s = (struct xAiSession_ *)sess;
+xAiQuery xAiQueryCreate(const xAiQueryConf *conf) {
+  if (!conf) return NULL;
+  /* A functional Query requires a provider — without one there is
+   * nothing to submit rounds to. The session field is optional
+   * (standalone Queries don't need one). */
+  if (!conf->provider) return NULL;
 
-  /* Single-flight: at most one live Query per Session today. The
-   * Session also enforces this via xAiSessionInput's Busy return,
-   * but we double-check here so the driving API is safe to call
-   * from code paths that don't go through xAiSessionInput. */
-  if (s->query) return NULL;
+  struct xAiSession_ *s = (struct xAiSession_ *)conf->session;
+
+  /* Single-flight: at most one live Query per Session today. If
+   * conf->session is NULL (standalone Query), no check is needed —
+   * the caller manages their own concurrency. The Session also
+   * enforces this via xAiSessionInput's Busy return, but we
+   * double-check here so the driving API is safe to call from
+   * code paths that don't go through xAiSessionInput. */
+  if (s && s->query) return NULL;
 
   struct xAiQuery_ *q = query_alloc();
   if (!q) return NULL;
 
-  q->session = s;
-  q->cbs     = conf->cbs;
+  /* Self-contained runtime configuration — no Session back-hack. */
+  q->provider   = conf->provider;
+  q->tools      = conf->tools;
+  q->n_tools    = conf->n_tools;
+  q->model      = conf->model;
+  q->max_tokens = conf->max_tokens;
+  q->max_turns  = conf->max_turns;
+  q->session    = s;         /* observational, never dereferenced for config */
+  q->cbs        = conf->cbs;
   usage_reset(q);
 
   q->inputs_arr   = xArrayCreate(sizeof(struct xAiSessionMsg_), 8, &kMsgCbs);
@@ -1020,9 +1029,6 @@ xErrno xAiQueryRun(xAiQuery q, const xAiMessage *msgs, size_t n) {
    * xAiQueryIsRunning + "was it Destroyed yet?"; the latter is
    * implicit (we just check running AND turn). */
   if (qq->running || qq->turn > 0) return xErrno_Busy;
-
-  struct xAiSession_ *s = qq->session;
-  if (!s) return xErrno_InvalidArg;
 
   /* Deep-copy every input message into Query-owned turn-entry
    * storage. After this loop succeeds the caller's @p msgs buffers
@@ -1065,11 +1071,7 @@ void xAiQueryDestroy(xAiQuery q) {
    * will stop touching the freed arg. */
   if (qq->running) {
     ai_query_cancel_mark(qq);
-    struct xAiSession_ *s = qq->session;
-    if (s) {
-      struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
-      if (a) ai_provider_cancel(a->provider);
-    }
+    ai_provider_cancel(qq->provider);
   }
 
   /* Detach from Session (if the Session still points at us). */
@@ -1091,10 +1093,13 @@ void xAiQueryDestroy(xAiQuery q) {
 }
 
 xAiQuery xAiSessionQuery(xAiSession sess) {
+  /* Delegated to session.c — this implementation exists for
+   * backward compat with any static-linked callers. */
   if (!sess) return NULL;
   struct xAiSession_ *s = (struct xAiSession_ *)sess;
   return (xAiQuery)s->query;
 }
+
 
 void xAiQueryCancel(xAiQuery q) {
   if (!q) return;
@@ -1102,12 +1107,7 @@ void xAiQueryCancel(xAiQuery q) {
   if (!qq->running) return;
 
   ai_query_cancel_mark(qq);
-
-  struct xAiSession_ *s = qq->session;
-  if (s) {
-    struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
-    if (a) ai_provider_cancel(a->provider);
-  }
+  ai_provider_cancel(qq->provider);
   /* The provider's on_done will arrive with reason=Cancelled, or
    * dispatch_pending_tools will notice q->cancelled between rounds. */
 }

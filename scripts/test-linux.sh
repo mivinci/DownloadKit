@@ -49,6 +49,7 @@ while [[ $# -gt 0 ]]; do
         -b|--base)    BASE_REF="$2"; shift 2 ;;
         -j|--jobs)    JOBS="$2"; shift 2 ;;
         -m|--memory)  MEMORY="$2"; shift 2 ;;
+        -B|--build)   BUILD_DIR="$2"; shift 2 ;;
         --rebuild)    REBUILD_IMAGE=1; shift ;;
         --all)        FORCE_ALL=1; shift ;;
         --ci)         CI_MODE=1; shift ;;

@@ -88,7 +88,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          /opt/homebrew/bin/bash scripts/test-mac.sh \
+          /usr/local/bin/bash scripts/test-mac.sh \
             --ci --asan \
             --base-sha "$BASE_SHA" \
             -t ${{ matrix.tls_backend }} \

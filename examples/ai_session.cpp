@@ -23,7 +23,7 @@
  *                                                    # trailing slash
  *   export LLM_API_KEY="sk-xxx"
  *   export LLM_MODEL="gpt-4o"                        # optional
- *   ./ai_session
+ *   ./ai_session [-d <path>]                         # default: cwd
  */
 
 #include "xbase/backtrace.h"
@@ -36,17 +36,6 @@
 #include <xbase/event.h>
 #include <xhttp/client.h>
 
-/* Reach into xai's private layout to print a budget-calibrator
- * snapshot at the end of every round. The calibrator has no
- * public accessor by design (see session_test.cpp's
- * BudgetCalibrator suite: "session-internal diagnostics, we'd
- * rather not grow the surface area for a getter that exists only
- * to feed tests / demos"). This demo is knowingly on the
- * diagnostic side of that fence — the CMakeLists.txt entry for
- * ai_session carries the same caveat. Do NOT copy this pattern
- * into production code; go through the public xAiSession* API. */
-#include "xai/session_private.h"
-
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -54,6 +43,7 @@
 #include <cstring>
 #include <ctime>
 #include <random>
+#include <unistd.h>
 
 /* ── Lightweight JSON field extractors ──────────────────────────────
  *
@@ -172,6 +162,13 @@ struct ReplCtx {
   bool       saw_first_delta = false;
   bool       in_thinking     = false; /* currently streaming thinking? */
   size_t     reply_bytes     = 0;
+  int        total_tokens    = 0;     /* cumulative across all rounds */
+  size_t     budget_limit    = 0;     /* from last GatePassed event */
+  size_t     budget_remaining = 0;    /* from last GatePassed event */
+  double     budget_factor   = 1.0;   /* EWMA calibrator factor */
+  size_t     budget_samples  = 0;     /* calibrator observation count */
+  size_t     budget_estimated = 0;    /* calibrated pre-submit estimate */
+  int        last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
 };
 
 /* ── Tools ──────────────────────────────────────────────────────────
@@ -600,7 +597,7 @@ static void on_thinking(xAiSession sess, const char *chunk, size_t len,
   auto *ctx = static_cast<ReplCtx *>(ud);
   if (!ctx->in_thinking) {
     /* Open a new thinking block on its own line. */
-    std::fputs("\n\x1b[2m[thinking] ", stdout);
+    std::fputs("\x1b[2m[thinking] ", stdout);
     ctx->in_thinking = true;
   }
   std::fwrite(chunk, 1, len, stdout);
@@ -621,7 +618,7 @@ static void on_tool(xAiSession sess, const char *tool_name, int started,
   end_thinking(ctx);
   if (!after_thinking) std::putchar('\n');
   std::printf("\x1b[2m[tool] %s %s\x1b[0m\n", tool_name ? tool_name : "(null)",
-              started ? "starting" : "finished");
+              started ? "starting" : "finished\n");
   std::fflush(stdout);
 }
 
@@ -656,14 +653,17 @@ static void on_done(xAiSession sess, xAiDoneReason reason,
    * line after so the next `> ` prompt isn't glued to the status. */
   if (!after_thinking) std::putchar('\n');
   std::fputs("\x1b[2m", stdout);
-  std::printf("[done] reason=%s reply_bytes=%zu", done_reason_name(reason),
+  std::printf("\n[done] reason=%s reply_bytes=%zu", done_reason_name(reason),
               ctx->reply_bytes);
-  /* Token accounting (cumulative across every round of this
-   * xAiSessionInput). The provider fills -1 for fields it couldn't
-   * parse; we hide those so the line stays clean for servers that
-   * only report a subset. A NULL usage means the server never sent
-   * a usage object — rare in practice (moonshot, openai, deepseek
-   * all support stream_options.include_usage). */
+  /* Token accounting. prompt_tokens is the maximum across all
+   * rounds (each round reports the full input size the provider
+   * saw, so the last round's value is the total). completion_tokens
+   * and total_tokens are additive per round. The provider fills -1
+   * for fields it couldn't parse; we hide those so the line stays
+   * clean for servers that only report a subset. A NULL usage means
+   * the server never sent a usage object — rare in practice
+   * (moonshot, openai, deepseek all support
+   * stream_options.include_usage). */
   if (usage) {
     std::printf(" tokens=");
     if (usage->prompt_tokens >= 0) {
@@ -678,28 +678,30 @@ static void on_done(xAiSession sess, xAiDoneReason reason,
       std::printf("?");
     }
     if (usage->total_tokens >= 0) {
-      std::printf(" total=%d", usage->total_tokens);
+      ctx->total_tokens += usage->total_tokens;
+      std::printf(" total=%d", ctx->total_tokens);
     }
   }
-  /* Budget-calibrator snapshot. `factor` is the EWMA-smoothed
-   * multiplier that bytes/4 gets scaled by before the gate check;
-   * it starts at 1.0 and drifts toward (actual_prompt_tokens /
-   * estimated_prompt_tokens) one step per clean single-round
-   * observation. `samples` is the saturating count of accepted
-   * observations — multi-round tool runs and rounds without a
-   * usage block don't contribute (see sess_fwd_on_done's opt-in
-   * comment). `est` is the calibrated pre-submit estimate that
-   * cleared the gate for *this* run; it's cleared back to 0 after
-   * the update so a stale value can't leak into the next turn.
-   * Seeing est ≈ usage.prompt_tokens after a couple of turns is
-   * the whole point — it means the calibrator has caught up to
-   * the provider's tokenisation. */
-  {
-    auto  *s = reinterpret_cast<struct xAiSession_ *>(sess);
-    double f = s->budget_calibrator.factor;
-    size_t n = s->budget_calibrator.samples;
-    size_t e = s->last_prompt_estimate;
-    std::printf(" budget=%.3fx samples=%zu est=%zu", f, n, e);
+  /* Context-budget snapshot. budget_remaining and budget_limit
+   * are populated by the GatePassed event that fires at the start
+   * of every round (before the Query is submitted). Displaying
+   * remaining/limit gives the user a real-time view of how much
+   * context headroom is left before the budget gate would trigger
+   * TruncateOldest or SummarizeOldest. A remaining of 0 means
+   * the very next input is likely to hit the cap.
+   * calibrator_factor is the EWMA-smoothed multiplier that
+   * bytes/4 gets scaled by; it starts at 1.0 and drifts toward
+   * (actual_prompt_tokens / estimated_prompt_tokens). samples
+   * is the count of accepted observations. est is the calibrated
+   * pre-submit estimate for this round. */
+  if (ctx->budget_limit > 0) {
+    std::printf(" budget=%zu/%zu %.3fx samples=%zu est=%zu",
+                ctx->budget_remaining, ctx->budget_limit,
+                ctx->budget_factor, ctx->budget_samples,
+                ctx->budget_estimated);
+    if (ctx->last_actual_prompt >= 0) {
+      std::printf(" actual=%d", ctx->last_actual_prompt);
+    }
   }
   std::fputs("\x1b[0m\n\n", stdout);
   std::fflush(stdout);
@@ -728,10 +730,9 @@ static void on_error(xAiSession sess, xErrno err, const char *msg, void *ud) {
    * cap" for a calibrator demo; production callers would
    * typically switch to SummarizeOldest or a Callback policy. */
   if (err == xErrno_PromptTooLong) {
-    std::fprintf(stderr,
-                 "\x1b[1;31m        hit budget cap — raise "
-                 "sconf.budget.max_tokens or lower "
-                 "keep_recent_turns\x1b[0m\n");
+    std::fprintf(stderr, "\x1b[1;31m        hit budget cap — raise "
+                         "sconf.budget.max_tokens or lower "
+                         "keep_recent_turns\x1b[0m\n");
   }
   std::fputc('\n', stderr);
   std::fflush(stderr);
@@ -769,8 +770,9 @@ static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
                   "%zu entries affected",
                   cdi->summary_tokens, cdi->entries_affected);
     } else {
-      std::printf("[budget] compact degraded to truncate — %zu entries affected",
-                  cdi ? cdi->entries_affected : 0);
+      std::printf(
+        "[budget] compact degraded to truncate — %zu entries affected",
+        cdi ? cdi->entries_affected : 0);
     }
     /* Compact is done — stop the event loop so the REPL's
      * xEventLoopRun returns and the auto-retry after Busy
@@ -787,6 +789,20 @@ static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
                 ti ? ti->entries_removed : 0);
     break;
   }
+  case xAiBudgetEvent_GatePassed: {
+    auto *gi = static_cast<const xAiBudgetGateInfo *>(info);
+    if (gi) {
+      ctx->budget_limit     = gi->limit;
+      ctx->budget_remaining = gi->remaining;
+      ctx->budget_factor    = gi->calibrator_factor;
+      ctx->budget_samples   = gi->calibrator_samples;
+      ctx->budget_estimated = gi->estimated;
+      ctx->last_actual_prompt = gi->last_first_round_prompt_tokens;
+      std::printf("[budget] gate passed — remaining %zu/%zu tokens",
+                  gi->remaining, gi->limit);
+    }
+    break;
+  }
   }
   std::fputs("\x1b[0m\n", stdout);
   std::fflush(stdout);
@@ -794,8 +810,34 @@ static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
 
 /* ── Main ───────────────────────────────────────────────────────────── */
 
-int main() {
+int main(int argc, char *argv[]) {
   xPrintBacktraceOnCrash();
+
+  /* ── Parse command-line options ─────────────────────────────────── */
+  int         opt;
+  const char *data_dir_arg = nullptr;
+  while ((opt = getopt(argc, argv, "d:h")) != -1) {
+    switch (opt) {
+    case 'd':
+      data_dir_arg = optarg;
+      break;
+    case 'h':
+    default:
+      std::fprintf(stderr, "Usage: %s [-d <path>]\n", argv[0]);
+      return 1;
+    }
+  }
+
+  /* Default data_dir to the current working directory. */
+  char        cwd_buf[4096];
+  const char *data_dir = data_dir_arg;
+  if (!data_dir) {
+    if (getcwd(cwd_buf, sizeof(cwd_buf))) {
+      data_dir = cwd_buf;
+    } else {
+      data_dir = ".";
+    }
+  }
 
   const char *api_url = std::getenv("LLM_API_URL");
   const char *api_key = std::getenv("LLM_API_KEY");
@@ -932,38 +974,13 @@ int main() {
   const xAiTool *tool_ptrs[N_TOOLS];
   for (size_t i = 0; i < N_TOOLS; ++i)
     tool_ptrs[i] = &tool_handles[i];
-  /* ── Agent ──────────────────────────────────────────────────────── */
-  xAiAgentConf aconf;
-  std::memset(&aconf, 0, sizeof(aconf));
-  aconf.loop     = loop;
-  aconf.provider = pvd;
-  aconf.model    = model;
-  aconf.system_prompt =
-    "You are a concise assistant running on xKit's xai session "
-    "demo. You have access to these tools:\n"
-    "  - get_time: current UTC time (no args)\n"
-    "  - calculator: evaluate arithmetic like '1+2*3'\n"
-    "  - random_int: uniform int in [min, max]\n"
-    "  - wordcount: count chars/words/lines of a text blob\n"
-    "Use tools when they would produce a more accurate answer "
-    "than guessing. You may chain multiple tool calls in a single "
-    "turn. Keep replies short.";
-  aconf.tools     = tool_ptrs;
-  aconf.n_tools   = N_TOOLS;
-  aconf.max_turns = 8;
-
-  xAiAgent agent = xAiAgentCreate(&aconf);
-  if (!agent) {
-    std::fprintf(stderr, "failed to create agent\n");
-    for (size_t i = 0; i < N_TOOLS; ++i)
-      xAiToolDestroy(tool_handles[i]);
-    xAiProviderDestroy(pvd);
-    xHttpClientDestroy(http);
-    xEventLoopDestroy(loop);
-    return 1;
-  }
-
-  /* ── Session ────────────────────────────────────────────────────── */
+  /* ── Session config (agent's default session) ──────────────────────
+   *
+   * Instead of creating a session manually and managing its
+   * lifecycle, we set default_session_conf on the agent so it
+   * creates a built-in default session at construction time.
+   * The session is retrieved via xAiAgentDefaultSession() and
+   * is destroyed automatically by xAiAgentDestroy(). */
   ReplCtx ctx;
   ctx.loop = loop;
 
@@ -995,14 +1012,51 @@ int main() {
    * REPL and on_error both surface with a hint line below), and
    * see session.c's keep_recent_turns floor logic for why. */
   sconf.budget.policy            = xAiBudgetPolicy_Auto;
-  sconf.budget.max_tokens        = 8192;
+  sconf.budget.max_tokens        = 2048;
   sconf.budget.keep_recent_turns = 2;
   sconf.budget.on_budget_event   = on_budget_event;
   sconf.budget.budget_event_ud   = &ctx;
 
-  xAiSession sess = xAiSessionCreate(agent, &sconf);
+  /* ── Agent ──────────────────────────────────────────────────────── */
+  xAiAgentConf aconf;
+  std::memset(&aconf, 0, sizeof(aconf));
+  aconf.loop     = loop;
+  aconf.provider = pvd;
+  aconf.model    = model;
+  aconf.system_prompt =
+    "You are a concise assistant running on xKit's xai session "
+    "demo. You have access to these tools:\n"
+    "  - get_time: current UTC time (no args)\n"
+    "  - calculator: evaluate arithmetic like '1+2*3'\n"
+    "  - random_int: uniform int in [min, max]\n"
+    "  - wordcount: count chars/words/lines of a text blob\n"
+    "Use tools when they would produce a more accurate answer "
+    "than guessing. You may chain multiple tool calls in a single "
+    "turn. Keep replies short.";
+  aconf.tools               = tool_ptrs;
+  aconf.n_tools             = N_TOOLS;
+  aconf.max_turns           = 8;
+  aconf.agent_id            = "test";
+  aconf.data_dir            = data_dir;
+  aconf.default_session_conf = &sconf;
+
+  xAiAgent agent = xAiAgentCreate(&aconf);
+  if (!agent) {
+    std::fprintf(stderr, "failed to create agent\n");
+    for (size_t i = 0; i < N_TOOLS; ++i)
+      xAiToolDestroy(tool_handles[i]);
+    xAiProviderDestroy(pvd);
+    xHttpClientDestroy(http);
+    xEventLoopDestroy(loop);
+    return 1;
+  }
+
+  /* Retrieve the agent's built-in default session — no manual
+   * create/destroy needed. The session lives for the agent's
+   * entire lifetime. */
+  xAiSession sess = xAiAgentDefaultSession(agent);
   if (!sess) {
-    std::fprintf(stderr, "failed to create session\n");
+    std::fprintf(stderr, "agent has no default session\n");
     xAiAgentDestroy(agent);
     for (size_t i = 0; i < N_TOOLS; ++i)
       xAiToolDestroy(tool_handles[i]);
@@ -1065,10 +1119,9 @@ int main() {
        * remedy, so they just print the bare code. */
       std::fprintf(stderr, "[error] input rejected (errno=%d)\n", (int)err);
       if (err == xErrno_PromptTooLong) {
-        std::fprintf(stderr,
-                     "        hit budget cap — raise "
-                     "sconf.budget.max_tokens or lower "
-                     "keep_recent_turns\n");
+        std::fprintf(stderr, "        hit budget cap — raise "
+                             "sconf.budget.max_tokens or lower "
+                             "keep_recent_turns\n");
       }
       continue;
     }
@@ -1078,7 +1131,8 @@ int main() {
 
   std::printf("\nBye!\n");
 
-  xAiSessionDestroy(sess);
+  /* No xAiSessionDestroy needed — the default session is owned
+   * by the agent and destroyed automatically in xAiAgentDestroy. */
   xAiAgentDestroy(agent);
   for (size_t i = 0; i < N_TOOLS; ++i)
     xAiToolDestroy(tool_handles[i]);

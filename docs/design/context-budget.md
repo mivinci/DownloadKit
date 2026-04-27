@@ -116,15 +116,21 @@ samples++;
 
 ### Opt-out 规则
 
-三种情况**跳过更新**，避免污染 factor：
+两种情况**跳过更新**，避免污染 factor：
 
-1. `usage == NULL` 或 `prompt_tokens <= 0`（provider 没给 / 给的是未知哨兵 -1）。
+1. `usage == NULL` 或 `first_round_prompt_tokens < 0`（provider 没给 / 给的是未知哨兵 -1）。
 2. `last_prompt_estimate == 0`（gate 没走——Disabled 模式 / 这次 input 没进闸门）。
-3. **本轮有 `ToolUse`**——这是最关键的一条。
 
-第三条的原因值得单独说：`Query.usage` 是跨 **round** 累加的（见 `query.c:usage_accumulate`）——模型调一次工具 → 我们喂回 tool_result → 模型再调一次，此时 provider 第二轮的 `prompt_tokens` 算的是 "**第一轮 + tool_result + 第二轮重放的历史**"。这个数对应不到 **单次 submit** 的 prompt 大小。如果把它喂给校准器，factor 会按 "轮数倍" 放大，几轮以后 gate 会变得病态保守。
+**为什么不再需要 `ToolUse` 检测？**
 
-检测方式便宜且可靠：产出列表里有没有 `ToolUse` entry——**有** 就意味着至少存在第二轮去递 tool_result，**没有** 就一定是单轮。
+旧实现中 `Query.usage.prompt_tokens` 是跨 round **累加**的（见 `query.c:usage_accumulate`），多轮工具对话时该值会膨胀数倍，无法对应到单次 submit 的 prompt 大小，因此用"产出里有没有 ToolUse"来 opt-out。
+
+新实现改为：`prompt_tokens` 取跨轮 **max**（每轮 provider 报的是完整输入量而非增量，
+所以 max 就是总输入量），同时在 `xAiQuery_` 中新增 `first_round_prompt_tokens` 字段，
+只记录首轮的 `prompt_tokens`。校准器改用 `first_round_prompt_tokens` 与
+`last_prompt_estimate` 配对——gate 只在首轮之前执行，所以首轮的 provider 报告才是
+唯一可与 gate 估算归因的数据点。这样一来，多轮工具对话也能产生有效的校准信号，
+不再需要 opt-out。
 
 ### 为什么把 factor 暴露到 calibrator 而不是直接改估算器
 
@@ -335,8 +341,8 @@ xErrno session_enforce_budget_(s, msg) {
   ┌──────────────────────────────────────────┐
   │ 5. sess_fwd_on_done                      │
   │    ├─ take produced list                 │
-  │    ├─ single-round? 有 ToolUse 就退出    │
-  │    ├─ calibrator_update(est, actual)     │
+  │    ├─ calibrator_update(est,             │
+  │    │     first_round_prompt_tokens)      │
   │    ├─ last_prompt_estimate = 0           │
   │    └─ merge produced into history        │
   └──────────────────────────────────────────┘
@@ -392,14 +398,16 @@ sconf.budget.keep_recent_turns = 2;             // 至少保留最近两轮
 
 这是设计的本意：`keep_recent_turns` 实际上决定了 **"裁到最狠能留多少"**，而不只是 "最少要留多少"。二者看起来同义，但对 gate 的终止行为影响完全不同。
 
-### 观察 C：单轮 / 多轮的自动路由
+### 观察 C：多轮工具对话也能产生校准信号
 
-demo 的工具（`get_time` / `calculator` / `random_int` / `wordcount`）都会触发多 round。真实看 `budget=` 字段：
+demo 的工具（`get_time` / `calculator` / `random_int` / `wordcount`）都会触发多 round。旧实现中，带工具调用的 run 会因为 `single_round` 检查而跳过校准——factor 永远停在 1.0。
+
+新实现改用 `first_round_prompt_tokens` 校准：gate 只在首轮之前执行，首轮的 provider 报告是唯一可与 gate 估算归因的数据点。因此：
 
 - 纯文字问答（"写首诗" / "解释一下 XXX"）→ `samples` **会** 增加。
-- 带工具调用（"现在几点" → 触发 `get_time`）→ `samples` **不会** 增加。
+- 带工具调用（"现在几点" → 触发 `get_time`）→ `samples` **也会** 增加。
 
-这正是 `single_round` 检查在工作。如果把检查去掉，factor 会在几轮工具对话后漂到 `MAX_FACTOR=2.0` 并卡死——用 `budget_test.cpp::BudgetCalibrator` 里的 fixture 可以一秒复现。
+factor 不再会因为多轮工具对话而漂到 `MAX_FACTOR=2.0` 并卡死，因为我们用的是首轮数据而非累积膨胀的总量。
 
 ### 观察 D：`PromptTooLong` 的两条路径
 
@@ -431,11 +439,27 @@ REPL 里撞到这个错会看到两种前缀：
 把这套东西搬到别的系统时，下面几个问题值得一个个回答一遍：
 
 1. **裁剪边界够不够自洽**？不变量 3（tool_use/tool_result 不可拆）对于所有能放进 history 的 entry kind 都成立吗？xKit 里成立，因为 User 消息只承载 Text；别的系统里 User 如果也能带 ToolResult，这条就需要重新论证。
-2. **校准器有没有被 "意外地" 多喂**？我们只数 tool_use 是否存在，不区分 "单工具" 和 "并发工具"；如果哪天引入了 background tool 概念，单次 submit 里就可能出现 N 次 `usage_accumulate` 而产出里却没有 ToolUse——需要重新想 opt-out 条件。
-3. **`keep_recent_turns` 会不会和 `max_tokens` 天然冲突**？会。极端情况下 `keep_recent_turns=10` + `max_tokens=1024` 永远不合规。我们选择 **拒绝** 而不是静默违反 floor——因为 "用户明确要求保留最近 10 轮" 的承诺比 "尽量让它跑" 更强。
-4. **Disabled 策略的开销到底是多少**？一条 `if` + 一次返回。对于所有 zero-init `xAiSessionConf` 的调用方，行为与实现 c2 之前完全 byte-identical。这是上线这套机制的硬前提。
-5. **Auto 的 tool_ratio 阈值是否对目标工作负载合理**？0.4 是在 "工具调用密集" 场景下推出来的（典型：AI agent 反复调 API）。如果目标工作负载是 "长文写作 + 偶尔查字典"，工具占比天然 < 10%，Auto 会稳定选 SummarizeOldest——此时可以直接用 SummarizeOldest 省掉 ratio 计算开销。反之，纯 API 编排场景工具占比常年 > 80%，Auto 退化为 TruncateOldest——直接用 TruncateOldest 更省。**Auto 的价值在于混合场景**。
-6. **SummarizeOldest 的 compact Query 自身会不会再触发预算闸门**？不会——compact 走的是 `xAiSessionCompact` 内部的一次性 Query，不经过 `xAiSessionInput`，因此不进闸门。但 compact Query 的输出（摘要条目）会替换旧 history，如果摘要太长导致仍然超限，`sess_fwd_on_done` 的降级逻辑会转到 TruncateOldest。
+2. **校准器的 `first_round_prompt_tokens` 归因是否足够鲁棒**？当前实现只取首轮的
+   `prompt_tokens`，因为 gate 只在首轮之前执行——这是唯一可与 gate 估算干净归因的
+   数据点。如果哪天 gate 也需要在后续轮之前执行（比如 background tool 概念），
+   则需要为每轮分别保存 estimate/actual 对。
+3. **`keep_recent_turns` 会不会和 `max_tokens` 天然冲突**？会。极端情况下
+   `keep_recent_turns=10` + `max_tokens=1024` 永远不合规。我们选择 **拒绝**
+   而不是静默违反 floor——因为 "用户明确要求保留最近 10 轮" 的承诺比
+   "尽量让它跑" 更强。
+4. **Disabled 策略的开销到底是多少**？一条 `if` + 一次返回。对于所有 zero-init
+   `xAiSessionConf` 的调用方，行为与实现 c2 之前完全 byte-identical。
+   这是上线这套机制的硬前提。
+5. **Auto 的 tool_ratio 阈值是否对目标工作负载合理**？0.4 是在 "工具调用密集" 场景下
+   推出来的（典型：AI agent 反复调 API）。如果目标工作负载是 "长文写作 + 偶尔查字典"，
+   工具占比天然 < 10%，Auto 会稳定选 SummarizeOldest——此时可以直接用
+   SummarizeOldest 省掉 ratio 计算开销。反之，纯 API 编排场景工具占比常年 > 80%，
+   Auto 退化为 TruncateOldest——直接用 TruncateOldest 更省。
+   **Auto 的价值在于混合场景**。
+6. **SummarizeOldest 的 compact Query 自身会不会再触发预算闸门**？不会——compact 走的是
+   `xAiSessionCompact` 内部的一次性 Query，不经过 `xAiSessionInput`，因此不进闸门。
+   但 compact Query 的输出（摘要条目）会替换旧 history，如果摘要太长导致仍然超限，
+   `sess_fwd_on_done` 的降级逻辑会转到 TruncateOldest。
 
 ---
 
@@ -455,23 +479,45 @@ REPL 里撞到这个错会看到两种前缀：
 
 ### 直接借鉴的通用做法
 
-- **"~4 bytes per token" 估算**：出自 OpenAI 官方 [Tokenizer 说明](https://platform.openai.com/tokenizer)（"a helpful rule of thumb is that one token generally corresponds to ~4 characters of text for common English text"）。我们用的是同一条启发式。
-- **`per-message overhead` 常量**：公式形态直接参考 OpenAI Cookbook 的 [`num_tokens_from_messages`](https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb)（`tokens_per_message=3`、`tokens_per_name=1` 那一段）。我们合成了一个粗粒度常量 `8`，没有拆 role / name。
-- **EWMA / 指数平滑**：Holt 1957、Brown 1956 的经典统计方法。把 EWMA 用作 "在线修正粗估" 的工程模式在 TCP RTT 估算（RFC 6298 §2、Jacobson 1988）里完全同形——我们只是把 "RTT observed / RTT estimated" 换成了 "prompt_tokens actual / prompt_tokens estimated"。
+- **"~4 bytes per token" 估算**：出自 OpenAI 官方
+  [Tokenizer 说明](https://platform.openai.com/tokenizer)
+  （"a helpful rule of thumb is that one token generally corresponds to
+  ~4 characters of text for common English text"）。我们用的是同一条启发式。
+- **`per-message overhead` 常量**：公式形态直接参考 OpenAI Cookbook 的
+  [`num_tokens_from_messages`](https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb)
+  （`tokens_per_message=3`、`tokens_per_name=1` 那一段）。我们合成了一个粗粒度常量 `8`，
+  没有拆 role / name。- **EWMA / 指数平滑**：Holt 1957、Brown 1956 的经典统计方法。把 EWMA 用作
+  "在线修正粗估" 的工程模式在 TCP RTT 估算（RFC 6298 §2、Jacobson 1988）里完全
+  同形——我们只是把 "RTT observed / RTT estimated" 换成了
+  "prompt_tokens actual / prompt_tokens estimated"。
 - **Drop-oldest / windowed memory**：
-  - LangChain 的 [`ConversationBufferWindowMemory(k=...)`](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.buffer_window.ConversationBufferWindowMemory.html)——我们的 `keep_recent_turns` 就是它的 `k`。
+  - LangChain 的
+    [`ConversationBufferWindowMemory(k=...)`](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.buffer_window.ConversationBufferWindowMemory.html)
+    ——我们的 `keep_recent_turns` 就是它的 `k`。
   - LlamaIndex 的 [`ChatMemoryBuffer`](https://docs.llamaindex.ai/en/stable/api_reference/memory/chat_memory_buffer/)。
   - OpenAI Assistants API 的 [`truncation_strategy: "auto"`](https://platform.openai.com/docs/api-reference/runs/createRun)——同一思想的官方实现。
-- **`SummarizeOldest` 策略**：LangChain 的 [`ConversationSummaryBufferMemory`](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.summary_buffer.ConversationSummaryBufferMemory.html) 是成熟参考。我们的实装是在 Session 内部发一次 compact Query，让模型把旧 history 压缩成一条 Text 摘要条目。
-- **"tool_use / tool_result 必须成对"**：Anthropic 在 [tool use 文档](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview) 里明确过——"every `tool_use` block must be followed by a `tool_result`"。OpenAI function calling 也有对应约束。
+- **`SummarizeOldest` 策略**：LangChain 的
+  [`ConversationSummaryBufferMemory`](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.summary_buffer.ConversationSummaryBufferMemory.html)
+  是成熟参考。我们的实装是在 Session 内部发一次 compact Query，让模型把旧 history
+  压缩成一条 Text 摘要条目。
+- **"tool_use / tool_result 必须成对"**：Anthropic 在
+  [tool use 文档](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview)
+  里明确过——"every `tool_use` block must be followed by a `tool_result`"。
+  OpenAI function calling 也有对应约束。
 
 ### 本项目自己做的工程取舍（不是 novelty，是局部决定）
 
 下面这些没有对应的公开文献，是从 xKit 的具体代码形态推出来的：
 
-1. **多轮 tool 调用对校准器 opt-out**（见 [三件套 II / Opt-out 规则](#三件套-ii校准器) 第 3 条）。原因直接挂在 `query.c :: usage_accumulate` 的跨 round 累加语义上——大多数 memory / truncation 库不做在线 estimator 校准，所以也不需要处理这个 corner case。换一套 provider / Query 模型，这条规则要重新推。
+1. **校准器改用 `first_round_prompt_tokens` 归因**（见
+   [三件套 II / Opt-out 规则](#三件套-ii校准器)）。旧实现因
+   `query.c :: usage_accumulate` 的跨 round 累加语义而需要 `single_round`
+   opt-out；新实现改为 `prompt_tokens` 取 max + 首轮归因，多轮工具对话也能产生
+   有效校准信号。大多数 memory / truncation 库不做在线 estimator 校准，所以也
+   不需要处理这个 corner case。换一套 provider / Query 模型，归因逻辑要重新推。
 2. **三件套的职责切分**：estimator 纯函数、calibrator 有状态、trimmer 只回答 "能裁到哪"、policy gate 决定 "要不要裁 / 拒还是通过"。这条拆法是我们自己的，不等价于任何现成库的架构。
-3. **Gate 位置 = history 落盘之前**，换来 "Error 策略不留脏 history" 这条对调用方的承诺。
+3. **Gate 位置 = history 落盘之前**，换来 "Error 策略不留脏 history" 这条
+   对调用方的承诺。
 4. **裁剪器只在 User 边界切**，用这一条几何约束把 "不拆 tool_use/tool_result 对" 从一条运行时检查变成结构性保证。思想来自 Anthropic 的原子对要求，实现路径是我们自己的。
 5. **Auto 策略的 tool_ratio 阈值取 0.4 而非 0.5**——摘要失败的代价（丢关键 ID / 误解参数语义 → 静默错误推理）远高于截断失败（丢旧信息 → 用户还能继续对话），所以偏向截断是理性选择。阈值不是从任何论文推出来的，是我们对 LLM 摘要结构化数据能力的经验判断。
 

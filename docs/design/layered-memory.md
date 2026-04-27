@@ -32,7 +32,7 @@
 
 | 层 | 住哪 | 有状态 | 核心动作 | 落地状态 |
 | --- | --- | --- | --- | --- |
-| **L1** | `xAiSession` 的 `on_finalizing` 钩子 | 无（全量消息即交出） | 保存 Session 全量消息；session 销毁前交付给 L2 | ⚠️ 钩子已预留，采集机制待定 |
+| **L1** | `xAiSession` 的 `on_l1_preserve` 钩子 + `agent.c` 的 JSONL 持久化 | 无（全量消息即交出） | 保存 Session 全量消息；session 销毁前交付给 L2 | ✅ `on_l1_preserve` 回调 + agent 端 JSONL 持久化已落地 |
 | **L2** | `xAiAgent` 内部 | 有（持久化存储） | 存储 L1 产物；`xAiAgentCreateSession` 时注入 | ❌ 未开始 |
 | **L3** | `xAiAgent` 内部 | 有（running state） | 追踪 mood / 活跃度 / 疲劳度 | ❌ 未开始 |
 | **L4** | `xAiAgent` 内部 | 有（人格 + 调度器） | 人格渲染 + 主动创建 `origin=SystemSynthesized` Session | ❌ 未开始 |
@@ -80,7 +80,7 @@ L1 保存的是 Session 的**全量消息流**——user + assistant + tool 全�
 │  来源: session.history_arr (全角色全类型)            │
 │  内容: System + User + Assistant + Tool 全量消息    │
 │  语义: "这次会话发生了什么" — 完整对话记录            │
-│  存储: 每条消息一个 L1 记录，保存原始文本             │
+│  存储: memory.jsonl (on_l1_preserve 回调)           │
 │  生命周期: 跟随 Session，Session 销毁时 L1 消失      │
 ├──────────────────────────────────────────────────┤
 │  L2 - Agent 抽象记忆 (提取后)                       │
@@ -88,7 +88,7 @@ L1 保存的是 Session 的**全量消息流**——user + assistant + tool 全�
 │  来源: 从 L1 全量消息中提取                          │
 │  内容: Preference / Fact / Decision / Summary       │
 │  语义: "Agent 从会话中学到了什么"                    │
-│  存储: JSONL observations.jsonl                     │
+│  存储: observations.jsonl                           │
 │  生命周期: 跨 Session 持久化                         │
 └──────────────────────────────────────────────────┘
 ```
@@ -111,15 +111,35 @@ L1 保存的是 Session 的**全量消息流**——user + assistant + tool 全�
 
 ### L1 数据写入点
 
-L1 的写入（即 Session 全量消息的采集）发生在 Session 层，但**具体机制待定**。
+L1 的写入（即 Session 全量消息的采集）通过 **`on_l1_preserve` 回调**实现，已在 Session 层和 Agent 层落地。
 
-可选方案：
+核心设计：`xAiSessionConf` 新增 `on_l1_preserve` 回调 + `l1_preserve_owner`，在以下三个时机触发：
 
-1. **在 `sess_fwd_on_done` 中直接采集全量**：produced 合入 history 后，从 `session.history_arr` 取全量快照推入 L1 队列。需要去重（每次 done 都会触发，不能重复推已有消息）。
-2. **在 `xAiSessionInput` 入口处采集 user 消息 + 在 `sess_fwd_on_done` 处采集 produced 增量**：两部分拼出完整增量流，无需去重。
-3. **在 `on_finalizing` 做一次性全量快照**：Session 销毁时从 history 取全量，一次性推入 L1 队列。简单但有延迟（L1 不是即时的，而是事后补录的）。
+1. **TruncateOldest 裁剪前**（`xAiL1PreserveReason_Truncated`）：
+   传递即将被丢弃的 `entries [0, keep)`，回调在 `session_trim_history_front_`
+   之前触发，保证数据仍然有效。
+2. **SummarizeOldest compact 替换前**（`xAiL1PreserveReason_Compacted`）：
+   传递即将被 summary 替换的原始 `entries [0, keep_idx)`，Consumer 可以
+   保留原始全量条目（虽然 session history 只留 summary）。
+3. **Session teardown 时**（`xAiL1PreserveReason_Finalizing`）：
+   在 `on_finalizing` 之前传递全量剩余 history，确保从未触发 budget
+   的 session 也能将完整对话交付 L1。
 
-**当前状态**：钩子字段已预留（`on_finalizing`），L1 的写入机制将在确定方案后实现。
+回调签名：
+
+```c
+typedef void (*xAiSessionL1PreserveFunc)(
+  xAiSession sess, const xAiSessionMsg *msgs, size_t n_msgs,
+  xAiL1PreserveReason reason, void *owner);
+```
+
+语义：entries 只在回调期间有效，Consumer 必须 deep-copy 需要保留的内容。
+NULL 回调 = 不做 L1 采集（默认行为，向后兼容）。
+
+Agent 层自动注入：`xAiAgentCreateSession` 在创建 session 时，如果 agent 配置了
+`agent_id` 和 `data_dir`，且调用方未自行提供 `on_l1_preserve`，则自动注入
+内置的 `agent_l1_preserve_cb_`——将每条消息以 JSONL 格式追加写入
+`{data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl`。
 
 ### L1 提取逻辑的实现路径
 
@@ -173,13 +193,15 @@ MVP-a 阶段的目标：**≥ 60% 的观察不需要 LLM call 就能决定入库
 | **MVP-a** | JSONL 文件 | 零依赖、易调试、易手工修 | 只能按时间索引，无语义检索 |
 | **MVP-b** | SQLite + sqlite-vec | 语义检索、灵活查询 | 加依赖、加构建体积 |
 
-MVP-a 的文件布局：
+MVP-a 的文件布局（与 L1 采集的 `agent_l1_preserve_cb_` 输出路径对齐）：
 
 ```text
-~/.<app>/xai/episodes/<agent_id>/<YYYY-MM>/<session_id>.jsonl
+{data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
 ```
 
-每条 `xAiEpisode` 一行，包含 session 摘要、时间戳、关键事实引用。MVP-b 切 SQLite 时提供迁移脚本，老 JSONL 归档不删。
+每条消息一个 JSONL 行，包含 `role`、`kind` 和对应的 payload 字段。
+L2 的 `xAiObservation` 提取结果将写入同一 agent 目录下的
+`observations.jsonl`。MVP-b 切 SQLite 时提供迁移脚本，老 JSONL 归档不删。
 
 ### 记忆注入到新 Session
 
@@ -420,7 +442,9 @@ L1–L4 不是"另外一套架构"，是**三层会话模型在记忆维度的�
 | 代码位置 | 已有 | 待加 |
 | --- | --- | --- |
 | `session_private.h` :: `on_finalizing` | ✅ 钩子字段 | L1 汇总逻辑 |
-| `agent.h` :: `xAiAgentCreateSession` | ✅ 注入钩子 | L2 记忆注入、L3 mood 注入 |
+| `session.h` :: `on_l1_preserve` | ✅ 回调字段 + 三时机触发 | — |
+| `agent.c` :: `agent_l1_preserve_cb_` | ✅ JSONL 持久化 | — |
+| `agent.c` :: `xAiAgentCreateSession` | ✅ 自动注入 `on_l1_preserve` | L2 记忆注入、L3 mood 注入 |
 | `agent.h` :: `xAiAgentCreateSession` | ✅ 创建 Session | L4 SystemSynthesized Session 创建 |
 | `session.h` :: `xAiInputOrigin` | ✅ `User` / `SystemSynthesized` 枚举 | — |
 | `agent.c` / `agent.h` | — | `xAiMemory` 内部组件 |
@@ -437,10 +461,15 @@ L1–L4 不是"另外一套架构"，是**三层会话模型在记忆维度的�
 ```text
   now                                                    future
    │                                                        │
-   ├── L1 提取逻辑实现（当前钩子是空 stub）──┐              │
-   │   ● xAiObservation schema                       │              │
-   │   ● on_finalizing 规则 + LLM 提取              │              │
-   │   ● 提取结果交付接口                             ↓              │
+   ├── L1 采集机制 ✅ ──────────────────────────────┐      │
+   │   ● on_l1_preserve 回调（三时机触发）           │      │
+   │   ● agent_l1_preserve_cb_ JSONL 持久化         │      │
+   │   ● xAiAgentCreateSession 自动注入             │      │
+   │                                                 │      │
+   ├── L1 → L2 提取逻辑（当前钩子是空 stub）──┐     │      │
+   │   ● xAiObservation schema                   │     │      │
+   │   ● on_finalizing 规则 + LLM 提取           │     │      │
+   │   ● 提取结果交付接口                         ↓     ↓      │
    │                                                        │
    ├── L2 长期记忆 ─────────────────────────────────┐      │
    │   ● MVP-a: JSONL 存储                          │      │

@@ -141,13 +141,16 @@ XDEF_STRUCT(xAiSessionCallbacks) {
    *                xAiDoneReason_ModelError / _ToolError; in those
    *                cases on_error has already fired with the
    *                specific xErrno.
-   * @param usage   Cumulative token usage across every provider
-   *                round in this run (the tool loop may submit
-   *                several rounds; this is the running sum), or
-   *                NULL if the provider never reported any. Fields
-   *                that are still unknown use -1 as a sentinel.
-   *                Pointer is valid only for the duration of the
-   *                callback — copy what you want to keep.
+   * @param usage   Token usage for this run. prompt_tokens is the
+   *                maximum across all provider rounds (each round
+   *                reports the full input size it saw, so the last
+   *                round's value represents the total input).
+   *                completion_tokens and total_tokens are cumulative
+   *                (additive) across rounds. NULL if the provider
+   *                never reported any. Fields that are still unknown
+   *                use -1 as a sentinel. Pointer is valid only for
+   *                the duration of the callback — copy what you want
+   *                to keep.
    * @param ud      The user_data pointer from this struct.
    */
   void (*on_done)(xAiSession sess, xAiDoneReason reason, const xAiUsage *usage,
@@ -227,6 +230,119 @@ XDEF_STRUCT(xAiSessionCallbacks) {
 typedef void (*xAiSessionFinalizingFunc)(xAiSession sess, void *owner);
 
 /**
+ * @brief Kind of a session history entry.
+ *
+ * Each history entry carries exactly one content block; consecutive
+ * Assistant-role entries are folded into a single xAiMessage at
+ * submit time by the view builder.
+ *
+ * The values match the internal xAiSessionEntryKind_ enumerators
+ * so that a simple cast suffices; however, the public enum is the
+ * stable ABI and the internal one may evolve independently.
+ */
+XDEF_ENUM(xAiSessionEntryKind){
+  xAiSessionEntryKind_Text       = 0, /**< role + text payload      */
+  xAiSessionEntryKind_ToolUse    = 1, /**< role==Assistant + tool   */
+  xAiSessionEntryKind_ToolResult = 2, /**< role==Tool + result      */
+  xAiSessionEntryKind_Thinking   = 3, /**< role==Assistant + CoT    */
+};
+
+/**
+ * @brief One entry in the session's rolling history.
+ *
+ * The layout is a public, read-only mirror of the internal
+ * xAiSessionMsg_ struct.  All string fields point into session-
+ * owned storage and are only valid for the duration of the
+ * callback that delivers them; consumers must deep-copy anything
+ * they want to retain.
+ *
+ * Which fields are populated depends on @ref kind:
+ *   - Text / Thinking: @c text, @c text_len
+ *   - ToolUse: @c tool_use_id, @c tool_use_name, @c tool_use_args
+ *   - ToolResult: @c tool_result_id, @c tool_result_output,
+ *     @c tool_result_output_len, @c tool_result_is_error
+ */
+XDEF_STRUCT(xAiSessionMsg){
+  xAiRole               role;
+  xAiSessionEntryKind   kind;
+
+  /* kind == Text / Thinking */
+  const char *text;
+  size_t      text_len;
+
+  /* kind == ToolUse */
+  const char *tool_use_id;
+  const char *tool_use_name;
+  const char *tool_use_args; /* JSON object string */
+
+  /* kind == ToolResult */
+  const char *tool_result_id;
+  const char *tool_result_output;
+  size_t      tool_result_output_len;
+  int         tool_result_is_error;
+};
+
+/**
+ * @brief Why the L1 preserve callback was invoked.
+ *
+ * The reason tells the consumer whether this is an incremental
+ * slice (entries about to be trimmed/compacted) or the final
+ * full delivery (session teardown).
+ */
+XDEF_ENUM(xAiL1PreserveReason){
+  /** TruncateOldest or SummarizeOldest degradation: entries
+   *  [0, n) are about to be silently dropped. */
+  xAiL1PreserveReason_Truncated = 0,
+
+  /** SummarizeOldest compact: entries [0, n) are about to be
+   *  replaced by a summary. The consumer may want to keep the
+   *  original entries for full-fidelity L1 storage even though
+   *  a summary will replace them in the session's history. */
+  xAiL1PreserveReason_Compacted = 1,
+
+  /** Session teardown: the full remaining history is being
+   *  delivered as a final L1 snapshot. This fires from
+   *  xAiSessionDestroy before any session-owned storage is
+   *  released. */
+  xAiL1PreserveReason_Finalizing = 2,
+};
+
+/**
+ * @brief L1 memory-preservation callback, fired when the session
+ *        is about to discard history entries (due to a budget
+ *        policy like TruncateOldest or SummarizeOldest compact).
+ *
+ * The callback receives a read-only slice of the entries that are
+ * about to be removed from the session's rolling history. The
+ * Agent layer (or any registered consumer) can deep-copy them
+ * into its own L1 store before they are lost.
+ *
+ * Additionally, this callback fires once during xAiSessionDestroy
+ * with @p reason == @ref xAiL1PreserveReason_Finalizing and the
+ * full remaining history, so that sessions that never triggered a
+ * budget event still deliver their complete conversation to L1.
+ *
+ * Semantics:
+ *   - Entries are only valid for the duration of the callback —
+ *     the caller must deep-copy anything it wants to retain.
+ *   - The callback runs on the agent event loop.
+ *   - NULL = no L1 preservation, which is the default.
+ *
+ * @param sess     The session.
+ * @param msgs     Read-only array of entries about to be lost.
+ * @param n_msgs   Number of entries in @p msgs.
+ * @param reason   Why the entries are being preserved.
+ * @param owner    The xAiSessionConf::l1_preserve_owner pointer.
+ *
+ * @see xAiL1PreserveReason — why the callback was invoked.
+ */
+typedef void (*xAiSessionL1PreserveFunc)(xAiSession              sess,
+                                         const xAiSessionMsg    *msgs,
+                                         size_t                  n_msgs,
+                                         xAiL1PreserveReason     reason,
+                                         void                   *owner);
+
+/**
  * @brief Strategy for keeping the serialized prompt under the
  *        session's token budget.
  *
@@ -299,6 +415,14 @@ XDEF_ENUM(xAiBudgetEvent){
    *  the budget. @p info carries a xAiBudgetTruncateInfo with the
    *  count of entries removed. */
   xAiBudgetEvent_Truncated   = 2,
+
+  /** GatePassed: the budget gate allowed the incoming message
+   *  through — history + incoming fit within the limit. @p info
+   *  carries a xAiBudgetGateInfo with the token breakdown so
+   *  the caller can display remaining context capacity. Fires
+   *  once per successful xAiSessionInput, before the Query is
+   *  submitted. */
+  xAiBudgetEvent_GatePassed  = 3,
 };
 
 /**
@@ -337,12 +461,48 @@ XDEF_STRUCT(xAiBudgetTruncateInfo) {
 };
 
 /**
+ * @brief Extra detail passed with xAiBudgetEvent_GatePassed.
+ */
+XDEF_STRUCT(xAiBudgetGateInfo) {
+  /** The effective token ceiling (from budget.max_tokens or the
+   *  built-in default). */
+  size_t limit;
+
+  /** Estimated token count of history + the incoming message that
+   *  just cleared the gate (calibrated by the EWMA factor). */
+  size_t estimated;
+
+  /** Remaining budget: limit - estimated. */
+  size_t remaining;
+
+  /** The EWMA-smoothed calibration factor applied to the rough
+   *  (bytes/4) token estimate. Starts at 1.0 and drifts toward
+   *  (actual_prompt_tokens / estimated_prompt_tokens) as the
+   *  session observes provider-reported usage. */
+  double calibrator_factor;
+
+  /** Saturating count of accepted calibration observations.
+   *  Multi-round tool runs and rounds without a usage block
+   *  don't contribute. */
+  size_t calibrator_samples;
+
+  /** The provider-reported prompt_tokens from the FIRST round of
+   *  the PREVIOUS run, or -1 if not available. This maps directly
+   *  to the gate's pre-submit estimate because the gate only runs
+   *  before the first round. Useful for displaying "estimated vs
+   *  actual" without the inflation that later tool-loop rounds
+   *  would introduce. */
+  int last_first_round_prompt_tokens;
+};
+
+/**
  * @brief Callback invoked when a budget-policy lifecycle event fires.
  *
  * @p info is event-specific; its concrete type depends on @p event:
  *   - Compacting  → xAiBudgetCompactInfo
  *   - CompactDone → xAiBudgetCompactDoneInfo
  *   - Truncated   → xAiBudgetTruncateInfo
+ *   - GatePassed  → xAiBudgetGateInfo
  *
  * @p info may be NULL if the implementation cannot provide detail
  * (e.g. OOM while building the struct). The caller must check.
@@ -490,6 +650,33 @@ XDEF_STRUCT(xAiSessionConf) {
   xAiSessionFinalizingFunc on_finalizing;
   void                  *finalizing_owner; /**< Passed back to
                                                 @ref on_finalizing. */
+
+  /**
+   * @brief Optional L1 memory-preservation callback, paired with
+   *        @ref l1_preserve_owner.
+   *
+   * Fires when the session is about to discard history entries
+   * (TruncateOldest / SummarizeOldest compact), and once at
+   * teardown with the full remaining history. The Agent layer
+   * uses this to capture the complete conversation before any
+   * information is lost. Leave NULL if not used.
+   *
+   * @see xAiSessionL1PreserveFunc for the full callback contract.
+   */
+  xAiSessionL1PreserveFunc on_l1_preserve;
+  void                    *l1_preserve_owner; /**< Passed back to
+                                                   @ref on_l1_preserve. */
+
+  /**
+   * @brief Unique identifier for this session instance.
+   *
+   * Used as part of the L1 memory file path:
+   *   {data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
+   * Borrowed from the caller; must remain alive for the session's
+   * lifetime. When NULL the agent may auto-generate one during
+   * xAiAgentCreateSession(). Readable via xAiSessionId().
+   */
+  const char *session_id;
 };
 
 /**
@@ -569,5 +756,17 @@ XCAPI(void) xAiSessionDestroy(xAiSession sess);
  *              xAiInputOrigin_User for NULL input.
  */
 XCAPI(xAiInputOrigin) xAiSessionOrigin(xAiSession sess);
+
+/**
+ * @brief Read back the session's unique identifier.
+ *
+ * Stamped once at xAiSessionCreate time; never changes afterwards.
+ * May be NULL if no session_id was provided and the agent did not
+ * auto-generate one.
+ *
+ * @param sess  Session handle.
+ * @return      The session id string, or NULL.
+ */
+XCAPI(const char *) xAiSessionId(xAiSession sess);
 
 #endif /* XAI_SESSION_H */

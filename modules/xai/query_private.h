@@ -132,9 +132,21 @@ struct xAiQuery_ {
    * the terminal handler hands a pointer to this struct (or NULL if
    * no round ever reported usage) to the caller's on_done. We treat
    * -1 as "unknown" on input AND on output; the accumulator keeps
-   * that sentinel intact until the first field we can actually add. */
+   * that sentinel intact until the first field we can actually fold.
+   *
+   * Note: prompt_tokens is accumulated via MAX, not addition — each
+   * round reports the full input size the provider saw (not a delta),
+   * so the maximum across rounds is the total input. completion_tokens
+   * and total_tokens are additive (per-round deltas). */
   int      saw_usage; /* 1 once any round reported usage           */
-  xAiUsage usage;     /* running totals                            */
+  xAiUsage usage;     /* running totals (prompt=max, others=add)   */
+
+  /* The prompt_tokens reported by the provider on the FIRST round
+   * of this run, or -1 if never reported. Used by the calibrator
+   * to compare against the gate's pre-submit estimate — the gate
+   * runs before any tool-loop rounds, so first-round is the only
+   * value that maps cleanly to last_prompt_estimate. */
+  int first_round_prompt_tokens;
 
   /* Free-list link: reused when the Query is returned to the
    * per-thread free list. Only valid when the Query is NOT in

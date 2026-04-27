@@ -166,6 +166,30 @@ XDEF_STRUCT(xAiAgentConf) {
    * inherited from the agent).
    */
   const xAiSessionConf *default_session_conf;
+
+  /**
+   * @brief Unique identifier for this agent instance.
+   *
+   * Used as part of the L1 memory file path:
+   *   {data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
+   * Borrowed from the caller; must remain alive for the agent's
+   * lifetime. May be NULL — when NULL the agent does not
+   * auto-wire the L1 preserve callback into its sessions.
+   */
+  const char *agent_id;
+
+  /**
+   * @brief Root directory for persistent agent data.
+   *
+   * Borrowed from the caller; must remain alive for the agent's
+   * lifetime. When non-NULL and @ref agent_id is non-NULL, the
+   * agent automatically wires an L1 preserve callback into every
+   * session it creates, appending JSONL entries under:
+   *   {data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
+   * May be NULL — when NULL the agent does not auto-wire the
+   * L1 preserve callback.
+   */
+  const char *data_dir;
 };
 
 /**
@@ -224,6 +248,17 @@ XCAPI(void) xAiAgentDestroy(xAiAgent agent);
  *               created).
  */
 XCAPI(xAiSession) xAiAgentDefaultSession(xAiAgent agent);
+
+/**
+ * @brief Return the agent's unique identifier.
+ *
+ * Returns the @ref xAiAgentConf::agent_id string that was provided
+ * at creation time. NULL if the agent was created without one.
+ *
+ * @param agent  Agent handle.
+ * @return       The agent id, or NULL.
+ */
+XCAPI(const char *) xAiAgentId(xAiAgent agent);
 
 /**
  * @brief Create a session bound to the agent.

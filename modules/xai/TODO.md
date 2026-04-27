@@ -1,6 +1,6 @@
 # xai — TODO
 
-> **架构级状态（2026-04-25）**：human-like-ai MVP 扳机已扣下，详见
+> **架构级状态（2026-04-27）**：human-like-ai MVP 扳机已扣下，详见
 > [`docs/todo/human-like-ai.md`](../../docs/todo/human-like-ai.md) §6。
 > Session/Query 拆分 **Step 1 与 Step 2 核心已落地**：`xAiQuery` 已是
 > first-class public handle，与 `xAiSession` history 解耦，§8.1/§8.2/§8.3
@@ -16,8 +16,9 @@
 > `query_test.cpp` 独立承担。详见架构文档 §11.3 addendum。
 >
 > **下一个动手项：§1 Async teardown**（与 Session/Query 拆分 Step 2 一同落地）。
-> §7 context_budget α 已完成（四个 commit 全部落地 + EWMA 校准器增强，
-> 46 个测试全绿），详见已完成归档。
+> §7 context_budget α + β 已完成（TruncateOldest / SummarizeOldest /
+> Auto 三策略 + EWMA 校准器增强，148 个测试全绿），详见已完成归档。
+> §2 L1 采集机制已落地（`on_l1_preserve` 回调 + agent 端 JSONL 持久化）。
 
 模块级落地细节清单。**架构级 / 跨层 TODO 不住这里**，看
 [`docs/todo/xai_architecture.md`](../../docs/todo/xai_architecture.md)
@@ -101,19 +102,32 @@ L1 的语义是"这次会话发生了什么"——完整对话记录，是 L2 �
   **注意**：`on_produced` 钩子已被移除（原因：只能拿到 assistant 侧产出，
   拿不到 user 消息，做 L1 采集注定残缺）。
 
-- [ ] **L1 数据写入机制**。
-  `on_produced` 已移除后，L1 的全量消息采集机制待定。三种候选方案：
+- [x] **L1 数据写入机制**。
+  已实现：**在 context budget 触发时回调即将被丢弃的 history 切片**。
 
-  1. **在 `sess_fwd_on_done` 中直接采集全量**：produced 合入 history 后，
-     从 `session.history_arr` 取全量快照推入 L1 队列。需去重
-     （每次 done 都触发，不能重复推已有消息）。
-  2. **在 `xAiSessionInput` 入口处采集 user 消息 + 在 `sess_fwd_on_done`
-     处采集 produced 增量**：两部分拼出完整增量流，无需去重。
-  3. **在 `on_finalizing` 做一次性全量快照**：Session 销毁时从 history
-     取全量，一次性推入 L1 队列。简单但有延迟（L1 不是即时的，而是
-     事后补录的）。
+  核心设计：`xAiSessionConf` 新增 `on_l1_preserve` 回调 + `l1_preserve_owner`，
+  在以下三个时机触发：
 
-  **动手时机**：确定方案后实现。
+  1. **TruncateOldest 裁剪前**（`xAiL1PreserveReason_Truncated`）：
+     传递即将被丢弃的 `entries [0, keep)`，回调在 `session_trim_history_front_`
+     之前触发，保证数据仍然有效。
+  2. **SummarizeOldest compact 替换前**（`xAiL1PreserveReason_Compacted`）：
+     传递即将被 summary 替换的原始 `entries [0, keep_idx)`，Consumer 可以
+     保留原始全量条目（虽然 session history 只留 summary）。
+  3. **Session teardown 时**（`xAiL1PreserveReason_Finalizing`）：
+     在 `on_finalizing` 之前传递全量剩余 history，确保从未触发 budget
+     的 session 也能将完整对话交付 L1。
+
+  回调签名：
+  
+  ```c
+  typedef void (*xAiSessionL1PreserveFunc)(
+    xAiSession sess, const xAiSessionMsg *msgs, size_t n_msgs,
+    xAiL1PreserveReason reason, void *owner);
+  ```
+
+  语义：entries 只在回调期间有效，Consumer 必须 deep-copy 需要保留的内容。
+  NULL 回调 = 不做 L1 采集（默认行为，向后兼容）。
 
 - [ ] **L1 → L2 提取逻辑实现**。
   当前钩子是空 stub。实现步骤：
@@ -439,15 +453,21 @@ Git log 里能查到，这里只留大颗粒里程碑作为阅读指引：
 - Usage 透传契约：`xAiUsage{prompt,completion,total}` + `-1` 哨兵，
   跨轮累加在 session 层（详见 MEMORY.md）
 - `xErrno_Busy` 映射到 xstrerror "resource busy"
-- Context budget α：`xAiBudgetPolicy` 枚举 / `xAiBudgetConf` 配置 /
+- Context budget α + β：`xAiBudgetPolicy` 枚举（Disabled / Error / TruncateOldest / SummarizeOldest / Auto） / `xAiBudgetConf` 配置 /
   Token 预估器（bytes÷4 + EWMA 校准器）/
   TruncateOldest 裁剪闭环 /
+  SummarizeOldest compact Query 压缩（失败自动降级 TruncateOldest）/
+  Auto 决策器（按工具占比动态选策略，阈值 0.4）/
   保留边界（system prompt / 当前 input / tool 对完整性 / keep_recent_turns）/
-  46 个测试全绿（budget_test 33 + session_test Budget* 13）
+  148 个测试全绿
 - L1/L2 记忆体系重新定义：
   L1 = Session 即时记忆（全量消息），
   L2 = Agent 抽象记忆（从 L1 全量中提取结构化观察），
   `on_produced` 钩子已移除（只能拿到 assistant 侧产出，
   拿不到 user 消息，做 L1 全量采集注定残缺）
+- L1 采集机制落地：
+  `on_l1_preserve` 回调（Truncated / Compacted / Finalizing 三时机触发）/
+  `agent_l1_preserve_cb_` JSONL 持久化（`{data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl`）/
+  `xAiAgentCreateSession` 自动注入（agent 配置 `agent_id` + `data_dir` 时）
 
 具体细节看 git history 和 `MEMORY.md`。

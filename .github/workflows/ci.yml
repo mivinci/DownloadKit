@@ -28,57 +28,75 @@ on:
       - '.github/workflows/ci.yml'
 
 jobs:
-  test:
-    name: Build & Test (${{ matrix.os }} / ${{ matrix.compiler }} / TLS=${{ matrix.tls_backend }})
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            tls_backend: openssl
-          - os: macos-latest
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            tls_backend: mbedtls
-          - os: ubuntu-latest
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            tls_backend: openssl
-          - os: ubuntu-latest
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            tls_backend: mbedtls
+  # ── Detect which modules have changes ────────────────────────────────────
+  detect:
+    name: Detect changed modules
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.deps.outputs.matrix }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed modules and build matrix
+        id: deps
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha || github.event.after }}"
+
+          # Run detect-only on both OS to get the same affected module list
+          AFFECTED=$(bash scripts/test-linux.sh --ci --detect-only --base-sha "$BASE_SHA")
+
+          if [[ -z "$AFFECTED" ]]; then
+            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Build matrix JSON: one entry per (module × os × tls_backend)
+          MATRIX_ENTRIES=()
+          for m in $AFFECTED; do
+            for os in ubuntu-latest macos-latest; do
+              for tls in openssl mbedtls; do
+                MATRIX_ENTRIES+=("{\"module\":\"${m}\",\"os\":\"${os}\",\"tls_backend\":\"${tls}\"}")
+              done
+            done
+          done
+
+          # Join with comma
+          MATRIX_JSON=$(IFS=,; echo "[${MATRIX_ENTRIES[*]}]")
+          echo "matrix=${MATRIX_JSON}" >> "$GITHUB_OUTPUT"
+          echo "Matrix: $MATRIX_JSON"
+
+  # ── Build & Test per module ──────────────────────────────────────────────
+  test:
+    name: Test ${{ matrix.module }} (${{ matrix.os }} / TLS=${{ matrix.tls_backend }})
+    runs-on: ${{ matrix.os }}
+    needs: detect
+    if: needs.detect.outputs.matrix != '[]'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.detect.outputs.matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # ── Dependencies ──────────────────────────────────────────────────────
 
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y libgtest-dev libgmock-dev libnghttp2-dev cmake \
-            libssl-dev libcurl4-openssl-dev libmbedtls-dev libcjson-dev
-          # Install llhttp from source (no apt package available)
-          git clone --depth 1 --branch release/v9.3.1 https://github.com/nodejs/llhttp.git /tmp/llhttp
-          cmake -S /tmp/llhttp -B /tmp/llhttp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
-          cmake --build /tmp/llhttp/build
-          sudo cmake --install /tmp/llhttp/build
-          # Install usrsctp from source (no apt package available)
-          git clone --depth 1 https://github.com/sctplab/usrsctp.git /tmp/usrsctp
-          cmake -S /tmp/usrsctp -B /tmp/usrsctp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -Dsctp_build_programs=OFF
-          cmake --build /tmp/usrsctp/build
-          sudo cmake --install /tmp/usrsctp/build
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtest-dev libllhttp-dev libnghttp2-dev \
+            libssl-dev libmbedtls-dev libcjson-dev libusrsctp-dev
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
@@ -90,60 +108,37 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build
-          key: build-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.tls_backend }}-${{ hashFiles('**/CMakeLists.txt') }}
+          key: build-${{ matrix.os }}-${{ matrix.tls_backend }}-${{ matrix.module }}-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: |
-            build-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.tls_backend }}-
+            build-${{ matrix.os }}-${{ matrix.tls_backend }}-${{ matrix.module }}-
 
-      # ── Build ─────────────────────────────────────────────────────────────
+      # ── Run test script ───────────────────────────────────────────────────
 
-      - name: Configure
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
         env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          CMAKE_EXTRA_ARGS="-DXK_TLS_BACKEND=${{ matrix.tls_backend }}"
-          # Homebrew OpenSSL is keg-only; tell CMake where to find it
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            OPENSSL_PREFIX="$(brew --prefix openssl 2>/dev/null || true)"
-            if [ -n "$OPENSSL_PREFIX" ]; then
-              CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX"
-            fi
-            MBEDTLS_PREFIX="$(brew --prefix mbedtls 2>/dev/null || true)"
-            if [ -n "$MBEDTLS_PREFIX" ]; then
-              CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DMBEDTLS_ROOT_DIR=$MBEDTLS_PREFIX"
-            fi
-          fi
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DBUILD_TESTING=ON \
-            -DCMAKE_C_FLAGS="-Wall -Wextra -Werror -fsanitize=address -fno-omit-frame-pointer" \
-            -DCMAKE_CXX_FLAGS="-Wall -Wextra -fsanitize=address -fno-omit-frame-pointer" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
-            $CMAKE_EXTRA_ARGS
+          bash scripts/test-linux.sh \
+            --ci --asan \
+            --base-sha "$BASE_SHA" \
+            -t ${{ matrix.tls_backend }} \
+            -j "$(nproc)" \
+            -B build \
+            --all
 
-      - name: Build
-        run: cmake --build build --parallel
-
-      # ── Test ──────────────────────────────────────────────────────────────
-
-      - name: Run tests
+      - name: Run tests (macOS)
+        if: runner.os == 'macOS'
         env:
-          ASAN_OPTIONS: detect_leaks=0
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          max_attempts=3
-          for attempt in $(seq 1 $max_attempts); do
-            echo "── Attempt $attempt / $max_attempts ──"
-            if ctest --test-dir build --output-on-failure --parallel 4; then
-              echo "✅ Tests passed on attempt $attempt"
-              exit 0
-            fi
-            if [ "$attempt" -lt "$max_attempts" ]; then
-              echo "⚠️  Tests failed, retrying..."
-              sleep 2
-            fi
-          done
-          echo "❌ Tests failed after $max_attempts attempts"
-          exit 1
+          bash scripts/test-mac.sh \
+            --ci --asan \
+            --base-sha "$BASE_SHA" \
+            -t ${{ matrix.tls_backend }} \
+            -j "$(sysctl -n hw.ncpu)" \
+            -B build \
+            --all
 
   # ── Branch naming lint ────────────────────────────────────────────────────
 

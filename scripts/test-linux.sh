@@ -253,6 +253,15 @@ if [[ "$CI_MODE" -eq 1 ]]; then
     step "Building test targets"
     cmake --build "$BUILD_DIR" --target ${TEST_TARGETS[@]} -j"$JOBS"
 
+    # Suppress known third-party library leaks (OpenSSL, libcurl) under ASan
+    if [[ $ASAN -eq 1 ]]; then
+        LSAN_SUPPRESSIONS="$SCRIPT_DIR/lsan_suppressions.txt"
+        if [[ -f "$LSAN_SUPPRESSIONS" ]]; then
+            export LSAN_OPTIONS="suppressions=$LSAN_SUPPRESSIONS"
+            info "LSAN suppressions loaded from $LSAN_SUPPRESSIONS"
+        fi
+    fi
+
     FAILED=0
     for target in "${TEST_TARGETS[@]}"; do
         step "Running $target"

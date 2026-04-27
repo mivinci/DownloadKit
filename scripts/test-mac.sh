@@ -170,7 +170,7 @@ detect_changed_modules() {
     fi
 
     # Map changed files to modules
-    local -A changed_mods
+    local -A changed_mods=([__none__]=1)
     for f in $changed_files; do
         if [[ "$f" =~ ^modules/([^/]+)/ ]]; then
             local mod="${BASH_REMATCH[1]}"
@@ -189,6 +189,7 @@ detect_changed_modules() {
         fi
     done
 
+    unset 'changed_mods[__none__]'
     if [[ ${#changed_mods[@]} -eq 0 ]]; then
         info "No module changes detected (only non-module files changed)"
         printf '%s\n' "${ALL_MODULES[@]}"

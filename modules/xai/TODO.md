@@ -351,9 +351,9 @@ tool_result 回流后的下一轮，都走这里。
 放 **`xAiSessionConf`**，不是 agent 也不是 query：
 
 - 不同 session 用途可能不同（正常对话 vs 压缩任务本身）
-- 压缩 query 需要能**单独关掉**预算检查（避免递归）→ 这要求 Query 层
-  保留一个 override 口子，`xAiQueryConf.budget_policy_override`
-  （可选，默认沿用 session）
+- 压缩 query 需要能**单独关掉**预算检查（避免递归）→ Query 已解耦，
+  内部 compact Query 由 `session_enforce_budget_` 驱动，该函数在
+  `s->compacting` 为真时不再触发预算检查，天然防递归
 - Agent 层放预算会让多个 session 共享，但它们用同一个 model 不代表
   用同一个预算（比如一个 session 只用来做 title 生成，预算 512；另一个
   做主对话，预算 16k）

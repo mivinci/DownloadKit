@@ -52,18 +52,14 @@ TEST(QueryPublicApi, NullHandleIsSafe) {
   SUCCEED();
 }
 
-TEST(QueryPublicApi, CreateRejectsNullArgs) {
-  /* Both args required; Create returns NULL on any omission. No
-   * Session is actually live here, but the early-return branches
-   * must trigger before any Session member is dereferenced. */
+TEST(QueryPublicApi, CreateRejectsNullConf) {
+  /* NULL conf is rejected. */
+  EXPECT_EQ(xAiQueryCreate(nullptr), nullptr);
+
+  /* Non-NULL conf with NULL provider is also rejected — a Query
+   * cannot function without a provider. */
   xAiQueryConf conf{};
-  EXPECT_EQ(xAiQueryCreate(nullptr, &conf), nullptr);
-  /* A non-NULL Session with a NULL conf is also rejected — we
-   * don't have a real Session to hand in, but xAiSession is an
-   * opaque handle so any non-NULL pointer exercises the NULL-conf
-   * branch (the arg check runs before any dereference). */
-  auto dummy_sess = reinterpret_cast<xAiSession>(0x1);
-  EXPECT_EQ(xAiQueryCreate(dummy_sess, nullptr), nullptr);
+  EXPECT_EQ(xAiQueryCreate(&conf), nullptr);
 }
 
 TEST(QueryPublicApi, RunRejectsNullQuery) {

@@ -85,20 +85,18 @@ struct xAiSession_ {
    * When the budget gate fires on SummarizeOldest, the Session
    * launches an internal summary Query that compresses old history
    * into one System entry. During this compaction:
-   *   - compacting == 1 signals "compact query in flight";
-   *   - compact_keep_idx records the earliest history index that
-   *     survives the compact (entries before it will be replaced by
-   *     the summary);
-   *   - budget_policy_override overrides the internal Query's
-   *     budget policy to Disabled so the compact query does not
-   *     trigger another budget check (recursion guard).
+ *   - compacting == 1 signals "compact query in flight";
+ *   - compact_keep_idx records the earliest history index that
+ *     survives the compact (entries before it will be replaced by
+ *     the summary);
+ *   - budget enforcement is implicitly disabled because the
+ *     compact Query is driven by session_enforce_budget_ which
+ *     gates on s->compacting, preventing recursive budget checks.
    *
    * All three are zero when no compact is in progress.
    */
   int             compacting;       /* 1 = compact query in flight           */
   size_t          compact_keep_idx; /* earliest index to keep after compact  */
-  xAiBudgetPolicy budget_policy_override; /* overrides query budget policy
-                                           * (default Disabled)           */
 
   /* ── Session-lifetime properties (stamped at create, immutable) ── */
   xAiInputOrigin           origin;           /* default User on zero    */

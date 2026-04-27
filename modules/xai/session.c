@@ -473,8 +473,10 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
      *   3. If already compacting, return Busy.
      *   4. Build a summary system prompt + concatenate old
      *      messages as user content.
-     *   5. Create an internal Query with budget_policy_override
-     *      = Disabled (recursion guard).
+ *   5. Create an internal Query (budget enforcement is
+ *      implicitly disabled because the compact Query is
+ *      driven by session_enforce_budget_ which gates on
+ *      s->compacting).
      *   6. Run it.
      *   7. Return Busy — the caller waits for compact to
      *      finish; sess_fwd_on_done handles the rest.
@@ -547,18 +549,25 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
     }
 
     /* Create an internal Query for the summary task.
-     * - budget_policy_override = Disabled prevents the internal
-     *   Query from triggering another budget check (recursion).
      * - The Query's only callback is on_done so we can harvest
      *   the summary text.
      * - We pass the summary system prompt + old text as the
-     *   messages. */
+     *   messages.
+     * - Budget enforcement is implicitly disabled: the compact
+     *   Query is created by session_enforce_budget_ which gates
+     *   on s->compacting, so no recursive budget check occurs. */
+    struct xAiAgent_ *a        = (struct xAiAgent_ *)s->agent;
     xAiQueryConf qc           = {0};
     qc.cbs.on_done            = sess_fwd_on_done;
     qc.cbs.user_data          = s;
-    qc.budget_policy_override = xAiBudgetPolicy_Disabled;
+    qc.provider               = a->provider;
+    qc.tools                  = (const xAiTool **)a->tools;
+    qc.n_tools                = a->n_tools;
+    qc.model                  = s->model;
+    qc.max_tokens             = s->max_tokens;
+    qc.session                = (xAiSession)s;
 
-    xAiQuery q = xAiQueryCreate((xAiSession)s, &qc);
+    xAiQuery q = xAiQueryCreate(&qc);
     if (!q) {
       free(old_text);
       return xErrno_NoMemory;
@@ -589,8 +598,7 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
 
     /* Mark compacting before Run so the Session rejects new
      * inputs during the compact. */
-    s->compacting             = 1;
-    s->budget_policy_override = xAiBudgetPolicy_Disabled;
+    s->compacting = 1;
 
     xErrno rc = xAiQueryRun(q, msgs, 2);
     free(old_text);
@@ -598,8 +606,7 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
     if (rc != xErrno_Ok) {
       /* Compact query failed to start — clean up and degrade to
        * TruncateOldest. */
-      s->compacting             = 0;
-      s->budget_policy_override = xAiBudgetPolicy_Disabled;
+      s->compacting = 0;
       xAiQueryDestroy(q);
       /* Fall through to TruncateOldest as degradation path. */
       goto truncate_fallback;
@@ -935,9 +942,8 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
     }
 
     /* Reset compacting state. */
-    s->compacting             = 0;
-    s->compact_keep_idx       = 0;
-    s->budget_policy_override = xAiBudgetPolicy_Disabled;
+    s->compacting       = 0;
+    s->compact_keep_idx = 0;
 
     /* ── Notify caller: compact finished ──────────────────────
      * Fire CompactDone so the caller knows the session is now idle
@@ -1181,11 +1187,19 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   /* Spawn a fresh Query with Session-level forwarding shims bound
    * to this Session. xAiQueryCreate also sets s->query so a second
    * Input call during the same run hits the Busy branch above. */
+  struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
   xAiQueryConf qc  = {0};
   qc.cbs           = SESSION_FWD_CBS;
   qc.cbs.user_data = s;
+  qc.provider      = a->provider;
+  qc.tools         = (const xAiTool **)a->tools;
+  qc.n_tools       = a->n_tools;
+  qc.model         = s->model;
+  qc.max_tokens    = s->max_tokens;
+  qc.max_turns     = s->max_turns;
+  qc.session       = sess;
 
-  xAiQuery q = xAiQueryCreate(sess, &qc);
+  xAiQuery q = xAiQueryCreate(&qc);
   if (!q) {
     sess_input_view_free(&view);
     while (xArrayLen(s->history_arr) > history_checkpoint) {

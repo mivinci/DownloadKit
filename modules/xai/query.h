@@ -58,15 +58,41 @@
 #define XAI_QUERY_H
 
 #include <stddef.h>
-#include <xai/message.h>  /* xAiMessage                                */
-#include <xai/provider.h> /* xAiUsage                                  */
-#include <xai/session.h>  /* xAiSession, xAiInputOrigin, xAiDoneReason */
+#include <xai/agent.h>    /* xAiAgent, xAiTool, xAiProvider, xAiUsage */
+#include <xai/message.h>  /* xAiMessage                               */
 #include <xbase/base.h>
 #include <xbase/error.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * @brief Opaque handle to a session instance (forward declaration).
+ *
+ * Full definition lives in <xai/session.h>. The Query only stores
+ * this as an observational back-pointer; it never dereferences it.
+ */
+XDEF_HANDLE(xAiSession);
+
+/**
+ * @brief Why the Query's current run stopped.
+ *
+ * Delivered to the caller via xAiQueryCallbacks::on_done (and
+ * forwarded to xAiSessionCallbacks::on_done when the Query is
+ * Session-hosted). This is the coarse, caller-facing signal; the
+ * Query layer internally maintains a finer-grained state machine
+ * that is not exposed.
+ */
+XDEF_ENUM(xAiDoneReason){
+  xAiDoneReason_Completed     = 0, /**< Run finished naturally        */
+  xAiDoneReason_MaxTurns      = 1, /**< Agent's max_turns reached     */
+  xAiDoneReason_PromptTooLong = 2, /**< Context budget exhausted      */
+  xAiDoneReason_Aborted       = 3, /**< xAiQueryCancel() was called   */
+  xAiDoneReason_ModelError    = 4, /**< Provider/model returned error */
+  xAiDoneReason_ToolError     = 5, /**< Tool handler returned error   */
+  xAiDoneReason_Stopped       = 6, /**< Stopped by internal policy    */
+};
 
 /**
  * @brief Opaque handle to one run of the agent tool loop.
@@ -163,51 +189,97 @@ XDEF_STRUCT(xAiQueryCallbacks) {
 /**
  * @brief Configuration for creating a Query.
  *
- * Zero-initialise to inherit everything the owning Session already
- * knows about. Today the only field is @ref cbs; future revisions
- * will add overrides specific to the Query layer (tool-allow list,
- * per-Query max_turns, reasoning effort, ...).
+ * Zero-initialise for defaults. The Query is self-contained: it
+ * carries its own provider, tools, model, and limits — it does NOT
+ * reach back into any Session for runtime configuration. The Session
+ * layer fills these in from its resolved state before calling
+ * xAiQueryCreate; standalone callers fill them directly.
+ *
+ * The @ref session field is optional and purely observational: it
+ * lets xAiQuerySession() return the owning Session for callers that
+ * need it, but the Query never dereferences it for configuration.
  */
 XDEF_STRUCT(xAiQueryConf) {
   xAiQueryCallbacks cbs; /**< Streaming callbacks (in-place).          */
 
+  /* ── Runtime configuration (self-contained, no Session back-hack) ── */
+
   /**
-   * @brief Override the session's budget policy for this Query.
+   * @brief LLM provider to submit rounds to.
    *
-   * When set to a value other than @ref xAiBudgetPolicy_Disabled,
-   * this value takes precedence over the session's
-   * @ref xAiBudgetConf::policy for the duration of the Query run.
-   * This is primarily used by the SummarizeOldest budget policy
-   * (β phase) to launch an internal summary query with budget
-   * enforcement disabled, preventing recursive budget checks.
-   *
-   * Default (@ref xAiBudgetPolicy_Disabled) means "inherit from
-   * the session".
+   * Borrowed for the Query's lifetime; must outlive the Query.
+   * Must not be NULL for a functional Query.
    */
-  xAiBudgetPolicy budget_policy_override;
+  xAiProvider provider;
+
+  /**
+   * @brief Tool definitions advertised to the model.
+   *
+   * Borrowed array of tool handles; individual entries may be NULL.
+   * May be NULL / n_tools == 0 when no tools are configured.
+   */
+  const xAiTool **tools;
+  size_t          n_tools;
+
+  /**
+   * @brief Model identifier sent to the provider.
+   *
+   * Borrowed; may be NULL (the provider's own default is used).
+   */
+  const char *model;
+
+  /**
+   * @brief Per-round token cap forwarded to the provider.
+   *
+   * Zero means "use the provider's default".
+   */
+  int max_tokens;
+
+  /**
+   * @brief Maximum number of provider rounds (tool-loop iterations).
+   *
+   * Zero means "use the library default" (currently 16, see
+   * XAI_SESSION_DEFAULT_MAX_TURNS in session_private.h).
+   */
+  int max_turns;
+
+  /* ── Optional observational back-pointer ────────────────────────── */
+
+  /**
+   * @brief Owning Session, if any.
+   *
+   * When the Query is created by a Session (via xAiSessionInput),
+   * this field is set so that xAiQuerySession() can return it.
+   * Standalone Queries leave this NULL. The Query never dereferences
+   * this pointer for configuration — all runtime state is carried
+   * in the fields above.
+   */
+  xAiSession session;
 };
 
 /* ── Driving API ──────────────────────────────────────────────── */
 
 /**
- * @brief Create an idle Query bound to the given Session.
+ * @brief Create an idle Query with self-contained configuration.
  *
- * The Query borrows @p sess for its lifetime; @p sess must outlive
- * the Query. @p conf is captured by value (including the callbacks
- * struct), so it may be stack-allocated.
+ * The Query borrows the provider, tools, model, and session handle
+ * from @p conf for its lifetime; they must outlive the Query.
+ * @p conf is captured by value (including the callbacks struct), so
+ * it may be stack-allocated.
  *
  * The Query starts idle — no provider round is submitted until
  * xAiQueryRun is called.
  *
- * Single-flight constraint: if @p sess already has a live Query (one
- * that was created but not yet Destroyed), this returns NULL. See
- * the header-level comment on single-flight for the rationale.
+ * Single-flight constraint: if @p conf->session is non-NULL and
+ * that Session already has a live Query (one that was created but
+ * not yet Destroyed), this returns NULL. When @p conf->session is
+ * NULL (standalone Query), no single-flight check is performed —
+ * the caller is responsible for their own concurrency discipline.
  *
- * @param sess  Session handle (must not be NULL).
  * @param conf  Query configuration (must not be NULL).
  * @return      A new Query handle, or NULL on failure.
  */
-XCAPI(xAiQuery) xAiQueryCreate(xAiSession sess, const xAiQueryConf *conf);
+XCAPI(xAiQuery) xAiQueryCreate(const xAiQueryConf *conf);
 
 /**
  * @brief Start the Query by running it against an explicit message list.
@@ -258,18 +330,9 @@ XCAPI(void) xAiQueryDestroy(xAiQuery q);
 
 /* ── Observing API ────────────────────────────────────────────── */
 
-/**
- * @brief Get the Query currently running on a Session, if any.
- *
- * Returns the live Query handle the Session has allocated for its
- * in-flight run, or NULL if the Session is idle. The handle stays
- * valid until either on_done has been delivered (at which point
- * the Session will destroy it) or xAiSessionDestroy() is called.
- *
- * @param sess  Session handle.
- * @return      The Session's current Query, or NULL if none.
- */
-XCAPI(xAiQuery) xAiSessionQuery(xAiSession sess);
+/* xAiSessionQuery is declared in <xai/session.h>. It returns the
+ * live Query (if any) on a Session handle, which is a Session-layer
+ * concept. */
 
 /**
  * @brief Cancel this Query's in-flight run, if any.
@@ -307,10 +370,14 @@ XCAPI(int) xAiQueryIsRunning(xAiQuery q);
 XCAPI(void) xAiQueryUsage(xAiQuery q, xAiUsage *out);
 
 /**
- * @brief Read back the owning Session of this Query.
+ * @brief Read back the owning Session of this Query, if any.
+ *
+ * Returns the Session that was set in xAiQueryConf::session at
+ * creation time. Standalone Queries (where conf->session was NULL)
+ * return NULL here.
  *
  * @param q  Query handle.
- * @return   The owning Session, or NULL for a NULL input.
+ * @return   The owning Session, or NULL.
  */
 XCAPI(xAiSession) xAiQuerySession(xAiQuery q);
 

@@ -78,14 +78,20 @@ struct xAiQueryPending_ {
  *     every round of this run; surfaced to the caller via on_done.
  */
 struct xAiQuery_ {
-  /* Non-owning back-pointer to the Session that hosts this Query.
-   * Stamped at xAiQueryCreate and never mutated afterwards. Used by
-   * provider callbacks to reach agent-level configuration (provider,
-   * tools, model). History is NO LONGER read or written through this
-   * pointer: the Query runs off its own @c inputs + @c produced
-   * turn-entry arrays below and the Session merges @c produced back
-   * into its history after the run terminates. */
-  struct xAiSession_ *session;
+  /* ── Self-contained runtime configuration ───────────────────────
+   *
+   * Stamped at xAiQueryCreate from xAiQueryConf and never mutated
+   * afterwards. The Query no longer reaches back into a Session for
+   * any of this — it is fully standalone. The only use for the
+   * @c session pointer is the observational xAiQuerySession() API;
+   * it is never dereferenced for configuration. */
+  xAiProvider        provider;   /* borrowed, never NULL for a functional Query */
+  const xAiTool    **tools;      /* borrowed array, may be NULL               */
+  size_t             n_tools;    /* number of entries in tools                */
+  const char        *model;      /* borrowed, may be NULL                     */
+  int                max_tokens; /* per-round cap, 0 = provider default       */
+  int                max_turns;  /* tool-loop cap, 0 = library default        */
+  struct xAiSession_ *session;   /* optional, for xAiQuerySession() only      */
 
   /* Streaming callbacks for this Query. Captured by value at
    * xAiQueryCreate; callbacks fire with the Query handle (not the

@@ -26,3 +26,11 @@ leak:SSL_new
 leak:Curl_ssl_setup_conn
 leak:Curl_ossl_
 
+# std::string allocations in HTTPS test callbacks when TLS handshake
+# fails or times out.  LSan on Linux reports these as direct leaks
+# because OpenSSL's internal error state (allocated during the failed
+# handshake) is traced through the oneshot_on_done callback path, but
+# the root cause is OpenSSL not fully releasing its error-queue memory
+# even after curl_global_cleanup().
+leak:oneshot_on_done
+

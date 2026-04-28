@@ -62,11 +62,10 @@ else()
   message(STATUS "FindUsrsctp: System usrsctp not found, fetching from source")
 
   include(FetchContent)
+  xk_github_url(sctplab/usrsctp master _usrsctp_url)
   FetchContent_Declare(
     usrsctp
-    GIT_REPOSITORY https://github.com/sctplab/usrsctp.git
-    GIT_TAG        master
-    GIT_SHALLOW    TRUE
+    URL ${_usrsctp_url}
   )
   set(sctp_build_shared_lib OFF CACHE BOOL "" FORCE)
   set(sctp_build_programs   OFF CACHE BOOL "" FORCE)

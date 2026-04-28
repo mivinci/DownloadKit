@@ -61,11 +61,12 @@ else()
   message(STATUS "FindLlhttp: System llhttp not found, fetching from source")
 
   include(FetchContent)
+  # Use the "release/" tag which contains pre-generated C sources
+  # (the regular "v9.2.1" tag lacks generated files like src/llhttp.c).
+  xk_github_url(nodejs/llhttp release/v9.2.1 _llhttp_url)
   FetchContent_Declare(
     llhttp
-    GIT_REPOSITORY https://github.com/nodejs/llhttp.git
-    GIT_TAG        release/v9.2.1
-    GIT_SHALLOW    TRUE
+    URL ${_llhttp_url}
   )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
   set(BUILD_STATIC_LIBS ON  CACHE BOOL "" FORCE)

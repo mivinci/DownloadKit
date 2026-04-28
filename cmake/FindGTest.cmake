@@ -128,11 +128,10 @@ else()
   message(STATUS "FindGTest: System GTest not found, fetching from source")
 
   include(FetchContent)
+  xk_github_url(google/googletest v1.15.2 _gtest_url)
   FetchContent_Declare(
     googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG        v1.15.2
-    GIT_SHALLOW    TRUE
+    URL ${_gtest_url}
   )
   set(BUILD_GMOCK   OFF CACHE BOOL "" FORCE)
   set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)

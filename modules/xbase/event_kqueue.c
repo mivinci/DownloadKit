@@ -266,6 +266,11 @@ static int signo_valid(int signo) {
          signo != SIGSTOP;
 }
 
+/* On macOS/BSD, kqueue's EVFILT_SIGNAL only fires if the signal is actually
+ * delivered to the process.  Setting SIG_IGN prevents delivery entirely,
+ * so the kqueue filter never triggers.  Use a no-op handler instead. */
+static void signal_noop(int signo) { (void)signo; }
+
 xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
                              void *arg) {
   struct xEventLoopKqueue_ *loop = (struct xEventLoopKqueue_ *)loop_;
@@ -280,8 +285,10 @@ xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
     loop->base.signal_watches[signo].arg = arg;
 
     if (is_new) {
-      /* Ignore the default disposition so the signal is delivered to kqueue */
-      signal(signo, SIG_IGN);
+      /* Install a no-op handler so the signal is delivered and kqueue
+       * can intercept it.  Do NOT use SIG_IGN — it prevents kqueue
+       * from receiving EVFILT_SIGNAL events on macOS. */
+      signal(signo, signal_noop);
       EV_SET(&ev, signo, EVFILT_SIGNAL, EV_ADD | EV_CLEAR, 0, 0, NULL);
       if (kevent(loop->kqfd, &ev, 1, NULL, 0, NULL) < 0) {
         signal(signo, SIG_DFL);

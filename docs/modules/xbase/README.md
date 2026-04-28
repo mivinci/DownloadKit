@@ -29,6 +29,7 @@ graph TD
         TIMER["timer.h<br/>Monotonic Timer"]
         TASK["task.h<br/>N:M Task Model"]
         SOCKET["socket.h<br/>Async Socket"]
+        CMD["cmd.h<br/>Command Executor"]
     end
 
     subgraph "Infrastructure"
@@ -51,6 +52,7 @@ graph TD
     EVENT -->|"registers timers"| TIMER
     EVENT -->|"offloads work"| TASK
     EVENT -->|"wraps fd"| SOCKET
+    EVENT -->|"SIGCHLD + I/O watch"| CMD
     SOCKET -->|"monitors I/O"| EVENT
     SOCKET -->|"idle timeout"| EVENT
 
@@ -71,6 +73,7 @@ graph TD
     style TIMER fill:#4a90d9,color:#fff
     style TASK fill:#4a90d9,color:#fff
     style SOCKET fill:#4a90d9,color:#fff
+    style CMD fill:#4a90d9,color:#fff
     style MEMORY fill:#50b86c,color:#fff
     style LOG fill:#50b86c,color:#fff
     style BACKTRACE fill:#50b86c,color:#fff
@@ -106,6 +109,7 @@ graph TD
 | `hex.h` | [hex.md](hex.md) | Hex (base16) encode/decode — binary to/from ASCII hex string (lower-case output, case-insensitive decode) |
 | `base64.h` | [base64.md](base64.md) | Base64 encode/decode (RFC 4648) — standard and URL-safe alphabets, with or without `=` padding |
 | `time.h` | — | Time utilities: `xMonoMs()` (monotonic) and `xWallMs()` (wall-clock) in milliseconds |
+| `cmd.h` | [cmd.md](cmd.md) | Async command executor over xEventLoop — spawn child processes with stdout/stderr capture, streaming, discard, and PTY modes |
 
 ## How to Choose
 
@@ -128,6 +132,7 @@ graph TD
 | Perform atomic read-modify-write | [`atomic.h`](atomic.md) — macro wrappers over compiler builtins |
 | Get current time in milliseconds | `time.h` — `xMonoMs()` for elapsed time, `xWallMs()` for wall-clock |
 | Read/write through abstract I/O interfaces | [`io.h`](io.md) — `xReader` / `xWriter` + helpers like `xReadFull`, `xReadAll` |
+| Run a shell command asynchronously | [`cmd.h`](cmd.md) — `xCommandRun()` with capture, stream, or discard output modes |
 
 ## Quick Start
 

@@ -39,8 +39,8 @@ CI_MODE=0
 DETECT_ONLY=0
 ASAN=0
 BASE_SHA=""
-APT_MIRROR="${APT_MIRROR:-mirrors.tuna.tsinghua.edu.cn}"
-FETCHCONTENT_VOLUME="xkit-fetchcontent"
+APT_MIRROR="${APT_MIRROR:-}"
+GITHUB_MIRROR="${GITHUB_MIRROR:-}"
 
 # ── Parse args ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -244,7 +244,7 @@ if [[ "$CI_MODE" -eq 1 ]]; then
         CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DXK_ENABLE_ASAN=ON"
     fi
 
-    cmake -S . -B "$BUILD_DIR" \
+    GITHUB_MIRROR="${GITHUB_MIRROR}" cmake -S . -B "$BUILD_DIR" \
         -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
         -DBUILD_TESTING=ON \
         $CMAKE_EXTRA_ARGS
@@ -259,6 +259,11 @@ if [[ "$CI_MODE" -eq 1 ]]; then
             export LSAN_OPTIONS="suppressions=$LSAN_SUPPRESSIONS"
             info "LSAN suppressions loaded from $LSAN_SUPPRESSIONS"
         fi
+        # After fork/forkpty, child processes inherit inconsistent ASAN shadow
+        # memory.  halt_on_error=0 lets children survive ASAN false-positives
+        # (e.g. in login_tty dup2/close wrappers) and reach execvp().
+        export ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}halt_on_error=0"
+        info "ASAN_OPTIONS set: halt_on_error=0"
     fi
 
     FAILED=0
@@ -292,7 +297,8 @@ build_image() {
         -f "$SCRIPT_DIR/Dockerfile.test" \
         --build-arg "BASE_IMAGE=$BASE_IMAGE" \
         --build-arg "APT_MIRROR=$APT_MIRROR" \
-        "$SCRIPT_DIR"
+        --build-arg "GITHUB_MIRROR=$GITHUB_MIRROR" \
+        "$PROJECT_DIR"
     echo "==> ✅ Image built: $TEST_IMAGE"
     echo ""
 }
@@ -302,12 +308,6 @@ if [[ "$REBUILD_IMAGE" -eq 1 ]]; then
 elif ! container image ls 2>/dev/null | grep -q "$TEST_IMAGE"; then
     echo "==> Test image not found, building..."
     build_image
-fi
-
-# Ensure FetchContent cache volume exists
-if ! container volume ls 2>/dev/null | grep -q "$FETCHCONTENT_VOLUME"; then
-    echo "==> Creating FetchContent cache volume: $FETCHCONTENT_VOLUME"
-    container volume create "$FETCHCONTENT_VOLUME"
 fi
 
 BUILD_DIR="build-linux-${TLS_BACKEND}"
@@ -331,12 +331,13 @@ echo ""
 
 container run --rm -m "$MEMORY" \
     -v "$PROJECT_DIR":/work \
-    -v "$FETCHCONTENT_VOLUME":/fetchcontent-cache \
     -w /work \
+    -e GITHUB_MIRROR="${GITHUB_MIRROR}" \
     "$TEST_IMAGE" \
     bash -c "
         set -euo pipefail && \
         export XKIT_SKIP_NETWORK_TESTS=1 && \
+        container-setup.sh && \
         BUILD_DIR=$BUILD_DIR && \
         if [ ! -d \$BUILD_DIR ]; then \
             mkdir -p \$BUILD_DIR && cd \$BUILD_DIR && \

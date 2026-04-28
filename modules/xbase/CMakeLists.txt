@@ -17,6 +17,27 @@ else()
   message(STATUS "xbase: event backend = poll (POSIX fallback)")
 endif()
 
+# ── PTY support (forkpty) ──
+# macOS: <util.h>, Linux: <pty.h> + -lutil
+include(CheckIncludeFile)
+check_include_file(util.h HAS_UTIL_H)
+check_include_file(pty.h HAS_PTY_H)
+if(HAS_UTIL_H OR HAS_PTY_H)
+  target_compile_definitions(xbase PRIVATE XK_HAS_PTY)
+  if(HAS_UTIL_H)
+    target_compile_definitions(xbase PRIVATE XK_HAS_UTIL_H)
+  endif()
+  if(HAS_PTY_H)
+    target_compile_definitions(xbase PRIVATE XK_HAS_PTY_H)
+  endif()
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(xbase PRIVATE util)
+  endif()
+  message(STATUS "xbase: PTY support = yes")
+else()
+  message(STATUS "xbase: PTY support = no")
+endif()
+
 # ── Backtrace backend detection (libunwind → execinfo → stub) ──
 find_package(Libunwind QUIET)
 

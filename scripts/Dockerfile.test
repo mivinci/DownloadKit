@@ -3,18 +3,19 @@ FROM ${BASE_IMAGE}
 
 ARG APT_MIRROR=
 
-# Optionally swap APT mirror for faster downloads in China
+# Optionally swap APT mirror for faster downloads in China.
+# NOTE: Apple Containerization's "container build" has no network access
+# during RUN steps, so package installation is deferred to runtime
+# (container run does have network).  The mirror config and IPv4 force
+# are baked into the image so they take effect at runtime.
 RUN if [ -n "$APT_MIRROR" ]; then \
       sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources 2>/dev/null \
       || sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list 2>/dev/null \
       || true; \
-    fi
+    fi && \
+    echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
 
-RUN apt-get update -qq && \
-    apt-get install -y -qq \
-      cmake pkg-config git \
-      libssl-dev libcurl4-openssl-dev libmbedtls-dev libunwind-dev \
-      > /dev/null 2>&1 && \
-    rm -rf /var/lib/apt/lists/*
+COPY scripts/container-setup.sh /usr/local/bin/container-setup.sh
+RUN chmod +x /usr/local/bin/container-setup.sh
 
 WORKDIR /work

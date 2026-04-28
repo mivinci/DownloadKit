@@ -95,11 +95,10 @@ else()
   endif()
 
   include(FetchContent)
+  xk_github_url(curl/curl curl-8_11_1 _curl_url)
   FetchContent_Declare(
     curl
-    GIT_REPOSITORY https://github.com/curl/curl.git
-    GIT_TAG        curl-8_11_1
-    GIT_SHALLOW    TRUE
+    URL ${_curl_url}
   )
 
   # ── Core build options ──

@@ -21,6 +21,7 @@
     - [Stack Trace](modules/xbase/backtrace.md)
     - [Socket](modules/xbase/socket.md)
     - [I/O Interfaces](modules/xbase/io.md)
+    - [Command Executor](modules/xbase/cmd.md)
   - [xbuf — Buffer Primitives](modules/xbuf/README.md)
     - [Linear Buffer](modules/xbuf/buf.md)
     - [Ring Buffer](modules/xbuf/ring.md)

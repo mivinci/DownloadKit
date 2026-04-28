@@ -62,11 +62,10 @@ else()
   message(STATUS "FindCjson: System cJSON not found, fetching from source")
 
   include(FetchContent)
+  xk_github_url(DaveGamble/cJSON v1.7.18 _cjson_url)
   FetchContent_Declare(
     cjson
-    GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git
-    GIT_TAG        v1.7.18
-    GIT_SHALLOW    TRUE
+    URL ${_cjson_url}
   )
   set(ENABLE_CJSON_TEST    OFF CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)

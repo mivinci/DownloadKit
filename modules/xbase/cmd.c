@@ -623,6 +623,8 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
   {
     int   status;
     pid_t ret = waitpid(pid, &status, WNOHANG);
+    fprintf(stderr, "[DEBUG PTY probe] pid=%d ret=%d status=0x%x WIFEXITED=%d WEXITSTATUS=%d WIFSIGNALED=%d WTERMSIG=%d\n",
+            pid, ret, status, WIFEXITED(status), WEXITSTATUS(status), WIFSIGNALED(status), WTERMSIG(status));
     if (ret == pid) {
       exec->child_exited = 1;
       if (WIFEXITED(status)) {
@@ -877,6 +879,8 @@ static void sigchld_handler(int signo, void *arg) {
     if (exec->child_pid > 0 && !exec->child_exited) {
       int   status;
       pid_t ret = waitpid(exec->child_pid, &status, WNOHANG);
+      fprintf(stderr, "[DEBUG SIGCHLD] pid=%d ret=%d status=0x%x WIFEXITED=%d WEXITSTATUS=%d WIFSIGNALED=%d errno=%d\n",
+              exec->child_pid, ret, status, WIFEXITED(status), WEXITSTATUS(status), WIFSIGNALED(status), errno);
       if (ret == exec->child_pid) {
         exec->child_exited = 1;
         if (WIFEXITED(status)) {
@@ -888,6 +892,8 @@ static void sigchld_handler(int signo, void *arg) {
       } else if (ret < 0 && errno == ECHILD) {
         /* Child was auto-reaped by kernel (SIG_IGN).  We cannot know
          * the exit status, so assume success unless already set. */
+        fprintf(stderr, "[DEBUG SIGCHLD ECHILD] pid=%d exit_code already=%d, setting child_exited=1\n",
+                exec->child_pid, exec->result.exit_code);
         exec->child_exited = 1;
         cmd_check_completion(exec);
       }

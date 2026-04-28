@@ -32,6 +32,15 @@ XDEF_STRUCT(xHmacState_) {
 _Static_assert(sizeof(xHmacState_) <= sizeof(((xHmacCtx *)0)->opaque),
                "xHmacCtx.opaque too small for HMAC state");
 
+/* ── Release resources held by an initialized HMAC state. ── */
+
+static void hmac_cleanup_(xHmacState_ *st) {
+  if (!st || !st->hash) return;
+  uint8_t discard[HMAC_MAX_DIGEST_SIZE];
+  st->hash->final(st->inner_ctx, discard);
+  memset(st, 0, sizeof(*st));
+}
+
 /* ───────────────────── Streaming API ───────────────────── */
 
 xErrno xHmacInit(xHmacCtx *ctx, const struct xHashVtable *hash,
@@ -46,18 +55,19 @@ xErrno xHmacInit(xHmacCtx *ctx, const struct xHashVtable *hash,
   st->hash = hash;
 
   const size_t block_size = hash->block_size;
+  xErrno err;
 
   /* Normalize key: if longer than block size, hash it first. */
   uint8_t k[HMAC_MAX_BLOCK_SIZE];
   memset(k, 0, block_size);
 
   if (key_len > block_size) {
-    xErrno err = hash->init(st->inner_ctx);
+    err = hash->init(st->inner_ctx);
     if (err != xErrno_Ok) return err;
     err = hash->update(st->inner_ctx, key, key_len);
-    if (err != xErrno_Ok) return err;
+    if (err != xErrno_Ok) { hmac_cleanup_(st); return err; }
     err = hash->final(st->inner_ctx, k);
-    if (err != xErrno_Ok) return err;
+    if (err != xErrno_Ok) { hmac_cleanup_(st); return err; }
   } else {
     memcpy(k, key, key_len);
   }
@@ -70,10 +80,12 @@ xErrno xHmacInit(xHmacCtx *ctx, const struct xHashVtable *hash,
   }
 
   /* Start inner hash: H(ipad || ...) */
-  xErrno err = hash->init(st->inner_ctx);
+  err = hash->init(st->inner_ctx);
   if (err != xErrno_Ok) return err;
 
-  return hash->update(st->inner_ctx, ipad, block_size);
+  err = hash->update(st->inner_ctx, ipad, block_size);
+  if (err != xErrno_Ok) { hmac_cleanup_(st); return err; }
+  return xErrno_Ok;
 }
 
 xErrno xHmacUpdate(xHmacCtx *ctx, const uint8_t *data, size_t len) {
@@ -86,10 +98,17 @@ xErrno xHmacUpdate(xHmacCtx *ctx, const uint8_t *data, size_t len) {
 }
 
 xErrno xHmacFinal(xHmacCtx *ctx, uint8_t *digest) {
-  if (!ctx || !digest) return xErrno_InvalidArg;
+  if (!ctx) return xErrno_InvalidArg;
 
   xHmacState_ *st = (xHmacState_ *)ctx->opaque;
   if (!st->hash) return xErrno_InvalidArg;
+
+  /* If digest is NULL, clean up and return error (avoids leaking
+     the hash context allocated by xHmacInit). */
+  if (!digest) {
+    hmac_cleanup_(st);
+    return xErrno_InvalidArg;
+  }
 
   const xHashVtable *hash = st->hash;
 
@@ -102,9 +121,9 @@ xErrno xHmacFinal(xHmacCtx *ctx, uint8_t *digest) {
   err = hash->init(st->inner_ctx); /* Reuse the context buffer */
   if (err != xErrno_Ok) return err;
   err = hash->update(st->inner_ctx, st->opad, hash->block_size);
-  if (err != xErrno_Ok) return err;
+  if (err != xErrno_Ok) { hmac_cleanup_(st); return err; }
   err = hash->update(st->inner_ctx, inner_digest, hash->digest_size);
-  if (err != xErrno_Ok) return err;
+  if (err != xErrno_Ok) { hmac_cleanup_(st); return err; }
 
   err = hash->final(st->inner_ctx, digest);
 
@@ -124,7 +143,14 @@ xErrno xHmac(const struct xHashVtable *hash, const uint8_t *key, size_t key_len,
   if (err != xErrno_Ok) return err;
 
   err = xHmacUpdate(&ctx, data, data_len);
-  if (err != xErrno_Ok) return err;
+  if (err != xErrno_Ok) {
+    hmac_cleanup_((xHmacState_ *)ctx.opaque);
+    return err;
+  }
 
-  return xHmacFinal(&ctx, digest);
+  err = xHmacFinal(&ctx, digest);
+  if (err != xErrno_Ok) {
+    hmac_cleanup_((xHmacState_ *)ctx.opaque);
+  }
+  return err;
 }

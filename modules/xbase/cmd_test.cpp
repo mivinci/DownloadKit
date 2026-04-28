@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * cmd_test.cpp - Tests for xCmd async command executor
+ * cmd_test.cpp - Tests for xCommand async command executor
  */
 
 #include <gtest/gtest.h>
@@ -18,7 +18,7 @@
 
 struct TestCtx {
   xEventLoop  loop;
-  xCmdResult  result;
+  xCommandResult  result;
   int         done;
   int         stdout_chunks;
   int         stderr_chunks;
@@ -26,20 +26,20 @@ struct TestCtx {
   size_t      total_stderr;
 };
 
-static void on_done(xCmd, const xCmdResult *result, void *ud) {
+static void on_done(xCommand, const xCommandResult *result, void *ud) {
   struct TestCtx *ctx = (struct TestCtx *)ud;
   ctx->result = *result;
   ctx->done   = 1;
   xEventLoopStop(ctx->loop);
 }
 
-static void on_stdout_stream(xCmd, const char *, size_t len, void *ud) {
+static void on_stdout_stream(xCommand, const char *, size_t len, void *ud) {
   struct TestCtx *ctx = (struct TestCtx *)ud;
   ctx->stdout_chunks++;
   ctx->total_stdout += len;
 }
 
-static void on_stderr_stream(xCmd, const char *, size_t len, void *ud) {
+static void on_stderr_stream(xCommand, const char *, size_t len, void *ud) {
   struct TestCtx *ctx = (struct TestCtx *)ud;
   ctx->stderr_chunks++;
   ctx->total_stderr += len;
@@ -56,23 +56,23 @@ static void run_until_done(xEventLoop loop, struct TestCtx *ctx,
 
 /* ───────────────────── Capture mode ───────────────────── */
 
-TEST(Cmd, CaptureStdout) {
+TEST(Command, CaptureStdout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"hello", "world", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/echo";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Capture;
-  conf.stderr_mode  = xCmdOutput_Discard;
+  conf.stdout_mode  = xCommandOutput_Capture;
+  conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -88,27 +88,27 @@ TEST(Cmd, CaptureStdout) {
   EXPECT_EQ(ctx.result.stderr_buf, nullptr);
   EXPECT_GT(ctx.result.elapsed_ms, 0u);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
-TEST(Cmd, CaptureBothStdoutStderr) {
+TEST(Command, CaptureBothStdoutStderr) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"-c", "echo out; echo err >&2", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sh";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Capture;
-  conf.stderr_mode  = xCmdOutput_Capture;
+  conf.stdout_mode  = xCommandOutput_Capture;
+  conf.stderr_mode  = xCommandOutput_Capture;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -118,27 +118,27 @@ TEST(Cmd, CaptureBothStdoutStderr) {
   EXPECT_STREQ(ctx.result.stdout_buf, "out\n");
   EXPECT_STREQ(ctx.result.stderr_buf, "err\n");
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
-TEST(Cmd, NonZeroExitCode) {
+TEST(Command, NonZeroExitCode) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"-c", "exit 42", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sh";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -146,25 +146,25 @@ TEST(Cmd, NonZeroExitCode) {
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 42);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
-TEST(Cmd, CommandNotFound) {
+TEST(Command, CommandNotFound) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/nonexistent/command";
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -172,29 +172,29 @@ TEST(Cmd, CommandNotFound) {
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 127);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 /* ───────────────────── Stream mode ───────────────────── */
 
-TEST(Cmd, StreamStdout) {
+TEST(Command, StreamStdout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"streaming", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/echo";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Stream;
-  conf.stderr_mode  = xCmdOutput_Discard;
+  conf.stdout_mode  = xCommandOutput_Stream;
+  conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCmdRun(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -206,29 +206,29 @@ TEST(Cmd, StreamStdout) {
   EXPECT_EQ(ctx.result.stdout_buf, nullptr);
   EXPECT_EQ(ctx.result.stdout_len, 0u);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 /* ───────────────────── Discard mode ───────────────────── */
 
-TEST(Cmd, DiscardAll) {
+TEST(Command, DiscardAll) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"discarded", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/echo";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -238,31 +238,31 @@ TEST(Cmd, DiscardAll) {
   EXPECT_EQ(ctx.result.stdout_buf, nullptr);
   EXPECT_EQ(ctx.result.stderr_buf, nullptr);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 /* ───────────────────── Timeout ───────────────────── */
 
-TEST(Cmd, Timeout) {
+TEST(Command, Timeout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"60", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sleep";
   conf.argv         = argv;
   conf.timeout_ms   = 200;
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
 
   uint64_t start = xMonoMs();
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx, 10000);
@@ -273,33 +273,33 @@ TEST(Cmd, Timeout) {
   EXPECT_LT(elapsed, 5000u);
   EXPECT_GE(elapsed, 150u);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 /* ───────────────────── Cancel ───────────────────── */
 
-TEST(Cmd, Cancel) {
+TEST(Command, Cancel) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"60", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sleep";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Cancel immediately */
-  err = xCmdCancel(exec);
+  err = xCommandCancel(exec);
   EXPECT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx, 10000);
@@ -307,97 +307,97 @@ TEST(Cmd, Cancel) {
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.timed_out, 1);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 /* ───────────────────── Query ───────────────────── */
 
-TEST(Cmd, QueryWhileRunning) {
+TEST(Command, QueryWhileRunning) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   /* Before running */
-  EXPECT_EQ(xCmdPid(exec), -1);
-  EXPECT_EQ(xCmdIsRunning(exec), 0);
+  EXPECT_EQ(xCommandPid(exec), -1);
+  EXPECT_EQ(xCommandIsRunning(exec), 0);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"1", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sleep";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* While running */
-  EXPECT_GT(xCmdPid(exec), 0);
-  EXPECT_EQ(xCmdIsRunning(exec), 1);
+  EXPECT_GT(xCommandPid(exec), 0);
+  EXPECT_EQ(xCommandIsRunning(exec), 1);
 
   run_until_done(loop, &ctx, 5000);
 
   EXPECT_EQ(ctx.done, 1);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 /* ───────────────────── Busy guard ───────────────────── */
 
-TEST(Cmd, RunWhileBusy) {
+TEST(Command, RunWhileBusy) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"1", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sleep";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Trying to run again while busy should fail */
-  err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   EXPECT_EQ(err, xErrno_Busy);
 
   run_until_done(loop, &ctx, 5000);
   EXPECT_EQ(ctx.done, 1);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 /* ───────────────────── Working directory ───────────────────── */
 
-TEST(Cmd, WorkingDirectory) {
+TEST(Command, WorkingDirectory) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/pwd";
   conf.cwd          = "/tmp";
-  conf.stdout_mode  = xCmdOutput_Capture;
-  conf.stderr_mode  = xCmdOutput_Discard;
+  conf.stdout_mode  = xCommandOutput_Capture;
+  conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -409,16 +409,16 @@ TEST(Cmd, WorkingDirectory) {
   EXPECT_TRUE(strcmp(ctx.result.stdout_buf, "/tmp\n") == 0 ||
               strcmp(ctx.result.stdout_buf, "/private/tmp\n") == 0);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 /* ───────────────────── Sequential runs ───────────────────── */
 
-TEST(Cmd, SequentialRuns) {
+TEST(Command, SequentialRuns) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   /* Run 1 */
@@ -426,13 +426,13 @@ TEST(Cmd, SequentialRuns) {
   ctx1.loop = loop;
 
   const char *argv1[] = {"first", nullptr};
-  xCmdConf conf1 = {};
+  xCommandConf conf1 = {};
   conf1.cmd          = "/bin/echo";
   conf1.argv         = argv1;
-  conf1.stdout_mode  = xCmdOutput_Capture;
-  conf1.stderr_mode  = xCmdOutput_Discard;
+  conf1.stdout_mode  = xCommandOutput_Capture;
+  conf1.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCmdRun(exec, &conf1, NULL, NULL, on_done, &ctx1);
+  xErrno err = xCommandRun(exec, &conf1, NULL, NULL, on_done, &ctx1);
   ASSERT_EQ(err, xErrno_Ok);
   run_until_done(loop, &ctx1);
   EXPECT_STREQ(ctx1.result.stdout_buf, "first\n");
@@ -442,53 +442,53 @@ TEST(Cmd, SequentialRuns) {
   ctx2.loop = loop;
 
   const char *argv2[] = {"second", nullptr};
-  xCmdConf conf2 = {};
+  xCommandConf conf2 = {};
   conf2.cmd          = "/bin/echo";
   conf2.argv         = argv2;
-  conf2.stdout_mode  = xCmdOutput_Capture;
-  conf2.stderr_mode  = xCmdOutput_Discard;
+  conf2.stdout_mode  = xCommandOutput_Capture;
+  conf2.stderr_mode  = xCommandOutput_Discard;
 
-  err = xCmdRun(exec, &conf2, NULL, NULL, on_done, &ctx2);
+  err = xCommandRun(exec, &conf2, NULL, NULL, on_done, &ctx2);
   ASSERT_EQ(err, xErrno_Ok);
   run_until_done(loop, &ctx2);
   EXPECT_STREQ(ctx2.result.stdout_buf, "second\n");
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 /* ───────────────────── Null safety ───────────────────── */
 
-TEST(Cmd, NullArgs) {
-  EXPECT_EQ(xCmdCreate(NULL), nullptr);
-  xCmdDestroy(NULL); /* should not crash */
-  EXPECT_EQ(xCmdRun(NULL, NULL, NULL, NULL, NULL, NULL), xErrno_InvalidArg);
-  EXPECT_EQ(xCmdCancel(NULL), xErrno_InvalidArg);
-  EXPECT_EQ(xCmdPid(NULL), -1);
-  EXPECT_EQ(xCmdIsRunning(NULL), 0);
-  EXPECT_EQ(xCmdPtyFd(NULL), -1);
+TEST(Command, NullArgs) {
+  EXPECT_EQ(xCommandCreate(NULL), nullptr);
+  xCommandDestroy(NULL); /* should not crash */
+  EXPECT_EQ(xCommandRun(NULL, NULL, NULL, NULL, NULL, NULL), xErrno_InvalidArg);
+  EXPECT_EQ(xCommandCancel(NULL), xErrno_InvalidArg);
+  EXPECT_EQ(xCommandPid(NULL), -1);
+  EXPECT_EQ(xCommandIsRunning(NULL), 0);
+  EXPECT_EQ(xCommandPtyFd(NULL), -1);
 }
 
 /* ───────────────────── PTY mode ───────────────────── */
 
-TEST(Cmd, PtyCaptureStdout) {
+TEST(Command, PtyCaptureStdout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"hello", "world", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/echo";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Capture;
-  conf.stderr_mode  = xCmdOutput_Discard; /* ignored in PTY mode */
-  conf.input_mode   = xCmdInput_Pty;
+  conf.stdout_mode  = xCommandOutput_Capture;
+  conf.stderr_mode  = xCommandOutput_Discard; /* ignored in PTY mode */
+  conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -503,28 +503,28 @@ TEST(Cmd, PtyCaptureStdout) {
   /* PTY fd should be -1 after completion */
   EXPECT_EQ(ctx.result.pty_fd, -1);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
-TEST(Cmd, PtyStreamStdout) {
+TEST(Command, PtyStreamStdout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"streaming", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/echo";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Stream;
-  conf.stderr_mode  = xCmdOutput_Discard; /* ignored in PTY mode */
-  conf.input_mode   = xCmdInput_Pty;
+  conf.stdout_mode  = xCommandOutput_Stream;
+  conf.stderr_mode  = xCommandOutput_Discard; /* ignored in PTY mode */
+  conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCmdRun(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -537,29 +537,29 @@ TEST(Cmd, PtyStreamStdout) {
   EXPECT_EQ(ctx.result.stdout_buf, nullptr);
   EXPECT_EQ(ctx.result.stdout_len, 0u);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
-TEST(Cmd, PtyMergesStderr) {
+TEST(Command, PtyMergesStderr) {
   /* In PTY mode, stderr is merged into stdout through the PTY */
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"-c", "echo out; echo err >&2", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sh";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Capture;
-  conf.stderr_mode  = xCmdOutput_Capture; /* ignored in PTY mode */
-  conf.input_mode   = xCmdInput_Pty;
+  conf.stdout_mode  = xCommandOutput_Capture;
+  conf.stderr_mode  = xCommandOutput_Capture; /* ignored in PTY mode */
+  conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -574,63 +574,63 @@ TEST(Cmd, PtyMergesStderr) {
   EXPECT_EQ(ctx.result.stderr_buf, nullptr);
   EXPECT_EQ(ctx.result.stderr_len, 0u);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
-TEST(Cmd, PtyFdQuery) {
+TEST(Command, PtyFdQuery) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   /* Before running — should return -1 */
-  EXPECT_EQ(xCmdPtyFd(exec), -1);
+  EXPECT_EQ(xCommandPtyFd(exec), -1);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"1", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sleep";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Capture;
-  conf.stderr_mode  = xCmdOutput_Discard;
-  conf.input_mode   = xCmdInput_Pty;
+  conf.stdout_mode  = xCommandOutput_Capture;
+  conf.stderr_mode  = xCommandOutput_Discard;
+  conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* While running — should return a valid fd */
-  int pty_fd = xCmdPtyFd(exec);
+  int pty_fd = xCommandPtyFd(exec);
   EXPECT_GE(pty_fd, 0);
 
   run_until_done(loop, &ctx, 5000);
 
   EXPECT_EQ(ctx.done, 1);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
-TEST(Cmd, PtyNonZeroExitCode) {
+TEST(Command, PtyNonZeroExitCode) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"-c", "exit 42", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sh";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
-  conf.input_mode   = xCmdInput_Pty;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
+  conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -638,30 +638,30 @@ TEST(Cmd, PtyNonZeroExitCode) {
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 42);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
-TEST(Cmd, PtyTimeout) {
+TEST(Command, PtyTimeout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"60", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sleep";
   conf.argv         = argv;
   conf.timeout_ms   = 200;
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
-  conf.input_mode   = xCmdInput_Pty;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
+  conf.input_mode   = xCommandInput_Pty;
 
   uint64_t start = xMonoMs();
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx, 10000);
@@ -672,32 +672,32 @@ TEST(Cmd, PtyTimeout) {
   EXPECT_LT(elapsed, 5000u);
   EXPECT_GE(elapsed, 150u);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
-TEST(Cmd, PtyCancel) {
+TEST(Command, PtyCancel) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"60", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/sleep";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
-  conf.input_mode   = xCmdInput_Pty;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
+  conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Cancel immediately */
-  err = xCmdCancel(exec);
+  err = xCommandCancel(exec);
   EXPECT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx, 10000);
@@ -705,29 +705,29 @@ TEST(Cmd, PtyCancel) {
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.timed_out, 1);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
-TEST(Cmd, PtyDiscardMode) {
+TEST(Command, PtyDiscardMode) {
   /* PTY with Discard mode: child gets a terminal but we don't read output */
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCmd exec = xCmdCreate(loop);
+  xCommand exec = xCommandCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
   const char *argv[] = {"hello", nullptr};
-  xCmdConf conf = {};
+  xCommandConf conf = {};
   conf.cmd          = "/bin/echo";
   conf.argv         = argv;
-  conf.stdout_mode  = xCmdOutput_Discard;
-  conf.stderr_mode  = xCmdOutput_Discard;
-  conf.input_mode   = xCmdInput_Pty;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
+  conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCmdRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   run_until_done(loop, &ctx);
@@ -737,6 +737,6 @@ TEST(Cmd, PtyDiscardMode) {
   EXPECT_EQ(ctx.result.stdout_buf, nullptr);
   EXPECT_EQ(ctx.result.stderr_buf, nullptr);
 
-  xCmdDestroy(exec);
+  xCommandDestroy(exec);
   xEventLoopDestroy(loop);
 }

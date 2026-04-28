@@ -12,21 +12,21 @@
  *
  * ── Output modes ──────────────────────────────────────────────────
  *
- *   xCmdOutput_Capture  — accumulate into xCmdResult buffers
- *   xCmdOutput_Stream   — deliver chunks via on_stdout/on_stderr
- *   xCmdOutput_Discard  — redirect to /dev/null
+ *   xCommandOutput_Capture  — accumulate into xCommandResult buffers
+ *   xCommandOutput_Stream   — deliver chunks via on_stdout/on_stderr
+ *   xCommandOutput_Discard  — redirect to /dev/null
  *
  * ── Input modes ───────────────────────────────────────────────────
  *
- *   xCmdInput_Pipe  — default: stdin is inherited from parent
- *   xCmdInput_Pty   — allocate a pseudo-terminal for the child;
+ *   xCommandInput_Pipe  — default: stdin is inherited from parent
+ *   xCommandInput_Pty   — allocate a pseudo-terminal for the child;
  *                      stdout/stderr are merged into the PTY master,
  *                      and the child gets a proper terminal. This is
  *                      useful for programs that behave differently
  *                      when connected to a terminal (e.g. colored
  *                      output, interactive prompts).
  *
- * When input_mode is xCmdInput_Pty:
+ * When input_mode is xCommandInput_Pty:
  *   - A PTY master/slave pair is created via forkpty() (or
  *     posix_openpt + grantpt + unlockpt on systems without forkpty).
  *   - The child's stdin, stdout, and stderr are all connected to the
@@ -52,22 +52,22 @@
 
 /* ───────────────────── Output mode ───────────────────── */
 
-XDEF_ENUM(xCmdOutputMode) {
-  xCmdOutput_Capture, /**< Accumulate into xCmdResult buffers      */
-  xCmdOutput_Stream,  /**< Deliver via on_stdout / on_stderr       */
-  xCmdOutput_Discard, /**< Redirect to /dev/null                   */
+XDEF_ENUM(xCommandOutputMode) {
+  xCommandOutput_Capture, /**< Accumulate into xCommandResult buffers      */
+  xCommandOutput_Stream,  /**< Deliver via on_stdout / on_stderr       */
+  xCommandOutput_Discard, /**< Redirect to /dev/null                   */
 };
 
 /* ───────────────────── Input mode ───────────────────── */
 
-XDEF_ENUM(xCmdInputMode) {
-  xCmdInput_Pipe,    /**< Default: inherit parent stdin (no PTY)   */
-  xCmdInput_Pty,     /**< Allocate a pseudo-terminal for the child */
+XDEF_ENUM(xCommandInputMode) {
+  xCommandInput_Pipe,    /**< Default: inherit parent stdin (no PTY)   */
+  xCommandInput_Pty,     /**< Allocate a pseudo-terminal for the child */
 };
 
 /* ───────────────────── Configuration ───────────────────── */
 
-XDEF_STRUCT(xCmdConf) {
+XDEF_STRUCT(xCommandConf) {
   const char *cmd;           /**< Program path (required, searched in $PATH) */
   const char **argv;         /**< Argument vector (NULL-terminated, may be NULL) */
   const char **envp;         /**< Environment (NULL = inherit parent) */
@@ -77,15 +77,15 @@ XDEF_STRUCT(xCmdConf) {
   size_t   stdout_cap;       /**< Max stdout bytes (0 = unlimited)    */
   size_t   stderr_cap;       /**< Max stderr bytes (0 = unlimited, ignored in PTY mode) */
 
-  xCmdOutputMode stdout_mode;
-  xCmdOutputMode stderr_mode; /**< Ignored in PTY mode (merged into stdout) */
+  xCommandOutputMode stdout_mode;
+  xCommandOutputMode stderr_mode; /**< Ignored in PTY mode (merged into stdout) */
 
-  xCmdInputMode input_mode;  /**< xCmdInput_Pipe (default) or xCmdInput_Pty */
+  xCommandInputMode input_mode;  /**< xCommandInput_Pipe (default) or xCommandInput_Pty */
 };
 
 /* ───────────────────── Result ───────────────────── */
 
-XDEF_STRUCT(xCmdResult) {
+XDEF_STRUCT(xCommandResult) {
   int      exit_code;        /**< Exit status (valid if signaled == 0) */
   int      signaled;         /**< Non-zero if killed by signal; holds signal# */
   int      timed_out;        /**< Non-zero if killed due to timeout    */
@@ -102,19 +102,19 @@ XDEF_STRUCT(xCmdResult) {
 
 /* ───────────────────── Handle ───────────────────── */
 
-XDEF_HANDLE(xCmd);
+XDEF_HANDLE(xCommand);
 
 /* ───────────────────── Callbacks ───────────────────── */
 
 /**
- * @brief Streaming output callback (only in xCmdOutput_Stream mode).
+ * @brief Streaming output callback (only in xCommandOutput_Stream mode).
  *
  * @param exec  The executor handle.
  * @param data  Pointer to the output chunk (not NUL-terminated).
  * @param len   Number of bytes in @p data.
  * @param ud    User-provided argument.
  */
-typedef void (*xCmdOutputFunc)(xCmd exec, const char *data, size_t len,
+typedef void (*xCommandOutputFunc)(xCommand exec, const char *data, size_t len,
                                void *ud);
 
 /**
@@ -124,7 +124,7 @@ typedef void (*xCmdOutputFunc)(xCmd exec, const char *data, size_t len,
  * @param result Pointer to the result (valid only inside this callback).
  * @param ud     User-provided argument.
  */
-typedef void (*xCmdDoneFunc)(xCmd exec, const xCmdResult *result, void *ud);
+typedef void (*xCommandDoneFunc)(xCommand exec, const xCommandResult *result, void *ud);
 
 /* ───────────────────── Lifecycle ───────────────────── */
 
@@ -136,7 +136,7 @@ typedef void (*xCmdDoneFunc)(xCmd exec, const xCmdResult *result, void *ud);
  * @param loop  Event loop (must not be NULL).
  * @return      A new executor, or NULL on failure.
  */
-XCAPI(xCmd) xCmdCreate(xEventLoop loop);
+XCAPI(xCommand) xCommandCreate(xEventLoop loop);
 
 /**
  * @brief Destroy a command executor.
@@ -146,7 +146,7 @@ XCAPI(xCmd) xCmdCreate(xEventLoop loop);
  *
  * @param exec  Executor handle (NULL is safe).
  */
-XCAPI(void) xCmdDestroy(xCmd exec);
+XCAPI(void) xCommandDestroy(xCommand exec);
 
 /* ───────────────────── Execution ───────────────────── */
 
@@ -169,9 +169,9 @@ XCAPI(void) xCmdDestroy(xCmd exec);
  * @param ud        User data forwarded to all callbacks.
  * @return          xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xCmdRun(xCmd exec, const xCmdConf *conf,
-                       xCmdOutputFunc on_stdout, xCmdOutputFunc on_stderr,
-                       xCmdDoneFunc on_done, void *ud);
+XCAPI(xErrno) xCommandRun(xCommand exec, const xCommandConf *conf,
+                       xCommandOutputFunc on_stdout, xCommandOutputFunc on_stderr,
+                       xCommandDoneFunc on_done, void *ud);
 
 /**
  * @brief Cancel a running command.
@@ -183,7 +183,7 @@ XCAPI(xErrno) xCmdRun(xCmd exec, const xCmdConf *conf,
  * @param exec  Executor handle (must not be NULL).
  * @return      xErrno_Ok on success, xErrno_InvalidState if not running.
  */
-XCAPI(xErrno) xCmdCancel(xCmd exec);
+XCAPI(xErrno) xCommandCancel(xCommand exec);
 
 /* ───────────────────── Query ───────────────────── */
 
@@ -193,7 +193,7 @@ XCAPI(xErrno) xCmdCancel(xCmd exec);
  * @param exec  Executor handle (NULL-safe).
  * @return      Child PID or -1.
  */
-XCAPI(int) xCmdPid(xCmd exec);
+XCAPI(int) xCommandPid(xCommand exec);
 
 /**
  * @brief Return whether a command is currently running.
@@ -201,7 +201,7 @@ XCAPI(int) xCmdPid(xCmd exec);
  * @param exec  Executor handle (NULL-safe).
  * @return      Non-zero if running.
  */
-XCAPI(int) xCmdIsRunning(xCmd exec);
+XCAPI(int) xCommandIsRunning(xCommand exec);
 
 /**
  * @brief Return the PTY master fd, or -1 if not in PTY mode or not running.
@@ -212,6 +212,6 @@ XCAPI(int) xCmdIsRunning(xCmd exec);
  * @param exec  Executor handle (NULL-safe).
  * @return      PTY master fd or -1.
  */
-XCAPI(int) xCmdPtyFd(xCmd exec);
+XCAPI(int) xCommandPtyFd(xCommand exec);
 
 #endif /* XBASE_CMD_H */

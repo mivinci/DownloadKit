@@ -1098,14 +1098,21 @@ int main(int argc, char *argv[]) {
      * iteration is safe. */
     xAiMessage m   = xAiMessageFromText(line);
     xErrno     err = xAiSessionInput(sess, m);
-    if (err == xErrno_Busy) {
+    while (err == xErrno_Busy) {
       /* Busy from SummarizeOldest is expected — the on_budget_event
        * callback already printed "[budget] compacting ...". Run the
        * event loop so the compact Query can complete; on_budget_event
        * will print "[budget] compact done" and then we auto-retry
        * the user's input. If Busy is from a regular Query still in
        * flight (shouldn't happen in this single-flight REPL), the
-       * loop returns immediately and we report it below. */
+       * loop returns immediately and we report it below.
+       *
+       * Loop (not single retry): after a compact that degraded to
+       * TruncateOldest, the session may still be over budget, and
+       * session_enforce_budget_ can launch another compact round.
+       * Each Busy return means "an async operation is in flight";
+       * we wait for it to finish and retry until the gate lets the
+       * message through or returns a non-Busy error. */
       xEventLoopRun(loop);
       /* Compact done — session is idle now, retry the input. */
       err = xAiSessionInput(sess, m);

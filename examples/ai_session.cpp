@@ -34,6 +34,7 @@
 #include <xai/session.h>
 #include <xai/tool.h>
 #include <xbase/event.h>
+#include <xbase/time.h>
 #include <xhttp/client.h>
 
 #include <cctype>
@@ -169,6 +170,7 @@ struct ReplCtx {
   size_t     budget_samples  = 0;     /* calibrator observation count */
   size_t     budget_estimated = 0;    /* calibrated pre-submit estimate */
   int        last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
+  uint64_t   input_ms        = 0;    /* monotonic timestamp (ms) at user input */
 };
 
 /* ── Tools ──────────────────────────────────────────────────────────
@@ -653,8 +655,10 @@ static void on_done(xAiSession sess, xAiDoneReason reason,
    * line after so the next `> ` prompt isn't glued to the status. */
   if (!after_thinking) std::putchar('\n');
   std::fputs("\x1b[2m", stdout);
-  std::printf("\n[done] reason=%s reply_bytes=%zu", done_reason_name(reason),
-              ctx->reply_bytes);
+  /* Compute elapsed time from user input to this done event. */
+  double elapse = (xMonoMs() - ctx->input_ms) / 1000.0;
+  std::printf("\n[done] reason=%s reply_bytes=%zu elapse=%.2fs",
+              done_reason_name(reason), ctx->reply_bytes, elapse);
   /* Token accounting. prompt_tokens is the maximum across all
    * rounds (each round reports the full input size the provider
    * saw, so the last round's value is the total). completion_tokens
@@ -1090,6 +1094,7 @@ int main(int argc, char *argv[]) {
     ctx.saw_first_delta = false;
     ctx.in_thinking     = false;
     ctx.reply_bytes     = 0;
+    ctx.input_ms        = xMonoMs();
 
     /* xAiMessageFromText creates a User-role borrow-view that points
      * at `line` via a thread-local content slot (see message.c).

@@ -192,8 +192,7 @@ detect_changed_modules() {
 
     unset 'changed_mods[__none__]'
     if [[ ${#changed_mods[@]} -eq 0 ]]; then
-        info "No module changes detected (only non-module files changed)"
-        printf '%s\n' "${ALL_MODULES[@]}"
+        info "No module changes detected (only non-module files changed), skipping tests"
         return
     fi
 

@@ -411,15 +411,6 @@ xErrno xCommandRun(xCommand exec_, const xCommandConf *conf,
   if (pid == 0) {
     /* ── Child process ── */
 
-    /* Reset AddressSanitizer state in the child after fork.
-     * See xCommandRunPty() for rationale. */
-#if defined(__SANITIZE_ADDRESS__) || (defined(__has_feature) && __has_feature(address_sanitizer))
-    {
-      extern void __asan_on_fork(void) __attribute__((weak));
-      if (__asan_on_fork) __asan_on_fork();
-    }
-#endif
-
     /* Create own process group for killpg() support */
     setpgid(0, 0);
 
@@ -593,20 +584,6 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
 
   if (pid == 0) {
     /* ── Child process ── */
-
-    /* Reset AddressSanitizer state in the child after forkpty.
-     * forkpty() internally calls fork() + login_tty(), which may leave
-     * ASAN's shadow memory in an inconsistent state inherited from the
-     * parent.  This can cause ASAN to detect false positives and
-     * terminate the child with its default exitcode (1) before exec()
-     * completes.  Calling __asan_on_fork() (if available) resets the
-     * ASAN runtime state in the child. */
-#if defined(__SANITIZE_ADDRESS__) || (defined(__has_feature) && __has_feature(address_sanitizer))
-    {
-      extern void __asan_on_fork(void) __attribute__((weak));
-      if (__asan_on_fork) __asan_on_fork();
-    }
-#endif
 
     /* Create own process group for killpg() support.
      * Note: forkpty already sets up the slave as controlling terminal,

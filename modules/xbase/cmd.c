@@ -11,7 +11,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -412,6 +411,15 @@ xErrno xCommandRun(xCommand exec_, const xCommandConf *conf,
   if (pid == 0) {
     /* ── Child process ── */
 
+    /* Reset AddressSanitizer state in the child after fork.
+     * See xCommandRunPty() for rationale. */
+#if defined(__SANITIZE_ADDRESS__) || (defined(__has_feature) && __has_feature(address_sanitizer))
+    {
+      extern void __asan_on_fork(void) __attribute__((weak));
+      if (__asan_on_fork) __asan_on_fork();
+    }
+#endif
+
     /* Create own process group for killpg() support */
     setpgid(0, 0);
 
@@ -586,6 +594,20 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
   if (pid == 0) {
     /* ── Child process ── */
 
+    /* Reset AddressSanitizer state in the child after forkpty.
+     * forkpty() internally calls fork() + login_tty(), which may leave
+     * ASAN's shadow memory in an inconsistent state inherited from the
+     * parent.  This can cause ASAN to detect false positives and
+     * terminate the child with its default exitcode (1) before exec()
+     * completes.  Calling __asan_on_fork() (if available) resets the
+     * ASAN runtime state in the child. */
+#if defined(__SANITIZE_ADDRESS__) || (defined(__has_feature) && __has_feature(address_sanitizer))
+    {
+      extern void __asan_on_fork(void) __attribute__((weak));
+      if (__asan_on_fork) __asan_on_fork();
+    }
+#endif
+
     /* Create own process group for killpg() support.
      * Note: forkpty already sets up the slave as controlling terminal,
      * but we still want our own process group for clean killpg(). */
@@ -624,8 +646,6 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
   {
     int   status;
     pid_t ret = waitpid(pid, &status, WNOHANG);
-    fprintf(stderr, "[DEBUG PTY probe] pid=%d ret=%d status=0x%x WIFEXITED=%d WEXITSTATUS=%d WIFSIGNALED=%d WTERMSIG=%d\n",
-            pid, ret, status, WIFEXITED(status), WEXITSTATUS(status), WIFSIGNALED(status), WTERMSIG(status));
     if (ret == pid) {
       exec->child_exited = 1;
       if (WIFEXITED(status)) {
@@ -880,8 +900,6 @@ static void sigchld_handler(int signo, void *arg) {
     if (exec->child_pid > 0 && !exec->child_exited) {
       int   status;
       pid_t ret = waitpid(exec->child_pid, &status, WNOHANG);
-      fprintf(stderr, "[DEBUG SIGCHLD] pid=%d ret=%d status=0x%x WIFEXITED=%d WEXITSTATUS=%d WIFSIGNALED=%d errno=%d\n",
-              exec->child_pid, ret, status, WIFEXITED(status), WEXITSTATUS(status), WIFSIGNALED(status), errno);
       if (ret == exec->child_pid) {
         exec->child_exited = 1;
         if (WIFEXITED(status)) {
@@ -893,8 +911,6 @@ static void sigchld_handler(int signo, void *arg) {
       } else if (ret < 0 && errno == ECHILD) {
         /* Child was auto-reaped by kernel (SIG_IGN).  We cannot know
          * the exit status, so assume success unless already set. */
-        fprintf(stderr, "[DEBUG SIGCHLD ECHILD] pid=%d exit_code already=%d, setting child_exited=1\n",
-                exec->child_pid, exec->result.exit_code);
         exec->child_exited = 1;
         cmd_check_completion(exec);
       }

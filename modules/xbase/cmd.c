@@ -619,6 +619,24 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
     goto fail_sigchld;
   }
 
+  /* In PTY mode, we always mark stderr as EOF since it's merged */
+  exec->stderr_eof = 1;
+
+  /* Watch master fd for output (unless discarded).
+   * IMPORTANT: Register the event source BEFORE the waitpid probe below.
+   * In edge-triggered epoll mode, if the child exits before we register,
+   * the readable event on the master fd (EIO from slave close) is lost
+   * and on_pty_readable will never fire, leaving stdout_eof = 0 forever. */
+  if (conf->stdout_mode != xCommandOutput_Discard) {
+    exec->stdout_src = xEventAdd(exec->loop, master_fd,
+                                  xEvent_Read, on_pty_readable, exec);
+    if (!exec->stdout_src) goto fail_sigchld;
+  } else {
+    /* Discard mode: don't watch master fd, but keep it open so the child
+     * doesn't get SIGPIPE when writing to a closed PTY. */
+    exec->stdout_eof = 1;
+  }
+
   /* Probe: the child may have already exited */
   {
     int   status;
@@ -630,23 +648,49 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
       } else if (WIFSIGNALED(status)) {
         exec->result.signaled = WTERMSIG(status);
       }
+      /* If stdout is not discarded and we haven't read any output yet,
+       * do a non-blocking read now.  For fast-exiting children (e.g.
+       * /bin/echo), the PTY slave may have already closed before the
+       * event source was registered, so the edge-triggered epoll won't
+       * fire.  Drain the pending data here to avoid hanging. */
+      if (conf->stdout_mode != xCommandOutput_Discard && !exec->stdout_eof) {
+        char buf[CMD_READ_BUF_SIZE];
+        for (;;) {
+          ssize_t n = read(master_fd, buf, sizeof(buf));
+          if (n > 0) {
+            if (exec->stdout_mode == xCommandOutput_Capture) {
+              cmdbuf_append(exec->stdout_buf, buf, (size_t)n);
+            } else if (exec->stdout_mode == xCommandOutput_Stream && exec->on_stdout) {
+              exec->on_stdout((xCommand)exec, buf, (size_t)n, exec->ud);
+            }
+          } else if (n == 0) {
+            /* EOF */
+            xEventDel(exec->loop, exec->stdout_src);
+            exec->stdout_src = NULL;
+            exec->stdout_eof = 1;
+            break;
+          } else {
+            if (errno == EIO) {
+              /* Slave closed — treat as EOF for PTY */
+              xEventDel(exec->loop, exec->stdout_src);
+              exec->stdout_src = NULL;
+              exec->stdout_eof = 1;
+              break;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+              /* No more data for now; the event source will notify later */
+              break;
+            }
+            /* Other error — treat as EOF */
+            xEventDel(exec->loop, exec->stdout_src);
+            exec->stdout_src = NULL;
+            exec->stdout_eof = 1;
+            break;
+          }
+        }
+      }
+      cmd_check_completion(exec);
     }
-  }
-
-  /* In PTY mode, we always mark stderr as EOF since it's merged */
-  exec->stderr_eof = 1;
-
-  /* Watch master fd for output (unless discarded) */
-  if (conf->stdout_mode != xCommandOutput_Discard) {
-    exec->stdout_src = xEventAdd(exec->loop, master_fd,
-                                  xEvent_Read, on_pty_readable, exec);
-    if (!exec->stdout_src) goto fail_sigchld;
-  } else {
-    /* Discard mode: close master fd immediately since we don't read it.
-     * Actually, we should keep it open so the child doesn't get SIGPIPE
-     * when writing to a closed PTY. Instead, just mark it as EOF for
-     * our tracking but don't close the fd. */
-    exec->stdout_eof = 1;
   }
 
   /* Start timeout timer */

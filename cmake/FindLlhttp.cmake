@@ -61,26 +61,16 @@ else()
   message(STATUS "FindLlhttp: System llhttp not found, fetching from source")
 
   include(FetchContent)
-  xk_github_url(nodejs/llhttp v9.2.1 _llhttp_url)
+  # Use the "release/" tag which contains pre-generated C sources
+  # (the regular "v9.2.1" tag lacks generated files like src/llhttp.c).
+  xk_github_url(nodejs/llhttp release/v9.2.1 _llhttp_url)
   FetchContent_Declare(
     llhttp
     URL ${_llhttp_url}
   )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
   set(BUILD_STATIC_LIBS ON  CACHE BOOL "" FORCE)
-
-  # llhttp source archives contain an unpatched placeholder
-  #   project(llhttp VERSION _RELEASE_)
-  # which CMake rejects.  Patch it after download but before build.
-  FetchContent_GetProperties(llhttp)
-  if(NOT llhttp_POPULATED)
-    FetchContent_Populate(llhttp)
-    file(READ "${llhttp_SOURCE_DIR}/CMakeLists.txt" _llhttp_cmakelist)
-    string(REPLACE "VERSION _RELEASE_" "VERSION 9.2.1"
-           _llhttp_cmakelist "${_llhttp_cmakelist}")
-    file(WRITE "${llhttp_SOURCE_DIR}/CMakeLists.txt" "${_llhttp_cmakelist}")
-  endif()
-  add_subdirectory("${llhttp_SOURCE_DIR}" "${llhttp_BINARY_DIR}")
+  FetchContent_MakeAvailable(llhttp)
 
   # Suppress warnings-as-errors inherited from parent project
   # and enable PIC for linking into shared libraries

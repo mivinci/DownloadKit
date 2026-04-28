@@ -40,7 +40,6 @@ DETECT_ONLY=0
 ASAN=0
 BASE_SHA=""
 APT_MIRROR="${APT_MIRROR:-mirrors.tuna.tsinghua.edu.cn}"
-FETCHCONTENT_VOLUME="xkit-fetchcontent"
 
 # ── Parse args ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -292,7 +291,7 @@ build_image() {
         -f "$SCRIPT_DIR/Dockerfile.test" \
         --build-arg "BASE_IMAGE=$BASE_IMAGE" \
         --build-arg "APT_MIRROR=$APT_MIRROR" \
-        "$SCRIPT_DIR"
+        "$PROJECT_DIR"
     echo "==> ✅ Image built: $TEST_IMAGE"
     echo ""
 }
@@ -302,12 +301,6 @@ if [[ "$REBUILD_IMAGE" -eq 1 ]]; then
 elif ! container image ls 2>/dev/null | grep -q "$TEST_IMAGE"; then
     echo "==> Test image not found, building..."
     build_image
-fi
-
-# Ensure FetchContent cache volume exists
-if ! container volume ls 2>/dev/null | grep -q "$FETCHCONTENT_VOLUME"; then
-    echo "==> Creating FetchContent cache volume: $FETCHCONTENT_VOLUME"
-    container volume create "$FETCHCONTENT_VOLUME"
 fi
 
 BUILD_DIR="build-linux-${TLS_BACKEND}"
@@ -331,7 +324,6 @@ echo ""
 
 container run --rm -m "$MEMORY" \
     -v "$PROJECT_DIR":/work \
-    -v "$FETCHCONTENT_VOLUME":/fetchcontent-cache \
     -w /work \
     "$TEST_IMAGE" \
     bash -c "

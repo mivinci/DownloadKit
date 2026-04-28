@@ -17,4 +17,20 @@ RUN apt-get update -qq && \
       > /dev/null 2>&1 && \
     rm -rf /var/lib/apt/lists/*
 
+# Pre-fetch FetchContent dependencies during image build so containers
+# never need to download them at runtime.  All FetchContent deps are
+# identical regardless of TLS backend, so a single cmake configure suffices.
+ARG TLS_BACKEND=openssl
+COPY cmake /tmp/xkit-prefetch/cmake
+COPY CMakeLists.txt /tmp/xkit-prefetch/
+COPY modules /tmp/xkit-prefetch/modules
+COPY bench /tmp/xkit-prefetch/bench
+RUN cd /tmp/xkit-prefetch && \
+    cmake -S . -B /tmp/xkit-build \
+      -DCMAKE_BUILD_TYPE=Debug \
+      -DXK_TLS_BACKEND=openssl \
+      -DBUILD_TESTING=ON \
+      -DFETCHCONTENT_BASE_DIR=/fetchcontent-cache && \
+    rm -rf /tmp/xkit-prefetch /tmp/xkit-build
+
 WORKDIR /work

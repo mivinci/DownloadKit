@@ -21,9 +21,7 @@ struct TestCtx {
   xCommandResult  result;
   int         done;
   int         stdout_chunks;
-  int         stderr_chunks;
   size_t      total_stdout;
-  size_t      total_stderr;
 };
 
 static void on_done(xCommand, const xCommandResult *result, void *ud) {
@@ -37,12 +35,6 @@ static void on_stdout_stream(xCommand, const char *, size_t len, void *ud) {
   struct TestCtx *ctx = (struct TestCtx *)ud;
   ctx->stdout_chunks++;
   ctx->total_stdout += len;
-}
-
-static void on_stderr_stream(xCommand, const char *, size_t len, void *ud) {
-  struct TestCtx *ctx = (struct TestCtx *)ud;
-  ctx->stderr_chunks++;
-  ctx->total_stderr += len;
 }
 
 /* Run the event loop until on_done fires (with a safety timeout). */

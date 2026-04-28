@@ -61,11 +61,10 @@ else()
   message(STATUS "FindNghttp2: System nghttp2 not found, fetching from source")
 
   include(FetchContent)
+  xk_github_url(nghttp2/nghttp2 v1.64.0 _nghttp2_url)
   FetchContent_Declare(
     nghttp2
-    GIT_REPOSITORY https://github.com/nghttp2/nghttp2.git
-    GIT_TAG        v1.64.0
-    GIT_SHALLOW    TRUE
+    URL ${_nghttp2_url}
   )
   set(ENABLE_LIB_ONLY    ON  CACHE BOOL "" FORCE)
   set(ENABLE_STATIC_LIB  ON  CACHE BOOL "" FORCE)

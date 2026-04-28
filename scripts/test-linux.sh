@@ -39,7 +39,8 @@ CI_MODE=0
 DETECT_ONLY=0
 ASAN=0
 BASE_SHA=""
-APT_MIRROR="${APT_MIRROR:-mirrors.tuna.tsinghua.edu.cn}"
+APT_MIRROR="${APT_MIRROR:-}"
+GITHUB_MIRROR="${GITHUB_MIRROR:-}"
 
 # ── Parse args ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -243,7 +244,7 @@ if [[ "$CI_MODE" -eq 1 ]]; then
         CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DXK_ENABLE_ASAN=ON"
     fi
 
-    cmake -S . -B "$BUILD_DIR" \
+    GITHUB_MIRROR="${GITHUB_MIRROR}" cmake -S . -B "$BUILD_DIR" \
         -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
         -DBUILD_TESTING=ON \
         $CMAKE_EXTRA_ARGS
@@ -291,6 +292,7 @@ build_image() {
         -f "$SCRIPT_DIR/Dockerfile.test" \
         --build-arg "BASE_IMAGE=$BASE_IMAGE" \
         --build-arg "APT_MIRROR=$APT_MIRROR" \
+        --build-arg "GITHUB_MIRROR=$GITHUB_MIRROR" \
         "$PROJECT_DIR"
     echo "==> ✅ Image built: $TEST_IMAGE"
     echo ""
@@ -325,10 +327,12 @@ echo ""
 container run --rm -m "$MEMORY" \
     -v "$PROJECT_DIR":/work \
     -w /work \
+    -e GITHUB_MIRROR="${GITHUB_MIRROR}" \
     "$TEST_IMAGE" \
     bash -c "
         set -euo pipefail && \
         export XKIT_SKIP_NETWORK_TESTS=1 && \
+        container-setup.sh && \
         BUILD_DIR=$BUILD_DIR && \
         if [ ! -d \$BUILD_DIR ]; then \
             mkdir -p \$BUILD_DIR && cd \$BUILD_DIR && \

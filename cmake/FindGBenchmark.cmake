@@ -135,11 +135,10 @@ else()
   message(STATUS "FindGBenchmark: System Google Benchmark not found, fetching from source")
 
   include(FetchContent)
+  xk_github_url(google/benchmark v1.9.1 _benchmark_url)
   FetchContent_Declare(
     googlebenchmark
-    GIT_REPOSITORY https://github.com/google/benchmark.git
-    GIT_TAG        v1.9.1
-    GIT_SHALLOW    TRUE
+    URL ${_benchmark_url}
   )
   set(BENCHMARK_ENABLE_TESTING  OFF CACHE BOOL "" FORCE)
   set(BENCHMARK_ENABLE_INSTALL  OFF CACHE BOOL "" FORCE)

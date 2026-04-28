@@ -61,11 +61,10 @@ else()
   message(STATUS "FindLibuv: System libuv not found, fetching from source")
 
   include(FetchContent)
+  xk_github_url(libuv/libuv v1.50.0 _libuv_url)
   FetchContent_Declare(
     libuv
-    GIT_REPOSITORY https://github.com/libuv/libuv.git
-    GIT_TAG        v1.50.0
-    GIT_SHALLOW    TRUE
+    URL ${_libuv_url}
   )
   set(LIBUV_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   set(LIBUV_BUILD_BENCH OFF CACHE BOOL "" FORCE)

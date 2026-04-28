@@ -614,9 +614,11 @@ TEST(Command, PtyNonZeroExitCode) {
   struct TestCtx ctx = {};
   ctx.loop = loop;
 
+  // Try /bin/bash first since /bin/sh (dash) may behave differently in PTY
+  const char *shell = access("/bin/bash", X_OK) == 0 ? "/bin/bash" : "/bin/sh";
   const char *argv[] = {"-c", "exit 42", nullptr};
   xCommandConf conf = {};
-  conf.cmd          = "/bin/sh";
+  conf.cmd          = shell;
   conf.argv         = argv;
   conf.stdout_mode  = xCommandOutput_Discard;
   conf.stderr_mode  = xCommandOutput_Discard;
@@ -629,8 +631,8 @@ TEST(Command, PtyNonZeroExitCode) {
 
   EXPECT_EQ(ctx.done, 1);
   // Debug: print full result to diagnose CI flaky test (exit_code=1 instead of 42)
-  fprintf(stderr, "[DEBUG PtyNonZeroExitCode] exit_code=%d, signaled=%d, timed_out=%d, elapsed_ms=%lu\n",
-          ctx.result.exit_code, ctx.result.signaled, ctx.result.timed_out,
+  fprintf(stderr, "[DEBUG PtyNonZeroExitCode] shell=%s exit_code=%d, signaled=%d, timed_out=%d, elapsed_ms=%lu\n",
+          shell, ctx.result.exit_code, ctx.result.signaled, ctx.result.timed_out,
           (unsigned long)ctx.result.elapsed_ms);
   EXPECT_EQ(ctx.result.exit_code, 42);
 

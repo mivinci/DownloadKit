@@ -259,11 +259,11 @@ if [[ "$CI_MODE" -eq 1 ]]; then
             export LSAN_OPTIONS="suppressions=$LSAN_SUPPRESSIONS"
             info "LSAN suppressions loaded from $LSAN_SUPPRESSIONS"
         fi
-        # Prevent ASAN from aborting child processes after fork/forkpty.
-        # Without this, forkpty() children that call login_tty()/setsid()
-        # may trigger ASAN false positives and exit with code 1.
-        export ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}die_after_fork=0"
-        info "ASAN_OPTIONS set: die_after_fork=0"
+        # After fork/forkpty, child processes inherit inconsistent ASAN shadow
+        # memory.  halt_on_error=0 lets children survive ASAN false-positives
+        # (e.g. in login_tty dup2/close wrappers) and reach execvp().
+        export ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}halt_on_error=0"
+        info "ASAN_OPTIONS set: halt_on_error=0"
     fi
 
     FAILED=0

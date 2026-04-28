@@ -68,7 +68,19 @@ else()
   )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
   set(BUILD_STATIC_LIBS ON  CACHE BOOL "" FORCE)
-  FetchContent_MakeAvailable(llhttp)
+
+  # llhttp source archives contain an unpatched placeholder
+  #   project(llhttp VERSION _RELEASE_)
+  # which CMake rejects.  Patch it after download but before build.
+  FetchContent_GetProperties(llhttp)
+  if(NOT llhttp_POPULATED)
+    FetchContent_Populate(llhttp)
+    file(READ "${llhttp_SOURCE_DIR}/CMakeLists.txt" _llhttp_cmakelist)
+    string(REPLACE "VERSION _RELEASE_" "VERSION 9.2.1"
+           _llhttp_cmakelist "${_llhttp_cmakelist}")
+    file(WRITE "${llhttp_SOURCE_DIR}/CMakeLists.txt" "${_llhttp_cmakelist}")
+  endif()
+  add_subdirectory("${llhttp_SOURCE_DIR}" "${llhttp_BINARY_DIR}")
 
   # Suppress warnings-as-errors inherited from parent project
   # and enable PIC for linking into shared libraries

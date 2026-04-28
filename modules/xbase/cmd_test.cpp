@@ -628,6 +628,10 @@ TEST(Command, PtyNonZeroExitCode) {
   run_until_done(loop, &ctx);
 
   EXPECT_EQ(ctx.done, 1);
+  // Debug: print full result to diagnose CI flaky test (exit_code=1 instead of 42)
+  fprintf(stderr, "[DEBUG PtyNonZeroExitCode] exit_code=%d, signaled=%d, timed_out=%d, elapsed_ms=%lu\n",
+          ctx.result.exit_code, ctx.result.signaled, ctx.result.timed_out,
+          (unsigned long)ctx.result.elapsed_ms);
   EXPECT_EQ(ctx.result.exit_code, 42);
 
   xCommandDestroy(exec);

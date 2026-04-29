@@ -214,7 +214,9 @@ TEST(Str, FindNeedleLongerThanHaystack) {
 TEST(Str, FindNull) {
   EXPECT_EQ(xStrFind(NULL, "x", 1), XSTR_NONE);
   EXPECT_EQ(xStrFindStr(NULL, "x"), XSTR_NONE);
-  EXPECT_EQ(xStrFindStr(xStrCreate("hi"), NULL), XSTR_NONE);
+  xStr s = xStrCreate("hi");
+  EXPECT_EQ(xStrFindStr(s, NULL), XSTR_NONE);
+  xStrDestroy(s);
 }
 
 TEST(Str, FindLongPattern) {

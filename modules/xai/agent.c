@@ -294,9 +294,9 @@ static void gen_session_id_(char *buf, uint64_t seq) {
 xAiAgent xAiAgentCreate(const xAiAgentConf *conf) {
   if (!conf || !conf->loop || !conf->provider) return NULL;
 
-  /* n_tools > 0 implies a non-NULL tools array. Catch this early so
+  /* tools_count > 0 implies a non-NULL tools array. Catch this early so
    * session.c never has to guard against it. */
-  if (conf->n_tools > 0 && !conf->tools) return NULL;
+  if (conf->tools_count > 0 && !conf->tools) return NULL;
 
   struct xAiAgent_ *a = (struct xAiAgent_ *)calloc(1, sizeof(*a));
   if (!a) return NULL;
@@ -306,7 +306,7 @@ xAiAgent xAiAgentCreate(const xAiAgentConf *conf) {
   a->model         = conf->model;
   a->system_prompt = conf->system_prompt;
   a->tools         = conf->tools;
-  a->n_tools       = conf->n_tools;
+  a->tools_count   = conf->tools_count;
   a->task_group    = conf->task_group;
   a->max_turns     = conf->max_turns;
   a->max_tokens    = conf->max_tokens;

@@ -603,7 +603,7 @@ static xErrno submit_round(struct xAiQuery_ *q) {
   pc.messages              = v.msgs;
   pc.n_messages            = v.n_msgs;
   pc.tools                 = q->tools;
-  pc.n_tools               = q->n_tools;
+  pc.tools_count           = q->tools_count;
   pc.temperature           = -1;
   pc.max_tokens            = q->max_tokens;
   pc.stop                  = NULL;
@@ -634,10 +634,10 @@ static xErrno submit_round(struct xAiQuery_ *q) {
  * Do NOT short-circuit with a C-style cast: we burned that before
  * (04-23 provider_openai.c bug), the compiler can't catch it and the
  * lookup reads a bogus address. */
-static xAiTool find_tool(const xAiTool **tools, size_t n_tools,
+static xAiTool find_tool(const xAiTool **tools, size_t tools_count,
                         const char *name) {
   if (!name) return NULL;
-  for (size_t i = 0; i < n_tools; i++) {
+  for (size_t i = 0; i < tools_count; i++) {
     if (!tools[i]) continue;
     xAiTool     t = *tools[i];
     const char *n = ai_tool_name(t);
@@ -662,7 +662,7 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
       q->cbs.on_tool((xAiQuery)q, p->name, /*started=*/1, q->cbs.user_data);
     }
 
-    xAiTool     t        = find_tool(q->tools, q->n_tools, p->name);
+    xAiTool     t        = find_tool(q->tools, q->tools_count, p->name);
     xAiContent  out      = {0};
     int         is_error = 0;
     const char *out_text;
@@ -998,7 +998,7 @@ xAiQuery xAiQueryCreate(const xAiQueryConf *conf) {
   /* Self-contained runtime configuration — no Session back-hack. */
   q->provider   = conf->provider;
   q->tools      = conf->tools;
-  q->n_tools    = conf->n_tools;
+  q->tools_count = conf->tools_count;
   q->model      = conf->model;
   q->max_tokens = conf->max_tokens;
   q->max_turns  = conf->max_turns;

@@ -776,7 +776,7 @@ class ToolLoopFixture : public SessionTest {
     ac.max_turns      = 5;
     ac.max_tokens     = 1024;
     ac.tools          = kTools;
-    ac.n_tools        = 2;
+    ac.tools_count    = 2;
     agent_            = xAiAgentCreate(&ac);
     ASSERT_NE(agent_, nullptr);
   }
@@ -1057,7 +1057,7 @@ TEST_F(ToolLoopFixture, DefaultMaxTurnsAppliesWhenUnset) {
   ac.model          = "fake-model";
   ac.system_prompt  = "sp";
   ac.tools          = kTools;
-  ac.n_tools        = 1;
+  ac.tools_count    = 1;
   agent_            = xAiAgentCreate(&ac);
 
   Captured cap;

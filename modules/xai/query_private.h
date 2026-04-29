@@ -87,7 +87,7 @@ struct xAiQuery_ {
    * it is never dereferenced for configuration. */
   xAiProvider        provider;   /* borrowed, never NULL for a functional Query */
   const xAiTool    **tools;      /* borrowed array, may be NULL               */
-  size_t             n_tools;    /* number of entries in tools                */
+  size_t             tools_count; /* number of entries in tools                */
   const char        *model;      /* borrowed, may be NULL                     */
   int                max_tokens; /* per-round cap, 0 = provider default       */
   int                max_turns;  /* tool-loop cap, 0 = library default        */

@@ -10,7 +10,7 @@
  * the struct. These tests cover:
  *
  *   - argument validation on Create (NULL conf / loop / provider /
- *     n_tools>0 with NULL tools),
+ *     tools_count>0 with NULL tools),
  *   - field-by-field capture into struct xAiAgent_ (reached through
  *     agent_private.h, same pattern as provider_test.cpp),
  *   - Destroy tolerates NULL and does not touch the borrowed
@@ -96,13 +96,13 @@ TEST_F(AgentTest, CreateRejectsMissingProvider) {
 }
 
 TEST_F(AgentTest, CreateRejectsNonZeroToolsWithNullArray) {
-  /* n_tools > 0 with tools == NULL is a caller bug; catch it at the
+  /* tools_count > 0 with tools == NULL is a caller bug; catch it at the
    * door so session.c never has to guard. */
   xAiAgentConf conf = {};
   conf.loop     = loop;
   conf.provider = pvd;
   conf.tools    = nullptr;
-  conf.n_tools  = 3;
+  conf.tools_count = 3;
   EXPECT_EQ(xAiAgentCreate(&conf), nullptr);
 }
 
@@ -122,7 +122,7 @@ TEST_F(AgentTest, CreateWithMinimalConfSucceedsAndZerosOptionals) {
   EXPECT_EQ(a->model,          nullptr);
   EXPECT_EQ(a->system_prompt,  nullptr);
   EXPECT_EQ(a->tools,          nullptr);
-  EXPECT_EQ(a->n_tools,        0u);
+  EXPECT_EQ(a->tools_count,    0u);
   EXPECT_EQ(a->task_group,     nullptr);
   EXPECT_EQ(a->max_turns,      0);
   EXPECT_EQ(a->max_tokens,     0);
@@ -134,7 +134,7 @@ TEST_F(AgentTest, CreateWithMinimalConfSucceedsAndZerosOptionals) {
 
 TEST_F(AgentTest, CreateCapturesEveryField) {
   /* One real tool is enough to pin the "tools array is borrowed and
-   * n_tools mirrors the count" contract. */
+   * tools_count mirrors the count" contract. */
   xAiToolConf tconf = {};
   tconf.name        = "noop";
   tconf.description = "does nothing";
@@ -150,7 +150,7 @@ TEST_F(AgentTest, CreateCapturesEveryField) {
   conf.model          = "kimi-k2.6";
   conf.system_prompt  = "be concise";
   conf.tools          = tools;
-  conf.n_tools        = 1;
+  conf.tools_count    = 1;
   conf.task_group     = nullptr;   /* can't cheaply construct one here */
   conf.max_turns      = 7;
   conf.max_tokens     = 512;
@@ -166,7 +166,7 @@ TEST_F(AgentTest, CreateCapturesEveryField) {
   EXPECT_EQ(a->model,         conf.model);
   EXPECT_EQ(a->system_prompt, conf.system_prompt);
   EXPECT_EQ(a->tools,         tools);
-  EXPECT_EQ(a->n_tools,       1u);
+  EXPECT_EQ(a->tools_count,   1u);
 
   /* Scalars round-trip. */
   EXPECT_EQ(a->max_turns,      7);

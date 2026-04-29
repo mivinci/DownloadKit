@@ -112,7 +112,7 @@ XDEF_STRUCT(xAiAgentConf) {
   /**
    * @brief Number of entries in the @ref tools array.
    */
-  size_t n_tools;
+  size_t tools_count;
 
   /**
    * @brief Worker pool for concurrent-safe tool handlers.

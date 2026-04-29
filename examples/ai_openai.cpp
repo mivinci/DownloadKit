@@ -303,7 +303,7 @@ int main() {
     sconf.messages    = history.data();
     sconf.n_messages  = history.size();
     sconf.tools       = tools;
-    sconf.n_tools     = sizeof(tools) / sizeof(tools[0]);
+    sconf.tools_count = sizeof(tools) / sizeof(tools[0]);
     sconf.temperature = -1.0; /* "not set" */
 
     ctx.stream_done     = false;

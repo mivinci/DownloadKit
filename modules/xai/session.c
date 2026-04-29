@@ -562,7 +562,7 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
     qc.cbs.user_data          = s;
     qc.provider               = a->provider;
     qc.tools                  = (const xAiTool **)a->tools;
-    qc.n_tools                = a->n_tools;
+    qc.tools_count            = a->tools_count;
     qc.model                  = s->model;
     qc.max_tokens             = s->max_tokens;
     qc.session                = (xAiSession)s;
@@ -1193,7 +1193,7 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   qc.cbs.user_data = s;
   qc.provider      = a->provider;
   qc.tools         = (const xAiTool **)a->tools;
-  qc.n_tools       = a->n_tools;
+  qc.tools_count   = a->tools_count;
   qc.model         = s->model;
   qc.max_tokens    = s->max_tokens;
   qc.max_turns     = s->max_turns;

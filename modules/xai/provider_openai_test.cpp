@@ -640,7 +640,7 @@ TEST_F(OpenAIProviderTest, RequestBodyEncodesTools) {
   conf.messages    = &user_m;
   conf.n_messages  = 1;
   conf.tools       = tools;
-  conf.n_tools     = sizeof(tools) / sizeof(tools[0]);
+  conf.tools_count = sizeof(tools) / sizeof(tools[0]);
   conf.temperature = -1.0;
 
   xAiProviderStreamCallbacks cbs = {};

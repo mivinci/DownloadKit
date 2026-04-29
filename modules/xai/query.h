@@ -216,10 +216,10 @@ XDEF_STRUCT(xAiQueryConf) {
    * @brief Tool definitions advertised to the model.
    *
    * Borrowed array of tool handles; individual entries may be NULL.
-   * May be NULL / n_tools == 0 when no tools are configured.
+   * May be NULL / tools_count == 0 when no tools are configured.
    */
   const xAiTool **tools;
-  size_t          n_tools;
+  size_t          tools_count;
 
   /**
    * @brief Model identifier sent to the provider.

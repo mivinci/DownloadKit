@@ -78,7 +78,7 @@ struct xAiAgent_ {
    * Number of entries in the @ref tools array. Zero when no tools
    * are configured.
    */
-  size_t n_tools;
+  size_t tools_count;
 
   /**
    * Optional worker pool used to execute tool handlers that are

@@ -170,6 +170,7 @@ The self-pipe approach avoids `signalfd`'s requirement to block signals in all t
 | `xEventLoopDestroy` | `void xEventLoopDestroy(xEventLoop loop)` | Not thread-safe |
 | `xEventLoopRun` | `void xEventLoopRun(xEventLoop loop)` | Not thread-safe (call from one thread) |
 | `xEventLoopStop` | `void xEventLoopStop(xEventLoop loop)` | **Thread-safe** |
+| `xEventLoopWait` | `xErrno xEventLoopWait(xEventLoop loop, int timeout_ms)` | Not thread-safe (call from one thread) |
 
 #### I/O Sources
 
@@ -259,9 +260,37 @@ int main(void) {
     // Monitor stdin for readability
     xEventAdd(loop, STDIN_FILENO, xEvent_Read, on_readable, NULL);
 
-    // Run for up to 10 seconds
+    // Run for up to 10 seconds, then stop
     xEventLoopTimerAfter(loop, (xEventTimerFunc)xEventLoopStop, loop, 10000);
     xEventLoopRun(loop);
+
+    xEventLoopDestroy(loop);
+    return 0;
+}
+```
+
+### Bounded Wait with Timeout
+
+```c
+#include <stdio.h>
+#include <xbase/event.h>
+
+static void on_done(void *arg) {
+    printf("Work complete!\n");
+    xEventLoopStop((xEventLoop)arg);
+}
+
+int main(void) {
+    xEventLoop loop = xEventLoopCreate();
+
+    xEventLoopTimerAfter(loop, on_done, loop, 500);
+
+    // Wait up to 5 seconds — returns xErrno_Ok if stopped,
+    // or xErrno_Timeout if the deadline expires.
+    xErrno rc = xEventLoopWait(loop, 5000);
+    if (rc == xErrno_Timeout) {
+        printf("Timed out!\n");
+    }
 
     xEventLoopDestroy(loop);
     return 0;
@@ -352,7 +381,7 @@ int main(void) {
 - **Always drain fds in edge-triggered mode.** Read/write until `EAGAIN` in every callback. Missing data means you won't be notified again until new data arrives.
 - **Never block in callbacks.** The event loop is single-threaded; a blocking call stalls all I/O and timer processing. Offload heavy work via `xEventLoopSubmit()`.
 - **Prefer `xEventLoopPost()` over `xEventLoopSubmit()` when no worker thread is needed.** If you just need to run a callback on the loop thread from another thread, `xEventLoopPost()` avoids the thread-pool overhead entirely.
-- **Use `xEventLoopRun()` for the main loop.** It handles timer dispatch and stop-flag checking automatically. Only use `xEventWait()` directly if you need custom loop logic.
+- **Use `xEventLoopRun()` for the main loop.** It handles timer dispatch and stop-flag checking automatically. Only use `xEventWait()` directly if you need custom loop logic. For tests or scenarios where you need a bounded wait, use `xEventLoopWait(loop, timeout_ms)` — it returns `xErrno_Ok` when stopped, or `xErrno_Timeout` if the deadline expires.
 - **Cancel offloaded work when releasing resources.** If you submit work via `xEventLoopSubmit()` and the associated resource (passed as `arg`) is about to be freed, use `xEventLoopWorkCancel()` to prevent use-after-free. If cancel succeeds (`xErrno_Ok`), the arg is safe to free immediately. If it fails (`xErrno_InvalidState`), the work is already running — let `done_fn` handle cleanup.
 - **Cancel timers you no longer need.** Uncancelled timers hold memory until they fire. Use `xEventLoopTimerCancel()` to free them early.
 - **Be aware of the poll backend's edge emulation.** On systems without kqueue or epoll, the poll backend clears the event mask after dispatch. You must call `xEventMod()` to re-arm.

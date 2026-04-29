@@ -15,6 +15,7 @@
     - [Generic Map](modules/xbase/map.md)
     - [Doubly-Linked List](modules/xbase/list.md)
     - [Dynamic Array](modules/xbase/array.md)
+    - [Dynamic String](modules/xbase/str.md)
     - [MPSC Queue](modules/xbase/mpsc.md)
     - [Atomic Operations](modules/xbase/atomic.md)
     - [Logging](modules/xbase/log.md)

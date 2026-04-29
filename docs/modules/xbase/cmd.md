@@ -14,13 +14,13 @@
 
 4. **PTY Support** — An optional pseudo-terminal mode (`xCommandInput_Pty`) allocates a PTY for the child, merging stdout and stderr into a single stream. This is essential for programs that behave differently when connected to a terminal (e.g., colored output, interactive prompts).
 
-5. **Graceful Cancellation** — `xCommandCancel()` sends `SIGTERM` first, then escalates to `SIGKILL` after a grace period. This gives well-behaved processes a chance to clean up.
+5. **Graceful Cancellation** — `xCommandExecutorCancel()` sends `SIGTERM` first, then escalates to `SIGKILL` after a grace period. This gives well-behaved processes a chance to clean up.
 
 ## Architecture
 
 ```mermaid
 graph TD
-    APP["Application"] -->|"xCommandRun()"| EXEC["xCommand<br/>(Executor)"]
+    APP["Application"] -->|"xCommandExecutorSubmit()"| EXEC["xCommandExecutor<br/>(Executor)"]
     EXEC -->|"fork() + execvp()"| CHILD["Child Process"]
 
     subgraph "Event Loop"
@@ -70,7 +70,7 @@ graph TD
 
 ```mermaid
 flowchart TD
-    RUN["xCommandRun()"]
+    SUBMIT["xCommandExecutorSubmit()"]
     FORK["fork() + execvp()"]
     SETPGID["setpgid() → own process group"]
     RUNNING["Command running"]
@@ -78,12 +78,12 @@ flowchart TD
     CHECK_EXIT{"Normal exit?"}
     DONE["on_done(result)"]
     TIMEOUT{"Timeout expired?"}
-    CANCEL{"xCommandCancel()?"}
+    CANCEL{"xCommandExecutorCancel()?"}
     SIGTERM["killpg(SIGTERM)"]
     GRACE{"Grace period (5s)"}
     SIGKILL["killpg(SIGKILL)"]
 
-    RUN --> FORK
+    SUBMIT --> FORK
     FORK --> SETPGID
     SETPGID --> RUNNING
     RUNNING --> CHECK_SIGCHLD
@@ -100,14 +100,14 @@ flowchart TD
     GRACE -->|"still alive"| SIGKILL
     SIGKILL --> DONE
 
-    style RUN fill:#4a90d9,color:#fff
+    style SUBMIT fill:#4a90d9,color:#fff
     style DONE fill:#50b86c,color:#fff
     style SIGKILL fill:#e74c3c,color:#fff
 ```
 
 ### Sequential Execution
 
-An `xCommand` executor can only run one command at a time. Calling `xCommandRun()` while a command is running returns `xErrno_Busy`. After `on_done` fires, the executor can be reused for a new command — there is no need to destroy and recreate it.
+An `xCommandExecutor` can only run one command at a time. Calling `xCommandExecutorSubmit()` while a command is running returns `xErrno_Busy`. After `on_done` fires, the executor can be reused for a new command — there is no need to destroy and recreate it.
 
 ## API Reference
 
@@ -119,9 +119,9 @@ An `xCommand` executor can only run one command at a time. Calling `xCommandRun(
 | `xCommandInputMode` | Enum: `xCommandInput_Pipe` (default), `xCommandInput_Pty` |
 | `xCommandConf` | Configuration struct for a command invocation |
 | `xCommandResult` | Result struct populated on command completion |
-| `xCommand` | Opaque handle to a command executor |
-| `xCommandOutputFunc` | `void (*)(xCommand, const char *data, size_t len, void *ud)` — streaming output callback |
-| `xCommandDoneFunc` | `void (*)(xCommand, const xCommandResult *result, void *ud)` — completion callback |
+| `xCommandExecutor` | Opaque handle to a command executor |
+| `xCommandExecutorOutputFunc` | `void (*)(xCommandExecutor, const char *data, size_t len, void *ud)` — streaming output callback |
+| `xCommandExecutorDoneFunc` | `void (*)(xCommandExecutor, const xCommandResult *result, void *ud)` — completion callback |
 
 ### xCommandConf Fields
 
@@ -156,13 +156,13 @@ An `xCommand` executor can only run one command at a time. Calling `xCommandRun(
 
 | Function | Signature | Description | Thread Safety |
 | --- | --- | --- | --- |
-| `xCommandCreate` | `xCommand xCommandCreate(xEventLoop loop)` | Create a command executor bound to the given event loop. Registers a SIGCHLD watch. | Not thread-safe |
-| `xCommandDestroy` | `void xCommandDestroy(xCommand exec)` | Destroy an executor. If running, kills the child process group (SIGKILL) and waits. NULL-safe. | Not thread-safe |
-| `xCommandRun` | `xErrno xCommandRun(xCommand exec, const xCommandConf *conf, xCommandOutputFunc on_stdout, xCommandOutputFunc on_stderr, xCommandDoneFunc on_done, void *ud)` | Run a command asynchronously. Returns `xErrno_Busy` if already running. | Not thread-safe (call from event loop thread) |
-| `xCommandCancel` | `xErrno xCommandCancel(xCommand exec)` | Cancel a running command (SIGTERM → SIGKILL after 5s). Returns `xErrno_InvalidState` if not running. | Not thread-safe |
-| `xCommandPid` | `int xCommandPid(xCommand exec)` | Return the PID of the running child, or -1 if idle. NULL-safe. | Thread-safe (atomic) |
-| `xCommandIsRunning` | `int xCommandIsRunning(xCommand exec)` | Return non-zero if a command is currently running. NULL-safe. | Thread-safe (atomic) |
-| `xCommandPtyFd` | `int xCommandPtyFd(xCommand exec)` | Return the PTY master fd, or -1 if not in PTY mode or not running. NULL-safe. | Thread-safe |
+| `xCommandExecutorCreate` | `xCommandExecutor xCommandExecutorCreate(xEventLoop loop)` | Create a command executor bound to the given event loop. Registers a SIGCHLD watch. | Not thread-safe |
+| `xCommandExecutorDestroy` | `void xCommandExecutorDestroy(xCommandExecutor exec)` | Destroy an executor. If running, kills the child process group (SIGKILL) and waits. NULL-safe. | Not thread-safe |
+| `xCommandExecutorSubmit` | `xErrno xCommandExecutorSubmit(xCommandExecutor exec, const xCommandConf *conf, xCommandExecutorOutputFunc on_stdout, xCommandExecutorOutputFunc on_stderr, xCommandExecutorDoneFunc on_done, void *ud)` | Submit a command for asynchronous execution. Returns `xErrno_Busy` if already running. | Not thread-safe (call from event loop thread) |
+| `xCommandExecutorCancel` | `xErrno xCommandExecutorCancel(xCommandExecutor exec)` | Cancel a running command (SIGTERM → SIGKILL after 5s). Returns `xErrno_InvalidState` if not running. | Not thread-safe |
+| `xCommandExecutorPid` | `int xCommandExecutorPid(xCommandExecutor exec)` | Return the PID of the running child, or -1 if idle. NULL-safe. | Thread-safe (atomic) |
+| `xCommandExecutorIsRunning` | `int xCommandExecutorIsRunning(xCommandExecutor exec)` | Return non-zero if a command is currently running. NULL-safe. | Thread-safe (atomic) |
+| `xCommandExecutorPtyFd` | `int xCommandExecutorPtyFd(xCommandExecutor exec)` | Return the PTY master fd, or -1 if not in PTY mode or not running. NULL-safe. | Thread-safe |
 
 ## Usage Examples
 
@@ -173,7 +173,7 @@ An `xCommand` executor can only run one command at a time. Calling `xCommandRun(
 #include <xbase/cmd.h>
 #include <xbase/event.h>
 
-static void on_done(xCommand exec, const xCommandResult *result, void *ud) {
+static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
     xEventLoop loop = (xEventLoop)ud;
     if (result->exit_code == 0) {
         printf("Output: %.*s\n", (int)result->stdout_len, result->stdout_buf);
@@ -183,7 +183,7 @@ static void on_done(xCommand exec, const xCommandResult *result, void *ud) {
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xCommand exec = xCommandCreate(loop);
+    xCommandExecutor exec = xCommandExecutorCreate(loop);
 
     const char *argv[] = {"hello", "world", NULL};
     xCommandConf conf = {};
@@ -192,10 +192,10 @@ int main(void) {
     conf.stdout_mode  = xCommandOutput_Capture;
     conf.stderr_mode  = xCommandOutput_Discard;
 
-    xCommandRun(exec, &conf, NULL, NULL, on_done, loop);
+    xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, loop);
     xEventLoopRun(loop);
 
-    xCommandDestroy(exec);
+    xCommandExecutorDestroy(exec);
     xEventLoopDestroy(loop);
     return 0;
 }
@@ -208,18 +208,18 @@ int main(void) {
 #include <xbase/cmd.h>
 #include <xbase/event.h>
 
-static void on_stdout(xCommand exec, const char *data, size_t len, void *ud) {
+static void on_stdout(xCommandExecutor exec, const char *data, size_t len, void *ud) {
     fwrite(data, 1, len, stdout);
 }
 
-static void on_done(xCommand exec, const xCommandResult *result, void *ud) {
+static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
     xEventLoop loop = (xEventLoop)ud;
     xEventLoopStop(loop);
 }
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xCommand exec = xCommandCreate(loop);
+    xCommandExecutor exec = xCommandExecutorCreate(loop);
 
     const char *argv[] = {"-c", "for i in 1 2 3; do echo line $i; done", NULL};
     xCommandConf conf = {};
@@ -228,10 +228,10 @@ int main(void) {
     conf.stdout_mode  = xCommandOutput_Stream;
     conf.stderr_mode  = xCommandOutput_Discard;
 
-    xCommandRun(exec, &conf, on_stdout, NULL, on_done, loop);
+    xCommandExecutorSubmit(exec, &conf, on_stdout, NULL, on_done, loop);
     xEventLoopRun(loop);
 
-    xCommandDestroy(exec);
+    xCommandExecutorDestroy(exec);
     xEventLoopDestroy(loop);
     return 0;
 }
@@ -244,7 +244,7 @@ int main(void) {
 #include <xbase/cmd.h>
 #include <xbase/event.h>
 
-static void on_done(xCommand exec, const xCommandResult *result, void *ud) {
+static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
     xEventLoop loop = (xEventLoop)ud;
     if (result->timed_out) {
         printf("Command timed out after %llu ms\n",
@@ -255,7 +255,7 @@ static void on_done(xCommand exec, const xCommandResult *result, void *ud) {
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xCommand exec = xCommandCreate(loop);
+    xCommandExecutor exec = xCommandExecutorCreate(loop);
 
     const char *argv[] = {"60", NULL};
     xCommandConf conf = {};
@@ -265,10 +265,10 @@ int main(void) {
     conf.stdout_mode  = xCommandOutput_Discard;
     conf.stderr_mode  = xCommandOutput_Discard;
 
-    xCommandRun(exec, &conf, NULL, NULL, on_done, loop);
+    xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, loop);
     xEventLoopRun(loop);
 
-    xCommandDestroy(exec);
+    xCommandExecutorDestroy(exec);
     xEventLoopDestroy(loop);
     return 0;
 }
@@ -283,7 +283,7 @@ int main(void) {
 #include <xbase/cmd.h>
 #include <xbase/event.h>
 
-static void on_done(xCommand exec, const xCommandResult *result, void *ud) {
+static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
     xEventLoop loop = (xEventLoop)ud;
     if (result->stdout_buf) {
         printf("Output: %.*s\n", (int)result->stdout_len, result->stdout_buf);
@@ -291,14 +291,14 @@ static void on_done(xCommand exec, const xCommandResult *result, void *ud) {
     xEventLoopStop(loop);
 }
 
-static void on_stdout(xCommand exec, const char *data, size_t len, void *ud) {
+static void on_stdout(xCommandExecutor exec, const char *data, size_t len, void *ud) {
     fwrite(data, 1, len, stdout);
     fflush(stdout);
 }
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xCommand exec = xCommandCreate(loop);
+    xCommandExecutor exec = xCommandExecutorCreate(loop);
 
     const char *argv[] = {NULL};
     xCommandConf conf = {};
@@ -308,17 +308,17 @@ int main(void) {
     conf.stderr_mode  = xCommandOutput_Discard;
     conf.input_mode   = xCommandInput_Pty;
 
-    xCommandRun(exec, &conf, on_stdout, NULL, on_done, loop);
+    xCommandExecutorSubmit(exec, &conf, on_stdout, NULL, on_done, loop);
 
     /* Write to the child's stdin via the PTY master fd */
-    int pty_fd = xCommandPtyFd(exec);
+    int pty_fd = xCommandExecutorPtyFd(exec);
     if (pty_fd >= 0) {
         write(pty_fd, "hello\n", 6);
     }
 
     xEventLoopRun(loop);
 
-    xCommandDestroy(exec);
+    xCommandExecutorDestroy(exec);
     xEventLoopDestroy(loop);
     return 0;
 }
@@ -331,7 +331,7 @@ int main(void) {
 #include <xbase/cmd.h>
 #include <xbase/event.h>
 
-static void on_done(xCommand exec, const xCommandResult *result, void *ud) {
+static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
     xEventLoop loop = (xEventLoop)ud;
     printf("Exit code: %d\n", result->exit_code);
     if (result->stdout_buf) {
@@ -342,7 +342,7 @@ static void on_done(xCommand exec, const xCommandResult *result, void *ud) {
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
-    xCommand exec = xCommandCreate(loop);
+    xCommandExecutor exec = xCommandExecutorCreate(loop);
 
     const char *envp[] = {"MY_VAR=42", NULL};
     xCommandConf conf = {};
@@ -352,10 +352,10 @@ int main(void) {
     conf.stdout_mode  = xCommandOutput_Capture;
     conf.stderr_mode  = xCommandOutput_Discard;
 
-    xCommandRun(exec, &conf, NULL, NULL, on_done, loop);
+    xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, loop);
     xEventLoopRun(loop);
 
-    xCommandDestroy(exec);
+    xCommandExecutorDestroy(exec);
     xEventLoopDestroy(loop);
     return 0;
 }
@@ -377,7 +377,7 @@ int main(void) {
 
 - **Always set `on_done`.** The completion callback is the only way to know when a command finishes. It fires even on timeout or cancellation, so you can always clean up in one place.
 
-- **Reuse executors for sequential commands.** After `on_done` fires, the same `xCommand` can be used for the next command. There is no need to destroy and recreate it.
+- **Reuse executors for sequential commands.** After `on_done` fires, the same `xCommandExecutor` can be used for the next command. There is no need to destroy and recreate it.
 
 - **Use `stdout_cap` / `stderr_cap` to limit memory.** Unbounded capture can exhaust memory if a command produces large output. Set a cap to prevent this.
 
@@ -385,7 +385,7 @@ int main(void) {
 
 - **Be aware of PTY line editing.** In PTY mode, the child's terminal driver may echo input and insert `\r` before `\n`. Strip `\r` if you need clean output.
 
-- **Don't call `xCommandRun()` from the `on_done` callback.** Although the executor is idle at that point, calling `xCommandRun()` inside `on_done` will start a new command immediately while the event loop is still processing I/O events from the previous one. Instead, use `xEventLoopPost()` to defer the next run.
+- **Don't call `xCommandExecutorSubmit()` from the `on_done` callback.** Although the executor is idle at that point, calling `xCommandExecutorSubmit()` inside `on_done` will start a new command immediately while the event loop is still processing I/O events from the previous one. Instead, use `xEventLoopPost()` to defer the next run.
 
 ## Comparison with Other Libraries
 
@@ -396,7 +396,7 @@ int main(void) {
 | **Streaming** | Yes (callbacks) | Line-by-line only | Manual | Yes (callbacks) |
 | **PTY Support** | Yes (`xCommandInput_Pty`) | No | No | No (external) |
 | **Timeout** | Built-in (`timeout_ms`) | Manual | Manual | Manual (`uv_timer`) |
-| **Cancellation** | `xCommandCancel()` (SIGTERM→SIGKILL) | `kill()` + `pclose()` | `kill()` + `waitpid()` | `uv_process_kill()` |
+| **Cancellation** | `xCommandExecutorCancel()` (SIGTERM→SIGKILL) | `kill()` + `pclose()` | `kill()` + `waitpid()` | `uv_process_kill()` |
 | **Process Groups** | Yes (independent via `setpgid`) | No | No | No (manual) |
 | **Platform** | macOS + Linux | POSIX | POSIX | Cross-platform |
 

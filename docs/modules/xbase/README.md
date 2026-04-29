@@ -132,7 +132,7 @@ graph TD
 | Perform atomic read-modify-write | [`atomic.h`](atomic.md) — macro wrappers over compiler builtins |
 | Get current time in milliseconds | `time.h` — `xMonoMs()` for elapsed time, `xWallMs()` for wall-clock |
 | Read/write through abstract I/O interfaces | [`io.h`](io.md) — `xReader` / `xWriter` + helpers like `xReadFull`, `xReadAll` |
-| Run a shell command asynchronously | [`cmd.h`](cmd.md) — `xCommandRun()` with capture, stream, or discard output modes |
+| Submit a shell command asynchronously | [`cmd.h`](cmd.md) — `xCommandExecutorSubmit()` with capture, stream, or discard output modes |
 
 ## Quick Start
 

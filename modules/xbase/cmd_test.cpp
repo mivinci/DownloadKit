@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * cmd_test.cpp - Tests for xCommand async command executor
+ * cmd_test.cpp - Tests for xCommandExecutor async command executor
  */
 
 #include <gtest/gtest.h>
@@ -23,26 +23,17 @@ struct TestCtx {
   size_t      total_stdout;
 };
 
-static void on_done(xCommand, const xCommandResult *result, void *ud) {
+static void on_done(xCommandExecutor, const xCommandResult *result, void *ud) {
   struct TestCtx *ctx = (struct TestCtx *)ud;
   ctx->result = *result;
   ctx->done   = 1;
   xEventLoopStop(ctx->loop);
 }
 
-static void on_stdout_stream(xCommand, const char *, size_t len, void *ud) {
+static void on_stdout_stream(xCommandExecutor, const char *, size_t len, void *ud) {
   struct TestCtx *ctx = (struct TestCtx *)ud;
   ctx->stdout_chunks++;
   ctx->total_stdout += len;
-}
-
-/* Run the event loop until on_done fires (with a safety timeout). */
-static void run_until_done(xEventLoop loop, struct TestCtx *ctx,
-                           int timeout_ms = 10000) {
-  uint64_t deadline = xMonoMs() + (uint64_t)timeout_ms;
-  while (!ctx->done && (int64_t)(deadline - xMonoMs()) > 0) {
-    xEventWait(loop, 100);
-  }
 }
 
 /* ───────────────────── Capture mode ───────────────────── */
@@ -50,7 +41,7 @@ static void run_until_done(xEventLoop loop, struct TestCtx *ctx,
 TEST(Command, CaptureStdout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -63,10 +54,10 @@ TEST(Command, CaptureStdout) {
   conf.stdout_mode  = xCommandOutput_Capture;
   conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 0);
@@ -79,14 +70,14 @@ TEST(Command, CaptureStdout) {
   EXPECT_EQ(ctx.result.stderr_buf, nullptr);
   EXPECT_GT(ctx.result.elapsed_ms, 0u);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 TEST(Command, CaptureBothStdoutStderr) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -99,24 +90,24 @@ TEST(Command, CaptureBothStdoutStderr) {
   conf.stdout_mode  = xCommandOutput_Capture;
   conf.stderr_mode  = xCommandOutput_Capture;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 0);
   EXPECT_STREQ(ctx.result.stdout_buf, "out\n");
   EXPECT_STREQ(ctx.result.stderr_buf, "err\n");
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 TEST(Command, NonZeroExitCode) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -129,22 +120,22 @@ TEST(Command, NonZeroExitCode) {
   conf.stdout_mode  = xCommandOutput_Discard;
   conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 42);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 TEST(Command, CommandNotFound) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -155,15 +146,15 @@ TEST(Command, CommandNotFound) {
   conf.stdout_mode  = xCommandOutput_Discard;
   conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 127);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
@@ -172,7 +163,7 @@ TEST(Command, CommandNotFound) {
 TEST(Command, StreamStdout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -185,10 +176,10 @@ TEST(Command, StreamStdout) {
   conf.stdout_mode  = xCommandOutput_Stream;
   conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCommandRun(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 0);
@@ -197,7 +188,7 @@ TEST(Command, StreamStdout) {
   EXPECT_EQ(ctx.result.stdout_buf, nullptr);
   EXPECT_EQ(ctx.result.stdout_len, 0u);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
@@ -206,7 +197,7 @@ TEST(Command, StreamStdout) {
 TEST(Command, DiscardAll) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -219,17 +210,17 @@ TEST(Command, DiscardAll) {
   conf.stdout_mode  = xCommandOutput_Discard;
   conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 0);
   EXPECT_EQ(ctx.result.stdout_buf, nullptr);
   EXPECT_EQ(ctx.result.stderr_buf, nullptr);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
@@ -238,7 +229,7 @@ TEST(Command, DiscardAll) {
 TEST(Command, Timeout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -253,10 +244,10 @@ TEST(Command, Timeout) {
   conf.stderr_mode  = xCommandOutput_Discard;
 
   uint64_t start = xMonoMs();
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx, 10000);
+  xEventLoopWait(loop, 10000);
   uint64_t elapsed = xMonoMs() - start;
 
   EXPECT_EQ(ctx.done, 1);
@@ -264,7 +255,7 @@ TEST(Command, Timeout) {
   EXPECT_LT(elapsed, 5000u);
   EXPECT_GE(elapsed, 150u);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
@@ -273,7 +264,7 @@ TEST(Command, Timeout) {
 TEST(Command, Cancel) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -286,19 +277,19 @@ TEST(Command, Cancel) {
   conf.stdout_mode  = xCommandOutput_Discard;
   conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Cancel immediately */
-  err = xCommandCancel(exec);
+  err = xCommandExecutorCancel(exec);
   EXPECT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx, 10000);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.timed_out, 1);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
@@ -307,12 +298,12 @@ TEST(Command, Cancel) {
 TEST(Command, QueryWhileRunning) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   /* Before running */
-  EXPECT_EQ(xCommandPid(exec), -1);
-  EXPECT_EQ(xCommandIsRunning(exec), 0);
+  EXPECT_EQ(xCommandExecutorPid(exec), -1);
+  EXPECT_EQ(xCommandExecutorIsRunning(exec), 0);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
@@ -324,18 +315,18 @@ TEST(Command, QueryWhileRunning) {
   conf.stdout_mode  = xCommandOutput_Discard;
   conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* While running */
-  EXPECT_GT(xCommandPid(exec), 0);
-  EXPECT_EQ(xCommandIsRunning(exec), 1);
+  EXPECT_GT(xCommandExecutorPid(exec), 0);
+  EXPECT_EQ(xCommandExecutorIsRunning(exec), 1);
 
-  run_until_done(loop, &ctx, 5000);
+  xEventLoopWait(loop, 5000);
 
   EXPECT_EQ(ctx.done, 1);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
@@ -344,7 +335,7 @@ TEST(Command, QueryWhileRunning) {
 TEST(Command, RunWhileBusy) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -357,17 +348,17 @@ TEST(Command, RunWhileBusy) {
   conf.stdout_mode  = xCommandOutput_Discard;
   conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Trying to run again while busy should fail */
-  err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   EXPECT_EQ(err, xErrno_Busy);
 
-  run_until_done(loop, &ctx, 5000);
+  xEventLoopWait(loop, 5000);
   EXPECT_EQ(ctx.done, 1);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
@@ -376,7 +367,7 @@ TEST(Command, RunWhileBusy) {
 TEST(Command, WorkingDirectory) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -388,10 +379,10 @@ TEST(Command, WorkingDirectory) {
   conf.stdout_mode  = xCommandOutput_Capture;
   conf.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 0);
@@ -400,7 +391,7 @@ TEST(Command, WorkingDirectory) {
   EXPECT_TRUE(strcmp(ctx.result.stdout_buf, "/tmp\n") == 0 ||
               strcmp(ctx.result.stdout_buf, "/private/tmp\n") == 0);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
@@ -409,7 +400,7 @@ TEST(Command, WorkingDirectory) {
 TEST(Command, SequentialRuns) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   /* Run 1 */
@@ -423,9 +414,9 @@ TEST(Command, SequentialRuns) {
   conf1.stdout_mode  = xCommandOutput_Capture;
   conf1.stderr_mode  = xCommandOutput_Discard;
 
-  xErrno err = xCommandRun(exec, &conf1, NULL, NULL, on_done, &ctx1);
+  xErrno err = xCommandExecutorSubmit(exec, &conf1, NULL, NULL, on_done, &ctx1);
   ASSERT_EQ(err, xErrno_Ok);
-  run_until_done(loop, &ctx1);
+  xEventLoopWait(loop, 10000);
   EXPECT_STREQ(ctx1.result.stdout_buf, "first\n");
 
   /* Run 2 — reuse the same executor */
@@ -439,25 +430,25 @@ TEST(Command, SequentialRuns) {
   conf2.stdout_mode  = xCommandOutput_Capture;
   conf2.stderr_mode  = xCommandOutput_Discard;
 
-  err = xCommandRun(exec, &conf2, NULL, NULL, on_done, &ctx2);
+  err = xCommandExecutorSubmit(exec, &conf2, NULL, NULL, on_done, &ctx2);
   ASSERT_EQ(err, xErrno_Ok);
-  run_until_done(loop, &ctx2);
+  xEventLoopWait(loop, 10000);
   EXPECT_STREQ(ctx2.result.stdout_buf, "second\n");
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 /* ───────────────────── Null safety ───────────────────── */
 
 TEST(Command, NullArgs) {
-  EXPECT_EQ(xCommandCreate(NULL), nullptr);
-  xCommandDestroy(NULL); /* should not crash */
-  EXPECT_EQ(xCommandRun(NULL, NULL, NULL, NULL, NULL, NULL), xErrno_InvalidArg);
-  EXPECT_EQ(xCommandCancel(NULL), xErrno_InvalidArg);
-  EXPECT_EQ(xCommandPid(NULL), -1);
-  EXPECT_EQ(xCommandIsRunning(NULL), 0);
-  EXPECT_EQ(xCommandPtyFd(NULL), -1);
+  EXPECT_EQ(xCommandExecutorCreate(NULL), nullptr);
+  xCommandExecutorDestroy(NULL); /* should not crash */
+  EXPECT_EQ(xCommandExecutorSubmit(NULL, NULL, NULL, NULL, NULL, NULL), xErrno_InvalidArg);
+  EXPECT_EQ(xCommandExecutorCancel(NULL), xErrno_InvalidArg);
+  EXPECT_EQ(xCommandExecutorPid(NULL), -1);
+  EXPECT_EQ(xCommandExecutorIsRunning(NULL), 0);
+  EXPECT_EQ(xCommandExecutorPtyFd(NULL), -1);
 }
 
 /* ───────────────────── PTY mode ───────────────────── */
@@ -465,7 +456,7 @@ TEST(Command, NullArgs) {
 TEST(Command, PtyCaptureStdout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -479,10 +470,10 @@ TEST(Command, PtyCaptureStdout) {
   conf.stderr_mode  = xCommandOutput_Discard; /* ignored in PTY mode */
   conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 0);
@@ -494,14 +485,14 @@ TEST(Command, PtyCaptureStdout) {
   /* PTY fd should be -1 after completion */
   EXPECT_EQ(ctx.result.pty_fd, -1);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 TEST(Command, PtyStreamStdout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -515,10 +506,10 @@ TEST(Command, PtyStreamStdout) {
   conf.stderr_mode  = xCommandOutput_Discard; /* ignored in PTY mode */
   conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCommandRun(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 0);
@@ -528,7 +519,7 @@ TEST(Command, PtyStreamStdout) {
   EXPECT_EQ(ctx.result.stdout_buf, nullptr);
   EXPECT_EQ(ctx.result.stdout_len, 0u);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
@@ -536,7 +527,7 @@ TEST(Command, PtyMergesStderr) {
   /* In PTY mode, stderr is merged into stdout through the PTY */
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -550,10 +541,10 @@ TEST(Command, PtyMergesStderr) {
   conf.stderr_mode  = xCommandOutput_Capture; /* ignored in PTY mode */
   conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 0);
@@ -565,18 +556,18 @@ TEST(Command, PtyMergesStderr) {
   EXPECT_EQ(ctx.result.stderr_buf, nullptr);
   EXPECT_EQ(ctx.result.stderr_len, 0u);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 TEST(Command, PtyFdQuery) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   /* Before running — should return -1 */
-  EXPECT_EQ(xCommandPtyFd(exec), -1);
+  EXPECT_EQ(xCommandExecutorPtyFd(exec), -1);
 
   struct TestCtx ctx = {};
   ctx.loop = loop;
@@ -589,25 +580,25 @@ TEST(Command, PtyFdQuery) {
   conf.stderr_mode  = xCommandOutput_Discard;
   conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* While running — should return a valid fd */
-  int pty_fd = xCommandPtyFd(exec);
+  int pty_fd = xCommandExecutorPtyFd(exec);
   EXPECT_GE(pty_fd, 0);
 
-  run_until_done(loop, &ctx, 5000);
+  xEventLoopWait(loop, 5000);
 
   EXPECT_EQ(ctx.done, 1);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 TEST(Command, PtyNonZeroExitCode) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -621,22 +612,22 @@ TEST(Command, PtyNonZeroExitCode) {
   conf.stderr_mode  = xCommandOutput_Discard;
   conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 42);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 TEST(Command, PtyTimeout) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -652,10 +643,10 @@ TEST(Command, PtyTimeout) {
   conf.input_mode   = xCommandInput_Pty;
 
   uint64_t start = xMonoMs();
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx, 10000);
+  xEventLoopWait(loop, 10000);
   uint64_t elapsed = xMonoMs() - start;
 
   EXPECT_EQ(ctx.done, 1);
@@ -663,14 +654,14 @@ TEST(Command, PtyTimeout) {
   EXPECT_LT(elapsed, 5000u);
   EXPECT_GE(elapsed, 150u);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
 TEST(Command, PtyCancel) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -684,19 +675,19 @@ TEST(Command, PtyCancel) {
   conf.stderr_mode  = xCommandOutput_Discard;
   conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Cancel immediately */
-  err = xCommandCancel(exec);
+  err = xCommandExecutorCancel(exec);
   EXPECT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx, 10000);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.timed_out, 1);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
 
@@ -704,7 +695,7 @@ TEST(Command, PtyDiscardMode) {
   /* PTY with Discard mode: child gets a terminal but we don't read output */
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  xCommand exec = xCommandCreate(loop);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
   ASSERT_NE(exec, nullptr);
 
   struct TestCtx ctx = {};
@@ -718,16 +709,16 @@ TEST(Command, PtyDiscardMode) {
   conf.stderr_mode  = xCommandOutput_Discard;
   conf.input_mode   = xCommandInput_Pty;
 
-  xErrno err = xCommandRun(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
-  run_until_done(loop, &ctx);
+  xEventLoopWait(loop, 10000);
 
   EXPECT_EQ(ctx.done, 1);
   EXPECT_EQ(ctx.result.exit_code, 0);
   EXPECT_EQ(ctx.result.stdout_buf, nullptr);
   EXPECT_EQ(ctx.result.stderr_buf, nullptr);
 
-  xCommandDestroy(exec);
+  xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }

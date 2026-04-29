@@ -82,7 +82,11 @@ XDEF_STRUCT(xHttpRequestConf) {
   const char  *body;         /**< Request body, or NULL                      */
   size_t       body_len;     /**< Length of body in bytes                    */
   const char **headers;      /**< NULL-terminated array of "Key: Value"      */
-  long         timeout_ms;   /**< Per-request timeout in ms (0 = no limit)   */
+  long         timeout_ms;   /**< Per-request timeout in ms (0 = no limit).
+                                  For regular HTTP: total transfer timeout.
+                                  For SSE: connection-phase timeout only;
+                                  stalled streams are detected via
+                                  low-speed-time instead.                  */
   xHttpVersion http_version; /**< HTTP version (0 = use client default)      */
 };
 

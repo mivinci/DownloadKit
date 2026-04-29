@@ -1,0 +1,90 @@
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * tool_shell.h - Shell execution tool for the xai agent core
+ *
+ * Provides a "shell" tool that lets the LLM execute arbitrary
+ * commands via /bin/sh -c. Internally backed by xCommandExecutor;
+ * the handler blocks the event loop with xEventLoopWait() until the
+ * command finishes (Plan A — synchronous handler).
+ *
+ * The tool is NOT concurrent_safe (it holds the event loop while the
+ * command runs) and is marked needs_confirm (the model should not
+ * execute arbitrary commands without user approval).
+ */
+
+#ifndef XAI_TOOL_SHELL_H
+#define XAI_TOOL_SHELL_H
+
+#include <stddef.h>
+#include <stdint.h>
+#include <xai/tool.h>
+#include <xbase/base.h>
+#include <xbase/error.h>
+#include <xbase/event.h>
+
+/**
+ * @brief Called before the shell tool executes a command.
+ *
+ * Intended for UI affordances (e.g. echoing the command being run).
+ * May be NULL (no notification).
+ *
+ * @param command  The shell command string (via /bin/sh -c).
+ * @param cwd      Working directory (may be NULL = inherit).
+ * @param ud       The callback_ud pointer from xAiShellConf.
+ */
+typedef void (*xAiShellOnCommandFunc)(const char *command, const char *cwd,
+                                      void *ud);
+
+/**
+ * @brief Called after the shell command finishes.
+ *
+ * Intended for UI affordances (e.g. showing result length).
+ * May be NULL (no notification).
+ *
+ * @param exit_code    Process exit code (-1 if timed out).
+ * @param stdout_len   Number of bytes captured on stdout.
+ * @param stderr_len   Number of bytes captured on stderr.
+ * @param timed_out    Non-zero if the command exceeded its timeout.
+ * @param ud           The callback_ud pointer from xAiShellConf.
+ */
+typedef void (*xAiShellOnResultFunc)(int exit_code, size_t stdout_len,
+                                     size_t stderr_len, int timed_out,
+                                     void *ud);
+
+/**
+ * @brief Configuration for xAiToolCreateShell().
+ *
+ * Zero-initialise for defaults.
+ */
+XDEF_STRUCT(xAiShellConf) {
+  uint64_t timeout_ms; /**< Timeout in ms (0 = 30000)                 */
+  size_t   stdout_cap; /**< Max stdout bytes to capture (0 = 65536)   */
+  size_t   stderr_cap; /**< Max stderr bytes to capture (0 = 65536)   */
+
+  xAiShellOnCommandFunc on_command;  /**< Optional: called before exec    */
+  xAiShellOnResultFunc  on_result;   /**< Optional: called after exec     */
+  void                 *callback_ud; /**< Forwarded to on_command/on_result */
+};
+
+/**
+ * @brief Create a "shell" tool bound to the given event loop.
+ *
+ * The tool uses xCommandExecutor internally. Each invocation:
+ *   1. Parses the "command" (required), "cwd" (optional), and
+ *      "timeout_ms" (optional) arguments from the tool_use JSON.
+ *   2. Spawns /bin/sh -c "<command>" via xCommandExecutorSubmit().
+ *   3. Blocks the event loop with xEventLoopWait() until the command
+ *      exits or times out.
+ *   4. Returns a JSON tool_result with exit_code, stdout, stderr,
+ *      timed_out, and elapsed_ms.
+ *
+ * @param loop  Event loop (must not be NULL).
+ * @param conf  Optional configuration (NULL for defaults).
+ * @return      A new xAiTool handle, or NULL on failure.
+ */
+XCAPI(xAiTool) xAiToolCreateShell(xEventLoop loop, const xAiShellConf *conf);
+
+#endif /* XAI_TOOL_SHELL_H */

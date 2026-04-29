@@ -166,7 +166,7 @@ XCAPI(xStr) xStrShrinkToFit(xStr s);
  * @return Byte index of first match, or XSTR_NONE if not found.
  */
 XCAPI(size_t) xStrFind(const xStr haystack, const char *needle,
-                        size_t needle_len);
+                       size_t needle_len);
 
 /**
  * @brief Find first occurrence of a C string in @p haystack.

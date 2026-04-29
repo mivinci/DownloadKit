@@ -33,6 +33,7 @@
 #include <xai/provider_openai.h>
 #include <xai/session.h>
 #include <xai/tool.h>
+#include <xai/tool_shell.h>
 #include <xbase/event.h>
 #include <xbase/time.h>
 #include <xhttp/client.h>
@@ -159,18 +160,18 @@ static bool json_find_int(const char *src, const char *key, long *out) {
 
 /* ── REPL state ─────────────────────────────────────────────────────── */
 struct ReplCtx {
-  xEventLoop loop            = nullptr;
-  bool       saw_first_delta = false;
-  bool       in_thinking     = false; /* currently streaming thinking? */
-  size_t     reply_bytes     = 0;
-  int        total_tokens    = 0;     /* cumulative across all rounds */
-  size_t     budget_limit    = 0;     /* from last GatePassed event */
-  size_t     budget_remaining = 0;    /* from last GatePassed event */
-  double     budget_factor   = 1.0;   /* EWMA calibrator factor */
-  size_t     budget_samples  = 0;     /* calibrator observation count */
-  size_t     budget_estimated = 0;    /* calibrated pre-submit estimate */
-  int        last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
-  uint64_t   input_ms        = 0;    /* monotonic timestamp (ms) at user input */
+  xEventLoop loop             = nullptr;
+  bool       saw_first_delta  = false;
+  bool       in_thinking      = false; /* currently streaming thinking? */
+  size_t     reply_bytes      = 0;
+  int        total_tokens     = 0;   /* cumulative across all rounds */
+  size_t     budget_limit     = 0;   /* from last GatePassed event */
+  size_t     budget_remaining = 0;   /* from last GatePassed event */
+  double     budget_factor    = 1.0; /* EWMA calibrator factor */
+  size_t     budget_samples   = 0;   /* calibrator observation count */
+  size_t     budget_estimated = 0;   /* calibrated pre-submit estimate */
+  int last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
+  uint64_t input_ms      = 0;  /* monotonic timestamp (ms) at user input */
 };
 
 /* ── Tools ──────────────────────────────────────────────────────────
@@ -700,9 +701,8 @@ static void on_done(xAiSession sess, xAiDoneReason reason,
    * pre-submit estimate for this round. */
   if (ctx->budget_limit > 0) {
     std::printf(" budget=%zu/%zu %.3fx samples=%zu est=%zu",
-                ctx->budget_remaining, ctx->budget_limit,
-                ctx->budget_factor, ctx->budget_samples,
-                ctx->budget_estimated);
+                ctx->budget_remaining, ctx->budget_limit, ctx->budget_factor,
+                ctx->budget_samples, ctx->budget_estimated);
     if (ctx->last_actual_prompt >= 0) {
       std::printf(" actual=%d", ctx->last_actual_prompt);
     }
@@ -796,11 +796,11 @@ static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
   case xAiBudgetEvent_GatePassed: {
     auto *gi = static_cast<const xAiBudgetGateInfo *>(info);
     if (gi) {
-      ctx->budget_limit     = gi->limit;
-      ctx->budget_remaining = gi->remaining;
-      ctx->budget_factor    = gi->calibrator_factor;
-      ctx->budget_samples   = gi->calibrator_samples;
-      ctx->budget_estimated = gi->estimated;
+      ctx->budget_limit       = gi->limit;
+      ctx->budget_remaining   = gi->remaining;
+      ctx->budget_factor      = gi->calibrator_factor;
+      ctx->budget_samples     = gi->calibrator_samples;
+      ctx->budget_estimated   = gi->estimated;
       ctx->last_actual_prompt = gi->last_first_round_prompt_tokens;
       std::printf("[budget] gate passed — remaining %zu/%zu tokens",
                   gi->remaining, gi->limit);
@@ -953,7 +953,7 @@ int main(int argc, char *argv[]) {
   };
   constexpr size_t N_TOOLS = sizeof(specs) / sizeof(specs[0]);
 
-  xAiTool tool_handles[N_TOOLS] = {};
+  xAiTool tool_handles[N_TOOLS + 1] = {}; /* +1 for shell */
   for (size_t i = 0; i < N_TOOLS; ++i) {
     xAiToolConf tconf;
     std::memset(&tconf, 0, sizeof(tconf));
@@ -973,10 +973,43 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  /* Shell tool — uses xAiToolCreateShell factory (backed by
+   * xCommandExecutor + Plan-A blocking). Register on_command /
+   * on_result callbacks so the REPL user can see what command the
+   * model is running and a brief summary of the output. */
+  xAiShellConf shell_conf;
+  std::memset(&shell_conf, 0, sizeof(shell_conf));
+  shell_conf.on_command = [](const char *command, const char *cwd, void *) {
+    if (cwd && cwd[0]) {
+      std::printf("\x1b[2m  $ (cd %s && %s)\x1b[0m\n", cwd, command);
+    } else {
+      std::printf("\x1b[2m  $ %s\x1b[0m\n", command);
+    }
+    std::fflush(stdout);
+  };
+  shell_conf.on_result = [](int exit_code, size_t stdout_len, size_t stderr_len,
+                            int timed_out, void *) {
+    std::printf("\x1b[2m  exit=%d stdout=%zu stderr=%zu%s\x1b[0m\n", exit_code,
+                stdout_len, stderr_len, timed_out ? " (timed out)" : "");
+    std::fflush(stdout);
+  };
+  tool_handles[N_TOOLS] = xAiToolCreateShell(loop, &shell_conf);
+  if (!tool_handles[N_TOOLS]) {
+    std::fprintf(stderr, "failed to create shell tool\n");
+    for (size_t j = 0; j < N_TOOLS; ++j)
+      xAiToolDestroy(tool_handles[j]);
+    xAiProviderDestroy(pvd);
+    xHttpClientDestroy(http);
+    xEventLoopDestroy(loop);
+    return 1;
+  }
+
+  constexpr size_t TOTAL_TOOLS = N_TOOLS + 1;
+
   /* xAiAgentConf::tools is `const xAiTool **` (array of handle
    * pointers, not an array of handles); collect addresses. */
-  const xAiTool *tool_ptrs[N_TOOLS];
-  for (size_t i = 0; i < N_TOOLS; ++i)
+  const xAiTool *tool_ptrs[TOTAL_TOOLS];
+  for (size_t i = 0; i < TOTAL_TOOLS; ++i)
     tool_ptrs[i] = &tool_handles[i];
   /* ── Session config (agent's default session) ──────────────────────
    *
@@ -1016,8 +1049,8 @@ int main(int argc, char *argv[]) {
    * REPL and on_error both surface with a hint line below), and
    * see session.c's keep_recent_turns floor logic for why. */
   sconf.budget.policy            = xAiBudgetPolicy_Auto;
-  sconf.budget.max_tokens        = 2048;
-  sconf.budget.keep_recent_turns = 2;
+  sconf.budget.max_tokens        = 200000;
+  sconf.budget.keep_recent_turns = 3;
   sconf.budget.on_budget_event   = on_budget_event;
   sconf.budget.budget_event_ud   = &ctx;
 
@@ -1034,20 +1067,22 @@ int main(int argc, char *argv[]) {
     "  - calculator: evaluate arithmetic like '1+2*3'\n"
     "  - random_int: uniform int in [min, max]\n"
     "  - wordcount: count chars/words/lines of a text blob\n"
+    "  - shell: execute a shell command via /bin/sh -c and return "
+    "stdout/stderr/exit code\n"
     "Use tools when they would produce a more accurate answer "
     "than guessing. You may chain multiple tool calls in a single "
     "turn. Keep replies short.";
-  aconf.tools               = tool_ptrs;
-  aconf.n_tools             = N_TOOLS;
-  aconf.max_turns           = 8;
-  aconf.agent_id            = "test";
-  aconf.data_dir            = data_dir;
+  aconf.tools                = tool_ptrs;
+  aconf.n_tools              = TOTAL_TOOLS;
+  aconf.max_turns            = 8;
+  aconf.agent_id             = "test";
+  aconf.data_dir             = data_dir;
   aconf.default_session_conf = &sconf;
 
   xAiAgent agent = xAiAgentCreate(&aconf);
   if (!agent) {
     std::fprintf(stderr, "failed to create agent\n");
-    for (size_t i = 0; i < N_TOOLS; ++i)
+    for (size_t i = 0; i < TOTAL_TOOLS; ++i)
       xAiToolDestroy(tool_handles[i]);
     xAiProviderDestroy(pvd);
     xHttpClientDestroy(http);
@@ -1062,7 +1097,7 @@ int main(int argc, char *argv[]) {
   if (!sess) {
     std::fprintf(stderr, "agent has no default session\n");
     xAiAgentDestroy(agent);
-    for (size_t i = 0; i < N_TOOLS; ++i)
+    for (size_t i = 0; i < TOTAL_TOOLS; ++i)
       xAiToolDestroy(tool_handles[i]);
     xAiProviderDestroy(pvd);
     xHttpClientDestroy(http);
@@ -1076,6 +1111,7 @@ int main(int argc, char *argv[]) {
   for (size_t i = 0; i < N_TOOLS; ++i) {
     std::printf("  - %s\n", specs[i].name);
   }
+  std::printf("  - shell\n");
   std::putchar('\n');
 
   char line[4096];
@@ -1146,7 +1182,7 @@ int main(int argc, char *argv[]) {
   /* No xAiSessionDestroy needed — the default session is owned
    * by the agent and destroyed automatically in xAiAgentDestroy. */
   xAiAgentDestroy(agent);
-  for (size_t i = 0; i < N_TOOLS; ++i)
+  for (size_t i = 0; i < TOTAL_TOOLS; ++i)
     xAiToolDestroy(tool_handles[i]);
   xAiProviderDestroy(pvd);
   xHttpClientDestroy(http);

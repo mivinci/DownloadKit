@@ -179,7 +179,8 @@ XCAPI(xErrno) xCommandExecutorSubmit(xCommandExecutor           exec,
                                      const xCommandConf        *conf,
                                      xCommandExecutorOutputFunc on_stdout,
                                      xCommandExecutorOutputFunc on_stderr,
-                                     xCommandExecutorDoneFunc on_done, void *ud);
+                                     xCommandExecutorDoneFunc   on_done,
+                                     void                      *ud);
 
 /**
  * @brief Cancel a running command.

@@ -130,10 +130,14 @@ typedef void (*xAiProviderThinkingDeltaFunc)(const char *chunk, size_t len,
  *                -1 as a "not available" sentinel). Pointer is valid
  *                only for the duration of the callback — session
  *                layer must copy what it wants to keep.
+ * @param errmsg  Human-readable error detail (may be NULL when err is
+ *                Ok or when the provider has no additional context).
+ *                Valid only for the duration of the callback.
  * @param arg     Opaque pointer supplied in xAiProviderStreamCallbacks.
  */
 typedef void (*xAiProviderDoneFunc)(xAiProviderStopReason reason, xErrno err,
-                                    const xAiUsage *usage, void *arg);
+                                    const xAiUsage *usage, const char *errmsg,
+                                    void *arg);
 
 /**
  * @brief Streaming callbacks passed to vtable->submit().

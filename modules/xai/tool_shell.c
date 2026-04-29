@@ -11,9 +11,9 @@
  * the tool_result and returns.
  *
  * Memory strategy: the JSON result is built into ShellCtx::result_buf
- * (an xStr). The handler borrows the pointer for the duration of the
+ * (an xString). The handler borrows the pointer for the duration of the
  * ai_tool_invoke() call — the caller (query.c) deep-copies the
- * output before returning, so the xStr only needs to survive that
+ * output before returning, so the xString only needs to survive that
  * window. On the next invocation the buffer is cleared and reused;
  * on tool destruction it is freed.
  */
@@ -21,8 +21,8 @@
 #include <xai/tool_shell.h>
 
 #include <cJSON.h>
-#include <xbase/cmd.h>
-#include <xbase/str.h>
+#include <xbase/command.h>
+#include <xbase/string.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -41,15 +41,15 @@ XDEF_STRUCT(ShellCtx) {
   size_t           stdout_cap;
   size_t           stderr_cap;
 
-  xStr result_buf; /**< Reusable buffer for JSON output */
+  xString result_buf; /**< Reusable buffer for JSON output */
 
   xAiShellOnCommandFunc on_command;
   xAiShellOnResultFunc  on_result;
   void                 *callback_ud;
 
   /* Filled by on_done, consumed by handler */
-  const xCommandResult *result; /* borrowed, valid inside on_done only */
-  int                   done;   /* non-zero once on_done has fired     */
+  xCommandResult result; /* value copy — safe after cmd_complete returns */
+  int            done;   /* non-zero once on_done has fired     */
 };
 
 /* ───────────────────── JSON Schema ───────────────────── */
@@ -80,7 +80,7 @@ static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result,
                         void *ud) {
   (void)exec;
   ShellCtx *ctx = (ShellCtx *)ud;
-  ctx->result   = result;
+  ctx->result   = *result; /* deep copy — result points to a stack variable */
   ctx->done     = 1;
   xEventLoopStop(ctx->loop);
 }
@@ -132,8 +132,8 @@ static xErrno shell_handler(const xAiContent *in, xAiContent *out, void *ud) {
   if (ctx->on_command) ctx->on_command(command, cwd, ctx->callback_ud);
 
   /* ── Submit and block ─────────────────────────────────── */
-  ctx->done   = 0;
-  ctx->result = NULL;
+  ctx->done = 0;
+  memset(&ctx->result, 0, sizeof(ctx->result));
 
   xErrno rc =
     xCommandExecutorSubmit(ctx->exec, &conf, NULL, NULL, on_cmd_done, ctx);
@@ -148,66 +148,63 @@ static xErrno shell_handler(const xAiContent *in, xAiContent *out, void *ud) {
   xEventLoopWait(ctx->loop, wait_ms);
 
   /* ── Build JSON result ────────────────────────────────── */
-  xStrClear(ctx->result_buf);
-  ctx->result_buf = xStrAppend(ctx->result_buf, "{");
+  xStringClear(ctx->result_buf);
+  xStringAppend(&ctx->result_buf, "{");
 
-  if (ctx->done && ctx->result) {
-    const xCommandResult *r = ctx->result;
+  if (ctx->done) {
+    const xCommandResult *r = &ctx->result;
 
-    ctx->result_buf =
-      xStrAppendFormat(ctx->result_buf, "\"exit_code\":%d,", r->exit_code);
+    xStringAppendFormat(&ctx->result_buf, "\"exit_code\":%d,", r->exit_code);
 
     /* stdout — use cJSON to produce a properly-escaped JSON string */
     if (r->stdout_buf && r->stdout_len > 0) {
       cJSON *sj  = cJSON_CreateString(r->stdout_buf);
       char  *raw = cJSON_PrintUnformatted(sj);
-      ctx->result_buf =
-        xStrAppendFormat(ctx->result_buf, "\"stdout\":%s,", raw);
+      xStringAppendFormat(&ctx->result_buf, "\"stdout\":%s,", raw);
       free(raw);
       cJSON_Delete(sj);
     } else {
-      ctx->result_buf = xStrAppend(ctx->result_buf, "\"stdout\":\"\",");
+      xStringAppend(&ctx->result_buf, "\"stdout\":\"\",");
     }
 
     /* stderr */
     if (r->stderr_buf && r->stderr_len > 0) {
       cJSON *sj  = cJSON_CreateString(r->stderr_buf);
       char  *raw = cJSON_PrintUnformatted(sj);
-      ctx->result_buf =
-        xStrAppendFormat(ctx->result_buf, "\"stderr\":%s,", raw);
+      xStringAppendFormat(&ctx->result_buf, "\"stderr\":%s,", raw);
       free(raw);
       cJSON_Delete(sj);
     } else {
-      ctx->result_buf = xStrAppend(ctx->result_buf, "\"stderr\":\"\",");
+      xStringAppend(&ctx->result_buf, "\"stderr\":\"\",");
     }
 
-    ctx->result_buf = xStrAppendFormat(ctx->result_buf, "\"timed_out\":%s,",
-                                       r->timed_out ? "true" : "false");
-    ctx->result_buf = xStrAppendFormat(ctx->result_buf, "\"elapsed_ms\":%llu",
-                                       (unsigned long long)r->elapsed_ms);
+    xStringAppendFormat(&ctx->result_buf, "\"timed_out\":%s,",
+                        r->timed_out ? "true" : "false");
+    xStringAppendFormat(&ctx->result_buf, "\"elapsed_ms\":%llu",
+                        (unsigned long long)r->elapsed_ms);
   } else {
     /* Command did not complete within the wait window */
-    ctx->result_buf = xStrAppend(
-      ctx->result_buf, "\"exit_code\":-1,"
-                       "\"stdout\":\"\","
-                       "\"stderr\":\"command timed out or failed to start\","
-                       "\"timed_out\":true,"
-                       "\"elapsed_ms\":0");
+    xStringAppend(&ctx->result_buf,
+                  "\"exit_code\":-1,"
+                  "\"stdout\":\"\","
+                  "\"stderr\":\"command timed out or failed to start\","
+                  "\"timed_out\":true,"
+                  "\"elapsed_ms\":0");
   }
 
-  ctx->result_buf = xStrAppend(ctx->result_buf, "}");
+  xStringAppend(&ctx->result_buf, "}");
 
   /* ── Fill output ──────────────────────────────────────── */
   memset(out, 0, sizeof(*out));
   out->type                     = xAiContentType_ToolResult;
   out->u.tool_result.id         = in->u.tool_use.id;
-  out->u.tool_result.output     = ctx->result_buf; /* xStr == char* */
-  out->u.tool_result.output_len = xStrLen(ctx->result_buf);
+  out->u.tool_result.output     = ctx->result_buf; /* xString == char* */
+  out->u.tool_result.output_len = xStringLen(ctx->result_buf);
 
   /* ── Notify caller: command finished ────────────────────── */
   if (ctx->on_result) {
-    if (ctx->done && ctx->result) {
-      const xCommandResult *r = ctx->result;
+    if (ctx->done) {
+      const xCommandResult *r = &ctx->result;
       ctx->on_result(r->exit_code, r->stdout_buf ? r->stdout_len : 0,
                      r->stderr_buf ? r->stderr_len : 0, r->timed_out,
                      ctx->callback_ud);
@@ -226,7 +223,7 @@ static void shell_ctx_destroy(void *ud) {
   ShellCtx *ctx = (ShellCtx *)ud;
   if (!ctx) return;
   xCommandExecutorDestroy(ctx->exec);
-  xStrDestroy(ctx->result_buf);
+  xStringDestroy(ctx->result_buf);
   free(ctx);
 }
 
@@ -248,7 +245,7 @@ XCAPI(xAiTool) xAiToolCreateShell(xEventLoop loop, const xAiShellConf *conf) {
   ctx->on_result   = (conf) ? conf->on_result : NULL;
   ctx->callback_ud = (conf) ? conf->callback_ud : NULL;
 
-  ctx->result_buf = xStrCreate("");
+  ctx->result_buf = xStringCreate("");
   if (!ctx->result_buf) {
     free(ctx);
     return NULL;
@@ -256,7 +253,7 @@ XCAPI(xAiTool) xAiToolCreateShell(xEventLoop loop, const xAiShellConf *conf) {
 
   ctx->exec = xCommandExecutorCreate(loop);
   if (!ctx->exec) {
-    xStrDestroy(ctx->result_buf);
+    xStringDestroy(ctx->result_buf);
     free(ctx);
     return NULL;
   }
@@ -275,7 +272,7 @@ XCAPI(xAiTool) xAiToolCreateShell(xEventLoop loop, const xAiShellConf *conf) {
   xAiTool tool = xAiToolCreate(&tconf);
   if (!tool) {
     xCommandExecutorDestroy(ctx->exec);
-    xStrDestroy(ctx->result_buf);
+    xStringDestroy(ctx->result_buf);
     free(ctx);
     return NULL;
   }

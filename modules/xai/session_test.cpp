@@ -227,7 +227,7 @@ static xErrno fake_submit(void *impl, const xAiProviderSubmitConf *conf,
         if (cbs->on_done) {
           xAiUsage u{ev.prompt_tokens, ev.completion_tokens, ev.total_tokens};
           cbs->on_done(ev.reason, ev.err, ev.has_usage ? &u : nullptr,
-                       cb_arg);
+                       nullptr, cb_arg);
         }
         break;
     }
@@ -240,7 +240,7 @@ static void fake_cancel(void *impl) {
   f->cancels++;
   if (f->cancel_fires_done && f->cbs_last.on_done) {
     f->cbs_last.on_done(xAiProviderStop_Cancelled, xErrno_Ok, nullptr,
-                        f->cb_arg_last);
+                        nullptr, f->cb_arg_last);
   }
 }
 

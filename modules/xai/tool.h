@@ -74,6 +74,8 @@ XDEF_HANDLE(xAiTool);
 typedef xErrno (*xAiToolHandlerFunc)(const xAiContent *in, xAiContent *out,
                                      void *ud);
 
+typedef void (*xAiToolUserDataDestroyFunc)(void *user_data);
+
 /**
  * @brief Configuration for creating a tool.
  *
@@ -90,6 +92,10 @@ XDEF_STRUCT(xAiToolConf) {
 
   xAiToolHandlerFunc handler;    /**< Execution callback (must not be NULL) */
   void              *user_data;  /**< Forwarded to @ref handler             */
+
+  xAiToolUserDataDestroyFunc user_data_destroy; /**< Called by
+                            xAiToolDestroy to release @ref user_data
+                            (may be NULL = no cleanup needed).              */
 
   int concurrent_safe; /**< Non-zero: handler may run in parallel with
                             other concurrent-safe tools.                   */

@@ -184,7 +184,7 @@ static void on_tool(const xAiContent *call, void *arg) {
 }
 
 static void on_done(xAiProviderStopReason reason, xErrno err,
-                    const xAiUsage *usage, void *arg) {
+                    const xAiUsage *usage, const char *errmsg, void *arg) {
   auto *r        = static_cast<Recorder *>(arg);
   r->done_reason = reason;
   r->done_err    = err;
@@ -192,6 +192,7 @@ static void on_done(xAiProviderStopReason reason, xErrno err,
     r->has_usage = true;
     r->usage     = *usage;
   }
+  (void)errmsg;
   r->done_fired.store(true, std::memory_order_release);
 }
 

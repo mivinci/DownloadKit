@@ -144,6 +144,7 @@ All pointers are valid only during the callback. The library manages their lifet
 | `xHttpResponse` | Response data delivered to the completion callback |
 | `xHttpResponseFunc` | `void (*)(const xHttpResponse *resp, void *arg)` |
 | `xHttpMethod` | Enum: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD` |
+| `xHttpVersion` | Enum: `Default`, `H1`, `H2`, `H2TLS`, `H2C` |
 | `xHttpRequestConf` | Configuration struct for generic requests |
 | `xSseEvent` | SSE event data delivered to the event callback |
 | `xSseEventFunc` | `int (*)(const xSseEvent *ev, void *arg)` — return 0 to continue, non-zero to close |
@@ -175,6 +176,34 @@ keep them alive after creation.
 | `skip_verify` | `int` | If non-zero, skip server certificate verification (useful for self-signed certs in development). |
 
 All string fields are deep-copied internally; the caller does not need to keep them alive after the call.
+
+### HTTP Version Configuration
+
+The `xHttpClientConf.http_version` field controls the default HTTP
+protocol version for all requests made through the client. It can be
+overridden per-request via `xHttpRequestConf.http_version`.
+
+| Value | Description |
+| --- | --- |
+| `xHttpVersion_Default` | Use client default (initially HTTP/1.1) |
+| `xHttpVersion_H1` | Force HTTP/1.1 |
+| `xHttpVersion_H2` | HTTP/2 with TLS (ALPN), fallback to H1 |
+| `xHttpVersion_H2TLS` | HTTP/2 over TLS only, no fallback |
+| `xHttpVersion_H2C` | HTTP/2 cleartext (Prior Knowledge) |
+
+### Request Configuration
+
+`xHttpRequestConf` provides full control over individual requests:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `url` | `const char *` | Request URL (must not be NULL) |
+| `method` | `xHttpMethod` | HTTP method (default: GET) |
+| `body` | `const char *` | Request body, or NULL |
+| `body_len` | `size_t` | Length of body in bytes |
+| `headers` | `const char **` | NULL-terminated array of "Key: Value" |
+| `timeout_ms` | `long` | Per-request timeout in ms (0 = no limit). For regular HTTP: total transfer timeout. For SSE: connection-phase timeout only; stalled streams are detected via low-speed-time instead. |
+| `http_version` | `xHttpVersion` | HTTP version override (0 = use client default) |
 
 ### Convenience Requests
 
@@ -330,6 +359,7 @@ int main(void) {
   the client; it affects both oneshot and SSE
   requests. To change TLS config, destroy and
   recreate the client.
+- **For SSE, `timeout_ms` only covers the connection phase.** Once the stream is established, stalled streams are detected via libcurl's low-speed-time mechanism instead of a hard timeout. This prevents premature disconnection during slow LLM token generation.
 
 ## Comparison with Other Libraries
 

@@ -73,14 +73,14 @@ graph TD
 
 ### Memory Layout
 
-```
+```text
                     xStrHeader
                  ┌──────────────┐
-                 │  len (size_t)│
-                 │  cap (size_t)│
+                 │ len (size_t) │
+                 │ cap (size_t) │
                  └──────────────┘ ← hdr + 1 = user pointer
                  ┌──────────────┐
-  xStr (char*) →│  d a t a …   │ ← always NUL-terminated
+  xStr (char*) → │  data …      │ ← always NUL-terminated
                  │  cap + 1     │
                  └──────────────┘
 ```

@@ -28,6 +28,7 @@ struct xAiTool_ {
   char              *json_schema; /* may be NULL            */
   xAiToolHandlerFunc handler;
   void              *user_data;
+  xAiToolUserDataDestroyFunc user_data_destroy; /* may be NULL */
   int                concurrent_safe;
   int                needs_confirm;
 };
@@ -50,10 +51,11 @@ xAiTool xAiToolCreate(const xAiToolConf *conf) {
   t->name            = tool_strdup(conf->name);
   t->description     = tool_strdup(conf->description);
   t->json_schema     = tool_strdup(conf->json_schema);
-  t->handler         = conf->handler;
-  t->user_data       = conf->user_data;
-  t->concurrent_safe = conf->concurrent_safe;
-  t->needs_confirm   = conf->needs_confirm;
+  t->handler           = conf->handler;
+  t->user_data         = conf->user_data;
+  t->user_data_destroy = conf->user_data_destroy;
+  t->concurrent_safe   = conf->concurrent_safe;
+  t->needs_confirm     = conf->needs_confirm;
 
   if (!t->name) { /* name is the only required string */
     free(t->description);
@@ -67,6 +69,8 @@ xAiTool xAiToolCreate(const xAiToolConf *conf) {
 void xAiToolDestroy(xAiTool tool) {
   struct xAiTool_ *t = (struct xAiTool_ *)tool;
   if (!t) return;
+  if (t->user_data_destroy && t->user_data)
+    t->user_data_destroy(t->user_data);
   free(t->name);
   free(t->description);
   free(t->json_schema);

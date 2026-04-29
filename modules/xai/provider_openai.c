@@ -76,6 +76,7 @@ struct xOaiImpl_ {
   void                      *cb_arg;
   xAiProviderStopReason      stop_reason; /* sticky; last write wins */
   xErrno                     stop_err;
+  char                       stop_errmsg[256]; /* curl/server error detail  */
   int                        saw_finish_reason; /* 1 once server sent one */
   struct xOaiToolCallSlot_   tool_calls[XAI_OAI_MAX_TOOL_CALLS];
 
@@ -425,6 +426,10 @@ static void oai_finish_flight(struct xOaiImpl_ *impl) {
   xAiUsage usage_snapshot = impl->usage;
   int      had_usage      = impl->saw_usage;
 
+  /* Snapshot errmsg before clearing — same local-lifetime reasoning. */
+  char errmsg[256];
+  memcpy(errmsg, impl->stop_errmsg, sizeof(errmsg));
+
   /* Clear flight state BEFORE firing on_done, so a callback that
    * synchronously issues another submit() sees a clean provider. */
   impl->in_flight   = 0;
@@ -434,6 +439,7 @@ static void oai_finish_flight(struct xOaiImpl_ *impl) {
   impl->cb_arg      = NULL;
   impl->stop_reason = xAiProviderStop_EndTurn;
   impl->stop_err    = xErrno_Ok;
+  impl->stop_errmsg[0] = '\0';
   impl->saw_finish_reason = 0;
   impl->saw_usage   = 0;
   impl->usage.prompt_tokens     = -1;
@@ -441,7 +447,9 @@ static void oai_finish_flight(struct xOaiImpl_ *impl) {
   impl->usage.total_tokens      = -1;
   oai_tool_calls_reset(impl);
 
-  if (done) done(reason, err, had_usage ? &usage_snapshot : NULL, arg);
+  if (done)
+    done(reason, err, had_usage ? &usage_snapshot : NULL,
+         errmsg[0] ? errmsg : NULL, arg);
 }
 
 /* ── SSE delta parsing ─────────────────────────────────────────────────── */
@@ -576,6 +584,10 @@ static int oai_handle_chunk(struct xOaiImpl_ *impl, const char *data) {
     impl->stop_err =
       (impl->stop_reason == xAiProviderStop_Error) ? xErrno_SysError
                                                    : xErrno_Ok;
+    if (impl->stop_reason == xAiProviderStop_Error) {
+      snprintf(impl->stop_errmsg, sizeof(impl->stop_errmsg),
+               "finish_reason: %s", finish->valuestring);
+    }
     impl->saw_finish_reason = 1;
   }
 
@@ -596,6 +608,8 @@ static void oai_on_sse_done(int curl_code, void *arg) {
   struct xOaiImpl_ *impl = (struct xOaiImpl_ *)arg;
   if (!impl->in_flight) return; /* destroyed mid-flight */
 
+  impl->stop_errmsg[0] = '\0';
+
   if (impl->cancelled) {
     impl->stop_reason = xAiProviderStop_Cancelled;
     impl->stop_err    = xErrno_Ok;
@@ -607,6 +621,8 @@ static void oai_on_sse_done(int curl_code, void *arg) {
      * we actually observed a finish_reason, not just curl_code. */
     impl->stop_reason = xAiProviderStop_Error;
     impl->stop_err    = xErrno_SysError;
+    snprintf(impl->stop_errmsg, sizeof(impl->stop_errmsg),
+             "curl error %d", curl_code);
   }
   /* Otherwise: keep whatever stop_reason the last finish_reason
    * set (or the default EndTurn if the stream ended cleanly
@@ -633,6 +649,7 @@ static xErrno oai_submit(void                             *impl_p,
   impl->cb_arg      = cb_arg;
   impl->stop_reason = xAiProviderStop_EndTurn;
   impl->stop_err    = xErrno_Ok;
+  impl->stop_errmsg[0] = '\0';
   impl->saw_finish_reason = 0;
   impl->saw_usage   = 0;
   impl->usage.prompt_tokens     = -1;

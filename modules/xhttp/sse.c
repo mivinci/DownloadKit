@@ -337,10 +337,22 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
     curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long)config->body_len);
   }
 
-  /* Per-request timeout */
+  /* SSE is a long-lived streaming protocol — CURLOPT_TIMEOUT_MS caps the
+   * *total* transfer time and will kill the connection even while data
+   * is still flowing.  For SSE we split the timeout into:
+   *
+   *   1. CURLOPT_CONNECTTIMEOUT_MS — connection phase (TCP + TLS)
+   *   2. CURLOPT_LOW_SPEED_TIME + CURLOPT_LOW_SPEED_LIMIT — detect a
+   *      dead connection where the server stops sending data.
+   *
+   * The original timeout_ms is repurposed as the connect timeout.
+   * A 30-second low-speed window with a 1 byte/s threshold catches
+   * stalled connections without penalising slow-but-steady streams. */
   if (config->timeout_ms > 0) {
-    curl_easy_setopt(easy, CURLOPT_TIMEOUT_MS, config->timeout_ms);
+    curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS, config->timeout_ms);
   }
+  curl_easy_setopt(easy, CURLOPT_LOW_SPEED_TIME, 30L);
+  curl_easy_setopt(easy, CURLOPT_LOW_SPEED_LIMIT, 1L);
 
   curl_easy_setopt(easy, CURLOPT_HTTPHEADER, req->sse_headers);
   curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, sse_write_callback);

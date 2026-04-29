@@ -588,7 +588,8 @@ static void on_provider_text(const char *chunk, size_t len, void *arg);
 static void on_provider_tool_call(const xAiContent *call, void *arg);
 static void on_provider_thinking(const char *chunk, size_t len, void *arg);
 static void on_provider_done(xAiProviderStopReason reason, xErrno err,
-                             const xAiUsage *usage, void *arg);
+                             const xAiUsage *usage, const char *errmsg,
+                             void *arg);
 
 /* ── Submit ────────────────────────────────────────────────────── */
 
@@ -813,9 +814,10 @@ static void query_finalize(struct xAiQuery_ *q, xAiDoneReason reason) {
 /* Surface transport / model errors to the caller's on_error hook. The
  * run does not end here — the round's assistant output (if any) is
  * still committed and then translated to a terminal done reason. */
-static void handle_error(struct xAiQuery_ *q, xErrno err) {
+static void handle_error(struct xAiQuery_ *q, xErrno err, const char *msg) {
   if (err != xErrno_Ok && q->cbs.on_error) {
-    q->cbs.on_error((xAiQuery)q, err, NULL, q->cbs.user_data);
+    q->cbs.on_error((xAiQuery)q, err, msg ? msg : xstrerror(err),
+                    q->cbs.user_data);
   }
 }
 
@@ -913,7 +915,8 @@ static void on_provider_thinking(const char *chunk, size_t len, void *arg) {
 }
 
 static void on_provider_done(xAiProviderStopReason reason, xErrno err,
-                             const xAiUsage *usage, void *arg) {
+                             const xAiUsage *usage, const char *errmsg,
+                             void *arg) {
   struct xAiQuery_ *q = (struct xAiQuery_ *)arg;
 
   /* Fold this round's usage into the running total BEFORE any
@@ -928,7 +931,7 @@ static void on_provider_done(xAiProviderStopReason reason, xErrno err,
   /* Surface transport / model errors before anything else so the
    * caller's on_error fires in order with the round. */
   if (reason == xAiProviderStop_Error) {
-    handle_error(q, err);
+    handle_error(q, err, errmsg);
   }
 
   /* Commit the assistant turn into history regardless of outcome —

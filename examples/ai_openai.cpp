@@ -145,7 +145,8 @@ static const char *stop_reason_name(xAiProviderStopReason r) {
 }
 
 static void on_done(xAiProviderStopReason reason, xErrno err,
-                    const xAiUsage *usage, void *arg) {
+                    const xAiUsage *usage, const char *errmsg, void *arg) {
+  (void)errmsg;
   auto *ctx = static_cast<ReplCtx *>(arg);
 
   /* Always surface the outcome so "silent failure" is impossible. */

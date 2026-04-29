@@ -7,6 +7,7 @@
  */
 
 #include <xbase/cmd.h>
+#include <xbase/str.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -19,9 +20,9 @@
 
 #ifdef XK_HAS_PTY
 #ifdef XK_HAS_UTIL_H
-#include <util.h>    /* forkpty on macOS */
+#include <util.h> /* forkpty on macOS */
 #elif defined(XK_HAS_PTY_H)
-#include <pty.h>     /* forkpty on Linux */
+#include <pty.h> /* forkpty on Linux */
 #endif
 #endif
 
@@ -30,66 +31,21 @@
 #define CMD_CANCEL_GRACE_MS 5000 /**< SIGTERM → SIGKILL grace period */
 #define CMD_READ_BUF_SIZE   4096 /**< Per-read buffer size           */
 
-/* ───────────────────── Local auto-growing buffer ───────────────────── */
-
-/**
- * Lightweight auto-growing byte buffer for capturing command output.
- * Avoids a circular dependency between xbase and xbuf.
- */
-typedef struct CmdBuf {
-  char  *data;   /**< Allocated data (always NUL-terminated after finalize) */
-  size_t len;    /**< Number of valid bytes (not counting NUL terminator)   */
-  size_t cap;    /**< Allocated capacity                                     */
-} CmdBuf;
-
-static CmdBuf *cmdbuf_create(size_t initial_cap) {
-  CmdBuf *b = (CmdBuf *)malloc(sizeof(CmdBuf));
-  if (!b) return NULL;
-  if (initial_cap < 64) initial_cap = 64;
-  b->data = (char *)malloc(initial_cap);
-  if (!b->data) { free(b); return NULL; }
-  b->len = 0;
-  b->cap = initial_cap;
-  b->data[0] = '\0';
-  return b;
-}
-
-static void cmdbuf_destroy(CmdBuf *b) {
-  if (!b) return;
-  free(b->data);
-  free(b);
-}
-
-static int cmdbuf_append(CmdBuf *b, const char *src, size_t n) {
-  if (!b || n == 0) return 0;
-  if (b->len + n + 1 > b->cap) {
-    size_t new_cap = b->cap;
-    while (new_cap < b->len + n + 1) new_cap *= 2;
-    char *tmp = (char *)realloc(b->data, new_cap);
-    if (!tmp) return -1;
-    b->data = tmp;
-    b->cap  = new_cap;
-  }
-  memcpy(b->data + b->len, src, n);
-  b->len += n;
-  b->data[b->len] = '\0'; /* Keep NUL-terminated */
-  return 0;
-}
-
 /* ───────────────────── Internal state ───────────────────── */
 
-enum xCommandState_ {
-  xCommandState_Idle = 0,
-  xCommandState_Running,
-  xCommandState_Cancelling, /**< SIGTERM sent, waiting for exit or SIGKILL */
+enum xCommandExecutorState_ {
+  xCommandExecutorState_Idle = 0,
+  xCommandExecutorState_Running,
+  xCommandExecutorState_Cancelling, /**< SIGTERM sent, waiting for exit or
+                                       SIGKILL */
 };
 
-struct xCommand_ {
+struct xCommandExecutor_ {
   xEventLoop loop;
 
   /* Child process */
-  pid_t         child_pid;
-  enum xCommandState_ state;
+  pid_t                       child_pid;
+  enum xCommandExecutorState_ state;
 
   /* Pipes: [0] = read end (parent), [1] = write end (child) */
   int stdout_pipe[2];
@@ -109,8 +65,8 @@ struct xCommand_ {
   xEventTimer cancel_timer;
 
   /* Output capture buffers (Capture mode) */
-  CmdBuf *stdout_buf;
-  CmdBuf *stderr_buf;
+  xStr stdout_buf;
+  xStr stderr_buf;
 
   /* Configuration limits */
   size_t stdout_max; /**< from xCommandConf::stdout_cap */
@@ -127,10 +83,10 @@ struct xCommand_ {
   xCommandResult result;
 
   /* Callbacks */
-  xCommandOutputFunc on_stdout;
-  xCommandOutputFunc on_stderr;
-  xCommandDoneFunc   on_done;
-  void          *ud;
+  xCommandExecutorOutputFunc on_stdout;
+  xCommandExecutorOutputFunc on_stderr;
+  xCommandExecutorDoneFunc   on_done;
+  void                      *ud;
 
   /* Timing */
   uint64_t start_ms;
@@ -141,20 +97,20 @@ struct xCommand_ {
   int child_exited;
 
   /* Linked list for SIGCHLD multiplexer */
-  struct xCommand_ *next;
+  struct xCommandExecutor_ *next;
 };
 
 /* ───────────────────── SIGCHLD multiplexer ───────────────────── */
 
 /*
- * Multiple xCommand instances may be active on the same event loop.
+ * Multiple xCommandExecutor instances may be active on the same event loop.
  * We maintain a singly-linked list of running executors and
  * register SIGCHLD once. When SIGCHLD fires we walk the list
  * and call waitpid(WNOHANG) for each.
  */
 
-static struct xCommand_ *g_sigchld_head = NULL;
-static int           g_sigchld_count = 0;
+static struct xCommandExecutor_ *g_sigchld_head  = NULL;
+static int                       g_sigchld_count = 0;
 
 /* No-op signal handler so that SIGCHLD is delivered to kqueue/epoll.
  * SIG_IGN causes kqueue to not receive EVFILT_SIGNAL events. */
@@ -176,16 +132,16 @@ static void sigchld_unregister(xEventLoop loop) {
   }
 }
 
-static void sigchld_add(struct xCommand_ *exec) {
-  exec->next = g_sigchld_head;
+static void sigchld_add(struct xCommandExecutor_ *exec) {
+  exec->next     = g_sigchld_head;
   g_sigchld_head = exec;
 }
 
-static void sigchld_remove(struct xCommand_ *exec) {
-  struct xCommand_ **pp = &g_sigchld_head;
+static void sigchld_remove(struct xCommandExecutor_ *exec) {
+  struct xCommandExecutor_ **pp = &g_sigchld_head;
   while (*pp) {
     if (*pp == exec) {
-      *pp = exec->next;
+      *pp        = exec->next;
       exec->next = NULL;
       return;
     }
@@ -202,12 +158,13 @@ static void on_pty_readable(int fd, xEventMask mask, void *arg);
 #endif
 static void on_timeout(void *arg);
 static void on_cancel_grace(void *arg);
-static void cmd_check_completion(struct xCommand_ *exec);
-static void cmd_fire_done(struct xCommand_ *exec);
-static void cmd_cleanup(struct xCommand_ *exec);
-static void cmd_kill_pg(struct xCommand_ *exec, int sig);
+static void cmd_check_completion(struct xCommandExecutor_ *exec);
+static void cmd_fire_done(struct xCommandExecutor_ *exec);
+static void cmd_cleanup(struct xCommandExecutor_ *exec);
+static void cmd_kill_pg(struct xCommandExecutor_ *exec, int sig);
 #ifdef XK_HAS_PTY
-static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf);
+static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
+                                        const xCommandConf       *conf);
 #endif
 
 /* ───────────────────── Pipe helpers ───────────────────── */
@@ -257,10 +214,11 @@ static int fd_set_nonblock(int fd) {
 
 /* ───────────────────── Lifecycle ───────────────────── */
 
-xCommand xCommandCreate(xEventLoop loop) {
+xCommandExecutor xCommandExecutorCreate(xEventLoop loop) {
   if (!loop) return NULL;
 
-  struct xCommand_ *exec = (struct xCommand_ *)calloc(1, sizeof(*exec));
+  struct xCommandExecutor_ *exec =
+    (struct xCommandExecutor_ *)calloc(1, sizeof(*exec));
   if (!exec) return NULL;
 
   exec->loop           = loop;
@@ -274,18 +232,18 @@ xCommand xCommandCreate(xEventLoop loop) {
   exec->stderr_src     = NULL;
   exec->timeout_timer  = NULL;
   exec->cancel_timer   = NULL;
-  exec->state          = xCommandState_Idle;
+  exec->state          = xCommandExecutorState_Idle;
   exec->stdout_buf     = NULL;
   exec->stderr_buf     = NULL;
 
-  return (xCommand)exec;
+  return (xCommandExecutor)exec;
 }
 
-void xCommandDestroy(xCommand exec_) {
+void xCommandExecutorDestroy(xCommandExecutor exec_) {
   if (!exec_) return;
-  struct xCommand_ *exec = (struct xCommand_ *)exec_;
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
 
-  if (exec->state != xCommandState_Idle) {
+  if (exec->state != xCommandExecutorState_Idle) {
     /* Kill the child process group immediately */
     cmd_kill_pg(exec, SIGKILL);
     if (exec->child_pid > 0) {
@@ -298,8 +256,8 @@ void xCommandDestroy(xCommand exec_) {
     cmd_cleanup(exec);
   }
 
-  if (exec->stdout_buf) cmdbuf_destroy(exec->stdout_buf);
-  if (exec->stderr_buf) cmdbuf_destroy(exec->stderr_buf);
+  if (exec->stdout_buf) xStrDestroy(exec->stdout_buf);
+  if (exec->stderr_buf) xStrDestroy(exec->stderr_buf);
   free(exec);
 }
 
@@ -313,13 +271,16 @@ void xCommandDestroy(xCommand exec_) {
 static const char **build_exec_argv(const char *cmd, const char **user_argv) {
   int argc = 1; /* cmd itself */
   if (user_argv) {
-    while (user_argv[argc - 1]) argc++;
+    while (user_argv[argc - 1])
+      argc++;
   }
-  const char **exec_argv = (const char **)malloc((argc + 1) * sizeof(const char *));
+  const char **exec_argv =
+    (const char **)malloc((argc + 1) * sizeof(const char *));
   if (!exec_argv) return NULL;
   exec_argv[0] = cmd;
   if (user_argv) {
-    for (int i = 1; i < argc; i++) exec_argv[i] = user_argv[i - 1];
+    for (int i = 1; i < argc; i++)
+      exec_argv[i] = user_argv[i - 1];
   }
   exec_argv[argc] = NULL;
   return exec_argv;
@@ -327,20 +288,19 @@ static const char **build_exec_argv(const char *cmd, const char **user_argv) {
 
 /* ───────────────────── Execution ───────────────────── */
 
-xErrno xCommandRun(xCommand exec_, const xCommandConf *conf,
-                xCommandOutputFunc on_stdout, xCommandOutputFunc on_stderr,
-                xCommandDoneFunc on_done, void *ud) {
-  if (!exec_ || !conf || !conf->cmd || !on_done)
-    return xErrno_InvalidArg;
+xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
+                              xCommandExecutorOutputFunc on_stdout,
+                              xCommandExecutorOutputFunc on_stderr,
+                              xCommandExecutorDoneFunc on_done, void *ud) {
+  if (!exec_ || !conf || !conf->cmd || !on_done) return xErrno_InvalidArg;
 
-  struct xCommand_ *exec = (struct xCommand_ *)exec_;
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
 
-  if (exec->state != xCommandState_Idle)
-    return xErrno_Busy;
+  if (exec->state != xCommandExecutorState_Idle) return xErrno_Busy;
 
   /* ── Reset state from previous run ── */
-  if (exec->stdout_buf) cmdbuf_destroy(exec->stdout_buf);
-  if (exec->stderr_buf) cmdbuf_destroy(exec->stderr_buf);
+  if (exec->stdout_buf) xStrDestroy(exec->stdout_buf);
+  if (exec->stderr_buf) xStrDestroy(exec->stderr_buf);
   memset(&exec->result, 0, sizeof(exec->result));
   exec->stdout_buf  = NULL;
   exec->stderr_buf  = NULL;
@@ -352,29 +312,29 @@ xErrno xCommandRun(xCommand exec_, const xCommandConf *conf,
 
   /* Create capture buffers for Capture mode */
   if (conf->stdout_mode == xCommandOutput_Capture) {
-    exec->stdout_buf = cmdbuf_create(4096);
+    exec->stdout_buf = xStrCreate(NULL);
     if (!exec->stdout_buf) goto fail;
   }
   if (conf->stderr_mode == xCommandOutput_Capture &&
       conf->input_mode != xCommandInput_Pty) {
-    exec->stderr_buf = cmdbuf_create(4096);
+    exec->stderr_buf = xStrCreate(NULL);
     if (!exec->stderr_buf) goto fail;
   }
-  exec->stdout_eof  = 0;
-  exec->stderr_eof  = 0;
-  exec->child_exited = 0;
+  exec->stdout_eof    = 0;
+  exec->stderr_eof    = 0;
+  exec->child_exited  = 0;
   exec->pty_master_fd = -1;
   exec->result.pty_fd = -1;
 
-  exec->on_stdout  = on_stdout;
-  exec->on_stderr  = on_stderr;
-  exec->on_done    = on_done;
-  exec->ud         = ud;
+  exec->on_stdout = on_stdout;
+  exec->on_stderr = on_stderr;
+  exec->on_done   = on_done;
+  exec->ud        = ud;
 
   /* ── PTY mode ── */
   if (conf->input_mode == xCommandInput_Pty) {
 #ifdef XK_HAS_PTY
-    return xCommandRunPty(exec, conf);
+    return xCommandExecutorSubmitPty(exec, conf);
 #else
     return xErrno_NotSupported;
 #endif
@@ -401,7 +361,7 @@ xErrno xCommandRun(xCommand exec_, const xCommandConf *conf,
 
   /* ── Fork ── */
   exec->start_ms = xMonoMs();
-  pid_t pid = fork();
+  pid_t pid      = fork();
   if (pid < 0) {
     sigchld_remove(exec);
     sigchld_unregister(exec->loop);
@@ -417,7 +377,10 @@ xErrno xCommandRun(xCommand exec_, const xCommandConf *conf,
     /* Redirect stdout */
     if (conf->stdout_mode == xCommandOutput_Discard) {
       int devnull = open("/dev/null", O_WRONLY);
-      if (devnull >= 0) { dup2(devnull, STDOUT_FILENO); close(devnull); }
+      if (devnull >= 0) {
+        dup2(devnull, STDOUT_FILENO);
+        close(devnull);
+      }
     } else {
       dup2(child_stdout_wfd, STDOUT_FILENO);
     }
@@ -425,7 +388,10 @@ xErrno xCommandRun(xCommand exec_, const xCommandConf *conf,
     /* Redirect stderr */
     if (conf->stderr_mode == xCommandOutput_Discard) {
       int devnull = open("/dev/null", O_WRONLY);
-      if (devnull >= 0) { dup2(devnull, STDERR_FILENO); close(devnull); }
+      if (devnull >= 0) {
+        dup2(devnull, STDERR_FILENO);
+        close(devnull);
+      }
     } else {
       dup2(child_stderr_wfd, STDERR_FILENO);
     }
@@ -457,7 +423,8 @@ xErrno xCommandRun(xCommand exec_, const xCommandConf *conf,
   /* ── Parent process ── */
   exec->child_pid = pid;
 
-  /* Synchronize process group creation to avoid race with child's setpgid(0,0). */
+  /* Synchronize process group creation to avoid race with child's setpgid(0,0).
+   */
   setpgid(pid, pid);
 
   /* Close write ends (child owns them now) */
@@ -486,17 +453,19 @@ xErrno xCommandRun(xCommand exec_, const xCommandConf *conf,
   }
 
   /* Watch read ends for output */
-  if (conf->stdout_mode != xCommandOutput_Discard && exec->stdout_pipe[0] >= 0) {
-    exec->stdout_src = xEventAdd(exec->loop, exec->stdout_pipe[0],
-                                  xEvent_Read, on_stdout_readable, exec);
+  if (conf->stdout_mode != xCommandOutput_Discard &&
+      exec->stdout_pipe[0] >= 0) {
+    exec->stdout_src = xEventAdd(exec->loop, exec->stdout_pipe[0], xEvent_Read,
+                                 on_stdout_readable, exec);
     if (!exec->stdout_src) goto fail_sigchld;
   } else {
     exec->stdout_eof = 1;
   }
 
-  if (conf->stderr_mode != xCommandOutput_Discard && exec->stderr_pipe[0] >= 0) {
-    exec->stderr_src = xEventAdd(exec->loop, exec->stderr_pipe[0],
-                                  xEvent_Read, on_stderr_readable, exec);
+  if (conf->stderr_mode != xCommandOutput_Discard &&
+      exec->stderr_pipe[0] >= 0) {
+    exec->stderr_src = xEventAdd(exec->loop, exec->stderr_pipe[0], xEvent_Read,
+                                 on_stderr_readable, exec);
     if (!exec->stderr_src) goto fail_sigchld;
   } else {
     exec->stderr_eof = 1;
@@ -504,11 +473,11 @@ xErrno xCommandRun(xCommand exec_, const xCommandConf *conf,
 
   /* Start timeout timer */
   if (conf->timeout_ms > 0) {
-    exec->timeout_timer = xEventLoopTimerAfter(exec->loop, on_timeout, exec,
-                                                conf->timeout_ms);
+    exec->timeout_timer =
+      xEventLoopTimerAfter(exec->loop, on_timeout, exec, conf->timeout_ms);
   }
 
-  exec->state = xCommandState_Running;
+  exec->state = xCommandExecutorState_Running;
   return xErrno_Ok;
 
 fail_sigchld:
@@ -526,7 +495,7 @@ fail_pipes:
   exec->stderr_pipe[0] = -1;
   exec->stderr_pipe[1] = -1;
 fail:
-  exec->state = xCommandState_Idle;
+  exec->state = xCommandExecutorState_Idle;
   return xErrno_SysError;
 }
 
@@ -534,7 +503,8 @@ fail:
 
 #ifdef XK_HAS_PTY
 
-static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
+static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
+                                        const xCommandConf       *conf) {
   /* In PTY mode:
    * - We use forkpty() to create a PTY master/slave pair and fork.
    * - The child gets the slave side as its controlling terminal.
@@ -562,7 +532,7 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
 
   exec->start_ms = xMonoMs();
 
-  int master_fd = -1;
+  int   master_fd = -1;
   pid_t pid;
 
 #if defined(__APPLE__) || defined(__linux__)
@@ -571,7 +541,7 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
 #else
   /* Fallback: use posix_openpt() + fork() */
   /* This path is for other POSIX systems; currently not needed. */
-  pid = -1;
+  pid   = -1;
   errno = ENOTSUP;
 #endif
 
@@ -607,11 +577,12 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
   /* ── Parent process ── */
   free((void *)exec_argv);
 
-  exec->child_pid = pid;
+  exec->child_pid     = pid;
   exec->pty_master_fd = master_fd;
   exec->result.pty_fd = master_fd;
 
-  /* Synchronize process group creation to avoid race with child's setpgid(0,0). */
+  /* Synchronize process group creation to avoid race with child's setpgid(0,0).
+   */
   setpgid(pid, pid);
 
   /* Set master fd to non-blocking for event loop integration */
@@ -628,8 +599,8 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
    * the readable event on the master fd (EIO from slave close) is lost
    * and on_pty_readable will never fire, leaving stdout_eof = 0 forever. */
   if (conf->stdout_mode != xCommandOutput_Discard) {
-    exec->stdout_src = xEventAdd(exec->loop, master_fd,
-                                  xEvent_Read, on_pty_readable, exec);
+    exec->stdout_src =
+      xEventAdd(exec->loop, master_fd, xEvent_Read, on_pty_readable, exec);
     if (!exec->stdout_src) goto fail_sigchld;
   } else {
     /* Discard mode: don't watch master fd, but keep it open so the child
@@ -659,9 +630,11 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
           ssize_t n = read(master_fd, buf, sizeof(buf));
           if (n > 0) {
             if (exec->stdout_mode == xCommandOutput_Capture) {
-              cmdbuf_append(exec->stdout_buf, buf, (size_t)n);
-            } else if (exec->stdout_mode == xCommandOutput_Stream && exec->on_stdout) {
-              exec->on_stdout((xCommand)exec, buf, (size_t)n, exec->ud);
+              exec->stdout_buf =
+                xStrAppendLen(exec->stdout_buf, buf, (size_t)n);
+            } else if (exec->stdout_mode == xCommandOutput_Stream &&
+                       exec->on_stdout) {
+              exec->on_stdout((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
             }
           } else if (n == 0) {
             /* EOF */
@@ -695,11 +668,11 @@ static xErrno xCommandRunPty(struct xCommand_ *exec, const xCommandConf *conf) {
 
   /* Start timeout timer */
   if (conf->timeout_ms > 0) {
-    exec->timeout_timer = xEventLoopTimerAfter(exec->loop, on_timeout, exec,
-                                                conf->timeout_ms);
+    exec->timeout_timer =
+      xEventLoopTimerAfter(exec->loop, on_timeout, exec, conf->timeout_ms);
   }
 
-  exec->state = xCommandState_Running;
+  exec->state = xCommandExecutorState_Running;
   return xErrno_Ok;
 
 fail_sigchld:
@@ -713,7 +686,7 @@ fail_sigchld:
     exec->result.pty_fd = -1;
   }
 fail:
-  exec->state = xCommandState_Idle;
+  exec->state = xCommandExecutorState_Idle;
   return xErrno_SysError;
 }
 
@@ -721,40 +694,42 @@ fail:
 
 /* ───────────────────── Cancel ───────────────────── */
 
-xErrno xCommandCancel(xCommand exec_) {
+xErrno xCommandExecutorCancel(xCommandExecutor exec_) {
   if (!exec_) return xErrno_InvalidArg;
-  struct xCommand_ *exec = (struct xCommand_ *)exec_;
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
 
-  if (exec->state != xCommandState_Running) return xErrno_InvalidState;
+  if (exec->state != xCommandExecutorState_Running) return xErrno_InvalidState;
 
   /* Send SIGTERM to the process group */
   cmd_kill_pg(exec, SIGTERM);
   exec->result.timed_out = 1;
-  exec->state = xCommandState_Cancelling;
+  exec->state            = xCommandExecutorState_Cancelling;
 
   /* Start grace timer for SIGKILL */
   exec->cancel_timer = xEventLoopTimerAfter(exec->loop, on_cancel_grace, exec,
-                                             CMD_CANCEL_GRACE_MS);
+                                            CMD_CANCEL_GRACE_MS);
   return xErrno_Ok;
 }
 
 /* ───────────────────── Query ───────────────────── */
 
-int xCommandPid(xCommand exec_) {
+int xCommandExecutorPid(xCommandExecutor exec_) {
   if (!exec_) return -1;
-  struct xCommand_ *exec = (struct xCommand_ *)exec_;
-  return (exec->state != xCommandState_Idle) ? (int)exec->child_pid : -1;
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
+  return (exec->state != xCommandExecutorState_Idle) ? (int)exec->child_pid
+                                                     : -1;
 }
 
-int xCommandIsRunning(xCommand exec_) {
+int xCommandExecutorIsRunning(xCommandExecutor exec_) {
   if (!exec_) return 0;
-  return ((struct xCommand_ *)exec_)->state != xCommandState_Idle;
+  return ((struct xCommandExecutor_ *)exec_)->state !=
+         xCommandExecutorState_Idle;
 }
 
-int xCommandPtyFd(xCommand exec_) {
+int xCommandExecutorPtyFd(xCommandExecutor exec_) {
   if (!exec_) return -1;
-  struct xCommand_ *exec = (struct xCommand_ *)exec_;
-  if (exec->state == xCommandState_Idle) return -1;
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
+  if (exec->state == xCommandExecutorState_Idle) return -1;
   return exec->pty_master_fd;
 }
 
@@ -762,16 +737,18 @@ int xCommandPtyFd(xCommand exec_) {
 
 static void on_stdout_readable(int fd, xEventMask mask, void *arg) {
   (void)mask;
-  struct xCommand_ *exec = (struct xCommand_ *)arg;
-  char buf[CMD_READ_BUF_SIZE];
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)arg;
+  char                      buf[CMD_READ_BUF_SIZE];
 
   for (;;) {
     ssize_t n = read(fd, buf, sizeof(buf));
     if (n > 0) {
       if (exec->stdout_mode == xCommandOutput_Capture) {
-        cmdbuf_append(exec->stdout_buf, buf, (size_t)n);
-      } else if (exec->stdout_mode == xCommandOutput_Stream && exec->on_stdout) {
-        exec->on_stdout((xCommand)exec, buf, (size_t)n, exec->ud);
+        exec->stdout_buf =
+          xStrAppendLen(exec->stdout_buf, buf, (size_t)n);
+      } else if (exec->stdout_mode == xCommandOutput_Stream &&
+                 exec->on_stdout) {
+        exec->on_stdout((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
       }
     } else if (n == 0) {
       /* EOF */
@@ -779,7 +756,7 @@ static void on_stdout_readable(int fd, xEventMask mask, void *arg) {
       exec->stdout_src = NULL;
       close(exec->stdout_pipe[0]);
       exec->stdout_pipe[0] = -1;
-      exec->stdout_eof = 1;
+      exec->stdout_eof     = 1;
       cmd_check_completion(exec);
       break;
     } else {
@@ -789,7 +766,7 @@ static void on_stdout_readable(int fd, xEventMask mask, void *arg) {
       exec->stdout_src = NULL;
       close(exec->stdout_pipe[0]);
       exec->stdout_pipe[0] = -1;
-      exec->stdout_eof = 1;
+      exec->stdout_eof     = 1;
       cmd_check_completion(exec);
       break;
     }
@@ -798,23 +775,25 @@ static void on_stdout_readable(int fd, xEventMask mask, void *arg) {
 
 static void on_stderr_readable(int fd, xEventMask mask, void *arg) {
   (void)mask;
-  struct xCommand_ *exec = (struct xCommand_ *)arg;
-  char buf[CMD_READ_BUF_SIZE];
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)arg;
+  char                      buf[CMD_READ_BUF_SIZE];
 
   for (;;) {
     ssize_t n = read(fd, buf, sizeof(buf));
     if (n > 0) {
       if (exec->stderr_mode == xCommandOutput_Capture) {
-        cmdbuf_append(exec->stderr_buf, buf, (size_t)n);
-      } else if (exec->stderr_mode == xCommandOutput_Stream && exec->on_stderr) {
-        exec->on_stderr((xCommand)exec, buf, (size_t)n, exec->ud);
+        exec->stderr_buf =
+          xStrAppendLen(exec->stderr_buf, buf, (size_t)n);
+      } else if (exec->stderr_mode == xCommandOutput_Stream &&
+                 exec->on_stderr) {
+        exec->on_stderr((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
       }
     } else if (n == 0) {
       xEventDel(exec->loop, exec->stderr_src);
       exec->stderr_src = NULL;
       close(exec->stderr_pipe[0]);
       exec->stderr_pipe[0] = -1;
-      exec->stderr_eof = 1;
+      exec->stderr_eof     = 1;
       cmd_check_completion(exec);
       break;
     } else {
@@ -823,7 +802,7 @@ static void on_stderr_readable(int fd, xEventMask mask, void *arg) {
       exec->stderr_src = NULL;
       close(exec->stderr_pipe[0]);
       exec->stderr_pipe[0] = -1;
-      exec->stderr_eof = 1;
+      exec->stderr_eof     = 1;
       cmd_check_completion(exec);
       break;
     }
@@ -836,17 +815,19 @@ static void on_stderr_readable(int fd, xEventMask mask, void *arg) {
 
 static void on_pty_readable(int fd, xEventMask mask, void *arg) {
   (void)mask;
-  struct xCommand_ *exec = (struct xCommand_ *)arg;
-  char buf[CMD_READ_BUF_SIZE];
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)arg;
+  char                      buf[CMD_READ_BUF_SIZE];
 
   for (;;) {
     ssize_t n = read(fd, buf, sizeof(buf));
     if (n > 0) {
       /* In PTY mode, all output is merged and treated as stdout */
       if (exec->stdout_mode == xCommandOutput_Capture) {
-        cmdbuf_append(exec->stdout_buf, buf, (size_t)n);
-      } else if (exec->stdout_mode == xCommandOutput_Stream && exec->on_stdout) {
-        exec->on_stdout((xCommand)exec, buf, (size_t)n, exec->ud);
+        exec->stdout_buf =
+          xStrAppendLen(exec->stdout_buf, buf, (size_t)n);
+      } else if (exec->stdout_mode == xCommandOutput_Stream &&
+                 exec->on_stdout) {
+        exec->on_stdout((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
       }
     } else if (n == 0) {
       /* EOF — master side closed means child exited */
@@ -859,7 +840,8 @@ static void on_pty_readable(int fd, xEventMask mask, void *arg) {
       break;
     } else {
       if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-      /* EIO is commonly returned when the slave side is closed (child exited) */
+      /* EIO is commonly returned when the slave side is closed (child exited)
+       */
       if (errno == EIO) {
         xEventDel(exec->loop, exec->stdout_src);
         exec->stdout_src = NULL;
@@ -882,26 +864,26 @@ static void on_pty_readable(int fd, xEventMask mask, void *arg) {
 /* ───────────────────── Timeout callback ───────────────────── */
 
 static void on_timeout(void *arg) {
-  struct xCommand_ *exec = (struct xCommand_ *)arg;
-  exec->timeout_timer = NULL;
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)arg;
+  exec->timeout_timer            = NULL;
 
-  if (exec->state != xCommandState_Running) return;
+  if (exec->state != xCommandExecutorState_Running) return;
 
   /* Send SIGTERM, then schedule SIGKILL */
   cmd_kill_pg(exec, SIGTERM);
   exec->result.timed_out = 1;
-  exec->state = xCommandState_Cancelling;
+  exec->state            = xCommandExecutorState_Cancelling;
   exec->cancel_timer = xEventLoopTimerAfter(exec->loop, on_cancel_grace, exec,
-                                             CMD_CANCEL_GRACE_MS);
+                                            CMD_CANCEL_GRACE_MS);
 }
 
 /* ───────────────────── Cancel grace period ───────────────────── */
 
 static void on_cancel_grace(void *arg) {
-  struct xCommand_ *exec = (struct xCommand_ *)arg;
-  exec->cancel_timer = NULL;
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)arg;
+  exec->cancel_timer             = NULL;
 
-  if (exec->state != xCommandState_Cancelling) return;
+  if (exec->state != xCommandExecutorState_Cancelling) return;
 
   /* Child didn't exit after SIGTERM — force kill */
   cmd_kill_pg(exec, SIGKILL);
@@ -915,9 +897,9 @@ static void sigchld_handler(int signo, void *arg) {
   (void)arg;
 
   /* Walk all registered executors and try to reap. */
-  struct xCommand_ *cur = g_sigchld_head;
+  struct xCommandExecutor_ *cur = g_sigchld_head;
   while (cur) {
-    struct xCommand_ *exec = cur;
+    struct xCommandExecutor_ *exec = cur;
     if (exec->child_pid > 0 && !exec->child_exited) {
       int   status;
       pid_t ret = waitpid(exec->child_pid, &status, WNOHANG);
@@ -942,7 +924,7 @@ static void sigchld_handler(int signo, void *arg) {
 
 /* ───────────────────── Completion check ───────────────────── */
 
-static void cmd_check_completion(struct xCommand_ *exec) {
+static void cmd_check_completion(struct xCommandExecutor_ *exec) {
   /* All three conditions must be met: stdout EOF, stderr EOF, child exited */
   if (!exec->stdout_eof || !exec->stderr_eof || !exec->child_exited) return;
 
@@ -951,7 +933,7 @@ static void cmd_check_completion(struct xCommand_ *exec) {
 
 /* ───────────────────── Fire completion ───────────────────── */
 
-static void cmd_fire_done(struct xCommand_ *exec) {
+static void cmd_fire_done(struct xCommandExecutor_ *exec) {
   /* Cancel any pending timers */
   if (exec->timeout_timer) {
     xEventLoopTimerCancel(exec->loop, exec->timeout_timer);
@@ -966,13 +948,13 @@ static void cmd_fire_done(struct xCommand_ *exec) {
   exec->result.elapsed_ms = xMonoMs() - exec->start_ms;
 
   if (exec->stdout_mode == xCommandOutput_Capture && exec->stdout_buf) {
-    exec->result.stdout_buf = exec->stdout_buf->data;
-    exec->result.stdout_len = exec->stdout_buf->len;
+    exec->result.stdout_buf = exec->stdout_buf;
+    exec->result.stdout_len = xStrLen(exec->stdout_buf);
   }
-  if (exec->stderr_mode == xCommandOutput_Capture && exec->input_mode != xCommandInput_Pty
-      && exec->stderr_buf) {
-    exec->result.stderr_buf = exec->stderr_buf->data;
-    exec->result.stderr_len = exec->stderr_buf->len;
+  if (exec->stderr_mode == xCommandOutput_Capture &&
+      exec->input_mode != xCommandInput_Pty && exec->stderr_buf) {
+    exec->result.stderr_buf = exec->stderr_buf;
+    exec->result.stderr_len = xStrLen(exec->stderr_buf);
   }
 
   /* Close PTY master fd on completion */
@@ -987,17 +969,18 @@ static void cmd_fire_done(struct xCommand_ *exec) {
   /* Clean up fds and event sources */
   cmd_cleanup(exec);
 
-  /* Transition to idle BEFORE callback so xCommandRun can be called again */
-  exec->state = xCommandState_Idle;
+  /* Transition to idle BEFORE callback so xCommandExecutorSubmit can be called
+   * again */
+  exec->state = xCommandExecutorState_Idle;
 
   /* Deliver result — copy because callback may start a new run */
   xCommandResult result_copy = exec->result;
-  exec->on_done((xCommand)exec, &result_copy, exec->ud);
+  exec->on_done((xCommandExecutor)exec, &result_copy, exec->ud);
 }
 
 /* ───────────────────── Cleanup ───────────────────── */
 
-static void cmd_cleanup(struct xCommand_ *exec) {
+static void cmd_cleanup(struct xCommandExecutor_ *exec) {
   /* Remove event sources */
   if (exec->stdout_src) {
     xEventDel(exec->loop, exec->stdout_src);
@@ -1037,7 +1020,7 @@ static void cmd_cleanup(struct xCommand_ *exec) {
 
 /* ───────────────────── Kill process group ───────────────────── */
 
-static void cmd_kill_pg(struct xCommand_ *exec, int sig) {
+static void cmd_kill_pg(struct xCommandExecutor_ *exec, int sig) {
   if (exec->child_pid > 0) {
     /* Kill the entire process group (negative pid = killpg) */
     kill(-exec->child_pid, sig);

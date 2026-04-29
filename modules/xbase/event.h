@@ -295,11 +295,33 @@ XCAPI(void) xEventLoopRun(xEventLoop loop);
  * @brief Stop a running event loop.
  *
  * Sets an internal stop flag and wakes the loop so that xEventLoopRun()
- * returns promptly. Safe to call from any thread.
+ * or xEventLoopWait() returns promptly. Safe to call from any thread.
  *
  * @param loop The event loop.
  */
 XCAPI(void) xEventLoopStop(xEventLoop loop);
+
+/**
+ * @brief Run the event loop until stopped or a timeout expires.
+ *
+ * Like xEventLoopRun(), but with an overall deadline. The loop repeatedly
+ * calls xEventWait() until either:
+ *   - xEventLoopStop() is called (returns xErrno_Ok), or
+ *   - @p timeout_ms elapses (returns xErrno_Timeout).
+ *
+ * Typical usage in tests:
+ * @code
+ *   xErrno rc = xEventLoopWait(loop, 5000);
+ *   EXPECT_EQ(rc, xErrno_Ok);  // stopped by callback
+ * @endcode
+ *
+ * @param loop        The event loop (must not be NULL).
+ * @param timeout_ms  Maximum total wait in milliseconds.
+ *                    -1 = block indefinitely (same as xEventLoopRun).
+ * @return            xErrno_Ok if stopped, xErrno_Timeout if deadline
+ *                    expired, xErrno_InvalidArg if loop is NULL.
+ */
+XCAPI(xErrno) xEventLoopWait(xEventLoop loop, int timeout_ms);
 
 /**
  * @brief Watch for a POSIX signal on the event loop.

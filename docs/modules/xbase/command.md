@@ -1,8 +1,8 @@
-# cmd.h — Async Command Executor
+# command.h — Async Command Executor
 
 ## Introduction
 
-`cmd.h` provides an asynchronous command executor that spawns child processes over `xEventLoop` with stdout/stderr capture, streaming, or discard modes. It uses `fork()` + `execvp()` with independent process groups for clean timeout/cancellation via `killpg()`. Child exit detection is done through `SIGCHLD` delivered via `xEventLoopSignalWatch()`.
+`command.h` provides an asynchronous command executor that spawns child processes over `xEventLoop` with stdout/stderr capture, streaming, or discard modes. It uses `fork()` + `execvp()` with independent process groups for clean timeout/cancellation via `killpg()`. Child exit detection is done through `SIGCHLD` delivered via `xEventLoopSignalWatch()`.
 
 ## Design Philosophy
 
@@ -170,7 +170,7 @@ An `xCommandExecutor` can only run one command at a time. Calling `xCommandExecu
 
 ```c
 #include <stdio.h>
-#include <xbase/cmd.h>
+#include <xbase/command.h>
 #include <xbase/event.h>
 
 static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
@@ -205,7 +205,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/cmd.h>
+#include <xbase/command.h>
 #include <xbase/event.h>
 
 static void on_stdout(xCommandExecutor exec, const char *data, size_t len, void *ud) {
@@ -241,7 +241,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/cmd.h>
+#include <xbase/command.h>
 #include <xbase/event.h>
 
 static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
@@ -280,7 +280,7 @@ int main(void) {
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <xbase/cmd.h>
+#include <xbase/command.h>
 #include <xbase/event.h>
 
 static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
@@ -328,7 +328,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/cmd.h>
+#include <xbase/command.h>
 #include <xbase/event.h>
 
 static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
@@ -389,7 +389,7 @@ int main(void) {
 
 ## Comparison with Other Libraries
 
-| Feature | xbase cmd.h | `popen()` / `pclose()` | `posix_spawn()` | libuv `uv_spawn` |
+| Feature | xbase command.h | `popen()` / `pclose()` | `posix_spawn()` | libuv `uv_spawn` |
 | --- | --- | --- | --- | --- |
 | **Async / Event-Loop** | Yes (xEventLoop) | No (blocking) | No (blocking wait) | Yes (uv_loop) |
 | **stdout + stderr** | Separate capture/stream | stdout only | Manual pipe setup | Separate pipes |

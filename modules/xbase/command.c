@@ -3,11 +3,11 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * cmd.c - Async command executor over xEventLoop
+ * command.c - Async command executor over xEventLoop
  */
 
-#include <xbase/cmd.h>
-#include <xbase/str.h>
+#include <xbase/command.h>
+#include <xbase/string.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -65,8 +65,8 @@ struct xCommandExecutor_ {
   xEventTimer cancel_timer;
 
   /* Output capture buffers (Capture mode) */
-  xStr stdout_buf;
-  xStr stderr_buf;
+  xString stdout_buf;
+  xString stderr_buf;
 
   /* Configuration limits */
   size_t stdout_max; /**< from xCommandConf::stdout_cap */
@@ -256,8 +256,8 @@ void xCommandExecutorDestroy(xCommandExecutor exec_) {
     cmd_cleanup(exec);
   }
 
-  if (exec->stdout_buf) xStrDestroy(exec->stdout_buf);
-  if (exec->stderr_buf) xStrDestroy(exec->stderr_buf);
+  if (exec->stdout_buf) xStringDestroy(exec->stdout_buf);
+  if (exec->stderr_buf) xStringDestroy(exec->stderr_buf);
   free(exec);
 }
 
@@ -299,8 +299,8 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
   if (exec->state != xCommandExecutorState_Idle) return xErrno_Busy;
 
   /* ── Reset state from previous run ── */
-  if (exec->stdout_buf) xStrDestroy(exec->stdout_buf);
-  if (exec->stderr_buf) xStrDestroy(exec->stderr_buf);
+  if (exec->stdout_buf) xStringDestroy(exec->stdout_buf);
+  if (exec->stderr_buf) xStringDestroy(exec->stderr_buf);
   memset(&exec->result, 0, sizeof(exec->result));
   exec->stdout_buf  = NULL;
   exec->stderr_buf  = NULL;
@@ -312,12 +312,12 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
 
   /* Create capture buffers for Capture mode */
   if (conf->stdout_mode == xCommandOutput_Capture) {
-    exec->stdout_buf = xStrCreate(NULL);
+    exec->stdout_buf = xStringCreate(NULL);
     if (!exec->stdout_buf) goto fail;
   }
   if (conf->stderr_mode == xCommandOutput_Capture &&
       conf->input_mode != xCommandInput_Pty) {
-    exec->stderr_buf = xStrCreate(NULL);
+    exec->stderr_buf = xStringCreate(NULL);
     if (!exec->stderr_buf) goto fail;
   }
   exec->stdout_eof    = 0;
@@ -630,8 +630,7 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
           ssize_t n = read(master_fd, buf, sizeof(buf));
           if (n > 0) {
             if (exec->stdout_mode == xCommandOutput_Capture) {
-              exec->stdout_buf =
-                xStrAppendLen(exec->stdout_buf, buf, (size_t)n);
+              xStringAppendLen(&exec->stdout_buf, buf, (size_t)n);
             } else if (exec->stdout_mode == xCommandOutput_Stream &&
                        exec->on_stdout) {
               exec->on_stdout((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
@@ -744,8 +743,7 @@ static void on_stdout_readable(int fd, xEventMask mask, void *arg) {
     ssize_t n = read(fd, buf, sizeof(buf));
     if (n > 0) {
       if (exec->stdout_mode == xCommandOutput_Capture) {
-        exec->stdout_buf =
-          xStrAppendLen(exec->stdout_buf, buf, (size_t)n);
+        xStringAppendLen(&exec->stdout_buf, buf, (size_t)n);
       } else if (exec->stdout_mode == xCommandOutput_Stream &&
                  exec->on_stdout) {
         exec->on_stdout((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
@@ -782,8 +780,7 @@ static void on_stderr_readable(int fd, xEventMask mask, void *arg) {
     ssize_t n = read(fd, buf, sizeof(buf));
     if (n > 0) {
       if (exec->stderr_mode == xCommandOutput_Capture) {
-        exec->stderr_buf =
-          xStrAppendLen(exec->stderr_buf, buf, (size_t)n);
+        xStringAppendLen(&exec->stderr_buf, buf, (size_t)n);
       } else if (exec->stderr_mode == xCommandOutput_Stream &&
                  exec->on_stderr) {
         exec->on_stderr((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
@@ -823,8 +820,7 @@ static void on_pty_readable(int fd, xEventMask mask, void *arg) {
     if (n > 0) {
       /* In PTY mode, all output is merged and treated as stdout */
       if (exec->stdout_mode == xCommandOutput_Capture) {
-        exec->stdout_buf =
-          xStrAppendLen(exec->stdout_buf, buf, (size_t)n);
+        xStringAppendLen(&exec->stdout_buf, buf, (size_t)n);
       } else if (exec->stdout_mode == xCommandOutput_Stream &&
                  exec->on_stdout) {
         exec->on_stdout((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
@@ -949,12 +945,12 @@ static void cmd_fire_done(struct xCommandExecutor_ *exec) {
 
   if (exec->stdout_mode == xCommandOutput_Capture && exec->stdout_buf) {
     exec->result.stdout_buf = exec->stdout_buf;
-    exec->result.stdout_len = xStrLen(exec->stdout_buf);
+    exec->result.stdout_len = xStringLen(exec->stdout_buf);
   }
   if (exec->stderr_mode == xCommandOutput_Capture &&
       exec->input_mode != xCommandInput_Pty && exec->stderr_buf) {
     exec->result.stderr_buf = exec->stderr_buf;
-    exec->result.stderr_len = xStrLen(exec->stderr_buf);
+    exec->result.stderr_len = xStringLen(exec->stderr_buf);
   }
 
   /* Close PTY master fd on completion */

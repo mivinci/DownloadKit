@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * cmd.h - Async command executor over xEventLoop
+ * command.h - Async command executor over xEventLoop
  *
  * Spawns child processes with stdout/stderr capture, streaming, or
  * discard modes. Uses fork() + execvp() with independent process groups
@@ -41,8 +41,8 @@
  *     It is set to -1 after the command completes.
  */
 
-#ifndef XBASE_CMD_H
-#define XBASE_CMD_H
+#ifndef XBASE_COMMAND_H
+#define XBASE_COMMAND_H
 
 #include <stdint.h>
 #include <xbase/base.h>
@@ -223,4 +223,4 @@ XCAPI(int) xCommandExecutorIsRunning(xCommandExecutor exec);
  */
 XCAPI(int) xCommandExecutorPtyFd(xCommandExecutor exec);
 
-#endif /* XBASE_CMD_H */
+#endif /* XBASE_COMMAND_H */

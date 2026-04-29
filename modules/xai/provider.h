@@ -70,7 +70,7 @@ XDEF_STRUCT(xAiProviderSubmitConf) {
   const xAiMessage  *messages;     /**< Ordered conversation history      */
   size_t             n_messages;
   const xAiTool    **tools;        /**< Advertised tools (may be NULL)    */
-  size_t             n_tools;
+  size_t             tools_count;
   double             temperature;  /**< <0 means "not set"                */
   int                max_tokens;   /**< 0 means "not set"                 */
   const char       **stop;         /**< NULL-terminated stop sequences    */

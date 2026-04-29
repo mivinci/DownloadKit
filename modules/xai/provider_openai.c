@@ -349,9 +349,9 @@ static char *oai_build_body(struct xOaiImpl_            *impl,
   }
   cJSON_AddItemToObject(root, "messages", msgs);
 
-  if (conf->tools && conf->n_tools > 0) {
+  if (conf->tools && conf->tools_count > 0) {
     cJSON *tools = cJSON_CreateArray();
-    for (size_t i = 0; i < conf->n_tools; i++) {
+    for (size_t i = 0; i < conf->tools_count; i++) {
       /* SubmitConf.tools is `const xAiTool **` — an array of handle
        * pointers. Deref once to reach the handle itself. The handle
        * is opaque (void*), so the const here is advisory only (the

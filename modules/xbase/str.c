@@ -214,9 +214,10 @@ xStr xStrShrinkToFit(xStr s) {
   if (hdr->cap == hdr->len) return s;
 
   size_t      new_size = XSTR_HEADER_SIZE + hdr->len + 1;
+  size_t      old_len  = hdr->len;
   xStrHeader *new_hdr  = (xStrHeader *)realloc(hdr, new_size);
   if (!new_hdr) return s; /* keep original on failure */
-  new_hdr->cap = hdr->len;
+  new_hdr->cap = old_len;
   return (xStr)(new_hdr + 1);
 }
 

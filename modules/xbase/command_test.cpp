@@ -3,12 +3,12 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * cmd_test.cpp - Tests for xCommandExecutor async command executor
+ * command_test.cpp - Tests for xCommandExecutor async command executor
  */
 
 #include <gtest/gtest.h>
 
-#include <xbase/cmd.h>
+#include <xbase/command.h>
 #include <xbase/event.h>
 
 #include <string.h>

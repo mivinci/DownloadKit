@@ -310,9 +310,10 @@ xAiAgent xAiAgentCreate(const xAiAgentConf *conf) {
   a->task_group    = conf->task_group;
   a->max_turns     = conf->max_turns;
   a->max_tokens    = conf->max_tokens;
-  a->agent_id      = conf->agent_id ? conf->agent_id : "default";
-  a->data_dir      = conf->data_dir ? conf->data_dir : "/tmp/xai";
-  a->session_seq   = 0;
+  a->agent_id             = conf->agent_id ? conf->agent_id : "default";
+  a->data_dir             = conf->data_dir ? conf->data_dir : "/tmp/xai";
+  a->enable_sidecar_query = conf->enable_sidecar_query;
+  a->session_seq          = 0;
 
   /* Create the agent's built-in default session if the caller
    * provided a configuration template. The default session lives

@@ -86,6 +86,19 @@ XDEF_ENUM(xAiInputOrigin){
  * only valid for the duration of the call – copy anything you need
  * to retain. All callbacks run on the agent's event loop thread.
  */
+/**
+ * @brief Sidecar query lifecycle events, delivered via
+ *        xAiSessionCallbacks::on_sidecar.
+ *
+ * The sidecar is a lightweight query launched when the main query's
+ * async tool (e.g. shell) has gone idle. These events let the caller
+ * show sidecar status in the UI.
+ */
+XDEF_ENUM(xAiSidecarEvent){
+  xAiSidecarEvent_Started = 0, /**< Sidecar query just launched.   */
+  xAiSidecarEvent_Done    = 1, /**< Sidecar query completed.       */
+};
+
 XDEF_STRUCT(xAiSessionCallbacks) {
   /**
    * @brief Fired for each streamed assistant text chunk.
@@ -207,6 +220,27 @@ XDEF_STRUCT(xAiSessionCallbacks) {
   void (*on_tool_output)(xAiSession sess, const char *tool_use_id,
                          const char *tool_name, const char *data, size_t len,
                          void *ud);
+
+  /**
+   * @brief Optional: sidecar query lifecycle signal.
+   *
+   * Fired when the session launches or finishes a sidecar query.
+   * The sidecar is a lightweight, internally-triggered query that
+   * runs alongside the main query when an async tool has gone idle
+   * (no output for sidecar_idle_ms). It lets the AI inspect the
+   * situation and decide whether to send input (via shell_stdin),
+   * cancel, or take no action.
+   *
+   * Between xAiSidecarEvent_Started and _Done, any on_text
+   * callbacks originate from the sidecar query (not the main one),
+   * so the UI can label them accordingly. May be NULL = caller
+   * does not care about sidecar events.
+   *
+   * @param sess   The session.
+   * @param event  The sidecar lifecycle event.
+   * @param ud     The user_data pointer from this struct.
+   */
+  void (*on_sidecar)(xAiSession sess, xAiSidecarEvent event, void *ud);
 
   /** Forwarded to every callback in this struct. */
   void *user_data;
@@ -686,6 +720,29 @@ XDEF_STRUCT(xAiSessionConf) {
    * xAiAgentCreateSession(). Readable via xAiSessionId().
    */
   const char *session_id;
+
+  /**
+   * @brief Idle timeout (in ms) before launching a sidecar Query
+   *        when an async tool call has not produced output.
+   *
+   * When the main Query is blocked waiting for an async tool (e.g.
+   * a long-running shell command) and no streaming output has been
+   * received for this many milliseconds, the Session automatically
+   * launches a lightweight sidecar Query. The sidecar is given the
+   * accumulated tool output and a restricted tool set (e.g.
+   * shell_stdin) so the AI can decide whether to send input, cancel,
+   * or take other diagnostic action.
+   *
+   * Zero (the default) disables the sidecar mechanism entirely —
+   * the Session never launches one. This is the safe default for
+   * sessions that do not use interactive async tools.
+   *
+   * Typical values: 5000–15000 ms depending on expected command
+   * latency. Shorter values make the AI respond faster to prompts,
+   * at the cost of more LLM invocations for commands that are
+   * genuinely slow but don't need input.
+   */
+  uint64_t sidecar_idle_ms;
 };
 
 /**

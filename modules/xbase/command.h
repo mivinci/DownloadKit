@@ -223,4 +223,20 @@ XCAPI(int) xCommandExecutorIsRunning(xCommandExecutor exec);
  */
 XCAPI(int) xCommandExecutorPtyFd(xCommandExecutor exec);
 
+/**
+ * @brief Return a writable fd for the child's stdin, or -1 if not available.
+ *
+ * In PTY mode this returns the PTY master fd (same as xCommandExecutorPtyFd).
+ * In Pipe mode this returns the write end of the stdin pipe. The child's
+ * stdin is connected to the read end; writing to this fd sends data to the
+ * child's standard input.
+ *
+ * The fd is closed automatically when the command finishes or the executor
+ * is destroyed. The caller should NOT close the returned fd.
+ *
+ * @param exec  Executor handle (NULL-safe).
+ * @return      Writable fd for child stdin, or -1 if not running / not available.
+ */
+XCAPI(int) xCommandExecutorStdinFd(xCommandExecutor exec);
+
 #endif /* XBASE_COMMAND_H */

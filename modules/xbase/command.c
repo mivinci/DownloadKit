@@ -54,6 +54,11 @@ struct xCommandExecutor_ {
   /* PTY master fd (valid in PTY mode, -1 otherwise) */
   int pty_master_fd;
 
+  /* Stdin pipe: [0] = read end (child), [1] = write end (parent).
+   * Only used in Pipe mode. [0] is dup'd into child's STDIN_FILENO;
+   * [1] is exposed via xCommandExecutorStdinFd(). */
+  int stdin_pipe[2];
+
   /* Event sources for pipe read ends / PTY master */
   xEventSource stdout_src;
   xEventSource stderr_src;
@@ -228,6 +233,8 @@ xCommandExecutor xCommandExecutorCreate(xEventLoop loop) {
   exec->stderr_pipe[0] = -1;
   exec->stderr_pipe[1] = -1;
   exec->pty_master_fd  = -1;
+  exec->stdin_pipe[0]  = -1;
+  exec->stdin_pipe[1]  = -1;
   exec->stdout_src     = NULL;
   exec->stderr_src     = NULL;
   exec->timeout_timer  = NULL;
@@ -325,6 +332,8 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
   exec->child_exited  = 0;
   exec->pty_master_fd = -1;
   exec->result.pty_fd = -1;
+  exec->stdin_pipe[0] = -1;
+  exec->stdin_pipe[1] = -1;
 
   exec->on_stdout = on_stdout;
   exec->on_stderr = on_stderr;
@@ -343,6 +352,11 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
   /* ── Pipe mode (default) ── */
 
   /* ── Create pipes ── */
+  /* Stdin pipe: parent writes to [1], child reads from [0] */
+  if (pipe_cloexec_nonblock(exec->stdin_pipe) != 0) goto fail;
+  /* Make the write end non-blocking so writes don't block the event loop */
+  fd_set_nonblock(exec->stdin_pipe[1]);
+
   if (conf->stdout_mode != xCommandOutput_Discard) {
     if (pipe_cloexec_nonblock(exec->stdout_pipe) != 0) goto fail;
   }
@@ -374,6 +388,11 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
     /* Create own process group for killpg() support */
     setpgid(0, 0);
 
+    /* Redirect stdin from pipe */
+    if (exec->stdin_pipe[0] >= 0) {
+      dup2(exec->stdin_pipe[0], STDIN_FILENO);
+    }
+
     /* Redirect stdout */
     if (conf->stdout_mode == xCommandOutput_Discard) {
       int devnull = open("/dev/null", O_WRONLY);
@@ -397,10 +416,29 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
     }
 
     /* Close all pipe fds (write ends are now dup'd to stdout/stderr) */
+    close(exec->stdin_pipe[0]);
+    close(exec->stdin_pipe[1]);
     close(exec->stdout_pipe[0]);
     close(exec->stdout_pipe[1]);
     close(exec->stderr_pipe[0]);
     close(exec->stderr_pipe[1]);
+
+    /* Clear O_NONBLOCK on stdin/stdout/stderr.
+     *
+     * pipe_cloexec_nonblock() sets O_NONBLOCK on both ends of each
+     * pipe.  Since O_NONBLOCK is a file-description-level flag,
+     * dup2() preserves it on the new fd.  Without clearing it,
+     * the child's stdin would be non-blocking — causing reads to
+     * return EAGAIN immediately, which Python's input() interprets
+     * as EOF.  Clear it on all three standard fds for safety,
+     * though stdin is the one that breaks in practice. */
+    {
+      int std_fds[] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
+      for (int i = 0; i < 3; i++) {
+        int fl = fcntl(std_fds[i], F_GETFL, 0);
+        if (fl >= 0) fcntl(std_fds[i], F_SETFL, fl & ~O_NONBLOCK);
+      }
+    }
 
     /* Change working directory */
     if (conf->cwd) {
@@ -426,6 +464,12 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
   /* Synchronize process group creation to avoid race with child's setpgid(0,0).
    */
   setpgid(pid, pid);
+
+  /* Close stdin pipe read end (child owns it now) */
+  if (exec->stdin_pipe[0] >= 0) {
+    close(exec->stdin_pipe[0]);
+    exec->stdin_pipe[0] = -1;
+  }
 
   /* Close write ends (child owns them now) */
   if (exec->stdout_pipe[1] >= 0) {
@@ -486,6 +530,10 @@ fail_sigchld:
   kill(pid, SIGKILL);
   waitpid(pid, NULL, 0);
 fail_pipes:
+  if (exec->stdin_pipe[0] >= 0) close(exec->stdin_pipe[0]);
+  if (exec->stdin_pipe[1] >= 0) close(exec->stdin_pipe[1]);
+  exec->stdin_pipe[0] = -1;
+  exec->stdin_pipe[1] = -1;
   if (exec->stdout_pipe[0] >= 0) close(exec->stdout_pipe[0]);
   if (exec->stdout_pipe[1] >= 0) close(exec->stdout_pipe[1]);
   if (exec->stderr_pipe[0] >= 0) close(exec->stderr_pipe[0]);
@@ -728,6 +776,18 @@ int xCommandExecutorPtyFd(xCommandExecutor exec_) {
   struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
   if (exec->state == xCommandExecutorState_Idle) return -1;
   return exec->pty_master_fd;
+}
+
+int xCommandExecutorStdinFd(xCommandExecutor exec_) {
+  if (!exec_) return -1;
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
+  if (exec->state == xCommandExecutorState_Idle) return -1;
+  /* PTY mode: write to the master fd */
+  if (exec->input_mode == xCommandInput_Pty && exec->pty_master_fd >= 0)
+    return exec->pty_master_fd;
+  /* Pipe mode: write to the stdin pipe write end */
+  if (exec->stdin_pipe[1] >= 0) return exec->stdin_pipe[1];
+  return -1;
 }
 
 /* ───────────────────── Pipe read callbacks ───────────────────── */
@@ -984,6 +1044,17 @@ static void cmd_cleanup(struct xCommandExecutor_ *exec) {
   if (exec->stderr_src) {
     xEventDel(exec->loop, exec->stderr_src);
     exec->stderr_src = NULL;
+  }
+
+  /* Close stdin pipe (both ends; parent owns write end, read end
+   * should already be closed after fork but be safe) */
+  if (exec->stdin_pipe[0] >= 0) {
+    close(exec->stdin_pipe[0]);
+    exec->stdin_pipe[0] = -1;
+  }
+  if (exec->stdin_pipe[1] >= 0) {
+    close(exec->stdin_pipe[1]);
+    exec->stdin_pipe[1] = -1;
   }
 
   /* Close pipe read ends */

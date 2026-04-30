@@ -34,10 +34,14 @@
 #include <cJSON.h>
 #include <xbase/command.h>
 #include <xbase/log.h>
+#include <xbase/map.h>
 #include <xbase/string.h>
 
+#include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* ───────────────────── Constants ───────────────────── */
 
@@ -45,6 +49,9 @@
 #define DEFAULT_CAP        65536
 
 /* ───────────────────── Per-invocation context ───────────────────── */
+
+/* Forward declaration — defined below. */
+XDEF_STRUCT(ShellCtx);
 
 XDEF_STRUCT(InvokeCtx) {
   xEventLoop       loop;
@@ -57,6 +64,10 @@ XDEF_STRUCT(InvokeCtx) {
   /* Query and tool handles (set by handler, used by on_cmd_done) */
   xAiQuery query;
   xAiTool  tool;
+
+  /* Back-reference to ShellCtx for on_cmd_done to unregister from running map
+   */
+  ShellCtx *shell_ctx;
 
   /* Accumulated output */
   xString result_buf; /**< JSON result buffer                */
@@ -87,6 +98,16 @@ XDEF_STRUCT(ShellCtx) {
   xAiShellOnResultFunc  on_result;
   xAiShellOnOutputFunc  on_stream;
   void                 *callback_ud;
+
+  /* Mapping from tool_use_id → InvokeCtx for running commands.
+   * Used by shell_stdin to locate a running command by its tool_use_id
+   * and write to its stdin fd. Populated by shell_handler, depopulated
+   * by on_cmd_done. */
+  xMap running;
+
+  /* Reusable output buffer for shell_stdin_handler.
+   * Cleared and refilled on each invocation; avoids strdup leak. */
+  xString stdin_result_buf;
 };
 
 /* ───────────────────── JSON Schema ───────────────────── */
@@ -109,6 +130,25 @@ static const char kSchema[] =
   "}"
   "},"
   "\"required\":[\"command\"]"
+  "}";
+
+static const char kStdinSchema[] =
+  "{"
+  "\"type\":\"object\","
+  "\"properties\":{"
+  "\"input\":{"
+  "\"type\":\"string\","
+  "\"description\":\"Text to write to the running command's stdin. "
+  "Add a trailing newline (\\\\n) if the command expects you to press Enter.\""
+  "},"
+  "\"tool_use_id\":{"
+  "\"type\":\"string\","
+  "\"description\":\"The tool_use_id of the still-running shell invocation. "
+  "This is the id that was assigned to the tool_use block when you called "
+  "the shell tool. Copy it exactly from the tool_use block you sent.\""
+  "}"
+  "},"
+  "\"required\":[\"input\",\"tool_use_id\"]"
   "}";
 
 /* ───────────────────── InvokeCtx lifecycle ───────────────────── */
@@ -251,6 +291,12 @@ static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result,
 
   build_json_result(ictx, &final_result, completed);
 
+  /* Unregister from running map before delivering result (which may
+   * start a new tool call that could race with shell_stdin). */
+  if (ictx->shell_ctx && ictx->shell_ctx->running && ictx->tool_use_id) {
+    xMapDel(ictx->shell_ctx->running, ictx->tool_use_id);
+  }
+
   /* Notify shell-level result callback */
   if (ictx->on_result) {
     ictx->on_result(final_result.exit_code, final_result.stdout_len,
@@ -367,6 +413,7 @@ static xErrno shell_handler(xAiQuery q, const xAiContent *in, xAiContent *out,
   ictx->callback_ud = ctx->callback_ud;
   ictx->stdout_cap  = ctx->stdout_cap;
   ictx->stderr_cap  = ctx->stderr_cap;
+  ictx->shell_ctx   = ctx;
 
   /* ── Build xCommandConf ───────────────────────────────── */
   const char *argv[] = {"-c", command, NULL};
@@ -399,9 +446,118 @@ static xErrno shell_handler(xAiQuery q, const xAiContent *in, xAiContent *out,
     return rc;
   }
 
+  /* Register in running map so shell_stdin can find this invocation */
+  if (ctx->running && ictx->tool_use_id) {
+    xMapSet(ctx->running, ictx->tool_use_id, ictx);
+  }
+
   /* Return Pending — the event loop is free, on_cmd_done will
    * deliver the result asynchronously via ai_query_async_tool_complete. */
   return xErrno_Pending;
+}
+
+/* ───────────────────── shell_stdin handler ───────────────────── */
+
+/**
+ * shell_stdin_handler — Write input to a running shell command's stdin.
+ *
+ * The AI calls this tool when it wants to send input to a command
+ * that was started by the "shell" tool and is still running.
+ *
+ * Args:
+ *   input       — text to write to the child's stdin
+ *   tool_use_id — the tool_use_id of the running "shell" invocation
+ *
+ * The handler looks up the InvokeCtx in ShellCtx::running by tool_use_id,
+ * obtains the stdin fd via xCommandExecutorStdinFd(), and writes the
+ * input text to it.
+ *
+ * Returns a JSON result: { "written": <bytes_written> }
+ * On error: { "error": "<message>" }
+ */
+static xErrno shell_stdin_handler(xAiQuery q, const xAiContent *in,
+                                  xAiContent *out, void *ud) {
+  (void)q;
+  ShellCtx *ctx = (ShellCtx *)ud;
+
+  /* ── Parse args_json ──────────────────────────────────── */
+  if (!in || in->type != xAiContentType_ToolUse || !in->u.tool_use.args_json)
+    return xErrno_InvalidArg;
+
+  cJSON *root = cJSON_Parse(in->u.tool_use.args_json);
+  if (!root) return xErrno_InvalidArg;
+
+  cJSON *input_node = cJSON_GetObjectItemCaseSensitive(root, "input");
+  cJSON *id_node    = cJSON_GetObjectItemCaseSensitive(root, "tool_use_id");
+
+  if (!input_node || !cJSON_IsString(input_node) || !id_node ||
+      !cJSON_IsString(id_node)) {
+    cJSON_Delete(root);
+    return xErrno_InvalidArg;
+  }
+
+  const char *input_text  = input_node->valuestring;
+  const char *tool_use_id = id_node->valuestring;
+
+  if (!input_text || !tool_use_id || !tool_use_id[0]) {
+    cJSON_Delete(root);
+    return xErrno_InvalidArg;
+  }
+
+  /* ── Look up the running invocation ──────────────────── */
+  InvokeCtx *ictx = (InvokeCtx *)xMapGet(ctx->running, tool_use_id);
+  cJSON_Delete(root);
+
+  out->type                   = xAiContentType_ToolResult;
+  out->u.tool_result.id       = in->u.tool_use.id;
+  out->u.tool_result.is_error = 0;
+
+  if (!ictx) {
+    /* No running command with this tool_use_id */
+    xStringClear(ctx->stdin_result_buf);
+    xStringAppend(
+      &ctx->stdin_result_buf,
+      "{\"error\":\"No running shell command with this tool_use_id\"}");
+    out->u.tool_result.output     = ctx->stdin_result_buf;
+    out->u.tool_result.output_len = xStringLen(ctx->stdin_result_buf);
+    out->u.tool_result.is_error   = 1;
+    return xErrno_Ok;
+  }
+
+  /* ── Get the stdin fd and write ──────────────────────── */
+  int stdin_fd = xCommandExecutorStdinFd(ictx->exec);
+  if (stdin_fd < 0) {
+    xStringClear(ctx->stdin_result_buf);
+    xStringAppend(&ctx->stdin_result_buf,
+                  "{\"error\":\"Stdin is not available for this command\"}");
+    out->u.tool_result.output     = ctx->stdin_result_buf;
+    out->u.tool_result.output_len = xStringLen(ctx->stdin_result_buf);
+    out->u.tool_result.is_error   = 1;
+    return xErrno_Ok;
+  }
+
+  size_t  input_len = strlen(input_text);
+  ssize_t written   = write(stdin_fd, input_text, input_len);
+
+  if (written < 0) {
+    xStringClear(ctx->stdin_result_buf);
+    xStringAppendFormat(&ctx->stdin_result_buf,
+                        "{\"error\":\"write failed: %s\"}", strerror(errno));
+    out->u.tool_result.output     = ctx->stdin_result_buf;
+    out->u.tool_result.output_len = xStringLen(ctx->stdin_result_buf);
+    out->u.tool_result.is_error   = 1;
+    return xErrno_Ok;
+  }
+
+  /* ── Build success result ────────────────────────────── */
+  xStringClear(ctx->stdin_result_buf);
+  xStringAppendFormat(&ctx->stdin_result_buf, "{\"written\":%zd}", written);
+
+  out->u.tool_result.output     = ctx->stdin_result_buf;
+  out->u.tool_result.output_len = xStringLen(ctx->stdin_result_buf);
+  out->u.tool_result.is_error   = 0;
+
+  return xErrno_Ok;
 }
 
 /* ───────────────────── Destroy callback ───────────────────── */
@@ -409,6 +565,8 @@ static xErrno shell_handler(xAiQuery q, const xAiContent *in, xAiContent *out,
 static void shell_ctx_destroy(void *ud) {
   ShellCtx *ctx = (ShellCtx *)ud;
   if (!ctx) return;
+  if (ctx->running) xMapDestroy(ctx->running);
+  xStringDestroy(ctx->stdin_result_buf);
   xCommandExecutorDestroy(ctx->exec);
   free(ctx);
 }
@@ -438,10 +596,32 @@ XCAPI(xAiTool) xAiToolShellCreate(xEventLoop loop, const xAiShellConf *conf) {
     return NULL;
   }
 
+  ctx->running = xMapCreate(xMapType_Hash, /*cap=*/8, xMapStrHash, xMapStrEq);
+  if (!ctx->running) {
+    xCommandExecutorDestroy(ctx->exec);
+    free(ctx);
+    return NULL;
+  }
+
+  ctx->stdin_result_buf = xStringCreate("");
+  if (!ctx->stdin_result_buf) {
+    xMapDestroy(ctx->running);
+    xCommandExecutorDestroy(ctx->exec);
+    free(ctx);
+    return NULL;
+  }
+
   xAiToolConf tconf = {};
   tconf.name        = "shell";
   tconf.description =
-    "Execute a shell command via /bin/sh -c and return the output";
+    "Execute a shell command via /bin/sh -c and return the output. "
+    "Output is streamed in real-time while the command runs. "
+    "IMPORTANT: If the command is interactive and waits for input "
+    "(e.g. prompts like 'Name:', 'Press Y/N:', a REPL, or a password), "
+    "you MUST call the shell_stdin tool to send input to it — "
+    "do NOT wait or assume it will time out. "
+    "When calling shell_stdin, pass the tool_use_id of THIS shell "
+    "invocation (the id assigned to the tool_use block you sent).";
   tconf.json_schema       = kSchema;
   tconf.handler           = shell_handler;
   tconf.user_data         = ctx;
@@ -459,6 +639,36 @@ XCAPI(xAiTool) xAiToolShellCreate(xEventLoop loop, const xAiShellConf *conf) {
     free(ctx);
     return NULL;
   }
+
+  return tool;
+}
+
+XCAPI(xAiTool) xAiToolShellStdinCreate(xAiTool shell_tool) {
+  if (!shell_tool) return NULL;
+
+  ShellCtx *ctx = (ShellCtx *)xAiToolUserData(shell_tool);
+  if (!ctx) return NULL;
+
+  xAiToolConf tconf = {};
+  tconf.name        = "shell_stdin";
+  tconf.description =
+    "Send input text to a running shell command's stdin. "
+    "Use this when the shell command is waiting for input "
+    "(e.g. a prompt, a confirmation question, a REPL, or a password). "
+    "You MUST provide: (1) tool_use_id — the id from the tool_use block "
+    "of the running shell invocation, and (2) input — the text to write. "
+    "If the command expects Enter to be pressed, include a trailing "
+    "newline (\\n) in the input text. "
+    "You can call this tool multiple times for multi-step interactions.";
+  tconf.json_schema       = kStdinSchema;
+  tconf.handler           = shell_stdin_handler;
+  tconf.user_data         = ctx;
+  tconf.user_data_destroy = NULL; /* ShellCtx is owned by shell_tool */
+  tconf.concurrent_safe   = 1;
+  tconf.needs_confirm     = 0;
+
+  xAiTool tool = xAiToolCreate(&tconf);
+  if (!tool) return NULL;
 
   return tool;
 }

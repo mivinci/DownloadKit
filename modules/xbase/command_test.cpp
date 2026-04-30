@@ -725,3 +725,188 @@ TEST(Command, PtyDiscardMode) {
   xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
+
+/* ───────────────────── Pipe stdin ───────────────────── */
+
+TEST(Command, PipeStdinFdWhenIdle) {
+  /* StdinFd should return -1 when no command is running */
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
+  ASSERT_NE(exec, nullptr);
+
+  EXPECT_EQ(xCommandExecutorStdinFd(exec), -1);
+
+  xCommandExecutorDestroy(exec);
+  xEventLoopDestroy(loop);
+}
+
+TEST(Command, PipeStdinFdWhileRunning) {
+  /* In Pipe mode, StdinFd should return a valid fd while running */
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
+  ASSERT_NE(exec, nullptr);
+
+  struct TestCtx ctx = {};
+  ctx.loop = loop;
+
+  const char *argv[] = {"5", nullptr};
+  xCommandConf conf = {};
+  conf.cmd          = "/bin/sleep";
+  conf.argv         = argv;
+  conf.stdout_mode  = xCommandOutput_Discard;
+  conf.stderr_mode  = xCommandOutput_Discard;
+  conf.input_mode   = xCommandInput_Pipe;
+
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  /* While running — should return a valid fd */
+  int stdin_fd = xCommandExecutorStdinFd(exec);
+  EXPECT_GE(stdin_fd, 0);
+
+  xEventLoopWait(loop, 10000);
+  EXPECT_EQ(ctx.done, 1);
+
+  /* After completion — should return -1 again */
+  EXPECT_EQ(xCommandExecutorStdinFd(exec), -1);
+
+  xCommandExecutorDestroy(exec);
+  xEventLoopDestroy(loop);
+}
+
+TEST(Command, PipeWriteStdin) {
+  /* Write to child's stdin via StdinFd and verify the child receives it.
+   * We use `head -n 1` instead of `cat` so the child exits after
+   * reading one line, without needing us to close the stdin pipe. */
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
+  ASSERT_NE(exec, nullptr);
+
+  struct TestCtx ctx = {};
+  ctx.loop = loop;
+
+  const char *argv[] = {"-n", "1", nullptr};
+  xCommandConf conf = {};
+  conf.cmd          = "/usr/bin/head";
+  conf.argv         = argv;
+  conf.stdout_mode  = xCommandOutput_Capture;
+  conf.stderr_mode  = xCommandOutput_Discard;
+  conf.input_mode   = xCommandInput_Pipe;
+
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  int stdin_fd = xCommandExecutorStdinFd(exec);
+  ASSERT_GE(stdin_fd, 0);
+
+  /* Write data to child's stdin */
+  const char *msg = "hello from stdin\n";
+  ssize_t written = write(stdin_fd, msg, strlen(msg));
+  EXPECT_EQ(written, (ssize_t)strlen(msg));
+
+  xEventLoopWait(loop, 10000);
+
+  EXPECT_EQ(ctx.done, 1);
+  EXPECT_EQ(ctx.result.exit_code, 0);
+  /* head should have echoed the first line */
+  EXPECT_NE(ctx.result.stdout_buf, nullptr);
+  if (ctx.result.stdout_buf) {
+    EXPECT_NE(strstr(ctx.result.stdout_buf, "hello from stdin"), nullptr);
+  }
+
+  xCommandExecutorDestroy(exec);
+  xEventLoopDestroy(loop);
+}
+
+TEST(Command, PipeStdinFdNullSafety) {
+  EXPECT_EQ(xCommandExecutorStdinFd(nullptr), -1);
+}
+
+TEST(Command, PipeStdinIsBlocking) {
+  /* Verify that the child process's stdin is blocking after the
+   * pipe_cloexec_nonblock() → dup2() path.  A non-blocking stdin
+   * causes Python's input() to see EAGAIN → EOFError immediately.
+   * We run `python3 -c "print(input())"` with pipe-mode stdin and
+   * write the input after a short delay.  If stdin is blocking the
+   * child blocks on input() until we write; if non-blocking it
+   * exits with EOFError before we get a chance. */
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
+  ASSERT_NE(exec, nullptr);
+
+  struct TestCtx ctx = {};
+  ctx.loop = loop;
+
+  const char *argv[] = {"-c", "print(input())", nullptr};
+  xCommandConf conf  = {};
+  conf.cmd           = "/usr/bin/python3";
+  conf.argv          = argv;
+  conf.stdout_mode   = xCommandOutput_Capture;
+  conf.stderr_mode   = xCommandOutput_Capture;
+  conf.input_mode    = xCommandInput_Pipe;
+  conf.timeout_ms    = 5000;
+
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  int stdin_fd = xCommandExecutorStdinFd(exec);
+  ASSERT_GE(stdin_fd, 0);
+
+  /* Write input to child's stdin — because stdin is blocking the
+   * child is waiting for us. */
+  const char *msg = "hello blocking\n";
+  ssize_t written = write(stdin_fd, msg, strlen(msg));
+  EXPECT_EQ(written, (ssize_t)strlen(msg));
+
+  xEventLoopWait(loop, 10000);
+
+  EXPECT_EQ(ctx.done, 1);
+  EXPECT_EQ(ctx.result.exit_code, 0);
+  /* Python should have printed "hello blocking" */
+  EXPECT_NE(ctx.result.stdout_buf, nullptr);
+  if (ctx.result.stdout_buf) {
+    EXPECT_NE(strstr(ctx.result.stdout_buf, "hello blocking"), nullptr);
+  }
+  /* stderr should be empty — no EOFError */
+  if (ctx.result.stderr_buf) {
+    EXPECT_EQ(strstr(ctx.result.stderr_buf, "EOFError"), nullptr);
+  }
+
+  xCommandExecutorDestroy(exec);
+  xEventLoopDestroy(loop);
+}
+
+TEST(Command, PtyStdinFdMatchesPtyFd) {
+  /* In PTY mode, StdinFd should return the same fd as PtyFd */
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+  xCommandExecutor exec = xCommandExecutorCreate(loop);
+  ASSERT_NE(exec, nullptr);
+
+  struct TestCtx ctx = {};
+  ctx.loop = loop;
+
+  const char *argv[] = {"1", nullptr};
+  xCommandConf conf = {};
+  conf.cmd          = "/bin/sleep";
+  conf.argv         = argv;
+  conf.stdout_mode  = xCommandOutput_Capture;
+  conf.stderr_mode  = xCommandOutput_Discard;
+  conf.input_mode   = xCommandInput_Pty;
+
+  xErrno err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  EXPECT_EQ(xCommandExecutorStdinFd(exec), xCommandExecutorPtyFd(exec));
+  EXPECT_GE(xCommandExecutorStdinFd(exec), 0);
+
+  xEventLoopWait(loop, 5000);
+  EXPECT_EQ(ctx.done, 1);
+
+  xCommandExecutorDestroy(exec);
+  xEventLoopDestroy(loop);
+}

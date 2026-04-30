@@ -340,3 +340,42 @@ TEST(XaiTool, OnCancelAccessorsOnNullHandle) {
   EXPECT_EQ(ai_tool_on_cancel_fn(nullptr), nullptr);
   EXPECT_EQ(ai_tool_on_cancel_ud(nullptr), nullptr);
 }
+
+/* ── xAiToolUserData ─────────────────────────────────────────────── */
+
+TEST(XaiTool, UserDataReturnsPointer) {
+  HandlerSpy spy;
+  int        marker = 42;
+
+  xAiToolConf conf = {};
+  conf.name      = "ud_test";
+  conf.handler   = spy_handler;
+  conf.user_data = &marker;
+
+  xAiTool t = xAiToolCreate(&conf);
+  ASSERT_NE(t, nullptr);
+
+  EXPECT_EQ(xAiToolUserData(t), &marker);
+
+  xAiToolDestroy(t);
+}
+
+TEST(XaiTool, UserDataNullWhenNotSet) {
+  HandlerSpy spy;
+
+  xAiToolConf conf = {};
+  conf.name      = "no_ud";
+  conf.handler   = spy_handler;
+  /* user_data intentionally left as nullptr (zero-init) */
+
+  xAiTool t = xAiToolCreate(&conf);
+  ASSERT_NE(t, nullptr);
+
+  EXPECT_EQ(xAiToolUserData(t), nullptr);
+
+  xAiToolDestroy(t);
+}
+
+TEST(XaiTool, UserDataNullHandle) {
+  EXPECT_EQ(xAiToolUserData(nullptr), nullptr);
+}

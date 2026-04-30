@@ -85,6 +85,10 @@ void xAiToolDestroy(xAiTool tool) {
   free(t);
 }
 
+void *xAiToolUserData(xAiTool tool) {
+  return tool ? ((struct xAiTool_ *)tool)->user_data : NULL;
+}
+
 /* ── Internal module accessors (see tool_private.h) ────────────────────── */
 
 const char *ai_tool_name(xAiTool tool) {

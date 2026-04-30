@@ -112,4 +112,43 @@ XDEF_STRUCT(xAiShellConf) {
  */
 XCAPI(xAiTool) xAiToolShellCreate(xEventLoop loop, const xAiShellConf *conf);
 
+/**
+ * @brief Create a "shell_stdin" tool for sending input to running shells.
+ *
+ * This tool works in conjunction with the "shell" tool created by
+ * xAiToolShellCreate(). When the AI wants to interact with a running
+ * command (e.g. answering a prompt, providing input to a REPL), it
+ * calls "shell_stdin" with the tool_use_id of the running shell
+ * invocation and the text to write.
+ *
+ * Both tools MUST share the same ShellCtx (created by xAiToolShellCreate)
+ * so that shell_stdin can locate the running command by its tool_use_id.
+ *
+ * The tool_use_id → command mapping is maintained automatically:
+ *   - When a "shell" invocation starts, the mapping is registered.
+ *   - When the command finishes, the mapping is removed.
+ *
+ * JSON schema for the tool:
+ *   {
+ *     "type": "object",
+ *     "properties": {
+ *       "input":       { "type": "string",
+ *                        "description": "Text to write to the running
+ *                         command's stdin" },
+ *       "tool_use_id": { "type": "string",
+ *                        "description": "The tool_use_id of the still-running
+ *                         shell invocation to send input to. This is the same
+ *                         id that the shell tool call was assigned when you
+ *                         invoked it (visible in the tool_use block you sent).
+ *                         Copy it exactly." }
+ *     },
+ *     "required": ["input", "tool_use_id"]
+ *   }
+ *
+ * @param shell_tool  An existing shell tool handle (from xAiToolShellCreate).
+ *                    Must not be NULL.
+ * @return            A new xAiTool handle for "shell_stdin", or NULL on failure.
+ */
+XCAPI(xAiTool) xAiToolShellStdinCreate(xAiTool shell_tool);
+
 #endif /* XAI_TOOL_SHELL_H */

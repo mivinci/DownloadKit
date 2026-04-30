@@ -2,54 +2,54 @@
 
 ## Introduction
 
-`string.h` provides an SDS-style dynamic string (`xStringing`) that is fully compatible with all C string functions (`printf %s`, `strcmp`, `strlen`, …). The header (length + capacity) is hidden before the user-facing pointer, so every `xStringing` **is** a `char*` — zero interop friction.
+`string.h` provides an SDS-style dynamic string (`XString`) that is fully compatible with all C string functions (`printf %s`, `strcmp`, `strlen`, …). The header (length + capacity) is hidden before the user-facing pointer, so every `XString` **is** a `char*` — zero interop friction.
 
 Inspired by Redis SDS (Simple Dynamic Strings).
 
 Typical usage:
 
 ```c
-xStringing s = xStringingCreate("hello");
-s = xStringingAppend(s, " world");
-printf("%s (len=%zu)\n", s, xStringingLen(s));
+XString s = XStringCreate("hello");
+s = XStringAppend(s, " world");
+printf("%s (len=%zu)\n", s, XStringLen(s));
 
-size_t pos = xStringingFindStr(s, "world");
+size_t pos = XStringFindStr(s, "world");
 if (pos != XSTRING_NONE) {
   printf("found at index %zu\n", pos);
 }
 
-xStringingDestroy(s);
+XStringDestroy(s);
 ```
 
 ## Design Philosophy
 
-1. **Binary-Compatible with C Strings** — `xStringing` is a `typedef char *`. Every xStringing can be passed directly to any C string API without conversion. It is always NUL-terminated.
+1. **Binary-Compatible with C Strings** — `XString` is a `typedef char *`. Every XString can be passed directly to any C string API without conversion. It is always NUL-terminated.
 
-2. **Hidden Header** — The metadata (length, capacity) lives in a header placed *before* the user pointer. This means `xStringing` is indistinguishable from a regular `char*` at the call site, yet length queries are O(1).
+2. **Hidden Header** — The metadata (length, capacity) lives in a header placed *before* the user pointer. This means `XString` is indistinguishable from a regular `char*` at the call site, yet length queries are O(1).
 
-3. **Auto-Growing** — Append operations automatically reallocate when capacity is exhausted. Callers must use the return value (`s = xStringingAppend(s, "x")`) because reallocation may move the string.
+3. **Auto-Growing** — Append operations automatically reallocate when capacity is exhausted. Callers must use the return value (`s = XStringAppend(s, "x")`) because reallocation may move the string.
 
-4. **Binary-Safe** — Embedded NUL bytes are supported. `xStringingCreateLen` and `xStringingAppendLen` treat the input as raw bytes. Length is tracked explicitly, not via `strlen`.
+4. **Binary-Safe** — Embedded NUL bytes are supported. `XStringCreateLen` and `XStringAppendLen` treat the input as raw bytes. Length is tracked explicitly, not via `strlen`.
 
-5. **Dual-Strategy Search** — `xStringingFind` uses naive `memcmp` for short patterns (below a threshold) and platform `memmem` for longer ones, balancing call overhead against algorithmic advantage.
+5. **Dual-Strategy Search** — `XStringFind` uses naive `memcmp` for short patterns (below a threshold) and platform `memmem` for longer ones, balancing call overhead against algorithmic advantage.
 
 ## Architecture
 
 ```mermaid
 graph TD
-    CREATE["xStringingCreate(init)"] --> S["xStringing<br/>(char*)"]
-    CREATELEN["xStringingCreateLen(data, len)"] --> S
-    APPEND["xStringingAppend(s, str)"] --> GROW["Grow if needed"]
-    APPENDLEN["xStringingAppendLen(s, data, len)"] --> GROW
-    APPENDFMT["xStringingAppendFormat(s, fmt, ...)"] --> GROW
+    CREATE["XStringCreate(init)"] --> S["XString<br/>(char*)"]
+    CREATELEN["XStringCreateLen(data, len)"] --> S
+    APPEND["XStringAppend(s, str)"] --> GROW["Grow if needed"]
+    APPENDLEN["XStringAppendLen(s, data, len)"] --> GROW
+    APPENDFMT["XStringAppendFormat(s, fmt, ...)"] --> GROW
     GROW --> UPDATE["Return updated pointer"]
-    FIND["xStringingFind(haystack, needle, len)"] --> THRESH{"needle_len < 32?"}
+    FIND["XStringFind(haystack, needle, len)"] --> THRESH{"needle_len < 32?"}
     THRESH -->|Yes| NAIVE["Naive memcmp scan"]
     THRESH -->|No| MEMMEM["memmem (platform Two-Way)"]
-    DUP["xStringingDup(s)"] --> S
-    TRUNCATE["xStringingTruncate(s, new_len)"] --> S
-    CLEAR["xStringingClear(s)"] --> S
-    DESTROY["xStringingDestroy(s)"] --> FREE["free(header + data)"]
+    DUP["XStringDup(s)"] --> S
+    TRUNCATE["XStringTruncate(s, new_len)"] --> S
+    CLEAR["XStringClear(s)"] --> S
+    DESTROY["XStringDestroy(s)"] --> FREE["free(header + data)"]
 
     S --> APPEND
     S --> APPENDLEN
@@ -74,20 +74,20 @@ graph TD
 ### Memory Layout
 
 ```text
-                    xStringingHeader
+                    XStringHeader
                  ┌──────────────┐
                  │ len (size_t) │
                  │ cap (size_t) │
                  └──────────────┘ ← hdr + 1 = user pointer
                  ┌──────────────┐
-  xStringing (char*) → │  data …      │ ← always NUL-terminated
+  XString (char*) → │  data …      │ ← always NUL-terminated
                  │  cap + 1     │
                  └──────────────┘
 ```
 
-The `xStringingHeader` is allocated as part of a single `malloc` block: `malloc(sizeof(xStringingHeader) + cap + 1)`. The user receives a pointer to the data area, which is `(xStringingHeader*)ptr + 1`. This layout means:
+The `XStringHeader` is allocated as part of a single `malloc` block: `malloc(sizeof(XStringHeader) + cap + 1)`. The user receives a pointer to the data area, which is `(XStringHeader*)ptr + 1`. This layout means:
 
-- `xStringingLen(s)` is O(1) — reads `hdr->len` directly.
+- `XStringLen(s)` is O(1) — reads `hdr->len` directly.
 - `s` can be passed to any `const char*` API.
 - The NUL terminator is always written after `len` bytes.
 

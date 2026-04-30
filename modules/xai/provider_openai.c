@@ -400,6 +400,8 @@ static void oai_emit_tool_calls(struct xOaiImpl_ *impl) {
     c.u.tool_use.name      = s->name ? s->name : "";
     c.u.tool_use.args_json =
       (s->args_buf && s->args_len > 0) ? s->args_buf : "{}";
+    XDEBUG("[xai/openai] emit tool_call: name=%s args=%s",
+           c.u.tool_use.name, c.u.tool_use.args_json);
     impl->cbs.on_tool_call(&c, impl->cb_arg);
     s->emitted = 1;
   }

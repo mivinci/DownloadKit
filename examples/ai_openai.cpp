@@ -46,7 +46,7 @@
 #include <xhttp/client.h>
 
 /* Internal dispatcher — see file banner for justification. */
-#include "../modules/xai/provider_private.h"
+#include <xai/provider_private.h>
 
 #include <csignal>
 #include <cstdio>
@@ -65,23 +65,25 @@
  * ourselves.
  */
 struct OwnedTurn {
-  xAiRole                role;
-  std::string            text;
+  xAiRole                     role;
+  std::string                 text;
   std::unique_ptr<xAiContent> content; /* stable address; held by msg */
 };
 
 /* ── REPL state ─────────────────────────────────────────────────────── */
 
 struct ReplCtx {
-  xEventLoop  loop     = nullptr;
-  bool        stream_done = false;    /* current submit() finished       */
+  xEventLoop  loop            = nullptr;
+  bool        stream_done     = false; /* current submit() finished       */
   bool        saw_first_delta = false;
-  std::string reply;                  /* accumulated assistant reply     */
+  std::string reply; /* accumulated assistant reply     */
 };
 
 /* ── Tool: get_time (demo only) ─────────────────────────────────────── */
 
-static xErrno tool_get_time(const xAiContent *in, xAiContent *out, void *ud) {
+static xErrno tool_get_time(xAiQuery q, const xAiContent *in, xAiContent *out,
+                            void *ud) {
+  (void)q;
   (void)in;
   (void)ud;
 
@@ -99,11 +101,11 @@ static xErrno tool_get_time(const xAiContent *in, xAiContent *out, void *ud) {
 #endif
   std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
 
-  out->type                  = xAiContentType_ToolResult;
-  out->u.tool_result.id       = "(unused)";
-  out->u.tool_result.output   = buf;
+  out->type                     = xAiContentType_ToolResult;
+  out->u.tool_result.id         = "(unused)";
+  out->u.tool_result.output     = buf;
   out->u.tool_result.output_len = std::strlen(buf);
-  out->u.tool_result.is_error = 0;
+  out->u.tool_result.is_error   = 0;
   return xErrno_Ok;
 }
 
@@ -133,13 +135,20 @@ static void on_tool_call(const xAiContent *call, void *arg) {
 
 static const char *stop_reason_name(xAiProviderStopReason r) {
   switch (r) {
-    case xAiProviderStop_EndTurn:    return "end_turn";
-    case xAiProviderStop_ToolUse:    return "tool_use";
-    case xAiProviderStop_MaxTokens:  return "max_tokens";
-    case xAiProviderStop_StopSeq:    return "stop_seq";
-    case xAiProviderStop_PromptLong: return "prompt_too_long";
-    case xAiProviderStop_Error:      return "error";
-    case xAiProviderStop_Cancelled:  return "cancelled";
+  case xAiProviderStop_EndTurn:
+    return "end_turn";
+  case xAiProviderStop_ToolUse:
+    return "tool_use";
+  case xAiProviderStop_MaxTokens:
+    return "max_tokens";
+  case xAiProviderStop_StopSeq:
+    return "stop_seq";
+  case xAiProviderStop_PromptLong:
+    return "prompt_too_long";
+  case xAiProviderStop_Error:
+    return "error";
+  case xAiProviderStop_Cancelled:
+    return "cancelled";
   }
   return "?";
 }
@@ -157,13 +166,15 @@ static void on_done(xAiProviderStopReason reason, xErrno err,
     /* -1 means "server was silent about this field" — show "?" so
      * the user can tell missing from zero. */
     auto fmt = [](int v, char *out, size_t n) {
-      if (v < 0) std::snprintf(out, n, "?");
-      else       std::snprintf(out, n, "%d", v);
+      if (v < 0)
+        std::snprintf(out, n, "?");
+      else
+        std::snprintf(out, n, "%d", v);
     };
     char p[16], c[16], t[16];
-    fmt(usage->prompt_tokens,     p, sizeof p);
+    fmt(usage->prompt_tokens, p, sizeof p);
     fmt(usage->completion_tokens, c, sizeof c);
-    fmt(usage->total_tokens,      t, sizeof t);
+    fmt(usage->total_tokens, t, sizeof t);
     std::printf(" tokens=%s/%s total=%s", p, c, t);
   }
   std::putchar('\n');
@@ -181,13 +192,12 @@ int main() {
   const char *model   = std::getenv("LLM_MODEL");
 
   if (!api_key) {
-    std::fprintf(stderr,
-                 "Please set at least LLM_API_KEY:\n"
-                 "  export LLM_API_KEY=\"sk-xxx\"\n"
-                 "  export LLM_API_URL=\"https://api.openai.com/v1\"  "
-                 "(optional)\n"
-                 "  export LLM_MODEL=\"gpt-4o\"                       "
-                 "(optional)\n");
+    std::fprintf(stderr, "Please set at least LLM_API_KEY:\n"
+                         "  export LLM_API_KEY=\"sk-xxx\"\n"
+                         "  export LLM_API_URL=\"https://api.openai.com/v1\"  "
+                         "(optional)\n"
+                         "  export LLM_MODEL=\"gpt-4o\"                       "
+                         "(optional)\n");
     return 1;
   }
   if (!model || model[0] == '\0') model = "gpt-4o";
@@ -209,7 +219,7 @@ int main() {
   xAiOpenAIConf pconf;
   std::memset(&pconf, 0, sizeof(pconf));
   pconf.api_key       = api_key;
-  pconf.base_url      = api_url;                  /* NULL = default */
+  pconf.base_url      = api_url; /* NULL = default */
   pconf.default_model = model;
   pconf.timeout_ms    = 60000;
 
@@ -255,14 +265,13 @@ int main() {
 
   /* Seed with a system message. */
   {
-    auto t   = std::make_unique<OwnedTurn>();
-    t->role  = xAiRole_System;
-    t->text  = "You are a concise assistant running on xKit's xai "
-               "provider-level demo. Answer briefly.";
-    t->content          = std::make_unique<xAiContent>();
-    *t->content         = xAiContentText(t->text.c_str());
-    xAiMessage sys      = xAiMessageFromContent(xAiRole_System,
-                                                t->content.get(), 1);
+    auto t         = std::make_unique<OwnedTurn>();
+    t->role        = xAiRole_System;
+    t->text        = "You are a concise assistant running on xKit's xai "
+                     "provider-level demo. Answer briefly.";
+    t->content     = std::make_unique<xAiContent>();
+    *t->content    = xAiContentText(t->text.c_str());
+    xAiMessage sys = xAiMessageFromContent(xAiRole_System, t->content.get(), 1);
     history.push_back(sys);
     turns.push_back(std::move(t));
   }
@@ -286,11 +295,11 @@ int main() {
 
     /* Append user turn. */
     {
-      auto t  = std::make_unique<OwnedTurn>();
-      t->role = xAiRole_User;
-      t->text = line;
-      t->content  = std::make_unique<xAiContent>();
-      *t->content = xAiContentText(t->text.c_str());
+      auto t       = std::make_unique<OwnedTurn>();
+      t->role      = xAiRole_User;
+      t->text      = line;
+      t->content   = std::make_unique<xAiContent>();
+      *t->content  = xAiContentText(t->text.c_str());
       xAiMessage m = xAiMessageFromContent(xAiRole_User, t->content.get(), 1);
       history.push_back(m);
       turns.push_back(std::move(t));
@@ -323,9 +332,9 @@ int main() {
 
     /* Append assistant reply to history if we got one. */
     if (!ctx.reply.empty()) {
-      auto t  = std::make_unique<OwnedTurn>();
-      t->role = xAiRole_Assistant;
-      t->text = std::move(ctx.reply);
+      auto t      = std::make_unique<OwnedTurn>();
+      t->role     = xAiRole_Assistant;
+      t->text     = std::move(ctx.reply);
       t->content  = std::make_unique<xAiContent>();
       *t->content = xAiContentText(t->text.c_str());
       xAiMessage m =

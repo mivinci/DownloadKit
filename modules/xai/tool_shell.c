@@ -33,6 +33,7 @@
 
 #include <cJSON.h>
 #include <xbase/command.h>
+#include <xbase/log.h>
 #include <xbase/string.h>
 
 #include <stdlib.h>
@@ -50,17 +51,17 @@ XDEF_STRUCT(InvokeCtx) {
   xCommandExecutor exec;
 
   /* Deep-copied tool_use input (valid for the lifetime of InvokeCtx) */
-  char            *tool_use_id;
-  char            *tool_use_name;
+  char *tool_use_id;
+  char *tool_use_name;
 
   /* Query and tool handles (set by handler, used by on_cmd_done) */
-  xAiQuery         query;
-  xAiTool          tool;
+  xAiQuery query;
+  xAiTool  tool;
 
   /* Accumulated output */
-  xString          result_buf;   /**< JSON result buffer                */
-  xString          stdout_buf;   /**< Accumulated stdout                */
-  xString          stderr_buf;   /**< Accumulated stderr                */
+  xString result_buf; /**< JSON result buffer                */
+  xString stdout_buf; /**< Accumulated stdout                */
+  xString stderr_buf; /**< Accumulated stderr                */
 
   /* Shell-specific callbacks */
   xAiShellOnCommandFunc on_command;
@@ -69,8 +70,8 @@ XDEF_STRUCT(InvokeCtx) {
   void                 *callback_ud;
 
   /* Config */
-  size_t           stdout_cap;
-  size_t           stderr_cap;
+  size_t stdout_cap;
+  size_t stderr_cap;
 };
 
 /* ───────────────────── Tool-level context ───────────────────── */
@@ -196,9 +197,8 @@ static void on_cmd_stdout(xCommandExecutor exec, const char *data, size_t len,
   if (ictx->query) {
     struct xAiQuery_ *q = (struct xAiQuery_ *)ictx->query;
     if (q->cbs.on_tool_output) {
-      q->cbs.on_tool_output(ictx->query, ictx->tool_use_id,
-                            ictx->tool_use_name, data, len,
-                            q->cbs.user_data);
+      q->cbs.on_tool_output(ictx->query, ictx->tool_use_id, ictx->tool_use_name,
+                            data, len, q->cbs.user_data);
     }
   }
 }
@@ -226,9 +226,8 @@ static void on_cmd_stderr(xCommandExecutor exec, const char *data, size_t len,
   if (ictx->query) {
     struct xAiQuery_ *q = (struct xAiQuery_ *)ictx->query;
     if (q->cbs.on_tool_output) {
-      q->cbs.on_tool_output(ictx->query, ictx->tool_use_id,
-                            ictx->tool_use_name, data, len,
-                            q->cbs.user_data);
+      q->cbs.on_tool_output(ictx->query, ictx->tool_use_id, ictx->tool_use_name,
+                            data, len, q->cbs.user_data);
     }
   }
 }
@@ -242,13 +241,13 @@ static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result,
    * In Stream mode the executor does not capture, so we use
    * our own accumulated buffers. */
   xCommandResult final_result = *result;
-  final_result.stdout_buf = ictx->stdout_buf;
-  final_result.stdout_len = xStringLen(ictx->stdout_buf);
-  final_result.stderr_buf = ictx->stderr_buf;
-  final_result.stderr_len = xStringLen(ictx->stderr_buf);
+  final_result.stdout_buf     = ictx->stdout_buf;
+  final_result.stdout_len     = xStringLen(ictx->stdout_buf);
+  final_result.stderr_buf     = ictx->stderr_buf;
+  final_result.stderr_len     = xStringLen(ictx->stderr_buf);
 
-  int completed = (result->exit_code >= 0 || result->timed_out ||
-                   result->signaled);
+  int completed =
+    (result->exit_code >= 0 || result->timed_out || result->signaled);
 
   build_json_result(ictx, &final_result, completed);
 
@@ -260,7 +259,7 @@ static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result,
   }
 
   /* Build the xAiContent result for ai_query_async_tool_complete */
-  xAiContent result_content = {0};
+  xAiContent result_content               = {0};
   result_content.type                     = xAiContentType_ToolResult;
   result_content.u.tool_result.id         = ictx->tool_use_id;
   result_content.u.tool_result.output     = ictx->result_buf;
@@ -279,8 +278,8 @@ static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result,
 
 /* ───────────────────── Cancel callback ───────────────────── */
 
-static void shell_on_cancel(xAiQuery q, const char *tool_use_id,
-                            xAiTool tool, void *ud) {
+static void shell_on_cancel(xAiQuery q, const char *tool_use_id, xAiTool tool,
+                            void *ud) {
   (void)q;
   (void)tool_use_id;
   (void)tool;
@@ -313,39 +312,52 @@ static xErrno shell_handler(xAiQuery q, const xAiContent *in, xAiContent *out,
     return xErrno_InvalidArg;
   }
 
-  const char *command = cmd_node->valuestring;
-  const char *cwd =
-    (cwd_node && cJSON_IsString(cwd_node)) ? cwd_node->valuestring : NULL;
-  uint64_t tmo = (tmo_node && cJSON_IsNumber(tmo_node))
-                   ? (uint64_t)tmo_node->valuedouble
-                   : ctx->timeout_ms;
+  char    *command = strdup(cmd_node->valuestring);
+  char    *cwd     = (cwd_node && cJSON_IsString(cwd_node))
+                       ? strdup(cwd_node->valuestring)
+                       : NULL;
+  uint64_t tmo     = (tmo_node && cJSON_IsNumber(tmo_node))
+                       ? (uint64_t)tmo_node->valuedouble
+                       : ctx->timeout_ms;
+
+  /* cJSON tree no longer needed — command, cwd & tmo are now owned copies. */
+  cJSON_Delete(root);
+
+  if (!command) {
+    free(cwd);
+    return xErrno_NoMemory;
+  }
+
   if (tmo == 0) tmo = DEFAULT_TIMEOUT_MS;
 
   /* ── Allocate per-invocation context ──────────────────── */
   InvokeCtx *ictx = (InvokeCtx *)calloc(1, sizeof(InvokeCtx));
   if (!ictx) {
-    cJSON_Delete(root);
+    free(command);
+    free(cwd);
     return xErrno_NoMemory;
   }
 
-  ictx->loop           = ctx->loop;
-  ictx->exec           = ctx->exec;
-  ictx->query          = q;
-  ictx->tool_use_id    = strdup(in->u.tool_use.id ? in->u.tool_use.id : "");
-  ictx->tool_use_name  = strdup(in->u.tool_use.name ? in->u.tool_use.name : "");
+  ictx->loop          = ctx->loop;
+  ictx->exec          = ctx->exec;
+  ictx->query         = q;
+  ictx->tool_use_id   = strdup(in->u.tool_use.id ? in->u.tool_use.id : "");
+  ictx->tool_use_name = strdup(in->u.tool_use.name ? in->u.tool_use.name : "");
 
   if (!ictx->tool_use_id || !ictx->tool_use_name) {
+    free(command);
+    free(cwd);
     invoke_ctx_destroy(ictx);
-    cJSON_Delete(root);
     return xErrno_NoMemory;
   }
 
-  ictx->result_buf  = xStringCreate("");
-  ictx->stdout_buf  = xStringCreate("");
-  ictx->stderr_buf  = xStringCreate("");
+  ictx->result_buf = xStringCreate("");
+  ictx->stdout_buf = xStringCreate("");
+  ictx->stderr_buf = xStringCreate("");
   if (!ictx->result_buf || !ictx->stdout_buf || !ictx->stderr_buf) {
+    free(command);
+    free(cwd);
     invoke_ctx_destroy(ictx);
-    cJSON_Delete(root);
     return xErrno_NoMemory;
   }
 
@@ -355,8 +367,6 @@ static xErrno shell_handler(xAiQuery q, const xAiContent *in, xAiContent *out,
   ictx->callback_ud = ctx->callback_ud;
   ictx->stdout_cap  = ctx->stdout_cap;
   ictx->stderr_cap  = ctx->stderr_cap;
-
-  cJSON_Delete(root);
 
   /* ── Build xCommandConf ───────────────────────────────── */
   const char *argv[] = {"-c", command, NULL};
@@ -376,10 +386,14 @@ static xErrno shell_handler(xAiQuery q, const xAiContent *in, xAiContent *out,
   if (ctx->on_command) ctx->on_command(command, cwd, ctx->callback_ud);
 
   /* ── Submit ───────────────────────────────────────────── */
-  xErrno rc =
-    xCommandExecutorSubmit(ctx->exec, &conf,
-                           on_cmd_stdout, on_cmd_stderr,
-                           on_cmd_done, ictx);
+  xErrno rc = xCommandExecutorSubmit(ctx->exec, &conf, on_cmd_stdout,
+                                     on_cmd_stderr, on_cmd_done, ictx);
+
+  /* command & cwd are no longer needed — the child process has its own
+   * copy after fork() inside Submit. */
+  free(command);
+  free(cwd);
+
   if (rc != xErrno_Ok) {
     invoke_ctx_destroy(ictx);
     return rc;
@@ -432,12 +446,12 @@ XCAPI(xAiTool) xAiToolShellCreate(xEventLoop loop, const xAiShellConf *conf) {
   tconf.handler           = shell_handler;
   tconf.user_data         = ctx;
   tconf.user_data_destroy = shell_ctx_destroy;
-  tconf.concurrent_safe   = 1;  /* Plan B: does not block the event loop */
+  tconf.concurrent_safe   = 1; /* Plan B: does not block the event loop */
   tconf.needs_confirm     = 1;
-  tconf.on_done_fn        = NULL;  /* Not needed: we call
-                                      ai_query_async_tool_complete directly */
-  tconf.on_cancel_fn      = shell_on_cancel;
-  tconf.on_cancel_ud      = ctx;
+  tconf.on_done_fn        = NULL; /* Not needed: we call
+                                     ai_query_async_tool_complete directly */
+  tconf.on_cancel_fn = shell_on_cancel;
+  tconf.on_cancel_ud = ctx;
 
   xAiTool tool = xAiToolCreate(&tconf);
   if (!tool) {

@@ -956,6 +956,8 @@ static xAiDoneReason translate_terminal(xAiProviderStopReason r,
  * (synchronously, in the same stack) call xAiQueryDestroy on us and
  * free the memory. No member access past the callback is safe. */
 static void query_finalize(struct xAiQuery_ *q, xAiDoneReason reason) {
+  if (!q->running) return; /* Already finalized — avoid double on_done */
+
   xAiUsage usage_snapshot = q->usage;
   int      had_usage      = q->saw_usage;
 
@@ -1084,6 +1086,12 @@ static void on_provider_done(xAiProviderStopReason reason, xErrno err,
                              const xAiUsage *usage, const char *errmsg,
                              void *arg) {
   struct xAiQuery_ *q = (struct xAiQuery_ *)arg;
+
+  /* If the query was already finalized (e.g. an async tool's
+   * on_cmd_done raced ahead and triggered query_finalize via
+   * ai_query_async_tool_complete), bail out — the Query may already
+   * have been destroyed by the session's on_done callback. */
+  if (!q->running) return;
 
   /* Fold this round's usage into the running total BEFORE any
    * branching — we want the accounting to be correct whether the
@@ -1329,4 +1337,3 @@ int xAiQueryTurn(xAiQuery q) {
   if (!q) return 0;
   return ((struct xAiQuery_ *)q)->turn;
 }
-

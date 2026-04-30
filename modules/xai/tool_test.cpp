@@ -15,6 +15,7 @@
 extern "C" {
 #include <xai/message.h>
 #include <xai/tool.h>
+#include <xbase/error.h>
 #include "tool_private.h"
 }
 
@@ -31,7 +32,7 @@ struct HandlerSpy {
   std::string out_str;
 };
 
-static xErrno spy_handler(const xAiContent *in, xAiContent *out, void *ud) {
+static xErrno spy_handler(xAiQuery, const xAiContent *in, xAiContent *out, void *ud) {
   auto *spy = static_cast<HandlerSpy *>(ud);
   spy->calls++;
   if (in && in->type == xAiContentType_ToolUse) {
@@ -178,7 +179,7 @@ TEST(XaiTool, InvokeDispatchesToHandler) {
   in.u.tool_use.args_json   = R"({"q":"life"})";
 
   xAiContent out = {};
-  EXPECT_EQ(ai_tool_invoke(t, &in, &out), xErrno_Ok);
+  EXPECT_EQ(ai_tool_invoke(t, nullptr, &in, &out), xErrno_Ok);
   EXPECT_EQ(spy.calls, 1);
   EXPECT_EQ(spy.last_args, R"({"q":"life"})");
   EXPECT_EQ(spy.last_id,   "call_42");
@@ -203,7 +204,7 @@ TEST(XaiTool, InvokePropagatesHandlerError) {
   xAiContent in  = {};
   in.type = xAiContentType_ToolUse;
   xAiContent out = {};
-  EXPECT_EQ(ai_tool_invoke(t, &in, &out), xErrno_InvalidArg);
+  EXPECT_EQ(ai_tool_invoke(t, nullptr, &in, &out), xErrno_InvalidArg);
   EXPECT_EQ(spy.calls, 1);
 
   xAiToolDestroy(t);
@@ -212,5 +213,130 @@ TEST(XaiTool, InvokePropagatesHandlerError) {
 TEST(XaiTool, InvokeOnNullHandle) {
   xAiContent in = {};
   xAiContent out = {};
-  EXPECT_EQ(ai_tool_invoke(nullptr, &in, &out), xErrno_InvalidArg);
+  EXPECT_EQ(ai_tool_invoke(nullptr, nullptr, &in, &out), xErrno_InvalidArg);
+}
+
+/* ── on_done_fn / on_done_ud accessors ───────────────────────────── */
+
+static void dummy_on_done(xAiQuery, const char *, xAiTool, const xAiContent *,
+                          xAiContent *, void *) {}
+
+TEST(XaiTool, OnDoneFieldsAreCaptured) {
+  HandlerSpy spy;
+  int        marker = 42;
+
+  xAiToolConf conf = {};
+  conf.name        = "async_echo";
+  conf.handler     = spy_handler;
+  conf.user_data   = &spy;
+  conf.on_done_fn  = dummy_on_done;
+  conf.on_done_ud  = &marker;
+
+  xAiTool t = xAiToolCreate(&conf);
+  ASSERT_NE(t, nullptr);
+
+  EXPECT_EQ(ai_tool_on_done_fn(t), dummy_on_done);
+  EXPECT_EQ(ai_tool_on_done_ud(t), &marker);
+
+  xAiToolDestroy(t);
+}
+
+TEST(XaiTool, OnDoneDefaultsToNull) {
+  HandlerSpy spy;
+
+  xAiToolConf conf = {};
+  conf.name    = "sync_echo";
+  conf.handler = spy_handler;
+  conf.user_data = &spy;
+  /* on_done_fn and on_done_ud intentionally left zeroed. */
+
+  xAiTool t = xAiToolCreate(&conf);
+  ASSERT_NE(t, nullptr);
+
+  EXPECT_EQ(ai_tool_on_done_fn(t), nullptr);
+  EXPECT_EQ(ai_tool_on_done_ud(t), nullptr);
+
+  xAiToolDestroy(t);
+}
+
+TEST(XaiTool, OnDoneAccessorsOnNullHandle) {
+  EXPECT_EQ(ai_tool_on_done_fn(nullptr), nullptr);
+  EXPECT_EQ(ai_tool_on_done_ud(nullptr), nullptr);
+}
+
+/* ── xErrno_Pending from handler ────────────────────────────────── */
+
+TEST(XaiTool, InvokeReturnsPendingWhenHandlerSignalsAsync) {
+  HandlerSpy spy;
+  spy.ret = xErrno_Pending;
+
+  xAiToolConf conf = {};
+  conf.name        = "async_op";
+  conf.handler     = spy_handler;
+  conf.user_data   = &spy;
+  conf.on_done_fn  = dummy_on_done;
+  conf.on_done_ud  = nullptr;
+
+  xAiTool t = xAiToolCreate(&conf);
+  ASSERT_NE(t, nullptr);
+
+  xAiContent in  = {};
+  in.type               = xAiContentType_ToolUse;
+  in.u.tool_use.id      = "call_async_1";
+  in.u.tool_use.name    = "async_op";
+  in.u.tool_use.args_json = "{\"delay\":5}";
+
+  xAiContent out = {};
+  EXPECT_EQ(ai_tool_invoke(t, nullptr, &in, &out), xErrno_Pending);
+  EXPECT_EQ(spy.calls, 1);
+  EXPECT_EQ(spy.last_id, "call_async_1");
+  /* out is NOT populated — caller must not read it. */
+
+  xAiToolDestroy(t);
+}
+
+/* ── on_cancel_fn / on_cancel_ud accessors ────────────────────────── */
+
+static void dummy_on_cancel(xAiQuery, const char *, xAiTool, void *) {}
+
+TEST(XaiTool, OnCancelFieldsAreCaptured) {
+  HandlerSpy spy;
+  int        marker = 99;
+
+  xAiToolConf conf = {};
+  conf.name          = "cancellable";
+  conf.handler       = spy_handler;
+  conf.user_data     = &spy;
+  conf.on_cancel_fn  = dummy_on_cancel;
+  conf.on_cancel_ud  = &marker;
+
+  xAiTool t = xAiToolCreate(&conf);
+  ASSERT_NE(t, nullptr);
+
+  EXPECT_EQ(ai_tool_on_cancel_fn(t), dummy_on_cancel);
+  EXPECT_EQ(ai_tool_on_cancel_ud(t), &marker);
+
+  xAiToolDestroy(t);
+}
+
+TEST(XaiTool, OnCancelDefaultsToNull) {
+  HandlerSpy spy;
+
+  xAiToolConf conf = {};
+  conf.name      = "no_cancel";
+  conf.handler   = spy_handler;
+  conf.user_data = &spy;
+
+  xAiTool t = xAiToolCreate(&conf);
+  ASSERT_NE(t, nullptr);
+
+  EXPECT_EQ(ai_tool_on_cancel_fn(t), nullptr);
+  EXPECT_EQ(ai_tool_on_cancel_ud(t), nullptr);
+
+  xAiToolDestroy(t);
+}
+
+TEST(XaiTool, OnCancelAccessorsOnNullHandle) {
+  EXPECT_EQ(ai_tool_on_cancel_fn(nullptr), nullptr);
+  EXPECT_EQ(ai_tool_on_cancel_ud(nullptr), nullptr);
 }

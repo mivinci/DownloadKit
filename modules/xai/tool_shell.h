@@ -7,12 +7,18 @@
  *
  * Provides a "shell" tool that lets the LLM execute arbitrary
  * commands via /bin/sh -c. Internally backed by xCommandExecutor;
- * the handler blocks the event loop with xEventLoopWait() until the
- * command finishes (Plan A — synchronous handler).
+ * the handler returns xErrno_Pending and delivers the result
+ * asynchronously via the on_done_fn callback (Plan B — async).
  *
- * The tool is NOT concurrent_safe (it holds the event loop while the
- * command runs) and is marked needs_confirm (the model should not
- * execute arbitrary commands without user approval).
+ * Streaming output is delivered via on_tool_output on the Query
+ * callbacks and on_stream on xAiShellConf.
+ *
+ * The tool IS concurrent_safe (it does not block the event loop)
+ * and is marked needs_confirm (the model should not execute
+ * arbitrary commands without user approval).
+ *
+ * Cancellation is supported: when the Query is cancelled, the
+ * on_cancel_fn callback sends SIGTERM to the child process.
  */
 
 #ifndef XAI_TOOL_SHELL_H
@@ -55,6 +61,19 @@ typedef void (*xAiShellOnResultFunc)(int exit_code, size_t stdout_len,
                                      void *ud);
 
 /**
+ * @brief Called for each chunk of streaming output from the running command.
+ *
+ * Only fires in Stream mode. May be NULL (no streaming).
+ *
+ * @param data  Output chunk (NOT NUL-terminated).
+ * @param len   Length of @p data in bytes.
+ * @param is_stderr  Non-zero if this chunk came from stderr.
+ * @param ud    The callback_ud pointer from xAiShellConf.
+ */
+typedef void (*xAiShellOnOutputFunc)(const char *data, size_t len,
+                                     int is_stderr, void *ud);
+
+/**
  * @brief Configuration for xAiToolShellCreate().
  *
  * Zero-initialise for defaults.
@@ -66,7 +85,8 @@ XDEF_STRUCT(xAiShellConf) {
 
   xAiShellOnCommandFunc on_command;  /**< Optional: called before exec    */
   xAiShellOnResultFunc  on_result;   /**< Optional: called after exec     */
-  void                 *callback_ud; /**< Forwarded to on_command/on_result */
+  xAiShellOnOutputFunc  on_stream;   /**< Optional: streaming output       */
+  void                 *callback_ud; /**< Forwarded to on_command/on_result/on_stream */
 };
 
 /**
@@ -76,10 +96,15 @@ XDEF_STRUCT(xAiShellConf) {
  *   1. Parses the "command" (required), "cwd" (optional), and
  *      "timeout_ms" (optional) arguments from the tool_use JSON.
  *   2. Spawns /bin/sh -c "<command>" via xCommandExecutorSubmit().
- *   3. Blocks the event loop with xEventLoopWait() until the command
- *      exits or times out.
- *   4. Returns a JSON tool_result with exit_code, stdout, stderr,
+ *   3. Returns xErrno_Pending (async mode); the event loop is NOT
+ *      blocked while the command runs.
+ *   4. Streams output via on_tool_output (if the caller provides it)
+ *      and on_stream (if conf provides it).
+ *   5. On completion, delivers the tool_result via the on_done_fn
+ *      callback, with JSON fields: exit_code, stdout, stderr,
  *      timed_out, and elapsed_ms.
+ *   6. Supports cancellation: on_cancel_fn sends SIGTERM to the
+ *      child process group.
  *
  * @param loop  Event loop (must not be NULL).
  * @param conf  Optional configuration (NULL for defaults).

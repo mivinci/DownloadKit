@@ -473,10 +473,10 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
      *   3. If already compacting, return Busy.
      *   4. Build a summary system prompt + concatenate old
      *      messages as user content.
- *   5. Create an internal Query (budget enforcement is
- *      implicitly disabled because the compact Query is
- *      driven by session_enforce_budget_ which gates on
- *      s->compacting).
+     *   5. Create an internal Query (budget enforcement is
+     *      implicitly disabled because the compact Query is
+     *      driven by session_enforce_budget_ which gates on
+     *      s->compacting).
      *   6. Run it.
      *   7. Return Busy — the caller waits for compact to
      *      finish; sess_fwd_on_done handles the rest.
@@ -556,16 +556,16 @@ static xErrno session_enforce_budget_(struct xAiSession_ *s, xAiMessage msg) {
      * - Budget enforcement is implicitly disabled: the compact
      *   Query is created by session_enforce_budget_ which gates
      *   on s->compacting, so no recursive budget check occurs. */
-    struct xAiAgent_ *a        = (struct xAiAgent_ *)s->agent;
-    xAiQueryConf qc           = {0};
-    qc.cbs.on_done            = sess_fwd_on_done;
-    qc.cbs.user_data          = s;
-    qc.provider               = a->provider;
-    qc.tools                  = (const xAiTool **)a->tools;
-    qc.tools_count            = a->tools_count;
-    qc.model                  = s->model;
-    qc.max_tokens             = s->max_tokens;
-    qc.session                = (xAiSession)s;
+    struct xAiAgent_ *a  = (struct xAiAgent_ *)s->agent;
+    xAiQueryConf      qc = {0};
+    qc.cbs.on_done       = sess_fwd_on_done;
+    qc.cbs.user_data     = s;
+    qc.provider          = a->provider;
+    qc.tools             = (const xAiTool **)a->tools;
+    qc.tools_count       = a->tools_count;
+    qc.model             = s->model;
+    qc.max_tokens        = s->max_tokens;
+    qc.session           = (xAiSession)s;
 
     xAiQuery q = xAiQueryCreate(&qc);
     if (!q) {
@@ -814,6 +814,17 @@ static void sess_fwd_on_tool(xAiQuery q, const char *tool_name, int started,
   struct xAiSession_ *s = (struct xAiSession_ *)ud;
   if (s->cbs.on_tool) {
     s->cbs.on_tool((xAiSession)s, tool_name, started, s->cbs.user_data);
+  }
+}
+
+static void sess_fwd_on_tool_output(xAiQuery q, const char *tool_use_id,
+                                    const char *tool_name, const char *data,
+                                    size_t len, void *ud) {
+  (void)q;
+  struct xAiSession_ *s = (struct xAiSession_ *)ud;
+  if (s->cbs.on_tool_output) {
+    s->cbs.on_tool_output((xAiSession)s, tool_use_id, tool_name, data, len,
+                          s->cbs.user_data);
   }
 }
 
@@ -1067,12 +1078,13 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
 /* One static callback set — stamped into every Query the Session
  * spawns, with user_data re-bound per-create to the Session handle. */
 static const xAiQueryCallbacks SESSION_FWD_CBS = {
-  .on_text     = sess_fwd_on_text,
-  .on_thinking = sess_fwd_on_thinking,
-  .on_done     = sess_fwd_on_done,
-  .on_error    = sess_fwd_on_error,
-  .on_tool     = sess_fwd_on_tool,
-  .user_data   = NULL, /* filled in per-Query */
+  .on_text        = sess_fwd_on_text,
+  .on_thinking    = sess_fwd_on_thinking,
+  .on_done        = sess_fwd_on_done,
+  .on_error       = sess_fwd_on_error,
+  .on_tool        = sess_fwd_on_tool,
+  .on_tool_output = sess_fwd_on_tool_output,
+  .user_data      = NULL, /* filled in per-Query */
 };
 
 /* ── Public API ─────────────────────────────────────────────────────── */
@@ -1111,8 +1123,8 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
    * single-round runs. last_prompt_estimate is zero until the
    * first gate run records one. */
   ai_budget_calibrator_init(&s->budget_calibrator);
-  s->last_prompt_estimate            = 0;
-  s->last_first_round_prompt_tokens  = -1;
+  s->last_prompt_estimate           = 0;
+  s->last_first_round_prompt_tokens = -1;
 
   /* Session-lifetime properties: stamped here, never mutated. Zero
    * for @c origin collapses to xAiInputOrigin_User, which is also
@@ -1187,17 +1199,17 @@ xErrno xAiSessionInput(xAiSession sess, xAiMessage msg) {
   /* Spawn a fresh Query with Session-level forwarding shims bound
    * to this Session. xAiQueryCreate also sets s->query so a second
    * Input call during the same run hits the Busy branch above. */
-  struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
-  xAiQueryConf qc  = {0};
-  qc.cbs           = SESSION_FWD_CBS;
-  qc.cbs.user_data = s;
-  qc.provider      = a->provider;
-  qc.tools         = (const xAiTool **)a->tools;
-  qc.tools_count   = a->tools_count;
-  qc.model         = s->model;
-  qc.max_tokens    = s->max_tokens;
-  qc.max_turns     = s->max_turns;
-  qc.session       = sess;
+  struct xAiAgent_ *a  = (struct xAiAgent_ *)s->agent;
+  xAiQueryConf      qc = {0};
+  qc.cbs               = SESSION_FWD_CBS;
+  qc.cbs.user_data     = s;
+  qc.provider          = a->provider;
+  qc.tools             = (const xAiTool **)a->tools;
+  qc.tools_count       = a->tools_count;
+  qc.model             = s->model;
+  qc.max_tokens        = s->max_tokens;
+  qc.max_turns         = s->max_turns;
+  qc.session           = sess;
 
   xAiQuery q = xAiQueryCreate(&qc);
   if (!q) {

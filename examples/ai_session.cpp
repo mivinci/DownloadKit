@@ -26,7 +26,6 @@
  *   ./ai_session [-d <path>]                         # default: cwd
  */
 
-#include "xbase/backtrace.h"
 #include <xai/agent.h>
 #include <xai/message.h>
 #include <xai/provider.h>
@@ -34,6 +33,7 @@
 #include <xai/session.h>
 #include <xai/tool.h>
 #include <xai/tool_shell.h>
+#include <xbase/backtrace.h>
 #include <xbase/event.h>
 #include <xbase/time.h>
 #include <xhttp/client.h>
@@ -46,6 +46,7 @@
 /* ── REPL state ─────────────────────────────────────────────────────── */
 struct ReplCtx {
   xEventLoop loop             = nullptr;
+  xAiSession  sess            = nullptr;
   bool       saw_first_delta  = false;
   bool       in_thinking      = false; /* currently streaming thinking? */
   size_t     reply_bytes      = 0;
@@ -115,17 +116,29 @@ static void on_tool(xAiSession sess, const char *tool_name, int started,
                     void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
-  /* [tool] frames are chrome — render faint, same as
-   * [thinking]/[done]. Node placement rules:
-   *   - After thinking: end_thinking() already emitted `\n\n`, so
-   *     just print the line (no leading newline from us).
-   *   - Otherwise (start of run, or after text): print one blank
-   *     line first so [tool] doesn't glue to whatever was above. */
   bool after_thinking = ctx->in_thinking;
   end_thinking(ctx);
   if (!after_thinking) std::putchar('\n');
   std::printf("\x1b[2m[tool] %s %s\x1b[0m\n", tool_name ? tool_name : "(null)",
               started ? "starting" : "finished\n");
+  std::fflush(stdout);
+}
+
+static void on_tool_output(xAiSession sess, const char *tool_use_id,
+                           const char *tool_name, const char *data, size_t len,
+                           void *ud) {
+  (void)sess;
+  (void)tool_use_id;
+  (void)tool_name;
+  auto *ctx = static_cast<ReplCtx *>(ud);
+  /* Close any open thinking block before showing tool output. */
+  end_thinking(ctx);
+  /* Render tool output faint with a visual prefix so it's distinct
+   * from the model's final text reply. The prefix uses ⏎ to signal
+   * "this is live output, not the answer". */
+  std::fputs("\x1b[2m", stdout);
+  std::fwrite(data, 1, len, stdout);
+  std::fputs("\x1b[0m", stdout);
   std::fflush(stdout);
 }
 
@@ -218,7 +231,7 @@ static void on_done(xAiSession sess, xAiDoneReason reason,
 
 static void on_error(xAiSession sess, xErrno err, const char *msg, void *ud) {
   (void)sess;
-  auto *ctx = static_cast<ReplCtx *>(ud);
+  auto *ctx    = static_cast<ReplCtx *>(ud);
   /* Same SGR hygiene as on_done — error might fire mid-thinking.
    * Errors are the one piece of chrome that should NOT recede — use
    * bold red (`\x1b[1;31m`) instead of faint so the user notices the
@@ -316,8 +329,7 @@ static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
   std::fflush(stdout);
 }
 
-/* ── Main ───────────────────────────────────────────────────────────── */
-
+/* ── Main ───────────────────────────────────────────────────────────────────── */
 int main(int argc, char *argv[]) {
   xPrintBacktraceOnCrash();
 
@@ -418,7 +430,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  const xAiTool *tool_ptrs[] = {&shell_tool};
+  const xAiTool   *tool_ptrs[] = {&shell_tool};
   constexpr size_t TOTAL_TOOLS = 1;
   /* ── Session config (agent's default session) ──────────────────────
    *
@@ -432,12 +444,13 @@ int main(int argc, char *argv[]) {
 
   xAiSessionConf sconf;
   std::memset(&sconf, 0, sizeof(sconf));
-  sconf.cbs.on_text     = on_text;
-  sconf.cbs.on_thinking = on_thinking;
-  sconf.cbs.on_tool     = on_tool;
-  sconf.cbs.on_done     = on_done;
-  sconf.cbs.on_error    = on_error;
-  sconf.cbs.user_data   = &ctx;
+  sconf.cbs.on_text        = on_text;
+  sconf.cbs.on_thinking    = on_thinking;
+  sconf.cbs.on_tool        = on_tool;
+  sconf.cbs.on_tool_output = on_tool_output;
+  sconf.cbs.on_done        = on_done;
+  sconf.cbs.on_error       = on_error;
+  sconf.cbs.user_data      = &ctx;
 
   /* Opt into the structured budget pipeline so the calibrator
    * actually runs. Without a non-Disabled policy the gate short-
@@ -507,8 +520,10 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  ctx.sess = sess;
+
   std::printf("xai session REPL (model: %s)\n", model);
-  std::printf("Type a message and press Enter. Ctrl-D or \"exit\" to quit.\n"
+  std::printf("Type a message and press Enter. \"exit\" to quit.\n"
               "Registered tools: shell\n\n");
 
   char line[4096];
@@ -516,7 +531,7 @@ int main(int argc, char *argv[]) {
     std::printf("> ");
     std::fflush(stdout);
 
-    if (!std::fgets(line, sizeof(line), stdin)) break; /* EOF */
+    if (!std::fgets(line, sizeof(line), stdin)) break;
 
     size_t len = std::strlen(line);
     while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))

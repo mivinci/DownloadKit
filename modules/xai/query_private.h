@@ -34,9 +34,9 @@
 #include <xai/provider.h> /* xAiProviderStopReason, xAiUsage           */
 #include <xai/query.h>    /* xAiQueryCallbacks                         */
 #include <xai/session.h>  /* xAiDoneReason                             */
-#include <xbase/error.h>
 #include <xbase/array.h>
-#include <xbuf/buf.h>    /* xBuffer                                    */
+#include <xbase/error.h>
+#include <xbuf/buf.h> /* xBuffer                                    */
 
 #include "turn_private.h" /* struct xAiSessionMsg_                     */
 
@@ -56,6 +56,31 @@ struct xAiQueryPending_ {
   char *id;        /* tool_use_id supplied by the provider        */
   char *name;      /* tool name                                    */
   char *args_json; /* arguments JSON (owned copy)                  */
+};
+
+/**
+ * @brief One asynchronously executing tool invocation.
+ *
+ * When a tool handler returns xErrno_Pending, query.c creates one
+ * of these to track the in-flight operation. The on_done_fn callback
+ * will resolve it by producing the final tool_result entry into
+ * @c produced_arr.
+ *
+ * Lifetime: allocated in dispatch_pending_tools when xErrno_Pending
+ * is returned; released when the on_done_fn callback fires (either
+ * by appending to produced_arr or by error). The async_pending_arr
+ * holds all live entries; once it is empty and no more synchronous
+ * pending calls remain, the tool-loop continuation can proceed.
+ */
+struct xAiQueryAsyncTool_ {
+  xAiTool          tool;      /* the tool handle (borrowed from tools[]) */
+  xAiToolDoneFunc  done_fn;   /* tool's on_done_fn (may be NULL)         */
+  void            *done_ud;   /* tool's on_done_ud (may be NULL)        */
+  xAiToolCancelFunc cancel_fn; /* tool's on_cancel_fn (may be NULL)     */
+  void            *cancel_ud; /* tool's on_cancel_ud (may be NULL)      */
+  char            *id;        /* tool_use_id (owned copy)                */
+  char            *name;      /* tool name (owned copy)                  */
+  char            *args_json; /* arguments JSON (owned copy)              */
 };
 
 /**
@@ -85,13 +110,13 @@ struct xAiQuery_ {
    * any of this — it is fully standalone. The only use for the
    * @c session pointer is the observational xAiQuerySession() API;
    * it is never dereferenced for configuration. */
-  xAiProvider        provider;   /* borrowed, never NULL for a functional Query */
-  const xAiTool    **tools;      /* borrowed array, may be NULL               */
-  size_t             tools_count; /* number of entries in tools                */
-  const char        *model;      /* borrowed, may be NULL                     */
-  int                max_tokens; /* per-round cap, 0 = provider default       */
-  int                max_turns;  /* tool-loop cap, 0 = library default        */
-  struct xAiSession_ *session;   /* optional, for xAiQuerySession() only      */
+  xAiProvider     provider;    /* borrowed, never NULL for a functional Query */
+  const xAiTool **tools;       /* borrowed array, may be NULL               */
+  size_t          tools_count; /* number of entries in tools                */
+  const char     *model;       /* borrowed, may be NULL                     */
+  int             max_tokens;  /* per-round cap, 0 = provider default       */
+  int             max_turns;   /* tool-loop cap, 0 = library default        */
+  struct xAiSession_ *session; /* optional, for xAiQuerySession() only      */
 
   /* Streaming callbacks for this Query. Captured by value at
    * xAiQueryCreate; callbacks fire with the Query handle (not the
@@ -120,13 +145,16 @@ struct xAiQuery_ {
   xArray produced_arr;
 
   /* ── Assistant text accumulator for the current round ─────────── */
-  xBuffer assist;   /* lazy-created on first append; NULL when unused */
+  xBuffer assist; /* lazy-created on first append; NULL when unused */
 
   /* ── Assistant reasoning / thinking accumulator (current round) ── */
   xBuffer reasoning; /* lazy-created on first append; NULL when unused */
 
   /* ── Pending tool calls captured during the current round ─────── */
   xArray pending_arr;
+
+  /* ── Asynchronously executing tool invocations ────────────────── */
+  xArray async_pending_arr; /* holds struct xAiQueryAsyncTool_ */
 
   /* ── Run-wide state ───────────────────────────────────────────── */
   int running;   /* 1 from Run until terminal on_done has fired    */
@@ -206,5 +234,24 @@ void ai_query_cancel_mark(struct xAiQuery_ *q);
  */
 void ai_query_take_produced(struct xAiQuery_ *q, struct xAiSessionMsg_ **out,
                             size_t *n_out);
+
+/**
+ * @brief Resolve one asynchronously executing tool invocation.
+ *
+ * Called from the tool's on_done_fn callback when an async tool
+ * (one that returned xErrno_Pending from its handler) completes.
+ * The function removes the matching entry from the Query's async
+ * pending list, appends the tool_result to @c produced, and
+ * checks whether all async tools for the current round are done
+ * so the tool-loop can continue with the next provider round.
+ *
+ * @param q            Query handle.
+ * @param tool_use_id  The tool_use_id that identifies the pending call.
+ * @param result       The tool result content block. May be ToolResult
+ *                     or Text; if NULL or unrecognized, an error result
+ *                     is synthesized.
+ */
+void ai_query_async_tool_complete(struct xAiQuery_ *q, const char *tool_use_id,
+                                  const xAiContent *result);
 
 #endif /* XAI_QUERY_PRIVATE_H */

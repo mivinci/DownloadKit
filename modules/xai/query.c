@@ -318,6 +318,19 @@ static void pending_release(void *elem) {
 
 static const xArrayCallbacks kPendingCbs = { NULL, pending_release, NULL };
 
+/* ── Async pending tool-call bookkeeping ────────────────────────────── */
+
+static void async_pending_release(void *elem) {
+  struct xAiQueryAsyncTool_ *a = (struct xAiQueryAsyncTool_ *)elem;
+  if (!a) return;
+  free(a->id);
+  free(a->name);
+  free(a->args_json);
+  memset(a, 0, sizeof(*a));
+}
+
+static const xArrayCallbacks kAsyncPendingCbs = { NULL, async_pending_release, NULL };
+
 static void pending_reset(struct xAiQuery_ *q) {
   xArrayReset(q->pending_arr);
 }
@@ -652,7 +665,12 @@ static xAiTool find_tool(const xAiTool **tools, size_t tools_count,
  *
  * Returns xErrno_Ok if dispatch completed (successfully or with
  * individual tool errors folded back into produced). Fatal failure
- * (OOM building result entries) aborts with the returned code. */
+ * (OOM building result entries) aborts with the returned code.
+ *
+ * Forward declarations needed for async completion path. */
+static void query_finalize(struct xAiQuery_ *q, xAiDoneReason reason);
+static xErrno submit_round(struct xAiQuery_ *q);
+
 static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
   for (size_t i = 0; i < xArrayLen(q->pending_arr) && !q->cancelled; i++) {
     struct xAiQueryPending_ *p =
@@ -685,7 +703,33 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
       in.u.tool_use.id        = p->id;
       in.u.tool_use.name      = p->name;
       in.u.tool_use.args_json = p->args_json;
-      xErrno trc              = ai_tool_invoke(t, &in, &out);
+      xErrno trc              = ai_tool_invoke(t, (xAiQuery)q, &in, &out);
+
+      if (trc == xErrno_Pending) {
+        /* Asynchronous tool: the handler will call on_done_fn later.
+         * Register the in-flight entry so we can track it. The
+         * on_tool(started=0) callback is deferred until the async
+         * completion fires (see ai_query_async_tool_complete). */
+        struct xAiQueryAsyncTool_ *slot =
+          (struct xAiQueryAsyncTool_ *)xArrayPush(&q->async_pending_arr);
+        if (!slot) return xErrno_NoMemory;
+        slot->tool      = t;
+        slot->done_fn    = ai_tool_on_done_fn(t);
+        slot->done_ud    = ai_tool_on_done_ud(t);
+        slot->cancel_fn  = ai_tool_on_cancel_fn(t);
+        slot->cancel_ud  = ai_tool_on_cancel_ud(t);
+        slot->id        = dup_cstr(p->id);
+        slot->name      = dup_cstr(p->name);
+        slot->args_json = dup_cstr(p->args_json);
+        if (!slot->id || !slot->name || !slot->args_json) {
+          xArrayPop(q->async_pending_arr);
+          return xErrno_NoMemory;
+        }
+        /* Skip the on_tool(started=0) below — async tool is still
+         * in flight. The completion path will fire it later. */
+        continue;
+      }
+
       if (trc != xErrno_Ok) {
         snprintf(err_buf, sizeof(err_buf),
                  "tool handler returned error (xErrno=%d)", (int)trc);
@@ -718,6 +762,118 @@ static xErrno dispatch_pending_tools(struct xAiQuery_ *q) {
   }
 
   return xErrno_Ok;
+}
+
+/* ── Async tool completion ─────────────────────────────────────── */
+
+/* Find an async pending entry by tool_use_id and remove it from the
+ * array, returning the entry (caller must free its fields). Returns
+ * NULL if not found. */
+static struct xAiQueryAsyncTool_ *async_pending_remove(struct xAiQuery_ *q,
+                                                       const char *tool_use_id) {
+  size_t len = xArrayLen(q->async_pending_arr);
+  for (size_t i = 0; i < len; i++) {
+    struct xAiQueryAsyncTool_ *a =
+      (struct xAiQueryAsyncTool_ *)xArrayAt(q->async_pending_arr, i);
+    if (a->id && strcmp(a->id, tool_use_id) == 0) {
+      /* Steal the entry data before removing from array (the remove
+       * calls async_pending_release which frees the strings). We
+       * make a shallow copy of the struct and NULL out the string
+       * pointers so the release callback doesn't free them. */
+      struct xAiQueryAsyncTool_ stolen = *a;
+      a->id        = NULL;
+      a->name      = NULL;
+      a->args_json = NULL;
+      xArrayRemoveRange(q->async_pending_arr, i, 1);
+      /* Return the stolen entry; caller owns the strings. */
+      struct xAiQueryAsyncTool_ *out =
+        (struct xAiQueryAsyncTool_ *)calloc(1, sizeof(*out));
+      if (out) *out = stolen;
+      return out;
+    }
+  }
+  return NULL;
+}
+
+/* Called when an async tool completes. Resolves the pending entry,
+ * appends the tool_result to produced, and checks whether all async
+ * tools are done so the tool-loop can continue. */
+void ai_query_async_tool_complete(struct xAiQuery_ *q,
+                                         const char *tool_use_id,
+                                         const xAiContent *result) {
+  if (!q || !tool_use_id) return;
+
+  struct xAiQueryAsyncTool_ *a = async_pending_remove(q, tool_use_id);
+  if (!a) return; /* not found — already resolved or stale */
+
+  int         is_error = 0;
+  const char *out_text;
+  size_t      out_text_len;
+  char        err_buf[256];
+
+  if (result && result->type == xAiContentType_ToolResult) {
+    out_text     = result->u.tool_result.output ? result->u.tool_result.output : "";
+    out_text_len = result->u.tool_result.output_len
+                     ? result->u.tool_result.output_len
+                     : strlen(out_text);
+    is_error     = result->u.tool_result.is_error ? 1 : 0;
+  } else if (result && result->type == xAiContentType_Text) {
+    /* Allow the callback to return a simple text result. */
+    out_text     = result->u.text.text ? result->u.text.text : "";
+    out_text_len = result->u.text.len ? result->u.text.len : strlen(out_text);
+    is_error     = 0;
+  } else {
+    snprintf(err_buf, sizeof(err_buf),
+             "async tool \"%s\" on_done supplied no result", a->name);
+    out_text     = err_buf;
+    out_text_len = strlen(err_buf);
+    is_error     = 1;
+  }
+
+  xErrno rc =
+    turn_buf_append_tool_result(&q->produced_arr, a->id, out_text,
+                                out_text_len, is_error);
+
+  /* Fire on_tool(started=0) now that the async operation is done. */
+  if (q->cbs.on_tool) {
+    q->cbs.on_tool((xAiQuery)q, a->name, /*started=*/0, q->cbs.user_data);
+  }
+
+  /* Free the stolen entry. */
+  free(a->id);
+  free(a->name);
+  free(a->args_json);
+  free(a);
+
+  /* If OOM recording the result, we need to abort the run. */
+  if (rc != xErrno_Ok) {
+    if (q->cbs.on_error) {
+      q->cbs.on_error((xAiQuery)q, rc,
+                      "failed to record async tool_result in history",
+                      q->cbs.user_data);
+    }
+    query_finalize(q, xAiDoneReason_ToolError);
+    return;
+  }
+
+  /* If all async tools have completed, continue the tool loop. */
+  if (xArrayLen(q->async_pending_arr) == 0) {
+    if (q->cancelled) {
+      query_finalize(q, xAiDoneReason_Aborted);
+      return;
+    }
+
+    /* All async tools resolved — submit the next provider round. */
+    xErrno src = submit_round(q);
+    if (src != xErrno_Ok) {
+      if (q->cbs.on_error) {
+        q->cbs.on_error((xAiQuery)q, src,
+                        "failed to submit follow-up after async tools",
+                        q->cbs.user_data);
+      }
+      query_finalize(q, xAiDoneReason_ModelError);
+    }
+  }
 }
 
 /* ── Assistant-turn commit ─────────────────────────────────────── */
@@ -800,6 +956,8 @@ static xAiDoneReason translate_terminal(xAiProviderStopReason r,
  * (synchronously, in the same stack) call xAiQueryDestroy on us and
  * free the memory. No member access past the callback is safe. */
 static void query_finalize(struct xAiQuery_ *q, xAiDoneReason reason) {
+  if (!q->running) return; /* Already finalized — avoid double on_done */
+
   xAiUsage usage_snapshot = q->usage;
   int      had_usage      = q->saw_usage;
 
@@ -834,7 +992,9 @@ static void handle_tool_loop_continuation(struct xAiQuery_ *q) {
     return;
   }
 
-  /* Run every pending handler; each appends a tool_result entry. */
+  /* Run every pending handler; each appends a tool_result entry
+   * (synchronous tools) or registers an async_pending entry
+   * (tools that returned xErrno_Pending). */
   xErrno drc = dispatch_pending_tools(q);
   pending_reset(q);
 
@@ -852,6 +1012,14 @@ static void handle_tool_loop_continuation(struct xAiQuery_ *q) {
                       q->cbs.user_data);
     }
     query_finalize(q, xAiDoneReason_ToolError);
+    return;
+  }
+
+  /* If some tools are still executing asynchronously, do NOT submit
+   * the next round yet. The async completion callback
+   * (ai_query_async_tool_complete) will submit the next round once
+   * all async tools have resolved. */
+  if (xArrayLen(q->async_pending_arr) > 0) {
     return;
   }
 
@@ -918,6 +1086,12 @@ static void on_provider_done(xAiProviderStopReason reason, xErrno err,
                              const xAiUsage *usage, const char *errmsg,
                              void *arg) {
   struct xAiQuery_ *q = (struct xAiQuery_ *)arg;
+
+  /* If the query was already finalized (e.g. an async tool's
+   * on_cmd_done raced ahead and triggered query_finalize via
+   * ai_query_async_tool_complete), bail out — the Query may already
+   * have been destroyed by the session's on_done callback. */
+  if (!q->running) return;
 
   /* Fold this round's usage into the running total BEFORE any
    * branching — we want the accounting to be correct whether the
@@ -1010,10 +1184,14 @@ xAiQuery xAiQueryCreate(const xAiQueryConf *conf) {
   q->produced_arr = xArrayCreate(sizeof(struct xAiSessionMsg_), 8, &kMsgCbs);
   q->pending_arr  = xArrayCreate(sizeof(struct xAiQueryPending_), 4,
                                  &kPendingCbs);
-  if (!q->inputs_arr || !q->produced_arr || !q->pending_arr) {
+  q->async_pending_arr = xArrayCreate(sizeof(struct xAiQueryAsyncTool_), 4,
+                                      &kAsyncPendingCbs);
+  if (!q->inputs_arr || !q->produced_arr || !q->pending_arr
+      || !q->async_pending_arr) {
     xArrayDestroy(q->inputs_arr);
     xArrayDestroy(q->produced_arr);
     xArrayDestroy(q->pending_arr);
+    xArrayDestroy(q->async_pending_arr);
     free(q);
     return NULL;
   }
@@ -1075,6 +1253,14 @@ void xAiQueryDestroy(xAiQuery q) {
   if (qq->running) {
     ai_query_cancel_mark(qq);
     ai_provider_cancel(qq->provider);
+    /* Cancel in-flight async tools too. */
+    for (size_t i = 0; i < xArrayLen(qq->async_pending_arr); i++) {
+      struct xAiQueryAsyncTool_ *a =
+        (struct xAiQueryAsyncTool_ *)xArrayAt(qq->async_pending_arr, i);
+      if (a->cancel_fn) {
+        a->cancel_fn((xAiQuery)qq, a->id, a->tool, a->cancel_ud);
+      }
+    }
   }
 
   /* Detach from Session (if the Session still points at us). */
@@ -1085,6 +1271,7 @@ void xAiQueryDestroy(xAiQuery q) {
   xBufferDestroy(qq->assist);
   xBufferDestroy(qq->reasoning);
   xArrayDestroy(qq->pending_arr);
+  xArrayDestroy(qq->async_pending_arr);
 
   xArrayDestroy(qq->inputs_arr);
   xArrayDestroy(qq->produced_arr);
@@ -1111,6 +1298,16 @@ void xAiQueryCancel(xAiQuery q) {
 
   ai_query_cancel_mark(qq);
   ai_provider_cancel(qq->provider);
+
+  /* Cancel all in-flight async tools. */
+  for (size_t i = 0; i < xArrayLen(qq->async_pending_arr); i++) {
+    struct xAiQueryAsyncTool_ *a =
+      (struct xAiQueryAsyncTool_ *)xArrayAt(qq->async_pending_arr, i);
+    if (a->cancel_fn) {
+      a->cancel_fn((xAiQuery)qq, a->id, a->tool, a->cancel_ud);
+    }
+  }
+
   /* The provider's on_done will arrive with reason=Cancelled, or
    * dispatch_pending_tools will notice q->cancelled between rounds. */
 }
@@ -1140,4 +1337,3 @@ int xAiQueryTurn(xAiQuery q) {
   if (!q) return 0;
   return ((struct xAiQuery_ *)q)->turn;
 }
-

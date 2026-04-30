@@ -589,7 +589,7 @@ TEST_F(OpenAIProviderTest, RequestBodyCarriesModelAndMessages) {
  * emitted JSON. The negative assertions on `"name":""` would have
  * caught the original bug on their own.                                */
 
-static xErrno noop_tool_handler(const xAiContent *, xAiContent *, void *) {
+static xErrno noop_tool_handler(xAiQuery, const xAiContent *, xAiContent *, void *) {
   return xErrno_Ok;
 }
 

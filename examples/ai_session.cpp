@@ -26,7 +26,6 @@
  *   ./ai_session [-d <path>]                         # default: cwd
  */
 
-#include "xbase/backtrace.h"
 #include <xai/agent.h>
 #include <xai/message.h>
 #include <xai/provider.h>
@@ -34,6 +33,7 @@
 #include <xai/session.h>
 #include <xai/tool.h>
 #include <xai/tool_shell.h>
+#include <xbase/backtrace.h>
 #include <xbase/event.h>
 #include <xbase/time.h>
 #include <xhttp/client.h>
@@ -418,7 +418,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  const xAiTool *tool_ptrs[] = {&shell_tool};
+  const xAiTool   *tool_ptrs[] = {&shell_tool};
   constexpr size_t TOTAL_TOOLS = 1;
   /* ── Session config (agent's default session) ──────────────────────
    *

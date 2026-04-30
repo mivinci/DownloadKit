@@ -40,6 +40,15 @@
 #include <xbase/error.h>
 
 /**
+ * @brief Opaque handle to a running query (forward declaration).
+ *
+ * Full definition in <xai/query.h>. Declared here so that
+ * xAiToolDoneFunc / xAiToolCancelFunc can accept a Query pointer
+ * without pulling in the entire query.h header.
+ */
+XDEF_HANDLE(xAiQuery);
+
+/**
  * @brief Opaque handle to a registered tool.
  */
 XDEF_HANDLE(xAiTool);
@@ -64,17 +73,63 @@ XDEF_HANDLE(xAiTool);
  *   on a worker thread from the agent's task pool.
  * - Otherwise it is invoked on the event loop thread.
  *
+ * @param q    The Query that dispatched this tool call.
  * @param in   The tool_use content block (type == ToolUse).
  * @param out  Output slot to be filled with a tool_result content
- *             block (handler must set out->type and out->u.tool_result).
+ *             block (handler must set out->type and out->u.tool_result
+ *             for synchronous completion; for async see @ref on_done_fn).
  * @param ud   The user_data pointer supplied in xAiToolConf.
- * @return     xErrno_Ok on success; anything else is surfaced as a
- *             tool error to the model.
+ * @return     xErrno_Ok on synchronous success; xErrno_Pending if the
+ *             operation was submitted asynchronously (the agent will
+ *             be notified of completion via @ref on_done_fn); anything
+ *             else is surfaced as a tool error to the model.
  */
-typedef xErrno (*xAiToolHandlerFunc)(const xAiContent *in, xAiContent *out,
-                                     void *ud);
+typedef xErrno (*xAiToolHandlerFunc)(xAiQuery q, const xAiContent *in,
+                                     xAiContent *out, void *ud);
 
 typedef void (*xAiToolUserDataDestroyFunc)(void *user_data);
+
+/**
+ * @brief Async completion callback for tools that return xErrno_Pending.
+ *
+ * When a tool handler returns xErrno_Pending, the agent will call
+ * this function once the operation completes. The callback must
+ * populate @p out with a valid tool_result content block and then
+ * call ai_query_async_tool_complete() to notify the query that the
+ * tool has finished.
+ *
+ * @param q          The Query that dispatched this tool call.
+ * @param tool_use_id  The tool_use_id from the original tool_use content.
+ * @param tool       The tool handle.
+ * @param in         The original tool_use content block (deep-copied by the
+ *                   agent before the async dispatch; valid for the duration
+ *                   of this callback only).
+ * @param out        Output slot to be filled with the completed tool_result
+ *                   content block.
+ * @param ud         The on_done_ud pointer supplied in xAiToolConf.
+ */
+typedef void (*xAiToolDoneFunc)(xAiQuery q, const char *tool_use_id,
+                                xAiTool tool, const xAiContent *in,
+                                xAiContent *out, void *ud);
+
+/**
+ * @brief Cancellation callback for async tools.
+ *
+ * When a Query is cancelled while an async tool is in-flight, the
+ * agent calls this function so the tool can abort its operation
+ * (e.g. kill a child process). After cancellation the tool must
+ * still call ai_query_async_tool_complete() to deliver a (possibly
+ * error) tool_result.
+ *
+ * May be NULL = the tool does not support cancellation.
+ *
+ * @param q          The Query being cancelled.
+ * @param tool_use_id  The tool_use_id of the in-flight operation.
+ * @param tool       The tool handle.
+ * @param ud         The on_cancel_ud pointer supplied in xAiToolConf.
+ */
+typedef void (*xAiToolCancelFunc)(xAiQuery q, const char *tool_use_id,
+                                  xAiTool tool, void *ud);
 
 /**
  * @brief Configuration for creating a tool.
@@ -102,6 +157,21 @@ XDEF_STRUCT(xAiToolConf) {
   int needs_confirm;   /**< Non-zero: agent must obtain user confirmation
                             before invoking the handler (honoured once the
                             confirmation flow lands; see TODO.md).         */
+
+  xAiToolDoneFunc on_done_fn; /**< Async completion callback (may be NULL
+                                   = synchronous tool). When non-NULL the
+                                   handler may return xErrno_Pending to
+                                   indicate the operation is in progress;
+                                   the agent will invoke this callback with
+                                   the completed tool_result once the
+                                   operation finishes.                     */
+  void *on_done_ud;            /**< User data forwarded to on_done_fn
+                                    (may be NULL).                         */
+
+  xAiToolCancelFunc on_cancel_fn; /**< Cancellation callback (may be NULL
+                                       = tool does not support cancel).    */
+  void *on_cancel_ud;             /**< User data forwarded to on_cancel_fn
+                                       (may be NULL).                      */
 };
 
 /**

@@ -31,15 +31,31 @@ const char *ai_tool_json_schema(xAiTool tool);
 int ai_tool_concurrent_safe(xAiTool tool);
 int ai_tool_needs_confirm(xAiTool tool);
 
+xAiToolDoneFunc ai_tool_on_done_fn(xAiTool tool);
+void *ai_tool_on_done_ud(xAiTool tool);
+
+xAiToolCancelFunc ai_tool_on_cancel_fn(xAiTool tool);
+void *ai_tool_on_cancel_ud(xAiTool tool);
+
 /**
- * @brief Synchronously run the tool's handler.
+ * @brief Run the tool's handler.
  *
  * Lifetime: @p in is owned by the caller; the handler writes into
  * @p out (a caller-supplied slot) and the caller must copy any
  * pointers it wants to retain, because they may refer to per-call
  * handler-local storage.
+ *
+ * Return values:
+ * - xErrno_Ok: synchronous completion — @p out is populated with a
+ *   valid tool_result content block.
+ * - xErrno_Pending: asynchronous execution — the handler has submitted
+ *   the operation and will call ai_query_async_tool_complete() when
+ *   it completes. @p out is NOT populated; the agent will supply the
+ *   tool_result via the completion path instead.
+ * - Any other xErrno: tool error, surfaced to the model.
  */
-xErrno ai_tool_invoke(xAiTool tool, const xAiContent *in, xAiContent *out);
+xErrno ai_tool_invoke(xAiTool tool, xAiQuery q, const xAiContent *in,
+                      xAiContent *out);
 
 #ifdef __cplusplus
 }

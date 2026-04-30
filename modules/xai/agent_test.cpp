@@ -53,7 +53,7 @@ static xAiProvider make_noop_provider() {
 
 /* Tool handler used below; xAiToolConf.handler has C linkage so we
  * cannot inline a lambda portably. */
-static xErrno noop_tool_handler(const xAiContent *, xAiContent *, void *) {
+static xErrno noop_tool_handler(xAiQuery, const xAiContent *, xAiContent *, void *) {
   return xErrno_Ok;
 }
 

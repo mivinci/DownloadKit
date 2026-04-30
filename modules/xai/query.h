@@ -182,6 +182,24 @@ XDEF_STRUCT(xAiQueryCallbacks) {
    */
   void (*on_tool)(xAiQuery q, const char *tool_name, int started, void *ud);
 
+  /**
+   * @brief Optional: streaming output from an in-flight tool.
+   *
+   * Fired by async tools (e.g. shell) to deliver incremental output
+   * before the final tool_result. May be NULL = caller does not want
+   * streaming output.
+   *
+   * @param q           The Query.
+   * @param tool_use_id The tool_use_id of the in-flight tool call.
+   * @param tool_name   The registered tool name.
+   * @param data        Output chunk (NOT NUL-terminated).
+   * @param len         Length of @p data in bytes.
+   * @param ud          The user_data pointer from this struct.
+   */
+  void (*on_tool_output)(xAiQuery q, const char *tool_use_id,
+                         const char *tool_name, const char *data, size_t len,
+                         void *ud);
+
   /** Forwarded to every callback in this struct. */
   void *user_data;
 };

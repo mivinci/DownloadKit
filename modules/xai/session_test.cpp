@@ -709,7 +709,7 @@ struct ToolRec {
   std::string args;
 };
 
-static xErrno echo_handler(const xAiContent *in, xAiContent *out, void *ud) {
+static xErrno echo_handler(xAiQuery, const xAiContent *in, xAiContent *out, void *ud) {
   auto *log = static_cast<std::vector<ToolRec> *>(ud);
   ToolRec rec;
   rec.name = in->u.tool_use.name ? in->u.tool_use.name : "";
@@ -729,7 +729,7 @@ static xErrno echo_handler(const xAiContent *in, xAiContent *out, void *ud) {
   return xErrno_Ok;
 }
 
-static xErrno failing_handler(const xAiContent *, xAiContent *, void *) {
+static xErrno failing_handler(xAiQuery, const xAiContent *, xAiContent *, void *) {
   return xErrno_Again;
 }
 
@@ -1218,8 +1218,484 @@ TEST_F(ToolLoopFixture, UsageSurvivesRoundWithoutUsage) {
   xAiSessionDestroy(sess);
 }
 
-/* When every round is silent about usage the caller gets a NULL
- * pointer in on_done — not a bogus 0/0/0 "free run" reading. */
+/* ── Async tool loop ─────────────────────────────────────────────── */
+
+/* An async tool handler: returns xErrno_Pending and stashes the
+ * query pointer so the test can resolve it later via
+ * ai_query_async_tool_complete. */
+struct AsyncSpy {
+  std::vector<ToolRec> log;
+  struct xAiQuery_ *captured_q = nullptr;  /* set by handler */
+  std::string       captured_id;           /* set by handler */
+};
+
+static xErrno async_handler(xAiQuery, const xAiContent *in, xAiContent *out, void *ud) {
+  (void)out;
+  auto *spy = static_cast<AsyncSpy *>(ud);
+  ToolRec rec;
+  rec.name = in->u.tool_use.name ? in->u.tool_use.name : "";
+  rec.id   = in->u.tool_use.id   ? in->u.tool_use.id   : "";
+  rec.args = in->u.tool_use.args_json ? in->u.tool_use.args_json : "";
+  spy->log.push_back(rec);
+  /* Do NOT populate out — caller must not read it when Pending. */
+  return xErrno_Pending;
+}
+
+/* Fixture that provides an async tool alongside the sync echo tool. */
+class AsyncToolFixture : public SessionTest {
+ protected:
+  xAiTool    tool_async_  = nullptr;
+  xAiTool    tool_echo_   = nullptr;
+  AsyncSpy   async_spy_;
+  std::vector<ToolRec> echo_log_;
+
+  void SetUp() override {
+    SessionTest::SetUp();
+    xAiAgentDestroy(agent_);
+
+    xAiToolConf tc = {};
+    tc.name        = "slow_op";
+    tc.description = "an async tool";
+    tc.json_schema = "{\"type\":\"object\"}";
+    tc.handler     = async_handler;
+    tc.user_data   = &async_spy_;
+    tool_async_    = xAiToolCreate(&tc);
+
+    tc           = {};
+    tc.name      = "echo";
+    tc.handler   = echo_handler;
+    tc.user_data = &echo_log_;
+    tool_echo_   = xAiToolCreate(&tc);
+
+    static const xAiTool *kTools[2];
+    kTools[0] = &tool_async_;
+    kTools[1] = &tool_echo_;
+
+    xAiAgentConf ac   = {};
+    ac.loop           = loop_;
+    ac.provider       = provider_;
+    ac.model          = "fake-model";
+    ac.system_prompt  = "you are a test";
+    ac.max_turns      = 5;
+    ac.max_tokens     = 1024;
+    ac.tools          = kTools;
+    ac.tools_count    = 2;
+    agent_            = xAiAgentCreate(&ac);
+    ASSERT_NE(agent_, nullptr);
+  }
+
+  void TearDown() override {
+    xAiToolDestroy(tool_async_);
+    xAiToolDestroy(tool_echo_);
+    SessionTest::TearDown();
+  }
+};
+
+/* Single async tool: handler returns Pending, then the test resolves
+ * it by calling ai_query_async_tool_complete. The tool-loop should
+ * then continue with the next provider round. */
+TEST_F(AsyncToolFixture, SingleAsyncToolRoundTrip) {
+  struct LocalCap : Captured {
+    std::vector<std::pair<std::string, int>> tool_events;
+  } cap;
+
+  auto cbs        = make_cbs(&cap);
+  cbs.on_tool     = [](xAiSession, const char *name, int started, void *ud) {
+    auto *c = static_cast<LocalCap *>(ud);
+    c->tool_events.push_back({name, started});
+  };
+  xAiSession sess = make_session(cbs);
+
+  /* Round 1: model calls the async tool. */
+  fake_->script_queue.push_back({
+      SToolCall("slow_op", "call_async_1", "{\"delay\":5}"),
+      SDone(xAiProviderStop_ToolUse),
+  });
+  /* Round 2: model acknowledges the result and ends the turn.
+   * This script must be queued BEFORE the async completion so that
+   * submit_round inside ai_query_async_tool_complete can consume it. */
+  fake_->script_queue.push_back({
+      SText("got it"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("go slow")), xErrno_Ok);
+
+  /* The handler ran once and returned Pending. */
+  ASSERT_EQ(async_spy_.log.size(), 1u);
+  EXPECT_EQ(async_spy_.log[0].name, "slow_op");
+  EXPECT_EQ(async_spy_.log[0].id, "call_async_1");
+
+  /* Only one provider submit so far (round 1). The session's
+   * on_done has NOT fired yet because the async tool is pending. */
+  EXPECT_EQ(fake_->submits, 1);
+  EXPECT_EQ(cap.done_fired, 0);
+
+  /* on_tool(started=1) was emitted, but started=0 is deferred. */
+  ASSERT_EQ(cap.tool_events.size(), 1u);
+  EXPECT_EQ(cap.tool_events[0].first, "slow_op");
+  EXPECT_EQ(cap.tool_events[0].second, 1);
+
+  /* Now resolve the async tool. Grab the live Query from the session. */
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  ASSERT_NE(s->query, nullptr);
+
+  xAiContent result = {};
+  result.type                    = xAiContentType_ToolResult;
+  result.u.tool_result.id        = "call_async_1";
+  result.u.tool_result.output    = R"({"status":"done"})";
+  result.u.tool_result.output_len = 17;
+  result.u.tool_result.is_error  = 0;
+
+  ai_query_async_tool_complete(s->query, "call_async_1", &result);
+
+  /* The tool-loop continued: round 2 submitted. */
+  EXPECT_EQ(fake_->submits, 2);
+
+  /* on_tool(started=0) was emitted upon async completion. */
+  ASSERT_GE(cap.tool_events.size(), 2u);
+  EXPECT_EQ(cap.tool_events[1].first, "slow_op");
+  EXPECT_EQ(cap.tool_events[1].second, 0);
+
+  /* Session-level on_done fired with Completed. */
+  EXPECT_EQ(cap.done_fired, 1);
+  EXPECT_EQ(cap.done_reason, xAiDoneReason_Completed);
+
+  /* Streaming text from round 2 reached the caller. */
+  EXPECT_EQ(cap.texts, "got it");
+
+  /* History:
+   *   [0] user "go slow"
+   *   [1] assistant tool_use (slow_op, call_async_1)
+   *   [2] tool tool_result (call_async_1, {"status":"done"})
+   *   [3] assistant text "got it" */
+  ASSERT_EQ(hist_len(s), 4u);
+  EXPECT_EQ(hist_at(s, 0)->role, xAiRole_User);
+  EXPECT_EQ(hist_at(s, 1)->role, xAiRole_Assistant);
+  EXPECT_EQ(hist_at(s, 1)->kind, xAiSessionEntry_ToolUse);
+  EXPECT_STREQ(hist_at(s, 1)->tool_use_name, "slow_op");
+  EXPECT_EQ(hist_at(s, 2)->role, xAiRole_Tool);
+  EXPECT_EQ(hist_at(s, 2)->kind, xAiSessionEntry_ToolResult);
+  EXPECT_STREQ(hist_at(s, 2)->tool_result_id, "call_async_1");
+  EXPECT_EQ(std::string(hist_at(s, 2)->tool_result_output,
+                         hist_at(s, 2)->tool_result_output_len),
+            R"({"status":"done"})");
+  EXPECT_EQ(hist_at(s, 3)->role, xAiRole_Assistant);
+  EXPECT_STREQ(hist_at(s, 3)->text, "got it");
+
+  xAiSessionDestroy(sess);
+}
+
+/* Mix of async and sync tools in the same assistant turn.
+ * The sync tool's result is written immediately; the async tool
+ * is resolved later. The tool-loop continues only after ALL
+ * tools complete. */
+TEST_F(AsyncToolFixture, MixedSyncAndAsyncToolsInOneTurn) {
+  Captured cap;
+  xAiSession sess = make_session(make_cbs(&cap));
+
+  fake_->script_queue.push_back({
+      SToolCall("slow_op", "c_async", "{\"x\":1}"),
+      SToolCall("echo", "c_sync", "{\"y\":2}"),
+      SDone(xAiProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({
+      SText("both done"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("mix")), xErrno_Ok);
+
+  /* Both handlers ran. */
+  ASSERT_EQ(async_spy_.log.size(), 1u);
+  EXPECT_EQ(async_spy_.log[0].id, "c_async");
+  ASSERT_EQ(echo_log_.size(), 1u);
+  EXPECT_EQ(echo_log_[0].id, "c_sync");
+
+  /* Only one provider submit (round 1). on_done hasn't fired. */
+  EXPECT_EQ(fake_->submits, 1);
+  EXPECT_EQ(cap.done_fired, 0);
+
+  /* Resolve the async tool. */
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  ASSERT_NE(s->query, nullptr);
+
+  xAiContent result = {};
+  result.type                    = xAiContentType_ToolResult;
+  result.u.tool_result.id        = "c_async";
+  result.u.tool_result.output    = "async_result";
+  result.u.tool_result.output_len = 12;
+  result.u.tool_result.is_error  = 0;
+
+  ai_query_async_tool_complete(s->query, "c_async", &result);
+
+  /* Round 2 submitted after async resolution. */
+  EXPECT_EQ(fake_->submits, 2);
+  EXPECT_EQ(cap.done_fired, 1);
+  EXPECT_EQ(cap.done_reason, xAiDoneReason_Completed);
+  EXPECT_EQ(cap.texts, "both done");
+
+  /* Second submit carried BOTH tool_results: sync echo result
+   * (already in produced during dispatch) and the async result
+   * (appended by ai_query_async_tool_complete). */
+  ASSERT_GE(fake_->captured_msgs_per_submit.size(), 2u);
+  const auto &m2 = fake_->captured_msgs_per_submit[1];
+  /* Collect all tool_result IDs from round-2 messages. */
+  std::vector<std::string> result_ids;
+  for (const auto &m : m2) {
+    if (m.role != xAiRole_Tool) continue;
+    for (const auto &b : m.blocks) {
+      if (b.type == xAiContentType_ToolResult) {
+        result_ids.push_back(b.tool_use_id);
+      }
+    }
+  }
+  ASSERT_EQ(result_ids.size(), 2u);
+  /* Order: sync result was appended first by dispatch_pending_tools,
+   * async result appended later by ai_query_async_tool_complete. */
+  EXPECT_EQ(result_ids[0], "c_sync");
+  EXPECT_EQ(result_ids[1], "c_async");
+
+  xAiSessionDestroy(sess);
+}
+
+/* Async tool resolved with a Text content (not ToolResult) should
+ * be auto-wrapped as a non-error tool_result. */
+TEST_F(AsyncToolFixture, AsyncCompletionWithTextContent) {
+  Captured cap;
+  xAiSession sess = make_session(make_cbs(&cap));
+
+  fake_->script_queue.push_back({
+      SToolCall("slow_op", "c_txt", "{}"),
+      SDone(xAiProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("go")), xErrno_Ok);
+
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  ASSERT_NE(s->query, nullptr);
+
+  /* Resolve with a plain Text content block. */
+  xAiContent result = {};
+  result.type       = xAiContentType_Text;
+  result.u.text.text = "plain text answer";
+  result.u.text.len  = 17;
+
+  ai_query_async_tool_complete(s->query, "c_txt", &result);
+
+  EXPECT_EQ(cap.done_fired, 1);
+  EXPECT_EQ(cap.done_reason, xAiDoneReason_Completed);
+
+  /* The tool_result in history should carry the text as output. */
+  /* [0] user, [1] assistant tool_use, [2] tool result */
+  ASSERT_EQ(hist_len(s), 3u);
+  EXPECT_EQ(hist_at(s, 2)->kind, xAiSessionEntry_ToolResult);
+  EXPECT_EQ(std::string(hist_at(s, 2)->tool_result_output,
+                         hist_at(s, 2)->tool_result_output_len),
+            "plain text answer");
+  EXPECT_EQ(hist_at(s, 2)->tool_result_is_error, 0);
+
+  xAiSessionDestroy(sess);
+}
+
+/* Async tool resolved with NULL result should synthesize an error. */
+TEST_F(AsyncToolFixture, AsyncCompletionWithNullResult) {
+  Captured cap;
+  xAiSession sess = make_session(make_cbs(&cap));
+
+  fake_->script_queue.push_back({
+      SToolCall("slow_op", "c_null", "{}"),
+      SDone(xAiProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("go")), xErrno_Ok);
+
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  ASSERT_NE(s->query, nullptr);
+
+  ai_query_async_tool_complete(s->query, "c_null", nullptr);
+
+  EXPECT_EQ(cap.done_fired, 1);
+  EXPECT_EQ(cap.done_reason, xAiDoneReason_Completed);
+
+  /* tool_result should be marked as error. */
+  ASSERT_EQ(hist_len(s), 4u);
+  EXPECT_EQ(hist_at(s, 2)->kind, xAiSessionEntry_ToolResult);
+  EXPECT_EQ(hist_at(s, 2)->tool_result_is_error, 1);
+
+  xAiSessionDestroy(sess);
+}
+
+/* Two async tools in one turn: both must complete before the
+ * tool-loop continues. Resolving the first one does NOT trigger
+ * a provider submit; only after the second one does. */
+TEST_F(AsyncToolFixture, TwoAsyncToolsMustBothComplete) {
+  /* Create a second async tool with a separate spy. */
+  AsyncSpy spy2;
+  xAiToolConf tc2 = {};
+  tc2.name      = "slow_op2";
+  tc2.handler   = async_handler;
+  tc2.user_data = &spy2;
+  xAiTool tool_async2 = xAiToolCreate(&tc2);
+  ASSERT_NE(tool_async2, nullptr);
+
+  /* Rebuild agent with three tools. */
+  xAiAgentDestroy(agent_);
+  static const xAiTool *kTools3[3];
+  kTools3[0] = &tool_async_;
+  kTools3[1] = &tool_async2;
+  /* Need an echo tool too for completeness, but we don't use it. */
+  static const xAiTool *kEcho = &tool_echo_;
+  kTools3[2] = kEcho;
+
+  xAiAgentConf ac   = {};
+  ac.loop           = loop_;
+  ac.provider       = provider_;
+  ac.model          = "fake-model";
+  ac.system_prompt  = "sp";
+  ac.max_turns      = 5;
+  ac.max_tokens     = 1024;
+  ac.tools          = kTools3;
+  ac.tools_count    = 3;
+  agent_            = xAiAgentCreate(&ac);
+
+  Captured cap;
+  xAiSession sess = make_session(make_cbs(&cap));
+
+  fake_->script_queue.push_back({
+      SToolCall("slow_op", "a1", "{}"),
+      SToolCall("slow_op2", "a2", "{}"),
+      SDone(xAiProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({
+      SText("both resolved"),
+      SDone(xAiProviderStop_EndTurn),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("go")), xErrno_Ok);
+
+  /* Both handlers ran. */
+  ASSERT_EQ(async_spy_.log.size(), 1u);
+  ASSERT_EQ(spy2.log.size(), 1u);
+
+  EXPECT_EQ(fake_->submits, 1);
+  EXPECT_EQ(cap.done_fired, 0);
+
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  ASSERT_NE(s->query, nullptr);
+
+  /* Resolve the first async tool — should NOT trigger round 2. */
+  xAiContent r1 = {};
+  r1.type                    = xAiContentType_ToolResult;
+  r1.u.tool_result.id        = "a1";
+  r1.u.tool_result.output    = "first";
+  r1.u.tool_result.output_len = 5;
+  r1.u.tool_result.is_error  = 0;
+  ai_query_async_tool_complete(s->query, "a1", &r1);
+
+  EXPECT_EQ(fake_->submits, 1);  /* still waiting for a2 */
+  EXPECT_EQ(cap.done_fired, 0);
+
+  /* Resolve the second async tool — NOW round 2 fires. */
+  xAiContent r2 = {};
+  r2.type                    = xAiContentType_ToolResult;
+  r2.u.tool_result.id        = "a2";
+  r2.u.tool_result.output    = "second";
+  r2.u.tool_result.output_len = 6;
+  r2.u.tool_result.is_error  = 0;
+  ai_query_async_tool_complete(s->query, "a2", &r2);
+
+  EXPECT_EQ(fake_->submits, 2);
+  EXPECT_EQ(cap.done_fired, 1);
+  EXPECT_EQ(cap.done_reason, xAiDoneReason_Completed);
+  EXPECT_EQ(cap.texts, "both resolved");
+
+  xAiSessionDestroy(sess);
+  xAiToolDestroy(tool_async2);
+}
+
+/* ── Cancel propagation to async tools ────────────────────────────── */
+
+/* Verify that xAiQueryCancel propagates to on_cancel_fn for every
+ * in-flight async tool. */
+TEST_F(AsyncToolFixture, CancelPropagatesToAsyncTools) {
+  /* Build a cancellable async tool. */
+  struct CancelSpy {
+    int cancel_calls = 0;
+    std::string last_tool_use_id;
+  } cancel_spy;
+
+  auto cancel_fn = [](xAiQuery, const char *tool_use_id, xAiTool, void *ud) {
+    auto *s = static_cast<CancelSpy *>(ud);
+    s->cancel_calls++;
+    s->last_tool_use_id = tool_use_id ? tool_use_id : "";
+  };
+
+  xAiToolConf tc = {};
+  tc.name          = "slow_op";   /* same name as tool_async_ */
+  tc.description   = "cancellable async";
+  tc.json_schema   = "{\"type\":\"object\"}";
+  tc.handler       = async_handler;
+  tc.user_data     = &async_spy_;
+  tc.on_cancel_fn  = cancel_fn;
+  tc.on_cancel_ud  = &cancel_spy;
+  xAiTool tool_cancel = xAiToolCreate(&tc);
+  ASSERT_NE(tool_cancel, nullptr);
+
+  /* Replace the agent's tool set with our cancellable tool. */
+  xAiToolDestroy(tool_async_);
+  tool_async_ = tool_cancel;
+
+  static const xAiTool *kTools[2];
+  kTools[0] = &tool_async_;
+  kTools[1] = &tool_echo_;
+  xAiAgentDestroy(agent_);
+
+  xAiAgentConf ac   = {};
+  ac.loop           = loop_;
+  ac.provider       = provider_;
+  ac.model          = "fake-model";
+  ac.system_prompt  = "you are a test";
+  ac.max_turns      = 5;
+  ac.max_tokens     = 1024;
+  ac.tools          = kTools;
+  ac.tools_count    = 2;
+  agent_            = xAiAgentCreate(&ac);
+  ASSERT_NE(agent_, nullptr);
+
+  Captured cap;
+  auto cbs    = make_cbs(&cap);
+  xAiSession sess = make_session(cbs);
+
+  /* Round 1: model calls the async tool. */
+  fake_->script_queue.push_back({
+      SToolCall("slow_op", "call_cancel_1", "{\"delay\":999}"),
+      SDone(xAiProviderStop_ToolUse),
+  });
+
+  EXPECT_EQ(xAiSessionInput(sess, xAiMessageFromText("go")), xErrno_Ok);
+  ASSERT_EQ(async_spy_.log.size(), 1u);
+
+  /* The async tool is in-flight. Cancel the query. */
+  auto *s = reinterpret_cast<xAiSession_ *>(sess);
+  ASSERT_NE(s->query, nullptr);
+
+  EXPECT_EQ(cancel_spy.cancel_calls, 0);
+  xAiQueryCancel(s->query);
+
+  /* on_cancel_fn should have been called exactly once. */
+  EXPECT_EQ(cancel_spy.cancel_calls, 1);
+  EXPECT_EQ(cancel_spy.last_tool_use_id, "call_cancel_1");
+
+  xAiSessionDestroy(sess);
+}
 TEST_F(SessionTest, UsageStaysNullWhenProviderNeverReports) {
   Captured cap;
   xAiSession sess = make_session(make_cbs(&cap));

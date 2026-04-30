@@ -31,6 +31,10 @@ struct xAiTool_ {
   xAiToolUserDataDestroyFunc user_data_destroy; /* may be NULL */
   int                concurrent_safe;
   int                needs_confirm;
+  xAiToolDoneFunc    on_done_fn;  /* may be NULL = synchronous tool   */
+  void              *on_done_ud;  /* forwarded to on_done_fn          */
+  xAiToolCancelFunc  on_cancel_fn; /* may be NULL = no cancel support  */
+  void              *on_cancel_ud; /* forwarded to on_cancel_fn        */
 };
 
 static char *tool_strdup(const char *s) {
@@ -56,6 +60,10 @@ xAiTool xAiToolCreate(const xAiToolConf *conf) {
   t->user_data_destroy = conf->user_data_destroy;
   t->concurrent_safe   = conf->concurrent_safe;
   t->needs_confirm     = conf->needs_confirm;
+  t->on_done_fn        = conf->on_done_fn;
+  t->on_done_ud        = conf->on_done_ud;
+  t->on_cancel_fn      = conf->on_cancel_fn;
+  t->on_cancel_ud      = conf->on_cancel_ud;
 
   if (!t->name) { /* name is the only required string */
     free(t->description);
@@ -91,10 +99,11 @@ const char *ai_tool_json_schema(xAiTool tool) {
   return tool ? ((struct xAiTool_ *)tool)->json_schema : NULL;
 }
 
-xErrno ai_tool_invoke(xAiTool tool, const xAiContent *in, xAiContent *out) {
+xErrno ai_tool_invoke(xAiTool tool, xAiQuery q, const xAiContent *in,
+                      xAiContent *out) {
   struct xAiTool_ *t = (struct xAiTool_ *)tool;
   if (!t || !t->handler) return xErrno_InvalidArg;
-  return t->handler(in, out, t->user_data);
+  return t->handler(q, in, out, t->user_data);
 }
 
 int ai_tool_concurrent_safe(xAiTool tool) {
@@ -103,4 +112,20 @@ int ai_tool_concurrent_safe(xAiTool tool) {
 
 int ai_tool_needs_confirm(xAiTool tool) {
   return tool ? ((struct xAiTool_ *)tool)->needs_confirm : 0;
+}
+
+xAiToolDoneFunc ai_tool_on_done_fn(xAiTool tool) {
+  return tool ? ((struct xAiTool_ *)tool)->on_done_fn : NULL;
+}
+
+void *ai_tool_on_done_ud(xAiTool tool) {
+  return tool ? ((struct xAiTool_ *)tool)->on_done_ud : NULL;
+}
+
+xAiToolCancelFunc ai_tool_on_cancel_fn(xAiTool tool) {
+  return tool ? ((struct xAiTool_ *)tool)->on_cancel_fn : NULL;
+}
+
+void *ai_tool_on_cancel_ud(xAiTool tool) {
+  return tool ? ((struct xAiTool_ *)tool)->on_cancel_ud : NULL;
 }

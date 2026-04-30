@@ -196,4 +196,15 @@ XCAPI(xAiTool) xAiToolCreate(const xAiToolConf *conf);
  */
 XCAPI(void) xAiToolDestroy(xAiTool tool);
 
+/**
+ * @brief Return the user_data pointer associated with a tool.
+ *
+ * Useful when a companion tool (e.g. shell_stdin) needs to share
+ * the same context as the primary tool (e.g. shell).
+ *
+ * @param tool  Tool handle (NULL-safe).
+ * @return      The user_data pointer, or NULL.
+ */
+XCAPI(void *) xAiToolUserData(xAiTool tool);
+
 #endif /* XAI_TOOL_H */

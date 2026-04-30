@@ -64,6 +64,7 @@
 
 #include "agent_private.h"
 #include "budget_private.h"
+#include "tool_private.h"
 
 #include <xai/message.h>
 #include <xai/provider.h>
@@ -72,6 +73,7 @@
 #include <xbase/array.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
+#include <xbase/time.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,6 +83,10 @@
 
 static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
                              const xAiUsage *usage, void *ud);
+static void session_sidecar_idle_timer_cb(void *arg);
+static void session_sidecar_on_done(xAiQuery q, xAiDoneReason reason,
+                                    const xAiUsage *usage, void *ud);
+static void session_sidecar_cleanup(struct xAiSession_ *s);
 
 /* ── Small helpers ──────────────────────────────────────────────────── */
 
@@ -817,6 +823,24 @@ static void sess_fwd_on_tool(xAiQuery q, const char *tool_name, int started,
   }
 }
 
+/* ── Sidecar chunk accumulator ────────────────────────────────────
+ * Per-chunk entry stored in the sidecar_output xArray so the
+ * sidecar Query has the accumulated tool output when it fires. */
+struct sidecar_chunk_ {
+  char  *data;
+  size_t len;
+};
+
+static void sidecar_chunk_release(void *elem) {
+  struct sidecar_chunk_ *c = (struct sidecar_chunk_ *)elem;
+  free(c->data);
+  c->data = NULL;
+}
+
+static const xArrayCallbacks kSidecarChunkCbs = {
+  .release = sidecar_chunk_release,
+};
+
 static void sess_fwd_on_tool_output(xAiQuery q, const char *tool_use_id,
                                     const char *tool_name, const char *data,
                                     size_t len, void *ud) {
@@ -825,6 +849,358 @@ static void sess_fwd_on_tool_output(xAiQuery q, const char *tool_use_id,
   if (s->cbs.on_tool_output) {
     s->cbs.on_tool_output((xAiSession)s, tool_use_id, tool_name, data, len,
                           s->cbs.user_data);
+  }
+
+  /* ── Sidecar idle-detection ──────────────────────────────────
+   * Track the last time an async tool produced output. If the
+   * session has sidecar_idle_ms configured, (re-)arm a timer so
+   * that a sidecar Query is launched when the tool goes idle. */
+  struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
+  if (s->sidecar_idle_ms > 0 && a->enable_sidecar_query
+      && s->query && !s->sidecar) {
+
+    /* Record which tool_use_id is producing output (the one most
+     * likely to need stdin if it stalls). */
+    if (!s->sidecar_tool_use_id && tool_use_id) {
+      s->sidecar_tool_use_id = dup_bytes(tool_use_id, strlen(tool_use_id));
+    }
+
+    /* Accumulate the output chunk so the sidecar has context
+     * when it fires. Lazy-create the accumulator on first chunk. */
+    if (!s->sidecar_output) {
+      s->sidecar_output =
+        xArrayCreate(sizeof(struct sidecar_chunk_), 16, &kSidecarChunkCbs);
+    }
+    if (s->sidecar_output) {
+      struct sidecar_chunk_ *slot =
+        (struct sidecar_chunk_ *)xArrayPush(&s->sidecar_output);
+      if (slot) {
+        slot->data = dup_bytes(data, len);
+        slot->len  = len;
+      }
+    }
+
+    s->sidecar_last_output_ms = xMonoMs();
+
+    /* Cancel any pending idle timer before scheduling a new one. */
+    if (s->sidecar_idle_timer) {
+      xEventLoopTimerCancel(a->loop, s->sidecar_idle_timer);
+      s->sidecar_idle_timer = NULL;
+    }
+
+    s->sidecar_idle_timer = xEventLoopTimerAfter(
+      a->loop, session_sidecar_idle_timer_cb, s, s->sidecar_idle_ms);
+  }
+}
+
+/* ── Sidecar Query implementation ──────────────────────────────────
+ *
+ * A sidecar Query is a lightweight, Session-managed Query that runs
+ * alongside the main Query when an async tool call has gone idle
+ * (no streaming output for sidecar_idle_ms). The sidecar is given
+ * the session's rolling conversation history, the accumulated tool
+ * output, and a restricted tool set so the AI can decide whether
+ * to send input, cancel, or take other action.
+ *
+ * Message layout sent to the sidecar:
+ *   1. Sidecar system prompt (diagnostic-assistant instructions).
+ *   2. Session's rolling history (user requests, assistant replies,
+ *      tool calls/results — everything the main Query has produced
+ *      so far). This gives the sidecar the context it needs to
+ *      understand *why* the tool was invoked and what input might
+ *      be appropriate.
+ *   3. Idle-tool user message with the accumulated tool output.
+ *
+ * Lifecycle:
+ *   1. Timer fires → session_sidecar_idle_timer_cb
+ *   2. Create Query with restricted tools, run it
+ *   3. Query completes → session_sidecar_on_done → cleanup
+ *
+ * The sidecar does NOT replace the main Query and does NOT occupy
+ * s->query. At most one sidecar is alive at a time. */
+
+/* System prompt for the sidecar Query — instructs the AI to analyse
+ * the situation and decide whether to interact with the idle tool.
+ * The sidecar receives the full conversation history so it can
+ * understand the user's original intent and what the assistant was
+ * trying to accomplish. */
+#define XAI_SIDECAR_SYSTEM_PROMPT                                           \
+  "You are a diagnostic assistant. A tool call is blocking the main "       \
+  "conversation because it has not produced output for a while. "           \
+  "You are given the conversation history above for context so you "        \
+  "can understand what the user asked and what the assistant was "          \
+  "doing. Analyse the tool output shown below and decide whether to "       \
+  "send input to the running command. If the command is waiting for "       \
+  "user input (e.g. a prompt, confirmation, or REPL), use the "            \
+  "shell_stdin tool to send the appropriate input. If the command "         \
+  "appears to be genuinely running (e.g. compiling, downloading), "        \
+  "respond with empty text — no action is needed."
+
+static void session_sidecar_cleanup(struct xAiSession_ *s) {
+  struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
+
+  /* Cancel any pending idle timer. */
+  if (s->sidecar_idle_timer) {
+    xEventLoopTimerCancel(a->loop, s->sidecar_idle_timer);
+    s->sidecar_idle_timer = NULL;
+  }
+
+  /* Destroy the sidecar Query if still alive. */
+  if (s->sidecar) {
+    xAiQueryDestroy((xAiQuery)s->sidecar);
+    s->sidecar = NULL;
+  }
+
+  /* Free the tool_use_id copy. */
+  free(s->sidecar_tool_use_id);
+  s->sidecar_tool_use_id = NULL;
+
+  /* Destroy the output accumulator. */
+  xArrayDestroy(s->sidecar_output);
+  s->sidecar_output = NULL;
+
+  s->sidecar_last_output_ms = 0;
+}
+
+/* Called when the sidecar Query completes (any reason). */
+static void session_sidecar_on_done(xAiQuery q, xAiDoneReason reason,
+                                    const xAiUsage *usage, void *ud) {
+  (void)reason;
+  (void)usage;
+  struct xAiSession_ *s = (struct xAiSession_ *)ud;
+
+  /* If the main Query is still running and this sidecar produced
+   * text output, forward it to the caller via on_tool_output so
+   * they can see what the sidecar decided to do. */
+  if (s->query && q) {
+    struct xAiSessionMsg_ *produced   = NULL;
+    size_t                 n_produced = 0;
+    ai_query_take_produced((struct xAiQuery_ *)q, &produced, &n_produced);
+
+    for (size_t i = 0; i < n_produced; i++) {
+      if (produced[i].kind == xAiSessionEntry_Text && produced[i].text &&
+          produced[i].text_len > 0) {
+        /* Sidecar text is informational — just forward it. */
+        if (s->cbs.on_text) {
+          s->cbs.on_text((xAiSession)s, produced[i].text, produced[i].text_len,
+                         s->cbs.user_data);
+        }
+      }
+    }
+  }
+
+  /* Notify the caller that the sidecar query has completed. */
+  if (s->cbs.on_sidecar) {
+    s->cbs.on_sidecar((xAiSession)s, xAiSidecarEvent_Done, s->cbs.user_data);
+  }
+
+  /* Clean up the sidecar state. */
+  session_sidecar_cleanup(s);
+}
+
+/* Timer callback: the main Query's async tool has been idle for
+ * sidecar_idle_ms. Launch a sidecar Query so the AI can inspect
+ * the situation. */
+static void session_sidecar_idle_timer_cb(void *arg) {
+  struct xAiSession_ *s = (struct xAiSession_ *)arg;
+  s->sidecar_idle_timer = NULL; /* timer has fired, handle is stale */
+
+  /* Guard: only launch if the main Query is still in flight, the
+   * session is not compacting, and no sidecar is already running. */
+  if (!s->query || s->compacting || s->sidecar) return;
+
+  /* Guard: check that the async tool is actually still pending
+   * (it may have completed between the timer being scheduled and
+   * now). */
+  struct xAiQuery_ *q = (struct xAiQuery_ *)s->query;
+  if (xArrayLen(q->async_pending_arr) == 0) return;
+
+  struct xAiAgent_ *a = (struct xAiAgent_ *)s->agent;
+
+  /* ── Build the sidecar's input messages ───────────────────────
+   *   1. System prompt (sidecar-specific, replaces session's).
+   *   2. Session's rolling conversation history so the sidecar has
+   *      context about what the user originally asked and what the
+   *      assistant has been doing.
+   *   3. User message describing the idle tool and its output. */
+
+  /* Concatenate the accumulated output chunks into one string. */
+  size_t total_len = 0;
+  size_t n_chunks  = xArrayLen(s->sidecar_output);
+  for (size_t i = 0; i < n_chunks; i++) {
+    struct sidecar_chunk_ *c =
+      (struct sidecar_chunk_ *)xArrayAt(s->sidecar_output, i);
+    total_len += c->len;
+  }
+
+  char *output_text = NULL;
+  if (total_len > 0) {
+    output_text = (char *)malloc(total_len + 1);
+    if (output_text) {
+      size_t ooff = 0;
+      for (size_t i = 0; i < n_chunks; i++) {
+        struct sidecar_chunk_ *c =
+          (struct sidecar_chunk_ *)xArrayAt(s->sidecar_output, i);
+        if (c->data && c->len > 0) {
+          memcpy(output_text + ooff, c->data, c->len);
+          ooff += c->len;
+        }
+      }
+      output_text[ooff] = '\0';
+    }
+  }
+
+  /* Build the user message content: describe the idle tool. */
+  static const char kIdlePrefix[] =
+    "[idle tool] The following async tool call has produced no output "
+    "for a while. tool_use_id=\"";
+  static const char kIdleMid[] = "\"\n\nLast accumulated output:\n";
+
+  const char *tid = s->sidecar_tool_use_id ? s->sidecar_tool_use_id : "(unknown)";
+  size_t tid_len = strlen(tid);
+  size_t prefix_len = sizeof(kIdlePrefix) - 1;
+  size_t mid_len = sizeof(kIdleMid) - 1;
+  size_t user_len = prefix_len + tid_len + mid_len + total_len;
+
+  char *user_text = (char *)malloc(user_len + 1);
+  if (!user_text) {
+    free(output_text);
+    return;
+  }
+  size_t uoff = 0;
+  memcpy(user_text + uoff, kIdlePrefix, prefix_len); uoff += prefix_len;
+  memcpy(user_text + uoff, tid, tid_len); uoff += tid_len;
+  memcpy(user_text + uoff, kIdleMid, mid_len); uoff += mid_len;
+  if (output_text && total_len > 0) {
+    memcpy(user_text + uoff, output_text, total_len); uoff += total_len;
+  }
+  user_text[uoff] = '\0';
+  free(output_text);
+
+  /* Build the session's conversation history view so the sidecar
+   * has context about the user's original request and the assistant's
+   * actions so far. */
+  struct sess_input_view_ hist_view;
+  xErrno vrc = sess_input_view_build(s, &hist_view);
+  if (vrc != xErrno_Ok) {
+    free(user_text);
+    return;
+  }
+
+  /* Determine whether the history view starts with a system prompt
+   * (we'll skip it and use the sidecar-specific one instead). */
+  int has_system = (hist_view.n_msgs > 0 &&
+                    hist_view.msgs[0].role == xAiRole_System);
+  size_t hist_skip = has_system ? 1 : 0;
+
+  /* ── Find the shell_stdin tool among the agent's tools ──────── */
+  xAiTool stdin_tool = NULL;
+  for (size_t i = 0; i < a->tools_count; i++) {
+    if (a->tools[i]) {
+      const char *name = ai_tool_name((xAiTool)a->tools[i]);
+      if (name && strcmp(name, "shell_stdin") == 0) {
+        stdin_tool = (xAiTool)a->tools[i];
+        break;
+      }
+    }
+  }
+
+  /* Build the tools array for the sidecar: only shell_stdin (if
+   * available). If shell_stdin is not registered, the sidecar
+   * runs without tools — it can only produce text advice. */
+  const xAiTool *sidecar_tools[1];
+  size_t sidecar_tools_count = 0;
+  if (stdin_tool) {
+    sidecar_tools[0]     = stdin_tool;
+    sidecar_tools_count  = 1;
+  }
+
+  /* ── Allocate the combined message array ───────────────────────
+   * Layout: [sidecar_system] + [history_msgs (minus original system)]
+   *       + [idle_user]
+   * We always emit our own sidecar system prompt; if the history
+   * view contained one it is skipped (hist_skip == 1). */
+  size_t n_hist = hist_view.n_msgs - hist_skip;
+  /* +1 for the sidecar system msg + +1 for the idle user message. */
+  size_t n_total_msgs = 1 + n_hist + 1;
+
+  xAiMessage *msgs = (xAiMessage *)calloc(n_total_msgs, sizeof(xAiMessage));
+  xAiContent *extra_blocks = (xAiContent *)calloc(2, sizeof(xAiContent));
+  if (!msgs || !extra_blocks) {
+    free(msgs);
+    free(extra_blocks);
+    free(user_text);
+    sess_input_view_free(&hist_view);
+    return;
+  }
+
+  size_t mi = 0;
+
+  /* Sidecar system prompt — always the first message. */
+  extra_blocks[0].type        = xAiContentType_Text;
+  extra_blocks[0].u.text.text = XAI_SIDECAR_SYSTEM_PROMPT;
+  extra_blocks[0].u.text.len  = strlen(XAI_SIDECAR_SYSTEM_PROMPT);
+  msgs[mi].role     = xAiRole_System;
+  msgs[mi].contents = &extra_blocks[0];
+  msgs[mi].n        = 1;
+  mi++;
+
+  /* Copy the history view messages (skipping the original system
+   * prompt if present). */
+  if (n_hist > 0) {
+    memcpy(&msgs[mi], &hist_view.msgs[hist_skip],
+           n_hist * sizeof(xAiMessage));
+    mi += n_hist;
+  }
+  /* Append the idle user message. */
+  extra_blocks[1].type        = xAiContentType_Text;
+  extra_blocks[1].u.text.text = user_text;
+  extra_blocks[1].u.text.len  = uoff;
+  msgs[mi].role     = xAiRole_User;
+  msgs[mi].contents = &extra_blocks[1];
+  msgs[mi].n        = 1;
+  mi++;
+
+  /* ── Create and run the sidecar Query ──────────────────────── */
+  xAiQueryConf qc = {0};
+  qc.cbs.on_done   = session_sidecar_on_done;
+  qc.cbs.user_data = s;
+  qc.provider      = a->provider;
+  qc.tools         = sidecar_tools_count > 0 ? sidecar_tools : NULL;
+  qc.tools_count   = sidecar_tools_count;
+  qc.model         = s->model;
+  qc.max_tokens    = 256;  /* sidecar should be concise */
+  qc.max_turns     = 1;    /* single round: analyse + act */
+  qc.session       = (xAiSession)s;
+
+  xAiQuery sq = xAiQueryCreate(&qc);
+  if (!sq) {
+    free(msgs);
+    free(extra_blocks);
+    free(user_text);
+    sess_input_view_free(&hist_view);
+    return;
+  }
+
+  xErrno rc = xAiQueryRun(sq, msgs, mi);
+
+  /* xAiQueryRun deep-copies everything, so we can release the
+   * combined array and the history view immediately. */
+  free(msgs);
+  free(extra_blocks);
+  free(user_text);
+  sess_input_view_free(&hist_view);
+
+  if (rc != xErrno_Ok) {
+    xAiQueryDestroy(sq);
+    return;
+  }
+
+  s->sidecar = (struct xAiQuery_ *)sq;
+
+  /* Notify the caller that a sidecar query has started. */
+  if (s->cbs.on_sidecar) {
+    s->cbs.on_sidecar((xAiSession)s, xAiSidecarEvent_Started, s->cbs.user_data);
   }
 }
 
@@ -1072,6 +1448,12 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
   if (s->cbs.on_done) {
     s->cbs.on_done((xAiSession)s, reason, usage, s->cbs.user_data);
   }
+
+  /* Main Query is done — clean up any sidecar state (idle timer,
+   * sidecar Query, accumulated output). The sidecar is no longer
+   * needed because the main Query's blocking tool has finished. */
+  session_sidecar_cleanup(s);
+
   xAiQueryDestroy(q);
 }
 
@@ -1142,6 +1524,12 @@ xAiSession xAiSessionCreate(xAiAgent agent, const xAiSessionConf *conf) {
   /* Session identifier: borrowed from conf, or auto-generated by
    * the agent in xAiAgentCreateSession. May be NULL. */
   s->session_id = conf->session_id;
+
+  /* Sidecar idle-detection: zero (the default) disables the sidecar
+   * mechanism entirely. A non-zero value means "if an async tool
+   * call has not produced output for this many ms, launch a sidecar
+   * Query so the AI can inspect and interact". */
+  s->sidecar_idle_ms = conf->sidecar_idle_ms;
 
   /* @c s->query starts NULL (from calloc). A Query is allocated on
    * demand by xAiSessionInput and released from sess_fwd_on_done. */
@@ -1258,6 +1646,11 @@ void xAiSessionDestroy(xAiSession sess) {
     xAiQueryDestroy((xAiQuery)s->query);
     /* xAiQueryDestroy nulls s->query for us. */
   }
+
+  /* Clean up any sidecar state (sidecar Query, idle timer,
+   * accumulated output chunks). Safe to call even when no sidecar
+   * is active — it checks each field for NULL. */
+  session_sidecar_cleanup(s);
 
   /* Fire the late-teardown hook while the session is still fully
    * live (history intact). Detach before calling so a misbehaving

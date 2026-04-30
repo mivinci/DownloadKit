@@ -142,6 +142,23 @@ static void on_tool_output(xAiSession sess, const char *tool_use_id,
   std::fflush(stdout);
 }
 
+static void on_sidecar(xAiSession sess, xAiSidecarEvent event, void *ud) {
+  (void)sess;
+  auto *ctx = static_cast<ReplCtx *>(ud);
+  end_thinking(ctx);
+  std::fputs("\x1b[2m", stdout);
+  switch (event) {
+  case xAiSidecarEvent_Started:
+    std::printf("[sidecar] analyzing idle tool...\n");
+    break;
+  case xAiSidecarEvent_Done:
+    std::printf("[sidecar] done\n");
+    break;
+  }
+  std::fputs("\x1b[0m", stdout);
+  std::fflush(stdout);
+}
+
 static const char *done_reason_name(xAiDoneReason r) {
   switch (r) {
   case xAiDoneReason_Completed:
@@ -431,7 +448,7 @@ int main(int argc, char *argv[]) {
   }
 
   const xAiTool   *tool_ptrs[] = {&shell_tool};
-  constexpr size_t TOTAL_TOOLS = 1;
+  const size_t TOTAL_TOOLS = 1;
   /* ── Session config (agent's default session) ──────────────────────
    *
    * Instead of creating a session manually and managing its
@@ -448,6 +465,7 @@ int main(int argc, char *argv[]) {
   sconf.cbs.on_thinking    = on_thinking;
   sconf.cbs.on_tool        = on_tool;
   sconf.cbs.on_tool_output = on_tool_output;
+  sconf.cbs.on_sidecar    = on_sidecar;
   sconf.cbs.on_done        = on_done;
   sconf.cbs.on_error       = on_error;
   sconf.cbs.user_data      = &ctx;
@@ -471,10 +489,16 @@ int main(int argc, char *argv[]) {
    * REPL and on_error both surface with a hint line below), and
    * see session.c's keep_recent_turns floor logic for why. */
   sconf.budget.policy            = xAiBudgetPolicy_Auto;
-  sconf.budget.max_tokens        = 200000;
-  sconf.budget.keep_recent_turns = 3;
+  sconf.budget.max_tokens        = 8192;
+  sconf.budget.keep_recent_turns = 2;
   sconf.budget.on_budget_event   = on_budget_event;
   sconf.budget.budget_event_ud   = &ctx;
+
+  /* Sidecar idle timeout: when an async tool (e.g. shell) has not
+   * produced output for 3 seconds, launch a sidecar Query so the
+   * AI can inspect the situation and decide what to do next. Zero
+   * would disable the sidecar mechanism entirely. */
+  sconf.sidecar_idle_ms = 3000;
 
   /* ── Agent ──────────────────────────────────────────────────────── */
   xAiAgentConf aconf;
@@ -494,6 +518,7 @@ int main(int argc, char *argv[]) {
   aconf.max_turns            = 64;
   aconf.agent_id             = "test";
   aconf.data_dir             = data_dir;
+  aconf.enable_sidecar_query = 1;
   aconf.default_session_conf = &sconf;
 
   xAiAgent agent = xAiAgentCreate(&aconf);

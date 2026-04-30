@@ -190,6 +190,19 @@ XDEF_STRUCT(xAiAgentConf) {
    * L1 preserve callback.
    */
   const char *data_dir;
+
+  /**
+   * @brief Whether the agent may launch sidecar Queries when an
+   *        async tool call goes idle.
+   *
+   * When true (non-zero), sessions derived from this agent will
+   * monitor async tool output for stalls; if no output arrives
+   * within the session's sidecar_idle_ms, a lightweight sidecar
+   * Query is launched to inspect the situation and optionally
+   * send input (e.g. shell_stdin) to the stalled command.
+   * When false (zero, the default), no sidecar is ever created.
+   */
+  int enable_sidecar_query;
 };
 
 /**

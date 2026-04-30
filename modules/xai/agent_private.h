@@ -129,6 +129,15 @@ struct xAiAgent_ {
   const char *data_dir;
 
   /**
+   * Whether this agent may launch sidecar Queries. Copied from
+   * xAiAgentConf::enable_sidecar_query; zero means disabled.
+   * Session code checks this before arming the sidecar idle
+   * timer, so the entire sidecar subsystem is gated by this
+   * single flag.
+   */
+  int enable_sidecar_query;
+
+  /**
    * Monotonically increasing session counter used to generate
    * session IDs when the caller does not supply one.
    */

@@ -127,6 +127,22 @@ struct xAiSession_ {
    * follow-up for when SystemSynthesized queries start coexisting
    * with user-initiated ones — see docs/todo/xai_architecture.md §8. */
   struct xAiQuery_ *query;
+
+  /* ── Sidecar query state ──────────────────────────────────────── */
+  /* When an async tool call (e.g. shell) blocks the main Query and
+   * no streaming output has been received for sidecar_idle_ms, the
+   * Session launches a lightweight sidecar Query so the AI can
+   * inspect the situation and take action (send stdin, cancel, etc).
+   * The sidecar coexists with the main Query — it does NOT replace
+   * it and does NOT occupy @c query. At most one sidecar is alive
+   * at a time (sidecar != NULL acts as the re-entrancy guard). */
+
+  struct xAiQuery_ *sidecar;             /* NULL = no sidecar active            */
+  xEventTimer       sidecar_idle_timer;  /* idle-detection timer handle         */
+  uint64_t          sidecar_idle_ms;     /* 0 = disabled (from session conf)    */
+  char             *sidecar_tool_use_id; /* async tool that triggered sidecar   */
+  xArray            sidecar_output;      /* accumulated tool output chunks      */
+  uint64_t          sidecar_last_output_ms; /* monotonic ms of last chunk        */
 };
 
 /* Fallback cap if neither the caller nor the agent set max_turns.

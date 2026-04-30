@@ -409,7 +409,7 @@ int main(int argc, char *argv[]) {
                 stdout_len, stderr_len, timed_out ? " (timed out)" : "");
     std::fflush(stdout);
   };
-  xAiTool shell_tool = xAiToolCreateShell(loop, &shell_conf);
+  xAiTool shell_tool = xAiToolShellCreate(loop, &shell_conf);
   if (!shell_tool) {
     std::fprintf(stderr, "failed to create shell tool\n");
     xAiProviderDestroy(pvd);

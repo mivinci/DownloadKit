@@ -55,7 +55,7 @@ typedef void (*xAiShellOnResultFunc)(int exit_code, size_t stdout_len,
                                      void *ud);
 
 /**
- * @brief Configuration for xAiToolCreateShell().
+ * @brief Configuration for xAiToolShellCreate().
  *
  * Zero-initialise for defaults.
  */
@@ -85,6 +85,6 @@ XDEF_STRUCT(xAiShellConf) {
  * @param conf  Optional configuration (NULL for defaults).
  * @return      A new xAiTool handle, or NULL on failure.
  */
-XCAPI(xAiTool) xAiToolCreateShell(xEventLoop loop, const xAiShellConf *conf);
+XCAPI(xAiTool) xAiToolShellCreate(xEventLoop loop, const xAiShellConf *conf);
 
 #endif /* XAI_TOOL_SHELL_H */

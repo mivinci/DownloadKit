@@ -229,7 +229,7 @@ static void shell_ctx_destroy(void *ud) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-XCAPI(xAiTool) xAiToolCreateShell(xEventLoop loop, const xAiShellConf *conf) {
+XCAPI(xAiTool) xAiToolShellCreate(xEventLoop loop, const xAiShellConf *conf) {
   if (!loop) return NULL;
 
   ShellCtx *ctx = (ShellCtx *)calloc(1, sizeof(ShellCtx));

@@ -593,20 +593,18 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
   /* In PTY mode, we always mark stderr as EOF since it's merged */
   exec->stderr_eof = 1;
 
-  /* Watch master fd for output (unless discarded).
+  /* Watch master fd for output.
    * IMPORTANT: Register the event source BEFORE the waitpid probe below.
    * In edge-triggered epoll mode, if the child exits before we register,
    * the readable event on the master fd (EIO from slave close) is lost
-   * and on_pty_readable will never fire, leaving stdout_eof = 0 forever. */
-  if (conf->stdout_mode != xCommandOutput_Discard) {
-    exec->stdout_src =
-      xEventAdd(exec->loop, master_fd, xEvent_Read, on_pty_readable, exec);
-    if (!exec->stdout_src) goto fail_sigchld;
-  } else {
-    /* Discard mode: don't watch master fd, but keep it open so the child
-     * doesn't get SIGPIPE when writing to a closed PTY. */
-    exec->stdout_eof = 1;
-  }
+   * and on_pty_readable will never fire, leaving stdout_eof = 0 forever.
+   *
+   * We must register even in Discard mode: reading from the master fd
+   * drains the PTY buffer and ensures the child doesn't block on write.
+   * The data is simply discarded in on_pty_readable when mode == Discard. */
+  exec->stdout_src =
+    xEventAdd(exec->loop, master_fd, xEvent_Read, on_pty_readable, exec);
+  if (!exec->stdout_src) goto fail_sigchld;
 
   /* Probe: the child may have already exited */
   {
@@ -619,12 +617,12 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
       } else if (WIFSIGNALED(status)) {
         exec->result.signaled = WTERMSIG(status);
       }
-      /* If stdout is not discarded and we haven't read any output yet,
-       * do a non-blocking read now.  For fast-exiting children (e.g.
-       * /bin/echo), the PTY slave may have already closed before the
-       * event source was registered, so the edge-triggered epoll won't
-       * fire.  Drain the pending data here to avoid hanging. */
-      if (conf->stdout_mode != xCommandOutput_Discard && !exec->stdout_eof) {
+      /* If we haven't read any output yet, do a non-blocking read now.
+       * For fast-exiting children (e.g. /bin/echo), the PTY slave may have
+       * already closed before the event source was registered, so the
+       * edge-triggered epoll won't fire.  Drain the pending data here to
+       * avoid hanging. */
+      if (!exec->stdout_eof) {
         char buf[CMD_READ_BUF_SIZE];
         for (;;) {
           ssize_t n = read(master_fd, buf, sizeof(buf));
@@ -825,6 +823,7 @@ static void on_pty_readable(int fd, xEventMask mask, void *arg) {
                  exec->on_stdout) {
         exec->on_stdout((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
       }
+      /* Discard mode: read and discard to drain the PTY buffer */
     } else if (n == 0) {
       /* EOF — master side closed means child exited */
       xEventDel(exec->loop, exec->stdout_src);

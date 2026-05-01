@@ -14,6 +14,8 @@
 
 #include <stdlib.h>
 
+#include <xbase/slab.h>
+
 /* ═══════════════════════════════════════════════════════════════════
  *  Internal types
  * ═══════════════════════════════════════════════════════════════════ */
@@ -53,6 +55,8 @@ XDEF_STRUCT(xMapTree) {
   xMapBase   base; /* must be first */
   xTreeNode *root;
   size_t     size; /* total key-value pairs (including overflow) */
+  xSlab     *node_pool;     /* xTreeNode pool */
+  xSlab     *overflow_pool; /* xTreeOverflow pool */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -241,27 +245,6 @@ static xTreeNode *find_node(xMapTree *t, uint64_t h) {
   return NULL;
 }
 
-/* ── Free a node and its overflow chain ───────────────────────── */
-
-static void free_node(xTreeNode *n) {
-  xTreeOverflow *o = n->overflow;
-  while (o) {
-    xTreeOverflow *next = o->next;
-    free(o);
-    o = next;
-  }
-  free(n);
-}
-
-/* ── Recursive destroy ────────────────────────────────────────── */
-
-static void destroy_subtree(xTreeNode *n) {
-  if (!n) return;
-  destroy_subtree(n->left);
-  destroy_subtree(n->right);
-  free_node(n);
-}
-
 /* ── In-order iteration ───────────────────────────────────────── */
 
 static bool iterate_subtree(xTreeNode *n, xMapIterFunc fn, void *arg) {
@@ -314,7 +297,7 @@ static xErrno tree_set(xMap m, const void *key, void *val) {
         }
       }
       /* Hash collision with a new key — append to overflow */
-      xTreeOverflow *o = (xTreeOverflow *)malloc(sizeof(xTreeOverflow));
+      xTreeOverflow *o = (xTreeOverflow *)xSlabAlloc(t->overflow_pool);
       if (!o) return xErrno_NoMemory;
       o->key        = key;
       o->val        = val;
@@ -326,14 +309,17 @@ static xErrno tree_set(xMap m, const void *key, void *val) {
   }
 
   /* ── Insert a new tree node ── */
-  xTreeNode *z = (xTreeNode *)calloc(1, sizeof(xTreeNode));
+  xTreeNode *z = (xTreeNode *)xSlabAlloc(t->node_pool);
   if (!z) return xErrno_NoMemory;
 
-  z->hash   = h;
-  z->key    = key;
-  z->val    = val;
-  z->color  = RB_RED;
-  z->parent = parent;
+  z->hash     = h;
+  z->key      = key;
+  z->val      = val;
+  z->overflow = NULL;
+  z->color    = RB_RED;
+  z->left     = NULL;
+  z->right    = NULL;
+  z->parent   = parent;
 
   if (!parent)
     t->root = z;
@@ -377,7 +363,7 @@ static void *tree_del(xMap m, const void *key) {
           prev->next = o->next;
         else
           n->overflow = o->next;
-        free(o);
+        xSlabFree(t->overflow_pool, o);
         t->size--;
         return val;
       }
@@ -395,7 +381,7 @@ static void *tree_del(xMap m, const void *key) {
     n->key           = o->key;
     n->val           = o->val;
     n->overflow      = o->next;
-    free(o);
+    xSlabFree(t->overflow_pool, o);
     t->size--;
     return val;
   }
@@ -434,7 +420,7 @@ static void *tree_del(xMap m, const void *key) {
     y->color        = n->color;
   }
 
-  free(n);
+  xSlabFree(t->node_pool, n);
   t->size--;
 
   if (y_orig == RB_BLACK) {
@@ -454,7 +440,10 @@ static void tree_iterate(xMap m, xMapIterFunc fn, void *arg) {
 
 static void tree_destroy(xMap m) {
   xMapTree *t = self(m);
-  destroy_subtree(t->root);
+  /* xSlabDestroy frees all nodes and overflow entries in one shot;
+   * no per-node walk required since the map does not own key/val. */
+  xSlabDestroy(t->node_pool);
+  xSlabDestroy(t->overflow_pool);
   free(t);
 }
 
@@ -480,6 +469,18 @@ xMap xMapTreeCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq) {
 
   xMapTree *t = (xMapTree *)calloc(1, sizeof(xMapTree));
   if (!t) return NULL;
+
+  /* Per-map slabs: single-threaded (xMap itself is not thread-safe),
+   * so no atomics overhead.  chunk_bytes = 0 ⇒ slab picks a sensible
+   * default that amortises mmap cost over many nodes. */
+  t->node_pool     = xSlabCreate(sizeof(xTreeNode), 0, 0);
+  t->overflow_pool = xSlabCreate(sizeof(xTreeOverflow), 0, 0);
+  if (!t->node_pool || !t->overflow_pool) {
+    xSlabDestroy(t->node_pool);
+    xSlabDestroy(t->overflow_pool);
+    free(t);
+    return NULL;
+  }
 
   t->base.vtable = &tree_vtable;
   t->base.hash   = hash;

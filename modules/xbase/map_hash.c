@@ -10,6 +10,8 @@
 
 #include <stdlib.h>
 
+#include <xbase/slab.h>
+
 /* ═══════════════════════════════════════════════════════════════════
  *  Internal types
  * ═══════════════════════════════════════════════════════════════════ */
@@ -25,6 +27,7 @@ XDEF_STRUCT(xMapHash) {
   xMapHashEntry **buckets;
   size_t          size;
   size_t          cap;
+  xSlab          *entry_pool; /* xMapHashEntry pool */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -88,7 +91,7 @@ static xErrno hash_set(xMap m, const void *key, void *val) {
   }
 
   /* Insert new entry at head of chain */
-  xMapHashEntry *e = (xMapHashEntry *)malloc(sizeof(xMapHashEntry));
+  xMapHashEntry *e = (xMapHashEntry *)xSlabAlloc(h->entry_pool);
   if (!e) return xErrno_NoMemory;
 
   e->key          = key;
@@ -121,7 +124,7 @@ static void *hash_del(xMap m, const void *key) {
         prev->next = e->next;
       else
         h->buckets[idx] = e->next;
-      free(e);
+      xSlabFree(h->entry_pool, e);
       h->size--;
       return val;
     }
@@ -144,14 +147,8 @@ static void hash_iterate(xMap m, xMapIterFunc fn, void *arg) {
 
 static void hash_destroy(xMap m) {
   xMapHash *h = self(m);
-  for (size_t i = 0; i < h->cap; i++) {
-    xMapHashEntry *e = h->buckets[i];
-    while (e) {
-      xMapHashEntry *next = e->next;
-      free(e);
-      e = next;
-    }
-  }
+  /* xSlabDestroy frees all entries in one shot; map does not own key/val. */
+  xSlabDestroy(h->entry_pool);
   /* buckets is only separately allocated after a resize */
   if (h->buckets != (xMapHashEntry **)(h + 1)) free(h->buckets);
   free(h);
@@ -179,6 +176,14 @@ xMap xMapHashCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq) {
   xMapHash *h =
     (xMapHash *)calloc(1, sizeof(xMapHash) + cap * sizeof(xMapHashEntry *));
   if (!h) return NULL;
+
+  /* Per-map slab: single-threaded, no atomics overhead.
+   * chunk_bytes = 0 ⇒ slab picks a sensible default. */
+  h->entry_pool = xSlabCreate(sizeof(xMapHashEntry), 0, 0);
+  if (!h->entry_pool) {
+    free(h);
+    return NULL;
+  }
 
   h->buckets     = (xMapHashEntry **)(h + 1);
   h->base.vtable = &hash_vtable;

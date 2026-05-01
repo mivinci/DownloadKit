@@ -14,6 +14,7 @@
 
 #include <xbase/mpsc.h>
 #include <xbase/note.h>
+#include <xbase/slab.h>
 
 #include <pthread.h>
 #include <stdatomic.h>
@@ -78,6 +79,10 @@ struct xTaskGroup_ {
   pthread_cond_t wcond;
 
   bool shutdown;
+
+  /* Task slab pool — replaces per-thread freelist.  Lock-free multi-threaded
+   * slab so submit thread and wait thread can differ without pessimising. */
+  xSlabMt *task_pool;
 };
 
 static inline struct xTaskGroup_ *grp(xTaskGroup g) {
@@ -102,44 +107,14 @@ enum {
   TASK_CANCELLED = 3,
 };
 
-/* ───────────────── Thread-local task freelist ────────────── */
+/* ───────────────── Task allocator (xSlabMt) ────────────── */
 
-/*
- * In the common event-loop offload path, xTaskSubmit (alloc) and
- * xTaskWait (free) happen on the same thread.  A per-thread freelist
- * eliminates malloc/free overhead entirely — zero locks, zero atomics.
- *
- * We reuse task->next as the freelist link pointer (zero extra memory).
- * A per-thread cap prevents unbounded caching when one thread submits
- * many tasks that are waited-on by different threads.
- */
-#define TASK_FREELIST_CAP 64
-
-struct task_freelist {
-  struct xTask_ *head;
-  size_t         count;
-};
-
-static __thread struct task_freelist tl_free = {NULL, 0};
-
-static struct xTask_ *task_alloc(void) {
-  if (tl_free.head) {
-    struct xTask_ *t = tl_free.head;
-    tl_free.head     = t->next;
-    tl_free.count--;
-    return t;
-  }
-  return (struct xTask_ *)malloc(sizeof(struct xTask_));
+static inline struct xTask_ *task_alloc(struct xTaskGroup_ *g) {
+  return (struct xTask_ *)xSlabMtAlloc(g->task_pool);
 }
 
-static void task_free(struct xTask_ *t) {
-  if (tl_free.count >= TASK_FREELIST_CAP) {
-    free(t);
-    return;
-  }
-  t->next       = tl_free.head;
-  tl_free.head  = t;
-  tl_free.count++;
+static inline void task_free(struct xTaskGroup_ *g, struct xTask_ *t) {
+  xSlabMtFree(g->task_pool, t);
 }
 
 /* ───────────────────── Worker ───────────────────── */
@@ -212,7 +187,7 @@ static void drain_done(struct xTaskGroup_ *g) {
   xMpsc *node;
   while ((node = xMpscPop(&g->done_head, &g->done_tail)) != NULL) {
     struct xTask_ *t = xContainerOf(node, struct xTask_, done_link);
-    task_free(t);
+    task_free(g, t);
   }
 }
 
@@ -252,6 +227,15 @@ xTaskGroup xTaskGroupCreate(const xTaskGroupConf *conf) {
   pthread_cond_init(&g->qcond, NULL);
   pthread_cond_init(&g->wcond, NULL);
 
+  g->task_pool = xSlabMtCreate(sizeof(struct xTask_), 0, 0);
+  if (!g->task_pool) {
+    pthread_mutex_destroy(&g->qlock);
+    pthread_cond_destroy(&g->qcond);
+    pthread_cond_destroy(&g->wcond);
+    free(g);
+    return NULL;
+  }
+
   atomic_store(&g->pending, 0);
   atomic_store(&g->done_count, 0);
   g->idle     = 0;
@@ -279,7 +263,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   while (g->qhead) {
     struct xTask_ *t = g->qhead;
     g->qhead         = t->next;
-    free(t);
+    xSlabMtFree(g->task_pool, t);
   }
 
   /* Free completed tasks (both waited and not-waited) */
@@ -289,6 +273,7 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   pthread_mutex_destroy(&g->qlock);
   pthread_cond_destroy(&g->qcond);
   pthread_cond_destroy(&g->wcond);
+  xSlabMtDestroy(g->task_pool);
   free(g);
 }
 
@@ -298,7 +283,7 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
 
   if (!g_ || !fn) return NULL;
 
-  task = task_alloc();
+  task = task_alloc(g);
   if (!task) return NULL;
 
   task->fn     = fn;
@@ -314,7 +299,7 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
   /* Check queue capacity */
   if (g->qcap > 0 && g->qsize >= g->qcap) {
     pthread_mutex_unlock(&g->qlock);
-    free(task);
+    xSlabMtFree(g->task_pool, task);
     return NULL;
   }
 

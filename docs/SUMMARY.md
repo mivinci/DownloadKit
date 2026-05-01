@@ -10,6 +10,7 @@
     - [Timer](modules/xbase/timer.md)
     - [Task](modules/xbase/task.md)
     - [Memory Management](modules/xbase/memory.md)
+    - [Slab Allocator](modules/xbase/slab.md)
     - [Error Codes](modules/xbase/error.md)
     - [Min-Heap](modules/xbase/heap.md)
     - [Generic Map](modules/xbase/map.md)

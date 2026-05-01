@@ -34,6 +34,7 @@ graph TD
 
     subgraph "Infrastructure"
         MEMORY["memory.h<br/>Ref-Counted Memory"]
+        SLAB["slab.h<br/>Slab Object Pool"]
         LOG["log.h<br/>Thread-Local Log"]
         BACKTRACE["backtrace.h<br/>Stack Backtrace"]
         ERROR["error.h<br/>Error Codes"]
@@ -63,6 +64,10 @@ graph TD
 
     MPSC -->|"CAS operations"| ATOMIC
     MEMORY -->|"atomic refcount"| ATOMIC
+    SLAB -->|"lock-free freelist"| ATOMIC
+    TIMER -->|"entry allocation"| SLAB
+    TASK -->|"task allocation"| SLAB
+    MAP -->|"node allocation"| SLAB
 
     LOG -->|"fatal backtrace"| BACKTRACE
     LOG -->|"error formatting"| ERROR
@@ -75,6 +80,7 @@ graph TD
     style SOCKET fill:#4a90d9,color:#fff
     style CMD fill:#4a90d9,color:#fff
     style MEMORY fill:#50b86c,color:#fff
+    style SLAB fill:#50b86c,color:#fff
     style LOG fill:#50b86c,color:#fff
     style BACKTRACE fill:#50b86c,color:#fff
     style ERROR fill:#50b86c,color:#fff
@@ -96,6 +102,7 @@ graph TD
 | [`task.h`](task.md) | [task.md](task.md) | N:M task model — lightweight tasks multiplexed onto a configurable thread pool |
 | [`socket.h`](socket.md) | [socket.md](socket.md) | Async socket abstraction with idle-timeout support over xEventLoop |
 | [`memory.h`](memory.md) | [memory.md](memory.md) | Reference-counted allocation with vtable-driven lifecycle (ctor/dtor/retain/release) |
+| [`slab.h`](slab.md) | [slab.md](slab.md) | Fixed-size object pool — single-threaded `xSlab` and lock-free `xSlabMt` variants for high-frequency small allocations |
 | [`log.h`](log.md) | [log.md](log.md) | Per-thread callback-based logging with optional backtrace on fatal |
 | [`backtrace.h`](backtrace.md) | [backtrace.md](backtrace.md) | Platform-adaptive stack trace capture (libunwind > execinfo > stub) |
 | [`error.h`](error.md) | [error.md](error.md) | Unified error codes (`xErrno`) and human-readable messages |
@@ -121,6 +128,7 @@ graph TD
 | Post a callback to the event loop from another thread | [`event.h`](event.md) — `xEventLoopPost()` for zero-overhead cross-thread dispatch |
 | Manage non-blocking TCP/UDP connections | [`socket.h`](socket.md) — wraps socket + event loop + idle timeout |
 | Allocate objects with automatic cleanup | [`memory.h`](memory.md) — `XMALLOC(T)` + `xRetain`/`xRelease` |
+| Pool many small fixed-size objects with minimal overhead | [`slab.h`](slab.md) — `xSlab` (ST) / `xSlabMt` (MT) object pool with lock-free freelist |
 | Report errors from library internals | [`log.h`](log.md) — thread-local callback, or stderr fallback |
 | Capture a stack trace for debugging | [`backtrace.h`](backtrace.md) — `xBacktrace()` fills a buffer |
 | Handle error codes uniformly | [`error.h`](error.md) — `xErrno` enum + `xstrerror()` |

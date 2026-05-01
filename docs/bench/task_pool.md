@@ -253,7 +253,7 @@ Comparable to the post-optimisation figures above; the submit-then-wait-on-same-
 | 4 | 1,061,687 | 75,828 | 52.8 M ops/s |
 | 8 | 2,325,239 | 238,690 | 33.5 M ops/s |
 
-The 8-producer regression that existed with the TLS freelist is still visible — the bottleneck is no longer allocation but the shared task submission queue and the xSlabMt CAS under eight contending threads (see the slab doc's multi-threaded benchmark for the raw contention curve). Work-stealing and caller-inline task structs remain the right follow-ups here.
+The 8-producer regression that existed with the TLS freelist is still visible — the bottleneck is no longer allocation but the shared task submission queue and the xSlabMt spinlock under eight contending threads (see the slab doc's multi-threaded benchmark for the raw contention curve). Work-stealing and caller-inline task structs remain the right follow-ups here.
 
 ### WorkerScaling — Throughput vs worker count (Post-Slab)
 

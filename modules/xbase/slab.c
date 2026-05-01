@@ -247,101 +247,75 @@ size_t xSlabSlotSize(const xSlab *h) {
 /* ─────────────────────── xSlabMt (multi-threaded) ─────────────────────── */
 
 /*
- * Freelist is a Treiber stack.  Chunk acquisition is the slow path
- * and is serialised via a spinlock built on atomic exchange — this
- * only runs once every `nslots` allocations, so the overhead is
- * negligible and we avoid pulling in pthread just for a one-shot
- * latch.
+ * The freelist is a plain LIFO protected by a single spinlock.
+ *
+ * We originally shipped a lock-free Treiber stack, but the classical
+ * ABA window is a real hazard here: a popped slot is immediately
+ * handed to the caller, who writes user data into its first word
+ * (which is also the freelist `next` pointer).  If a concurrent
+ * popper had already loaded the stale `head` and `head->next` before
+ * being preempted, its later CAS may succeed against a recycled
+ * `head` while its captured `next` is now arbitrary user bytes,
+ * publishing a garbage pointer as the new freelist head.  ASan
+ * caught this as a SEGV on a cleanly-aligned address inside an
+ * unrelated slot.
+ *
+ * A word-width CAS cannot close this window without a tag, and
+ * portable 128-bit CAS is not something we want to assume.  The
+ * spinlock is two instructions on the uncontended path, keeps the
+ * code straightforward, and is more than fast enough for xbase's
+ * producers (timer / task), which rarely contend on more than a
+ * couple of threads.  Throughput numbers under heavy contention are
+ * discussed in docs/modules/xbase/slab.md.
  */
 
 struct xSlabMt_ {
   xSlabChunk    *chunks;    /* head of chunk list               */
-  xSlabFreeNode *free_head; /* lock-free freelist head          */
-  int            grow_lock; /* 0=free, 1=locked                 */
+  xSlabFreeNode *free_head; /* freelist head, guarded by `lock` */
+  int            lock;      /* 0=free, 1=locked                 */
   size_t         slot_size;
   size_t         align;
   size_t         chunk_bytes;
 };
 
-static void xslabmt_push_free(struct xSlabMt_ *s, xSlabFreeNode *n) {
-  xSlabFreeNode *head;
-  do {
-    head    = xAtomicLoad(&s->free_head, xAtomicRelaxed);
-    n->next = head;
-  } while (!xAtomicCasWeak(&s->free_head, &head, n, xAtomicRelease));
-}
-
-static xSlabFreeNode *xslabmt_pop_free(struct xSlabMt_ *s) {
-  /*
-   * NOTE: Treiber stack has a classical ABA window.  We are immune
-   * here because slots are *never* returned to the OS while the pool
-   * is live, so a popped node's memory cannot be recycled into a
-   * different allocation class between load and CAS.  The worst
-   * outcome of a lost race is retrying the CAS.
-   */
-  xSlabFreeNode *head;
+static void xslabmt_lock(struct xSlabMt_ *s) {
+  int expected;
   for (;;) {
-    head = xAtomicLoad(&s->free_head, xAtomicAcquire);
-    if (!head) return NULL;
-    xSlabFreeNode *next = head->next;
-    if (xAtomicCasWeak(&s->free_head, &head, next, xAtomicAcqRel)) return head;
+    expected = 0;
+    if (xAtomicCasWeak(&s->lock, &expected, 1, xAtomicAcquire)) return;
+    /* Back off briefly; spin in the load domain to avoid CAS storms. */
+    while (xAtomicLoad(&s->lock, xAtomicRelaxed) != 0) {
+      /* CPU hint would go here; keep it portable for now. */
+    }
   }
 }
 
-static int xslabmt_grow(struct xSlabMt_ *s) {
-  /* Acquire the grow lock via a simple test-and-set spin. */
-  int expected = 0;
-  while (!xAtomicCasWeak(&s->grow_lock, &expected, 1, xAtomicAcquire)) {
-    /* Another thread is growing — let them finish and retry alloc. */
-    expected = 0;
-    if (xAtomicLoad(&s->free_head, xAtomicAcquire) != NULL) return 0;
-  }
+static void xslabmt_unlock(struct xSlabMt_ *s) {
+  xAtomicStore(&s->lock, 0, xAtomicRelease);
+}
 
-  /* Re-check: another thread may have grown while we spun. */
-  if (xAtomicLoad(&s->free_head, xAtomicAcquire) != NULL) {
-    xAtomicStore(&s->grow_lock, 0, xAtomicRelease);
-    return 0;
-  }
-
+/* Caller must hold s->lock. */
+static int xslabmt_grow_locked(struct xSlabMt_ *s) {
   size_t bytes, offset, nslots;
   xslab_layout(s->slot_size, s->align, s->chunk_bytes, &bytes, &offset,
                &nslots);
 
   xSlabChunk *c = (xSlabChunk *)xslab_map(bytes);
-  if (!c) {
-    xAtomicStore(&s->grow_lock, 0, xAtomicRelease);
-    return -1;
-  }
+  if (!c) return -1;
 
   c->bytes        = bytes;
   c->slots_offset = offset;
   c->nslots       = nslots;
+  c->next         = s->chunks;
+  s->chunks       = c;
 
-  /* Link chunk into the list (only writer under grow_lock). */
-  c->next   = s->chunks;
-  s->chunks = c;
-
-  /* Build a local freelist of all new slots, then splice. */
-  char          *base       = (char *)c + offset;
-  xSlabFreeNode *local_head = NULL;
+  /* Push every new slot onto the freelist. */
+  char *base = (char *)c + offset;
   for (size_t i = 0; i < nslots; i++) {
     xSlabFreeNode *n = (xSlabFreeNode *)(base + i * s->slot_size);
-    n->next          = local_head;
-    local_head       = n;
+    n->next          = s->free_head;
+    s->free_head     = n;
   }
-  /* Find tail of local list. */
-  xSlabFreeNode *local_tail = local_head;
-  while (local_tail->next)
-    local_tail = local_tail->next;
-
-  /* Splice local list onto the global freelist head. */
-  xSlabFreeNode *head;
-  do {
-    head             = xAtomicLoad(&s->free_head, xAtomicRelaxed);
-    local_tail->next = head;
-  } while (!xAtomicCasWeak(&s->free_head, &head, local_head, xAtomicRelease));
-
-  xAtomicStore(&s->grow_lock, 0, xAtomicRelease);
   return 0;
 }
 
@@ -382,26 +356,28 @@ void *xSlabMtAlloc(xSlabMt *h) {
   struct xSlabMt_ *s = (struct xSlabMt_ *)h;
   if (!s) return NULL;
 
-  /*
-   * Loop until we either get a slot or grow() reports a hard failure
-   * (OS-level map error).  A single pop+grow+pop sequence is not
-   * enough under contention: another thread may drain the freelist
-   * between grow() and our second pop_free(), in which case we
-   * simply try again (and grow() will bail out cheaply if someone
-   * already refilled the list).
-   */
-  for (;;) {
-    xSlabFreeNode *n = xslabmt_pop_free(s);
-    if (n) return (void *)n;
-
-    if (xslabmt_grow(s) != 0) return NULL;
+  xslabmt_lock(s);
+  if (!s->free_head) {
+    if (xslabmt_grow_locked(s) != 0) {
+      xslabmt_unlock(s);
+      return NULL;
+    }
   }
+  xSlabFreeNode *n = s->free_head;
+  s->free_head     = n->next;
+  xslabmt_unlock(s);
+  return (void *)n;
 }
 
 void xSlabMtFree(xSlabMt *h, void *p) {
   struct xSlabMt_ *s = (struct xSlabMt_ *)h;
   if (!s || !p) return;
-  xslabmt_push_free(s, (xSlabFreeNode *)p);
+
+  xSlabFreeNode *n = (xSlabFreeNode *)p;
+  xslabmt_lock(s);
+  n->next      = s->free_head;
+  s->free_head = n;
+  xslabmt_unlock(s);
 }
 
 size_t xSlabMtSlotSize(const xSlabMt *h) {

@@ -337,7 +337,7 @@ int main(int argc, char *argv[]) {
 
 With the flags from the "Integer, counter and choice" example plus `xFlagSetVersion(set, "1.2.3")`, running `srv --help` prints something like:
 
-```
+```bash
 srv - demo server
 
 USAGE: srv [OPTIONS]

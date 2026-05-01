@@ -47,6 +47,7 @@
 .idea
 .vscode
 .venv
+.env
 build
 build-*
 cmake-build-*

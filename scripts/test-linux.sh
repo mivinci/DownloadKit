@@ -188,6 +188,9 @@ detect_changed_modules() {
                     break
                 fi
             done
+        elif [[ "$f" =~ ^examples/ ]]; then
+            # Example / demo changes do not affect module tests
+            continue
         elif [[ "$f" =~ ^(CMakeLists\.txt|cmake/) ]]; then
             info "Root build system changed, testing all modules"
             printf '%s\n' "${ALL_MODULES[@]}"

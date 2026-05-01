@@ -42,7 +42,7 @@
     - [TLS Deployment Guide](modules/xhttp/tls.md)
   - [xlog — Async Logging](modules/xlog/README.md)
     - [Logger](modules/xlog/logger.md)
-  - [xjs — JavaScript Scripting Engine](modules/xjs/README.md)
+  - [xjs — JavaScript Engine](modules/xjs/README.md)
     - [Context & Runtime](modules/xjs/context.md)
     - [Values](modules/xjs/value.md)
     - [Objects, Functions & Promises](modules/xjs/object.md)

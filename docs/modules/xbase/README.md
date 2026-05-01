@@ -117,6 +117,7 @@ graph TD
 | `base64.h` | [base64.md](base64.md) | Base64 encode/decode (RFC 4648) — standard and URL-safe alphabets, with or without `=` padding |
 | `time.h` | — | Time utilities: `xMonoMs()` (monotonic) and `xWallMs()` (wall-clock) in milliseconds |
 | `cmd.h` | [cmd.md](cmd.md) | Async command executor over xEventLoop — spawn child processes with stdout/stderr capture, streaming, discard, and PTY modes |
+| `flag.h` | [flag.md](flag.md) | POSIX/GNU-style command-line flag parser — typed storage, auto-generated `--help`, choice validation, counter and positional support |
 
 ## How to Choose
 
@@ -141,6 +142,7 @@ graph TD
 | Get current time in milliseconds | `time.h` — `xMonoMs()` for elapsed time, `xWallMs()` for wall-clock |
 | Read/write through abstract I/O interfaces | [`io.h`](io.md) — `xReader` / `xWriter` + helpers like `xReadFull`, `xReadAll` |
 | Submit a shell command asynchronously | [`cmd.h`](cmd.md) — `xCommandExecutorSubmit()` with capture, stream, or discard output modes |
+| Parse command-line arguments | [`flag.h`](flag.md) — `xFlagAddString / Int / Bool / Choice / Counter / Positional` + `xFlagParse` with auto-generated `--help` |
 
 ## Quick Start
 

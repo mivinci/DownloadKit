@@ -54,8 +54,14 @@ target_include_directories(ai_openai PRIVATE
 # (session-internal diagnostics, see session_test.cpp's
 # BudgetCalibrator suite) and we'd rather keep the surface small
 # than export a getter that exists only to feed a demo.
+#
+# The REPL uses isocline for CJK-aware line editing, persistent
+# history, and Ctrl-R search. Isocline is a pure-C, MIT-licensed,
+# header-clean readline replacement with native Windows support.
+find_package(Isocline REQUIRED)
+
 add_executable(ai_session ai_session.cpp)
-target_link_libraries(ai_session PRIVATE xai xhttp xbase)
+target_link_libraries(ai_session PRIVATE xai xhttp xbase Isocline::Isocline)
 target_include_directories(ai_session PRIVATE
   ${CMAKE_SOURCE_DIR}/modules)
 

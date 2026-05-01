@@ -106,6 +106,44 @@ else()
   if(POLICY CMP0169)
     cmake_policy(SET CMP0169 OLD)
   endif()
+
+  # Self-heal stale FetchContent sub-build caches.
+  #
+  # FetchContent drives a helper CMake project under
+  # ${CMAKE_BINARY_DIR}/_deps/quickjs-subbuild to perform the download.
+  # That sub-build pins its generator into CMakeCache.txt on first run.
+  # If a developer switches the parent project's generator later (e.g.
+  # a prior checkout configured with Ninja, current one with Unix
+  # Makefiles), CMake refuses the mismatch with:
+  #
+  #   Error: generator : <new>
+  #   Does not match the generator used previously: <old>
+  #
+  # The fix upstream expects is `rm -rf build`, but that's a bad first
+  # impression for `npm run build`.  Detect the mismatch ourselves and
+  # wipe only the offending sub-build directory so the next
+  # FetchContent_Populate re-bootstraps it with the correct generator.
+  set(_qjs_subbuild_cache
+    "${CMAKE_BINARY_DIR}/_deps/quickjs-subbuild/CMakeCache.txt")
+  if(EXISTS "${_qjs_subbuild_cache}")
+    file(STRINGS "${_qjs_subbuild_cache}" _qjs_cached_gen_line
+      REGEX "^CMAKE_GENERATOR:INTERNAL=")
+    if(_qjs_cached_gen_line)
+      string(REGEX REPLACE "^CMAKE_GENERATOR:INTERNAL=" ""
+        _qjs_cached_gen "${_qjs_cached_gen_line}")
+      if(NOT _qjs_cached_gen STREQUAL CMAKE_GENERATOR)
+        message(STATUS
+          "FindQuickJS: sub-build generator changed "
+          "(${_qjs_cached_gen} -> ${CMAKE_GENERATOR}), "
+          "clearing ${CMAKE_BINARY_DIR}/_deps/quickjs-subbuild")
+        file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/_deps/quickjs-subbuild")
+      endif()
+      unset(_qjs_cached_gen)
+    endif()
+    unset(_qjs_cached_gen_line)
+  endif()
+  unset(_qjs_subbuild_cache)
+
   FetchContent_GetProperties(quickjs)
   if(NOT quickjs_POPULATED)
     FetchContent_Populate(quickjs)

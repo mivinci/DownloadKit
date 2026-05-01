@@ -67,10 +67,19 @@ else()
   message(STATUS "FindQuickJS: System quickjs not found, fetching from source")
 
   include(FetchContent)
+
+  # CMP0135 (CMake 3.24+): use extraction-time timestamps on URL downloads
+  # so that changing the URL triggers a rebuild.  Setting it to NEW silences
+  # the dev warning on modern CMake while remaining a no-op on older versions.
+  if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+  endif()
+
   xk_github_url(quickjs-ng/quickjs v0.14.0 _quickjs_url)
   FetchContent_Declare(
     quickjs
     URL ${_quickjs_url}
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
 
   # Turn off everything we don't need from quickjs-ng:
@@ -88,6 +97,15 @@ else()
   # lre-test targets.  Using EXCLUDE_FROM_ALL on the subdirectory means
   # those executables are only built if something explicitly depends on
   # them — which nothing in xkit does, so they stay out of our build.
+  #
+  # FetchContent_MakeAvailable doesn't let us pass EXCLUDE_FROM_ALL until
+  # CMake 3.28, so we keep the classic Populate + add_subdirectory dance.
+  # CMake 3.30+ deprecates calling FetchContent_Populate on a declared
+  # dependency (CMP0169); pin the old behaviour so the dev warning goes
+  # away without forcing our minimum CMake version up to 3.28.
+  if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+  endif()
   FetchContent_GetProperties(quickjs)
   if(NOT quickjs_POPULATED)
     FetchContent_Populate(quickjs)

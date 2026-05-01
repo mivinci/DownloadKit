@@ -18,6 +18,12 @@
 
 #include "quickjs.h"
 
+/* Module loader trampoline lives in js_module.c — forward declare so
+ * we can plug it into the runtime at context creation. */
+JSModuleDef *xjs_module_loader_trampoline(JSContext *ctx,
+                                          const char *module_name, void *opaque,
+                                          JSValueConst attributes);
+
 /* ═══════════════════════════════════════════════════════════════════
  * Allocator bridging (QuickJS expects plain malloc/free/realloc)
  * ═══════════════════════════════════════════════════════════════════ */
@@ -76,6 +82,15 @@ xJSContextGroupRef xJSContextGroupCreate(void) {
   /* Stash the group back-pointer so callbacks invoked by QuickJS can
    * find us via the runtime opaque. */
   JS_SetRuntimeOpaque(g->rt, g);
+  /* Install our module-loader trampoline unconditionally.  With no
+   * user loader set on a context, the trampoline rejects every
+   * import with a ReferenceError — same behaviour as before, except
+   * reachable now through the ES module machinery.  We pass a NULL
+   * normalize func so QuickJS's default "./x relative to importer"
+   * resolution handles specifier normalisation for us. */
+  JS_SetModuleLoaderFunc2(g->rt, /*module_normalize*/ NULL,
+                          xjs_module_loader_trampoline,
+                          /*check_attrs*/ NULL, /*opaque*/ NULL);
   return g;
 }
 
@@ -174,4 +189,11 @@ void xJSGlobalContextSetName(xJSGlobalContextRef ctx, xJSStringRef name) {
   size_t sz = xJSStringGetMaximumUTF8CStringSize(name);
   ctx->name = (char *)malloc(sz);
   if (ctx->name) xJSStringGetUTF8CString(name, ctx->name, sz);
+}
+
+void xJSContextSetModuleLoader(xJSGlobalContextRef   ctx,
+                               xJSModuleLoadCallback load, void *opaque) {
+  if (!ctx) return;
+  ctx->module_load_cb     = load;
+  ctx->module_load_opaque = opaque;
 }

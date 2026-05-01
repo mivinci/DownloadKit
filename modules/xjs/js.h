@@ -471,6 +471,101 @@ xJSContextDrainPendingJobs(xJSContextRef ctx, xJSValueRef *exception);
  */
 XCAPI(bool) xJSContextHasPendingJobs(xJSContextRef ctx);
 
+/* ═══════════════════════════════════════════════════════════════════
+ * ES modules  (xKit extension)
+ *
+ * JavaScriptCore exposes module support only through its private
+ * Objective-C API (JSScript + JSModuleLoaderDelegate), not the C
+ * API we otherwise mirror.  This section is therefore xjs-specific
+ * but the shape is inspired by JSC's design:
+ *
+ *   - A module identifier is a string; the same string is used as
+ *     sourceURL when compiling the module.  Specifier normalisation
+ *     (resolving "./x" relative to the importer) is handled
+ *     internally — the load callback only sees normalised names.
+ *
+ *   - Evaluating a module is asynchronous by construction: it
+ *     returns a Promise that fulfils to the module namespace once
+ *     all transitive imports have loaded and executed.  Use
+ *     xJSAwaitPromise() to block the calling thread until the
+ *     Promise settles (draining microtasks along the way).
+ *
+ *   - Native modules (i.e. host code registered as JS modules) are
+ *     intentionally not supported in this first cut.  Expose host
+ *     functionality via the global object instead.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/**
+ * Heuristic: does @p source read like an ES module rather than a
+ * classic script?  Mirrors QuickJS's JS_DetectModule — detects
+ * top-level `import`/`export` tokens.  A cheap pre-pass to let
+ * the embedder pick between xJSEvaluateScript and xJSEvaluateModule.
+ */
+XCAPI(bool) xJSDetectModule(const char *source, size_t length);
+
+/**
+ * Compile and start evaluating an ES module.  Returns a Promise
+ * that fulfils to the module namespace object, or rejects if any
+ * import or top-level statement throws.
+ *
+ * @param ctx         Execution context.
+ * @param script      Module source code.  Must not be NULL.
+ * @param sourceURL   Module identifier.  Used both as the compile-
+ *                    time sourceURL (for stack traces and
+ *                    `import.meta.url`) and as the base specifier
+ *                    against which relative imports in @p script
+ *                    are normalised.  Pass NULL for an anonymous
+ *                    entry point ("<xjs>").
+ * @param exception   Out-param for compile-time errors only.  A
+ *                    *runtime* error (rejection) surfaces through
+ *                    the returned Promise.
+ *
+ * @return A Promise value on success; NULL on compile/setup error
+ *         (in which case @p exception is populated if non-NULL).
+ */
+XCAPI(xJSValueRef)
+xJSEvaluateModule(xJSContextRef ctx, xJSStringRef script,
+                  xJSStringRef sourceURL, xJSValueRef *exception);
+
+/**
+ * Synchronously drain pending jobs on @p ctx until @p promise
+ * settles.  Returns the fulfilment value on resolve; returns NULL
+ * and populates @p exception on reject.
+ *
+ * If @p promise is not actually a Promise it is returned as-is
+ * (no drain); this makes the helper safe to wrap around the result
+ * of xJSEvaluateModule even in the hypothetical case where QuickJS
+ * returns an already-settled value.
+ *
+ * The caller retains ownership of @p promise and is responsible
+ * for releasing the returned value (if any).
+ */
+XCAPI(xJSValueRef)
+xJSAwaitPromise(xJSContextRef ctx, xJSValueRef promise, xJSValueRef *exception);
+
+/**
+ * Module loader callback.  Invoked the first time a given
+ * normalised module name is requested; xjs caches the result of
+ * each successful compile so this is called at most once per
+ * identifier per context.
+ *
+ * Return the module source as a freshly-created xJSStringRef; xjs
+ * takes ownership (Release after use).  Returning NULL signals
+ * "module not found" and causes the importing evaluation to
+ * reject with a ReferenceError.
+ */
+typedef xJSStringRef (*xJSModuleLoadCallback)(xJSContextRef ctx,
+                                              const char   *normalizedName,
+                                              void         *opaque);
+
+/**
+ * Install (or clear, by passing NULL) the module loader on @p ctx.
+ * Only one loader may be active at a time.  @p opaque is passed
+ * unchanged to every invocation of @p load.
+ */
+XCAPI(void) xJSContextSetModuleLoader(xJSGlobalContextRef   ctx,
+                                      xJSModuleLoadCallback load, void *opaque);
+
 #ifdef __cplusplus
 }
 #endif

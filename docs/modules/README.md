@@ -1,13 +1,14 @@
 # Modules
 
-xKit is organized into eight modules, layered from low-level core primitives up to high-level async networking, P2P connectivity, and file transfer.
+xKit is organized into nine modules, layered from low-level core primitives up to high-level async networking, P2P connectivity, file transfer, and an embeddable JavaScript engine.
 
 ```text
 ┌─────────────────────────────────────────────┐
 │              Application Layer              │
-├─────────────────────────────────────────────┤
-│   xfer — P2P File Transfer                  │
 ├──────────────────────┬──────────────────────┤
+│   xfer               │   xjs                │
+│   P2P File Transfer  │   JS Scripting (QJS) │
+├──────────────────────┼──────────────────────┤
 │   xhttp              │   xlog               │
 │   HTTP Client/Server │   Async Logging       │
 │   WebSocket          │                      │
@@ -34,6 +35,7 @@ xKit is organized into eight modules, layered from low-level core primitives up 
 | **[xnet](xnet/README.md)** | Networking primitives — URL parser, async DNS resolver, TCP, shared TLS configuration types |
 | **[xhttp](xhttp/README.md)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 & HTTP/2 async server with TLS, WebSocket server & client |
 | **[xlog](xlog/README.md)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
+| **[xjs](xjs/README.md)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped C API, ES modules, native class wrappers |
 | **[xcrypto](xcrypto/README.md)** | Cryptographic primitives — SHA-1, SHA-256 (OpenSSL / mbedTLS / builtin), MD5, CRC-32, generic HMAC with HMAC-SHA1, HMAC-SHA256, HMAC-MD5 |
 | **[xp2p](xp2p/README.md)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
 | **[xfer](xfer/README.md)** | P2P file transfer — chunked transfer over WebRTC DataChannel with signaling, resume, and SHA-1 integrity |
@@ -49,4 +51,5 @@ Level 4 (event loop)  : timer.h, task.h, socket.h, dns.h, tcp.h, logger.h, clien
 Level 5 (xbase+xnet) : ice_agent.h, stun_msg.h, stun_attr.h, stun_txn.h, turn_client.h, sdp.h
 Level 6 (xp2p+xhttp) : xfer.h, xfer_signal.h, xfer_protocol.h
 Level ∞ (standalone)  : sha1.h, sha256.h, md5.h, crc32.h, hmac.h (xcrypto — depends only on xbase error codes)
+Level ∞ (standalone)  : js.h                                      (xjs     — depends only on xbase; pulls QuickJS-ng privately)
 ```

@@ -143,6 +143,13 @@ struct OpaqueXJSContext {
    * shot when the context is released; any still-live slots leak
    * their cells, which is acceptable at context teardown. */
   xSlab *slot_pool;
+  /* ES module loader.  QuickJS attaches a loader per-runtime, not
+   * per-context; we route through a trampoline that recovers the
+   * owning xjs context via JS_GetContextOpaque() and invokes the
+   * user callback stored here.  NULL when no loader is installed;
+   * in that case every `import` rejects with ReferenceError. */
+  xJSModuleLoadCallback module_load_cb;
+  void                 *module_load_opaque;
 };
 
 /* ─── Value slot (boxes a QuickJS JSValue) ──────────────────────── */

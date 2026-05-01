@@ -63,6 +63,7 @@ add_subdirectory(modules/xhttp)
 add_subdirectory(modules/xp2p)
 add_subdirectory(modules/xfer)
 add_subdirectory(modules/xai)
+add_subdirectory(modules/xjs)
 
 if(XK_BUILD_EXAMPLES)
   add_subdirectory(examples)

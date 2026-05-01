@@ -58,3 +58,12 @@ add_executable(ai_session ai_session.cpp)
 target_link_libraries(ai_session PRIVATE xai xhttp xbase)
 target_include_directories(ai_session PRIVATE
   ${CMAKE_SOURCE_DIR}/modules)
+
+# ES-module demo: show how to expose host-native functionality as
+# an `import`-able module by combining native callbacks on the
+# global object with a module loader that synthesises a small JS
+# facade.  See the file header comment for the full rationale.
+add_executable(xjs_native_module xjs_native_module.c)
+target_link_libraries(xjs_native_module PRIVATE xjs)
+target_include_directories(xjs_native_module PRIVATE
+  ${CMAKE_SOURCE_DIR}/modules)

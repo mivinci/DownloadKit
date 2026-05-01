@@ -160,13 +160,15 @@ TEST(HttpsClientConfig, SetTlsWithAllFields) {
 
 /* ── Response context ──────────────────────────────────────────────────── */
 
+namespace {
+
 struct RespCtx {
   std::atomic<bool> done{false};
   long              status_code{0};
   int               curl_code{-1};
-  std::string       body;
-  std::string       headers;
-  std::string       curl_error;
+  std::string       body{};
+  std::string       headers{};
+  std::string       curl_error{};
 };
 
 static void on_resp(const xHttpResponse *resp, void *arg) {
@@ -180,6 +182,8 @@ static void on_resp(const xHttpResponse *resp, void *arg) {
   if (resp->curl_error) ctx->curl_error = resp->curl_error;
   ctx->done.store(true, std::memory_order_release);
 }
+
+}  // namespace
 
 /* ── SSE context (disabled: server TLS streaming not yet supported) ──── */
 
@@ -368,7 +372,7 @@ TEST_F(HttpsIntegrationTest, GetWithSkipVerify) {
   listen_tls_and_start();
   client_skip_verify();
 
-  RespCtx ctx;
+  RespCtx ctx{};
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -387,7 +391,7 @@ TEST_F(HttpsIntegrationTest, PostWithSkipVerify) {
   listen_tls_and_start();
   client_skip_verify();
 
-  RespCtx     ctx;
+  RespCtx     ctx{};
   const char *body = "request-body-data";
   xErrno err = xHttpClientPost(client, url("/echo").c_str(), body, strlen(body),
                                on_resp, &ctx);
@@ -408,7 +412,7 @@ TEST_F(HttpsIntegrationTest, DoWithCustomHeaders) {
   listen_tls_and_start();
   client_skip_verify();
 
-  RespCtx     ctx;
+  RespCtx     ctx{};
   const char *hdrs[]  = {"X-Custom: test-value", NULL};
   const char *body    = "put-body";
   std::string req_url = url("/data");
@@ -474,7 +478,7 @@ TEST_F(HttpsIntegrationTest, GetWithCorrectCaPath) {
   /* Use the self-signed cert as CA — should pass verification */
   client_set_ca(ca_cert_path);
 
-  RespCtx ctx;
+  RespCtx ctx{};
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -497,7 +501,7 @@ TEST_F(HttpsIntegrationTest, SelfSignedCertRejectedWithoutSkipVerify) {
    * Recreate client with no TLS config (defaults). */
   create_client(nullptr);
 
-  RespCtx ctx;
+  RespCtx ctx{};
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok); /* submission succeeds, failure is async */
 
@@ -520,7 +524,7 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
   tls.ca             = "/tmp/nonexistent_ca_xhttps_test.pem";
   create_client(&tls);
 
-  RespCtx ctx;
+  RespCtx ctx{};
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -727,7 +731,7 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
   client = xHttpClientCreate(client_loop, &cli_conf);
   ASSERT_NE(client, nullptr);
 
-  RespCtx ctx;
+  RespCtx ctx{};
   err = xHttpClientGet(client, url("/secure").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -762,7 +766,7 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
   client = xHttpClientCreate(client_loop, &cli_conf);
   ASSERT_NE(client, nullptr);
 
-  RespCtx ctx;
+  RespCtx ctx{};
   err = xHttpClientGet(client, url("/secure").c_str(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
@@ -780,7 +784,7 @@ TEST_F(HttpsIntegrationTest, HttpsRequestTimeout) {
   listen_tls_and_start();
   client_skip_verify();
 
-  RespCtx ctx;
+  RespCtx ctx{};
 
   /* Connect to a non-routable IP address to trigger a connect timeout.
    * 10.255.255.1 is a non-routable address per RFC 1918 that will
@@ -873,7 +877,7 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
     create_client(&tls);
   }
 
-  RespCtx ctx1;
+  RespCtx ctx1{};
   xErrno  err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx1);
   ASSERT_EQ(err, xErrno_Ok);
   pump_until(client_loop, ctx1.done, 5000);
@@ -884,7 +888,7 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
   /* Reset to defaults (verify enabled) → self-signed should fail */
   create_client(nullptr);
 
-  RespCtx ctx2;
+  RespCtx ctx2{};
   err = xHttpClientGet(client, url("/hello").c_str(), on_resp, &ctx2);
   ASSERT_EQ(err, xErrno_Ok);
   pump_until(client_loop, ctx2.done, 5000);

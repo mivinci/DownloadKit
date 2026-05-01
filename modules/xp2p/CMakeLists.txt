@@ -94,6 +94,9 @@ if(XK_BUILD_TESTS)
     target_link_libraries(xp2p_test PRIVATE Usrsctp::Usrsctp)
     target_include_directories(xp2p_test PRIVATE ${Usrsctp_INCLUDE_DIRS})
     add_test(NAME xp2p_test COMMAND xp2p_test)
-    set_tests_properties(xp2p_test PROPERTIES TIMEOUT 120)
+    # NOTE: several ICE tests intentionally wait for STUN/TURN retransmission
+    # timeouts (~11s each). On slow CI runners the accumulated wall time can
+    # approach the CTest limit, so we give the whole binary a generous cap.
+    set_tests_properties(xp2p_test PROPERTIES TIMEOUT 300)
   endif()
 endif()

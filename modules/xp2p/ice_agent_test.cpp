@@ -33,6 +33,30 @@ static void pump_loop(xEventLoop loop, int total_ms) {
   }
 }
 
+/*
+ * Pump the event loop until `pred()` returns true or `total_ms` elapses.
+ * Returns true if the predicate was satisfied, false on timeout.
+ *
+ * Use this instead of a fixed `pump_loop(loop, N)` when the test's success
+ * criterion is an async state change (e.g. gathering completed). It avoids
+ * both flakiness on slow CI runners AND wasted wall-clock time on fast ones.
+ */
+template <typename Pred>
+static bool pump_until(xEventLoop loop, Pred pred, int total_ms) {
+  auto deadline = std::chrono::steady_clock::now() + ms(total_ms);
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (pred()) return true;
+    auto remaining = std::chrono::duration_cast<ms>(
+                       deadline - std::chrono::steady_clock::now())
+                       .count();
+    if (remaining <= 0) break;
+    /* Wake up at least every 50ms so we can re-check the predicate even
+     * if no event fires (e.g. waiting on a timer that hasn't fired yet). */
+    xEventWait(loop, (int)std::min<long long>(remaining, 50));
+  }
+  return pred();
+}
+
 /* ───────────────────── Callback State ───────────────────── */
 
 struct AgentState {
@@ -502,9 +526,8 @@ TEST(IceAgentTest, GatherWithInvalidStunServerStillSucceeds) {
   EXPECT_FALSE(as.last_candidate.empty());
   EXPECT_NE(as.last_candidate.find("typ host"), std::string::npos);
 
-  /* Pump loop for gathering to complete */
-  pump_loop(loop, 100);
-  EXPECT_TRUE(as.gathering_done);
+  /* Wait until gathering completes (or gather_timer fires after 5s). */
+  EXPECT_TRUE(pump_until(loop, [&] { return as.gathering_done; }, 6000));
 
   xIceAgentDestroy(agent);
   xEventLoopDestroy(loop);
@@ -537,8 +560,7 @@ TEST(IceAgentTest, GatherWithInvalidTurnServerStillSucceeds) {
 
   EXPECT_FALSE(as.last_candidate.empty());
 
-  pump_loop(loop, 100);
-  EXPECT_TRUE(as.gathering_done);
+  EXPECT_TRUE(pump_until(loop, [&] { return as.gathering_done; }, 6000));
 
   xIceAgentDestroy(agent);
   xEventLoopDestroy(loop);
@@ -572,8 +594,7 @@ TEST(IceAgentTest, GatherWithNullTurnCredentialsSkipsTurn) {
   EXPECT_FALSE(as.last_candidate.empty());
   EXPECT_NE(as.last_candidate.find("typ host"), std::string::npos);
 
-  pump_loop(loop, 100);
-  EXPECT_TRUE(as.gathering_done);
+  EXPECT_TRUE(pump_until(loop, [&] { return as.gathering_done; }, 6000));
 
   xIceAgentDestroy(agent);
   xEventLoopDestroy(loop);
@@ -603,8 +624,7 @@ TEST(IceAgentTest, ConfWithoutServersGathersHostOnly) {
   EXPECT_NE(as.last_candidate.find("typ host"), std::string::npos);
 
   /* No pending gather requests → gathering completes immediately */
-  pump_loop(loop, 100);
-  EXPECT_TRUE(as.gathering_done);
+  EXPECT_TRUE(pump_until(loop, [&] { return as.gathering_done; }, 6000));
 
   xIceAgentDestroy(agent);
   xEventLoopDestroy(loop);

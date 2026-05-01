@@ -16,9 +16,11 @@ extern "C" {
 
 #include <arpa/inet.h>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstring>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
@@ -79,8 +81,8 @@ public:
    * @param increment  Port increment per subsequent request (0 = fixed).
    */
   MockStunServer(uint16_t base_port, int increment = 0)
-      : base_port_(base_port), increment_(increment), fd_(-1), running_(false),
-        request_count_(0) {}
+      : base_port_(base_port), increment_(increment), fd_(-1),
+        wake_rfd_(-1), wake_wfd_(-1), running_(false), request_count_(0) {}
 
   ~MockStunServer() { Stop(); }
 
@@ -106,19 +108,47 @@ public:
     getsockname(fd_, (struct sockaddr *)&addr, &len);
     local_port_ = ntohs(addr.sin_port);
 
+    /* Self-pipe used to reliably wake up the worker thread in Stop().
+     * close(fd) alone is NOT guaranteed to unblock a recvfrom() on Linux,
+     * and shutdown() on an unconnected UDP socket returns ENOTCONN without
+     * waking any blocked syscall, so poll() over (fd_, wake_rfd_) is the
+     * only portable pattern. */
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+      close(fd_);
+      fd_ = -1;
+      return 0;
+    }
+    wake_rfd_ = pipefd[0];
+    wake_wfd_ = pipefd[1];
+
     running_ = true;
     thread_  = std::thread([this]() { Run(); });
     return local_port_;
   }
 
   void Stop() {
-    running_ = false;
+    if (!running_.exchange(false)) {
+      /* Never started (or already stopped) — still clean up fds. */
+    } else if (wake_wfd_ >= 0) {
+      /* Wake the worker out of poll(). Errors are intentionally ignored. */
+      const uint8_t byte = 0;
+      ssize_t       n    = write(wake_wfd_, &byte, 1);
+      (void)n;
+    }
+    if (thread_.joinable()) thread_.join();
     if (fd_ >= 0) {
-      shutdown(fd_, SHUT_RDWR);
       close(fd_);
       fd_ = -1;
     }
-    if (thread_.joinable()) thread_.join();
+    if (wake_rfd_ >= 0) {
+      close(wake_rfd_);
+      wake_rfd_ = -1;
+    }
+    if (wake_wfd_ >= 0) {
+      close(wake_wfd_);
+      wake_wfd_ = -1;
+    }
   }
 
   int RequestCount() const { return request_count_.load(); }
@@ -130,10 +160,29 @@ private:
     socklen_t               from_len;
 
     while (running_) {
+      struct pollfd pfds[2];
+      pfds[0].fd      = fd_;
+      pfds[0].events  = POLLIN;
+      pfds[0].revents = 0;
+      pfds[1].fd      = wake_rfd_;
+      pfds[1].events  = POLLIN;
+      pfds[1].revents = 0;
+
+      int pr = poll(pfds, 2, -1);
+      if (pr < 0) {
+        if (errno == EINTR) continue;
+        break;
+      }
+      if (pfds[1].revents & (POLLIN | POLLHUP | POLLERR)) break;
+      if (!(pfds[0].revents & POLLIN)) continue;
+
       from_len = sizeof(from);
       ssize_t n =
         recvfrom(fd_, buf, sizeof(buf), 0, (struct sockaddr *)&from, &from_len);
-      if (n <= 0) break;
+      if (n <= 0) {
+        if (n < 0 && (errno == EAGAIN || errno == EINTR)) continue;
+        break;
+      }
 
       if (!xStunMsgIsStun(buf, (size_t)n)) continue;
 
@@ -157,6 +206,8 @@ private:
   uint16_t             base_port_;
   int                  increment_;
   int                  fd_;
+  int                  wake_rfd_;
+  int                  wake_wfd_;
   uint16_t             local_port_ = 0;
   std::atomic<bool>    running_;
   std::atomic<int>     request_count_;
@@ -168,7 +219,8 @@ private:
  */
 class SilentStunServer {
 public:
-  SilentStunServer() : fd_(-1), running_(false) {}
+  SilentStunServer()
+      : fd_(-1), wake_rfd_(-1), wake_wfd_(-1), running_(false) {}
   ~SilentStunServer() { Stop(); }
 
   uint16_t Start() {
@@ -191,29 +243,73 @@ public:
     getsockname(fd_, (struct sockaddr *)&addr, &len);
     local_port_ = ntohs(addr.sin_port);
 
+    /* See MockStunServer::Start() for why we need a self-pipe. */
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+      close(fd_);
+      fd_ = -1;
+      return 0;
+    }
+    wake_rfd_ = pipefd[0];
+    wake_wfd_ = pipefd[1];
+
     running_ = true;
     thread_  = std::thread([this]() {
-      /* Just block on recvfrom to keep the socket alive. */
-      uint8_t buf[64];
+      /* Sleep until Stop() writes to the wake pipe. Any datagrams that do
+       * arrive on fd_ are silently dropped, which is the point of this
+       * server: never answer. */
+      uint8_t       buf[64];
+      struct pollfd pfds[2];
       while (running_) {
-        recvfrom(fd_, buf, sizeof(buf), 0, nullptr, nullptr);
+        pfds[0].fd      = fd_;
+        pfds[0].events  = POLLIN;
+        pfds[0].revents = 0;
+        pfds[1].fd      = wake_rfd_;
+        pfds[1].events  = POLLIN;
+        pfds[1].revents = 0;
+
+        int pr = poll(pfds, 2, -1);
+        if (pr < 0) {
+          if (errno == EINTR) continue;
+          break;
+        }
+        if (pfds[1].revents & (POLLIN | POLLHUP | POLLERR)) break;
+        if (pfds[0].revents & POLLIN) {
+          /* Drain the datagram so the socket buffer does not fill up. */
+          (void)recvfrom(fd_, buf, sizeof(buf), 0, nullptr, nullptr);
+        }
       }
     });
     return local_port_;
   }
 
   void Stop() {
-    running_ = false;
+    if (!running_.exchange(false)) {
+      /* Never started (or already stopped). */
+    } else if (wake_wfd_ >= 0) {
+      const uint8_t byte = 0;
+      ssize_t       n    = write(wake_wfd_, &byte, 1);
+      (void)n;
+    }
+    if (thread_.joinable()) thread_.join();
     if (fd_ >= 0) {
-      shutdown(fd_, SHUT_RDWR);
       close(fd_);
       fd_ = -1;
     }
-    if (thread_.joinable()) thread_.join();
+    if (wake_rfd_ >= 0) {
+      close(wake_rfd_);
+      wake_rfd_ = -1;
+    }
+    if (wake_wfd_ >= 0) {
+      close(wake_wfd_);
+      wake_wfd_ = -1;
+    }
   }
 
 private:
   int               fd_;
+  int               wake_rfd_;
+  int               wake_wfd_;
   uint16_t          local_port_ = 0;
   std::atomic<bool> running_;
   std::thread       thread_;

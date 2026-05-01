@@ -30,7 +30,8 @@
   typedef int T;     \
   enum
 
-#define XDEF_HANDLE(T) typedef void *T
+#define XDEF_HANDLE(T)          typedef void *T
+#define XDEF_HANDLE_EXPLICIT(T) typedef struct T *T
 
 #include <stddef.h>
 

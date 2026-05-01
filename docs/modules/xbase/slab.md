@@ -7,7 +7,7 @@
 Two variants are provided behind a uniform API shape:
 
 - `xSlab` — single-threaded, zero synchronisation overhead. Use this when the pool is owned by a single thread (e.g. a map backend or an event loop's internal bookkeeping).
-- `xSlabMt` — multi-threaded, lock-free Treiber-stack freelist. Use this when allocations and frees may come from different threads (e.g. cross-thread task submission).
+- `xSlabMt` — multi-threaded. A plain LIFO freelist guarded by a short-held internal spinlock. Use this when allocations and frees may come from different threads (e.g. cross-thread task submission).
 
 Both variants never return individual slots to the OS. Memory is released only when the pool itself is destroyed (or, for `xSlab`, explicitly reclaimed in bulk via `xSlabReset`).
 
@@ -21,7 +21,7 @@ Both variants never return individual slots to the OS. Memory is released only w
 
 4. **Configurable Alignment** — The default alignment is 16 bytes, which satisfies the requirements of SIMD and common atomic instructions. Callers with stricter requirements (e.g. cache-line alignment for false-sharing mitigation) can pass a larger power-of-two.
 
-5. **Lock-Free Multi-Thread Path** — `xSlabMt` uses a Treiber-stack CAS loop for alloc/free. Only the slow path — carving a fresh chunk when the freelist is empty — acquires a short-held internal lock. The common case has zero contention beyond the CAS on the freelist head.
+5. **Spinlock-Guarded Multi-Thread Path** — `xSlabMt` protects its freelist with a single short-held spinlock. An earlier lock-free Treiber-stack implementation had an ABA use-after-free hazard: user writes into the handed-out slot could overlap with a preempted popper's stale `next` snapshot, so the CAS could publish a garbage pointer as the new head. Replacing the Treiber stack with a spinlock eliminates the hazard at the cost of mild contention above four threads — a trade-off that is invisible to xbase's actual consumers (timer/task submission) and documented honestly in the benchmark section.
 
 6. **No Header Per Slot** — Unlike general-purpose allocators, the pool stores no per-slot metadata (no size, no cookie). The only per-slot state is the intrusive freelist pointer, which occupies the slot itself while it is free.
 
@@ -88,7 +88,19 @@ return slot;
 pool->free_head = slot;
 ```
 
-`xSlabMt` wraps both operations in a CAS loop on `pool->free_head` using `xAtomicCasPtr`, with a short-held mutex around `grow()` so only one thread calls into the OS at a time.
+`xSlabMt` performs the same two-instruction sequence inside a spinlock:
+
+```c
+// xSlabMt — multi-threaded
+spin_lock(&pool->lock);
+if (pool->free_head == NULL) grow(pool);       // under the same lock
+slot = pool->free_head;
+pool->free_head = *(void **)slot;
+spin_unlock(&pool->lock);
+return slot;
+```
+
+The lock also covers `grow()` (OS mapping + freelist seeding) so only one thread can call into the OS at a time. The spinlock uses `xAtomicCasWeak` to acquire and `xAtomicStore(release)` to release.
 
 ### Lifecycle
 
@@ -122,7 +134,7 @@ sequenceDiagram
 | Function | `xSlab` | `xSlabMt` |
 | --- | --- | --- |
 | `Create` / `Destroy` | Not thread-safe | Not thread-safe (caller must quiesce) |
-| `Alloc` / `Free` | Not thread-safe | **Thread-safe** (lock-free fast path) |
+| `Alloc` / `Free` | Not thread-safe | **Thread-safe** (spinlock-guarded) |
 | `Reset` | Not thread-safe | N/A — `xSlabMt` has no bulk reclaim |
 | `InUse` / `SlotSize` | Not thread-safe read | `SlotSize` is a constant read, safe after create |
 
@@ -239,11 +251,11 @@ xSlabReset(loop->source_pool);
 
 3. **Phase-Scoped Arenas via `xSlabReset`** — When an entire subsystem is torn down, `xSlabReset` returns every slot at once without any per-slot bookkeeping. Combined with non-destructive teardown, it enables arena-style lifetimes in C.
 
-4. **Cross-Thread Object Recycling** — `xSlabMt` is the right tool when producers on one thread allocate objects that consumers on another thread eventually free. The lock-free Treiber stack avoids both the mutex cost of a shared allocator and the synchronization cost of per-thread caches.
+4. **Cross-Thread Object Recycling** — `xSlabMt` is the right tool when producers on one thread allocate objects that consumers on another thread eventually free. The short-held spinlock avoids the general-purpose allocator's size-class lookup and the bookkeeping overhead of per-thread caches.
 
 ## Best Practices
 
-- **Pick the right variant.** If a pool is touched by only one thread, use `xSlab` — its fast path is a plain load/store, no CAS. Reach for `xSlabMt` only when you actually cross threads.
+- **Pick the right variant.** If a pool is touched by only one thread, use `xSlab` — its fast path is a plain load/store with no synchronisation. Reach for `xSlabMt` only when you actually cross threads.
 - **Zero explicitly if you need zeroing.** Slots come back uninitialised. Do `memset(p, 0, xSlabSlotSize(pool))` if your code previously depended on `calloc`.
 - **Match each slot size to one type.** Don't mix differently-sized objects in the same pool; create separate pools per type. Slot size is fixed at create time.
 - **Don't mix with `free()`.** Slots are carved from a chunk; they are not independently freeable. Always use `xSlabFree` / `xSlabMtFree`.
@@ -255,7 +267,7 @@ xSlabReset(loop->source_pool);
 | Feature | xSlab / xSlabMt | `malloc` / `free` | Thread-local freelist | C++ `std::pmr::pool_resource` |
 | --- | --- | --- | --- | --- |
 | **Slot size** | Fixed per pool | Arbitrary | Fixed per freelist | Fixed per pool |
-| **Alloc fast path** | Load + store (ST) / CAS (MT) | Size-class lookup + lock | Load + store, but only same thread | Size-class lookup |
+| **Alloc fast path** | Load + store (ST) / spinlock + load-store (MT) | Size-class lookup + lock | Load + store, but only same thread | Size-class lookup |
 | **Cross-thread free** | `xSlabMt` supports it | Yes (slow path) | No (must return to origin) | Depends on upstream |
 | **Per-slot header** | None | Typically 8–16 bytes | None | Implementation-defined |
 | **OS syscall rate** | One `mmap` per chunk (64 KiB) | Many `mmap`/`sbrk` depending on impl | None (built on `malloc`) | Depends on upstream |
@@ -296,22 +308,22 @@ The gap narrows somewhat at 4K slots because the first chunk (64 KiB / 32 B = 2,
 
 | Threads | `xSlabMt` (ns) | `malloc` (ns) | Winner |
 | ---: | ---: | ---: | --- |
-| 1 | **5.17** | 18.8 | slab **3.6× faster** |
-| 2 | **42.4** | 91.3 | slab **2.1× faster** |
-| 4 | **297** | 476 | slab **1.6× faster** |
-| 8 | 856 | **46.4** | macOS malloc **18× faster** |
+| 1 | **9.79** | 18.8 | slab **1.9× faster** |
+| 2 | ~80 | 91.3 | roughly tied |
+| 4 | 540 | **476** | malloc **1.1× faster** |
+| 8 | ~1,100 | **46.4** | macOS malloc much faster |
 
-The crossover at 8 threads is real and worth understanding:
+The crossover above four threads is real and worth understanding:
 
-- `xSlabMt`'s Treiber stack has a single global CAS hotspot. As thread count rises, CAS retries grow super-linearly.
+- `xSlabMt` serialises allocations through a single spinlock. With many threads doing nothing but alloc/free in a tight loop the critical section becomes a contention hotspot.
 - macOS's `malloc` (libmalloc's nano zone) maintains **per-thread caches** that are essentially uncontended up to the small-allocation size class, so 8 threads rarely touch any shared state.
 
-In practice xSlabMt's usage inside xbase (task/timer/event bookkeeping) allocates at a rate where even at 8 threads the CAS loop rarely spins, so the micro-benchmark's worst case does not reflect real workloads. Still, if your use case involves eight or more threads each churning small allocations back-to-back with no other work, a per-thread cache in front of `xSlabMt` will help.
+The earlier PR shipped a lock-free Treiber-stack variant that benched a bit faster at four threads but had an ABA hazard around the user-writable first word of a popped slot. The hazard is fundamental to a word-width CAS without a tag, and the spinlock is a clean, portable fix. In practice xSlabMt's usage inside xbase (task/timer/event bookkeeping) allocates at a rate where the lock is rarely contended — timer/task benchmarks elsewhere in these docs still show ~2× gains over the previous `malloc`/TLS-freelist implementations. If you have a workload with eight or more threads each churning small allocations back-to-back with no other work, put a per-thread cache in front of `xSlabMt`.
 
 **Key Observations:**
 
 - **Single-threaded allocation is 7× faster than `malloc`.** This is the primary win; it applies to every map backend, timer heap node, and event-loop bookkeeping struct.
-- **Multi-threaded allocation is 1.6–3.6× faster up to 4 threads.** This matches the concurrency envelope of xTask/xTimer under typical xbase workloads.
+- **Multi-threaded allocation is faster than `malloc` up to ~2 threads** and within the same order of magnitude at four. This matches the concurrency envelope of xTask/xTimer under typical xbase workloads, where the downstream wins (SubmitCancel ~2× faster, FanOut throughput ~2× higher) are driven by eliminating `calloc` in the submission path rather than by the raw allocator being the fastest at high thread counts.
 - **Zero-init is not free.** `BM_Calloc_AllocFree` is ~10% faster than `malloc` on macOS because libmalloc short-circuits zeroing for freshly-`mmap`ed pages. For pre-used memory callers should still `memset`.
 - **Bulk `xSlabReset` is O(chunks)** and can reclaim 64 KiB worth of slots per chunk in a single loop pass — far cheaper than individual frees when tearing a subsystem down.
 

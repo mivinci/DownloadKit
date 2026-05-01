@@ -64,7 +64,7 @@ graph TD
 
     MPSC -->|"CAS operations"| ATOMIC
     MEMORY -->|"atomic refcount"| ATOMIC
-    SLAB -->|"lock-free freelist"| ATOMIC
+    SLAB -->|"intrusive freelist"| ATOMIC
     TIMER -->|"entry allocation"| SLAB
     TASK -->|"task allocation"| SLAB
     MAP -->|"node allocation"| SLAB
@@ -102,7 +102,7 @@ graph TD
 | [`task.h`](task.md) | [task.md](task.md) | N:M task model — lightweight tasks multiplexed onto a configurable thread pool |
 | [`socket.h`](socket.md) | [socket.md](socket.md) | Async socket abstraction with idle-timeout support over xEventLoop |
 | [`memory.h`](memory.md) | [memory.md](memory.md) | Reference-counted allocation with vtable-driven lifecycle (ctor/dtor/retain/release) |
-| [`slab.h`](slab.md) | [slab.md](slab.md) | Fixed-size object pool — single-threaded `xSlab` and lock-free `xSlabMt` variants for high-frequency small allocations |
+| [`slab.h`](slab.md) | [slab.md](slab.md) | Fixed-size object pool — single-threaded `xSlab` and thread-safe `xSlabMt` variants for high-frequency small allocations |
 | [`log.h`](log.md) | [log.md](log.md) | Per-thread callback-based logging with optional backtrace on fatal |
 | [`backtrace.h`](backtrace.md) | [backtrace.md](backtrace.md) | Platform-adaptive stack trace capture (libunwind > execinfo > stub) |
 | [`error.h`](error.md) | [error.md](error.md) | Unified error codes (`xErrno`) and human-readable messages |
@@ -128,7 +128,7 @@ graph TD
 | Post a callback to the event loop from another thread | [`event.h`](event.md) — `xEventLoopPost()` for zero-overhead cross-thread dispatch |
 | Manage non-blocking TCP/UDP connections | [`socket.h`](socket.md) — wraps socket + event loop + idle timeout |
 | Allocate objects with automatic cleanup | [`memory.h`](memory.md) — `XMALLOC(T)` + `xRetain`/`xRelease` |
-| Pool many small fixed-size objects with minimal overhead | [`slab.h`](slab.md) — `xSlab` (ST) / `xSlabMt` (MT) object pool with lock-free freelist |
+| Pool many small fixed-size objects with minimal overhead | [`slab.h`](slab.md) — `xSlab` (ST) / `xSlabMt` (MT) object pool with intrusive freelist |
 | Report errors from library internals | [`log.h`](log.md) — thread-local callback, or stderr fallback |
 | Capture a stack trace for debugging | [`backtrace.h`](backtrace.md) — `xBacktrace()` fills a buffer |
 | Handle error codes uniformly | [`error.h`](error.md) — `xErrno` enum + `xstrerror()` |

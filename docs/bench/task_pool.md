@@ -6,6 +6,8 @@ Micro-benchmark comparison of `xTaskSubmit` / `xTaskWait` throughput **before** 
 2. **TLS Freelist** — Per-thread task struct freelist eliminates `malloc`/`free` in the common submit-then-wait-on-same-thread path.
 3. **xMpsc Done-Queue** — Replace mutex-protected done list with a lock-free MPSC queue so workers push completed tasks without contending on `qlock`.
 
+> **Historical note.** The "TLS Freelist" referenced below was the first iteration of the allocation optimisation. It has since been replaced by the shared multi-threaded slab allocator (`xSlabMt`, see [slab.md](../modules/xbase/slab.md)), which removes the per-thread warm-up cost and handles cross-thread frees without falling back to `malloc`. Updated numbers under the current implementation are in the [Post-Slab Update](#post-slab-update-2026-05) section at the end of this document.
+
 ## Test Environment
 
 | Item | Value |
@@ -194,3 +196,78 @@ Comparison against libuv 1.52.1's `uv_queue_work` API. libuv uses a global threa
 2. **Caller-allocated tasks**: Allow an `xTaskSubmitInline(group, work_t*, fn)` path where the caller provides the task struct (e.g. embedded in a larger request object), eliminating malloc entirely — matching libuv's `uv_work_t` model.
 
 3. **Coalesced wake**: When multiple tasks complete in rapid succession, coalesce the xNote signals into a single kernel wake (batch futex_wake / ulock_wake). Currently each worker signals independently.
+
+---
+
+## Post-Slab Update (2026-05)
+
+The original measurements above were taken when task struct allocation went through a per-thread TLS freelist layered on top of `malloc`. That freelist has since been replaced by the new shared `xSlabMt` allocator (see [slab.md](../modules/xbase/slab.md)), which removes the "first use pays `malloc`" cost on every thread and makes cross-thread free paths allocator-aware.
+
+### Test Environment (Post-Slab)
+
+| Item | Value |
+| --- | --- |
+| CPU | Apple Mac15,7 (12 cores) |
+| Memory | 36 GB |
+| OS | macOS 26.x (Darwin) |
+| Compiler | Apple Clang (Xcode) |
+| Build | Release (`-O2`) |
+| Framework | Google Benchmark (3 repetitions, median, aggregates only) |
+| Workers | 4 threads (unless noted) |
+
+### SubmitWait — Single-task round-trip (Post-Slab)
+
+| | Wall time | CPU time | Throughput |
+| --- | ---: | ---: | ---: |
+| `BM_Task_SubmitWait` | 3,773 ns | 2,026 ns | 493.5 K ops/s |
+
+Down from ~5,700 ns wall / 3,400 ns CPU — the xSlabMt alloc is materially cheaper than the prior freelist-on-malloc path, even for the single-task case where allocation is already warm. Throughput rises to ~494 K ops/s.
+
+### FanOut — Batch submit + GroupWait (Post-Slab)
+
+| Fan-out | Wall (ns) | CPU (ns) | Throughput |
+| ---: | ---: | ---: | ---: |
+| 10 | 13,567 | 8,996 | 1.11 M ops/s |
+| 100 | 39,208 | 20,925 | 4.78 M ops/s |
+| 1,000 | 238,138 | 125,282 | 7.98 M ops/s |
+| 10,000 | 2,331,742 | 1,383,197 | 7.23 M ops/s |
+
+The large-batch throughput more than doubles versus the earlier measurement (3.76 M → 7.23 M ops/s at 10,000). xSlabMt lets both the submitting thread and the completing worker recycle task structs without ever touching `malloc`/`free`, removing the last per-task allocation from the batch path.
+
+### SubmitWaitBatch — Submit N + wait each (Post-Slab)
+
+| Batch | Wall (ns) | CPU (ns) | Throughput |
+| ---: | ---: | ---: | ---: |
+| 10 | 12,216 | 9,216 | 1.09 M ops/s |
+| 100 | 36,984 | 27,556 | 3.63 M ops/s |
+| 1,000 | 250,484 | 194,483 | 5.14 M ops/s |
+
+Comparable to the post-optimisation figures above; the submit-then-wait-on-same-thread path was already near-optimal with the TLS freelist, so the gain from xSlabMt is modest but positive.
+
+### ConcurrentSubmit — Multi-producer contention (Post-Slab)
+
+| Producers | Wall (ns) | CPU (ns) | Throughput |
+| ---: | ---: | ---: | ---: |
+| 1 | 293,205 | 29,388 | 34.0 M ops/s |
+| 2 | 571,184 | 44,812 | 44.6 M ops/s |
+| 4 | 1,061,687 | 75,828 | 52.8 M ops/s |
+| 8 | 2,325,239 | 238,690 | 33.5 M ops/s |
+
+The 8-producer regression that existed with the TLS freelist is still visible — the bottleneck is no longer allocation but the shared task submission queue and the xSlabMt CAS under eight contending threads (see the slab doc's multi-threaded benchmark for the raw contention curve). Work-stealing and caller-inline task structs remain the right follow-ups here.
+
+### WorkerScaling — Throughput vs worker count (Post-Slab)
+
+| Workers | Wall (ns) | CPU (ns) | Throughput |
+| ---: | ---: | ---: | ---: |
+| 1 | 1,283,926 | 150,640 | 66.4 M ops/s |
+| 2 | 1,863,470 | 454,054 | 22.0 M ops/s |
+| 4 | 2,339,310 | 1,388,014 | 7.20 M ops/s |
+| 8 | 5,037,388 | 4,252,296 | 2.35 M ops/s |
+
+Single-worker throughput improves meaningfully (25 M → 66 M ops/s) — with only one worker there is no xMpsc contention and the allocation fast-path cost is what dominates, so the slab win shows through directly. At 4+ workers the done-queue CAS remains the bottleneck and the curve shape is unchanged from the prior run.
+
+### Key Takeaways (Post-Slab)
+
+1. **Shared slab > per-thread freelist for cross-thread recycle.** The old TLS freelist was great when the same thread submitted and waited, but any task freed by a worker on a different thread had to bounce back to `free()`. xSlabMt removes that case entirely.
+2. **Single-task and single-worker paths are where the slab win shows clearest.** In those scenarios there is no queue contention left, so allocator cost is front-and-centre.
+3. **Under heavy contention, allocation is no longer the bottleneck.** 8-producer / 8-worker workloads are limited by the shared queues, not by task struct acquisition. The next round of work should target those queues, not the allocator.

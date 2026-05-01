@@ -603,10 +603,13 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
   if (pid == 0) {
     /* ── Child process ── */
 
-    /* Create own process group for killpg() support.
-     * Note: forkpty already sets up the slave as controlling terminal,
-     * but we still want our own process group for clean killpg(). */
-    setpgid(0, 0);
+    /* forkpty() already calls setsid() and makes the child a session
+     * leader with its own process group (pgid == pid) whose controlling
+     * terminal is the slave PTY.  Calling setpgid(0, 0) again here is
+     * redundant and, on Linux, can detach the child from its controlling
+     * terminal, causing writes to stdout/stderr to fail with EIO and
+     * the process to exit with status 1 before exec completes.
+     * See: https://man7.org/linux/man-pages/man3/forkpty.3.html */
 
     /* Change working directory */
     if (conf->cwd) {
@@ -629,9 +632,9 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
   exec->pty_master_fd = master_fd;
   exec->result.pty_fd = master_fd;
 
-  /* Synchronize process group creation to avoid race with child's setpgid(0,0).
-   */
-  setpgid(pid, pid);
+  /* No setpgid() sync needed: forkpty() already placed the child in its
+   * own process group (pgid == pid == session id). killpg(pid, ...) will
+   * therefore target the whole child session as intended. */
 
   /* Set master fd to non-blocking for event loop integration */
   if (fd_set_nonblock(master_fd) != 0) {

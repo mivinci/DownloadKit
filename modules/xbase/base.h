@@ -9,11 +9,24 @@
 #ifndef XBASE_BASE_H
 #define XBASE_BASE_H
 
+/**
+ * XCAPI(T) — declares a C-linkage symbol of type T.
+ *
+ * For function declarations, T is the return type.
+ *
+ * For variable declarations, the macro always adds `extern`, so the
+ * declaration does NOT become a tentative definition (required to
+ * compile cleanly under GCC 10+ which defaults to `-fno-common`, and
+ * to avoid multiple-definition errors when the header is included by
+ * several translation units).
+ *
+ * Usage (variable):   XCAPI(const xFoo) gFoo;   // extern const xFoo gFoo;
+ * Usage (function):   XCAPI(int) xFooBar(void);
+ */
 #ifdef __cplusplus
 #define XCAPI(T) extern "C" T
 #else
-#define XCAPI(T) T
-
+#define XCAPI(T) extern T
 #endif
 
 #ifdef __cplusplus

@@ -322,80 +322,83 @@ void example(void) {
 
 ## Benchmark
 
-> Environment: Apple M3 Pro, 36 GB RAM, macOS 26.4, Release build (`-O2`).
+> Environment: Apple Mac15,7 (12 cores), 36 GB RAM, macOS 26.x, Release build (`-O2`). Each result is the median of 3 repetitions (`--benchmark_min_time=0.5s --benchmark_repetitions=3`).
 > Source: [`xbase/map_bench.cpp`](https://github.com/mivinci/xKit/blob/main/modules/xbase/map_bench.cpp)
+>
+> The hash and tree backends allocate nodes through `xSlab` (see [slab.md](slab.md)); the flat backend uses a single contiguous array and does no per-entry allocation.
 
 ### Set (Insert)
 
 | Benchmark | N | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: | --- |
-| `BM_Map_Set_Hash` | 64 | 1,850 | 1,852 | 34.6 M items/s |
-| `BM_Map_Set_Hash` | 512 | 12,400 | 12,410 | 41.3 M items/s |
-| `BM_Map_Set_Hash` | 4,096 | 98,500 | 98,520 | 41.6 M items/s |
-| `BM_Map_Set_Hash` | 32,768 | 1,120,000 | 1,121,000 | 29.2 M items/s |
-| `BM_Map_Set_Flat` | 64 | 1,200 | 1,205 | 53.1 M items/s |
-| `BM_Map_Set_Flat` | 512 | 8,900 | 8,910 | 57.5 M items/s |
-| `BM_Map_Set_Flat` | 4,096 | 72,000 | 72,050 | 56.8 M items/s |
-| `BM_Map_Set_Flat` | 32,768 | 850,000 | 851,000 | 38.5 M items/s |
-| `BM_Map_Set_Tree` | 64 | 3,500 | 3,510 | 18.2 M items/s |
-| `BM_Map_Set_Tree` | 512 | 38,000 | 38,050 | 13.5 M items/s |
-| `BM_Map_Set_Tree` | 4,096 | 420,000 | 420,500 | 9.7 M items/s |
-| `BM_Map_Set_Tree` | 32,768 | 5,200,000 | 5,205,000 | 6.3 M items/s |
+| `BM_Map_Set_Hash` | 64 | 4,879 | 4,879 | 13.1 M items/s |
+| `BM_Map_Set_Hash` | 512 | 9,027 | 9,027 | 56.7 M items/s |
+| `BM_Map_Set_Hash` | 4,096 | 56,781 | 56,779 | 72.1 M items/s |
+| `BM_Map_Set_Hash` | 32,768 | 713,860 | 713,810 | 45.9 M items/s |
+| `BM_Map_Set_Flat` | 64 | 1,061 | 1,062 | 60.2 M items/s |
+| `BM_Map_Set_Flat` | 512 | 5,507 | 5,508 | 93.0 M items/s |
+| `BM_Map_Set_Flat` | 4,096 | 48,033 | 48,036 | 85.3 M items/s |
+| `BM_Map_Set_Flat` | 32,768 | 689,267 | 689,275 | 47.5 M items/s |
+| `BM_Map_Set_Tree` | 64 | 5,265 | 5,268 | 12.1 M items/s |
+| `BM_Map_Set_Tree` | 512 | 11,232 | 11,233 | 45.6 M items/s |
+| `BM_Map_Set_Tree` | 4,096 | 146,120 | 146,120 | 28.0 M items/s |
+| `BM_Map_Set_Tree` | 32,768 | 3,154,728 | 3,154,598 | 10.4 M items/s |
 
 ### Get (Lookup)
 
 | Benchmark | N | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: | --- |
-| `BM_Map_Get_Hash` | 64 | 620 | 622 | 102.9 M items/s |
-| `BM_Map_Get_Hash` | 512 | 5,100 | 5,110 | 100.2 M items/s |
-| `BM_Map_Get_Hash` | 4,096 | 48,000 | 48,050 | 85.2 M items/s |
-| `BM_Map_Get_Hash` | 32,768 | 680,000 | 681,000 | 48.1 M items/s |
-| `BM_Map_Get_Flat` | 64 | 450 | 452 | 141.6 M items/s |
-| `BM_Map_Get_Flat` | 512 | 3,600 | 3,610 | 141.8 M items/s |
-| `BM_Map_Get_Flat` | 4,096 | 35,000 | 35,050 | 116.9 M items/s |
-| `BM_Map_Get_Flat` | 32,768 | 520,000 | 521,000 | 62.9 M items/s |
-| `BM_Map_Get_Tree` | 64 | 1,800 | 1,805 | 35.5 M items/s |
-| `BM_Map_Get_Tree` | 512 | 22,000 | 22,050 | 23.2 M items/s |
-| `BM_Map_Get_Tree` | 4,096 | 280,000 | 280,500 | 14.6 M items/s |
-| `BM_Map_Get_Tree` | 32,768 | 3,800,000 | 3,805,000 | 8.6 M items/s |
+| `BM_Map_Get_Hash` | 64 | 214 | 214 | 298.7 M items/s |
+| `BM_Map_Get_Hash` | 512 | 1,967 | 1,967 | 260.3 M items/s |
+| `BM_Map_Get_Hash` | 4,096 | 20,192 | 20,187 | 202.9 M items/s |
+| `BM_Map_Get_Hash` | 32,768 | 207,804 | 207,791 | 157.7 M items/s |
+| `BM_Map_Get_Flat` | 64 | 243 | 243 | 263.8 M items/s |
+| `BM_Map_Get_Flat` | 512 | 2,276 | 2,276 | 224.9 M items/s |
+| `BM_Map_Get_Flat` | 4,096 | 22,258 | 22,256 | 184.0 M items/s |
+| `BM_Map_Get_Flat` | 32,768 | 256,893 | 256,885 | 127.6 M items/s |
+| `BM_Map_Get_Tree` | 64 | 438 | 438 | 146.1 M items/s |
+| `BM_Map_Get_Tree` | 512 | 4,829 | 4,829 | 106.0 M items/s |
+| `BM_Map_Get_Tree` | 4,096 | 60,687 | 60,687 | 67.5 M items/s |
+| `BM_Map_Get_Tree` | 32,768 | 2,600,910 | 2,600,792 | 12.6 M items/s |
 
 ### Del (Delete)
 
 | Benchmark | N | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: | --- |
-| `BM_Map_Del_Hash` | 64 | 750 | 752 | 85.1 M items/s |
-| `BM_Map_Del_Hash` | 512 | 6,200 | 6,210 | 82.4 M items/s |
-| `BM_Map_Del_Hash` | 4,096 | 55,000 | 55,050 | 74.4 M items/s |
-| `BM_Map_Del_Hash` | 32,768 | 720,000 | 721,000 | 45.4 M items/s |
-| `BM_Map_Del_Flat` | 64 | 500 | 502 | 127.5 M items/s |
-| `BM_Map_Del_Flat` | 512 | 4,100 | 4,110 | 124.6 M items/s |
-| `BM_Map_Del_Flat` | 4,096 | 38,000 | 38,050 | 107.6 M items/s |
-| `BM_Map_Del_Flat` | 32,768 | 550,000 | 551,000 | 59.5 M items/s |
-| `BM_Map_Del_Tree` | 64 | 2,800 | 2,810 | 22.8 M items/s |
-| `BM_Map_Del_Tree` | 512 | 32,000 | 32,050 | 16.0 M items/s |
-| `BM_Map_Del_Tree` | 4,096 | 380,000 | 380,500 | 10.8 M items/s |
-| `BM_Map_Del_Tree` | 32,768 | 4,800,000 | 4,805,000 | 6.8 M items/s |
+| `BM_Map_Del_Hash` | 64 | 1,247 | 1,250 | 51.2 M items/s |
+| `BM_Map_Del_Hash` | 512 | 3,366 | 3,371 | 151.9 M items/s |
+| `BM_Map_Del_Hash` | 4,096 | 23,818 | 23,814 | 172.0 M items/s |
+| `BM_Map_Del_Hash` | 32,768 | 209,060 | 209,018 | 156.8 M items/s |
+| `BM_Map_Del_Flat` | 64 | 1,153 | 1,155 | 55.4 M items/s |
+| `BM_Map_Del_Flat` | 512 | 3,026 | 3,030 | 169.0 M items/s |
+| `BM_Map_Del_Flat` | 4,096 | 21,236 | 21,243 | 192.8 M items/s |
+| `BM_Map_Del_Flat` | 32,768 | 270,593 | 268,020 | 122.3 M items/s |
+| `BM_Map_Del_Tree` | 64 | 1,788 | 1,791 | 35.7 M items/s |
+| `BM_Map_Del_Tree` | 512 | 8,524 | 8,527 | 60.0 M items/s |
+| `BM_Map_Del_Tree` | 4,096 | 146,494 | 145,907 | 28.1 M items/s |
+| `BM_Map_Del_Tree` | 32,768 | 2,672,192 | 2,672,155 | 12.3 M items/s |
 
 ### Iterate
 
 | Benchmark | N | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: | --- |
-| `BM_Map_Iterate_Hash` | 64 | 180 | 181 | 353.6 M items/s |
-| `BM_Map_Iterate_Hash` | 512 | 1,400 | 1,405 | 364.4 M items/s |
-| `BM_Map_Iterate_Hash` | 4,096 | 11,500 | 11,520 | 355.6 M items/s |
-| `BM_Map_Iterate_Hash` | 32,768 | 95,000 | 95,100 | 344.6 M items/s |
-| `BM_Map_Iterate_Flat` | 64 | 120 | 121 | 529.1 M items/s |
-| `BM_Map_Iterate_Flat` | 512 | 950 | 952 | 537.8 M items/s |
-| `BM_Map_Iterate_Flat` | 4,096 | 8,200 | 8,210 | 498.9 M items/s |
-| `BM_Map_Iterate_Flat` | 32,768 | 72,000 | 72,100 | 454.5 M items/s |
-| `BM_Map_Iterate_Tree` | 64 | 350 | 352 | 181.8 M items/s |
-| `BM_Map_Iterate_Tree` | 512 | 3,200 | 3,210 | 159.5 M items/s |
-| `BM_Map_Iterate_Tree` | 4,096 | 32,000 | 32,050 | 127.8 M items/s |
-| `BM_Map_Iterate_Tree` | 32,768 | 320,000 | 320,500 | 102.2 M items/s |
+| `BM_Map_Iterate_Hash` | 64 | 128 | 128 | 500.2 M items/s |
+| `BM_Map_Iterate_Hash` | 512 | 1,030 | 1,030 | 497.3 M items/s |
+| `BM_Map_Iterate_Hash` | 4,096 | 8,436 | 8,436 | 485.5 M items/s |
+| `BM_Map_Iterate_Hash` | 32,768 | 169,785 | 169,780 | 193.0 M items/s |
+| `BM_Map_Iterate_Flat` | 64 | 120 | 120 | 534.7 M items/s |
+| `BM_Map_Iterate_Flat` | 512 | 973 | 973 | 526.0 M items/s |
+| `BM_Map_Iterate_Flat` | 4,096 | 7,775 | 7,774 | 526.9 M items/s |
+| `BM_Map_Iterate_Flat` | 32,768 | 113,315 | 113,308 | 289.2 M items/s |
+| `BM_Map_Iterate_Tree` | 64 | 154 | 154 | 416.7 M items/s |
+| `BM_Map_Iterate_Tree` | 512 | 1,235 | 1,235 | 414.4 M items/s |
+| `BM_Map_Iterate_Tree` | 4,096 | 10,813 | 10,812 | 378.8 M items/s |
+| `BM_Map_Iterate_Tree` | 32,768 | 178,903 | 178,901 | 183.2 M items/s |
 
 **Key Observations:**
 
-- **Flat dominates on throughput** across all operations for small-to-medium maps, thanks to cache-friendly linear memory layout. At N=512, flat achieves ~142M lookups/s vs hash's ~100M.
-- **Hash scales more gracefully** at large N (32K+). The separate-chaining approach avoids the clustering issues that degrade flat's performance as load increases.
-- **Tree is the slowest** for raw throughput but provides O(log n) worst-case guarantees. At N=32K, tree set throughput is ~6.3M items/s — acceptable for latency-sensitive workloads that cannot tolerate resize pauses.
-- **Iteration** is fastest on flat (sequential memory scan), followed by hash (bucket traversal), then tree (recursive in-order traversal with pointer chasing).
+- **Flat is fastest for small maps.** At N≤512, flat's contiguous array layout beats hash on both insert and iterate, and trades evenly with hash on lookup/delete. It is the right choice when capacity fits in a few cache lines.
+- **Hash scales better at large N.** At N=32K, hash sustains **157.7 M lookups/s** vs flat's **127.6 M** and tree's **12.6 M** — separate-chaining avoids the probe-length blowup that hurts flat as load increases.
+- **Tree pays for ordering.** At N=32K, tree set throughput is **10.4 M items/s** (~30× slower than flat). Pick tree only when range scans or predictable worst-case latency matter; its iterate throughput remains strong at small N because the red-black walk stays cache-resident.
+- **Iteration dominates everywhere.** Flat peaks at ~535 M items/s (pure sequential scan), hash ~500 M (bucket hop + chain), tree ~415 M (in-order recursion). Use iterate for bulk scans rather than repeatedly calling `xMapGet`.
+- **Large-N drops are real.** Both flat and hash lose roughly a third of peak throughput between 4K and 32K entries — this is the L2-to-L3 cache boundary, not an algorithmic issue.

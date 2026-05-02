@@ -1,0 +1,44 @@
+xline
+=====
+
+xKit's line-editing module. Forked from isocline v1.1.0 by Daan Leijen
+(https://github.com/daanx/isocline), licensed under the MIT License
+(see LICENSE.isocline).
+
+Why a fork
+----------
+Upstream isocline is tiny, portable (POSIX + native Win32 Console),
+pure-C, and BSD-licensed. It is the ideal starting point for xKit's
+REPL layer. We vendor it rather than consuming it via FetchContent
+so that we can:
+
+  1. Integrate directly with xKit's event loop (xLoop) — upstream
+     only exposes a blocking `ic_readline()`; we need
+     begin/step/end driven by our poller.
+  2. Drop the `mem_t` / `alloc_t` indirection and use the standard
+     allocator directly (or, later, an xKit-specific allocator).
+  3. Rename the public API (`ic_*`, `IC_*`) to xKit's conventions
+     (`xLine*`, `XLINE_*`).
+
+Upstream synchronisation
+------------------------
+We do NOT track upstream. Each change here is a deliberate
+modification; cherry-picking upstream fixes is a manual operation.
+The original v1.1.0 snapshot landed in the first commit of branch
+`codebuddy/xline` so the diff from upstream is always reviewable.
+
+Layout
+------
+  isocline.c              — umbrella TU (compiled); #includes every
+                            other .c in this dir via its
+                            `#if !defined(IC_SEPARATE_OBJS)` block.
+  isocline.h              — public header (will be renamed to
+                            `line.h` in a later commit).
+  {attr,bbcode,...}.[ch]  — internal implementation; pulled in by
+                            isocline.c, marked HEADER_FILE_ONLY in
+                            CMake.
+
+Attribution
+-----------
+All original isocline code retains its MIT copyright notice. The
+upstream LICENSE file is preserved verbatim as `LICENSE.isocline`.

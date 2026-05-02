@@ -5,24 +5,14 @@
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
 
-// This file is included from "bbcode.c" and contains html color names
+// HTML color-name lookup table used by bbcode.c.
 
 #include "platform.h"
-#include "mem.h"
-#include "str.h"
-#include "debug.h"
-#include "unicode.h"
 #include "color.h"
-
-typedef struct style_color_s {
-  const char* name;
-  ic_color_t color;
-} style_color_t;
-
-#define IC_HTML_COLOR_COUNT (172)
+#include "bbcode_colors.h"
 
 // ordered list of HTML color names (so we can use binary search)
-static style_color_t html_colors[IC_HTML_COLOR_COUNT+1] = {
+ic_private style_color_t html_colors[IC_HTML_COLOR_COUNT+1] = {
   { "aliceblue",      IC_RGB(0xf0f8ff) },
   { "ansi-aqua",      IC_ANSI_AQUA },
   { "ansi-black",     IC_ANSI_BLACK },

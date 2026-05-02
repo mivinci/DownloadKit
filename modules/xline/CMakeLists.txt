@@ -21,6 +21,7 @@ set(XLINE_TOPLEVEL_SOURCES
   async.c
   attr.c
   bbcode.c
+  bbcode_colors.c
   completers.c
   completions.c
   debug.c
@@ -41,7 +42,6 @@ set(XLINE_TOPLEVEL_SOURCES
 # Partial translation units that are #included into a parent .c.
 # Kept in the target for IDE visibility but not compiled directly.
 set(XLINE_PARTIAL_SOURCES
-  bbcode_colors.c
   editline_completion.c
   editline_help.c
   editline_history.c

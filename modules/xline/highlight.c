@@ -8,7 +8,7 @@
 #include "attr.h"
 #include "bbcode.h"
 #include "color.h"
-#include "debug.h"
+#include <xbase/log.h>
 #include "line.h"
 #include "mem.h"
 #include "platform.h"
@@ -128,7 +128,7 @@ ic_public void xLineHighlightFormatted(xLineHighlightEnv *henv, const char *s,
     bbcode_append(henv->bbcode, fmt, out, attrs);
     const ssize_t len = ic_strlen(s);
     if (sbuf_len(out) != len) {
-      debug_msg("highlight: formatted string content differs from the original "
+      XDEBUG("highlight: formatted string content differs from the original "
                 "input:\n  original: %s\n  formatted: %s\n",
                 s, fmt);
     }

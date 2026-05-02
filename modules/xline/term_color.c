@@ -250,7 +250,7 @@ static int rgb_to_ansi256(ic_color_t color) {
   int                c =
     rgb_match(ansi256, 16, 256, &ansi256_cache,
               color); // not the first 16 ANSI colors as those may be different
-  // debug_msg("term: rgb %x -> ansi 256: %d\n", color, c );
+  // XDEBUG("term: rgb %x -> ansi 256: %d\n", color, c );
   return c;
 }
 
@@ -261,7 +261,7 @@ static int color_to_ansi16(ic_color_t color) {
   } else {
     static rgb_cache_t ansi16_cache;
     int                c = rgb_match(ansi256, 0, 16, &ansi16_cache, color);
-    // debug_msg("term: rgb %x -> ansi 16: %d\n", color, c );
+    // XDEBUG("term: rgb %x -> ansi 16: %d\n", color, c );
     return (c < 8 ? 30 + c : 90 + c - 8);
   }
 }
@@ -279,7 +279,7 @@ static int color_to_ansi8(ic_color_t color) {
     int r, g, b;
     color_to_rgb(color, &r, &g, &b);
     if (r >= 196 || g >= 196 || b >= 196) c += 60;
-    // debug_msg("term: rgb %x -> ansi 8: %d\n", color, c );
+    // XDEBUG("term: rgb %x -> ansi 8: %d\n", color, c );
     return c;
   }
 }

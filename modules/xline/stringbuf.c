@@ -25,7 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "debug.h"
+#include <xbase/log.h>
 #include "line.h"
 #include "mem.h"
 #include "platform.h"
@@ -352,7 +352,7 @@ static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw,
     ssize_t w;
     ssize_t next = str_next_ofs(s, len, i, &w);
     if (next <= 0) {
-      debug_msg("str: foreach row: next<=0: len %zd, i %zd, w %zd, buf %s\n",
+      XDEBUG("str: foreach row: next<=0: len %zd, i %zd, w %zd, buf %s\n",
                 len, i, w, s);
       assert(false);
       break;
@@ -418,7 +418,7 @@ static bool str_get_current_pos_iter(const char *s, ssize_t row,
       // normal last position is right after the last character
       rc->last_on_row = (pos >= row_start + row_len);
     }
-    // debug_msg("edit; pos iter: pos: %zd (%c), row_start: %zd, rowlen: %zd\n",
+    // XDEBUG("edit; pos iter: pos: %zd (%c), row_start: %zd, rowlen: %zd\n",
     // pos, s[pos], row_start, row_len);
   }
   return false; // always continue to count all rows
@@ -430,7 +430,7 @@ static ssize_t str_get_rc_at_pos(const char *s, ssize_t len, ssize_t termw,
   memset(rc, 0, sizeof(*rc));
   ssize_t rows = str_for_each_row(s, len, termw, promptw, cpromptw,
                                   &str_get_current_pos_iter, &pos, rc);
-  // debug_msg("edit: current pos: (%d, %d) %s %s\n", rc->row, rc->col,
+  // XDEBUG("edit: current pos: (%d, %d) %s %s\n", rc->row, rc->col,
   // rc->first_on_row ? "first" : "", rc->last_on_row ? "last" : "");
   return rows;
 }
@@ -481,7 +481,7 @@ static bool str_get_current_wrapped_pos_iter(const char *s, ssize_t row,
         // hardwrap
         hwidth = 0;
         wrc->hrows++;
-        debug_msg("str: found hardwrap: row: %zd, hrows: %zd\n", row,
+        XDEBUG("str: found hardwrap: row: %zd, hrows: %zd\n", row,
                   wrc->hrows);
       }
     } else {
@@ -490,7 +490,7 @@ static bool str_get_current_wrapped_pos_iter(const char *s, ssize_t row,
 
     // did we find our position?
     if (is_cursor) {
-      debug_msg("str: found position: row: %zd, hrows: %zd\n", row, wrc->hrows);
+      XDEBUG("str: found position: row: %zd, hrows: %zd\n", row, wrc->hrows);
       wrc->rc.row_start    = row_start;
       wrc->rc.row_len      = row_len;
       wrc->rc.row          = wrc->hrows + row;
@@ -518,7 +518,7 @@ static ssize_t str_get_wrapped_rc_at_pos(const char *s, ssize_t len,
   ssize_t rows =
     str_for_each_row(s, len, termw, promptw, cpromptw,
                      &str_get_current_wrapped_pos_iter, &warg, &wrc);
-  debug_msg("edit: wrapped pos: (%zd,%zd) rows %zd %s %s, hrows: %zd\n",
+  XDEBUG("edit: wrapped pos: (%zd,%zd) rows %zd %s %s, hrows: %zd\n",
             wrc.rc.row, wrc.rc.col, rows, wrc.rc.first_on_row ? "first" : "",
             wrc.rc.last_on_row ? "last" : "", wrc.hrows);
   *rc = wrc.rc;
@@ -577,7 +577,7 @@ static bool sbuf_ensure_extra(stringbuf_t *s, ssize_t extra) {
                     : (s->buflen > 1000 ? s->buflen + 1000 : 2 * s->buflen));
   if (newlen < s->count + extra) newlen = s->count + extra;
   if (s->buflen > 0) {
-    debug_msg("stringbuf: reallocate: old %zd, new %zd\n", s->buflen, newlen);
+    XDEBUG("stringbuf: reallocate: old %zd, new %zd\n", s->buflen, newlen);
   }
   char *newbuf = mem_realloc_tp(s->mem, char, s->buf,
                                 newlen + 1); // one more for terminating zero

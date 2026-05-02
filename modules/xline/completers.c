@@ -9,7 +9,7 @@
 
 #include "color.h"
 #include "completions.h"
-#include "debug.h"
+#include <xbase/log.h>
 #include "env.h"
 #include "line.h"
 #include "mem.h"
@@ -585,7 +585,7 @@ static bool match_extension(const char *name, const char *extensions) {
   ssize_t name_len = ic_strlen(name);
   ssize_t len      = ic_strlen(extensions);
   ssize_t cur      = 0;
-  // debug_msg("match extensions: %s ~ %s", name, extensions);
+  // XDEBUG("match extensions: %s ~ %s", name, extensions);
   for (ssize_t end = 0; end <= len; end++) {
     if (extensions[end] == ';' || extensions[end] == 0) {
       if (ends_with_n(name, name_len, extensions + cur, (end - cur))) {

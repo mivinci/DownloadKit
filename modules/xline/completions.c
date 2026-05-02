@@ -10,7 +10,7 @@
 
 #include "color.h"
 #include "completions.h"
-#include "debug.h"
+#include <xbase/log.h>
 #include "env.h"
 #include "line.h"
 #include "mem.h"
@@ -115,7 +115,7 @@ ic_private bool completions_add(completions_t *cms, const char *replacement,
                                 ssize_t delete_before, ssize_t delete_after) {
   if (cms->completer_max <= 0) return false;
   cms->completer_max--;
-  // debug_msg("completion: add: %d,%d, %s\n", delete_before, delete_after,
+  // XDEBUG("completion: add: %d,%d, %s\n", delete_before, delete_after,
   // replacement);
   if (!completions_contains(cms, replacement)) {
     completions_push(cms, replacement, display, help, delete_before,
@@ -195,7 +195,7 @@ ic_public bool xLineStopCompleting(const xLineCompletionEnv *cenv) {
 static ssize_t completion_apply(completion_t *cm, stringbuf_t *sbuf,
                                 ssize_t pos) {
   if (cm == NULL) return -1;
-  debug_msg("completion: apply: %s at %zd\n", cm->replacement, pos);
+  XDEBUG("completion: apply: %s at %zd\n", cm->replacement, pos);
   ssize_t start = pos - cm->delete_before;
   if (start < 0) start = 0;
   ssize_t n = cm->delete_before + cm->delete_after;

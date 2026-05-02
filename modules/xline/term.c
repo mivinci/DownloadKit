@@ -11,7 +11,7 @@
 #include <string.h>
 
 #include "color.h"
-#include "debug.h"
+#include <xbase/log.h>
 #include "mem.h"
 #include "platform.h"
 #include "str.h"
@@ -402,7 +402,7 @@ ic_private term_t *term_new(alloc_t *mem, tty_t *tty, bool nocolor, bool silent,
         term->palette = MONOCHROME;
       }
     }
-    debug_msg("term: color-bits: %d (COLORTERM=%s, TERM=%s)\n",
+    XDEBUG("term: color-bits: %d (COLORTERM=%s, TERM=%s)\n",
               term_get_color_bits(term), colorterm, eterm);
   }
 
@@ -431,7 +431,7 @@ ic_private bool term_is_interactive(const term_t *term) {
 
   // check editing support
   const char *eterm = getenv("TERM");
-  debug_msg("term: TERM=%s\n", eterm);
+  XDEBUG("term: TERM=%s\n", eterm);
   if (eterm != NULL &&
       (strstr("dumb|DUMB|cons25|CONS25|emacs|EMACS", eterm) != NULL)) {
     return false;
@@ -554,7 +554,7 @@ static bool term_write_direct(term_t *term, const char *s, ssize_t n) {
     if (nwritten > 0) {
       count += nwritten;
     } else if (errno != EINTR && errno != EAGAIN) {
-      debug_msg("term: write failed: length %i, errno %i: \"%s\"\n", n, errno,
+      XDEBUG("term: write failed: length %i, errno %i: \"%s\"\n", n, errno,
                 s);
       return false;
     }
@@ -897,7 +897,7 @@ static bool term_esc_query_raw(term_t *term, const char *query, char *buf,
   if (buf == NULL || buflen <= 0 || query[0] == 0) return false;
   bool osc = (query[1] == ']');
   if (!term_write_direct(term, query, ic_strlen(query))) return false;
-  debug_msg("term: read tty query response to: ESC %s\n", query + 1);
+  XDEBUG("term: read tty query response to: ESC %s\n", query + 1);
   return tty_read_esc_response(term->tty, query[1], osc, buf, buflen);
 }
 
@@ -932,7 +932,7 @@ ic_private bool term_update_dim(term_t *term) {
     rows = ws.ws_row;
   } else {
     // determine width by querying the cursor position
-    debug_msg("term: ioctl term-size failed: %d,%d\n", ws.ws_row, ws.ws_col);
+    XDEBUG("term: ioctl term-size failed: %d,%d\n", ws.ws_row, ws.ws_col);
     ssize_t col0 = 0;
     ssize_t row0 = 0;
     if (term_get_cursor_pos(term, &row0, &col0)) {
@@ -952,7 +952,7 @@ ic_private bool term_update_dim(term_t *term) {
 
   // update width and return whether it changed.
   bool changed = (term->width != cols || term->height != rows);
-  debug_msg("terminal dim: %zd,%zd: %s\n", rows, cols,
+  XDEBUG("terminal dim: %zd,%zd: %s\n", rows, cols,
             changed ? "changed" : "unchanged");
   if (cols > 0) {
     term->width  = cols;
@@ -977,7 +977,7 @@ ic_private bool term_update_dim(term_t *term) {
   bool changed = (term->width != cols || term->height != rows);
   term->width  = cols;
   term->height = rows;
-  debug_msg("term: update dim: %zd, %zd\n", term->height, term->width);
+  XDEBUG("term: update dim: %zd, %zd\n", term->height, term->width);
   return changed;
 }
 
@@ -1009,7 +1009,7 @@ static bool term_esc_query_color_raw(term_t *term, int color_idx,
   char buf[128 + 1];
   snprintf(buf, 128, "\x1B]4;%d;?\x1B\\", color_idx);
   if (!term_esc_query_raw(term, buf, buf, 128)) {
-    debug_msg("esc query response not received\n");
+    XDEBUG("esc query response not received\n");
     return false;
   }
   if (buf[0] != '4') return false;
@@ -1025,13 +1025,13 @@ static bool term_esc_query_color_raw(term_t *term, int color_idx,
     b = (b + 0x7F) / 0x100;
   }
   *color = (ic_cap8(r) << 16) | (ic_cap8(g) << 8) | ic_cap8(b);
-  debug_msg("color query: %02x,%02x,%02x: %06x\n", r, g, b, *color);
+  XDEBUG("color query: %02x,%02x,%02x: %06x\n", r, g, b, *color);
   return true;
 }
 
 // update ansi 16 color palette for better color approximation
 static void term_update_ansi16(term_t *term) {
-  debug_msg("update ansi colors\n");
+  XDEBUG("update ansi colors\n");
 #if defined(GIO_CMAP)
   // try ioctl first (on Linux)
   uint8_t cmap[48];
@@ -1041,12 +1041,12 @@ static void term_update_ansi16(term_t *term) {
     for (ssize_t i = 0; i < 48; i += 3) {
       uint32_t color = ((uint32_t)(cmap[i]) << 16) |
                        ((uint32_t)(cmap[i + 1]) << 8) | cmap[i + 2];
-      debug_msg("term (ioctl) ansi color %d: 0x%06x\n", i, color);
+      XDEBUG("term (ioctl) ansi color %d: 0x%06x\n", i, color);
       ansi256[i] = color;
     }
     return;
   } else {
-    debug_msg("ioctl GIO_CMAP failed: entry 1: 0x%02x%02x%02x\n", cmap[3],
+    XDEBUG("ioctl GIO_CMAP failed: entry 1: 0x%02x%02x%02x\n", cmap[3],
               cmap[4], cmap[5]);
   }
 #endif
@@ -1058,7 +1058,7 @@ static void term_update_ansi16(term_t *term) {
     for (int i = 0; i < 16; i++) {
       uint32_t color;
       if (!term_esc_query_color_raw(term, i, &color)) break;
-      debug_msg("term ansi color %d: 0x%06x\n", i, color);
+      XDEBUG("term ansi color %d: 0x%06x\n", i, color);
       ansi256[i] = color;
     }
     tty_end_raw(term->tty);
@@ -1094,7 +1094,7 @@ ic_private void term_start_raw(term_t *term) {
     if (term->palette >= ANSI256 &&
         SetConsoleMode(term->hcon, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)) {
       term->hcon_mode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-      debug_msg("term: console mode: virtual terminal processing enabled\n");
+      XDEBUG("term: console mode: virtual terminal processing enabled\n");
     }
     // no virtual terminal processing, emulate instead
     else if (SetConsoleMode(term->hcon, mode)) {
@@ -1102,7 +1102,7 @@ ic_private void term_start_raw(term_t *term) {
       term->palette   = ANSI16;
     }
     GetConsoleMode(term->hcon, &mode);
-    debug_msg("term: console mode: orig: 0x%x, new: 0x%x, current 0x%x\n",
+    XDEBUG("term: console mode: orig: 0x%x, new: 0x%x, current 0x%x\n",
               term->hcon_orig_mode, term->hcon_mode, mode);
   } else {
     SetConsoleMode(term->hcon, term->hcon_mode);
@@ -1139,12 +1139,12 @@ static void term_init_raw(term_t *term) {
       // index is also in reverse in the bits 0 and 2
       unsigned j =
         (i & 0x08) | ((i & 0x04) >> 2) | (i & 0x02) | (i & 0x01) << 2;
-      debug_msg("term: ansi color %d is 0x%06x\n", j, color);
+      XDEBUG("term: ansi color %d is 0x%06x\n", j, color);
       ansi256[j] = color;
     }
   } else {
     DWORD err = GetLastError();
-    debug_msg("term: cannot get console screen buffer: %d %x", err, err);
+    XDEBUG("term: cannot get console screen buffer: %d %x", err, err);
   }
   term_start_raw(term); // initialize the hcon_mode
   term_end_raw(term, false);

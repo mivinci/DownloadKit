@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "debug.h"
+#include <xbase/log.h>
 #include "env.h"
 #include "line.h"
 #include "mem.h"
@@ -41,7 +41,7 @@ ic_private bool xline_async_is_live(void); // defined in async.c
 
 ic_public char *xLineReadline(const char *prompt_text) {
   if (xline_async_is_live()) {
-    debug_msg("xline: xLineReadline() called while an async session is live; "
+    XDEBUG("xline: xLineReadline() called while an async session is live; "
               "returning NULL (see requirement 4.4)\n");
     return NULL;
   }

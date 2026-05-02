@@ -11,7 +11,7 @@
 
 #include "bbcode.h"
 #include "completions.h"
-#include "debug.h"
+#include <xbase/log.h>
 #include "editline.h"
 #include "line.h"
 #include "platform.h"
@@ -286,7 +286,7 @@ again:
 
 ic_private void edit_generate_completions(ic_env_t *env, editor_t *eb,
                                           bool autotab) {
-  debug_msg("edit: complete: %zd: %s\n", eb->pos, sbuf_string(eb->input));
+  XDEBUG("edit: complete: %zd: %s\n", eb->pos, sbuf_string(eb->input));
   if (eb->pos < 0) return;
   ssize_t count =
     completions_generate(env, env->completions, sbuf_string(eb->input), eb->pos,

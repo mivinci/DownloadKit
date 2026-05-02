@@ -18,7 +18,6 @@ set(XLINE_SOURCES
   bbcode_colors.c
   completers.c
   completions.c
-  debug.c
   editline.c
   editline_completion.c
   editline_help.c
@@ -49,7 +48,6 @@ add_library(xline ${XK_LIB_TYPE}
 # symbols.
 target_compile_definitions(xline PRIVATE
   IC_SEPARATE_OBJS
-  IC_NO_DEBUG_MSG
   _XOPEN_SOURCE=700        # wcwidth
   _DEFAULT_SOURCE          # keep usleep visible alongside _XOPEN_SOURCE>=700
   _CRT_NONSTDC_NO_WARNINGS # MSVC
@@ -64,6 +62,9 @@ target_compile_options(xline PRIVATE
   -Wno-gnu-zero-variadic-macro-arguments)
 
 set_target_properties(xline PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# xline depends on xbase for logging.
+target_link_libraries(xline PRIVATE xbase)
 
 # xline is self-contained (stdlib + POSIX/Win32 Console only).
 

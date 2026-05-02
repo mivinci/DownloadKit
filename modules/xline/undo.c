@@ -9,7 +9,7 @@
 
 #include "color.h"
 #include "completions.h"
-#include "debug.h"
+#include <xbase/log.h>
 #include "env.h"
 #include "line.h"
 #include "mem.h"

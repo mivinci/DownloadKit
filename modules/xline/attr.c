@@ -8,7 +8,7 @@
 
 #include "attr.h"
 #include "color.h"
-#include "debug.h"
+#include <xbase/log.h>
 #include "mem.h"
 #include "platform.h"
 #include "str.h"
@@ -193,7 +193,7 @@ ic_private attr_t attr_from_sgr(const char *s, ssize_t len) {
           }
         }
       } else {
-        debug_msg("attr: unknow ANSI SGR code: %zd\n", cmd);
+  XDEBUG("attr: unknow ANSI SGR code: %zd\n", cmd);
       }
     }
     }

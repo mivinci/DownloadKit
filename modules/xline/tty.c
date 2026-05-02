@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "debug.h"
+#include <xbase/log.h>
 #include "str.h"
 #include "tty.h"
 
@@ -124,7 +124,7 @@ static code_t tty_read_utf8(tty_t *tty, uint8_t c0) {
   }
 
   buf[count] = 0;
-  debug_msg("tty: read utf8: count: %zd: %02x,%02x,%02x,%02x", count, buf[0],
+  XDEBUG("tty: read utf8: count: %zd: %02x,%02x,%02x,%02x", count, buf[0],
             buf[1], buf[2], buf[3]);
 
   // decode the utf8 to unicode
@@ -178,7 +178,7 @@ ic_private bool tty_read_timeout(tty_t *tty, long timeout_ms, code_t *code) {
 static code_t modify_code(code_t code) {
   code_t key  = KEY_NO_MODS(code);
   code_t mods = KEY_MODS(code);
-  debug_msg(
+  XDEBUG(
     "tty: readc %s%s%s 0x%03x ('%c')\n", mods & KEY_MOD_SHIFT ? "shift+" : "",
     mods & KEY_MOD_CTRL ? "ctrl+" : "", mods & KEY_MOD_ALT ? "alt+" : "", key,
     (key >= ' ' && key <= '~' ? key : ' '));
@@ -237,7 +237,7 @@ ic_private bool tty_read_esc_response(tty_t *tty, char esc_start, bool final_st,
   uint8_t c   = 0;
   if (!tty_readc_noblock(tty, &c, 2 * tty->esc_initial_timeout) ||
       c != '\x1B') {
-    debug_msg("initial esc response failed: 0x%02x\n", c);
+    XDEBUG("initial esc response failed: 0x%02x\n", c);
     return false;
   }
   if (!tty_readc_noblock(tty, &c, tty->esc_timeout) || (c != esc_start))
@@ -265,7 +265,7 @@ ic_private bool tty_read_esc_response(tty_t *tty, char esc_start, bool final_st,
     buf[len++] = (char)c;
   }
   buf[len] = 0;
-  debug_msg("tty: escape query response: %s\n", buf);
+  XDEBUG("tty: escape query response: %s\n", buf);
   return true;
 }
 
@@ -305,7 +305,7 @@ ic_private bool tty_cpop(tty_t *tty, uint8_t *c) {
 static void tty_cpush(tty_t *tty, const char *s) {
   ssize_t len = ic_strlen(s);
   if (tty->push_count + len > TTY_PUSH_MAX) {
-    debug_msg("tty: cpush buffer full! (pushing %s)\n", s);
+    XDEBUG("tty: cpush buffer full! (pushing %s)\n", s);
     assert(false);
     return;
   }
@@ -387,7 +387,7 @@ static bool tty_init_utf8(tty_t *tty) {
   const char *loc = setlocale(LC_ALL, "");
   tty->is_utf8    = (ic_icontains(loc, "UTF-8") || ic_icontains(loc, "utf8") ||
                   ic_stricmp(loc, "C") == 0);
-  debug_msg("tty: utf8: %s (loc=%s)\n", tty->is_utf8 ? "true" : "false", loc);
+  XDEBUG("tty: utf8: %s (loc=%s)\n", tty->is_utf8 ? "true" : "false", loc);
 #endif
   return true;
 }
@@ -797,7 +797,7 @@ static void tty_waitc_console(tty_t *tty, long timeout_ms) {
     // virtual keys
     uint32_t chr  = (uint32_t)inp.Event.KeyEvent.uChar.UnicodeChar;
     WORD     virt = inp.Event.KeyEvent.wVirtualKeyCode;
-    debug_msg("tty: console %s: %s%s%s virt 0x%04x, chr 0x%04x ('%c')\n",
+    XDEBUG("tty: console %s: %s%s%s virt 0x%04x, chr 0x%04x ('%c')\n",
               inp.Event.KeyEvent.bKeyDown ? "down" : "up",
               mods & KEY_MOD_CTRL ? "ctrl-" : "",
               mods & KEY_MOD_ALT ? "alt-" : "",

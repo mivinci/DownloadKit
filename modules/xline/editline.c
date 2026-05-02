@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "completions.h"
-#include "debug.h"
+#include <xbase/log.h>
 #include "editline.h"
 #include "env.h"
 #include "highlight.h"
@@ -183,7 +183,7 @@ static bool edit_refresh_rows_iter(const char *s, ssize_t row,
   const refresh_info_t *info = (const refresh_info_t *)(arg);
   term_t               *term = info->env->term;
 
-  // debug_msg("edit: line refresh: row %zd, len: %zd\n", row, row_len);
+  // XDEBUG("edit: line refresh: row %zd, len: %zd\n", row, row_len);
   if (row < info->first_row) return false;
   if (row > info->last_row) return true; // should not occur
 
@@ -286,7 +286,7 @@ ic_private void edit_refresh(ic_env_t *env, editor_t *eb) {
       sbuf_get_rc_at_pos(extra, eb->termw, 0, 0, 0 /*pos*/, &rc_extra);
   }
   const ssize_t rows = rows_input + rows_extra;
-  debug_msg("edit: refresh: rows %zd, cursor: %zd,%zd (previous rows %zd, "
+  XDEBUG("edit: refresh: rows %zd, cursor: %zd,%zd (previous rows %zd, "
             "cursor row %zd)\n",
             rows, rc.row, rc.col, eb->cur_rows, eb->cur_row);
 
@@ -417,7 +417,7 @@ ic_private bool edit_resize(ic_env_t *env, editor_t *eb) {
                                             0 /*pos*/, &rc_extra);
   }
   ssize_t rows = rows_input + rows_extra;
-  debug_msg("edit: resize: new rows: %zd, cursor row: %zd (previous: rows: "
+  XDEBUG("edit: resize: new rows: %zd, cursor row: %zd (previous: rows: "
             "%zd, cursor row %zd)\n",
             rows, rc.row, eb->cur_rows, eb->cur_row);
 
@@ -1016,7 +1016,7 @@ ic_private bool edit_dispatch_key(ic_env_t *env, editor_t *eb, code_t c) {
     } else if (code_is_unicode(c, &uchr)) {
       edit_insert_unicode(env, eb, uchr);
     } else {
-      debug_msg("edit: ignore code: 0x%04x\n", c);
+      XDEBUG("edit: ignore code: 0x%04x\n", c);
     }
     break;
   }

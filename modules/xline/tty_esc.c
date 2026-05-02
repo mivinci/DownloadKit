@@ -4,7 +4,7 @@
   under the terms of the MIT License. A copy of the license can be
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
-#include "debug.h"
+#include <xbase/log.h>
 #include "tty.h"
 #include <string.h>
 
@@ -352,7 +352,7 @@ static code_t tty_read_csi(tty_t *tty, uint8_t c1, uint8_t peek, code_t mods0,
   uint8_t final     = peek;
   code_t  modifiers = mods0;
 
-  debug_msg("tty: escape sequence: ESC %c %c %d;%d %c\n", c1,
+  XDEBUG("tty: escape sequence: ESC %c %c %d;%d %c\n", c1,
             (special == 0 ? '_' : special), num1, num2, final);
 
   // Adjust special cases into standard ones.
@@ -413,14 +413,14 @@ static code_t tty_read_csi(tty_t *tty, uint8_t c1, uint8_t peek, code_t mods0,
   }
 
   if (code == KEY_NONE && final != 'R') {
-    debug_msg("tty: ignore escape sequence: ESC %c %zu;%zu %c\n", c1, num1,
+    XDEBUG("tty: ignore escape sequence: ESC %c %zu;%zu %c\n", c1, num1,
               num2, final);
   }
   return (code != KEY_NONE ? (code | modifiers) : KEY_NONE);
 }
 
 static code_t tty_read_osc(tty_t *tty, uint8_t *ppeek, long esc_timeout) {
-  debug_msg("discard OSC response..\n");
+  XDEBUG("discard OSC response..\n");
   // keep reading until termination: OSC is terminated by BELL, or ESC \ (ST)
   // (and STX)
   while (true) {

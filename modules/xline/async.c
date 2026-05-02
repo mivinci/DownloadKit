@@ -17,7 +17,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "debug.h"
+#include <xbase/log.h>
 #include "editline.h"
 #include "env.h"
 #include "line.h"
@@ -61,7 +61,7 @@ ic_private bool xline_async_is_live(void) {
 
 ic_public xLineHandle *xLineBegin(const char *prompt_text) {
   if (g_live_session != NULL) {
-    debug_msg("xline: xLineBegin() called while another session is live\n");
+  XDEBUG("xline: xLineBegin() called while another session is live\n");
     return NULL;
   }
   ic_env_t *env = ic_get_env();

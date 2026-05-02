@@ -48,7 +48,7 @@ target_compile_definitions(xline PRIVATE IC_NO_DEBUG_MSG)
 
 # Upstream ships with looser warning hygiene than xKit's -Werror.
 # Shield isocline from the parent's -Werror so a benign upstream
-# warning never breaks our build; mirror FindIsocline.cmake's set.
+# warning never breaks our build.
 target_compile_options(xline PRIVATE
   -Wno-error
   -Wno-variadic-macro-arguments-omitted

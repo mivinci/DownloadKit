@@ -25,7 +25,7 @@
  *   export LLM_MODEL="gpt-4o"                        # optional
  *   ./ai_session [-d <path>]                         # default: cwd
  *
- * The REPL uses isocline for CJK-aware line editing, persistent
+ * The REPL uses xline for CJK-aware line editing, persistent
  * history (stored at <data_dir>/.ai_session_history), and Ctrl-R
  * reverse search. See cmake/FindIsocline.cmake.
  */
@@ -42,7 +42,7 @@
 #include <xbase/time.h>
 #include <xhttp/client.h>
 
-#include <isocline.h>
+#include <line.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -65,7 +65,7 @@ struct ReplCtx {
   int last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
   uint64_t input_ms      = 0;  /* monotonic timestamp (ms) at user input */
   bool     should_exit   = false; /* set by /exit handler */
-  const char *hist_path  = nullptr; /* isocline history file, for /history */
+  const char *hist_path  = nullptr; /* xline history file, for /history */
 };
 
 /* ── Slash command table ───────────────────────────────────────────────
@@ -74,9 +74,9 @@ struct ReplCtx {
  * the REPL and never sent to the model. Keeping them in a static table
  * gives us three things for free:
  *
- *   1) a completer data source (isocline scans the table on Tab),
+ *   1) a completer data source (xline scans the table on Tab),
  *   2) a one-liner help text used both by `/help` and by the inline
- *      hint isocline renders in faint text when the prefix resolves
+ *      hint xline renders in faint text when the prefix resolves
  *      to a single match (fish-shell style),
  *   3) a single place to register new commands — handler + name +
  *      help live together so nothing drifts.
@@ -113,7 +113,7 @@ static const SlashCmd g_slash_cmds[] = {
 static const size_t g_slash_cmds_count =
   sizeof(g_slash_cmds) / sizeof(g_slash_cmds[0]);
 
-/* Character-class predicate for ic_complete_word: returns true when
+/* Character-class predicate for xLineCompleteWord: returns true when
  * `c` should be considered part of the current completion token.
  * Slash commands are ASCII letters/digits/underscore plus the leading
  * '/', so we accept all of those. Everything else (space, punctuation)
@@ -127,30 +127,30 @@ static bool is_slash_cmd_char(const char *s, long len) {
          (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
 }
 
-/* Inner completer invoked by ic_complete_word with the already-
- * extracted token. Because we went through ic_complete_word, every
- * ic_add_completion* call here is treated as a *replacement* for
- * `prefix` — isocline handles the delete-before bookkeeping, so we
+/* Inner completer invoked by xLineCompleteWord with the already-
+ * extracted token. Because we went through xLineCompleteWord, every
+ * xLineAddCompletion* call here is treated as a *replacement* for
+ * `prefix` — xline handles the delete-before bookkeeping, so we
  * just hand it the full command name. */
-static void slash_completer_inner(ic_completion_env_t *cenv,
+static void slash_completer_inner(xLineCompletionEnv *cenv,
                                   const char *prefix) {
   if (!prefix || prefix[0] != '/') return;
   for (size_t i = 0; i < g_slash_cmds_count; ++i) {
     const SlashCmd *c = &g_slash_cmds[i];
-    if (ic_starts_with(c->name, prefix)) {
-      ic_add_completion_ex(cenv, c->name, c->name, c->help);
+    if (xLineStartsWith(c->name, prefix)) {
+      xLineAddCompletionEx(cenv, c->name, c->name, c->help);
     }
   }
 }
 
-/* Top-level completer registered with isocline. We delegate to
- * ic_complete_word so prefix extraction and replacement semantics
+/* Top-level completer registered with xline. We delegate to
+ * xLineCompleteWord so prefix extraction and replacement semantics
  * are consistent with the rest of the library — otherwise Tab on
  * `/cl` would append `/clear` producing `/cl/clear` (and the inline
  * hint renders the same broken overlay). */
-static void slash_completer(ic_completion_env_t *cenv, const char *prefix) {
-  (void)prefix;  /* ic_complete_word re-derives it using our predicate */
-  ic_complete_word(cenv, prefix, slash_completer_inner, is_slash_cmd_char);
+static void slash_completer(xLineCompletionEnv *cenv, const char *prefix) {
+  (void)prefix;  /* xLineCompleteWord re-derives it using our predicate */
+  xLineCompleteWord(cenv, prefix, slash_completer_inner, is_slash_cmd_char);
 }
 
 static void slash_cmd_help(ReplCtx *ctx, const char *args) {
@@ -184,7 +184,7 @@ static void slash_cmd_clear(ReplCtx *ctx, const char *args) {
 static void slash_cmd_history(ReplCtx *ctx, const char *args) {
   (void)args;
   /* Isocline persists history at <data_dir>/.ai_session_history via
-   * ic_set_history but doesn't expose a public enumeration API, so
+   * xLineSetHistory but doesn't expose a public enumeration API, so
    * the cheapest way to show the user their recall buffer is to
    * dump the file straight to stdout. If the file doesn't exist
    * yet (first run, no entries saved), say so rather than printing
@@ -201,7 +201,7 @@ static void slash_cmd_history(ReplCtx *ctx, const char *args) {
   char   buf[4096];
   size_t lines = 0;
   while (std::fgets(buf, sizeof(buf), f)) {
-    /* isocline stores one entry per line, sometimes prefixed with a
+    /* xline stores one entry per line, sometimes prefixed with a
      * '#' comment line (v1.1 uses a plain-text format); we pass
      * everything through verbatim so the user sees exactly what
      * Ctrl-R would match against. */
@@ -752,7 +752,7 @@ int main(int argc, char *argv[]) {
               "or /exit to quit.\n"
               "Registered tools: shell\n\n");
 
-  /* ── Line editor (isocline) ───────────────────────────────────────
+  /* ── Line editor (xline) ──────────────────────────────────────────
    *
    * Persist history under the agent's data_dir so each agent
    * namespace keeps its own recall buffer. 1000 entries is plenty
@@ -762,18 +762,18 @@ int main(int argc, char *argv[]) {
   char hist_path[4096];
   std::snprintf(hist_path, sizeof(hist_path), "%s/.ai_session_history",
                 data_dir);
-  ic_set_history(hist_path, 1000);
+  xLineSetHistory(hist_path, 1000);
   ctx.hist_path = hist_path;
 
   /* Slash-command completion. isocline calls slash_completer on Tab;
    * when the current prefix resolves to a single match it ALSO shows
    * the tail as an inline faint hint (fish-shell style) without
    * needing Tab. Hints are on by default, but we set them explicitly
-   * so a future ic_enable_hint(false) somewhere else doesn't silently
+   * so a future xLineEnableHint(false) somewhere else doesn't silently
    * break the UX. completion_preview (the faint candidate shown while
    * the menu is open) is already on by default; left as-is. */
-  ic_set_default_completer(slash_completer, nullptr);
-  ic_enable_hint(true);
+  xLineSetDefaultCompleter(slash_completer, nullptr);
+  xLineEnableHint(true);
   /* Default hint delay is 500ms — fine for typing prose where you
    * don't want a flash every keystroke, but annoying when you've
    * just typed `/c` and know `clear` is coming. Zero delay makes
@@ -782,35 +782,35 @@ int main(int argc, char *argv[]) {
    * prefix resolves to a single candidate, so ambiguous prefixes
    * (`/h` — /help vs /history) stay quiet until you type more or
    * hit Tab to see the menu. */
-  ic_set_hint_delay(0);
+  xLineSetHintDelay(0);
 
   while (true) {
-    /* ic_readline prints its own prompt (with styling support) and
+    /* xLineReadline prints its own prompt (with styling support) and
      * returns a heap-allocated UTF-8 string that the caller must
-     * free via ic_free. Returns NULL on EOF (Ctrl-D on an empty
+     * free via xLineFree. Returns NULL on EOF (Ctrl-D on an empty
      * line) — we treat that like `exit`. */
-    char *line = ic_readline("");
+    char *line = xLineReadline("");
     if (!line) break;
 
     size_t len = std::strlen(line);
     if (len == 0) {
-      ic_free(line);
+      xLineFree(line);
       continue;
     }
     /* Slash commands are intercepted locally — they never reach the
      * model. Legacy `exit` / `quit` bare words remain as a courtesy
      * for muscle memory, but `/exit` is the documented spelling. */
     if (std::strcmp(line, "exit") == 0 || std::strcmp(line, "quit") == 0) {
-      ic_history_remove_last();
-      ic_free(line);
+      xLineHistoryRemoveLast();
+      xLineFree(line);
       break;
     }
     if (line[0] == '/') {
       /* Don't pollute history with command chrome — slash commands
        * are pure REPL actions, not chat input. */
-      ic_history_remove_last();
+      xLineHistoryRemoveLast();
       slash_dispatch(&ctx, line);
-      ic_free(line);
+      xLineFree(line);
       if (ctx.should_exit) break;
       continue;
     }
@@ -859,12 +859,12 @@ int main(int argc, char *argv[]) {
                              "sconf.budget.max_tokens or lower "
                              "keep_recent_turns\n");
       }
-      ic_free(line);
+      xLineFree(line);
       continue;
     }
 
     xEventLoopRun(loop);
-    ic_free(line);
+    xLineFree(line);
   }
 
   std::printf("\nBye!\n");

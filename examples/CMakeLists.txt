@@ -55,15 +55,15 @@ target_include_directories(ai_openai PRIVATE
 # BudgetCalibrator suite) and we'd rather keep the surface small
 # than export a getter that exists only to feed a demo.
 #
-# The REPL uses isocline for CJK-aware line editing, persistent
-# history, and Ctrl-R search. Isocline is a pure-C, MIT-licensed,
-# header-clean readline replacement with native Windows support.
-find_package(Isocline REQUIRED)
+# The REPL uses xline (the vendored/rebranded fork of isocline, see
+# modules/xline/NOTICE) for CJK-aware line editing, persistent
+# history, and Ctrl-R search.
 
 add_executable(ai_session ai_session.cpp)
-target_link_libraries(ai_session PRIVATE xai xhttp xbase Isocline::Isocline)
+target_link_libraries(ai_session PRIVATE xai xhttp xbase xline)
 target_include_directories(ai_session PRIVATE
-  ${CMAKE_SOURCE_DIR}/modules)
+  ${CMAKE_SOURCE_DIR}/modules
+  ${CMAKE_SOURCE_DIR}/modules/xline)
 
 # ES-module demo: show how to expose host-native functionality as
 # an `import`-able module by combining native callbacks on the

@@ -303,10 +303,17 @@ ic_private void debug_msg(const char* fmt, ...) {
 
 //-------------------------------------------------------------
 // Allocation
+//
+// xline forks isocline without the custom-allocator indirection.
+// The `alloc_t*` parameter is kept in the signature for source
+// compatibility with the ~50 internal call sites (and because the
+// `env->mem`/`bb->mem`/... fields still thread through them), but
+// the pointer itself is unused: we always call the stdlib directly.
 //-------------------------------------------------------------
 
 ic_private void* mem_malloc(alloc_t* mem, ssize_t sz) {
-  return mem->malloc(to_size_t(sz));
+  ic_unused(mem);
+  return malloc(to_size_t(sz));
 }
 
 ic_private void* mem_zalloc(alloc_t* mem, ssize_t sz) {
@@ -316,11 +323,13 @@ ic_private void* mem_zalloc(alloc_t* mem, ssize_t sz) {
 }
 
 ic_private void* mem_realloc(alloc_t* mem, void* p, ssize_t newsz) {
-  return mem->realloc(p, to_size_t(newsz));
+  ic_unused(mem);
+  return realloc(p, to_size_t(newsz));
 }
 
 ic_private void mem_free(alloc_t* mem, const void* p) {
-  mem->free((void*)p);
+  ic_unused(mem);
+  free((void*)p);
 }
 
 ic_private char* mem_strdup(alloc_t* mem, const char* s) {

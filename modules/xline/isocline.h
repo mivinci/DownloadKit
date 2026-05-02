@@ -605,9 +605,11 @@ typedef void* (ic_malloc_fun_t)( size_t size );
 typedef void* (ic_realloc_fun_t)( void* p, size_t newsize );
 typedef void  (ic_free_fun_t)( void* p );
 
-/// Initialize with custom allocation functions.
-/// This must be called as the first function in a program!
-void ic_init_custom_alloc( ic_malloc_fun_t* _malloc, ic_realloc_fun_t* _realloc, ic_free_fun_t* _free );
+// NOTE: upstream's ic_init_custom_alloc() has been removed in xline.
+// The library always uses the stdlib allocator (malloc/realloc/free).
+// The three typedefs above are kept for source-compat with downstream
+// code that still names them, but there is no public way to inject a
+// custom allocator anymore.
 
 /// Free a potentially custom alloc'd pointer (in particular, the result returned from `ic_readline`)
 void ic_free( void* p );

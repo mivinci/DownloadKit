@@ -162,12 +162,16 @@ typedef struct ic_env_s ic_env_t;
 
 //-------------------------------------------------------------
 // Allocation
+//
+// xline always uses the stdlib allocator; the alloc_t struct is
+// retained as an opaque tag so ~50 internal call sites that pass
+// `env->mem`, `bb->mem`, etc. compile unchanged. The function
+// pointer fields are gone — mem_* helpers in common.c ignore the
+// pointer entirely.
 //-------------------------------------------------------------
 
 typedef struct alloc_s {
-  ic_malloc_fun_t*  malloc;
-  ic_realloc_fun_t* realloc;
-  ic_free_fun_t*    free;
+  int _unused;  // placeholder; C forbids empty structs
 } alloc_t;
 
 

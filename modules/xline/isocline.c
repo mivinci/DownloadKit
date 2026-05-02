@@ -497,33 +497,17 @@ static void ic_env_free(ic_env_t* env) {
   mem_free(env->mem, env->match_braces);
   mem_free(env->mem, env->auto_braces);
   env->prompt_marker = NULL;
-  
-  // and deallocate ourselves
-  alloc_t* mem = env->mem;  
-  mem_free(mem, env);
 
-  // and finally the custom memory allocation structure
-  mem_free(mem, mem);
+  // and deallocate ourselves (env->mem is always NULL in xline)
+  mem_free(env->mem, env);
 }
 
 
-static ic_env_t* ic_env_create( ic_malloc_fun_t* _malloc, ic_realloc_fun_t* _realloc, ic_free_fun_t* _free )  
+static ic_env_t* ic_env_create(void)
 {
-  if (_malloc == NULL)  _malloc = &malloc;
-  if (_realloc == NULL) _realloc = &realloc;
-  if (_free == NULL)    _free = &free;
-  // allocate
-  alloc_t* mem = (alloc_t*)_malloc(sizeof(alloc_t));
-  if (mem == NULL) return NULL;
-  mem->malloc = _malloc;
-  mem->realloc = _realloc;
-  mem->free = _free;
-  ic_env_t* env = mem_zalloc_tp(mem, ic_env_t);
-  if (env==NULL) {
-    mem->free(mem);
-    return NULL;
-  }
-  env->mem = mem;
+  ic_env_t* env = (ic_env_t*)calloc(1, sizeof(ic_env_t));
+  if (env == NULL) return NULL;
+  env->mem = NULL;  // unused in xline; kept for source compatibility
 
   // Initialize
   env->tty         = tty_new(env->mem, -1);  // can return NULL
@@ -570,25 +554,14 @@ static void ic_atexit(void) {
   }
 }
 
-ic_private ic_env_t* ic_get_env(void) {  
+ic_private ic_env_t* ic_get_env(void) {
   if (rpenv==NULL) {
-    rpenv = ic_env_create( NULL, NULL, NULL );
+    rpenv = ic_env_create();
     if (rpenv != NULL) { atexit( &ic_atexit ); }
   }
   return rpenv;
 }
 
-ic_public void ic_init_custom_malloc( ic_malloc_fun_t* _malloc, ic_realloc_fun_t* _realloc, ic_free_fun_t* _free ) {
-  assert(rpenv == NULL);
-  if (rpenv != NULL) {
-    ic_env_free(rpenv);    
-    rpenv = ic_env_create( _malloc, _realloc, _free ); 
-  }
-  else {
-    rpenv = ic_env_create( _malloc, _realloc, _free ); 
-    if (rpenv != NULL) {
-      atexit( &ic_atexit );
-    }
-  }
-}
+// NOTE: upstream ic_init_custom_alloc / ic_init_custom_malloc has been
+// removed. xline always uses the stdlib allocator.
 

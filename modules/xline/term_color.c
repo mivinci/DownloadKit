@@ -15,7 +15,6 @@
 
 #include "platform.h"
 #include "color.h"
-#include "stringbuf.h"
 #include "term.h"
 
 //-------------------------------------------------------------

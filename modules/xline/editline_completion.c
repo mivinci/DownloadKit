@@ -10,14 +10,13 @@
 //-------------------------------------------------------------
 
 #include "platform.h"
-#include "mem.h"
+#include "line.h"
 #include "stringbuf.h"
 #include "completions.h"
 #include "tty.h"
 #include "term.h"
 #include "bbcode.h"
 #include "debug.h"
-#include "env.h"
 #include "editline.h"
 
 // return true if anything changed

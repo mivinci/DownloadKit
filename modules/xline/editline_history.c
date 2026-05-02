@@ -17,7 +17,6 @@
 #include "history.h"
 #include "tty.h"
 #include "term.h"
-#include "env.h"
 #include "editline.h"
 
 static void edit_history_at(ic_env_t* env, editor_t* eb, int ofs ) 

@@ -10,7 +10,6 @@
 //-------------------------------------------------------------
 
 #include "platform.h"
-#include "env.h"
 #include "editline.h"
 
 static const char* help[] = {

@@ -21,8 +21,6 @@
 #include <stdbool.h>
 #include <assert.h>
 
-#include "line.h"       // public API types (xLineMallocFn, etc.)
-
 // --- extern "C" / visibility ----------------------------------
 
 # ifdef __cplusplus

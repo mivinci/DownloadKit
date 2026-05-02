@@ -12,7 +12,6 @@
 #include "mem.h"
 #include "color.h"
 #include "tty.h"
-#include "stringbuf.h"
 #include "attr.h"
 
 // ANSI CSI (Control Sequence Introducer) prefix used by every SGR /

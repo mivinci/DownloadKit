@@ -7,6 +7,7 @@
 
 #include <string.h>
 #include "platform.h"
+#include "line.h"
 #include "mem.h"
 #include "str.h"
 #include "debug.h"

@@ -26,6 +26,7 @@
 #include <inttypes.h>
 
 #include "platform.h"
+#include "line.h"
 #include "mem.h"
 #include "str.h"
 #include "debug.h"
@@ -33,7 +34,6 @@
 #include "color.h"
 #include "stringbuf.h"
 #include "wcwidth.h"
-
 //-------------------------------------------------------------
 // In place growable utf-8 strings
 //-------------------------------------------------------------

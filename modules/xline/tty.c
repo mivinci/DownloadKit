@@ -24,7 +24,6 @@
 WINBASEAPI ULONGLONG WINAPI GetTickCount64(VOID);
 #endif
 #else
-#include <signal.h>
 #include <errno.h>
 #include <unistd.h>
 #include <termios.h>

@@ -10,10 +10,9 @@
 #include <stdlib.h>  
 
 #include "platform.h"
+#include "line.h"
 #include "mem.h"
 #include "str.h"
-#include "debug.h"
-#include "unicode.h"
 #include "color.h"
 #include "attr.h"
 #include "term.h"

@@ -12,7 +12,6 @@
 #include "str.h"
 #include "debug.h"
 #include "unicode.h"
-#include "color.h"
 #include "term.h"
 #include "tty.h"
 #include "env.h"

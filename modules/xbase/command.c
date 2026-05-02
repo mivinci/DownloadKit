@@ -10,52 +10,7 @@
 #include <stdlib.h>
 
 #ifdef _WIN32
-
-/* ───────────────────── Windows stubs ───────────────────── */
-
-xCommandExecutor xCommandExecutorCreate(xEventLoop loop) {
-  (void)loop;
-  return NULL;
-}
-
-void xCommandExecutorDestroy(xCommandExecutor exec) {
-  (void)exec;
-}
-
-xErrno xCommandExecutorSubmit(xCommandExecutor exec, const xCommandConf *conf,
-                              xCommandExecutorOutputFunc on_stdout,
-                              xCommandExecutorOutputFunc on_stderr,
-                              xCommandExecutorDoneFunc on_done, void *ud) {
-  (void)exec; (void)conf; (void)on_stdout; (void)on_stderr;
-  (void)on_done; (void)ud;
-  return xErrno_NotSupported;
-}
-
-xErrno xCommandExecutorCancel(xCommandExecutor exec) {
-  (void)exec;
-  return xErrno_NotSupported;
-}
-
-int xCommandExecutorPid(xCommandExecutor exec) {
-  (void)exec;
-  return -1;
-}
-
-int xCommandExecutorIsRunning(xCommandExecutor exec) {
-  (void)exec;
-  return 0;
-}
-
-int xCommandExecutorPtyFd(xCommandExecutor exec) {
-  (void)exec;
-  return -1;
-}
-
-int xCommandExecutorStdinFd(xCommandExecutor exec) {
-  (void)exec;
-  return -1;
-}
-
+/* Windows implementation is in command_windows.c */
 #else /* POSIX implementation */
 
 #include <xbase/command.h>

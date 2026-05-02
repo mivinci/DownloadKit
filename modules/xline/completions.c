@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * completions.c - Completion engine
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,9 +20,7 @@
 #include "stringbuf.h"
 #include "unicode.h"
 
-//-------------------------------------------------------------
-// Completions
-//-------------------------------------------------------------
+/* ── Completions ── */
 
 typedef struct completion_s {
   const char *replacement;
@@ -289,9 +288,7 @@ ic_private ssize_t completions_apply_longest_prefix(completions_t *cms,
   return newpos;
 }
 
-//-------------------------------------------------------------
-// Completer functions
-//-------------------------------------------------------------
+/* ── Completer functions ── */
 
 ic_public bool xLineAddCompletions(xLineCompletionEnv *cenv, const char *prefix,
                                    const char **completions) {

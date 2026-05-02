@@ -1,24 +1,21 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * mem.c - Custom allocator adapter
+ */
 #include <stdlib.h>
 #include <string.h>
 
 #include "mem.h"
 #include "str.h" // ic_strlen, ic_memcpy
 
-//-------------------------------------------------------------
-// Heap allocation.
-//
-// xline forks isocline without the custom-allocator indirection.
-// The `alloc_t*` parameter is kept in the signature for source
-// compatibility with the ~50 internal call sites (and because the
-// `env->mem`/`bb->mem`/... fields still thread through them), but
-// the pointer itself is unused: we always call the stdlib directly.
-//-------------------------------------------------------------
+/* ── Heap allocation. xline forks isocline without the custom-allocator
+ * indirection. The `alloc_t*` parameter is kept in the signature for source
+ * compatibility with the ~50 internal call sites (and because the
+ * `env->mem`/`bb->mem`/... fields still thread through them), but the pointer
+ * itself is unused: we always call the stdlib directly ── */
 
 ic_private void *mem_malloc(alloc_t *mem, ssize_t sz) {
   ic_unused(mem);

@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * undo.h - Undo/redo buffer
+ */
 #pragma once
 #ifndef IC_UNDO_H
 #define IC_UNDO_H
@@ -11,9 +12,7 @@
 #include "mem.h"
 #include "platform.h"
 
-//-------------------------------------------------------------
-// Edit state
-//-------------------------------------------------------------
+/* ── Edit state ── */
 struct editstate_s;
 typedef struct editstate_s editstate_t;
 

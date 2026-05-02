@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * history.c - History storage and retrieval
+ */
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -58,9 +59,7 @@ ic_private ssize_t history_count(const history_t *h) {
   return h->count;
 }
 
-//-------------------------------------------------------------
-// push/clear
-//-------------------------------------------------------------
+/* ── push/clear ── */
 
 ic_private bool history_update(history_t *h, const char *entry) {
   if (entry == NULL) return false;
@@ -146,10 +145,6 @@ ic_private bool history_search(const history_t *h, ssize_t from /*including*/,
   return true;
 }
 
-//-------------------------------------------------------------
-//
-//-------------------------------------------------------------
-
 ic_private void history_load_from(history_t *h, const char *fname,
                                   long max_entries) {
   history_clear(h);
@@ -166,9 +161,7 @@ ic_private void history_load_from(history_t *h, const char *fname,
   history_load(h);
 }
 
-//-------------------------------------------------------------
-// save/load history to file
-//-------------------------------------------------------------
+/* ── save/load history to file ── */
 
 static char from_xdigit(int c) {
   if (c >= '0' && c <= '9') return (char)(c - '0');

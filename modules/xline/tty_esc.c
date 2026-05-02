@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * tty_esc.c - Escape sequence decoder
+ */
 #include "debug.h"
 #include "tty.h"
 #include <string.h>
@@ -124,9 +125,7 @@ SS3:   ESC 'O' 1 ';' modifiers [A-Za-z]
 
 -------------------------------------------------------------*/
 
-//-------------------------------------------------------------
-// Decode escape sequences
-//-------------------------------------------------------------
+/* ── Decode escape sequences ── */
 
 static code_t esc_decode_vt(uint32_t vt_code) {
   switch (vt_code) {

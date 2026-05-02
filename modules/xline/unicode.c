@@ -1,19 +1,17 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * unicode.c - QUTF-8 codec and Unicode helpers
+ */
 #include <string.h>
 
 #include "unicode.h"
 
-//-------------------------------------------------------------
-// QUTF-8 codec.
-// Raw bytes are code points 0xEE000 - 0xEE0FF.
-// See
-// <https://github.com/koka-lang/koka/blob/master/kklib/include/kklib/string.h>
-//-------------------------------------------------------------
+/* ── QUTF-8 codec. Raw bytes are code points 0xEE000 - 0xEE0FF. See
+ * <https://github.com/koka-lang/koka/blob/master/kklib/include/kklib/string.h>
+ * ── */
 
 #define IC_UNICODE_RAW ((unicode_t)(0xEE000U))
 

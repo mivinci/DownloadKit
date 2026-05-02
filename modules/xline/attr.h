@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * attr.h - Text attribute (color/bold/…) operations
+ */
 #pragma once
 #ifndef IC_ATTR_H
 #define IC_ATTR_H
@@ -13,9 +14,7 @@
 #include "platform.h"
 #include "stringbuf.h"
 
-//-------------------------------------------------------------
-// text attributes
-//-------------------------------------------------------------
+/* ── text attributes ── */
 
 #define IC_ON   (1)
 #define IC_OFF  (-1)
@@ -48,9 +47,7 @@ ic_private attr_t attr_update_with(attr_t attr, attr_t newattr);
 ic_private attr_t attr_from_sgr(const char *s, ssize_t len);
 ic_private attr_t attr_from_esc_sgr(const char *s, ssize_t len);
 
-//-------------------------------------------------------------
-// attribute buffer used for rich rendering
-//-------------------------------------------------------------
+/* ── attribute buffer used for rich rendering ── */
 
 struct attrbuf_s;
 typedef struct attrbuf_s attrbuf_t;

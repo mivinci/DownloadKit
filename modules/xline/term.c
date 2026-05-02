@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * term.c - Terminal abstraction (cursor, scroll, SGR)
+ */
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -62,17 +63,13 @@ struct term_s {
 static bool term_write_direct(term_t *term, const char *s, ssize_t n);
 static void term_append_buf(term_t *term, const char *s, ssize_t n);
 
-//-------------------------------------------------------------
-// Palette accessor (the SGR rendering itself lives in term_color.c)
-//-------------------------------------------------------------
+/* ── Palette accessor (the SGR rendering itself lives in term_color.c) ── */
 
 ic_private palette_t term_get_palette(const term_t *term) {
   return term->palette;
 }
 
-//-------------------------------------------------------------
-// Helpers
-//-------------------------------------------------------------
+/* ── Helpers ── */
 
 ic_private void term_left(term_t *term, ssize_t n) {
   if (n <= 0) return;
@@ -200,9 +197,7 @@ ic_private void term_show_cursor(term_t* term, bool on) {
 }
 */
 
-//-------------------------------------------------------------
-// Formatted output
-//-------------------------------------------------------------
+/* ── Formatted output ── */
 
 ic_private void term_writef(term_t *term, const char *fmt, ...) {
   va_list ap;
@@ -257,11 +252,8 @@ ic_private void term_write_formatted_n(term_t *term, const char *s,
   }
 }
 
-//-------------------------------------------------------------
-// Write to the terminal
-// The buffered functions are used to reduce cursor flicker
-// during refresh
-//-------------------------------------------------------------
+/* ── Write to the terminal The buffered functions are used to reduce cursor
+ * flicker during refresh ── */
 
 ic_private void term_beep(term_t *term) {
   if (term->silent) return;
@@ -289,9 +281,7 @@ ic_private void term_write_n(term_t *term, const char *s, ssize_t n) {
   term_append_buf(term, s, n);
 }
 
-//-------------------------------------------------------------
-// Buffering
-//-------------------------------------------------------------
+/* ── Buffering ── */
 
 ic_private void term_flush(term_t *term) {
   if (sbuf_len(term->buf) > 0) {
@@ -321,9 +311,7 @@ static void term_check_flush(term_t *term, bool contains_nl) {
   }
 }
 
-//-------------------------------------------------------------
-// Init
-//-------------------------------------------------------------
+/* ── Init ── */
 
 static void term_init_raw(term_t *term);
 
@@ -461,12 +449,9 @@ ic_private void term_free(term_t *term) {
   mem_free(term->mem, term);
 }
 
-//-------------------------------------------------------------
-// For best portability and applications inserting CSI SGR (ESC[ .. m)
-// codes themselves in strings, we interpret these at the
-// lowest level so we can have a `term_get_attr` function which
-// is needed for bracketed styles etc.
-//-------------------------------------------------------------
+/* ── For best portability and applications inserting CSI SGR (ESC[ .. m) codes
+ * themselves in strings, we interpret these at the lowest level so we can have
+ * a `term_get_attr` function which is needed for bracketed styles etc ── */
 
 static void term_append_esc(term_t *term, const char *const s, ssize_t len) {
   if (s[1] == '[' && s[len - 1] == 'm') {
@@ -540,9 +525,7 @@ static void term_append_buf(term_t *term, const char *s, ssize_t len) {
   term_check_flush(term, newline);
 }
 
-//-------------------------------------------------------------
-// Platform dependent: Write directly to the terminal
-//-------------------------------------------------------------
+/* ── Platform dependent: Write directly to the terminal ── */
 
 #if !defined(_WIN32)
 
@@ -564,14 +547,10 @@ static bool term_write_direct(term_t *term, const char *s, ssize_t n) {
 
 #else
 
-//----------------------------------------------------------------------------------
-// On windows we use the new virtual terminal processing if it is available
-// (Windows Terminal) but fall back to  ansi escape emulation on older systems
-// but also for example the PS terminal
-//
-// note: we use row/col as 1-based ANSI escape while windows X/Y coords are
-// 0-based.
-//-----------------------------------------------------------------------------------
+/* ── On windows we use the new virtual terminal processing if it is available
+ * (Windows Terminal) but fall back to  ansi escape emulation on older systems
+ * but also for example the PS terminal note: we use row/col as 1-based ANSI
+ * escape while windows X/Y coords are 0-based ── */
 
 #if !defined(ENABLE_VIRTUAL_TERMINAL_PROCESSING)
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING (0)
@@ -885,9 +864,7 @@ static bool term_write_direct(term_t *term, const char *s, ssize_t len) {
 }
 #endif
 
-//-------------------------------------------------------------
-// Update terminal dimensions
-//-------------------------------------------------------------
+/* ── Update terminal dimensions ── */
 
 #if !defined(_WIN32)
 
@@ -983,9 +960,7 @@ ic_private bool term_update_dim(term_t *term) {
 
 #endif
 
-//-------------------------------------------------------------
-// Enable/disable terminal raw mode
-//-------------------------------------------------------------
+/* ── Enable/disable terminal raw mode ── */
 
 #if !defined(_WIN32)
 

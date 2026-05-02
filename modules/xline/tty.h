@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * tty.h - TTY / console raw-mode driver
+ */
 #pragma once
 #ifndef IC_TTY_H
 #define IC_TTY_H
@@ -12,9 +13,7 @@
 #include "platform.h"
 #include "unicode.h"
 
-//-------------------------------------------------------------
-// TTY/Keyboard input
-//-------------------------------------------------------------
+/* ── TTY/Keyboard input ── */
 
 // Key code
 typedef uint32_t code_t;
@@ -56,13 +55,9 @@ ic_private code_t tty_read_esc(tty_t *tty, long esc_initial_timeout,
 ic_private bool tty_read_esc_response(tty_t *tty, char esc_start, bool final_st,
                                       char *buf, ssize_t buflen);
 
-//-------------------------------------------------------------
-// Key codes: a code_t is 32 bits.
-// we use the bottom 24 (nah, 21) bits for unicode (up to x0010FFFF)
-// The codes after x01000000 are for virtual keys
-// and events use  x02000000.
-// The top 4 bits are used for modifiers.
-//-------------------------------------------------------------
+/* ── Key codes: a code_t is 32 bits. we use the bottom 24 (nah, 21) bits for
+ * unicode (up to x0010FFFF) The codes after x01000000 are for virtual keys and
+ * events use  x02000000. The top 4 bits are used for modifiers ── */
 
 static inline code_t key_char(char c) {
   // careful about signed character conversion (negative char ~> 0x80 - 0xFF)

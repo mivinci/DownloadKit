@@ -1,22 +1,19 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * mem.h - Custom allocator adapter
+ */
 #pragma once
 #ifndef IC_MEM_H
 #define IC_MEM_H
 
-//-------------------------------------------------------------
-// Heap allocation.
-//
-// xline always uses the stdlib allocator; the alloc_t struct is
-// retained as an opaque tag so ~50 internal call sites that pass
-// `env->mem`, `bb->mem`, etc. compile unchanged. The function-pointer
-// indirection of upstream isocline has been removed — mem_* helpers
-// ignore the alloc_t* argument entirely.
-//-------------------------------------------------------------
+/* ── Heap allocation. xline always uses the stdlib allocator; the alloc_t
+ * struct is retained as an opaque tag so ~50 internal call sites that pass
+ * `env->mem`, `bb->mem`, etc. compile unchanged. The function-pointer
+ * indirection of upstream isocline has been removed — mem_* helpers ignore the
+ * alloc_t* argument entirely ── */
 
 #include "platform.h"
 

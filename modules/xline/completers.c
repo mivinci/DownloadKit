@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * completers.c - Built-in completers (file, command, …)
+ */
 #include <stdio.h>
 #include <string.h>
 
@@ -18,9 +19,7 @@
 #include "stringbuf.h"
 #include "unicode.h"
 
-//-------------------------------------------------------------
-// Word completion
-//-------------------------------------------------------------
+/* ── Word completion ── */
 
 // free variables for word completion
 typedef struct word_closure_s {
@@ -85,9 +84,7 @@ ic_public void xLineCompleteWord(xLineCompletionEnv *cenv, const char *prefix,
   cenv->closure  = wenv.prev_env;
 }
 
-//-------------------------------------------------------------
-// Quoted word completion (with escape characters)
-//-------------------------------------------------------------
+/* ── Quoted word completion (with escape characters) ── */
 
 // free variables for word completion
 typedef struct qword_closure_s {
@@ -287,10 +284,7 @@ ic_public void xLineCompleteQwordEx(xLineCompletionEnv *cenv,
   mem_free(cenv->env->mem, word);
 }
 
-//-------------------------------------------------------------
-// Complete file names
-// Listing files
-//-------------------------------------------------------------
+/* ── Complete file names Listing files ── */
 #include <stdlib.h>
 
 typedef enum file_type_e {
@@ -559,9 +553,7 @@ ic_private char ic_dirsep(void) {
 }
 #endif
 
-//-------------------------------------------------------------
-// File completion
-//-------------------------------------------------------------
+/* ── File completion ── */
 
 static bool ends_with_n(const char *name, ssize_t name_len, const char *ending,
                         ssize_t len) {

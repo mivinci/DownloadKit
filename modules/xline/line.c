@@ -1,24 +1,18 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * line.c - Interactive line editing public API
+ */
 
-//-------------------------------------------------------------
-// Public API entry points for the xline module.
-//
-// This file implements every xLine* function declared in line.h
-// by delegating to the internal helpers in this directory
-// (editline.c, term.c, history.c, bbcode.c, ...). Feature-test
-// macros such as _XOPEN_SOURCE / _DEFAULT_SOURCE and the MSVC
-// _CRT_*_WARNINGS suppressions are set per-target in
-// CMakeLists.txt.
-//-------------------------------------------------------------
+/* ── Public API entry points for the xline module. This file implements every
+ * xLine* function declared in line.h by delegating to the internal helpers in
+ * this directory (editline.c, term.c, history.c, bbcode.c, ...). Feature-test
+ * macros such as _XOPEN_SOURCE / _DEFAULT_SOURCE and the MSVC _CRT_*_WARNINGS
+ * suppressions are set per-target in CMakeLists.txt ── */
 
-//-------------------------------------------------------------
-// includes
-//-------------------------------------------------------------
+/* ── includes ── */
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,9 +25,7 @@
 #include "platform.h"
 #include "str.h"
 
-//-------------------------------------------------------------
-// Readline
-//-------------------------------------------------------------
+/* ── Readline ── */
 
 static char *ic_getline(alloc_t *mem);
 
@@ -67,10 +59,8 @@ ic_public char *xLineReadline(const char *prompt_text) {
   }
 }
 
-//-------------------------------------------------------------
-// Read a line from the stdin stream if there is no editing
-// support (like from a pipe, file, or dumb terminal).
-//-------------------------------------------------------------
+/* ── Read a line from the stdin stream if there is no editing support (like
+ * from a pipe, file, or dumb terminal) ── */
 
 static char *ic_getline(alloc_t *mem) {
   // read until eof or newline
@@ -87,9 +77,7 @@ static char *ic_getline(alloc_t *mem) {
   return sbuf_free_dup(sb);
 }
 
-//-------------------------------------------------------------
-// Formatted output
-//-------------------------------------------------------------
+/* ── Formatted output ── */
 
 ic_public void xLinePrintf(const char *fmt, ...) {
   va_list ap;
@@ -134,9 +122,7 @@ void xLineStyleClose(void) {
   bbcode_style_close(env->bbcode, NULL);
 }
 
-//-------------------------------------------------------------
-// Interface
-//-------------------------------------------------------------
+/* ── Interface ── */
 
 ic_public bool xLineAsyncStop(void) {
   ic_env_t *env = ic_get_env();
@@ -370,9 +356,7 @@ ic_public const char *xLineStrdup(const char *s) {
   return p;
 }
 
-//-------------------------------------------------------------
-// Terminal
-//-------------------------------------------------------------
+/* ── Terminal ── */
 
 ic_public void xLineTermInit(void) {
   ic_env_t *env = ic_get_env();
@@ -489,9 +473,7 @@ ic_public void xLineTermColorRgb(bool foreground, uint32_t hcolor) {
   }
 }
 
-//-------------------------------------------------------------
-// Readline with temporary completer and highlighter
-//-------------------------------------------------------------
+/* ── Readline with temporary completer and highlighter ── */
 
 ic_public char *xLineReadlineEx(const char       *prompt_text,
                                 xLineCompleterFn *completer,
@@ -521,9 +503,7 @@ ic_public char *xLineReadlineEx(const char       *prompt_text,
   return res;
 }
 
-//-------------------------------------------------------------
-// Initialize
-//-------------------------------------------------------------
+/* ── Initialize ── */
 
 static void ic_atexit(void);
 

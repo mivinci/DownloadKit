@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * bbcode.c - BBCode markup parser and renderer
+ */
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,9 +20,7 @@
 #include "str.h"
 #include "term.h"
 
-//-------------------------------------------------------------
-// Types
-//-------------------------------------------------------------
+/* ── Types ── */
 
 typedef struct style_s {
   const char *name; // name of the style
@@ -67,9 +66,7 @@ struct bbcode_s {
   stringbuf_t *vout; // vprintf buffer
 };
 
-//-------------------------------------------------------------
-// Create, helpers
-//-------------------------------------------------------------
+/* ── Create, helpers ── */
 
 ic_private bbcode_t *bbcode_new(alloc_t *mem, term_t *term) {
   bbcode_t *bb = mem_zalloc_tp(mem, bbcode_t);
@@ -136,9 +133,7 @@ static void bbcode_tag_pop(bbcode_t *bb, tag_t *tag) {
   }
 }
 
-//-------------------------------------------------------------
-// Invalid parse/values/balance
-//-------------------------------------------------------------
+/* ── Invalid parse/values/balance ── */
 
 static void bbcode_invalid(const char *fmt, ...) {
   if (getenv("ISOCLINE_BBCODE_DEBUG") != NULL) {
@@ -149,9 +144,7 @@ static void bbcode_invalid(const char *fmt, ...) {
   }
 }
 
-//-------------------------------------------------------------
-// Set attributes
-//-------------------------------------------------------------
+/* ── Set attributes ── */
 
 static attr_t bbcode_open(bbcode_t *bb, ssize_t out_pos, const tag_t *tag,
                           attr_t current) {
@@ -208,9 +201,7 @@ static bool bbcode_close(bbcode_t *bb, ssize_t base, const char *name,
   return false;
 }
 
-//-------------------------------------------------------------
-// Update attributes
-//-------------------------------------------------------------
+/* ── Update attributes ── */
 
 static const char *attr_update_bool(const char *fname, signed int *field,
                                     const char *value) {
@@ -509,9 +500,7 @@ ic_private attr_t bbcode_style(bbcode_t *bb, const char *style_name) {
   return tag.attr;
 }
 
-//-------------------------------------------------------------
-// Parse tags
-//-------------------------------------------------------------
+/* ── Parse tags ── */
 
 ic_private const char *parse_skip_white(const char *s) {
   while (*s != 0 && *s != ']') {
@@ -668,9 +657,7 @@ static const char *parse_tag(tag_t *tag, char *idbuf, bool *open, bool *pre,
   return s;
 }
 
-//---------------------------------------------------------
-// Styles
-//---------------------------------------------------------
+/* ── Styles ── */
 
 static void bbcode_parse_tag_content(bbcode_t *bb, const char *s, tag_t *tag) {
   tag_init(tag);
@@ -703,9 +690,7 @@ ic_private void bbcode_style_close(bbcode_t *bb, const char *fmt) {
   }
 }
 
-//---------------------------------------------------------
-// Restrict to width
-//---------------------------------------------------------
+/* ── Restrict to width ── */
 
 static void bbcode_restrict_width(ssize_t start, width_t width,
                                   stringbuf_t *out, attrbuf_t *attr_out) {
@@ -771,9 +756,7 @@ static void bbcode_restrict_width(ssize_t start, width_t width,
   }
 }
 
-//---------------------------------------------------------
-// Print
-//---------------------------------------------------------
+/* ── Print ── */
 
 ic_private ssize_t bbcode_process_tag(bbcode_t *bb, const char *s,
                                       const ssize_t nesting_base,

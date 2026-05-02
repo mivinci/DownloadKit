@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * term_color.c - Terminal color / SGR helpers
+ */
 
 // SGR rendering: maps ic_color_t values into ANSI / 256-color / 24-bit
 // escape sequences based on the terminal's advertised palette. Split
@@ -17,9 +18,7 @@
 #include "platform.h"
 #include "term.h"
 
-//-------------------------------------------------------------
-// Standard ANSI palette for 256 colors
-//-------------------------------------------------------------
+/* ── Standard ANSI palette for 256 colors ── */
 
 ic_private uint32_t ansi256[256] = {
   // not const as on some platforms (e.g. Windows, xterm) we update the first 16
@@ -79,9 +78,7 @@ ic_private uint32_t ansi256[256] = {
   0x949494, 0x9e9e9e, 0xa8a8a8, 0xb2b2b2, 0xbcbcbc, 0xc6c6c6, 0xd0d0d0,
   0xdadada, 0xe4e4e4, 0xeeeeee};
 
-//-------------------------------------------------------------
-// Create colors
-//-------------------------------------------------------------
+/* ── Create colors ── */
 
 // Create a color from a 24-bit color value.
 ic_private ic_color_t ic_rgb(uint32_t hex) {
@@ -98,9 +95,7 @@ ic_private ic_color_t ic_rgbx(ssize_t r, ssize_t g, ssize_t b) {
   return ic_rgb((ic_cap8(r) << 16) | (ic_cap8(g) << 8) | ic_cap8(b));
 }
 
-//-------------------------------------------------------------
-// Match an rgb color to a ansi8, ansi16, or ansi256
-//-------------------------------------------------------------
+/* ── Match an rgb color to a ansi8, ansi16, or ansi256 ── */
 
 ic_private bool color_is_rgb(ic_color_t color) {
   return (color >= IC_RGB(0)); // bit 24 is set for rgb colors
@@ -284,9 +279,7 @@ static int color_to_ansi8(ic_color_t color) {
   }
 }
 
-//-------------------------------------------------------------
-// Emit color escape codes based on the terminal capability
-//-------------------------------------------------------------
+/* ── Emit color escape codes based on the terminal capability ── */
 
 static void fmt_color_ansi8(char *buf, ssize_t len, ic_color_t color, bool bg) {
   int c = color_to_ansi8(color) + (bg ? 10 : 0);
@@ -344,9 +337,7 @@ static void term_color_ex(term_t *term, ic_color_t color, bool bg) {
   term_write(term, buf);
 }
 
-//-------------------------------------------------------------
-// Main API functions
-//-------------------------------------------------------------
+/* ── Main API functions ── */
 
 ic_private void term_color(term_t *term, ic_color_t color) {
   term_color_ex(term, color, false);

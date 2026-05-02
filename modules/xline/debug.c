@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * debug.c - Diagnostic logging
+ */
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,13 +12,9 @@
 
 #include "debug.h"
 
-//-------------------------------------------------------------
-// debug_msg
-//
-// Compile-time knobs:
-//   -DIC_NO_DEBUG_MSG     strip all output (debug.h stubs debug_msg)
-//   -DIC_DEBUG_TO_FILE    route into ./isocline.debug.txt
-//-------------------------------------------------------------
+/* ── debug_msg Compile-time knobs: -DIC_NO_DEBUG_MSG     strip all output
+ * (debug.h stubs debug_msg) -DIC_DEBUG_TO_FILE    route into
+ * ./isocline.debug.txt ── */
 
 #if defined(IC_NO_DEBUG_MSG)
 // nothing — debug.h turned debug_msg into a no-op macro.

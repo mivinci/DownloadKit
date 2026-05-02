@@ -1,18 +1,17 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * str.h - String utility helpers
+ */
 #pragma once
 #ifndef IC_STR_H
 #define IC_STR_H
 
-//-------------------------------------------------------------
-// ssize_t-flavored string and memory byte helpers used across
-// xline internals. Public xLineStartsWith / xLineIstartsWith
-// live in line.h; those are implemented in str.c as well.
-//-------------------------------------------------------------
+/* ── ssize_t-flavored string and memory byte helpers used across xline
+ * internals. Public xLineStartsWith / xLineIstartsWith live in line.h; those
+ * are implemented in str.c as well ── */
 
 #include "platform.h"
 

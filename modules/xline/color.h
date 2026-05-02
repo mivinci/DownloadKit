@@ -1,21 +1,18 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * color.h - Color types
+ */
 #pragma once
 #ifndef IC_COLOR_H
 #define IC_COLOR_H
 
-//-------------------------------------------------------------
-// Terminal colors.
-//
-// A color is either RGB or an ANSI code. RGB colors have bit 24
-// set to distinguish them from the ANSI color palette; xline
-// automatically down-converts from RGB on terminals that do not
-// support full colors.
-//-------------------------------------------------------------
+/* ── Terminal colors. A color is either RGB or an ANSI code. RGB colors have
+ * bit 24 set to distinguish them from the ANSI color palette; xline
+ * automatically down-converts from RGB on terminals that do not support full
+ * colors ── */
 
 #include "platform.h"
 

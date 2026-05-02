@@ -1,9 +1,10 @@
-/* ----------------------------------------------------------------------------
-  Copyright (c) 2021, Daan Leijen
-  This is free software; you can redistribute it and/or modify it
-  under the terms of the MIT License. A copy of the license can be
-  found in the "LICENSE" file at the root of this distribution.
------------------------------------------------------------------------------*/
+/*
+ * Copyright 2025 The xKit Authors. All rights reserved.
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ *
+ * env.h - Environment (ic_env_t) definition
+ */
 #pragma once
 #ifndef IC_ENV_H
 #define IC_ENV_H
@@ -18,9 +19,7 @@
 #include "term.h"
 #include "tty.h"
 
-//-------------------------------------------------------------
-// Environment
-//-------------------------------------------------------------
+/* ── Environment ── */
 
 struct ic_env_s {
   alloc_t       *mem;         // potential custom allocator

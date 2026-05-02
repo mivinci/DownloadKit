@@ -1,10 +1,9 @@
-/*
- * Copyright 2025 The xKit Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
- *
- * editline.h - Core readline/edit loop
- */
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE" file at the root of this distribution.
+-----------------------------------------------------------------------------*/
 #pragma once
 #ifndef IC_EDITLINE_H
 #define IC_EDITLINE_H
@@ -16,9 +15,13 @@
 #include "stringbuf.h"
 #include "undo.h"
 
-/* ── The editor state Lifted from editline.c so that other internal translation
- * units (e.g. async.c) can embed an editor_t by value and call into the
- * synchronous edit primitives directly ── */
+//-------------------------------------------------------------
+// The editor state
+//
+// Lifted from editline.c so that other internal translation units
+// (e.g. async.c) can embed an editor_t by value and call into the
+// synchronous edit primitives directly.
+//-------------------------------------------------------------
 
 typedef struct editor_s {
   stringbuf_t *input;     // current user input
@@ -44,14 +47,19 @@ typedef struct editor_s {
   attrbuf_t *attrs_extra;
 } editor_t;
 
-/* ── Edit primitives shared across the xline internals ── */
+//-------------------------------------------------------------
+// Edit primitives shared across the xline internals.
+//-------------------------------------------------------------
 
 ic_private bool edit_init(ic_env_t *env, editor_t *eb, const char *prompt_text);
 ic_private bool edit_dispatch_key(ic_env_t *env, editor_t *eb, code_t c);
 ic_private char *edit_finalize(ic_env_t *env, editor_t *eb, code_t last_c);
 
-/* ── Editor helpers that cross TU boundaries between editline.c and its sibling
- * files (editline_help.c, editline_history.c, editline_completion.c) ── */
+//-------------------------------------------------------------
+// Editor helpers that cross TU boundaries between editline.c and
+// its sibling files (editline_help.c, editline_history.c,
+// editline_completion.c).
+//-------------------------------------------------------------
 
 ic_private void    edit_refresh(ic_env_t *env, editor_t *eb);
 ic_private void    edit_clear(ic_env_t *env, editor_t *eb);

@@ -1,10 +1,9 @@
-/*
- * Copyright 2025 The xKit Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
- *
- * editline.c - Core readline/edit loop
- */
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE" file at the root of this distribution.
+-----------------------------------------------------------------------------*/
 #include <stdio.h>
 #include <string.h>
 
@@ -23,7 +22,9 @@
 #include "undo.h"
 #include "unicode.h"
 
-/* ── Main edit line ── */
+//-------------------------------------------------------------
+// Main edit line
+//-------------------------------------------------------------
 static char *edit_line(ic_env_t   *env,
                        const char *prompt_text); // defined at bottom
 
@@ -38,7 +39,9 @@ ic_private char *ic_editline(ic_env_t *env, const char *prompt_text) {
   return line;
 }
 
-/* ── Undo/Redo ── */
+//-------------------------------------------------------------
+// Undo/Redo
+//-------------------------------------------------------------
 
 // capture the current edit state
 static void editor_capture(editor_t *eb, editstate_t **es) {
@@ -91,7 +94,9 @@ static bool editor_pos_is_at_end(editor_t *eb) {
   return (eb->pos == sbuf_len(eb->input));
 }
 
-/* ── Row/Column width and positioning ── */
+//-------------------------------------------------------------
+// Row/Column width and positioning
+//-------------------------------------------------------------
 
 static void edit_get_prompt_width(ic_env_t *env, editor_t *eb, bool in_extra,
                                   ssize_t *promptw, ssize_t *cpromptw) {
@@ -156,7 +161,9 @@ ic_private void edit_write_prompt(ic_env_t *env, editor_t *eb, ssize_t row,
   bbcode_style_close(env->bbcode, NULL);
 }
 
-/* ── Refresh ── */
+//-------------------------------------------------------------
+// Refresh
+//-------------------------------------------------------------
 
 typedef struct refresh_info_s {
   ic_env_t  *env;
@@ -489,7 +496,9 @@ static void edit_refresh_hint(ic_env_t *env, editor_t *eb) {
   }
 }
 
-/* ── Edit operations ── */
+//-------------------------------------------------------------
+// Edit operations
+//-------------------------------------------------------------
 
 static void edit_undo_restore(ic_env_t *env, editor_t *eb) {
   editor_undo_restore(eb, true);
@@ -803,15 +812,21 @@ ic_private void edit_insert_char(ic_env_t *env, editor_t *eb, char c) {
   edit_refresh_hint(env, eb);
 }
 
-/* ── Help, History, Completion: now each lives in its own TU (editline_help.c /
- * editline_history.c / editline_completion.c) and reaches back through
- * editline.h for the shared helpers ── */
+//-------------------------------------------------------------
+// Help, History, Completion: now each lives in its own TU
+// (editline_help.c / editline_history.c / editline_completion.c)
+// and reaches back through editline.h for the shared helpers.
+//-------------------------------------------------------------
 
-/* ── Edit line: per-key dispatch. Handles one already-read key code `c` against
- * the current editor state `eb`. Returns true when the caller's main loop
- * should exit (Enter/Ctrl-D-on-empty/Ctrl-C/STOP/ESC-on-empty). This is shared
- * between the synchronous edit_line() and the FD-level async primitives in
- * async.c ── */
+//-------------------------------------------------------------
+// Edit line: per-key dispatch.
+//
+// Handles one already-read key code `c` against the current editor
+// state `eb`. Returns true when the caller's main loop should exit
+// (Enter/Ctrl-D-on-empty/Ctrl-C/STOP/ESC-on-empty). This is shared
+// between the synchronous edit_line() and the FD-level async
+// primitives in async.c.
+//-------------------------------------------------------------
 
 ic_private bool edit_dispatch_key(ic_env_t *env, editor_t *eb, code_t c) {
   // update terminal in case of a resize
@@ -1009,13 +1024,19 @@ ic_private bool edit_dispatch_key(ic_env_t *env, editor_t *eb, code_t c) {
   return false;
 }
 
-/* ── Edit line: main edit loop ── */
+//-------------------------------------------------------------
+// Edit line: main edit loop
+//-------------------------------------------------------------
 
-/* ── Editor init / finalize helpers shared with async.c edit_init  — zero out
- * `eb`, allocate sub-buffers, paint the prompt, push an empty history slot.
- * Returns true on success; false if allocation failed. edit_finalize — dispose
- * of `eb` and return the final string (NULL for EOF/STOP, strdup'd input
- * otherwise) ── */
+//-------------------------------------------------------------
+// Editor init / finalize helpers shared with async.c
+//
+// edit_init  — zero out `eb`, allocate sub-buffers, paint the
+//              prompt, push an empty history slot. Returns true
+//              on success; false if allocation failed.
+// edit_finalize — dispose of `eb` and return the final string
+//              (NULL for EOF/STOP, strdup'd input otherwise).
+//-------------------------------------------------------------
 
 ic_private bool edit_init(ic_env_t *env, editor_t *eb,
                           const char *prompt_text) {

@@ -1,10 +1,9 @@
-/*
- * Copyright 2025 The xKit Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
- *
- * stringbuf.c - Mutable string buffer
- */
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE" file at the root of this distribution.
+-----------------------------------------------------------------------------*/
 
 // get `wcwidth` for the column width of unicode characters
 // note: for now the OS provided one is unused as we see quite a bit of
@@ -34,7 +33,9 @@
 #include "stringbuf.h"
 #include "unicode.h"
 #include "wcwidth.h"
-/* ── In place growable utf-8 strings ── */
+//-------------------------------------------------------------
+// In place growable utf-8 strings
+//-------------------------------------------------------------
 
 struct stringbuf_s {
   char    *buf;
@@ -43,7 +44,9 @@ struct stringbuf_s {
   alloc_t *mem;
 };
 
-/* ── String column width ── */
+//-------------------------------------------------------------
+// String column width
+//-------------------------------------------------------------
 
 // column width of a utf8 single character sequence.
 static ssize_t utf8_char_width(const char *s, ssize_t n) {
@@ -139,7 +142,9 @@ ic_private ssize_t str_take_while_fit(const char *s, ssize_t max_width) {
   return pos;
 }
 
-/* ── String navigation ── */
+//-------------------------------------------------------------
+// String navigation
+//-------------------------------------------------------------
 
 // get offset of the previous codepoint. does not skip back over CSI sequences.
 ic_private ssize_t str_prev_ofs(const char *s, ssize_t pos, ssize_t *width) {
@@ -226,7 +231,9 @@ static ssize_t str_limit_to_length(const char *s, ssize_t n) {
   return i;
 }
 
-/* ── String searching prev/next word, line, ws_word ── */
+//-------------------------------------------------------------
+// String searching prev/next word, line, ws_word
+//-------------------------------------------------------------
 
 static ssize_t str_find_backward(const char *s, ssize_t len, ssize_t pos,
                                  xLineIsCharClassFn *match,
@@ -327,7 +334,9 @@ static ssize_t str_find_ws_word_end(const char *s, ssize_t len, ssize_t pos) {
   return (end < 0 ? len : end);
 }
 
-/* ── String row/column iteration ── */
+//-------------------------------------------------------------
+// String row/column iteration
+//-------------------------------------------------------------
 
 // invoke a function for each terminal row; returns total row count.
 static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw,
@@ -381,7 +390,9 @@ static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw,
   return rcount + 1;
 }
 
-/* ── String: get row/column position ── */
+//-------------------------------------------------------------
+// String: get row/column position
+//-------------------------------------------------------------
 
 static bool str_get_current_pos_iter(const char *s, ssize_t row,
                                      ssize_t row_start, ssize_t row_len,
@@ -424,8 +435,10 @@ static ssize_t str_get_rc_at_pos(const char *s, ssize_t len, ssize_t termw,
   return rows;
 }
 
-/* ── String: get row/column position for a resized terminal with potentially
- * "hard-wrapped" rows ── */
+//-------------------------------------------------------------
+// String: get row/column position for a resized terminal
+// with potentially "hard-wrapped" rows
+//-------------------------------------------------------------
 typedef struct wrapped_arg_s {
   ssize_t pos;
   ssize_t newtermw;
@@ -512,7 +525,9 @@ static ssize_t str_get_wrapped_rc_at_pos(const char *s, ssize_t len,
   return (rows + wrc.hrows);
 }
 
-/* ── Set position ── */
+//-------------------------------------------------------------
+// Set position
+//-------------------------------------------------------------
 
 static bool str_set_pos_iter(const char *s, ssize_t row, ssize_t row_start,
                              ssize_t row_len, ssize_t startw, bool is_wrap,
@@ -550,7 +565,9 @@ static ssize_t str_get_pos_at_rc(const char *s, ssize_t len, ssize_t termw,
   return pos;
 }
 
-/* ── String buffer ── */
+//-------------------------------------------------------------
+// String buffer
+//-------------------------------------------------------------
 static bool sbuf_ensure_extra(stringbuf_t *s, ssize_t extra) {
   if (s->buflen >= s->count + extra) return true;
   // reallocate; pick good initial size and multiples to increase reuse on
@@ -929,7 +946,9 @@ ic_private ssize_t ic_count_end_overlap(const char *s, const char *postfix) {
   return 0;
 }
 
-/* ── String helpers ── */
+//-------------------------------------------------------------
+// String helpers
+//-------------------------------------------------------------
 
 ic_public long xLinePrevChar(const char *s, long pos) {
   ssize_t len = ic_strlen(s);

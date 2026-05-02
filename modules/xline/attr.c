@@ -1,10 +1,9 @@
-/*
- * Copyright 2025 The xKit Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
- *
- * attr.c - Text attribute (color/bold/…) operations
- */
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE" file at the root of this distribution.
+-----------------------------------------------------------------------------*/
 #include <string.h>
 
 #include "attr.h"
@@ -17,7 +16,9 @@
 #include "term.h"      // color_from_ansi256
 #include "unicode.h"
 
-/* ── Attributes ── */
+//-------------------------------------------------------------
+// Attributes
+//-------------------------------------------------------------
 
 ic_private attr_t attr_none(void) {
   attr_t attr;
@@ -206,7 +207,9 @@ ic_private attr_t attr_from_esc_sgr(const char *s, ssize_t len) {
   return attr_from_sgr(s + 2, len - 2);
 }
 
-/* ── Attribute buffer ── */
+//-------------------------------------------------------------
+// Attribute buffer
+//-------------------------------------------------------------
 struct attrbuf_s {
   attr_t  *attrs;
   ssize_t  capacity;

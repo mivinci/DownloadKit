@@ -1,15 +1,16 @@
-/*
- * Copyright 2025 The xKit Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
- *
- * str.c - String utility helpers
- */
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE" file at the root of this distribution.
+-----------------------------------------------------------------------------*/
 #include <string.h>
 
 #include "str.h"
 
-/* ── ssize_t-wrapped memory helpers ── */
+//-------------------------------------------------------------
+// ssize_t-wrapped memory helpers
+//-------------------------------------------------------------
 
 ic_private ssize_t ic_strlen(const char *s) {
   if (s == NULL) return 0;
@@ -71,7 +72,9 @@ ic_private bool ic_strncpy(char *dest, ssize_t dest_size /* including 0 */,
   return true;
 }
 
-/* ── String matching ── */
+//-------------------------------------------------------------
+// String matching
+//-------------------------------------------------------------
 
 ic_public bool xLineStartsWith(const char *s, const char *prefix) {
   if (s == prefix) return true;

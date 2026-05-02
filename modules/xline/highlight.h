@@ -1,10 +1,9 @@
-/*
- * Copyright 2025 The xKit Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
- *
- * highlight.h - Syntax highlighting callback helpers
- */
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE" file at the root of this distribution.
+-----------------------------------------------------------------------------*/
 #pragma once
 #ifndef IC_HIGHLIGHT_H
 #define IC_HIGHLIGHT_H
@@ -15,7 +14,9 @@
 #include "platform.h"
 #include "term.h"
 
-/* ── Syntax highlighting ── */
+//-------------------------------------------------------------
+// Syntax highlighting
+//-------------------------------------------------------------
 
 ic_private void    highlight(alloc_t *mem, bbcode_t *bb, const char *s,
                              attrbuf_t *attrs, xLineHighlightFn *highlighter,

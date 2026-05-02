@@ -1,10 +1,9 @@
-/*
- * Copyright 2025 The xKit Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
- *
- * stringbuf.h - Mutable string buffer
- */
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE" file at the root of this distribution.
+-----------------------------------------------------------------------------*/
 #pragma once
 #ifndef IC_STRINGBUF_H
 #define IC_STRINGBUF_H
@@ -14,8 +13,11 @@
 #include "unicode.h"
 #include <stdarg.h>
 
-/* ── string buffer in-place modified buffer with edit operations that grows on
- * demand ── */
+//-------------------------------------------------------------
+// string buffer
+// in-place modified buffer with edit operations
+// that grows on demand.
+//-------------------------------------------------------------
 
 // abstract string buffer
 struct stringbuf_s;
@@ -116,7 +118,9 @@ ic_private ssize_t sbuf_for_each_row(stringbuf_t *sbuf, ssize_t termw,
                                      ssize_t promptw, ssize_t cpromptw,
                                      row_fun_t *fun, void *arg, void *res);
 
-/* ── Strings ── */
+//-------------------------------------------------------------
+// Strings
+//-------------------------------------------------------------
 
 // skip a single CSI sequence (ESC [ ...)
 ic_private bool skip_csi_esc(const char *s, ssize_t len,

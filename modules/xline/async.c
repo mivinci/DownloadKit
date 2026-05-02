@@ -1,14 +1,18 @@
-/*
- * Copyright 2025 The xKit Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
- *
- * async.c - FD-level async line editing
- */
-/* ── FD-level async line editing. Relies on the synchronous edit primitives
- * declared in editline.h (editor_t, edit_init, edit_dispatch_key,
- * edit_finalize, edit_refresh, edit_write_prompt) and tty.c (tty_read_timeout,
- * tty_start_raw, tty_end_raw, tty_fd) ── */
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen (original isocline)
+  Copyright (c) 2026, xKit contributors (xline async additions)
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE.isocline" file at the root of this module.
+-----------------------------------------------------------------------------*/
+//-------------------------------------------------------------
+// FD-level async line editing.
+//
+// Relies on the synchronous edit primitives declared in editline.h
+// (editor_t, edit_init, edit_dispatch_key, edit_finalize, edit_refresh,
+// edit_write_prompt) and tty.c (tty_read_timeout, tty_start_raw,
+// tty_end_raw, tty_fd).
+//-------------------------------------------------------------
 
 #include <stdio.h>
 #include <string.h>
@@ -22,7 +26,9 @@
 #include "term.h"
 #include "tty.h"
 
-/* ── Handle state ── */
+//-------------------------------------------------------------
+// Handle state
+//-------------------------------------------------------------
 
 typedef enum xline_async_state_e {
   XLINE_ASYNC_INIT = 0,   // freshly begun; Begin/Step not yet taken/ended
@@ -49,7 +55,9 @@ ic_private bool xline_async_is_live(void) {
   return g_live_session != NULL;
 }
 
-/* ── Begin / End ── */
+//-------------------------------------------------------------
+// Begin / End
+//-------------------------------------------------------------
 
 ic_public xLineHandle *xLineBegin(const char *prompt_text) {
   if (g_live_session != NULL) {
@@ -114,7 +122,9 @@ ic_public void xLineEnd(xLineHandle *h) {
   mem_free(env->mem, h);
 }
 
-/* ── Fd accessor ── */
+//-------------------------------------------------------------
+// Fd accessor
+//-------------------------------------------------------------
 
 ic_public int xLineFd(xLineHandle *h) {
   if (h == NULL || h->env == NULL || h->env->tty == NULL) return -1;
@@ -126,7 +136,9 @@ ic_public int xLineFd(xLineHandle *h) {
 #endif
 }
 
-/* ── Step ── */
+//-------------------------------------------------------------
+// Step
+//-------------------------------------------------------------
 
 // Advance the edit session by consuming whatever key codes are currently
 // buffered. Returns once the tty reports PENDING (no more data right now)
@@ -172,7 +184,9 @@ ic_public xLineStepResult xLineStep(xLineHandle *h) {
   }
 }
 
-/* ── Take (transfer line ownership to caller) ── */
+//-------------------------------------------------------------
+// Take (transfer line ownership to caller)
+//-------------------------------------------------------------
 
 ic_public char *xLineTake(xLineHandle *h) {
   if (h == NULL || h->state != XLINE_ASYNC_DONE_LINE) return NULL;
@@ -181,7 +195,9 @@ ic_public char *xLineTake(xLineHandle *h) {
   return line;
 }
 
-/* ── Print above the current edit line ── */
+//-------------------------------------------------------------
+// Print above the current edit line
+//-------------------------------------------------------------
 
 ic_public void xLinePrintAbove(xLineHandle *h, const char *s) {
   if (h == NULL || s == NULL || h->env == NULL) return;

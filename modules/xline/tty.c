@@ -1,10 +1,9 @@
-/*
- * Copyright 2025 The xKit Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
- *
- * tty.c - TTY / console raw-mode driver
- */
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE" file at the root of this distribution.
+-----------------------------------------------------------------------------*/
 #include <locale.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -60,13 +59,17 @@ struct tty_s {
 #endif
 };
 
-/* ── Forward declarations of platform dependent primitives below ── */
+//-------------------------------------------------------------
+// Forward declarations of platform dependent primitives below
+//-------------------------------------------------------------
 
 ic_private bool tty_readc_noblock(
   tty_t *tty, uint8_t *c,
   long timeout_ms); // does not modify `c` when no input (false is returned)
 
-/* ── Key code helpers ── */
+//-------------------------------------------------------------
+// Key code helpers
+//-------------------------------------------------------------
 
 ic_private bool code_is_ascii_char(code_t c, char *chr) {
   if (c >= ' ' && c <= 0x7F) {
@@ -92,7 +95,9 @@ ic_private bool code_is_virt_key(code_t c) {
   return (KEY_NO_MODS(c) <= 0x20 || KEY_NO_MODS(c) >= KEY_VIRT);
 }
 
-/* ── Read a key code ── */
+//-------------------------------------------------------------
+// Read a key code
+//-------------------------------------------------------------
 static code_t modify_code(code_t code);
 
 static code_t tty_read_utf8(tty_t *tty, uint8_t c0) {
@@ -221,7 +226,9 @@ ic_private code_t tty_read(tty_t *tty) {
   return code;
 }
 
-/* ── Read back an ANSI query response ── */
+//-------------------------------------------------------------
+// Read back an ANSI query response
+//-------------------------------------------------------------
 
 ic_private bool tty_read_esc_response(tty_t *tty, char esc_start, bool final_st,
                                       char *buf, ssize_t buflen) {
@@ -262,7 +269,9 @@ ic_private bool tty_read_esc_response(tty_t *tty, char esc_start, bool final_st,
   return true;
 }
 
-/* ── High level code pushback ── */
+//-------------------------------------------------------------
+// High level code pushback
+//-------------------------------------------------------------
 
 static bool tty_code_pop(tty_t *tty, code_t *code) {
   if (tty->push_count <= 0) return false;
@@ -278,7 +287,9 @@ ic_private void tty_code_pushback(tty_t *tty, code_t c) {
   tty->push_count++;
 }
 
-/* ── low-level character pushback (for escape sequences and windows) ── */
+//-------------------------------------------------------------
+// low-level character pushback (for escape sequences and windows)
+//-------------------------------------------------------------
 
 ic_private bool tty_cpop(tty_t *tty, uint8_t *c) {
   if (tty->cpush_count <=
@@ -324,7 +335,9 @@ ic_private void tty_cpush_char(tty_t *tty, uint8_t c) {
   tty_cpush(tty, (const char *)buf);
 }
 
-/* ── Push escape codes (used on Windows to insert keys) ── */
+//-------------------------------------------------------------
+// Push escape codes (used on Windows to insert keys)
+//-------------------------------------------------------------
 
 static unsigned csi_mods(code_t mods) {
   unsigned m = 1;
@@ -360,7 +373,9 @@ static ic_unused_fn void tty_cpush_csi_unicode(tty_t *tty, code_t mods,
   }
 }
 
-/* ── Init ── */
+//-------------------------------------------------------------
+// Init
+//-------------------------------------------------------------
 
 static bool tty_init_raw(tty_t *tty);
 static void tty_done_raw(tty_t *tty);
@@ -433,7 +448,9 @@ ic_private void tty_set_esc_delay(tty_t *tty, long initial_delay_ms,
        : (followup_delay_ms > 1000 ? 1000 : followup_delay_ms));
 }
 
-/* ── Unix ── */
+//-------------------------------------------------------------
+// Unix
+//-------------------------------------------------------------
 #if !defined(_WIN32)
 
 static bool tty_readc_blocking(tty_t *tty, uint8_t *c) {
@@ -683,8 +700,11 @@ static void tty_done_raw(tty_t *tty) {
 
 #else
 
-/* ── Windows For best portability we push CSI escape sequences directly to the
- * character stream (instead of returning key codes) ── */
+//-------------------------------------------------------------
+// Windows
+// For best portability we push CSI escape sequences directly
+// to the character stream (instead of returning key codes).
+//-------------------------------------------------------------
 
 static void tty_waitc_console(tty_t *tty, long timeout_ms);
 

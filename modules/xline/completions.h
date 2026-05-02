@@ -1,10 +1,9 @@
-/*
- * Copyright 2025 The xKit Authors. All rights reserved.
- * Use of this source code is governed by a MIT license that can be
- * found in the LICENSE file.
- *
- * completions.h - Completion engine
- */
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE" file at the root of this distribution.
+-----------------------------------------------------------------------------*/
 #pragma once
 #ifndef IC_COMPLETIONS_H
 #define IC_COMPLETIONS_H
@@ -14,7 +13,9 @@
 #include "platform.h"
 #include "stringbuf.h"
 
-/* ── Completions ── */
+//-------------------------------------------------------------
+// Completions
+//-------------------------------------------------------------
 #define IC_MAX_COMPLETIONS_TO_SHOW (1000)
 #define IC_MAX_COMPLETIONS_TO_TRY  (IC_MAX_COMPLETIONS_TO_SHOW / 4)
 
@@ -48,7 +49,9 @@ ic_private ssize_t completions_apply_longest_prefix(completions_t *cms,
                                                     stringbuf_t   *sbuf,
                                                     ssize_t        pos);
 
-/* ── Completion environment ── */
+//-------------------------------------------------------------
+// Completion environment
+//-------------------------------------------------------------
 typedef bool(ic_completion_fun_t)(ic_env_t *env, void *funenv,
                                   const char *replacement, const char *display,
                                   const char *help, long delete_before,

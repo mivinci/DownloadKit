@@ -3,11 +3,11 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * command.c - Async command executor over xEventLoop
+ * command_posix.c - Async command executor for POSIX (fork/exec/waitpid)
  */
 
-#include <xbase/command.h>
 #include <stdlib.h>
+#include <xbase/command.h>
 
 #ifdef _WIN32
 /* Windows implementation is in command_windows.c */

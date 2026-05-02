@@ -4,7 +4,7 @@ file(GLOB_RECURSE XBASE_SOURCES "*.c")
 # ── Exclude POSIX-only sources on Windows ──
 if(WIN32)
   list(FILTER XBASE_SOURCES EXCLUDE REGEX
-    "event_epoll\\.c$|event_kqueue\\.c$|event_poll\\.c$|socket\\.c$")
+    "event_epoll\\.c$|event_kqueue\\.c$|event_poll\\.c$")
 endif()
 
 # On Windows, always build as static library to simplify linking with tests

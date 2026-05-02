@@ -55,13 +55,12 @@ target_include_directories(ai_openai PRIVATE
 # BudgetCalibrator suite) and we'd rather keep the surface small
 # than export a getter that exists only to feed a demo.
 #
-# The REPL uses isocline for CJK-aware line editing, persistent
-# history, and Ctrl-R search. Isocline is a pure-C, MIT-licensed,
-# header-clean readline replacement with native Windows support.
-find_package(Isocline REQUIRED)
+# The REPL uses xline (the vendored/rebranded fork of isocline, see
+# modules/xline/NOTICE) for CJK-aware line editing, persistent
+# history, and Ctrl-R search.
 
 add_executable(ai_session ai_session.cpp)
-target_link_libraries(ai_session PRIVATE xai xhttp xbase Isocline::Isocline)
+target_link_libraries(ai_session PRIVATE xai xhttp xbase xline)
 target_include_directories(ai_session PRIVATE
   ${CMAKE_SOURCE_DIR}/modules)
 
@@ -72,4 +71,13 @@ target_include_directories(ai_session PRIVATE
 add_executable(xjs_native_module xjs_native_module.c)
 target_link_libraries(xjs_native_module PRIVATE xjs)
 target_include_directories(xjs_native_module PRIVATE
+  ${CMAKE_SOURCE_DIR}/modules)
+
+# Minimal skeleton for "AI TUI" style apps: multiplex xline's async
+# line editor with an xbase event loop, with a periodic timer
+# standing in for a streaming AI response. See the file header for
+# the full walkthrough.
+add_executable(xline_async xline_async.c)
+target_link_libraries(xline_async PRIVATE xline xbase)
+target_include_directories(xline_async PRIVATE
   ${CMAKE_SOURCE_DIR}/modules)

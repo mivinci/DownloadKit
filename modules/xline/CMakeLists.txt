@@ -35,7 +35,8 @@ set(XLINE_TOPLEVEL_SOURCES
   tty.c
   tty_esc.c
   undo.c
-  unicode.c)
+  unicode.c
+  wcwidth.c)
 
 # Partial translation units that are #included into a parent .c.
 # Kept in the target for IDE visibility but not compiled directly.
@@ -44,8 +45,7 @@ set(XLINE_PARTIAL_SOURCES
   editline_completion.c
   editline_help.c
   editline_history.c
-  term_color.c
-  wcwidth.c)
+  term_color.c)
 
 set_source_files_properties(${XLINE_PARTIAL_SOURCES}
   PROPERTIES HEADER_FILE_ONLY TRUE)

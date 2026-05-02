@@ -19,7 +19,6 @@
 */
 // use our own (also on APPLE as that fails within vscode)
 #define  wcwidth(c)  mk_wcwidth(c)
-#include "wcwidth.c"
 // #endif
 
 #include <stdio.h>
@@ -33,6 +32,7 @@
 #include "unicode.h"
 #include "color.h"
 #include "stringbuf.h"
+#include "wcwidth.h"
 
 //-------------------------------------------------------------
 // In place growable utf-8 strings

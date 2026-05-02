@@ -99,7 +99,7 @@ static void edit_history_search(ic_env_t* env, editor_t* eb, char* initial ) {
   // set a search prompt and remember the previous state
   editor_undo_capture(eb);
   eb->disable_undo = true;
-  bool old_hint = ic_enable_hint(false);  
+  bool old_hint = xLineEnableHint(false);  
   const char* prompt_text = eb->prompt_text;
   eb->prompt_text = "history search";
   
@@ -237,7 +237,7 @@ again:
   eb->disable_undo = false;
   hsearch_done(env->mem,hs);
   eb->prompt_text = prompt_text;
-  ic_enable_hint(old_hint);
+  xLineEnableHint(old_hint);
   edit_refresh(env,eb);
   if (c != 0) tty_code_pushback(env->tty, c);
 }
@@ -248,7 +248,7 @@ static void edit_history_search_with_current_word(ic_env_t* env, editor_t* eb) {
   ssize_t start = sbuf_find_word_start( eb->input, eb->pos );
   if (start >= 0) {
     const ssize_t next = sbuf_next(eb->input, start, NULL);
-    if (!ic_char_is_idletter(sbuf_string(eb->input) + start, (long)(next - start))) { 
+    if (!xLineCharIsIdletter(sbuf_string(eb->input) + start, (long)(next - start))) { 
       start = next; 
     }
     if (start >= 0 && start < eb->pos) {

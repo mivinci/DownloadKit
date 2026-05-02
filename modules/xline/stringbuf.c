@@ -232,7 +232,7 @@ static ssize_t str_limit_to_length( const char* s, ssize_t n ) {
 //-------------------------------------------------------------
 
 
-static ssize_t str_find_backward( const char* s, ssize_t len, ssize_t pos, ic_is_char_class_fun_t* match, bool skip_immediate_matches ) {
+static ssize_t str_find_backward( const char* s, ssize_t len, ssize_t pos, xLineIsCharClassFn* match, bool skip_immediate_matches ) {
   if (pos > len) pos = len;
   if (pos < 0) pos = 0;
   ssize_t i = pos;
@@ -259,7 +259,7 @@ static ssize_t str_find_backward( const char* s, ssize_t len, ssize_t pos, ic_is
   return -1; // not found
 }
 
-static ssize_t str_find_forward( const char* s, ssize_t len, ssize_t pos, ic_is_char_class_fun_t* match, bool skip_immediate_matches ) {
+static ssize_t str_find_forward( const char* s, ssize_t len, ssize_t pos, xLineIsCharClassFn* match, bool skip_immediate_matches ) {
   if (s == NULL || len < 0) return -1;
   if (pos > len) pos = len;
   if (pos < 0) pos = 0;  
@@ -303,22 +303,22 @@ static ssize_t str_find_line_end( const char* s, ssize_t len, ssize_t pos) {
 }
 
 static ssize_t str_find_word_start( const char* s, ssize_t len, ssize_t pos) {
-  ssize_t start = str_find_backward(s,len,pos, &ic_char_is_idletter,true /* skip immediate matches */);
+  ssize_t start = str_find_backward(s,len,pos, &xLineCharIsIdletter,true /* skip immediate matches */);
   return (start < 0 ? 0 : start); 
 }
 
 static ssize_t str_find_word_end( const char* s, ssize_t len, ssize_t pos) {
-  ssize_t end = str_find_forward(s,len,pos,&ic_char_is_idletter,true /* skip immediate matches */);
+  ssize_t end = str_find_forward(s,len,pos,&xLineCharIsIdletter,true /* skip immediate matches */);
   return (end < 0 ? len : end); 
 }
 
 static ssize_t str_find_ws_word_start( const char* s, ssize_t len, ssize_t pos) {
-  ssize_t start = str_find_backward(s,len,pos,&ic_char_is_white,true /* skip immediate matches */);
+  ssize_t start = str_find_backward(s,len,pos,&xLineCharIsWhite,true /* skip immediate matches */);
   return (start < 0 ? 0 : start); 
 }
 
 static ssize_t str_find_ws_word_end( const char* s, ssize_t len, ssize_t pos) {
-  ssize_t end = str_find_forward(s,len,pos,&ic_char_is_white,true /* skip immediate matches */);
+  ssize_t end = str_find_forward(s,len,pos,&xLineCharIsWhite,true /* skip immediate matches */);
   return (end < 0 ? len : end); 
 }
 
@@ -915,7 +915,7 @@ ic_private ssize_t ic_count_end_overlap(const char* s, const char* postfix) {
 // String helpers
 //-------------------------------------------------------------
 
-ic_public long ic_prev_char( const char* s, long pos ) {
+ic_public long xLinePrevChar( const char* s, long pos ) {
   ssize_t len = ic_strlen(s);
   if (pos < 0 || pos > len) return -1;
   ssize_t ofs = str_prev_ofs( s, pos, NULL );
@@ -923,7 +923,7 @@ ic_public long ic_prev_char( const char* s, long pos ) {
   return (long)(pos - ofs);
 }
 
-ic_public long ic_next_char( const char* s, long pos ) {
+ic_public long xLineNextChar( const char* s, long pos ) {
   ssize_t len = ic_strlen(s);
   if (pos < 0 || pos > len) return -1;
   ssize_t ofs = str_next_ofs( s, len, pos, NULL );
@@ -949,67 +949,67 @@ ic_private bool ic_atou32(const char* s, uint32_t* pu) {
 
 
 // Convenience: character class for whitespace `[ \t\r\n]`.
-ic_public bool ic_char_is_white(const char* s, long len) {
+ic_public bool xLineCharIsWhite(const char* s, long len) {
   if (s == NULL || len != 1) return false;
   const char c = *s;
   return (c==' ' || c == '\t' || c == '\n' || c == '\r');
 }
 
 // Convenience: character class for non-whitespace `[^ \t\r\n]`.
-ic_public bool ic_char_is_nonwhite(const char* s, long len) {
-  return !ic_char_is_white(s, len);
+ic_public bool xLineCharIsNonwhite(const char* s, long len) {
+  return !xLineCharIsWhite(s, len);
 }
 
 // Convenience: character class for separators `[ \t\r\n,.;:/\\\(\)\{\}\[\]]`.
-ic_public bool ic_char_is_separator(const char* s, long len) {
+ic_public bool xLineCharIsSeparator(const char* s, long len) {
   if (s == NULL || len != 1) return false;
   const char c = *s;
   return (strchr(" \t\r\n,.;:/\\(){}[]", c) != NULL);
 }
 
 // Convenience: character class for non-separators.
-ic_public bool ic_char_is_nonseparator(const char* s, long len) {
-  return !ic_char_is_separator(s, len);
+ic_public bool xLineCharIsNonseparator(const char* s, long len) {
+  return !xLineCharIsSeparator(s, len);
 }
 
 
 // Convenience: character class for digits (`[0-9]`).
-ic_public bool ic_char_is_digit(const char* s, long len) {
+ic_public bool xLineCharIsDigit(const char* s, long len) {
   if (s == NULL || len != 1) return false;
   const char c = *s;
   return (c >= '0' && c <= '9');
 }
 
 // Convenience: character class for hexadecimal digits (`[A-Fa-f0-9]`).
-ic_public bool ic_char_is_hexdigit(const char* s, long len) {
+ic_public bool xLineCharIsHexdigit(const char* s, long len) {
   if (s == NULL || len != 1) return false;
   const char c = *s;
   return ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
 }
 
 // Convenience: character class for letters (`[A-Za-z]` and any unicode > 0x80).
-ic_public bool ic_char_is_letter(const char* s, long len) {
+ic_public bool xLineCharIsLetter(const char* s, long len) {
   if (s == NULL || len <= 0) return false;
   const char c = *s;
   return ((uint8_t)c >= 0x80 || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
 }
 
 // Convenience: character class for identifier letters (`[A-Za-z0-9_-]` and any unicode > 0x80).
-ic_public bool ic_char_is_idletter(const char* s, long len) {
+ic_public bool xLineCharIsIdletter(const char* s, long len) {
   if (s == NULL || len <= 0) return false;
   const char c = *s;
   return ((uint8_t)c >= 0x80 || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '_') || (c == '-'));
 }
 
 // Convenience: character class for filename letters (`[^ \t\r\n`@$><=;|&{(]`).
-ic_public bool ic_char_is_filename_letter(const char* s, long len) {
+ic_public bool xLineCharIsFilenameLetter(const char* s, long len) {
   if (s == NULL || len <= 0) return false;
   const char c = *s;
   return ((uint8_t)c >= 0x80 || (strchr(" \t\r\n`@$><=;|&{}()[]", c) == NULL));
 }
 
 // Convenience: If this is a token start, returns the length (or <= 0 if not found).
-ic_public long ic_is_token(const char* s, long pos, ic_is_char_class_fun_t* is_token_char) {
+ic_public long xLineIsToken(const char* s, long pos, xLineIsCharClassFn* is_token_char) {
   if (s == NULL || pos < 0 || is_token_char == NULL) return -1;
   ssize_t len = ic_strlen(s);
   if (pos >= len) return -1;
@@ -1026,9 +1026,9 @@ ic_public long ic_is_token(const char* s, long pos, ic_is_char_class_fun_t* is_t
 
 // Convenience: Does this match the specified token? 
 // Ensures not to match prefixes or suffixes, and returns the length of the match (in bytes).
-// E.g. `ic_match_token("function",0,&ic_char_is_letter,"fun")` returns 0.
-ic_public long ic_match_token(const char* s, long pos, ic_is_char_class_fun_t* is_token_char, const char* token) {
-  long n = ic_is_token(s, pos, is_token_char);
+// E.g. `xLineMatchToken("function",0,&xLineCharIsLetter,"fun")` returns 0.
+ic_public long xLineMatchToken(const char* s, long pos, xLineIsCharClassFn* is_token_char, const char* token) {
+  long n = xLineIsToken(s, pos, is_token_char);
   if (n > 0 && token != NULL && n == ic_strlen(token) && ic_strncmp(s + pos, token, n) == 0) {
     return n;
   }
@@ -1041,9 +1041,9 @@ ic_public long ic_match_token(const char* s, long pos, ic_is_char_class_fun_t* i
 // Convenience: Do any of the specified tokens match? 
 // Ensures not to match prefixes or suffixes, and returns the length of the match (in bytes).
 // Ensures not to match prefixes or suffixes. 
-// E.g. `ic_match_any_token("function",0,&ic_char_is_letter,{"fun","func",NULL})` returns 0.
-ic_public long ic_match_any_token(const char* s, long pos, ic_is_char_class_fun_t* is_token_char, const char** tokens) {
-  long n = ic_is_token(s, pos, is_token_char);
+// E.g. `xLineMatchAnyToken("function",0,&xLineCharIsLetter,{"fun","func",NULL})` returns 0.
+ic_public long xLineMatchAnyToken(const char* s, long pos, xLineIsCharClassFn* is_token_char, const char** tokens) {
+  long n = xLineIsToken(s, pos, is_token_char);
   if (n <= 0 || tokens == NULL) return 0;
   for (const char** token = tokens; *token != NULL; token++) {
     if (n == ic_strlen(*token) && ic_strncmp(s + pos, *token, n) == 0) {

@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "isocline.h"
+#include "line.h"
 #include "common.h"
 #include "env.h"
 #include "stringbuf.h"
@@ -28,7 +28,7 @@ typedef struct completion_s {
 } completion_t;
 
 struct completions_s {
-  ic_completer_fun_t* completer;
+  xLineCompleterFn* completer;
   void* completer_arg;
   ssize_t completer_max;
   ssize_t count;
@@ -37,7 +37,7 @@ struct completions_s {
   alloc_t* mem;
 };
 
-static void default_filename_completer( ic_completion_env_t* cenv, const char* prefix );
+static void default_filename_completer( xLineCompletionEnv* cenv, const char* prefix );
 
 ic_private completions_t* completions_new(alloc_t* mem) {
   completions_t* cms = mem_zalloc_tp(mem, completions_t);
@@ -143,26 +143,26 @@ ic_private const char* completions_get_hint(completions_t* cms, ssize_t index, c
   return hint;
 }
 
-ic_private void completions_set_completer(completions_t* cms, ic_completer_fun_t* completer, void* arg) {
+ic_private void completions_set_completer(completions_t* cms, xLineCompleterFn* completer, void* arg) {
   cms->completer = completer;
   cms->completer_arg = arg;
 }
 
-ic_private void completions_get_completer(completions_t* cms, ic_completer_fun_t** completer, void** arg) {
+ic_private void completions_get_completer(completions_t* cms, xLineCompleterFn** completer, void** arg) {
   *completer = cms->completer;
   *arg = cms->completer_arg;
 }
 
 
-ic_public void* ic_completion_arg( const ic_completion_env_t* cenv ) {
+ic_public void* xLineCompletionArg( const xLineCompletionEnv* cenv ) {
   return (cenv == NULL ? NULL : cenv->env->completions->completer_arg);
 }
 
-ic_public bool ic_has_completions( const ic_completion_env_t* cenv ) {
+ic_public bool xLineHasCompletions( const xLineCompletionEnv* cenv ) {
   return (cenv == NULL ? false : cenv->env->completions->count > 0);
 }
 
-ic_public bool ic_stop_completing( const ic_completion_env_t* cenv) {
+ic_public bool xLineStopCompleting( const xLineCompletionEnv* cenv) {
   return (cenv == NULL ? true : cenv->env->completions->completer_max <= 0);
 }
 
@@ -262,24 +262,24 @@ ic_private ssize_t completions_apply_longest_prefix(completions_t* cms, stringbu
 // Completer functions
 //-------------------------------------------------------------
 
-ic_public bool ic_add_completions(ic_completion_env_t* cenv, const char* prefix, const char** completions) {
+ic_public bool xLineAddCompletions(xLineCompletionEnv* cenv, const char* prefix, const char** completions) {
   for (const char** pc = completions; *pc != NULL; pc++) {
-    if (ic_istarts_with(*pc, prefix)) {
-      if (!ic_add_completion_ex(cenv, *pc, NULL, NULL)) return false;
+    if (xLineIstartsWith(*pc, prefix)) {
+      if (!xLineAddCompletionEx(cenv, *pc, NULL, NULL)) return false;
     }
   }
   return true;
 }
 
-ic_public bool ic_add_completion(ic_completion_env_t* cenv, const char* replacement) {
-  return ic_add_completion_ex(cenv, replacement, NULL, NULL);
+ic_public bool xLineAddCompletion(xLineCompletionEnv* cenv, const char* replacement) {
+  return xLineAddCompletionEx(cenv, replacement, NULL, NULL);
 }
 
-ic_public bool ic_add_completion_ex( ic_completion_env_t* cenv, const char* replacement, const char* display, const char* help ) {
-  return ic_add_completion_prim(cenv,replacement,display,help,0,0);
+ic_public bool xLineAddCompletionEx( xLineCompletionEnv* cenv, const char* replacement, const char* display, const char* help ) {
+  return xLineAddCompletionPrim(cenv,replacement,display,help,0,0);
 }
 
-ic_public bool ic_add_completion_prim(ic_completion_env_t* cenv, const char* replacement, const char* display, const char* help, long delete_before, long delete_after) {
+ic_public bool xLineAddCompletionPrim(xLineCompletionEnv* cenv, const char* replacement, const char* display, const char* help, long delete_before, long delete_after) {
   return (*cenv->complete)(cenv->env, cenv->closure, replacement, display, help, delete_before, delete_after );
 }
 
@@ -288,7 +288,7 @@ static bool prim_add_completion(ic_env_t* env, void* funenv, const char* replace
   return completions_add(env->completions, replacement, display, help, delete_before, delete_after);
 }
 
-ic_public void ic_set_default_completer(ic_completer_fun_t* completer, void* arg) {
+ic_public void xLineSetDefaultCompleter(xLineCompleterFn* completer, void* arg) {
   ic_env_t* env = ic_get_env(); if (env == NULL) return;
   completions_set_completer(env->completions, completer, arg);
 }
@@ -298,7 +298,7 @@ ic_private ssize_t completions_generate(struct ic_env_s* env, completions_t* cms
   if (cms->completer == NULL || input == NULL || ic_strlen(input) < pos) return 0;
 
   // set up env
-  ic_completion_env_t cenv;
+  xLineCompletionEnv cenv;
   cenv.env = env;
   cenv.input = input,
   cenv.cursor = (long)pos;
@@ -317,11 +317,11 @@ ic_private ssize_t completions_generate(struct ic_env_s* env, completions_t* cms
 }
 
 // The default completer is no completion is set
-static void default_filename_completer( ic_completion_env_t* cenv, const char* prefix ) {
+static void default_filename_completer( xLineCompletionEnv* cenv, const char* prefix ) {
   #ifdef _WIN32
   const char sep = '\\';
   #else
   const char sep = '/';
   #endif
-  ic_complete_filename( cenv, prefix, sep, ".", NULL);
+  xLineCompleteFilename( cenv, prefix, sep, ".", NULL);
 }

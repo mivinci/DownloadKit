@@ -802,8 +802,8 @@ static void editor_auto_indent(editor_t* eb, const char* pre, const char* post )
   ssize_t prelen = ic_strlen(pre);
   if (prelen > 0) {
     if (eb->pos - 1 < prelen) return;
-    if (!ic_starts_with(sbuf_string(eb->input) + eb->pos - 1 - prelen, pre)) return;
-    if (!ic_starts_with(sbuf_string(eb->input) + eb->pos, post)) return;
+    if (!xLineStartsWith(sbuf_string(eb->input) + eb->pos - 1 - prelen, pre)) return;
+    if (!xLineStartsWith(sbuf_string(eb->input) + eb->pos, post)) return;
     eb->pos = sbuf_insert_at(eb->input, "  ", eb->pos);
     sbuf_insert_char_at(eb->input, '\n', eb->pos);
   }
@@ -1124,7 +1124,7 @@ static char* edit_line( ic_env_t* env, const char* prompt_text )
 
   // update history
   history_update(env->history, sbuf_string(eb.input));
-  if (res == NULL || sbuf_len(eb.input) <= 1) { ic_history_remove_last(); } // no empty or single-char entries
+  if (res == NULL || sbuf_len(eb.input) <= 1) { xLineHistoryRemoveLast(); } // no empty or single-char entries
   history_save(env->history);
 
   // free resources 

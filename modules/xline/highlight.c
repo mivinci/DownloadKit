@@ -16,7 +16,7 @@
 // Syntax highlighting
 //-------------------------------------------------------------
 
-struct ic_highlight_env_s {
+struct xLineHighlightEnvS {
   attrbuf_t*    attrs;
   const char*   input;   
   ssize_t       input_len;     
@@ -27,12 +27,12 @@ struct ic_highlight_env_s {
 };
 
 
-ic_private void highlight( alloc_t* mem, bbcode_t* bb, const char* s, attrbuf_t* attrs, ic_highlight_fun_t* highlighter, void* arg ) {
+ic_private void highlight( alloc_t* mem, bbcode_t* bb, const char* s, attrbuf_t* attrs, xLineHighlightFn* highlighter, void* arg ) {
   const ssize_t len = ic_strlen(s);
   if (len <= 0) return;
   attrbuf_set_at(attrs,0,len,attr_none()); // fill to length of s
   if (highlighter != NULL) {
-    ic_highlight_env_t henv;
+    xLineHighlightEnv henv;
     henv.attrs = attrs;
     henv.input = s;     
     henv.input_len = len;
@@ -49,7 +49,7 @@ ic_private void highlight( alloc_t* mem, bbcode_t* bb, const char* s, attrbuf_t*
 // Client interface
 //-------------------------------------------------------------
 
-static void pos_adjust( ic_highlight_env_t* henv, ssize_t* ppos, ssize_t* plen ) {
+static void pos_adjust( xLineHighlightEnv* henv, ssize_t* ppos, ssize_t* plen ) {
   ssize_t pos = *ppos;
   ssize_t len = *plen;
   if (pos >= henv->input_len) return;
@@ -96,19 +96,19 @@ static void pos_adjust( ic_highlight_env_t* henv, ssize_t* ppos, ssize_t* plen )
   } 
 }
 
-static void highlight_attr(ic_highlight_env_t* henv, ssize_t pos, ssize_t count, attr_t attr ) {
+static void highlight_attr(xLineHighlightEnv* henv, ssize_t pos, ssize_t count, attr_t attr ) {
   if (henv==NULL) return;
   pos_adjust(henv,&pos,&count);
   if (pos < 0 || count <= 0) return;
   attrbuf_update_at(henv->attrs, pos, count, attr);
 }
 
-ic_public void ic_highlight(ic_highlight_env_t* henv, long pos, long count, const char* style ) {
+ic_public void xLineHighlight(xLineHighlightEnv* henv, long pos, long count, const char* style ) {
   if (henv == NULL || style==NULL || style[0]==0 || pos < 0) return;  
   highlight_attr(henv,pos,count,bbcode_style( henv->bbcode, style ));
 }
 
-ic_public void ic_highlight_formatted(ic_highlight_env_t* henv, const char* s, const char* fmt) {
+ic_public void xLineHighlightFormatted(xLineHighlightEnv* henv, const char* s, const char* fmt) {
   if (s==NULL || s[0] == 0 || fmt==NULL) return;
   attrbuf_t* attrs = attrbuf_new(henv->mem);
   stringbuf_t* out = sbuf_new(henv->mem);  // todo: avoid allocating out?

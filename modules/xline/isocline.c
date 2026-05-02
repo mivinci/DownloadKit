@@ -44,7 +44,7 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include "isocline.h"
+#include "line.h"
 #include "common.h"
 #include "env.h"
 
@@ -55,7 +55,7 @@
 
 static char*  ic_getline( alloc_t* mem );
 
-ic_public char* ic_readline(const char* prompt_text) 
+ic_public char* xLineReadline(const char* prompt_text) 
 {
   ic_env_t* env = ic_get_env();
   if (env == NULL) return NULL;
@@ -108,39 +108,39 @@ static char* ic_getline(alloc_t* mem)
 //-------------------------------------------------------------
 
 
-ic_public void ic_printf(const char* fmt, ...) {
+ic_public void xLinePrintf(const char* fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
-  ic_vprintf(fmt, ap);
+  xLineVprintf(fmt, ap);
   va_end(ap);
 }
 
-ic_public void ic_vprintf(const char* fmt, va_list args) {
+ic_public void xLineVprintf(const char* fmt, va_list args) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->bbcode == NULL) return;
   bbcode_vprintf(env->bbcode, fmt, args);
 }
 
-ic_public void ic_print(const char* s) {
+ic_public void xLinePrint(const char* s) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->bbcode==NULL) return;
   bbcode_print(env->bbcode, s);
 }
 
-ic_public void ic_println(const char* s) {
+ic_public void xLinePrintln(const char* s) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->bbcode==NULL) return;
   bbcode_println(env->bbcode, s);
 }
 
-void ic_style_def(const char* name, const char* fmt) {
+void xLineStyleDef(const char* name, const char* fmt) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->bbcode==NULL) return;
   bbcode_style_def(env->bbcode, name, fmt);
 }
 
-void ic_style_open(const char* fmt) {
+void xLineStyleOpen(const char* fmt) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->bbcode==NULL) return;
   bbcode_style_open(env->bbcode, fmt);
 }
 
-void ic_style_close(void) {
+void xLineStyleClose(void) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->bbcode==NULL) return;
   bbcode_style_close(env->bbcode, NULL);
 }
@@ -150,7 +150,7 @@ void ic_style_close(void) {
 // Interface
 //-------------------------------------------------------------
 
-ic_public bool ic_async_stop(void) {
+ic_public bool xLineAsyncStop(void) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   if (env->tty==NULL) return false;
   return tty_async_stop(env->tty);
@@ -165,127 +165,127 @@ static void set_prompt_marker(ic_env_t* env, const char* prompt_marker, const ch
   env->cprompt_marker = mem_strdup(env->mem, cprompt_marker);
 }
 
-ic_public const char* ic_get_prompt_marker(void) {
+ic_public const char* xLineGetPromptMarker(void) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return NULL;
   return env->prompt_marker;
 }
 
-ic_public const char* ic_get_continuation_prompt_marker(void) {
+ic_public const char* xLineGetContinuationPromptMarker(void) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return NULL;
   return env->cprompt_marker;
 }
 
-ic_public void ic_set_prompt_marker( const char* prompt_marker, const char* cprompt_marker ) {
+ic_public void xLineSetPromptMarker( const char* prompt_marker, const char* cprompt_marker ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   set_prompt_marker(env, prompt_marker, cprompt_marker);
 }
 
-ic_public bool ic_enable_multiline( bool enable ) {
+ic_public bool xLineEnableMultiline( bool enable ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   bool prev = env->singleline_only;
   env->singleline_only = !enable;
   return !prev;
 }
 
-ic_public bool ic_enable_beep( bool enable ) {
+ic_public bool xLineEnableBeep( bool enable ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   return term_enable_beep(env->term, enable);
 }
 
-ic_public bool ic_enable_color( bool enable ) {
+ic_public bool xLineEnableColor( bool enable ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   return term_enable_color( env->term, enable );
 }
 
-ic_public bool ic_enable_history_duplicates( bool enable ) {
+ic_public bool xLineEnableHistoryDuplicates( bool enable ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   return history_enable_duplicates(env->history, enable);
 }
 
-ic_public void ic_set_history(const char* fname, long max_entries ) {
+ic_public void xLineSetHistory(const char* fname, long max_entries ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   history_load_from(env->history, fname, max_entries );
 }
 
-ic_public void ic_history_remove_last(void) {
+ic_public void xLineHistoryRemoveLast(void) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   history_remove_last(env->history);
 }
 
-ic_public void ic_history_add( const char* entry ) {
+ic_public void xLineHistoryAdd( const char* entry ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   history_push( env->history, entry );
 }
 
-ic_public void ic_history_clear(void) {
+ic_public void xLineHistoryClear(void) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   history_clear(env->history);
 }
 
-ic_public bool ic_enable_auto_tab( bool enable ) {
+ic_public bool xLineEnableAutoTab( bool enable ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   bool prev = env->complete_autotab;
   env->complete_autotab = enable;
   return prev;
 }
 
-ic_public bool ic_enable_completion_preview( bool enable ) {
+ic_public bool xLineEnableCompletionPreview( bool enable ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   bool prev = env->complete_nopreview;
   env->complete_nopreview = !enable;
   return !prev;
 }
 
-ic_public bool ic_enable_multiline_indent(bool enable) {
+ic_public bool xLineEnableMultilineIndent(bool enable) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   bool prev = env->no_multiline_indent;
   env->no_multiline_indent = !enable;
   return !prev;
 }
 
-ic_public bool ic_enable_hint(bool enable) {
+ic_public bool xLineEnableHint(bool enable) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   bool prev = env->no_hint;
   env->no_hint = !enable;
   return !prev;
 }
 
-ic_public long ic_set_hint_delay(long delay_ms) {
+ic_public long xLineSetHintDelay(long delay_ms) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   long prev = env->hint_delay;
   env->hint_delay = (delay_ms < 0 ? 0 : (delay_ms > 5000 ? 5000 : delay_ms));
   return prev;
 }
 
-ic_public void ic_set_tty_esc_delay(long initial_delay_ms, long followup_delay_ms ) {
+ic_public void xLineSetTtyEscDelay(long initial_delay_ms, long followup_delay_ms ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   if (env->tty == NULL) return;
   tty_set_esc_delay(env->tty, initial_delay_ms, followup_delay_ms);
 }
 
 
-ic_public bool ic_enable_highlight(bool enable) {
+ic_public bool xLineEnableHighlight(bool enable) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   bool prev = env->no_highlight;
   env->no_highlight = !enable;
   return !prev;
 }
 
-ic_public bool ic_enable_inline_help(bool enable) {
+ic_public bool xLineEnableInlineHelp(bool enable) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   bool prev = env->no_help;
   env->no_help = !enable;
   return !prev;
 }
 
-ic_public bool ic_enable_brace_matching(bool enable) {
+ic_public bool xLineEnableBraceMatching(bool enable) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   bool prev = env->no_bracematch;
   env->no_bracematch = !enable;
   return !prev;
 }
 
-ic_public void ic_set_matching_braces(const char* brace_pairs) {
+ic_public void xLineSetMatchingBraces(const char* brace_pairs) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   mem_free(env->mem, env->match_braces);
   env->match_braces = NULL;
@@ -297,14 +297,14 @@ ic_public void ic_set_matching_braces(const char* brace_pairs) {
   }
 }
 
-ic_public bool ic_enable_brace_insertion(bool enable) {
+ic_public bool xLineEnableBraceInsertion(bool enable) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return false;
   bool prev = env->no_autobrace;
   env->no_autobrace = !enable;
   return !prev;
 }
 
-ic_public void ic_set_insertion_braces(const char* brace_pairs) {
+ic_public void xLineSetInsertionBraces(const char* brace_pairs) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   mem_free(env->mem, env->auto_braces);
   env->auto_braces = NULL;
@@ -324,24 +324,24 @@ ic_private const char* ic_env_get_auto_braces(ic_env_t* env) {
   return (env->auto_braces == NULL ? "()[]{}\"\"''" : env->auto_braces);
 }
 
-ic_public void ic_set_default_highlighter(ic_highlight_fun_t* highlighter, void* arg) {
+ic_public void xLineSetDefaultHighlighter(xLineHighlightFn* highlighter, void* arg) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   env->highlighter = highlighter;
   env->highlighter_arg = arg;
 }
 
 
-ic_public void ic_free( void* p ) {
+ic_public void xLineFree( void* p ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   mem_free(env->mem, p);
 }
 
-ic_public void* ic_malloc(size_t sz) {
+ic_public void* xLineMalloc(size_t sz) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return NULL;
   return mem_malloc(env->mem, to_ssize_t(sz));
 }
 
-ic_public const char* ic_strdup( const char* s ) {
+ic_public const char* xLineStrdup( const char* s ) {
   if (s==NULL) return NULL;
   ic_env_t* env = ic_get_env(); if (env==NULL) return NULL;
   ssize_t len = ic_strlen(s);
@@ -356,95 +356,95 @@ ic_public const char* ic_strdup( const char* s ) {
 // Terminal
 //-------------------------------------------------------------
 
-ic_public void ic_term_init(void) {
+ic_public void xLineTermInit(void) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   if (env->term==NULL) return;
   term_start_raw(env->term);
 }
 
-ic_public void ic_term_done(void) {
+ic_public void xLineTermDone(void) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   if (env->term==NULL) return;
   term_end_raw(env->term,false);
 }
 
-ic_public void ic_term_flush(void) {
+ic_public void xLineTermFlush(void) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   if (env->term==NULL) return;
   term_flush(env->term);
 }
 
-ic_public void ic_term_write(const char* s) {
+ic_public void xLineTermWrite(const char* s) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   if (env->term == NULL) return;
   term_write(env->term, s);
 }
 
-ic_public void ic_term_writeln(const char* s) {
+ic_public void xLineTermWriteln(const char* s) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   if (env->term == NULL) return;
   term_writeln(env->term, s);
 }
 
-ic_public void ic_term_writef(const char* fmt, ...) {
+ic_public void xLineTermWritef(const char* fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
-  ic_term_vwritef(fmt, ap);
+  xLineTermVwritef(fmt, ap);
   va_end(ap);
 }
 
-ic_public void ic_term_vwritef(const char* fmt, va_list args) {
+ic_public void xLineTermVwritef(const char* fmt, va_list args) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   if (env->term == NULL) return;
   term_vwritef(env->term, fmt, args);
 }
 
-ic_public void ic_term_reset( void )  {
+ic_public void xLineTermReset( void )  {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   if (env->term == NULL) return;
   term_attr_reset(env->term);
 }
 
-ic_public void ic_term_style( const char* style ) {
+ic_public void xLineTermStyle( const char* style ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   if (env->term == NULL || env->bbcode == NULL) return;
   term_set_attr( env->term, bbcode_style(env->bbcode, style));
 }
 
-ic_public int ic_term_get_color_bits(void) {
+ic_public int xLineTermGetColorBits(void) {
   ic_env_t* env = ic_get_env(); 
   if (env==NULL || env->term==NULL) return 4;  
   return term_get_color_bits(env->term);
 }
 
-ic_public void ic_term_bold(bool enable) {
+ic_public void xLineTermBold(bool enable) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->term==NULL) return;
   term_bold(env->term, enable);
 }
 
-ic_public void ic_term_underline(bool enable) {
+ic_public void xLineTermUnderline(bool enable) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->term==NULL) return;
   term_underline(env->term, enable);
 }
 
-ic_public void ic_term_italic(bool enable) {
+ic_public void xLineTermItalic(bool enable) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->term==NULL) return;
   term_italic(env->term, enable);
 }
 
-ic_public void ic_term_reverse(bool enable) {
+ic_public void xLineTermReverse(bool enable) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->term==NULL) return;
   term_reverse(env->term, enable);
 }
 
-ic_public void ic_term_color_ansi(bool foreground, int ansi_color) {
+ic_public void xLineTermColorAnsi(bool foreground, int ansi_color) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->term==NULL) return;
   ic_color_t color = color_from_ansi256(ansi_color);
   if (foreground) { term_color(env->term, color); }
              else { term_bgcolor(env->term, color); }
 }
 
-ic_public void ic_term_color_rgb(bool foreground, uint32_t hcolor) {
+ic_public void xLineTermColorRgb(bool foreground, uint32_t hcolor) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->term==NULL) return;
   ic_color_t color = ic_rgb(hcolor);
   if (foreground) { term_color(env->term, color); }
@@ -456,24 +456,24 @@ ic_public void ic_term_color_rgb(bool foreground, uint32_t hcolor) {
 // Readline with temporary completer and highlighter
 //-------------------------------------------------------------
 
-ic_public char* ic_readline_ex(const char* prompt_text,
-                                ic_completer_fun_t* completer, void* completer_arg,
-                                 ic_highlight_fun_t* highlighter, void* highlighter_arg )
+ic_public char* xLineReadlineEx(const char* prompt_text,
+                                xLineCompleterFn* completer, void* completer_arg,
+                                 xLineHighlightFn* highlighter, void* highlighter_arg )
 {
   ic_env_t* env = ic_get_env(); if (env == NULL) return NULL;
   // save previous
-  ic_completer_fun_t* prev_completer;
+  xLineCompleterFn* prev_completer;
   void* prev_completer_arg;
   completions_get_completer(env->completions, &prev_completer, &prev_completer_arg);
-  ic_highlight_fun_t* prev_highlighter = env->highlighter;
+  xLineHighlightFn* prev_highlighter = env->highlighter;
   void* prev_highlighter_arg = env->highlighter_arg;
   // call with current
-  if (completer != NULL)   { ic_set_default_completer(completer, completer_arg); }
-  if (highlighter != NULL) { ic_set_default_highlighter(highlighter, highlighter_arg); }
-  char* res = ic_readline(prompt_text);
+  if (completer != NULL)   { xLineSetDefaultCompleter(completer, completer_arg); }
+  if (highlighter != NULL) { xLineSetDefaultHighlighter(highlighter, highlighter_arg); }
+  char* res = xLineReadline(prompt_text);
   // restore previous
-  ic_set_default_completer(prev_completer, prev_completer_arg);
-  ic_set_default_highlighter(prev_highlighter, prev_highlighter_arg);
+  xLineSetDefaultCompleter(prev_completer, prev_completer_arg);
+  xLineSetDefaultHighlighter(prev_highlighter, prev_highlighter_arg);
   return res;
 }
 

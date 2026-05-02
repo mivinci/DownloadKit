@@ -277,13 +277,13 @@ static void attr_update_width( width_t* pwidth, char default_fill, const char* v
       i++;
       ssize_t len = 0;    
       while( value[i+len] != ';' && value[i+len] != 0 ) { len++; }
-      if (len == 4 && ic_istarts_with(value+i,"left")) {
+      if (len == 4 && xLineIstartsWith(value+i,"left")) {
         width.align = IC_ALIGN_LEFT;
       }
-      else if (len == 5 && ic_istarts_with(value+i,"right")) {
+      else if (len == 5 && xLineIstartsWith(value+i,"right")) {
         width.align = IC_ALIGN_RIGHT;
       }
-      else if (len == 6 && ic_istarts_with(value+i,"center")) {
+      else if (len == 6 && xLineIstartsWith(value+i,"center")) {
         width.align = IC_ALIGN_CENTER;
       }
       i += len;
@@ -295,7 +295,7 @@ static void attr_update_width( width_t* pwidth, char default_fill, const char* v
         if (value[i] == ';') {
           i++; len = 0;
           while( value[i+len] != ';' && value[i+len] != 0 ) { len++; }
-          if ((len == 2 && ic_istarts_with(value+i,"on")) || (len == 1 && value[i] == '1')) { width.dots = true; }
+          if ((len == 2 && xLineIstartsWith(value+i,"on")) || (len == 1 && value[i] == '1')) { width.dots = true; }
           i += len;
         }
       }

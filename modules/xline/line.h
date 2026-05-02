@@ -5,8 +5,8 @@
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
 #pragma once
-#ifndef IC_ISOCLINE_H
-#define IC_ISOCLINE_H
+#ifndef XLINE_LINE_H
+#define XLINE_LINE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,7 +45,7 @@ Contents:
 /// \{
 
 /// Isocline version: 110 = 1.1.0.
-#define IC_VERSION   (110)  
+#define XLINE_VERSION   (110)  
 
 
 /// Read input from the user using rich editing abilities.
@@ -58,10 +58,10 @@ Contents:
 /// (like a dumb terminal (e.g. `TERM`=`dumb`), running in a debuggen, a pipe or redirected file, etc.)
 /// the input is read directly from the input stream up to the 
 /// next line without editing capability.
-/// See also \a ic_set_prompt_marker(), \a ic_style_def()
+/// See also \a xLineSetPromptMarker(), \a xLineStyleDef()
 ///
-/// @see ic_set_prompt_marker(), ic_style_def()
-char* ic_readline(const char* prompt_text);   
+/// @see xLineSetPromptMarker(), xLineStyleDef()
+char* xLineReadline(const char* prompt_text);   
 
 /// \}
 
@@ -75,10 +75,10 @@ char* ic_readline(const char* prompt_text);
 /// Any unclosed tags are closed automatically at the end of the print.
 /// For example:
 /// ```
-/// ic_print("[b]bold, [i]bold and italic[/i], [red]red and bold[/][/b] default.");
-/// ic_print("[b]bold[/], [i b]bold and italic[/], [yellow on blue]yellow on blue background");
+/// xLinePrint("[b]bold, [i]bold and italic[/i], [red]red and bold[/][/b] default.");
+/// xLinePrint("[b]bold[/], [i b]bold and italic[/], [yellow on blue]yellow on blue background");
 /// ic_style_add("em","i color=#888800");
-/// ic_print("[em]emphasis");
+/// xLinePrint("[em]emphasis");
 /// ```
 /// Properties that can be assigned are:
 /// * `color=` _clr_, `bgcolor=` _clr_: where _clr_ is either a hex value `#`RRGGBB or `#`RGB, a
@@ -89,32 +89,32 @@ char* ic_readline(const char* prompt_text);
 ///   the `b`, `i`, `u`, and `r` styles for bold, italic, underline, and reverse.
 /// 
 /// See [here](https://github.com/daanx/isocline#bbcode-format) for a description of the full bbcode format.
-void ic_print( const char* s );
+void xLinePrint( const char* s );
 
 /// Print with bbcode markup ending with a newline.
-/// @see ic_print()
-void ic_println( const char* s );
+/// @see xLinePrint()
+void xLinePrintln( const char* s );
 
 /// Print formatted with bbcode markup.
-/// @see ic_print()
-void ic_printf(const char* fmt, ...);
+/// @see xLinePrint()
+void xLinePrintf(const char* fmt, ...);
 
 /// Print formatted with bbcode markup.
-/// @see ic_print
-void ic_vprintf(const char* fmt, va_list args);
+/// @see xLinePrint
+void xLineVprintf(const char* fmt, va_list args);
 
 /// Define or redefine a style.
 /// @param style_name The name of the style. 
 /// @param fmt        The `fmt` string is the content of a tag and can contain
 ///   other styles. This is very useful to theme the output of a program
 ///   by assigning standard styles like `em` or `warning` etc.
-void ic_style_def( const char* style_name, const char* fmt );
+void xLineStyleDef( const char* style_name, const char* fmt );
 
-/// Start a global style that is only reset when calling a matching ic_style_close().
-void ic_style_open( const char* fmt );
+/// Start a global style that is only reset when calling a matching xLineStyleClose().
+void xLineStyleOpen( const char* fmt );
 
 /// End a global style.
-void ic_style_close(void);
+void xLineStyleClose(void);
 
 /// \}
 
@@ -128,17 +128,17 @@ void ic_style_close(void);
 
 /// Enable history. 
 /// Use a \a NULL filename to not persist the history. Use -1 for max_entries to get the default (200).
-void ic_set_history(const char* fname, long max_entries );
+void xLineSetHistory(const char* fname, long max_entries );
 
 /// Remove the last entry in the history. 
-/// The last returned input from ic_readline() is automatically added to the history; this function removes it.
-void ic_history_remove_last(void);
+/// The last returned input from xLineReadline() is automatically added to the history; this function removes it.
+void xLineHistoryRemoveLast(void);
 
 /// Clear the history.
-void ic_history_clear(void);
+void xLineHistoryClear(void);
 
 /// Add an entry to the history
-void ic_history_add( const char* entry );
+void xLineHistoryAdd( const char* entry );
 
 /// \}
 
@@ -151,10 +151,10 @@ void ic_history_add( const char* entry );
 /// \{
 
 /// A completion environment
-struct ic_completion_env_s;
+struct xLineCompletionEnvS;
 
 /// A completion environment
-typedef struct ic_completion_env_s ic_completion_env_t;
+typedef struct xLineCompletionEnvS xLineCompletionEnv;
 
 /// A completion callback that is called by isocline when tab is pressed.
 /// It is passed a completion environment (containing the current input and the current cursor position), 
@@ -162,39 +162,39 @@ typedef struct ic_completion_env_s ic_completion_env_t;
 /// and the user given argument when the callback was set.
 /// When using completion transformers, like `ic_complete_quoted_word` the `prefix` contains the
 /// the word to be completed without escape characters or quotes.
-typedef void (ic_completer_fun_t)(ic_completion_env_t* cenv, const char* prefix );
+typedef void (xLineCompleterFn)(xLineCompletionEnv* cenv, const char* prefix );
 
 /// Set the default completion handler.
 /// @param completer  The completion function
 /// @param arg        Argument passed to the \a completer.
 /// There can only be one default completion function, setting it again disables the previous one.
-/// The initial completer use `ic_complete_filename`.
-void ic_set_default_completer( ic_completer_fun_t* completer, void* arg);
+/// The initial completer use `xLineCompleteFilename`.
+void xLineSetDefaultCompleter( xLineCompleterFn* completer, void* arg);
 
 
-/// In a completion callback (usually from ic_complete_word()), use this function to add a completion.
+/// In a completion callback (usually from xLineCompleteWord()), use this function to add a completion.
 /// (the completion string is copied by isocline and do not need to be preserved or allocated).
 ///
 /// Returns `true` if the callback should continue trying to find more possible completions.
 /// If `false` is returned, the callback should try to return and not add more completions (for improved latency).
-bool ic_add_completion(ic_completion_env_t* cenv, const char* completion);
+bool xLineAddCompletion(xLineCompletionEnv* cenv, const char* completion);
 
-/// In a completion callback (usually from ic_complete_word()), use this function to add a completion.
+/// In a completion callback (usually from xLineCompleteWord()), use this function to add a completion.
 /// The `display` is used to display the completion in the completion menu, and `help` is
 /// displayed for hints for example. Both can be `NULL` for the default.
 /// (all are copied by isocline and do not need to be preserved or allocated).
 ///
 /// Returns `true` if the callback should continue trying to find more possible completions.
 /// If `false` is returned, the callback should try to return and not add more completions (for improved latency).
-bool ic_add_completion_ex( ic_completion_env_t* cenv, const char* completion, const char* display, const char* help );
+bool xLineAddCompletionEx( xLineCompletionEnv* cenv, const char* completion, const char* display, const char* help );
 
-/// In a completion callback (usually from ic_complete_word()), use this function to add completions.
+/// In a completion callback (usually from xLineCompleteWord()), use this function to add completions.
 /// The `completions` array should be terminated with a NULL element, and all elements
 /// are added as completions if they start with `prefix`.
 ///
 /// Returns `true` if the callback should continue trying to find more possible completions.
 /// If `false` is returned, the callback should try to return and not add more completions (for improved latency).
-bool ic_add_completions(ic_completion_env_t* cenv, const char* prefix, const char** completions);
+bool xLineAddCompletions(xLineCompletionEnv* cenv, const char* prefix, const char** completions);
 
 /// Complete a filename.
 /// Complete a filename given a semi-colon separated list of root directories `roots` and 
@@ -210,32 +210,32 @@ bool ic_add_completions(ic_completion_env_t* cenv, const char* prefix, const cha
 /// /home/.ba   --> /home/.bashrc
 /// ```
 /// (This already uses ic_complete_quoted_word() so do not call it from inside a word handler).
-void ic_complete_filename( ic_completion_env_t* cenv, const char* prefix, char dir_separator, const char* roots, const char* extensions );
+void xLineCompleteFilename( xLineCompletionEnv* cenv, const char* prefix, char dir_separator, const char* roots, const char* extensions );
 
 
 
 /// Function that returns whether a (utf8) character (of length `len`) is in a certain character class
-/// @see ic_char_is_separator() etc.
-typedef bool (ic_is_char_class_fun_t)(const char* s, long len);
+/// @see xLineCharIsSeparator() etc.
+typedef bool (xLineIsCharClassFn)(const char* s, long len);
 
 
 /// Complete a _word_ (i.e. _token_). 
 /// Calls the user provided function `fun` to complete on the
 /// current _word_. Almost all user provided completers should use this function. 
-/// If `is_word_char` is NULL, the default `&ic_char_is_nonseparator` is used. 
+/// If `is_word_char` is NULL, the default `&xLineCharIsNonseparator` is used. 
 /// The `prefix` passed to `fun` is modified to only contain the current word, and 
-/// any results from `ic_add_completion` are automatically adjusted to replace that part.
+/// any results from `xLineAddCompletion` are automatically adjusted to replace that part.
 /// For example, on the input "hello w", a the user `fun` only gets `w` and can just complete
 /// with "world" resulting in "hello world" without needing to consider `delete_before` etc.
-/// @see ic_complete_qword() for completing quoted and escaped tokens.
-void ic_complete_word(ic_completion_env_t* cenv, const char* prefix, ic_completer_fun_t* fun, ic_is_char_class_fun_t* is_word_char);
+/// @see xLineCompleteQword() for completing quoted and escaped tokens.
+void xLineCompleteWord(xLineCompletionEnv* cenv, const char* prefix, xLineCompleterFn* fun, xLineIsCharClassFn* is_word_char);
 
 
 /// Complete a quoted _word_. 
 /// Calls the user provided function `fun` to complete while taking
 /// care of quotes and escape characters. Almost all user provided completers should use
 /// this function. The `prefix` passed to `fun` is modified to be unquoted and unescaped, and 
-/// any results from `ic_add_completion` are automatically quoted and escaped again.
+/// any results from `xLineAddCompletion` are automatically quoted and escaped again.
 /// For example, completing `hello world`, the `fun` always just completes `hel` or `hello w` to `hello world`, 
 /// but depending on user input, it will complete as:
 /// ```
@@ -246,21 +246,21 @@ void ic_complete_word(ic_completion_env_t* cenv, const char* prefix, ic_complete
 /// "hello w   -->  "hello world"
 /// ```
 /// with proper quotes and escapes.
-/// If `is_word_char` is NULL, the default `&ic_char_is_nonseparator` is used. 
+/// If `is_word_char` is NULL, the default `&xLineCharIsNonseparator` is used. 
 /// @see ic_complete_quoted_word() to customize the word boundary, quotes etc.
-void ic_complete_qword( ic_completion_env_t* cenv, const char* prefix, ic_completer_fun_t* fun, ic_is_char_class_fun_t* is_word_char );
+void xLineCompleteQword( xLineCompletionEnv* cenv, const char* prefix, xLineCompleterFn* fun, xLineIsCharClassFn* is_word_char );
 
 
 
 /// Complete a _word_. 
 /// Calls the user provided function `fun` to complete while taking
 /// care of quotes and escape characters. Almost all user provided completers should use this function. 
-/// The `is_word_char` is a set of characters that are part of a "word". Use NULL for the default (`&ic_char_is_nonseparator`).
+/// The `is_word_char` is a set of characters that are part of a "word". Use NULL for the default (`&xLineCharIsNonseparator`).
 /// The `escape_char` is the escaping character, usually `\` but use 0 to not have escape characters.
 /// The `quote_chars` define the quotes, use NULL for the default `"\'\""` quotes.
-/// @see ic_complete_word() which uses the default values for `non_word_chars`, `quote_chars` and `\` for escape characters.
-void ic_complete_qword_ex( ic_completion_env_t* cenv, const char* prefix, ic_completer_fun_t fun, 
-                                ic_is_char_class_fun_t* is_word_char, char escape_char, const char* quote_chars );
+/// @see xLineCompleteWord() which uses the default values for `non_word_chars`, `quote_chars` and `\` for escape characters.
+void xLineCompleteQwordEx( xLineCompletionEnv* cenv, const char* prefix, xLineCompleterFn fun, 
+                                xLineIsCharClassFn* is_word_char, char escape_char, const char* quote_chars );
 
 /// \}
 
@@ -270,28 +270,28 @@ void ic_complete_qword_ex( ic_completion_env_t* cenv, const char* prefix, ic_com
 /// \{
 
 /// A syntax highlight environment
-struct ic_highlight_env_s;
-typedef struct ic_highlight_env_s ic_highlight_env_t;
+struct xLineHighlightEnvS;
+typedef struct xLineHighlightEnvS xLineHighlightEnv;
 
 /// A syntax highlighter callback that is called by readline to syntax highlight user input.
-typedef void (ic_highlight_fun_t)(ic_highlight_env_t* henv, const char* input, void* arg);
+typedef void (xLineHighlightFn)(xLineHighlightEnv* henv, const char* input, void* arg);
 
 /// Set a syntax highlighter.
 /// There can only be one highlight function, setting it again disables the previous one.
-void ic_set_default_highlighter(ic_highlight_fun_t* highlighter, void* arg);
+void xLineSetDefaultHighlighter(xLineHighlightFn* highlighter, void* arg);
 
 /// Set the style of characters starting at position `pos`.
-void ic_highlight(ic_highlight_env_t* henv, long pos, long count, const char* style );
+void xLineHighlight(xLineHighlightEnv* henv, long pos, long count, const char* style );
 
 /// Experimental: Convenience callback for a function that highlights `s` using bbcode's.
 /// The returned string should be allocated and is free'd by the caller.
-typedef char* (ic_highlight_format_fun_t)(const char* s, void* arg);
+typedef char* (xLineHighlightFormatFn)(const char* s, void* arg);
 
 /// Experimental: Convenience function for highlighting with bbcodes.
-/// Can be called in a `ic_highlight_fun_t` callback to colorize the `input` using the 
+/// Can be called in a `xLineHighlightFn` callback to colorize the `input` using the 
 /// the provided `formatted` input that is the styled `input` with bbcodes. The 
 /// content of `formatted` without bbcode tags should match `input` exactly.
-void ic_highlight_formatted(ic_highlight_env_t* henv, const char* input, const char* formatted);
+void xLineHighlightFormatted(xLineHighlightEnv* henv, const char* input, const char* formatted);
 
 /// \}
 
@@ -305,9 +305,9 @@ void ic_highlight_formatted(ic_highlight_env_t* henv, const char* input, const c
 /// Read input from the user using rich editing abilities, 
 /// using a particular completion function and highlighter for this call only.
 /// both can be NULL in which case the defaults are used.
-/// @see ic_readline(), ic_set_prompt_marker(), ic_set_default_completer(), ic_set_default_highlighter().
-char* ic_readline_ex(const char* prompt_text, ic_completer_fun_t* completer, void* completer_arg,
-                                              ic_highlight_fun_t* highlighter, void* highlighter_arg);
+/// @see xLineReadline(), xLineSetPromptMarker(), xLineSetDefaultCompleter(), xLineSetDefaultHighlighter().
+char* xLineReadlineEx(const char* prompt_text, xLineCompleterFn* completer, void* completer_arg,
+                                              xLineHighlightFn* highlighter, void* highlighter_arg);
 
 /// \}
 
@@ -322,82 +322,82 @@ char* ic_readline_ex(const char* prompt_text, ic_completer_fun_t* completer, voi
 /// Set a prompt marker and a potential marker for extra lines with multiline input. 
 /// Pass \a NULL for the `prompt_marker` for the default marker (`"> "`).
 /// Pass \a NULL for continuation prompt marker to make it equal to the `prompt_marker`.
-void ic_set_prompt_marker( const char* prompt_marker, const char* continuation_prompt_marker );
+void xLineSetPromptMarker( const char* prompt_marker, const char* continuation_prompt_marker );
 
 /// Get the current prompt marker.
-const char* ic_get_prompt_marker(void);
+const char* xLineGetPromptMarker(void);
 
 /// Get the current continuation prompt marker.
-const char* ic_get_continuation_prompt_marker(void);
+const char* xLineGetContinuationPromptMarker(void);
 
 /// Disable or enable multi-line input (enabled by default).
 /// Returns the previous setting.
-bool ic_enable_multiline( bool enable );
+bool xLineEnableMultiline( bool enable );
 
 /// Disable or enable sound (enabled by default).
 /// A beep is used when tab cannot find any completion for example.
 /// Returns the previous setting.
-bool ic_enable_beep( bool enable );
+bool xLineEnableBeep( bool enable );
 
 /// Disable or enable color output (enabled by default).
 /// Returns the previous setting.
-bool ic_enable_color( bool enable );
+bool xLineEnableColor( bool enable );
 
 /// Disable or enable duplicate entries in the history (disabled by default).
 /// Returns the previous setting.
-bool ic_enable_history_duplicates( bool enable );
+bool xLineEnableHistoryDuplicates( bool enable );
 
 /// Disable or enable automatic tab completion after a completion 
 /// to expand as far as possible if the completions are unique. (disabled by default).
 /// Returns the previous setting.
-bool ic_enable_auto_tab( bool enable );
+bool xLineEnableAutoTab( bool enable );
 
 /// Disable or enable preview of a completion selection (enabled by default)
 /// Returns the previous setting.
-bool ic_enable_completion_preview( bool enable );
+bool xLineEnableCompletionPreview( bool enable );
 
 /// Disable or enable automatic identation of continuation lines in multiline
 /// input so it aligns with the initial prompt.
 /// Returns the previous setting.
-bool ic_enable_multiline_indent(bool enable);
+bool xLineEnableMultilineIndent(bool enable);
 
 /// Disable or enable display of short help messages for history search etc.
 /// (full help is always dispayed when pressing F1 regardless of this setting)
 /// @returns the previous setting.
-bool ic_enable_inline_help(bool enable);
+bool xLineEnableInlineHelp(bool enable);
 
 /// Disable or enable hinting (enabled by default)
 /// Shows a hint inline when there is a single possible completion.
 /// @returns the previous setting.
-bool ic_enable_hint(bool enable);
+bool xLineEnableHint(bool enable);
 
 /// Set millisecond delay before a hint is displayed. Can be zero. (500ms by default).
-long ic_set_hint_delay(long delay_ms);
+long xLineSetHintDelay(long delay_ms);
 
 /// Disable or enable syntax highlighting (enabled by default).
 /// This applies regardless whether a syntax highlighter callback was set (`ic_set_highlighter`)
 /// Returns the previous setting.
-bool ic_enable_highlight(bool enable);
+bool xLineEnableHighlight(bool enable);
 
 
 /// Set millisecond delay for reading escape sequences in order to distinguish
 /// a lone ESC from the start of a escape sequence. The defaults are 100ms and 10ms, 
 /// but it may be increased if working with very slow terminals.
-void ic_set_tty_esc_delay(long initial_delay_ms, long followup_delay_ms);
+void xLineSetTtyEscDelay(long initial_delay_ms, long followup_delay_ms);
 
 /// Enable highlighting of matching braces (and error highlight unmatched braces).`
-bool ic_enable_brace_matching(bool enable);
+bool xLineEnableBraceMatching(bool enable);
 
 /// Set matching brace pairs.
 /// Pass \a NULL for the default `"()[]{}"`.
-void ic_set_matching_braces(const char* brace_pairs);
+void xLineSetMatchingBraces(const char* brace_pairs);
 
 /// Enable automatic brace insertion (enabled by default).
-bool ic_enable_brace_insertion(bool enable);
+bool xLineEnableBraceInsertion(bool enable);
 
 /// Set matching brace pairs for automatic insertion.
 /// Pass \a NULL for the default `()[]{}\"\"''`
-void ic_set_insertion_braces(const char* brace_pairs);
+void xLineSetInsertionBraces(const char* brace_pairs);
 
 /// \}
 
@@ -411,20 +411,20 @@ void ic_set_insertion_braces(const char* brace_pairs);
 
 /// Get the raw current input (and cursor position if `cursor` != NULL) for the completion.
 /// Usually completer functions should look at their `prefix` though as transformers
-/// like `ic_complete_word` may modify the prefix (for example, unescape it).
-const char* ic_completion_input( ic_completion_env_t* cenv, long* cursor );
+/// like `xLineCompleteWord` may modify the prefix (for example, unescape it).
+const char* xLineCompletionInput( xLineCompletionEnv* cenv, long* cursor );
 
 /// Get the completion argument passed to `ic_set_completer`.
-void* ic_completion_arg( const ic_completion_env_t* cenv );
+void* xLineCompletionArg( const xLineCompletionEnv* cenv );
 
 /// Do we have already some completions?
-bool ic_has_completions( const ic_completion_env_t* cenv );
+bool xLineHasCompletions( const xLineCompletionEnv* cenv );
 
 /// Do we already have enough completions and should we return if possible? (for improved latency)
-bool ic_stop_completing( const ic_completion_env_t* cenv);
+bool xLineStopCompleting( const xLineCompletionEnv* cenv);
 
 
-/// Primitive completion, cannot be used with most transformers (like `ic_complete_word` and `ic_complete_qword`).
+/// Primitive completion, cannot be used with most transformers (like `xLineCompleteWord` and `xLineCompleteQword`).
 /// When completed, `delete_before` _bytes_ are deleted before the cursor position,
 /// `delete_after` _bytes_ are deleted after the cursor, and finally `completion` is inserted.
 /// The `display` is used to display the completion in the completion menu, and `help` is displayed
@@ -433,7 +433,7 @@ bool ic_stop_completing( const ic_completion_env_t* cenv);
 ///
 /// Returns `true` if the callback should continue trying to find more possible completions.
 /// If `false` is returned, the callback should try to return and not add more completions (for improved latency).
-bool ic_add_completion_prim( ic_completion_env_t* cenv, const char* completion, 
+bool xLineAddCompletionPrim( xLineCompletionEnv* cenv, const char* completion, 
                               const char* display, const char* help, 
                                long delete_before, long delete_after);
 
@@ -446,64 +446,64 @@ bool ic_add_completion_prim( ic_completion_env_t* cenv, const char* completion,
 
 /// Convenience: return the position of a previous code point in a UTF-8 string `s` from postion `pos`.
 /// Returns `-1` if `pos <= 0` or `pos > strlen(s)` (or other errors).
-long ic_prev_char( const char* s, long pos );
+long xLinePrevChar( const char* s, long pos );
 
 /// Convenience: return the position of the next code point in a UTF-8 string `s` from postion `pos`.
 /// Returns `-1` if `pos < 0` or `pos >= strlen(s)` (or other errors).
-long ic_next_char( const char* s, long pos );
+long xLineNextChar( const char* s, long pos );
 
 /// Convenience: does a string `s` starts with a given `prefix` ?
-bool ic_starts_with( const char* s, const char* prefix );
+bool xLineStartsWith( const char* s, const char* prefix );
 
 /// Convenience: does a string `s` starts with a given `prefix` ignoring (ascii) case?
-bool ic_istarts_with( const char* s, const char* prefix );
+bool xLineIstartsWith( const char* s, const char* prefix );
 
 
 /// Convenience: character class for whitespace `[ \t\r\n]`.
-bool ic_char_is_white(const char* s, long len);
+bool xLineCharIsWhite(const char* s, long len);
 
 /// Convenience: character class for non-whitespace `[^ \t\r\n]`.
-bool ic_char_is_nonwhite(const char* s, long len);
+bool xLineCharIsNonwhite(const char* s, long len);
 
 /// Convenience: character class for separators.
 /// (``[ \t\r\n,.;:/\\(){}\[\]]``.)
 /// This is used for word boundaries in isocline.
-bool ic_char_is_separator(const char* s, long len);
+bool xLineCharIsSeparator(const char* s, long len);
 
 /// Convenience: character class for non-separators.
-bool ic_char_is_nonseparator(const char* s, long len);
+bool xLineCharIsNonseparator(const char* s, long len);
 
 /// Convenience: character class for letters (`[A-Za-z]` and any unicode > 0x80).
-bool ic_char_is_letter(const char* s, long len);
+bool xLineCharIsLetter(const char* s, long len);
 
 /// Convenience: character class for digits (`[0-9]`).
-bool ic_char_is_digit(const char* s, long len);
+bool xLineCharIsDigit(const char* s, long len);
 
 /// Convenience: character class for hexadecimal digits (`[A-Fa-f0-9]`).
-bool ic_char_is_hexdigit(const char* s, long len);
+bool xLineCharIsHexdigit(const char* s, long len);
 
 /// Convenience: character class for identifier letters (`[A-Za-z0-9_-]` and any unicode > 0x80).
-bool ic_char_is_idletter(const char* s, long len);
+bool xLineCharIsIdletter(const char* s, long len);
 
 /// Convenience: character class for filename letters (_not in_ " \t\r\n`@$><=;|&\{\}\(\)\[\]]").
-bool ic_char_is_filename_letter(const char* s, long len);
+bool xLineCharIsFilenameLetter(const char* s, long len);
 
 
 /// Convenience: If this is a token start, return the length. Otherwise return 0.
-long ic_is_token(const char* s, long pos, ic_is_char_class_fun_t* is_token_char);
+long xLineIsToken(const char* s, long pos, xLineIsCharClassFn* is_token_char);
 
 /// Convenience: Does this match the specified token? 
 /// Ensures not to match prefixes or suffixes, and returns the length of the match (in bytes).
-/// E.g. `ic_match_token("function",0,&ic_char_is_letter,"fun")` returns 0.
-/// while `ic_match_token("fun x",0,&ic_char_is_letter,"fun"})` returns 3.
-long ic_match_token(const char* s, long pos, ic_is_char_class_fun_t* is_token_char, const char* token);
+/// E.g. `xLineMatchToken("function",0,&xLineCharIsLetter,"fun")` returns 0.
+/// while `xLineMatchToken("fun x",0,&xLineCharIsLetter,"fun"})` returns 3.
+long xLineMatchToken(const char* s, long pos, xLineIsCharClassFn* is_token_char, const char* token);
 
 
 /// Convenience: Do any of the specified tokens match? 
 /// Ensures not to match prefixes or suffixes, and returns the length of the match (in bytes).
-/// E.g. `ic_match_any_token("function",0,&ic_char_is_letter,{"fun","func",NULL})` returns 0.
-/// while `ic_match_any_token("func x",0,&ic_char_is_letter,{"fun","func",NULL})` returns 4.
-long ic_match_any_token(const char* s, long pos, ic_is_char_class_fun_t* is_token_char, const char** tokens);
+/// E.g. `xLineMatchAnyToken("function",0,&xLineCharIsLetter,{"fun","func",NULL})` returns 0.
+/// while `xLineMatchAnyToken("func x",0,&xLineCharIsLetter,{"fun","func",NULL})` returns 4.
+long xLineMatchAnyToken(const char* s, long pos, xLineIsCharClassFn* is_token_char, const char** tokens);
 
 /// \}
 
@@ -516,57 +516,57 @@ long ic_match_any_token(const char* s, long pos, ic_is_char_class_fun_t* is_toke
 /// \{
 
 /// Initialize for terminal output.
-/// Call this before using the terminal write functions (`ic_term_write`)
+/// Call this before using the terminal write functions (`xLineTermWrite`)
 /// Does nothing on most platforms but on Windows it sets the console to UTF8 output and possible 
 /// enables virtual terminal processing.
-void ic_term_init(void);
+void xLineTermInit(void);
 
 /// Call this when done with the terminal functions.
-void ic_term_done(void);
+void xLineTermDone(void);
 
 /// Flush the terminal output. 
 /// (happens automatically on newline characters ('\n') as well).
-void ic_term_flush(void);
+void xLineTermFlush(void);
 
 /// Write a string to the console (and process CSI escape sequences).
-void ic_term_write(const char* s);
+void xLineTermWrite(const char* s);
 
 /// Write a string to the console and end with a newline 
 /// (and process CSI escape sequences).
-void ic_term_writeln(const char* s);
+void xLineTermWriteln(const char* s);
 
 /// Write a formatted string to the console.
 /// (and process CSI escape sequences)
-void ic_term_writef(const char* fmt, ...);
+void xLineTermWritef(const char* fmt, ...);
 
 /// Write a formatted string to the console.
-void ic_term_vwritef(const char* fmt, va_list args);
+void xLineTermVwritef(const char* fmt, va_list args);
 
 /// Set text attributes from a style.
-void ic_term_style( const char* style );
+void xLineTermStyle( const char* style );
 
 /// Set text attribute to bold.
-void ic_term_bold(bool enable);
+void xLineTermBold(bool enable);
 
 /// Set text attribute to underline.
-void ic_term_underline(bool enable);
+void xLineTermUnderline(bool enable);
 
 /// Set text attribute to italic.
-void ic_term_italic(bool enable);
+void xLineTermItalic(bool enable);
 
 /// Set text attribute to reverse video.
-void ic_term_reverse(bool enable);
+void xLineTermReverse(bool enable);
 
 /// Set text attribute to ansi color palette index between 0 and 255 (or 256 for the ANSI "default" color).
 /// (auto matched to smaller palette if not supported)
-void ic_term_color_ansi(bool foreground, int color);
+void xLineTermColorAnsi(bool foreground, int color);
 
 /// Set text attribute to 24-bit RGB color (between `0x000000` and `0xFFFFFF`).
 /// (auto matched to smaller palette if not supported)
-void ic_term_color_rgb(bool foreground, uint32_t color );
+void xLineTermColorRgb(bool foreground, uint32_t color );
 
 /// Reset the text attributes.
-void ic_term_reset( void );
+void xLineTermReset( void );
 
 /// Get the palette used by the terminal:
 /// This is usually initialized from the COLORTERM environment variable. The 
@@ -577,7 +577,7 @@ void ic_term_reset( void );
 /// - 4: regular ANSI terminal with 16 colors.     (`16color`/`4bit`)
 /// - 8: terminal with ANSI 256 color palette.     (`256color`/`8bit`)
 /// - 24: true-color terminal with full RGB colors. (`truecolor`/`24bit`/`direct`)
-int ic_term_get_color_bits( void );
+int xLineTermGetColorBits( void );
 
 /// \}
 
@@ -588,11 +588,11 @@ int ic_term_get_color_bits( void );
 
 /// Thread-safe way to asynchronously unblock a readline.
 /// Behaves as if the user pressed the `ctrl-C` character
-/// (resulting in returning NULL from `ic_readline`).
+/// (resulting in returning NULL from `xLineReadline`).
 /// Returns `true` if the event was successfully delivered.
 /// (This may not be supported on all platforms, but it is
 /// functional on Linux, macOS and Windows).
-bool ic_async_stop(void);
+bool xLineAsyncStop(void);
 
 /// \}
 
@@ -601,9 +601,9 @@ bool ic_async_stop(void);
 /// Register allocation functions for custom allocators
 /// \{
 
-typedef void* (ic_malloc_fun_t)( size_t size );
-typedef void* (ic_realloc_fun_t)( void* p, size_t newsize );
-typedef void  (ic_free_fun_t)( void* p );
+typedef void* (xLineMallocFn)( size_t size );
+typedef void* (xLineReallocFn)( void* p, size_t newsize );
+typedef void  (xLineFreeFn)( void* p );
 
 // NOTE: upstream's ic_init_custom_alloc() has been removed in xline.
 // The library always uses the stdlib allocator (malloc/realloc/free).
@@ -611,19 +611,157 @@ typedef void  (ic_free_fun_t)( void* p );
 // code that still names them, but there is no public way to inject a
 // custom allocator anymore.
 
-/// Free a potentially custom alloc'd pointer (in particular, the result returned from `ic_readline`)
-void ic_free( void* p );
+/// Free a potentially custom alloc'd pointer (in particular, the result returned from `xLineReadline`)
+void xLineFree( void* p );
 
 /// Allocate using the current memory allocator.
-void* ic_malloc(size_t sz);
+void* xLineMalloc(size_t sz);
 
 /// Duplicate a string using the current memory allocator.
-const char* ic_strdup( const char* s );
+const char* xLineStrdup( const char* s );
 
 /// \}
+
+//--------------------------------------------------------------
+// Legacy ic_* / IC_* aliases.
+//
+// During the migration to xKit naming (see NOTICE), the xline module
+// still exposes the upstream isocline names so that downstream code
+// (notably examples/ai_session.cpp) can be migrated in a separate
+// commit without forcing a flag-day rename.
+//
+// This whole block will be deleted once all in-tree callers have
+// been moved to the xLine* / XLINE_* names. Out-of-tree users can
+// silence it early by defining XLINE_NO_COMPAT before #include-ing
+// this header.
+//--------------------------------------------------------------
+#ifndef XLINE_NO_COMPAT
+
+// Include guard / version macros
+#define IC_ISOCLINE_H                       XLINE_LINE_H
+#define IC_VERSION                          XLINE_VERSION
+
+// Readline core
+#define ic_readline                         xLineReadline
+#define ic_readline_ex                      xLineReadlineEx
+
+// Formatted print
+#define ic_print                            xLinePrint
+#define ic_println                          xLinePrintln
+#define ic_printf                           xLinePrintf
+#define ic_vprintf                          xLineVprintf
+#define ic_style_def                        xLineStyleDef
+#define ic_style_open                       xLineStyleOpen
+#define ic_style_close                      xLineStyleClose
+
+// History
+#define ic_set_history                      xLineSetHistory
+#define ic_history_remove_last              xLineHistoryRemoveLast
+#define ic_history_clear                    xLineHistoryClear
+#define ic_history_add                      xLineHistoryAdd
+
+// Completion types
+#define ic_completion_env_s                 xLineCompletionEnvS
+#define ic_completion_env_t                 xLineCompletionEnv
+#define ic_completer_fun_t                  xLineCompleterFn
+#define ic_is_char_class_fun_t              xLineIsCharClassFn
+
+// Completion functions
+#define ic_set_default_completer            xLineSetDefaultCompleter
+#define ic_add_completion                   xLineAddCompletion
+#define ic_add_completion_ex                xLineAddCompletionEx
+#define ic_add_completions                  xLineAddCompletions
+#define ic_complete_filename                xLineCompleteFilename
+#define ic_complete_word                    xLineCompleteWord
+#define ic_complete_qword                   xLineCompleteQword
+#define ic_complete_qword_ex                xLineCompleteQwordEx
+#define ic_add_completion_prim              xLineAddCompletionPrim
+#define ic_completion_input                 xLineCompletionInput
+#define ic_completion_arg                   xLineCompletionArg
+#define ic_has_completions                  xLineHasCompletions
+#define ic_stop_completing                  xLineStopCompleting
+
+// Highlight
+#define ic_highlight_env_s                  xLineHighlightEnvS
+#define ic_highlight_env_t                  xLineHighlightEnv
+#define ic_highlight_fun_t                  xLineHighlightFn
+#define ic_highlight_format_fun_t           xLineHighlightFormatFn
+#define ic_set_default_highlighter          xLineSetDefaultHighlighter
+#define ic_highlight                        xLineHighlight
+#define ic_highlight_formatted              xLineHighlightFormatted
+
+// Options
+#define ic_set_prompt_marker                xLineSetPromptMarker
+#define ic_get_prompt_marker                xLineGetPromptMarker
+#define ic_get_continuation_prompt_marker   xLineGetContinuationPromptMarker
+#define ic_enable_multiline                 xLineEnableMultiline
+#define ic_enable_beep                      xLineEnableBeep
+#define ic_enable_color                     xLineEnableColor
+#define ic_enable_history_duplicates        xLineEnableHistoryDuplicates
+#define ic_enable_auto_tab                  xLineEnableAutoTab
+#define ic_enable_completion_preview        xLineEnableCompletionPreview
+#define ic_enable_multiline_indent          xLineEnableMultilineIndent
+#define ic_enable_inline_help               xLineEnableInlineHelp
+#define ic_enable_hint                      xLineEnableHint
+#define ic_set_hint_delay                   xLineSetHintDelay
+#define ic_enable_highlight                 xLineEnableHighlight
+#define ic_set_tty_esc_delay                xLineSetTtyEscDelay
+#define ic_enable_brace_matching            xLineEnableBraceMatching
+#define ic_set_matching_braces              xLineSetMatchingBraces
+#define ic_enable_brace_insertion           xLineEnableBraceInsertion
+#define ic_set_insertion_braces             xLineSetInsertionBraces
+
+// Helper / character classes
+#define ic_prev_char                        xLinePrevChar
+#define ic_next_char                        xLineNextChar
+#define ic_starts_with                      xLineStartsWith
+#define ic_istarts_with                     xLineIstartsWith
+#define ic_char_is_white                    xLineCharIsWhite
+#define ic_char_is_nonwhite                 xLineCharIsNonwhite
+#define ic_char_is_separator                xLineCharIsSeparator
+#define ic_char_is_nonseparator             xLineCharIsNonseparator
+#define ic_char_is_letter                   xLineCharIsLetter
+#define ic_char_is_digit                    xLineCharIsDigit
+#define ic_char_is_hexdigit                 xLineCharIsHexdigit
+#define ic_char_is_idletter                 xLineCharIsIdletter
+#define ic_char_is_filename_letter          xLineCharIsFilenameLetter
+#define ic_is_token                         xLineIsToken
+#define ic_match_token                      xLineMatchToken
+#define ic_match_any_token                  xLineMatchAnyToken
+
+// Terminal
+#define ic_term_init                        xLineTermInit
+#define ic_term_done                        xLineTermDone
+#define ic_term_flush                       xLineTermFlush
+#define ic_term_write                       xLineTermWrite
+#define ic_term_writeln                     xLineTermWriteln
+#define ic_term_writef                      xLineTermWritef
+#define ic_term_vwritef                     xLineTermVwritef
+#define ic_term_style                       xLineTermStyle
+#define ic_term_bold                        xLineTermBold
+#define ic_term_underline                   xLineTermUnderline
+#define ic_term_italic                      xLineTermItalic
+#define ic_term_reverse                     xLineTermReverse
+#define ic_term_color_ansi                  xLineTermColorAnsi
+#define ic_term_color_rgb                   xLineTermColorRgb
+#define ic_term_reset                       xLineTermReset
+#define ic_term_get_color_bits              xLineTermGetColorBits
+
+// Async
+#define ic_async_stop                       xLineAsyncStop
+
+// Allocation
+#define ic_malloc_fun_t                     xLineMallocFn
+#define ic_realloc_fun_t                    xLineReallocFn
+#define ic_free_fun_t                       xLineFreeFn
+#define ic_free                             xLineFree
+#define ic_malloc                           xLineMalloc
+#define ic_strdup                           xLineStrdup
+
+#endif // XLINE_NO_COMPAT
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /// IC_ISOCLINE_H
+#endif /// XLINE_LINE_H

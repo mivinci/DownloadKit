@@ -7,7 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "isocline.h"
+#include "line.h"
 #include "common.h"
 #include "env.h"
 #include "stringbuf.h"
@@ -37,10 +37,10 @@ static bool token_add_completion_ex(ic_env_t* env, void* closure, const char* re
 }
 
 
-ic_public void ic_complete_word(ic_completion_env_t* cenv, const char* prefix, ic_completer_fun_t* fun,
-                                    ic_is_char_class_fun_t* is_word_char) 
+ic_public void xLineCompleteWord(xLineCompletionEnv* cenv, const char* prefix, xLineCompleterFn* fun,
+                                    xLineIsCharClassFn* is_word_char) 
 {
-  if (is_word_char == NULL) is_word_char = &ic_char_is_nonseparator;
+  if (is_word_char == NULL) is_word_char = &xLineCharIsNonseparator;
   
   ssize_t len = ic_strlen(prefix);
   ssize_t pos = len; // will be start of the 'word' (excluding a potential start quote)
@@ -90,7 +90,7 @@ typedef struct qword_closure_s {
   stringbuf_t* sbuf;
   void*        prev_env;
   const char*  postfix;      // follows the current input position
-  ic_is_char_class_fun_t* is_word_char;
+  xLineIsCharClassFn* is_word_char;
   ic_completion_fun_t*    prev_complete;
 } qword_closure_t;
 
@@ -123,14 +123,14 @@ static bool qword_add_completion_ex(ic_env_t* env, void* closure, const char* re
 }
 
 
-ic_public void ic_complete_qword( ic_completion_env_t* cenv, const char* prefix, ic_completer_fun_t* fun, ic_is_char_class_fun_t* is_word_char ) {
-  ic_complete_qword_ex( cenv, prefix, fun, is_word_char, '\\', NULL);
+ic_public void xLineCompleteQword( xLineCompletionEnv* cenv, const char* prefix, xLineCompleterFn* fun, xLineIsCharClassFn* is_word_char ) {
+  xLineCompleteQwordEx( cenv, prefix, fun, is_word_char, '\\', NULL);
 }
 
 
-ic_public void ic_complete_qword_ex( ic_completion_env_t* cenv, const char* prefix, ic_completer_fun_t* fun, 
-                                        ic_is_char_class_fun_t* is_word_char, char escape_char, const char* quote_chars ) {
-  if (is_word_char == NULL) is_word_char = &ic_char_is_nonseparator ;  
+ic_public void xLineCompleteQwordEx( xLineCompletionEnv* cenv, const char* prefix, xLineCompleterFn* fun, 
+                                        xLineIsCharClassFn* is_word_char, char escape_char, const char* quote_chars ) {
+  if (is_word_char == NULL) is_word_char = &xLineCharIsNonseparator ;  
   if (quote_chars == NULL) quote_chars = "'\"";
 
   ssize_t len = ic_strlen(prefix);
@@ -556,7 +556,7 @@ static bool match_extension(const char* name, const char* extensions) {
   return false;
 }
 
-static bool filename_complete_indir( ic_completion_env_t* cenv, stringbuf_t* dir, 
+static bool filename_complete_indir( xLineCompletionEnv* cenv, stringbuf_t* dir, 
                                       stringbuf_t* dir_prefix, stringbuf_t* display,
                                        const char* base_prefix, 
                                         char dir_sep, const char* extensions ) 
@@ -568,7 +568,7 @@ static bool filename_complete_indir( ic_completion_env_t* cenv, stringbuf_t* dir
     do {
       const char* name = os_direntry_name(&entry);
       if (name != NULL && strcmp(name, ".") != 0 && strcmp(name, "..") != 0 && 
-          ic_istarts_with(name, base_prefix))
+          xLineIstartsWith(name, base_prefix))
       {
         // possible match, first check if it is a directory
         file_type_t ft;
@@ -590,7 +590,7 @@ static bool filename_complete_indir( ic_completion_env_t* cenv, stringbuf_t* dir
           // add completion
           sbuf_clear(display);
           ls_colorize(cenv->env->no_lscolors, display, ft, name, NULL, (isdir ? dir_sep : 0));
-          cont = ic_add_completion_ex(cenv, sbuf_string(dir_prefix), sbuf_string(display), NULL);
+          cont = xLineAddCompletionEx(cenv, sbuf_string(dir_prefix), sbuf_string(display), NULL);
         }
         sbuf_delete_from( dir_prefix, plen ); // restore dir_prefix
       }
@@ -606,7 +606,7 @@ typedef struct filename_closure_s {
   char        dir_sep;
 } filename_closure_t;
 
-static void filename_completer( ic_completion_env_t* cenv, const char* prefix ) {
+static void filename_completer( xLineCompletionEnv* cenv, const char* prefix ) {
   if (prefix == NULL) return;
   filename_closure_t* fclosure = (filename_closure_t*)cenv->arg;  
   stringbuf_t* root_dir   = sbuf_new(cenv->env->mem);
@@ -670,7 +670,7 @@ static void filename_completer( ic_completion_env_t* cenv, const char* prefix ) 
   sbuf_free(dir_prefix);
 }
 
-ic_public void ic_complete_filename( ic_completion_env_t* cenv, const char* prefix, char dir_sep, const char* roots, const char* extensions ) {
+ic_public void xLineCompleteFilename( xLineCompletionEnv* cenv, const char* prefix, char dir_sep, const char* roots, const char* extensions ) {
   if (roots == NULL) roots = ".";
   if (extensions == NULL) extensions = "";
   if (dir_sep == 0) dir_sep = ic_dirsep();
@@ -679,5 +679,5 @@ ic_public void ic_complete_filename( ic_completion_env_t* cenv, const char* pref
   fclosure.roots = roots; 
   fclosure.extensions = extensions;
   cenv->arg = &fclosure;
-  ic_complete_qword_ex( cenv, prefix, &filename_completer, &ic_char_is_filename_letter, '\\', "'\"");  
+  xLineCompleteQwordEx( cenv, prefix, &filename_completer, &xLineCharIsFilenameLetter, '\\', "'\"");  
 }

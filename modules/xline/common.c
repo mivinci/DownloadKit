@@ -77,7 +77,7 @@ ic_private bool ic_strncpy( char* dest, ssize_t dest_size /* including 0 */, con
 // String matching
 //-------------------------------------------------------------
 
-ic_public bool ic_starts_with( const char* s, const char* prefix ) {
+ic_public bool xLineStartsWith( const char* s, const char* prefix ) {
   if (s==prefix) return true;
   if (prefix==NULL) return true;
   if (s==NULL) return false;
@@ -100,7 +100,7 @@ ic_private void ic_str_tolower(char* s) {
   }
 }
 
-ic_public bool ic_istarts_with( const char* s, const char* prefix ) {
+ic_public bool xLineIstartsWith( const char* s, const char* prefix ) {
   if (s==prefix) return true;
   if (prefix==NULL) return true;
   if (s==NULL) return false;

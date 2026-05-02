@@ -8,7 +8,7 @@
 #ifndef IC_ENV_H
 #define IC_ENV_H
 
-#include "isocline.h"
+#include "line.h"
 #include "common.h"
 #include "term.h"
 #include "tty.h"
@@ -31,7 +31,7 @@ struct ic_env_s {
   bbcode_t*       bbcode;           // print with bbcodes
   const char*     prompt_marker;    // the prompt marker (defaults to "> ")
   const char*     cprompt_marker;   // prompt marker for continuation lines (defaults to `prompt_marker`)
-  ic_highlight_fun_t* highlighter;  // highlight callback
+  xLineHighlightFn* highlighter;  // highlight callback
   void*           highlighter_arg;  // user state for the highlighter.
   const char*     match_braces;     // matching braces, e.g "()[]{}"
   const char*     auto_braces;      // auto insertion braces, e.g "()[]{}\"\"''"

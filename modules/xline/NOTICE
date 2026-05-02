@@ -32,11 +32,16 @@ Layout
   isocline.c              — umbrella TU (compiled); #includes every
                             other .c in this dir via its
                             `#if !defined(IC_SEPARATE_OBJS)` block.
-  isocline.h              — public header (will be renamed to
-                            `line.h` in a later commit).
+  line.h                  — public header. Exposes `xLine*` /
+                            `XLINE_*` names; a `#ifndef
+                            XLINE_NO_COMPAT` block at the tail
+                            keeps upstream `ic_*` names as
+                            aliases for the duration of this PR.
   {attr,bbcode,...}.[ch]  — internal implementation; pulled in by
                             isocline.c, marked HEADER_FILE_ONLY in
-                            CMake.
+                            CMake. Internal names (`ic_private`,
+                            `ic_env_t`, `ic_get_env`, etc.) are
+                            intentionally kept upstream-style.
 
 Attribution
 -----------

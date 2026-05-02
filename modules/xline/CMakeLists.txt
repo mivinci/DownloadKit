@@ -12,6 +12,7 @@
 #   see them but the compiler doesn't produce duplicate symbols.
 
 set(XLINE_UMBRELLA_SOURCES
+  async.c
   attr.c
   bbcode.c
   bbcode_colors.c

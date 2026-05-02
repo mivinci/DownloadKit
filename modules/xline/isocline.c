@@ -34,6 +34,7 @@
 # include "tty.c"
 # include "stringbuf.c"
 # include "common.c"
+# include "async.c"
 #endif
 
 //-------------------------------------------------------------
@@ -55,8 +56,14 @@
 
 static char*  ic_getline( alloc_t* mem );
 
+ic_private bool xline_async_is_live(void);  // defined in async.c
+
 ic_public char* xLineReadline(const char* prompt_text) 
 {
+  if (xline_async_is_live()) {
+    debug_msg("xline: xLineReadline() called while an async session is live; returning NULL (see requirement 4.4)\n");
+    return NULL;
+  }
   ic_env_t* env = ic_get_env();
   if (env == NULL) return NULL;
   if (!env->noedit) {

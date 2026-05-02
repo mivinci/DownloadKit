@@ -422,6 +422,11 @@ ic_private bool tty_is_utf8(const tty_t* tty) {
   return (tty->is_utf8);
 }
 
+ic_private int tty_fd(const tty_t* tty) {
+  if (tty == NULL) return -1;
+  return tty->fd_in;
+}
+
 ic_private bool tty_term_resize_event(tty_t* tty) {
   if (tty == NULL) return true;
   if (tty->has_term_resize_event) {

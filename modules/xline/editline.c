@@ -54,6 +54,9 @@ typedef struct editor_s {
 //-------------------------------------------------------------
 static char* edit_line( ic_env_t* env, const char* prompt_text );  // defined at bottom
 static void edit_refresh(ic_env_t* env, editor_t* eb);
+ic_private bool edit_dispatch_key(ic_env_t* env, editor_t* eb, code_t c);  // defined at bottom; returns true if main loop should exit
+ic_private bool edit_init(ic_env_t* env, editor_t* eb, const char* prompt_text);  // defined at bottom
+ic_private char* edit_finalize(ic_env_t* env, editor_t* eb, code_t last_c);  // defined at bottom
 
 ic_private char* ic_editline(ic_env_t* env, const char* prompt_text) {
   tty_start_raw(env->tty);
@@ -840,47 +843,299 @@ static void edit_insert_char(ic_env_t* env, editor_t* eb, char c) {
 
 
 //-------------------------------------------------------------
+// Edit line: per-key dispatch.
+//
+// Handles one already-read key code `c` against the current editor
+// state `eb`. Returns true when the caller's main loop should exit
+// (Enter/Ctrl-D-on-empty/Ctrl-C/STOP/ESC-on-empty). This is shared
+// between the synchronous edit_line() and the FD-level async
+// primitives in async.c.
+//-------------------------------------------------------------
+
+ic_private bool edit_dispatch_key(ic_env_t* env, editor_t* eb, code_t c) {
+  // update terminal in case of a resize
+  if (tty_term_resize_event(env->tty)) {
+    edit_resize(env, eb);
+  }
+
+  // clear hint only after a potential resize (so resize row calculations are correct)
+  const bool had_hint = (sbuf_len(eb->hint) > 0);
+  sbuf_clear(eb->hint);
+  sbuf_clear(eb->hint_help);
+
+  // if the user tries to move into a hint with left-cursor or end, we complete it first
+  if ((c == KEY_RIGHT || c == KEY_END) && had_hint) {
+    edit_generate_completions(env, eb, true);
+    c = KEY_NONE;
+  }
+
+  // Operations that may return
+  if (c == KEY_ENTER) {
+    if (!env->singleline_only && eb->pos > 0 &&
+         sbuf_string(eb->input)[eb->pos-1] == env->multiline_eol &&
+          edit_pos_is_at_row_end(env, eb))
+    {
+      // replace line-continuation with newline
+      edit_multiline_eol(env, eb);
+      return false;
+    }
+    return true;  // otherwise done
+  }
+  if (c == KEY_CTRL_D) {
+    if (eb->pos == 0 && editor_pos_is_at_end(eb)) return true;  // ctrl+D on empty quits with NULL
+    edit_delete_char(env, eb);  // otherwise it is like delete
+    return false;
+  }
+  if (c == KEY_EVENT_STOP) {
+    return true;  // STOP event quits with NULL
+  }
+  if (c == KEY_ESC) {
+    if (eb->pos == 0 && editor_pos_is_at_end(eb)) return true;  // ESC on empty input returns empty
+    edit_delete_all(env, eb);
+    return false;
+  }
+  if (c == KEY_BELL /* ^G */ || c == KEY_CTRL_C) {
+    edit_delete_all(env, eb);
+    return true;  // ctrl+G or ctrl+c cancels (and returns empty input)
+  }
+
+  // Editing Operations
+  switch (c) {
+    // events
+    case KEY_EVENT_RESIZE:  // not used
+      edit_resize(env, eb);
+      break;
+    case KEY_EVENT_AUTOTAB:
+      edit_generate_completions(env, eb, true);
+      break;
+
+    // completion, history, help, undo
+    case KEY_TAB:
+    case WITH_ALT('?'):
+      edit_generate_completions(env, eb, false);
+      break;
+    case KEY_CTRL_R:
+    case KEY_CTRL_S:
+      edit_history_search_with_current_word(env, eb);
+      break;
+    case KEY_CTRL_P:
+      edit_history_prev(env, eb);
+      break;
+    case KEY_CTRL_N:
+      edit_history_next(env, eb);
+      break;
+    case KEY_CTRL_L:
+      edit_clear_screen(env, eb);
+      break;
+    case KEY_CTRL_Z:
+    case WITH_CTRL('_'):
+      edit_undo_restore(env, eb);
+      break;
+    case KEY_CTRL_Y:
+      edit_redo_restore(env, eb);
+      break;
+    case KEY_F1:
+      edit_show_help(env, eb);
+      break;
+
+    // navigation
+    case KEY_LEFT:
+    case KEY_CTRL_B:
+      edit_cursor_left(env, eb);
+      break;
+    case KEY_RIGHT:
+    case KEY_CTRL_F:
+      if (eb->pos == sbuf_len(eb->input)) {
+        edit_generate_completions(env, eb, false);
+      }
+      else {
+        edit_cursor_right(env, eb);
+      }
+      break;
+    case KEY_UP:
+      edit_cursor_row_up(env, eb);
+      break;
+    case KEY_DOWN:
+      edit_cursor_row_down(env, eb);
+      break;
+    case KEY_HOME:
+    case KEY_CTRL_A:
+      edit_cursor_line_start(env, eb);
+      break;
+    case KEY_END:
+    case KEY_CTRL_E:
+      edit_cursor_line_end(env, eb);
+      break;
+    case KEY_CTRL_LEFT:
+    case WITH_SHIFT(KEY_LEFT):
+    case WITH_ALT('b'):
+      edit_cursor_prev_word(env, eb);
+      break;
+    case KEY_CTRL_RIGHT:
+    case WITH_SHIFT(KEY_RIGHT):
+    case WITH_ALT('f'):
+      if (eb->pos == sbuf_len(eb->input)) {
+        edit_generate_completions(env, eb, false);
+      }
+      else {
+        edit_cursor_next_word(env, eb);
+      }
+      break;
+    case KEY_CTRL_HOME:
+    case WITH_SHIFT(KEY_HOME):
+    case KEY_PAGEUP:
+    case WITH_ALT('<'):
+      edit_cursor_to_start(env, eb);
+      break;
+    case KEY_CTRL_END:
+    case WITH_SHIFT(KEY_END):
+    case KEY_PAGEDOWN:
+    case WITH_ALT('>'):
+      edit_cursor_to_end(env, eb);
+      break;
+    case WITH_ALT('m'):
+      edit_cursor_match_brace(env, eb);
+      break;
+
+    // deletion
+    case KEY_BACKSP:
+      edit_backspace(env, eb);
+      break;
+    case KEY_DEL:
+      edit_delete_char(env, eb);
+      break;
+    case WITH_ALT('d'):
+      edit_delete_to_end_of_word(env, eb);
+      break;
+    case KEY_CTRL_W:
+      edit_delete_to_start_of_ws_word(env, eb);
+      break;
+    case WITH_ALT(KEY_DEL):
+    case WITH_ALT(KEY_BACKSP):
+      edit_delete_to_start_of_word(env, eb);
+      break;
+    case KEY_CTRL_U:
+      edit_delete_to_start_of_line(env, eb);
+      break;
+    case KEY_CTRL_K:
+      edit_delete_to_end_of_line(env, eb);
+      break;
+    case KEY_CTRL_T:
+      edit_swap_char(env, eb);
+      break;
+
+    // Editing
+    case KEY_SHIFT_TAB:
+    case KEY_LINEFEED:  // '\n' (ctrl+J, shift+enter)
+      if (!env->singleline_only) {
+        edit_insert_char(env, eb, '\n');
+      }
+      break;
+    default: {
+      char chr;
+      unicode_t uchr;
+      if (code_is_ascii_char(c, &chr)) {
+        edit_insert_char(env, eb, chr);
+      }
+      else if (code_is_unicode(c, &uchr)) {
+        edit_insert_unicode(env, eb, uchr);
+      }
+      else {
+        debug_msg("edit: ignore code: 0x%04x\n", c);
+      }
+      break;
+    }
+  }
+  return false;
+}
+
+
+//-------------------------------------------------------------
 // Edit line: main edit loop
 //-------------------------------------------------------------
 
+//-------------------------------------------------------------
+// Editor init / finalize helpers shared with async.c
+//
+// edit_init  — zero out `eb`, allocate sub-buffers, paint the
+//              prompt, push an empty history slot. Returns true
+//              on success; false if allocation failed.
+// edit_finalize — dispose of `eb` and return the final string
+//              (NULL for EOF/STOP, strdup'd input otherwise).
+//-------------------------------------------------------------
+
+ic_private bool edit_init(ic_env_t* env, editor_t* eb, const char* prompt_text) {
+  memset(eb, 0, sizeof(*eb));
+  eb->mem        = env->mem;
+  eb->input      = sbuf_new(env->mem);
+  eb->extra      = sbuf_new(env->mem);
+  eb->hint       = sbuf_new(env->mem);
+  eb->hint_help  = sbuf_new(env->mem);
+  eb->termw      = term_get_width(env->term);
+  eb->pos        = 0;
+  eb->cur_rows   = 1;
+  eb->cur_row    = 0;
+  eb->modified   = false;
+  eb->prompt_text= (prompt_text != NULL ? prompt_text : "");
+  eb->history_idx= 0;
+  editstate_init(&eb->undo);
+  editstate_init(&eb->redo);
+  if (eb->input == NULL || eb->extra == NULL || eb->hint == NULL || eb->hint_help == NULL) {
+    return false;
+  }
+  if (!(env->no_highlight && env->no_bracematch)) {
+    eb->attrs       = attrbuf_new(env->mem);
+    eb->attrs_extra = attrbuf_new(env->mem);
+  }
+  edit_write_prompt(env, eb, 0, false);
+  history_push(env->history, "");
+  return true;
+}
+
+ic_private char* edit_finalize(ic_env_t* env, editor_t* eb, code_t last_c) {
+  // goto end
+  eb->pos = sbuf_len(eb->input);
+  // refresh once more but without brace matching
+  bool bm = env->no_bracematch;
+  env->no_bracematch = true;
+  edit_refresh(env, eb);
+  env->no_bracematch = bm;
+  // save result
+  char* res;
+  if ((last_c == KEY_CTRL_D && sbuf_len(eb->input) == 0) || last_c == KEY_EVENT_STOP) {
+    res = NULL;
+  }
+  else if (!tty_is_utf8(env->tty)) {
+    res = sbuf_strdup_from_utf8(eb->input);
+  }
+  else {
+    res = sbuf_strdup(eb->input);
+  }
+  // update history
+  history_update(env->history, sbuf_string(eb->input));
+  if (res == NULL || sbuf_len(eb->input) <= 1) { xLineHistoryRemoveLast(); }
+  history_save(env->history);
+  // free resources
+  editstate_done(env->mem, &eb->undo);
+  editstate_done(env->mem, &eb->redo);
+  attrbuf_free(eb->attrs);
+  attrbuf_free(eb->attrs_extra);
+  sbuf_free(eb->input);
+  sbuf_free(eb->extra);
+  sbuf_free(eb->hint);
+  sbuf_free(eb->hint_help);
+  return res;
+}
+
+
 static char* edit_line( ic_env_t* env, const char* prompt_text )
 {
-  // set up an edit buffer
   editor_t eb;
-  memset(&eb, 0, sizeof(eb));
-  eb.mem      = env->mem;
-  eb.input    = sbuf_new(env->mem);
-  eb.extra    = sbuf_new(env->mem);
-  eb.hint     = sbuf_new(env->mem);
-  eb.hint_help= sbuf_new(env->mem);
-  eb.termw    = term_get_width(env->term);  
-  eb.pos      = 0;
-  eb.cur_rows = 1; 
-  eb.cur_row  = 0; 
-  eb.modified = false;  
-  eb.prompt_text   = (prompt_text != NULL ? prompt_text : "");
-  eb.history_idx   = 0;  
-  editstate_init(&eb.undo);
-  editstate_init(&eb.redo);
-  if (eb.input==NULL || eb.extra==NULL || eb.hint==NULL || eb.hint_help==NULL) {
-    return NULL;
-  }
-
-  // caching
-  if (!(env->no_highlight && env->no_bracematch)) {
-    eb.attrs = attrbuf_new(env->mem);
-    eb.attrs_extra = attrbuf_new(env->mem);
-  }
-  
-  // show prompt
-  edit_write_prompt(env, &eb, 0, false);   
-
-  // always a history entry for the current input
-  history_push(env->history, "");
+  if (!edit_init(env, &eb, prompt_text)) return NULL;
 
   // process keys
-  code_t c;          // current key code
-  while(true) {    
+  code_t c = KEY_NONE;
+  while(true) {
     // read a character
     term_flush(env->term);
     if (env->hint_delay <= 0 || sbuf_len(eb.hint) == 0) {
@@ -903,240 +1158,10 @@ static char* edit_line( ic_env_t* env, const char* prompt_text )
         sbuf_clear(eb.hint_help);
       }
     }
-    
-    // update terminal in case of a resize
-    if (tty_term_resize_event(env->tty)) {
-      edit_resize(env,&eb);            
-    }
 
-    // clear hint only after a potential resize (so resize row calculations are correct)
-    const bool had_hint = (sbuf_len(eb.hint) > 0);
-    sbuf_clear(eb.hint);
-    sbuf_clear(eb.hint_help);
-
-    // if the user tries to move into a hint with left-cursor or end, we complete it first
-    if ((c == KEY_RIGHT || c == KEY_END) && had_hint) {
-      edit_generate_completions(env, &eb, true);
-      c = KEY_NONE;      
-    }
-
-    // Operations that may return
-    if (c == KEY_ENTER) {
-      if (!env->singleline_only && eb.pos > 0 && 
-           sbuf_string(eb.input)[eb.pos-1] == env->multiline_eol && 
-            edit_pos_is_at_row_end(env,&eb)) 
-      {
-        // replace line-continuation with newline
-        edit_multiline_eol(env,&eb);        
-      }
-      else {
-        // otherwise done
-        break;
-      }
-    } 
-    else if (c == KEY_CTRL_D) {
-      if (eb.pos == 0 && editor_pos_is_at_end(&eb)) break; // ctrl+D on empty quits with NULL
-      edit_delete_char(env,&eb);     // otherwise it is like delete
-    } 
-    else if (c == KEY_EVENT_STOP) {
-      break; // STOP event quits with NULL
-    }
-    else if (c == KEY_ESC) {
-      if (eb.pos == 0 && editor_pos_is_at_end(&eb)) break;  // ESC on empty input returns with empty input
-      edit_delete_all(env,&eb);      // otherwise delete the current input
-      // edit_delete_line(env,&eb);  // otherwise delete the current line
-    }
-    else if (c == KEY_BELL /* ^G */ || c == KEY_CTRL_C) {
-      edit_delete_all(env,&eb);
-      break; // ctrl+G or ctrl+c cancels (and returns empty input)
-    }
-
-    // Editing Operations
-    else switch(c) {
-      // events
-      case KEY_EVENT_RESIZE:  // not used
-        edit_resize(env,&eb);
-        break;
-      case KEY_EVENT_AUTOTAB:
-        edit_generate_completions(env, &eb, true);
-        break;
-
-      // completion, history, help, undo
-      case KEY_TAB:
-      case WITH_ALT('?'):
-        edit_generate_completions(env,&eb,false);
-        break;
-      case KEY_CTRL_R:
-      case KEY_CTRL_S:
-        edit_history_search_with_current_word(env,&eb);
-        break;
-      case KEY_CTRL_P:
-        edit_history_prev(env, &eb);
-        break;
-      case KEY_CTRL_N:
-        edit_history_next(env, &eb);
-        break;
-      case KEY_CTRL_L:
-        edit_clear_screen(env, &eb);
-        break;
-      case KEY_CTRL_Z:
-      case WITH_CTRL('_'):
-        edit_undo_restore(env, &eb);
-        break;
-      case KEY_CTRL_Y:
-        edit_redo_restore(env, &eb);
-        break;
-      case KEY_F1:
-        edit_show_help(env, &eb);
-        break;
-
-      // navigation
-      case KEY_LEFT:
-      case KEY_CTRL_B:
-        edit_cursor_left(env,&eb);
-        break;
-      case KEY_RIGHT:
-      case KEY_CTRL_F:
-        if (eb.pos == sbuf_len(eb.input)) { 
-          edit_generate_completions( env, &eb, false );
-        }
-        else {
-          edit_cursor_right(env,&eb);
-        }
-        break;
-      case KEY_UP:
-        edit_cursor_row_up(env,&eb);
-        break;
-      case KEY_DOWN:
-        edit_cursor_row_down(env,&eb);
-        break;                 
-      case KEY_HOME:
-      case KEY_CTRL_A:
-        edit_cursor_line_start(env,&eb);
-        break;
-      case KEY_END:
-      case KEY_CTRL_E:
-        edit_cursor_line_end(env,&eb);
-        break;
-      case KEY_CTRL_LEFT:
-      case WITH_SHIFT(KEY_LEFT):    
-      case WITH_ALT('b'):
-        edit_cursor_prev_word(env,&eb);
-        break;
-      case KEY_CTRL_RIGHT:
-      case WITH_SHIFT(KEY_RIGHT):      
-      case WITH_ALT('f'):
-        if (eb.pos == sbuf_len(eb.input)) { 
-          edit_generate_completions( env, &eb, false );
-        }
-        else {
-          edit_cursor_next_word(env,&eb);
-        }
-        break;      
-      case KEY_CTRL_HOME:
-      case WITH_SHIFT(KEY_HOME):      
-      case KEY_PAGEUP:
-      case WITH_ALT('<'):
-        edit_cursor_to_start(env,&eb);
-        break;
-      case KEY_CTRL_END:
-      case WITH_SHIFT(KEY_END):      
-      case KEY_PAGEDOWN:
-      case WITH_ALT('>'):
-        edit_cursor_to_end(env,&eb);
-        break;
-      case WITH_ALT('m'):
-        edit_cursor_match_brace(env,&eb);
-        break;
-
-      // deletion
-      case KEY_BACKSP:
-        edit_backspace(env,&eb);
-        break;
-      case KEY_DEL:
-        edit_delete_char(env,&eb);
-        break;
-      case WITH_ALT('d'):
-        edit_delete_to_end_of_word(env,&eb);
-        break;
-      case KEY_CTRL_W:
-        edit_delete_to_start_of_ws_word(env, &eb);
-        break;
-      case WITH_ALT(KEY_DEL):
-      case WITH_ALT(KEY_BACKSP):
-        edit_delete_to_start_of_word(env,&eb);
-        break;      
-      case KEY_CTRL_U:
-        edit_delete_to_start_of_line(env,&eb);
-        break;
-      case KEY_CTRL_K:
-        edit_delete_to_end_of_line(env,&eb);
-        break;
-      case KEY_CTRL_T:
-        edit_swap_char(env,&eb);
-        break;
-
-      // Editing
-      case KEY_SHIFT_TAB:
-      case KEY_LINEFEED: // '\n' (ctrl+J, shift+enter)
-        if (!env->singleline_only) { 
-          edit_insert_char(env, &eb, '\n'); 
-        }
-        break;
-      default: {
-        char chr;
-        unicode_t uchr;
-        if (code_is_ascii_char(c,&chr)) {
-          edit_insert_char(env,&eb,chr);
-        }
-        else if (code_is_unicode(c, &uchr)) {
-          edit_insert_unicode(env,&eb, uchr);
-        }
-        else {
-          debug_msg( "edit: ignore code: 0x%04x\n", c);
-        }
-        break;
-      }
-    }
-
+    if (edit_dispatch_key(env, &eb, c)) break;
   }
 
-  // goto end
-  eb.pos = sbuf_len(eb.input);
-
-  // refresh once more but without brace matching
-  bool bm = env->no_bracematch;
-  env->no_bracematch = true;
-  edit_refresh(env,&eb);
-  env->no_bracematch = bm;
-  
-  // save result
-  char* res; 
-  if ((c == KEY_CTRL_D && sbuf_len(eb.input) == 0) || c == KEY_EVENT_STOP) {
-    res = NULL;
-  }
-  else if (!tty_is_utf8(env->tty)) {
-    res = sbuf_strdup_from_utf8(eb.input);
-  }
-  else {
-    res = sbuf_strdup(eb.input);
-  }
-
-  // update history
-  history_update(env->history, sbuf_string(eb.input));
-  if (res == NULL || sbuf_len(eb.input) <= 1) { xLineHistoryRemoveLast(); } // no empty or single-char entries
-  history_save(env->history);
-
-  // free resources 
-  editstate_done(env->mem, &eb.undo);
-  editstate_done(env->mem, &eb.redo);
-  attrbuf_free(eb.attrs);
-  attrbuf_free(eb.attrs_extra);
-  sbuf_free(eb.input);
-  sbuf_free(eb.extra);
-  sbuf_free(eb.hint);
-  sbuf_free(eb.hint_help);
-
-  return res;
+  return edit_finalize(env, &eb, c);
 }
 

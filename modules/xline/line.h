@@ -594,6 +594,88 @@ int xLineTermGetColorBits( void );
 /// functional on Linux, macOS and Windows).
 bool xLineAsyncStop(void);
 
+
+//--------------------------------------------------------------
+// FD-level async line editing.
+//
+// These primitives let a caller drive line editing from its own
+// event loop (poll/select/kqueue). While a session is pending the
+// caller may print chunks above the current edit line using
+// xLinePrintAbove() without corrupting the user's input.
+//
+// Call sequence:
+//
+//   xLineHandle* h = xLineBegin("> ");
+//   int fd = xLineFd(h);
+//   // register `fd` for read-readiness in your event loop...
+//   for (;;) {
+//     poll/select/... on fd (and on your other sources);
+//     xLineStepResult r = xLineStep(h);
+//     if (r == XLINE_STEP_LINE) { char* s = xLineTake(h); ...; xLineFree(s); break; }
+//     if (r == XLINE_STEP_EOF || r == XLINE_STEP_ERROR) break;
+//     // r == XLINE_STEP_PENDING: keep looping
+//   }
+//   xLineEnd(h);
+//
+// The synchronous xLineReadline() is internally implemented in
+// terms of these primitives; the two modes MUST NOT be used at
+// the same time — calling xLineReadline() while a handle is live
+// returns NULL and logs a warning.
+//--------------------------------------------------------------
+
+/// Opaque async line-editing session handle.
+typedef struct xLineHandle_s xLineHandle;
+
+/// Result of one non-blocking step.
+typedef enum xLineStepResult_e {
+  XLINE_STEP_PENDING = 0,  ///< more input needed; poll the fd again
+  XLINE_STEP_LINE    = 1,  ///< a line is ready; call xLineTake()
+  XLINE_STEP_EOF     = 2,  ///< Ctrl-D on empty input or stream closed
+  XLINE_STEP_ERROR   = 3,  ///< unrecoverable error
+} xLineStepResult;
+
+/// Start a new async line-editing session.
+/// Takes ownership of no memory; `prompt_text` may be NULL for "".
+/// Returns NULL if another session is already live, or if the
+/// terminal is not capable of interactive editing (pipe/dumb tty);
+/// in the latter case callers should fall back to xLineReadline().
+xLineHandle* xLineBegin(const char* prompt_text);
+
+/// Return the fd the session is listening on.
+///
+/// POSIX: returns the tty/stdin fd (always >= 0). The fd is owned
+/// by the library; the caller MUST NOT close it or change its
+/// blocking mode.
+///
+/// Windows: returns -1. The console input handle is not an fd and
+/// cannot be polled with select/WSAPoll; Windows callers should
+/// block on xLineStep() in a worker thread or use a future
+/// xLineStepBlocking() helper (not implemented in this PR).
+int xLineFd(xLineHandle* h);
+
+/// Process whatever input is currently ready on the session fd.
+/// Non-blocking: returns immediately if no bytes are available.
+/// May be called any number of times per poll wake-up.
+xLineStepResult xLineStep(xLineHandle* h);
+
+/// After xLineStep() returned XLINE_STEP_LINE, take ownership of
+/// the edited line. The returned string is heap-allocated and
+/// must be freed by xLineFree(). Returns NULL if no line is ready
+/// (caller violated the protocol).
+char* xLineTake(xLineHandle* h);
+
+/// End a session. Safe to call in any state (PENDING to cancel,
+/// after LINE once the line has been taken, after EOF/ERROR).
+/// Restores the terminal to cooked mode and frees the handle.
+void xLineEnd(xLineHandle* h);
+
+/// Print `s` above the current edit line, preserving the prompt
+/// and the user's in-progress input. Safe to call from the same
+/// thread that owns the handle between xLineStep() invocations.
+/// `s` is a plain string; embed "\n" for multi-line output. Does
+/// nothing if `h` is NULL or the session is not live.
+void xLinePrintAbove(xLineHandle* h, const char* s);
+
 /// \}
 
 //--------------------------------------------------------------

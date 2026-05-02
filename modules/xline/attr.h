@@ -8,7 +8,6 @@
 #define IC_ATTR_H
 
 #include "color.h"
-#include "mem.h"
 #include "platform.h"
 #include "stringbuf.h"
 
@@ -54,7 +53,7 @@ ic_private attr_t attr_from_esc_sgr(const char *s, ssize_t len);
 struct attrbuf_s;
 typedef struct attrbuf_s attrbuf_t;
 
-ic_private attrbuf_t    *attrbuf_new(alloc_t *mem);
+ic_private attrbuf_t    *attrbuf_new(void);
 ic_private void          attrbuf_free(attrbuf_t *ab);  // ab can be NULL
 ic_private void          attrbuf_clear(attrbuf_t *ab); // ab can be NULL
 ic_private ssize_t       attrbuf_len(attrbuf_t *ab);   // ab can be NULL

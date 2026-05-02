@@ -5,6 +5,7 @@
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -12,7 +13,6 @@
 #include <xbase/log.h>
 #include "history.h"
 #include "line.h"
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
@@ -25,13 +25,11 @@ struct history_s {
   ssize_t      len;   // size of elems
   const char **elems; // history items (up to count)
   const char  *fname; // history file
-  alloc_t     *mem;
   bool         allow_duplicates; // allow duplicate entries?
 };
 
-ic_private history_t *history_new(alloc_t *mem) {
-  history_t *h = mem_zalloc_tp(mem, history_t);
-  h->mem       = mem;
+ic_private history_t *history_new(void) {
+  history_t *h = (history_t *)calloc(1, sizeof(history_t));
   return h;
 }
 
@@ -39,13 +37,13 @@ ic_private void history_free(history_t *h) {
   if (h == NULL) return;
   history_clear(h);
   if (h->len > 0) {
-    mem_free(h->mem, h->elems);
+    free(h->elems);
     h->elems = NULL;
     h->len   = 0;
   }
-  mem_free(h->mem, h->fname);
+  free((void *)h->fname);
   h->fname = NULL;
-  mem_free(h->mem, h); // free ourselves
+  free(h); // free ourselves
 }
 
 ic_private bool history_enable_duplicates(history_t *h, bool enable) {
@@ -73,7 +71,7 @@ ic_private bool history_update(history_t *h, const char *entry) {
 
 static void history_delete_at(history_t *h, ssize_t idx) {
   if (idx < 0 || idx >= h->count) return;
-  mem_free(h->mem, h->elems[idx]);
+  free((void *)h->elems[idx]);
   for (ssize_t i = idx + 1; i < h->count; i++) {
     h->elems[i - 1] = h->elems[i];
   }
@@ -96,7 +94,7 @@ ic_private bool history_push(history_t *h, const char *entry) {
     history_delete_at(h, 0);
   }
   assert(h->count < h->len);
-  h->elems[h->count] = mem_strdup(h->mem, entry);
+  h->elems[h->count] = ic_strdup(entry);
   h->count++;
   return true;
 }
@@ -105,7 +103,7 @@ static void history_remove_last_n(history_t *h, ssize_t n) {
   if (n <= 0) return;
   if (n > h->count) n = h->count;
   for (ssize_t i = h->count - n; i < h->count; i++) {
-    mem_free(h->mem, h->elems[i]);
+    free((void *)h->elems[i]);
   }
   h->count -= n;
   assert(h->count >= 0);
@@ -153,14 +151,14 @@ ic_private bool history_search(const history_t *h, ssize_t from /*including*/,
 ic_private void history_load_from(history_t *h, const char *fname,
                                   long max_entries) {
   history_clear(h);
-  h->fname = mem_strdup(h->mem, fname);
+  h->fname = ic_strdup(fname);
   if (max_entries == 0) {
     assert(h->elems == NULL);
     return;
   }
   if (max_entries < 0 || max_entries > IC_MAX_HISTORY)
     max_entries = IC_MAX_HISTORY;
-  h->elems = (const char **)mem_zalloc_tp_n(h->mem, char *, max_entries);
+  h->elems = (const char **)calloc(to_size_t(max_entries), sizeof(char *));
   if (h->elems == NULL) return;
   h->len = max_entries;
   history_load(h);
@@ -255,7 +253,7 @@ ic_private void history_load(history_t *h) {
   if (h->fname == NULL) return;
   FILE *f = fopen(h->fname, "r");
   if (f == NULL) return;
-  stringbuf_t *sbuf = sbuf_new(h->mem);
+  stringbuf_t *sbuf = sbuf_new();
   if (sbuf != NULL) {
     while (!feof(f)) {
       if (!history_read_entry(h, f, sbuf)) break; // error
@@ -272,7 +270,7 @@ ic_private void history_save(const history_t *h) {
 #ifndef _WIN32
   chmod(h->fname, S_IRUSR | S_IWUSR);
 #endif
-  stringbuf_t *sbuf = sbuf_new(h->mem);
+  stringbuf_t *sbuf = sbuf_new();
   if (sbuf != NULL) {
     for (int i = 0; i < h->count; i++) {
       if (!history_write_entry(h->elems[i], f, sbuf)) break; // error

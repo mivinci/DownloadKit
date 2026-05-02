@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <xbase/log.h>
@@ -42,7 +43,6 @@ struct tty_s {
   bool     is_utf8;               // is the input stream in utf-8 mode?
   bool     has_term_resize_event; // are resize events generated?
   bool     term_resize_event;     // did a term resize happen?
-  alloc_t *mem;                   // memory allocator
   code_t   pushbuf[TTY_PUSH_MAX]; // push back buffer for full key codes
   ssize_t  push_count;
   uint8_t  cpushbuf[TTY_PUSH_MAX]; // low level push back buffer for bytes
@@ -392,9 +392,9 @@ static bool tty_init_utf8(tty_t *tty) {
   return true;
 }
 
-ic_private tty_t *tty_new(alloc_t *mem, int fd_in) {
-  tty_t *tty = mem_zalloc_tp(mem, tty_t);
-  tty->mem   = mem;
+ic_private tty_t *tty_new(int fd_in) {
+  tty_t *tty = (tty_t *)calloc(1, sizeof(tty_t));
+  if (tty == NULL) return NULL;
   tty->fd_in = (fd_in < 0 ? STDIN_FILENO : fd_in);
 #if defined(__APPLE__)
   tty->esc_initial_timeout = 200; // apple use ESC+<key> for alt-<key>
@@ -413,7 +413,7 @@ ic_private void tty_free(tty_t *tty) {
   if (tty == NULL) return;
   tty_end_raw(tty);
   tty_done_raw(tty);
-  mem_free(tty->mem, tty);
+  free(tty);
 }
 
 ic_private bool tty_is_utf8(const tty_t *tty) {

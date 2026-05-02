@@ -23,11 +23,11 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <xbase/log.h>
 #include "line.h"
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
@@ -41,7 +41,6 @@ struct stringbuf_s {
   char    *buf;
   ssize_t  buflen;
   ssize_t  count;
-  alloc_t *mem;
 };
 
 //-------------------------------------------------------------
@@ -579,8 +578,9 @@ static bool sbuf_ensure_extra(stringbuf_t *s, ssize_t extra) {
   if (s->buflen > 0) {
     XDEBUG("stringbuf: reallocate: old %zd, new %zd\n", s->buflen, newlen);
   }
-  char *newbuf = mem_realloc_tp(s->mem, char, s->buf,
-                                newlen + 1); // one more for terminating zero
+  char *newbuf =
+    (char *)realloc(s->buf,
+                    to_size_t(newlen + 1)); // one more for terminating zero
   if (newbuf == NULL) {
     assert(false);
     return false;
@@ -592,15 +592,14 @@ static bool sbuf_ensure_extra(stringbuf_t *s, ssize_t extra) {
   return true;
 }
 
-static void sbuf_init(stringbuf_t *sbuf, alloc_t *mem) {
-  sbuf->mem    = mem;
+static void sbuf_init(stringbuf_t *sbuf) {
   sbuf->buf    = NULL;
   sbuf->buflen = 0;
   sbuf->count  = 0;
 }
 
 static void sbuf_done(stringbuf_t *sbuf) {
-  mem_free(sbuf->mem, sbuf->buf);
+  free(sbuf->buf);
   sbuf->buf    = NULL;
   sbuf->buflen = 0;
   sbuf->count  = 0;
@@ -609,13 +608,13 @@ static void sbuf_done(stringbuf_t *sbuf) {
 ic_private void sbuf_free(stringbuf_t *sbuf) {
   if (sbuf == NULL) return;
   sbuf_done(sbuf);
-  mem_free(sbuf->mem, sbuf);
+  free(sbuf);
 }
 
-ic_private stringbuf_t *sbuf_new(alloc_t *mem) {
-  stringbuf_t *sbuf = mem_zalloc_tp(mem, stringbuf_t);
+ic_private stringbuf_t *sbuf_new(void) {
+  stringbuf_t *sbuf = (stringbuf_t *)calloc(1, sizeof(stringbuf_t));
   if (sbuf == NULL) return NULL;
-  sbuf_init(sbuf, mem);
+  sbuf_init(sbuf);
   return sbuf;
 }
 
@@ -624,7 +623,7 @@ ic_private char *sbuf_free_dup(stringbuf_t *sbuf) {
   if (sbuf == NULL) return NULL;
   char *s = NULL;
   if (sbuf->buf != NULL) {
-    s = mem_realloc_tp(sbuf->mem, char, sbuf->buf, sbuf_len(sbuf) + 1);
+    s = (char *)realloc(sbuf->buf, to_size_t(sbuf_len(sbuf) + 1));
     if (s == NULL) {
       s = sbuf->buf;
     }
@@ -653,11 +652,11 @@ ic_private char sbuf_char_at(stringbuf_t *sbuf, ssize_t pos) {
 }
 
 ic_private char *sbuf_strdup_at(stringbuf_t *sbuf, ssize_t pos) {
-  return mem_strdup(sbuf->mem, sbuf_string_at(sbuf, pos));
+  return ic_strdup(sbuf_string_at(sbuf, pos));
 }
 
 ic_private char *sbuf_strdup(stringbuf_t *sbuf) {
-  return mem_strdup(sbuf->mem, sbuf_string(sbuf));
+  return ic_strdup(sbuf_string(sbuf));
 }
 
 ic_private ssize_t sbuf_len(const stringbuf_t *s) {
@@ -708,7 +707,7 @@ ic_private ssize_t sbuf_insert_at_n(stringbuf_t *sbuf, const char *s, ssize_t n,
 
 ic_private stringbuf_t *sbuf_split_at(stringbuf_t *sb, ssize_t pos) {
   if (pos < 0) return NULL;
-  stringbuf_t *res = sbuf_new(sb->mem);
+  stringbuf_t *res = sbuf_new();
   if (res == NULL) return NULL;
   if (pos < sb->count) {
     sbuf_append_n(res, sb->buf + pos, sb->count - pos);
@@ -892,7 +891,7 @@ ic_private ssize_t sbuf_for_each_row(stringbuf_t *sbuf, ssize_t termw,
 ic_private char *sbuf_strdup_from_utf8(stringbuf_t *sbuf) {
   ssize_t len = sbuf_len(sbuf);
   if (sbuf == NULL || len <= 0) return NULL;
-  char *s = mem_zalloc_tp_n(sbuf->mem, char, len);
+  char *s = (char *)calloc(to_size_t(len), sizeof(char));
   if (s == NULL) return NULL;
   ssize_t dest = 0;
   for (ssize_t i = 0; i < len;) {

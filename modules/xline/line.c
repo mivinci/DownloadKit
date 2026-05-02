@@ -27,7 +27,6 @@
 #include <xbase/log.h>
 #include "env.h"
 #include "line.h"
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 
@@ -35,7 +34,7 @@
 // Readline
 //-------------------------------------------------------------
 
-static char *ic_getline(alloc_t *mem);
+static char *ic_getline(void);
 
 ic_private bool xline_async_is_live(void); // defined in async.c
 
@@ -63,7 +62,7 @@ ic_public char *xLineReadline(const char *prompt_text) {
       term_end_raw(env->term, false);
     }
     // read directly from stdin
-    return ic_getline(env->mem);
+    return ic_getline();
   }
 }
 
@@ -72,9 +71,9 @@ ic_public char *xLineReadline(const char *prompt_text) {
 // support (like from a pipe, file, or dumb terminal).
 //-------------------------------------------------------------
 
-static char *ic_getline(alloc_t *mem) {
+static char *ic_getline(void) {
   // read until eof or newline
-  stringbuf_t *sb = sbuf_new(mem);
+  stringbuf_t *sb = sbuf_new();
   int          c;
   while (true) {
     c = fgetc(stdin);
@@ -149,10 +148,10 @@ static void set_prompt_marker(ic_env_t *env, const char *prompt_marker,
                               const char *cprompt_marker) {
   if (prompt_marker == NULL) prompt_marker = "> ";
   if (cprompt_marker == NULL) cprompt_marker = prompt_marker;
-  mem_free(env->mem, env->prompt_marker);
-  mem_free(env->mem, env->cprompt_marker);
-  env->prompt_marker  = mem_strdup(env->mem, prompt_marker);
-  env->cprompt_marker = mem_strdup(env->mem, cprompt_marker);
+  free((void *)env->prompt_marker);
+  free((void *)env->cprompt_marker);
+  env->prompt_marker  = ic_strdup(prompt_marker);
+  env->cprompt_marker = ic_strdup(cprompt_marker);
 }
 
 ic_public const char *xLineGetPromptMarker(void) {
@@ -299,12 +298,12 @@ ic_public bool xLineEnableBraceMatching(bool enable) {
 ic_public void xLineSetMatchingBraces(const char *brace_pairs) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return;
-  mem_free(env->mem, env->match_braces);
+  free((void *)env->match_braces);
   env->match_braces = NULL;
   if (brace_pairs != NULL) {
     ssize_t len = ic_strlen(brace_pairs);
     if (len > 0 && (len % 2) == 0) {
-      env->match_braces = mem_strdup(env->mem, brace_pairs);
+      env->match_braces = ic_strdup(brace_pairs);
     }
   }
 }
@@ -320,12 +319,12 @@ ic_public bool xLineEnableBraceInsertion(bool enable) {
 ic_public void xLineSetInsertionBraces(const char *brace_pairs) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return;
-  mem_free(env->mem, env->auto_braces);
+  free((void *)env->auto_braces);
   env->auto_braces = NULL;
   if (brace_pairs != NULL) {
     ssize_t len = ic_strlen(brace_pairs);
     if (len > 0 && (len % 2) == 0) {
-      env->auto_braces = mem_strdup(env->mem, brace_pairs);
+      env->auto_braces = ic_strdup(brace_pairs);
     }
   }
 }
@@ -355,27 +354,15 @@ ic_public void xLineSetDefaultHighlighter(xLineHighlightFunc *highlighter,
 }
 
 ic_public void xLineFree(void *p) {
-  ic_env_t *env = ic_get_env();
-  if (env == NULL) return;
-  mem_free(env->mem, p);
+  free(p);
 }
 
 ic_public void *xLineMalloc(size_t sz) {
-  ic_env_t *env = ic_get_env();
-  if (env == NULL) return NULL;
-  return mem_malloc(env->mem, to_ssize_t(sz));
+  return malloc(sz);
 }
 
 ic_public const char *xLineStrdup(const char *s) {
-  if (s == NULL) return NULL;
-  ic_env_t *env = ic_get_env();
-  if (env == NULL) return NULL;
-  ssize_t len = ic_strlen(s);
-  char   *p   = mem_malloc_tp_n(env->mem, char, len + 1);
-  if (p == NULL) return NULL;
-  ic_memcpy(p, s, len);
-  p[len] = 0;
-  return p;
+  return ic_strdup(s);
 }
 
 //-------------------------------------------------------------
@@ -543,27 +530,25 @@ static void ic_env_free(ic_env_t *env) {
   bbcode_free(env->bbcode);
   term_free(env->term);
   tty_free(env->tty);
-  mem_free(env->mem, env->cprompt_marker);
-  mem_free(env->mem, env->prompt_marker);
-  mem_free(env->mem, env->match_braces);
-  mem_free(env->mem, env->auto_braces);
+  free((void *)env->cprompt_marker);
+  free((void *)env->prompt_marker);
+  free((void *)env->match_braces);
+  free((void *)env->auto_braces);
   env->prompt_marker = NULL;
 
-  // and deallocate ourselves (env->mem is always NULL in xline)
-  mem_free(env->mem, env);
+  free(env);
 }
 
 static ic_env_t *ic_env_create(void) {
   ic_env_t *env = (ic_env_t *)calloc(1, sizeof(ic_env_t));
   if (env == NULL) return NULL;
-  env->mem = NULL; // unused in xline; kept for source compatibility
 
   // Initialize
-  env->tty         = tty_new(env->mem, -1); // can return NULL
-  env->term        = term_new(env->mem, env->tty, false, false, -1);
-  env->history     = history_new(env->mem);
-  env->completions = completions_new(env->mem);
-  env->bbcode      = bbcode_new(env->mem, env->term);
+  env->tty         = tty_new(-1); // can return NULL
+  env->term        = term_new(env->tty, false, false, -1);
+  env->history     = history_new();
+  env->completions = completions_new();
+  env->bbcode      = bbcode_new(env->term);
   env->hint_delay  = 400;
 
   if (env->tty == NULL || env->term == NULL || env->completions == NULL ||

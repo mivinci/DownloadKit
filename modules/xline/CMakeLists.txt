@@ -25,7 +25,6 @@ set(XLINE_SOURCES
   highlight.c
   history.c
   line.c
-  mem.c
   str.c
   stringbuf.c
   term.c

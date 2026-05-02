@@ -12,7 +12,6 @@
 
 #include "color.h"
 #include <xbase/log.h>
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h" // str_next_ofs
@@ -46,7 +45,6 @@ struct term_s {
   buffer_mode_t bufmode;     // buffer mode
   stringbuf_t  *buf;         // buffer for buffered output
   tty_t        *tty;         // used on posix to get the cursor position
-  alloc_t      *mem;         // allocator
 #ifdef _WIN32
   HANDLE hcon;              // output console handler
   WORD   hcon_default_attr; // default text attributes
@@ -332,21 +330,20 @@ static void term_check_flush(term_t *term, bool contains_nl) {
 
 static void term_init_raw(term_t *term);
 
-ic_private term_t *term_new(alloc_t *mem, tty_t *tty, bool nocolor, bool silent,
+ic_private term_t *term_new(tty_t *tty, bool nocolor, bool silent,
                             int fd_out) {
-  term_t *term = mem_zalloc_tp(mem, term_t);
+  term_t *term = (term_t *)calloc(1, sizeof(term_t));
   if (term == NULL) return NULL;
 
   term->fd_out  = (fd_out < 0 ? STDOUT_FILENO : fd_out);
   term->nocolor = nocolor || (isatty(term->fd_out) == 0);
   term->silent  = silent;
-  term->mem     = mem;
   term->tty     = tty; // can be NULL
   term->width   = 80;
   term->height  = 25;
   term->is_utf8 = tty_is_utf8(tty);
   term->palette = ANSI16; // almost universally supported
-  term->buf     = sbuf_new(mem);
+  term->buf     = sbuf_new();
   term->bufmode = LINEBUFFERED;
   term->attr    = attr_default();
 
@@ -463,7 +460,7 @@ ic_private void term_free(term_t *term) {
   term_end_raw(term, true);
   sbuf_free(term->buf);
   term->buf = NULL;
-  mem_free(term->mem, term);
+  free(term);
 }
 
 //-------------------------------------------------------------

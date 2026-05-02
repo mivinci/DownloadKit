@@ -4,12 +4,12 @@
   under the terms of the MIT License. A copy of the license can be
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
+#include <stdlib.h>
 #include <string.h>
 
 #include "attr.h"
 #include "color.h"
 #include <xbase/log.h>
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h" // str_next_ofs
@@ -213,7 +213,6 @@ struct attrbuf_s {
   attr_t  *attrs;
   ssize_t  capacity;
   ssize_t  count;
-  alloc_t *mem;
 };
 
 static bool attrbuf_ensure_capacity(attrbuf_t *ab, ssize_t needed) {
@@ -225,7 +224,8 @@ static bool attrbuf_ensure_capacity(attrbuf_t *ab, ssize_t needed) {
   if (needed > newcap) {
     newcap = needed;
   }
-  attr_t *newattrs = mem_realloc_tp(ab->mem, attr_t, ab->attrs, newcap);
+  attr_t *newattrs =
+    (attr_t *)realloc(ab->attrs, to_size_t(newcap) * sizeof(attr_t));
   if (newattrs == NULL) return false;
   ab->attrs    = newattrs;
   ab->capacity = newcap;
@@ -238,18 +238,17 @@ static bool attrbuf_ensure_extra(attrbuf_t *ab, ssize_t extra) {
   return attrbuf_ensure_capacity(ab, needed);
 }
 
-ic_private attrbuf_t *attrbuf_new(alloc_t *mem) {
-  attrbuf_t *ab = mem_zalloc_tp(mem, attrbuf_t);
+ic_private attrbuf_t *attrbuf_new(void) {
+  attrbuf_t *ab = (attrbuf_t *)calloc(1, sizeof(attrbuf_t));
   if (ab == NULL) return NULL;
-  ab->mem = mem;
   attrbuf_ensure_extra(ab, 1);
   return ab;
 }
 
 ic_private void attrbuf_free(attrbuf_t *ab) {
   if (ab == NULL) return;
-  mem_free(ab->mem, ab->attrs);
-  mem_free(ab->mem, ab);
+  free(ab->attrs);
+  free(ab);
 }
 
 ic_private void attrbuf_clear(attrbuf_t *ab) {

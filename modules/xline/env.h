@@ -11,7 +11,6 @@
 #include "completions.h"
 #include "history.h"
 #include "line.h"
-#include "mem.h"
 #include "platform.h"
 #include "term.h"
 #include "tty.h"
@@ -21,7 +20,6 @@
 //-------------------------------------------------------------
 
 struct ic_env_s {
-  alloc_t       *mem;         // potential custom allocator
   ic_env_t      *next;        // next environment (used for proper deallocation)
   term_t        *term;        // terminal
   tty_t         *tty;         // keyboard (NULL if stdin is a pipe, file, etc)

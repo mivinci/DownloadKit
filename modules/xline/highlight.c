@@ -10,7 +10,6 @@
 #include "color.h"
 #include <xbase/log.h>
 #include "line.h"
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
@@ -27,12 +26,11 @@ XDEF_STRUCT(xLineHighlightEnv_) {
   const char *input;
   ssize_t     input_len;
   bbcode_t   *bbcode;
-  alloc_t    *mem;
   ssize_t     cached_upos; // cached unicode position
   ssize_t     cached_cpos; // corresponding utf-8 byte position
 };
 
-ic_private void highlight(alloc_t *mem, bbcode_t *bb, const char *s,
+ic_private void highlight(bbcode_t *bb, const char *s,
                           attrbuf_t *attrs, xLineHighlightFunc *highlighter,
                           void *arg) {
   const ssize_t len = ic_strlen(s);
@@ -44,7 +42,6 @@ ic_private void highlight(alloc_t *mem, bbcode_t *bb, const char *s,
     henv.input       = s;
     henv.input_len   = len;
     henv.bbcode      = bb;
-    henv.mem         = mem;
     henv.cached_cpos = 0;
     henv.cached_upos = 0;
     (*highlighter)((xLineHighlightEnv)&henv, s, arg);
@@ -124,8 +121,8 @@ ic_public void xLineHighlightFormatted(xLineHighlightEnv henv_arg, const char *s
                                        const char *fmt) {
   xLineHighlightEnv_ *henv = (xLineHighlightEnv_ *)henv_arg;
   if (s == NULL || s[0] == 0 || fmt == NULL) return;
-  attrbuf_t   *attrs = attrbuf_new(henv->mem);
-  stringbuf_t *out   = sbuf_new(henv->mem); // todo: avoid allocating out?
+  attrbuf_t   *attrs = attrbuf_new();
+  stringbuf_t *out   = sbuf_new(); // todo: avoid allocating out?
   if (attrs != NULL && out != NULL) {
     bbcode_append(henv->bbcode, fmt, out, attrs);
     const ssize_t len = ic_strlen(s);

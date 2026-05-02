@@ -9,7 +9,6 @@
 
 #include "attr.h"
 #include "bbcode.h"
-#include "mem.h"
 #include "platform.h"
 #include "term.h"
 
@@ -17,7 +16,7 @@
 // Syntax highlighting
 //-------------------------------------------------------------
 
-ic_private void    highlight(alloc_t *mem, bbcode_t *bb, const char *s,
+ic_private void    highlight(bbcode_t *bb, const char *s,
                              attrbuf_t *attrs, xLineHighlightFunc *highlighter,
                              void *arg);
 ic_private void    highlight_match_braces(const char *s, attrbuf_t *attrs,

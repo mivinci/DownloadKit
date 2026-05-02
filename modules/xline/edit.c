@@ -5,6 +5,7 @@
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "completions.h"
@@ -13,7 +14,6 @@
 #include "env.h"
 #include "highlight.h"
 #include "history.h"
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
@@ -46,7 +46,7 @@ ic_private char *ic_editline(ic_env_t *env, const char *prompt_text) {
 // capture the current edit state
 static void editor_capture(editor_t *eb, editstate_t **es) {
   if (!eb->disable_undo) {
-    editstate_capture(eb->mem, es, sbuf_string(eb->input), eb->pos);
+    editstate_capture(es, sbuf_string(eb->input), eb->pos);
   }
 }
 
@@ -58,8 +58,8 @@ ic_private void editor_undo_forget(editor_t *eb) {
   if (eb->disable_undo) return;
   const char *input = NULL;
   ssize_t     pos   = 0;
-  editstate_restore(eb->mem, &eb->undo, &input, &pos);
-  mem_free(eb->mem, input);
+  editstate_restore(&eb->undo, &input, &pos);
+  free((void *)input);
 }
 
 static void editor_restore(editor_t *eb, editstate_t **from, editstate_t **to) {
@@ -69,9 +69,9 @@ static void editor_restore(editor_t *eb, editstate_t **from, editstate_t **to) {
   if (to != NULL) {
     editor_capture(eb, to);
   }
-  if (!editstate_restore(eb->mem, from, &input, &eb->pos)) return;
+  if (!editstate_restore(from, &input, &eb->pos)) return;
   sbuf_replace(eb->input, input);
-  mem_free(eb->mem, input);
+  free((void *)input);
   eb->modified = false;
 }
 
@@ -86,7 +86,7 @@ static void editor_redo_restore(editor_t *eb) {
 
 ic_private void editor_start_modify(editor_t *eb) {
   editor_undo_capture(eb);
-  editstate_done(eb->mem, &eb->redo); // clear redo
+  editstate_done(&eb->redo); // clear redo
   eb->modified = true;
 }
 
@@ -247,7 +247,7 @@ ic_private void edit_refresh(ic_env_t *env, editor_t *eb) {
   edit_get_prompt_width(env, eb, false, &promptw, &cpromptw);
 
   if (eb->attrs != NULL) {
-    highlight(env->mem, env->bbcode, sbuf_string(eb->input), eb->attrs,
+    highlight(env->bbcode, sbuf_string(eb->input), eb->attrs,
               (env->no_highlight ? NULL : env->highlighter),
               env->highlighter_arg);
   }
@@ -272,7 +272,7 @@ ic_private void edit_refresh(ic_env_t *env, editor_t *eb) {
   // render extra (like a completion menu)
   stringbuf_t *extra = NULL;
   if (sbuf_len(eb->extra) > 0) {
-    extra = sbuf_new(eb->mem);
+    extra = sbuf_new();
     if (extra != NULL) {
       if (sbuf_len(eb->hint_help) > 0) {
         bbcode_append(env->bbcode, sbuf_string(eb->hint_help), extra,
@@ -407,7 +407,7 @@ ic_private bool edit_resize(ic_env_t *env, editor_t *eb) {
   // render extra (like a completion menu)
   stringbuf_t *extra = NULL;
   if (sbuf_len(eb->extra) > 0) {
-    extra = sbuf_new(eb->mem);
+    extra = sbuf_new();
     if (extra != NULL) {
       if (sbuf_len(eb->hint_help) > 0) {
         bbcode_append(env->bbcode, sbuf_string(eb->hint_help), extra, NULL);
@@ -471,7 +471,7 @@ static void edit_refresh_hint(ic_env_t *env, editor_t *eb) {
       editor_append_hint_help(eb, help);
       // do auto-tabbing?
       if (env->complete_autotab) {
-        stringbuf_t *sb = sbuf_new(env->mem); // temporary buffer for completion
+        stringbuf_t *sb = sbuf_new(); // temporary buffer for completion
         if (sb != NULL) {
           sbuf_replace(sb, sbuf_string(eb->input));
           ssize_t     pos        = eb->pos;
@@ -1049,11 +1049,10 @@ ic_private bool edit_dispatch_key(ic_env_t *env, editor_t *eb, code_t c) {
 ic_private bool edit_init(ic_env_t *env, editor_t *eb,
                           const char *prompt_text) {
   memset(eb, 0, sizeof(*eb));
-  eb->mem         = env->mem;
-  eb->input       = sbuf_new(env->mem);
-  eb->extra       = sbuf_new(env->mem);
-  eb->hint        = sbuf_new(env->mem);
-  eb->hint_help   = sbuf_new(env->mem);
+  eb->input       = sbuf_new();
+  eb->extra       = sbuf_new();
+  eb->hint        = sbuf_new();
+  eb->hint_help   = sbuf_new();
   eb->termw       = term_get_width(env->term);
   eb->pos         = 0;
   eb->cur_rows    = 1;
@@ -1068,8 +1067,8 @@ ic_private bool edit_init(ic_env_t *env, editor_t *eb,
     return false;
   }
   if (!(env->no_highlight && env->no_bracematch)) {
-    eb->attrs       = attrbuf_new(env->mem);
-    eb->attrs_extra = attrbuf_new(env->mem);
+    eb->attrs       = attrbuf_new();
+    eb->attrs_extra = attrbuf_new();
   }
   edit_write_prompt(env, eb, 0, false);
   history_push(env->history, "");
@@ -1101,8 +1100,8 @@ ic_private char *edit_finalize(ic_env_t *env, editor_t *eb, code_t last_c) {
   }
   history_save(env->history);
   // free resources
-  editstate_done(env->mem, &eb->undo);
-  editstate_done(env->mem, &eb->redo);
+  editstate_done(&eb->undo);
+  editstate_done(&eb->redo);
   attrbuf_free(eb->attrs);
   attrbuf_free(eb->attrs_extra);
   sbuf_free(eb->input);

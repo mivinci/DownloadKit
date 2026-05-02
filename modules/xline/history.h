@@ -7,7 +7,6 @@
 #ifndef IC_HISTORY_H
 #define IC_HISTORY_H
 
-#include "mem.h"
 #include "platform.h"
 
 //-------------------------------------------------------------
@@ -17,7 +16,7 @@
 struct history_s;
 typedef struct history_s history_t;
 
-ic_private history_t *history_new(alloc_t *mem);
+ic_private history_t *history_new(void);
 ic_private void       history_free(history_t *h);
 ic_private void       history_clear(history_t *h);
 ic_private bool       history_enable_duplicates(history_t *h, bool enable);

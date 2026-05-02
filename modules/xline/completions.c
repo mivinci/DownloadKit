@@ -13,7 +13,6 @@
 #include <xbase/log.h>
 #include "env.h"
 #include "line.h"
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
@@ -38,16 +37,14 @@ struct completions_s {
   ssize_t             count;
   ssize_t             len;
   completion_t       *elems;
-  alloc_t            *mem;
 };
 
 static void default_filename_completer(xLineCompletionEnv cenv,
                                        const char        *prefix);
 
-ic_private completions_t *completions_new(alloc_t *mem) {
-  completions_t *cms = mem_zalloc_tp(mem, completions_t);
+ic_private completions_t *completions_new(void) {
+  completions_t *cms = (completions_t *)calloc(1, sizeof(completions_t));
   if (cms == NULL) return NULL;
-  cms->mem       = mem;
   cms->completer = &default_filename_completer;
   return cms;
 }
@@ -56,20 +53,20 @@ ic_private void completions_free(completions_t *cms) {
   if (cms == NULL) return;
   completions_clear(cms);
   if (cms->elems != NULL) {
-    mem_free(cms->mem, cms->elems);
+    free(cms->elems);
     cms->elems = NULL;
     cms->count = 0;
     cms->len   = 0;
   }
-  mem_free(cms->mem, cms); // free ourselves
+  free(cms); // free ourselves
 }
 
 ic_private void completions_clear(completions_t *cms) {
   while (cms->count > 0) {
     completion_t *cm = cms->elems + cms->count - 1;
-    mem_free(cms->mem, cm->display);
-    mem_free(cms->mem, cm->replacement);
-    mem_free(cms->mem, cm->help);
+    free((void *)cm->display);
+    free((void *)cm->replacement);
+    free((void *)cm->help);
     memset(cm, 0, sizeof(*cm));
     cms->count--;
   }
@@ -79,18 +76,18 @@ static void completions_push(completions_t *cms, const char *replacement,
                              const char *display, const char *help,
                              ssize_t delete_before, ssize_t delete_after) {
   if (cms->count >= cms->len) {
-    ssize_t       newlen = (cms->len <= 0 ? 32 : cms->len * 2);
-    completion_t *newelems =
-      mem_realloc_tp(cms->mem, completion_t, cms->elems, newlen);
+    ssize_t       newlen   = (cms->len <= 0 ? 32 : cms->len * 2);
+    completion_t *newelems = (completion_t *)realloc(
+      cms->elems, to_size_t(newlen) * sizeof(completion_t));
     if (newelems == NULL) return;
     cms->elems = newelems;
     cms->len   = newlen;
   }
   assert(cms->count < cms->len);
   completion_t *cm  = cms->elems + cms->count;
-  cm->replacement   = mem_strdup(cms->mem, replacement);
-  cm->display       = mem_strdup(cms->mem, display);
-  cm->help          = mem_strdup(cms->mem, help);
+  cm->replacement   = ic_strdup(replacement);
+  cm->display       = ic_strdup(display);
+  cm->help          = ic_strdup(help);
   cm->delete_before = delete_before;
   cm->delete_after  = delete_after;
   cms->count++;
@@ -356,14 +353,14 @@ ic_private ssize_t completions_generate(struct ic_env_s *env,
   cenv.arg           = cms->completer_arg;
   cenv.complete      = &prim_add_completion;
   cenv.closure       = NULL;
-  const char *prefix = mem_strndup(cms->mem, input, pos);
+  const char *prefix = ic_strndup(input, pos);
   cms->completer_max = max;
 
   // and complete
   cms->completer((xLineCompletionEnv)&cenv, prefix);
 
   // restore
-  mem_free(cms->mem, prefix);
+  free((void *)prefix);
   return completions_count(cms);
 }
 

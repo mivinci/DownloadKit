@@ -7,7 +7,6 @@
 #ifndef IC_STRINGBUF_H
 #define IC_STRINGBUF_H
 
-#include "mem.h"
 #include "platform.h"
 #include "unicode.h"
 #include <stdarg.h>
@@ -22,7 +21,7 @@
 struct stringbuf_s;
 typedef struct stringbuf_s stringbuf_t;
 
-ic_private stringbuf_t *sbuf_new(alloc_t *mem);
+ic_private stringbuf_t *sbuf_new(void);
 ic_private void         sbuf_free(stringbuf_t *sbuf);
 ic_private char        *sbuf_free_dup(stringbuf_t *sbuf);
 ic_private ssize_t      sbuf_len(const stringbuf_t *s);

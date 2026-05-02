@@ -9,7 +9,6 @@
 
 #include "attr.h"
 #include "color.h"
-#include "mem.h"
 #include "platform.h"
 #include "tty.h"
 
@@ -40,7 +39,7 @@ typedef enum buffer_mode_e {
 } buffer_mode_t;
 
 // Primitives
-ic_private term_t *term_new(alloc_t *mem, tty_t *tty, bool nocolor, bool silent,
+ic_private term_t *term_new(tty_t *tty, bool nocolor, bool silent,
                             int fd_out);
 ic_private void    term_free(term_t *term);
 

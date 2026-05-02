@@ -5,13 +5,13 @@
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <xbase/log.h>
 
 #include "env.h"
 #include "line.h"
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
@@ -221,8 +221,8 @@ ic_public void xLineCompleteQwordEx(xLineCompletionEnv cenv_arg,
   // if (len == pos) return;
 
   // allocate new unescaped word prefix
-  char *word = mem_strndup(cenv->env->mem, prefix + pos,
-                           (quote == 0 ? len - pos : quote_len));
+  char *word = ic_strndup(prefix + pos,
+                          (quote == 0 ? len - pos : quote_len));
   if (word == NULL) return;
 
   if (quote == 0) {
@@ -268,9 +268,9 @@ ic_public void xLineCompleteQwordEx(xLineCompletionEnv cenv_arg,
   wenv.prev_complete        = cenv->complete;
   wenv.prev_env             = cenv->env;
   wenv.postfix              = cenv->input + cenv->cursor;
-  wenv.sbuf                 = sbuf_new(cenv->env->mem);
+  wenv.sbuf                 = sbuf_new();
   if (wenv.sbuf == NULL) {
-    mem_free(cenv->env->mem, word);
+    free(word);
     return;
   }
   cenv->complete = &qword_add_completion_ex;
@@ -284,7 +284,7 @@ ic_public void xLineCompleteQwordEx(xLineCompletionEnv cenv_arg,
   cenv->closure  = wenv.prev_env;
 
   sbuf_free(wenv.sbuf);
-  mem_free(cenv->env->mem, word);
+  free(word);
 }
 
 //-------------------------------------------------------------
@@ -441,14 +441,14 @@ static file_type_t os_get_filetype(const char *cpath) {
 #define dir_cursor intptr_t
 #define dir_entry  struct __finddata64_t
 
-static bool os_findfirst(alloc_t *mem, const char *path, dir_cursor *d,
+static bool os_findfirst(const char *path, dir_cursor *d,
                          dir_entry *entry) {
-  stringbuf_t *spath = sbuf_new(mem);
+  stringbuf_t *spath = sbuf_new();
   if (spath == NULL) return false;
   sbuf_append(spath, path);
   sbuf_append(spath, "\\*");
   *d = _findfirsti64(sbuf_string(spath), entry);
-  mem_free(mem, spath);
+  sbuf_free(spath);
   return (*d != -1);
 }
 
@@ -531,9 +531,8 @@ static bool os_findnext(dir_cursor d, dir_entry *entry) {
   return (*entry != NULL);
 }
 
-static bool os_findfirst(alloc_t *mem, const char *cpath, dir_cursor *d,
+static bool os_findfirst(const char *cpath, dir_cursor *d,
                          dir_entry *entry) {
-  ic_unused(mem);
   *d = opendir(cpath);
   if (*d == NULL) {
     return false;
@@ -606,7 +605,7 @@ static bool filename_complete_indir(xLineCompletionEnv cenv_arg,
   dir_cursor d = 0;
   dir_entry  entry;
   bool       cont = true;
-  if (os_findfirst(cenv->env->mem, sbuf_string(dir), &d, &entry)) {
+  if (os_findfirst(sbuf_string(dir), &d, &entry)) {
     do {
       const char *name = os_direntry_name(&entry);
       if (name != NULL && strcmp(name, ".") != 0 && strcmp(name, "..") != 0 &&
@@ -653,9 +652,9 @@ static void filename_completer(xLineCompletionEnv cenv_arg, const char *prefix) 
   if (prefix == NULL) return;
   xLineCompletionEnv_ *cenv       = (xLineCompletionEnv_ *)cenv_arg;
   filename_closure_t  *fclosure   = (filename_closure_t *)cenv->arg;
-  stringbuf_t         *root_dir   = sbuf_new(cenv->env->mem);
-  stringbuf_t         *dir_prefix = sbuf_new(cenv->env->mem);
-  stringbuf_t         *display    = sbuf_new(cenv->env->mem);
+  stringbuf_t         *root_dir   = sbuf_new();
+  stringbuf_t         *dir_prefix = sbuf_new();
+  stringbuf_t         *display    = sbuf_new();
   if (root_dir != NULL && dir_prefix != NULL && display != NULL) {
     // split prefix in dir_prefix / base.
     const char *base = strrchr(prefix, '/');

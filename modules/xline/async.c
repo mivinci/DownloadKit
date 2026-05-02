@@ -15,13 +15,13 @@
 //-------------------------------------------------------------
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <xbase/log.h>
 #include "edit.h"
 #include "env.h"
 #include "line.h"
-#include "mem.h"
 #include "platform.h"
 #include "stringbuf.h"
 #include "term.h"
@@ -277,7 +277,7 @@ static void xline_wipe_edit_region_and_anchor(xLineHandle_ *h) {
 // width. Returns 0 when `s` is empty.
 static ssize_t xline_count_rows(ic_env_t *env, const char *s, ssize_t len) {
   if (len <= 0) return 0;
-  stringbuf_t *tmp = sbuf_new(env->mem);
+  stringbuf_t *tmp = sbuf_new();
   if (tmp == NULL) return 1; // best-effort fallback
   sbuf_append_n(tmp, s, len);
   ssize_t  termw = term_get_width(env->term);
@@ -453,23 +453,23 @@ ic_public xLineHandle xLineBegin(const char *prompt_text) {
     return NULL;
   }
 
-  xLineHandle_ *h = (xLineHandle_ *)mem_zalloc(env->mem, sizeof(*h));
+  xLineHandle_ *h = (xLineHandle_ *)calloc(1, sizeof(*h));
   if (h == NULL) return NULL;
   h->env   = env;
   h->state = XLINE_ASYNC_INIT;
 
   if (!edit_init(env, &h->eb, prompt_text)) {
-    mem_free(env->mem, h);
+    free(h);
     return NULL;
   }
 
   tty_start_raw(env->tty);
   term_start_raw(env->term);
 
-  h->last_line          = sbuf_new(env->mem);
+  h->last_line          = sbuf_new();
   h->last_line_rows     = 0;
-  h->below_title        = sbuf_new(env->mem);
-  h->below_body         = sbuf_new(env->mem);
+  h->below_title        = sbuf_new();
+  h->below_body         = sbuf_new();
   h->anchor_pad         = 0;
   h->anchor_stuck       = false;
   h->above_flushed_rows = 0;
@@ -532,7 +532,7 @@ ic_public void xLineEnd(xLineHandle handle) {
   // KEY_EVENT_STOP so the editor is disposed and history stays consistent.
   if (h->state == XLINE_ASYNC_RUNNING || h->state == XLINE_ASYNC_INIT) {
     char *leftover = edit_finalize(env, &h->eb, KEY_EVENT_STOP);
-    if (leftover != NULL) mem_free(env->mem, leftover);
+    if (leftover != NULL) free(leftover);
   } else if (h->taken_line == NULL && h->state == XLINE_ASYNC_DONE_LINE) {
     // Finalize ran but caller never called xLineTake: the line string is
     // owned by edit_finalize's returned heap pointer, which we stored in
@@ -543,7 +543,7 @@ ic_public void xLineEnd(xLineHandle handle) {
     // caller forgot to xLineFree the line we handed them? No — taken_line
     // is populated when finalize ran but caller hadn't called Take yet.
     // Free it on their behalf.
-    mem_free(env->mem, h->taken_line);
+    free(h->taken_line);
     h->taken_line = NULL;
   }
 
@@ -561,7 +561,7 @@ ic_public void xLineEnd(xLineHandle handle) {
   term_flush(env->term);
 
   if (g_live_session == h) g_live_session = NULL;
-  mem_free(env->mem, h);
+  free(h);
 }
 
 //-------------------------------------------------------------
@@ -649,7 +649,7 @@ ic_public xLineStepResult xLineStep(xLineHandle handle) {
       // "idle Enter" or "EOF".
       if (c == KEY_CTRL_C || c == KEY_BELL /* ^G */) {
         if (h->taken_line != NULL) {
-          mem_free(env->mem, h->taken_line);
+          free(h->taken_line);
           h->taken_line = NULL;
         }
         h->state = XLINE_ASYNC_DONE_INTERRUPT;
@@ -698,7 +698,7 @@ ic_public void xLinePrintAbove(xLineHandle handle, const char *s) {
   // the current trailing line. Append `s`, then a '\n' if it isn't already
   // one, so the whole lot becomes "flushed lines" and the new trailing line
   // is empty.
-  stringbuf_t *buf = sbuf_new(h->env->mem);
+  stringbuf_t *buf = sbuf_new();
   if (buf == NULL) return;
   sbuf_append(buf, sbuf_string(h->last_line));
   sbuf_append(buf, s);
@@ -720,7 +720,7 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
   // Extend the trailing line with the caller's fragment. We need to rewrite
   // the previous trailing line too (it may now wrap differently, or may be
   // fully consumed by a '\n' inside `s`), so concatenate and re-emit.
-  stringbuf_t *buf = sbuf_new(h->env->mem);
+  stringbuf_t *buf = sbuf_new();
   if (buf == NULL) return;
   sbuf_append(buf, sbuf_string(h->last_line));
   sbuf_append(buf, s);
@@ -744,7 +744,7 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
 
 static void xline_repaint_below(xLineHandle_ *h) {
   if (h->state != XLINE_ASYNC_RUNNING && h->state != XLINE_ASYNC_INIT) return;
-  stringbuf_t *buf = sbuf_new(h->env->mem);
+  stringbuf_t *buf = sbuf_new();
   if (buf == NULL) return;
   sbuf_append(buf, sbuf_string(h->last_line));
   xline_erase_trailing(h);

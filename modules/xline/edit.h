@@ -8,7 +8,6 @@
 #define IC_EDIT_H
 
 #include "attr.h"
-#include "mem.h"
 #include "platform.h"
 #include "stringbuf.h"
 #include "tty.h"
@@ -41,7 +40,6 @@ typedef struct editor_s {
   editstate_t *undo;    // undo buffer
   editstate_t *redo;    // redo buffer
   const char  *prompt_text; // text of the prompt before the prompt marker
-  alloc_t     *mem;         // allocator
   // caches
   attrbuf_t *attrs; // reuse attribute buffers
   attrbuf_t *attrs_extra;

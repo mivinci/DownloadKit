@@ -10,10 +10,11 @@
 // navigation for xline.
 //-------------------------------------------------------------
 
+#include <stdlib.h>
+
 #include "edit.h"
 #include "env.h"
 #include "history.h"
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
@@ -62,9 +63,9 @@ typedef struct hsearch_s {
   bool              cinsert;
 } hsearch_t;
 
-static void hsearch_push(alloc_t *mem, hsearch_t **hs, ssize_t hidx,
+static void hsearch_push(hsearch_t **hs, ssize_t hidx,
                          ssize_t mpos, ssize_t mlen, bool cinsert) {
-  hsearch_t *h = mem_zalloc_tp(mem, hsearch_t);
+  hsearch_t *h = (hsearch_t *)calloc(1, sizeof(hsearch_t));
   if (h == NULL) return;
   h->hidx      = hidx;
   h->match_pos = mpos;
@@ -74,7 +75,7 @@ static void hsearch_push(alloc_t *mem, hsearch_t **hs, ssize_t hidx,
   *hs          = h;
 }
 
-static bool hsearch_pop(alloc_t *mem, hsearch_t **hs, ssize_t *hidx,
+static bool hsearch_pop(hsearch_t **hs, ssize_t *hidx,
                         ssize_t *match_pos, ssize_t *match_len, bool *cinsert) {
   hsearch_t *h = *hs;
   if (h == NULL) return false;
@@ -83,14 +84,14 @@ static bool hsearch_pop(alloc_t *mem, hsearch_t **hs, ssize_t *hidx,
   if (match_pos != NULL) *match_pos = h->match_pos;
   if (match_len != NULL) *match_len = h->match_len;
   if (cinsert != NULL) *cinsert = h->cinsert;
-  mem_free(mem, h);
+  free(h);
   return true;
 }
 
-static void hsearch_done(alloc_t *mem, hsearch_t *hs) {
+static void hsearch_done(hsearch_t *hs) {
   while (hs != NULL) {
     hsearch_t *next = hs->next;
-    mem_free(mem, hs);
+    free(hs);
     hs = next;
   }
 }
@@ -131,7 +132,7 @@ static void edit_history_search(ic_env_t *env, editor_t *eb, char *initial) {
     while (ipos < initial_len) {
       ssize_t next = str_next_ofs(initial, initial_len, ipos, NULL);
       if (next < 0) break;
-      hsearch_push(eb->mem, &hs, hidx, match_pos, match_len, true);
+      hsearch_push(&hs, hidx, match_pos, match_len, true);
       char c               = initial[ipos + next]; // terminate temporarily
       initial[ipos + next] = 0;
       if (history_search(env->history, hidx, initial, true, &hidx,
@@ -190,25 +191,25 @@ again:
   } else if (c == KEY_BACKSP || c == KEY_CTRL_Z) {
     // undo last search action
     bool cinsert;
-    if (hsearch_pop(env->mem, &hs, &hidx, &match_pos, &match_len, &cinsert)) {
+    if (hsearch_pop(&hs, &hidx, &match_pos, &match_len, &cinsert)) {
       if (cinsert) edit_backspace(env, eb);
     }
     goto again;
   } else if (c == KEY_CTRL_R || c == KEY_TAB || c == KEY_UP) {
     // search backward
-    hsearch_push(env->mem, &hs, hidx, match_pos, match_len, false);
+    hsearch_push(&hs, hidx, match_pos, match_len, false);
     if (!history_search(env->history, hidx + 1, sbuf_string(eb->input), true,
                         &hidx, &match_pos)) {
-      hsearch_pop(env->mem, &hs, NULL, NULL, NULL, NULL);
+      hsearch_pop(&hs, NULL, NULL, NULL, NULL);
       term_beep(env->term);
     };
     goto again;
   } else if (c == KEY_CTRL_S || c == KEY_SHIFT_TAB || c == KEY_DOWN) {
     // search forward
-    hsearch_push(env->mem, &hs, hidx, match_pos, match_len, false);
+    hsearch_push(&hs, hidx, match_pos, match_len, false);
     if (!history_search(env->history, hidx - 1, sbuf_string(eb->input), false,
                         &hidx, &match_pos)) {
-      hsearch_pop(env->mem, &hs, NULL, NULL, NULL, NULL);
+      hsearch_pop(&hs, NULL, NULL, NULL, NULL);
       term_beep(env->term);
     };
     goto again;
@@ -220,10 +221,10 @@ again:
     char      chr;
     unicode_t uchr;
     if (code_is_ascii_char(c, &chr)) {
-      hsearch_push(env->mem, &hs, hidx, match_pos, match_len, true);
+      hsearch_push(&hs, hidx, match_pos, match_len, true);
       edit_insert_char(env, eb, chr);
     } else if (code_is_unicode(c, &uchr)) {
-      hsearch_push(env->mem, &hs, hidx, match_pos, match_len, true);
+      hsearch_push(&hs, hidx, match_pos, match_len, true);
       edit_insert_unicode(env, eb, uchr);
     } else {
       // ignore command
@@ -242,7 +243,7 @@ again:
 
   // done
   eb->disable_undo = false;
-  hsearch_done(env->mem, hs);
+  hsearch_done(hs);
   eb->prompt_text = prompt_text;
   xLineEnableHint(old_hint);
   edit_refresh(env, eb);
@@ -262,9 +263,9 @@ ic_private void edit_history_search_with_current_word(ic_env_t *env,
     }
     if (start >= 0 && start < eb->pos) {
       initial =
-        mem_strndup(eb->mem, sbuf_string(eb->input) + start, eb->pos - start);
+        ic_strndup(sbuf_string(eb->input) + start, eb->pos - start);
     }
   }
   edit_history_search(env, eb, initial);
-  mem_free(env->mem, initial);
+  free(initial);
 }

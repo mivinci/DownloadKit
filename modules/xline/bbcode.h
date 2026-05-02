@@ -7,7 +7,6 @@
 #ifndef IC_BBCODE_H
 #define IC_BBCODE_H
 
-#include "mem.h"
 #include "platform.h"
 #include "term.h"
 #include <stdarg.h>
@@ -15,7 +14,7 @@
 struct bbcode_s;
 typedef struct bbcode_s bbcode_t;
 
-ic_private bbcode_t *bbcode_new(alloc_t *mem, term_t *term);
+ic_private bbcode_t *bbcode_new(term_t *term);
 ic_private void      bbcode_free(bbcode_t *bb);
 
 ic_private void   bbcode_style_add(bbcode_t *bb, const char *style_name,

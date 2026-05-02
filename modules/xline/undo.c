@@ -5,6 +5,7 @@
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "color.h"
@@ -12,7 +13,6 @@
 #include <xbase/log.h>
 #include "env.h"
 #include "line.h"
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
@@ -32,27 +32,27 @@ ic_private void editstate_init(editstate_t **es) {
   *es = NULL;
 }
 
-ic_private void editstate_done(alloc_t *mem, editstate_t **es) {
+ic_private void editstate_done(editstate_t **es) {
   while (*es != NULL) {
     editstate_t *next = (*es)->next;
-    mem_free(mem, (*es)->input);
-    mem_free(mem, *es);
+    free((void *)(*es)->input);
+    free(*es);
     *es = next;
   }
   *es = NULL;
 }
 
-ic_private void editstate_capture(alloc_t *mem, editstate_t **es,
+ic_private void editstate_capture(editstate_t **es,
                                   const char *input, ssize_t pos) {
   if (input == NULL) input = "";
   // alloc
-  editstate_t *entry = mem_zalloc_tp(mem, editstate_t);
+  editstate_t *entry = (editstate_t *)calloc(1, sizeof(editstate_t));
   if (entry == NULL) return;
   // initialize
-  entry->input = mem_strdup(mem, input);
+  entry->input = ic_strdup(input);
   entry->pos   = pos;
   if (entry->input == NULL) {
-    mem_free(mem, entry);
+    free(entry);
     return;
   }
   // and push
@@ -61,7 +61,7 @@ ic_private void editstate_capture(alloc_t *mem, editstate_t **es,
 }
 
 // caller should free *input
-ic_private bool editstate_restore(alloc_t *mem, editstate_t **es,
+ic_private bool editstate_restore(editstate_t **es,
                                   const char **input, ssize_t *pos) {
   if (*es == NULL) return false;
   // pop
@@ -69,6 +69,6 @@ ic_private bool editstate_restore(alloc_t *mem, editstate_t **es,
   *es                = entry->next;
   *input             = entry->input;
   *pos               = entry->pos;
-  mem_free(mem, entry);
+  free(entry);
   return true;
 }

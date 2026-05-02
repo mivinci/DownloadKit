@@ -8,7 +8,6 @@
 #define IC_COMPLETIONS_H
 
 #include "line.h" // xLineCompleterFunc
-#include "mem.h"
 #include "platform.h"
 #include "stringbuf.h"
 
@@ -20,7 +19,7 @@
 
 typedef struct completions_s completions_t;
 
-ic_private completions_t *completions_new(alloc_t *mem);
+ic_private completions_t *completions_new(void);
 ic_private void           completions_free(completions_t *cms);
 ic_private void           completions_clear(completions_t *cms);
 ic_private bool    completions_add(completions_t *cms, const char *replacement,

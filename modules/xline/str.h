@@ -31,6 +31,11 @@ ic_private bool    ic_strcpy(char *dest, ssize_t dest_size /* including 0 */,
 ic_private bool    ic_strncpy(char *dest, ssize_t dest_size /* including 0 */,
                               const char *src, ssize_t n);
 
+// NULL-safe heap duplicators. Return a freshly malloc'd copy (caller
+// frees with free()), or NULL if the input is NULL / n < 0 / OOM.
+ic_private char *ic_strdup(const char *s);
+ic_private char *ic_strndup(const char *s, ssize_t n);
+
 ic_private bool ic_contains(const char *big, const char *s);
 ic_private bool ic_icontains(const char *big, const char *s);
 ic_private char ic_tolower(char c);

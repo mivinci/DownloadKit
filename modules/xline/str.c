@@ -4,6 +4,7 @@
   under the terms of the MIT License. A copy of the license can be
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
+#include <stdlib.h>
 #include <string.h>
 
 #include "str.h"
@@ -70,6 +71,28 @@ ic_private bool ic_strncpy(char *dest, ssize_t dest_size /* including 0 */,
     dest[n] = 0;
   }
   return true;
+}
+
+ic_private char *ic_strdup(const char *s) {
+  if (s == NULL) return NULL;
+  ssize_t n = ic_strlen(s);
+  char   *p = (char *)malloc(to_size_t(n) + 1);
+  if (p == NULL) return NULL;
+  memcpy(p, s, to_size_t(n) + 1);
+  return p;
+}
+
+ic_private char *ic_strndup(const char *s, ssize_t n) {
+  if (s == NULL || n < 0) return NULL;
+  char *p = (char *)malloc(to_size_t(n) + 1);
+  if (p == NULL) return NULL;
+  ssize_t i;
+  for (i = 0; i < n && s[i] != 0; i++) {
+    p[i] = s[i];
+  }
+  assert(i <= n);
+  p[i] = 0;
+  return p;
 }
 
 //-------------------------------------------------------------

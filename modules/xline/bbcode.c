@@ -14,7 +14,6 @@
 #include "bbcode_colors.h"
 #include "color.h"
 #include "line.h"
-#include "mem.h"
 #include "platform.h"
 #include "str.h"
 #include "term.h"
@@ -60,7 +59,6 @@ struct bbcode_s {
   ssize_t  styles_capacity;
   ssize_t  styles_count;
   term_t  *term; // terminal
-  alloc_t *mem;  // allocator
   // caches
   stringbuf_t *out; // print buffer
   attrbuf_t   *out_attrs;
@@ -71,40 +69,40 @@ struct bbcode_s {
 // Create, helpers
 //-------------------------------------------------------------
 
-ic_private bbcode_t *bbcode_new(alloc_t *mem, term_t *term) {
-  bbcode_t *bb = mem_zalloc_tp(mem, bbcode_t);
+ic_private bbcode_t *bbcode_new(term_t *term) {
+  bbcode_t *bb = (bbcode_t *)calloc(1, sizeof(bbcode_t));
   if (bb == NULL) return NULL;
-  bb->mem       = mem;
   bb->term      = term;
-  bb->out       = sbuf_new(mem);
-  bb->out_attrs = attrbuf_new(mem);
-  bb->vout      = sbuf_new(mem);
+  bb->out       = sbuf_new();
+  bb->out_attrs = attrbuf_new();
+  bb->vout      = sbuf_new();
   return bb;
 }
 
 ic_private void bbcode_free(bbcode_t *bb) {
   for (ssize_t i = 0; i < bb->styles_count; i++) {
-    mem_free(bb->mem, bb->styles[i].name);
+    free((void *)bb->styles[i].name);
   }
-  mem_free(bb->mem, bb->tags);
-  mem_free(bb->mem, bb->styles);
+  free(bb->tags);
+  free(bb->styles);
   sbuf_free(bb->vout);
   sbuf_free(bb->out);
   attrbuf_free(bb->out_attrs);
-  mem_free(bb->mem, bb);
+  free(bb);
 }
 
 ic_private void bbcode_style_add(bbcode_t *bb, const char *style_name,
                                  attr_t attr) {
   if (bb->styles_count >= bb->styles_capacity) {
     ssize_t  newlen = bb->styles_capacity + 32;
-    style_t *p      = mem_realloc_tp(bb->mem, style_t, bb->styles, newlen);
+    style_t *p =
+      (style_t *)realloc(bb->styles, to_size_t(newlen) * sizeof(style_t));
     if (p == NULL) return;
     bb->styles          = p;
     bb->styles_capacity = newlen;
   }
   assert(bb->styles_count < bb->styles_capacity);
-  bb->styles[bb->styles_count].name = mem_strdup(bb->mem, style_name);
+  bb->styles[bb->styles_count].name = ic_strdup(style_name);
   bb->styles[bb->styles_count].attr = attr;
   bb->styles_count++;
 }
@@ -112,7 +110,8 @@ ic_private void bbcode_style_add(bbcode_t *bb, const char *style_name,
 static ssize_t bbcode_tag_push(bbcode_t *bb, const tag_t *tag) {
   if (bb->tags_nesting >= bb->tags_capacity) {
     ssize_t newcap = bb->tags_capacity + 32;
-    tag_t  *p      = mem_realloc_tp(bb->mem, tag_t, bb->tags, newcap);
+    tag_t  *p =
+      (tag_t *)realloc(bb->tags, to_size_t(newcap) * sizeof(tag_t));
     if (p == NULL) return -1;
     bb->tags          = p;
     bb->tags_capacity = newcap;

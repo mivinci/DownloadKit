@@ -7,7 +7,6 @@
 #ifndef IC_TTY_H
 #define IC_TTY_H
 
-#include "mem.h"
 #include "platform.h"
 #include "unicode.h"
 
@@ -22,7 +21,7 @@ typedef uint32_t code_t;
 struct tty_s;
 typedef struct tty_s tty_t;
 
-ic_private tty_t *tty_new(alloc_t *mem, int fd_in);
+ic_private tty_t *tty_new(int fd_in);
 ic_private void   tty_free(tty_t *tty);
 
 ic_private bool tty_is_utf8(const tty_t *tty);

@@ -6,39 +6,13 @@
 -----------------------------------------------------------------------------*/
 
 //-------------------------------------------------------------
-// Usually we include all sources one file so no internal 
-// symbols are public in the libray.
-// 
-// You can compile the entire library just as: 
-// $ gcc -c src/isocline.c 
+// Every .c in this directory is its own translation unit; the
+// umbrella #include block that upstream used (guarded by
+// !defined(IC_SEPARATE_OBJS)) has been retired. Build flags such
+// as _XOPEN_SOURCE, _DEFAULT_SOURCE and the MSVC-specific
+// _CRT_*_WARNINGS suppressions are now set per-target in
+// CMakeLists.txt.
 //-------------------------------------------------------------
-#if !defined(IC_SEPARATE_OBJS)
-# ifndef _CRT_NONSTDC_NO_WARNINGS
-#  define _CRT_NONSTDC_NO_WARNINGS // for msvc
-# endif
-# ifndef _CRT_SECURE_NO_WARNINGS
-#  define _CRT_SECURE_NO_WARNINGS  // for msvc
-# endif
-# define _XOPEN_SOURCE   700      // for wcwidth
-# define _DEFAULT_SOURCE          // ensure usleep stays visible with _XOPEN_SOURCE >= 700
-# include "attr.c"
-# include "bbcode.c"
-# include "editline.c"
-# include "highlight.c"
-# include "undo.c"
-# include "history.c"
-# include "completers.c"
-# include "completions.c"
-# include "term.c"
-# include "tty_esc.c"
-# include "tty.c"
-# include "stringbuf.c"
-# include "str.c"
-# include "unicode.c"
-# include "debug.c"
-# include "mem.c"
-# include "async.c"
-#endif
 
 //-------------------------------------------------------------
 // includes

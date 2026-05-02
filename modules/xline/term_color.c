@@ -181,7 +181,7 @@ typedef struct rgb_cache_s {
 } rgb_cache_t;
 
 // remember a color in the LRU cache
-void rgb_remember( rgb_cache_t* cache, ic_color_t color, int idx ) {
+static void rgb_remember( rgb_cache_t* cache, ic_color_t color, int idx ) {
   if (cache == NULL) return;
   cache->colors[cache->last] = color;
   cache->indices[cache->last] = idx;
@@ -190,7 +190,7 @@ void rgb_remember( rgb_cache_t* cache, ic_color_t color, int idx ) {
 }
 
 // quick lookup in cache; -1 on failure
-int rgb_lookup( const rgb_cache_t* cache, ic_color_t color ) {
+static int rgb_lookup( const rgb_cache_t* cache, ic_color_t color ) {
   if (cache != NULL) {
     for(int i = 0; i < RGB_CACHE_LEN; i++) {
       if (cache->colors[i] == color) return cache->indices[i];

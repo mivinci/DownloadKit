@@ -11,6 +11,8 @@
 #include <locale.h>
 
 #include "tty.h"
+#include "debug.h"
+#include "str.h"
 
 #if defined(_WIN32)
 #include <windows.h>

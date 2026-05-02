@@ -62,8 +62,7 @@ target_include_directories(ai_openai PRIVATE
 add_executable(ai_session ai_session.cpp)
 target_link_libraries(ai_session PRIVATE xai xhttp xbase xline)
 target_include_directories(ai_session PRIVATE
-  ${CMAKE_SOURCE_DIR}/modules
-  ${CMAKE_SOURCE_DIR}/modules/xline)
+  ${CMAKE_SOURCE_DIR}/modules)
 
 # ES-module demo: show how to expose host-native functionality as
 # an `import`-able module by combining native callbacks on the
@@ -72,4 +71,13 @@ target_include_directories(ai_session PRIVATE
 add_executable(xjs_native_module xjs_native_module.c)
 target_link_libraries(xjs_native_module PRIVATE xjs)
 target_include_directories(xjs_native_module PRIVATE
+  ${CMAKE_SOURCE_DIR}/modules)
+
+# Minimal skeleton for "AI TUI" style apps: multiplex xline's async
+# line editor with an xbase event loop, with a periodic timer
+# standing in for a streaming AI response. See the file header for
+# the full walkthrough.
+add_executable(xline_async xline_async.c)
+target_link_libraries(xline_async PRIVATE xline xbase)
+target_include_directories(xline_async PRIVATE
   ${CMAKE_SOURCE_DIR}/modules)

@@ -39,34 +39,81 @@
 #include <xai/tool_shell.h>
 #include <xbase/backtrace.h>
 #include <xbase/event.h>
+#include <xline/line.h>
 #include <xbase/time.h>
 #include <xhttp/client.h>
 
-#include <line.h>
-
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <signal.h>
 #include <unistd.h>
 
 /* ── REPL state ─────────────────────────────────────────────────────── */
 struct ReplCtx {
-  xEventLoop loop             = nullptr;
-  xAiSession  sess            = nullptr;
-  bool       saw_first_delta  = false;
-  bool       in_thinking      = false; /* currently streaming thinking? */
-  size_t     reply_bytes      = 0;
-  int        total_tokens     = 0;   /* cumulative across all rounds */
-  size_t     budget_limit     = 0;   /* from last GatePassed event */
-  size_t     budget_remaining = 0;   /* from last GatePassed event */
-  double     budget_factor    = 1.0; /* EWMA calibrator factor */
-  size_t     budget_samples   = 0;   /* calibrator observation count */
-  size_t     budget_estimated = 0;   /* calibrated pre-submit estimate */
+  xEventLoop   loop             = nullptr;
+  xAiSession   sess             = nullptr;
+  xLineHandle  line             = nullptr; /* current async editor */
+  xEventSource src              = nullptr; /* loop fd registration */
+  bool         busy             = false;   /* AI run in flight */
+  bool         pending_retry    = false;   /* retry pending_text after compact */
+  char        *pending_text     = nullptr; /* stashed submit text, owned */
+  bool         saw_first_delta  = false;
+  bool         in_thinking      = false; /* currently streaming thinking? */
+  size_t       reply_bytes      = 0;
+  int          total_tokens     = 0;   /* cumulative across all rounds */
+  size_t       budget_limit     = 0;   /* from last GatePassed event */
+  size_t       budget_remaining = 0;   /* from last GatePassed event */
+  double       budget_factor    = 1.0; /* EWMA calibrator factor */
+  size_t       budget_samples   = 0;   /* calibrator observation count */
+  size_t       budget_estimated = 0;   /* calibrated pre-submit estimate */
   int last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
-  uint64_t input_ms      = 0;  /* monotonic timestamp (ms) at user input */
-  bool     should_exit   = false; /* set by /exit handler */
-  const char *hist_path  = nullptr; /* xline history file, for /history */
+  uint64_t     input_ms   = 0;  /* monotonic timestamp (ms) at user input */
+  bool         should_exit = false;   /* set by /exit handler */
+  const char  *hist_path   = nullptr; /* xline history file, for /history */
 };
+
+/* ── Output helpers ───────────────────────────────────────────────────
+ *
+ * All AI-driven output must go through xLinePrintAbove / Chunk so the
+ * user's prompt row stays intact while the model streams. The editor
+ * is kept alive for the entire lifetime of the REPL (including during
+ * AI runs), which is what lets the user type slash commands — notably
+ * /cancel — while the model is thinking or streaming.
+ *
+ * above_printf() formats into a stack buffer then delegates to
+ * xLinePrintAbove (which appends a trailing '\n' if missing) so the
+ * call site reads like a plain std::printf. For long-running text
+ * streams we use xLinePrintAboveChunk directly to preserve the
+ * "token-by-token" visual cadence without forcing a newline. */
+static void above_printf(xLineHandle h, const char *fmt, ...) {
+  if (!h) return;
+  char    buf[1024];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = std::vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  if (n < 0) return;
+  xLinePrintAbove(h, buf);
+}
+
+static void above_chunk(xLineHandle h, const char *s, size_t len) {
+  if (!h || !s || len == 0) return;
+  /* xLinePrintAboveChunk requires a NUL-terminated C string. Copy into
+   * a stack buffer when the fragment fits; fall back to heap for the
+   * rare oversized token. */
+  char  stack[512];
+  char *p = stack;
+  if (len + 1 > sizeof(stack)) {
+    p = (char *)std::malloc(len + 1);
+    if (!p) return;
+  }
+  std::memcpy(p, s, len);
+  p[len] = '\0';
+  xLinePrintAboveChunk(h, p);
+  if (p != stack) std::free(p);
+}
 
 /* ── Slash command table ───────────────────────────────────────────────
  *
@@ -92,9 +139,9 @@ struct ReplCtx {
 typedef void (*SlashCmdFunc)(ReplCtx *ctx, const char *args);
 
 struct SlashCmd {
-  const char   *name; /* including leading '/' */
-  const char   *help;
-  SlashCmdFunc  fn;
+  const char  *name; /* including leading '/' */
+  const char  *help;
+  SlashCmdFunc fn;
 };
 
 static void slash_cmd_help(ReplCtx *ctx, const char *args);
@@ -102,13 +149,15 @@ static void slash_cmd_exit(ReplCtx *ctx, const char *args);
 static void slash_cmd_clear(ReplCtx *ctx, const char *args);
 static void slash_cmd_history(ReplCtx *ctx, const char *args);
 static void slash_cmd_tokens(ReplCtx *ctx, const char *args);
+static void slash_cmd_cancel(ReplCtx *ctx, const char *args);
 
 static const SlashCmd g_slash_cmds[] = {
-  {"/help",    "show this help",                slash_cmd_help},
-  {"/exit",    "quit the REPL",                 slash_cmd_exit},
-  {"/clear",   "clear the terminal screen",     slash_cmd_clear},
-  {"/history", "print input history",           slash_cmd_history},
-  {"/tokens",  "show cumulative token usage",   slash_cmd_tokens},
+  {"/help", "show this help", slash_cmd_help},
+  {"/exit", "quit the REPL", slash_cmd_exit},
+  {"/clear", "clear the terminal screen", slash_cmd_clear},
+  {"/history", "print input history", slash_cmd_history},
+  {"/tokens", "show cumulative token usage", slash_cmd_tokens},
+  {"/cancel", "interrupt the active AI run", slash_cmd_cancel},
 };
 static const size_t g_slash_cmds_count =
   sizeof(g_slash_cmds) / sizeof(g_slash_cmds[0]);
@@ -121,7 +170,7 @@ static const size_t g_slash_cmds_count =
  * (e.g. `/tokens <cursor>`) stay quiet instead of trying to re-match
  * the command name. */
 static bool is_slash_cmd_char(const char *s, long len) {
-  if (len != 1) return false;  /* ASCII only; no multi-byte in cmd names */
+  if (len != 1) return false; /* ASCII only; no multi-byte in cmd names */
   char c = s[0];
   return c == '/' || c == '_' || (c >= 'a' && c <= 'z') ||
          (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
@@ -132,8 +181,7 @@ static bool is_slash_cmd_char(const char *s, long len) {
  * xLineAddCompletion* call here is treated as a *replacement* for
  * `prefix` — xline handles the delete-before bookkeeping, so we
  * just hand it the full command name. */
-static void slash_completer_inner(xLineCompletionEnv *cenv,
-                                  const char *prefix) {
+static void slash_completer_inner(xLineCompletionEnv cenv, const char *prefix) {
   if (!prefix || prefix[0] != '/') return;
   for (size_t i = 0; i < g_slash_cmds_count; ++i) {
     const SlashCmd *c = &g_slash_cmds[i];
@@ -148,21 +196,20 @@ static void slash_completer_inner(xLineCompletionEnv *cenv,
  * are consistent with the rest of the library — otherwise Tab on
  * `/cl` would append `/clear` producing `/cl/clear` (and the inline
  * hint renders the same broken overlay). */
-static void slash_completer(xLineCompletionEnv *cenv, const char *prefix) {
-  (void)prefix;  /* xLineCompleteWord re-derives it using our predicate */
+static void slash_completer(xLineCompletionEnv cenv, const char *prefix) {
+  (void)prefix; /* xLineCompleteWord re-derives it using our predicate */
   xLineCompleteWord(cenv, prefix, slash_completer_inner, is_slash_cmd_char);
 }
 
 static void slash_cmd_help(ReplCtx *ctx, const char *args) {
-  (void)ctx;
   (void)args;
-  std::puts("Available commands:");
+  above_printf(ctx->line, "Available commands:");
   for (size_t i = 0; i < g_slash_cmds_count; ++i) {
-    std::printf("  \x1b[1m%-10s\x1b[0m %s\n", g_slash_cmds[i].name,
-                g_slash_cmds[i].help);
+    above_printf(ctx->line, "  \x1b[1m%-10s\x1b[0m %s", g_slash_cmds[i].name,
+                 g_slash_cmds[i].help);
   }
-  std::puts("Anything not starting with '/' is sent to the model.");
-  std::puts("Tip: type '/' and press Tab to browse commands.");
+  above_printf(ctx->line, "Anything not starting with '/' is sent to the model.");
+  above_printf(ctx->line, "Tip: type '/' and press Tab to browse commands.");
 }
 
 static void slash_cmd_exit(ReplCtx *ctx, const char *args) {
@@ -171,14 +218,28 @@ static void slash_cmd_exit(ReplCtx *ctx, const char *args) {
 }
 
 static void slash_cmd_clear(ReplCtx *ctx, const char *args) {
-  (void)ctx;
   (void)args;
+  (void)ctx;
   /* ANSI: move cursor home + clear screen + clear scrollback. The
    * 3J part is what makes Cmd-K / Ctrl-L equivalents actually wipe
    * the scrollback, not just the viewport. Harmless on terminals
-   * that ignore it. */
-  std::fputs("\x1b[H\x1b[2J\x1b[3J", stdout);
-  std::fflush(stdout);
+   * that ignore it. Goes through the editor's "above" channel so the
+   * prompt survives the wipe cleanly. */
+  xLinePrintAbove(ctx->line, "\x1b[H\x1b[2J\x1b[3J");
+}
+
+static void slash_cmd_cancel(ReplCtx *ctx, const char *args) {
+  (void)args;
+  if (!ctx->busy) {
+    above_printf(ctx->line, "\x1b[2m(no AI run in flight)\x1b[0m");
+    return;
+  }
+  /* xAiSessionCancel is async: it asks the provider to unwind and
+   * on_done is still delivered (with reason == Aborted). Flip busy
+   * off there, not here — that keeps on_text/on_done ordering
+   * consistent with the natural-completion path. */
+  above_printf(ctx->line, "\x1b[2m[cancel] aborting run…\x1b[0m");
+  xAiSessionCancel(ctx->sess);
 }
 
 static void slash_cmd_history(ReplCtx *ctx, const char *args) {
@@ -186,47 +247,51 @@ static void slash_cmd_history(ReplCtx *ctx, const char *args) {
   /* Isocline persists history at <data_dir>/.ai_session_history via
    * xLineSetHistory but doesn't expose a public enumeration API, so
    * the cheapest way to show the user their recall buffer is to
-   * dump the file straight to stdout. If the file doesn't exist
-   * yet (first run, no entries saved), say so rather than printing
-   * a confusing blank. */
+   * dump the file line by line through the editor's "above" channel.
+   * If the file doesn't exist yet (first run, no entries saved), say
+   * so rather than printing a confusing blank. */
   if (!ctx->hist_path) {
-    std::puts("(history not initialised)");
+    above_printf(ctx->line, "(history not initialised)");
     return;
   }
   std::FILE *f = std::fopen(ctx->hist_path, "r");
   if (!f) {
-    std::puts("(no history yet — submit a message and come back)");
+    above_printf(ctx->line, "(no history yet — submit a message and come back)");
     return;
   }
   char   buf[4096];
   size_t lines = 0;
   while (std::fgets(buf, sizeof(buf), f)) {
-    /* xline stores one entry per line, sometimes prefixed with a
-     * '#' comment line (v1.1 uses a plain-text format); we pass
-     * everything through verbatim so the user sees exactly what
-     * Ctrl-R would match against. */
-    std::fputs(buf, stdout);
-    if (buf[std::strlen(buf) - 1] != '\n') std::putchar('\n');
+    /* Strip the trailing newline for the above_printf call, which
+     * re-adds one; otherwise we'd render a blank row between each
+     * entry. */
+    size_t n = std::strlen(buf);
+    while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = '\0';
+    above_printf(ctx->line, "%s", buf);
     ++lines;
   }
   std::fclose(f);
-  std::printf("(%zu history line(s); Ctrl-R to search)\n", lines);
+  above_printf(ctx->line, "(%zu history line(s); Ctrl-R to search)", lines);
 }
 
 static void slash_cmd_tokens(ReplCtx *ctx, const char *args) {
   (void)args;
-  std::printf("total_tokens=%d\n", ctx->total_tokens);
+  above_printf(ctx->line, "total_tokens=%d", ctx->total_tokens);
   if (ctx->budget_limit > 0) {
-    std::printf("budget: remaining=%zu/%zu calibrator=%.3fx samples=%zu "
-                "estimated=%zu",
-                ctx->budget_remaining, ctx->budget_limit, ctx->budget_factor,
-                ctx->budget_samples, ctx->budget_estimated);
+    char extra[64];
+    extra[0] = '\0';
     if (ctx->last_actual_prompt >= 0) {
-      std::printf(" last_actual_prompt=%d", ctx->last_actual_prompt);
+      std::snprintf(extra, sizeof(extra), " last_actual_prompt=%d",
+                    ctx->last_actual_prompt);
     }
-    std::putchar('\n');
+    above_printf(ctx->line,
+                 "budget: remaining=%zu/%zu calibrator=%.3fx samples=%zu "
+                 "estimated=%zu%s",
+                 ctx->budget_remaining, ctx->budget_limit, ctx->budget_factor,
+                 ctx->budget_samples, ctx->budget_estimated, extra);
   } else {
-    std::puts("budget: (no GatePassed event yet — submit a message first)");
+    above_printf(ctx->line,
+                 "budget: (no GatePassed event yet — submit a message first)");
   }
 }
 
@@ -247,7 +312,8 @@ static bool slash_dispatch(ReplCtx *ctx, const char *line) {
   while (line[cmd_len] && line[cmd_len] != ' ' && line[cmd_len] != '\t')
     ++cmd_len;
   const char *args = line + cmd_len;
-  while (*args == ' ' || *args == '\t') ++args;
+  while (*args == ' ' || *args == '\t')
+    ++args;
   for (size_t i = 0; i < g_slash_cmds_count; ++i) {
     const SlashCmd *c = &g_slash_cmds[i];
     if (std::strlen(c->name) == cmd_len &&
@@ -256,23 +322,27 @@ static bool slash_dispatch(ReplCtx *ctx, const char *line) {
       return true;
     }
   }
-  std::printf("unknown command: %.*s  (try /help)\n", (int)cmd_len, line);
+  above_printf(ctx->line, "unknown command: %.*s  (try /help)", (int)cmd_len,
+               line);
   return true;
 }
 
-/* ── REPL state ─────────────────────────────────────────────────────── */
+/* ── AI callbacks (all output goes through xline's above channel) ──── */
 
-/* Close an open thinking block: reset SGR (`\x1b[0m`), newline, AND
- * emit one blank line so whatever follows (final text, [tool],
- * [done], ...) has visual breathing room. The trailing blank is
- * important when thinking ends with a sentence that looks like a
- * reply ("简短回复：..." etc) — without it the eye merges the faint
- * scratchpad into the bright answer. Must be called before printing
- * anything that shouldn't inherit faint style. No-op if no thinking
- * block is open, so it's safe to sprinkle liberally. */
+/* Close an open thinking block: reset SGR (`\x1b[0m`) + a blank row so
+ * whatever follows (final text, [tool], [done], ...) has visual
+ * breathing room. The trailing blank is important when thinking ends
+ * with a sentence that looks like a reply ("简短回复：..." etc) —
+ * without it the eye merges the faint scratchpad into the bright
+ * answer. Must be called before printing anything that shouldn't
+ * inherit faint style. No-op if no thinking block is open, so it's
+ * safe to sprinkle liberally. */
 static void end_thinking(ReplCtx *ctx) {
   if (!ctx->in_thinking) return;
-  std::fputs("\x1b[0m\n\n", stdout);
+  /* Two newlines: one to finish the trailing line, one for the blank
+   * separator row. xLinePrintAbove will add another trailing '\n' if
+   * the argument doesn't already end with one (it does, so no-op). */
+  xLinePrintAbove(ctx->line, "\x1b[0m\n");
   ctx->in_thinking = false;
 }
 
@@ -286,11 +356,12 @@ static void on_text(xAiSession sess, const char *chunk, size_t len, void *ud) {
     end_thinking(ctx);
     ctx->saw_first_delta = true;
   } else if (!ctx->saw_first_delta) {
-    std::putchar('\n');
+    /* No-op: xLinePrintAboveChunk naturally starts on a fresh row
+     * above the prompt, so we don't need the leading '\n' the
+     * blocking version used. */
     ctx->saw_first_delta = true;
   }
-  std::fwrite(chunk, 1, len, stdout);
-  std::fflush(stdout);
+  above_chunk(ctx->line, chunk, len);
   ctx->reply_bytes += len;
 }
 
@@ -305,23 +376,20 @@ static void on_thinking(xAiSession sess, const char *chunk, size_t len,
   auto *ctx = static_cast<ReplCtx *>(ud);
   if (!ctx->in_thinking) {
     /* Open a new thinking block on its own line. */
-    std::fputs("\x1b[2m[thinking] ", stdout);
+    xLinePrintAboveChunk(ctx->line, "\x1b[2m[thinking] ");
     ctx->in_thinking = true;
   }
-  std::fwrite(chunk, 1, len, stdout);
-  std::fflush(stdout);
+  above_chunk(ctx->line, chunk, len);
 }
 
 static void on_tool(xAiSession sess, const char *tool_name, int started,
                     void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
-  bool after_thinking = ctx->in_thinking;
   end_thinking(ctx);
-  if (!after_thinking) std::putchar('\n');
-  std::printf("\x1b[2m[tool] %s %s\x1b[0m\n", tool_name ? tool_name : "(null)",
-              started ? "starting" : "finished\n");
-  std::fflush(stdout);
+  above_printf(ctx->line, "\x1b[2m[tool] %s %s\x1b[0m",
+               tool_name ? tool_name : "(null)",
+               started ? "starting" : "finished");
 }
 
 static void on_tool_output(xAiSession sess, const char *tool_use_id,
@@ -333,30 +401,26 @@ static void on_tool_output(xAiSession sess, const char *tool_use_id,
   auto *ctx = static_cast<ReplCtx *>(ud);
   /* Close any open thinking block before showing tool output. */
   end_thinking(ctx);
-  /* Render tool output faint with a visual prefix so it's distinct
-   * from the model's final text reply. The prefix uses ⏎ to signal
-   * "this is live output, not the answer". */
-  std::fputs("\x1b[2m", stdout);
-  std::fwrite(data, 1, len, stdout);
-  std::fputs("\x1b[0m", stdout);
-  std::fflush(stdout);
+  /* Render tool output faint; stream it as a chunk so multi-line
+   * output doesn't force artificial breaks. The surrounding SGR
+   * pair keeps the faint style scoped to the tool payload. */
+  xLinePrintAboveChunk(ctx->line, "\x1b[2m");
+  above_chunk(ctx->line, data, len);
+  xLinePrintAboveChunk(ctx->line, "\x1b[0m");
 }
 
 static void on_sidecar(xAiSession sess, xAiSidecarEvent event, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
-  std::fputs("\x1b[2m", stdout);
   switch (event) {
   case xAiSidecarEvent_Started:
-    std::printf("[sidecar] analyzing idle tool...\n");
+    above_printf(ctx->line, "\x1b[2m[sidecar] analyzing idle tool...\x1b[0m");
     break;
   case xAiSidecarEvent_Done:
-    std::printf("[sidecar] done\n");
+    above_printf(ctx->line, "\x1b[2m[sidecar] done\x1b[0m");
     break;
   }
-  std::fputs("\x1b[0m", stdout);
-  std::fflush(stdout);
 }
 
 static const char *done_reason_name(xAiDoneReason r) {
@@ -382,18 +446,18 @@ static const char *done_reason_name(xAiDoneReason r) {
 static void on_done(xAiSession sess, xAiDoneReason reason,
                     const xAiUsage *usage, void *ud) {
   (void)sess;
-  auto *ctx            = static_cast<ReplCtx *>(ud);
-  bool  after_thinking = ctx->in_thinking;
+  auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
-  /* [done] is chrome — render the whole line faint so it recedes and
-   * the model's answer above stays visually primary. Extra blank
-   * line after so the next `> ` prompt isn't glued to the status. */
-  if (!after_thinking) std::putchar('\n');
-  std::fputs("\x1b[2m", stdout);
-  /* Compute elapsed time from user input to this done event. */
+  /* [done] is chrome — render the whole block faint so it recedes
+   * and the model's answer above stays visually primary. Build the
+   * full status line in a local buffer and emit it as one Above
+   * call so the prompt repaints exactly once at the end. */
+  char   line_buf[512];
+  size_t off = 0;
   double elapse = (xMonoMs() - ctx->input_ms) / 1000.0;
-  std::printf("\n[done] reason=%s reply_bytes=%zu elapse=%.2fs",
-              done_reason_name(reason), ctx->reply_bytes, elapse);
+  off += std::snprintf(line_buf + off, sizeof(line_buf) - off,
+                       "\x1b[2m\n[done] reason=%s reply_bytes=%zu elapse=%.2fs",
+                       done_reason_name(reason), ctx->reply_bytes, elapse);
   /* Token accounting. prompt_tokens is the maximum across all
    * rounds (each round reports the full input size the provider
    * saw, so the last round's value is the total). completion_tokens
@@ -404,21 +468,24 @@ static void on_done(xAiSession sess, xAiDoneReason reason,
    * (moonshot, openai, deepseek all support
    * stream_options.include_usage). */
   if (usage) {
-    std::printf(" tokens=");
+    off += std::snprintf(line_buf + off, sizeof(line_buf) - off, " tokens=");
     if (usage->prompt_tokens >= 0) {
-      std::printf("%d", usage->prompt_tokens);
+      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "%d",
+                           usage->prompt_tokens);
     } else {
-      std::printf("?");
+      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "?");
     }
-    std::printf("/");
+    off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "/");
     if (usage->completion_tokens >= 0) {
-      std::printf("%d", usage->completion_tokens);
+      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "%d",
+                           usage->completion_tokens);
     } else {
-      std::printf("?");
+      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "?");
     }
     if (usage->total_tokens >= 0) {
       ctx->total_tokens += usage->total_tokens;
-      std::printf(" total=%d", ctx->total_tokens);
+      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, " total=%d",
+                           ctx->total_tokens);
     }
   }
   /* Context-budget snapshot. budget_remaining and budget_limit
@@ -434,29 +501,33 @@ static void on_done(xAiSession sess, xAiDoneReason reason,
    * is the count of accepted observations. est is the calibrated
    * pre-submit estimate for this round. */
   if (ctx->budget_limit > 0) {
-    std::printf(" budget=%zu/%zu %.3fx samples=%zu est=%zu",
-                ctx->budget_remaining, ctx->budget_limit, ctx->budget_factor,
-                ctx->budget_samples, ctx->budget_estimated);
+    off += std::snprintf(line_buf + off, sizeof(line_buf) - off,
+                         " budget=%zu/%zu %.3fx samples=%zu est=%zu",
+                         ctx->budget_remaining, ctx->budget_limit,
+                         ctx->budget_factor, ctx->budget_samples,
+                         ctx->budget_estimated);
     if (ctx->last_actual_prompt >= 0) {
-      std::printf(" actual=%d", ctx->last_actual_prompt);
+      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, " actual=%d",
+                           ctx->last_actual_prompt);
     }
   }
-  std::fputs("\x1b[0m\n\n", stdout);
-  std::fflush(stdout);
-  xEventLoopStop(ctx->loop);
+  std::snprintf(line_buf + off, sizeof(line_buf) - off, "\x1b[0m\n");
+  xLinePrintAbove(ctx->line, line_buf);
+
+  ctx->busy = false;
+  /* Natural completion of the user's run — nothing more to do.
+   * The event loop keeps running so the editor stays interactive. */
 }
 
 static void on_error(xAiSession sess, xErrno err, const char *msg, void *ud) {
   (void)sess;
-  auto *ctx    = static_cast<ReplCtx *>(ud);
+  auto *ctx = static_cast<ReplCtx *>(ud);
   /* Same SGR hygiene as on_done — error might fire mid-thinking.
    * Errors are the one piece of chrome that should NOT recede — use
    * bold red (`\x1b[1;31m`) instead of faint so the user notices the
    * run failed at a glance. */
-  bool after_thinking = ctx->in_thinking;
   end_thinking(ctx);
-  if (!after_thinking) std::fputc('\n', stderr);
-  std::fprintf(stderr, "\x1b[1;31m[error] errno=%d msg=%s\x1b[0m\n", (int)err,
+  above_printf(ctx->line, "\x1b[1;31m[error] errno=%d msg=%s\x1b[0m", (int)err,
                msg ? msg : "(none)");
   /* Surface the budget gate explicitly. PromptTooLong is the one
    * errno most likely to surprise a demo user ("I didn't do
@@ -468,14 +539,17 @@ static void on_error(xAiSession sess, xErrno err, const char *msg, void *ud) {
    * cap" for a calibrator demo; production callers would
    * typically switch to SummarizeOldest or a Callback policy. */
   if (err == xErrno_PromptTooLong) {
-    std::fprintf(stderr, "\x1b[1;31m        hit budget cap — raise "
-                         "sconf.budget.max_tokens or lower "
-                         "keep_recent_turns\x1b[0m\n");
+    above_printf(ctx->line,
+                 "\x1b[1;31m        hit budget cap — raise "
+                 "sconf.budget.max_tokens or lower "
+                 "keep_recent_turns\x1b[0m");
   }
-  std::fputc('\n', stderr);
-  std::fflush(stderr);
-  xEventLoopStop(ctx->loop);
+  ctx->busy = false;
 }
+
+/* Forward declaration: on_budget_event needs to resubmit the
+ * pending text after a compact completes. */
+static xErrno repl_submit_text(ReplCtx *ctx, const char *text);
 
 /* ── Budget-event callback ────────────────────────────────────────────
  *
@@ -488,43 +562,46 @@ static void on_error(xAiSession sess, xErrno err, const char *msg, void *ud) {
 static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
                             const void *info, void *ud) {
   (void)sess;
-  auto *ctx            = static_cast<ReplCtx *>(ud);
-  bool  after_thinking = ctx->in_thinking;
+  auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
   /* Budget events are chrome — render faint, same as [tool]/[done]. */
-  if (!after_thinking) std::putchar('\n');
-  std::fputs("\x1b[2m", stdout);
   switch (event) {
   case xAiBudgetEvent_Compacting: {
     auto *ci = static_cast<const xAiBudgetCompactInfo *>(info);
-    std::printf("[budget] compacting %zu old entries...",
-                ci ? ci->entries_compacted : 0);
+    above_printf(ctx->line, "\x1b[2m[budget] compacting %zu old entries...\x1b[0m",
+                 ci ? ci->entries_compacted : (size_t)0);
     break;
   }
   case xAiBudgetEvent_CompactDone: {
     auto *cdi = static_cast<const xAiBudgetCompactDoneInfo *>(info);
     if (cdi && cdi->summary_ok) {
-      std::printf("[budget] compact done — summary %zu tokens, "
-                  "%zu entries affected",
-                  cdi->summary_tokens, cdi->entries_affected);
+      above_printf(ctx->line,
+                   "\x1b[2m[budget] compact done — summary %zu tokens, "
+                   "%zu entries affected\x1b[0m",
+                   cdi->summary_tokens, cdi->entries_affected);
     } else {
-      std::printf(
-        "[budget] compact degraded to truncate — %zu entries affected",
-        cdi ? cdi->entries_affected : 0);
+      above_printf(ctx->line,
+                   "\x1b[2m[budget] compact degraded to truncate — %zu "
+                   "entries affected\x1b[0m",
+                   cdi ? cdi->entries_affected : (size_t)0);
     }
-    /* Compact is done — stop the event loop so the REPL's
-     * xEventLoopRun returns and the auto-retry after Busy
-     * can proceed. Without this the loop blocks forever
-     * because the compact on_done path does NOT call
-     * xEventLoopStop (it's an internal operation, not a
-     * user-visible Query completion). */
-    xEventLoopStop(ctx->loop);
+    /* Compact finished — the session is idle now, so auto-retry the
+     * pending user message. Unlike the blocking version, we never
+     * stop the event loop: the editor stays live the whole time
+     * and the retry just re-enters the input path. */
+    if (ctx->pending_retry && ctx->pending_text) {
+      char *text         = ctx->pending_text;
+      ctx->pending_text  = nullptr;
+      ctx->pending_retry = false;
+      (void)repl_submit_text(ctx, text);
+      std::free(text);
+    }
     break;
   }
   case xAiBudgetEvent_Truncated: {
     auto *ti = static_cast<const xAiBudgetTruncateInfo *>(info);
-    std::printf("[budget] truncated %zu old entries",
-                ti ? ti->entries_removed : 0);
+    above_printf(ctx->line, "\x1b[2m[budget] truncated %zu old entries\x1b[0m",
+                 ti ? ti->entries_removed : (size_t)0);
     break;
   }
   case xAiBudgetEvent_GatePassed: {
@@ -536,17 +613,201 @@ static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
       ctx->budget_samples     = gi->calibrator_samples;
       ctx->budget_estimated   = gi->estimated;
       ctx->last_actual_prompt = gi->last_first_round_prompt_tokens;
-      std::printf("[budget] gate passed — remaining %zu/%zu tokens",
-                  gi->remaining, gi->limit);
+      above_printf(ctx->line,
+                   "\x1b[2m[budget] gate passed — remaining %zu/%zu "
+                   "tokens\x1b[0m",
+                   gi->remaining, gi->limit);
     }
     break;
   }
   }
-  std::fputs("\x1b[0m\n", stdout);
-  std::fflush(stdout);
 }
 
-/* ── Main ───────────────────────────────────────────────────────────────────── */
+/* ── Async REPL glue ──────────────────────────────────────────────────
+ *
+ * The editor is kept alive for the whole REPL lifetime: users may
+ * still edit and execute slash commands (notably /cancel) while the
+ * AI run is in flight. When the user presses Enter we briefly close
+ * the session so the line dispatch code can run without fighting the
+ * edit region, then reopen a fresh session right after — this mirrors
+ * xline_async.c's pattern. AI callbacks (on_text, on_tool, on_done,
+ * …) write through xLinePrintAbove/Chunk so the prompt row stays
+ * intact regardless of what the model is doing. */
+
+static void repl_line_cb(int fd, xEventMask mask, void *arg);
+
+static int repl_open_line(ReplCtx *ctx) {
+  ctx->line = xLineBegin("");
+  if (!ctx->line) {
+    std::fprintf(stderr,
+                 "xLineBegin failed (dumb tty? another session live?)\n");
+    return -1;
+  }
+  int fd = xLineFd(ctx->line);
+  if (fd < 0) {
+    std::fprintf(stderr,
+                 "xLineFd returned %d — not pollable on this platform\n", fd);
+    xLineEnd(ctx->line);
+    ctx->line = nullptr;
+    return -1;
+  }
+  ctx->src = xEventAdd(ctx->loop, fd, xEvent_Read, repl_line_cb, ctx);
+  if (!ctx->src) {
+    std::fprintf(stderr, "xEventAdd failed for tty fd=%d\n", fd);
+    xLineEnd(ctx->line);
+    ctx->line = nullptr;
+    return -1;
+  }
+  return 0;
+}
+
+static void repl_close_line(ReplCtx *ctx) {
+  if (ctx->src) {
+    xEventDel(ctx->loop, ctx->src);
+    ctx->src = nullptr;
+  }
+  if (ctx->line) {
+    xLineEnd(ctx->line);
+    ctx->line = nullptr;
+  }
+}
+
+/* Submit a user message to the session. Handles the Busy → compact
+ * → retry dance asynchronously: if the gate returns Busy we stash
+ * the text and wait for on_budget_event(CompactDone) to resubmit.
+ * xAiMessageFromText returns a thread-local borrow-view backed by
+ * caller-owned storage, so we must keep the text alive until the
+ * session has actually accepted (and internally duplicated) it —
+ * which, on the Ok path, happens before xAiSessionInput returns. */
+static xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
+  ctx->saw_first_delta = false;
+  ctx->in_thinking     = false;
+  ctx->reply_bytes     = 0;
+  ctx->input_ms        = xMonoMs();
+
+  xAiMessage m   = xAiMessageFromText(text);
+  xErrno     err = xAiSessionInput(ctx->sess, m);
+  if (err == xErrno_Busy) {
+    /* A budget compact is in flight. Stash a copy of the text
+     * (the caller's buffer may be freed before CompactDone fires)
+     * and let on_budget_event re-enter submit on our behalf. */
+    if (ctx->pending_text) std::free(ctx->pending_text);
+    ctx->pending_text  = strdup(text);
+    ctx->pending_retry = true;
+    above_printf(ctx->line,
+                 "\x1b[2m(session busy — will resubmit after compact)\x1b[0m");
+    return xErrno_Busy;
+  }
+  if (err != xErrno_Ok) {
+    above_printf(ctx->line,
+                 "\x1b[1;31m[error] input rejected (errno=%d)\x1b[0m",
+                 (int)err);
+    if (err == xErrno_PromptTooLong) {
+      above_printf(ctx->line,
+                   "\x1b[1;31m        hit budget cap — raise "
+                   "sconf.budget.max_tokens or lower "
+                   "keep_recent_turns\x1b[0m");
+    }
+    return err;
+  }
+  ctx->busy = true;
+  return xErrno_Ok;
+}
+
+/* Decide what to do with a completed line. Slash commands are
+ * intercepted locally; chat input is submitted to the session iff
+ * no run is currently active. Returning non-zero asks the caller
+ * to stop the REPL. */
+static int repl_handle_line(ReplCtx *ctx, char *line) {
+  if (!line) return 0;
+  size_t len = std::strlen(line);
+  if (len == 0) return 0;
+
+  /* Legacy `exit` / `quit` bare words remain as a courtesy for
+   * muscle memory, but `/exit` is the documented spelling. */
+  if (std::strcmp(line, "exit") == 0 || std::strcmp(line, "quit") == 0) {
+    xLineHistoryRemoveLast();
+    return 1;
+  }
+  if (line[0] == '/') {
+    /* Don't pollute history with command chrome. */
+    xLineHistoryRemoveLast();
+    slash_dispatch(ctx, line);
+    return ctx->should_exit ? 1 : 0;
+  }
+
+  if (ctx->busy) {
+    /* The AI is still working; reject the submit but keep the
+     * entry in history so the user can Up-arrow and resend once
+     * /cancel (or on_done) clears the flag. */
+    above_printf(ctx->line,
+                 "\x1b[33m(AI is busy — use /cancel to interrupt, then "
+                 "resend with Up-arrow)\x1b[0m");
+    return 0;
+  }
+
+  (void)repl_submit_text(ctx, line);
+  return 0;
+}
+
+static void repl_line_cb(int fd, xEventMask mask, void *arg) {
+  (void)fd;
+  (void)mask;
+  ReplCtx *ctx = static_cast<ReplCtx *>(arg);
+  if (!ctx->line) return;
+
+  for (;;) {
+    xLineStepResult r = xLineStep(ctx->line);
+    switch (r) {
+    case XLINE_STEP_PENDING:
+      return;
+    case XLINE_STEP_LINE: {
+      char *s = xLineTake(ctx->line);
+      /* Close the finished editor session and *immediately* reopen a
+       * fresh one before dispatching. That way slash-command output
+       * (which goes through above_printf) has a live handle to draw
+       * onto, and AI submission hands control back to the event loop
+       * with the new session already active to receive on_text /
+       * on_done Above calls. */
+      repl_close_line(ctx);
+      if (repl_open_line(ctx) != 0) {
+        xLineFree(s);
+        xEventLoopStop(ctx->loop);
+        return;
+      }
+      int want_stop = repl_handle_line(ctx, s);
+      xLineFree(s);
+      if (want_stop) {
+        xEventLoopStop(ctx->loop);
+        return;
+      }
+      return;
+    }
+    case XLINE_STEP_EOF:
+    case XLINE_STEP_ERROR:
+      /* Ctrl-D on empty input, or a fatal tty error. Treat either
+       * as a clean shutdown. */
+      repl_close_line(ctx);
+      xEventLoopStop(ctx->loop);
+      return;
+    }
+  }
+}
+
+static void repl_on_sigint(int signo, void *arg) {
+  (void)signo;
+  ReplCtx *ctx = static_cast<ReplCtx *>(arg);
+  /* If the AI is busy, the user probably wants to interrupt the
+   * run rather than exit the REPL. Mirror the /cancel behaviour. */
+  if (ctx->busy) {
+    xAiSessionCancel(ctx->sess);
+    return;
+  }
+  /* Otherwise unblock the editor; xLineStep() will then return EOF
+   * which our line callback turns into xEventLoopStop(). */
+  xLineAsyncStop();
+}
+
 int main(int argc, char *argv[]) {
   xPrintBacktraceOnCrash();
 
@@ -622,21 +883,29 @@ int main(int argc, char *argv[]) {
 
   /* ── Tools ─────────────────────────────────────────────────────────── */
 
+  /* Declare the REPL context up front so the shell tool's callbacks
+   * can capture a pointer to it. Fields are populated further below
+   * as the objects they reference come into existence. */
+  ReplCtx ctx;
+  ctx.loop = loop;
+
   xAiShellConf shell_conf;
   std::memset(&shell_conf, 0, sizeof(shell_conf));
-  shell_conf.on_command = [](const char *command, const char *cwd, void *) {
+  shell_conf.callback_ud = &ctx;
+  shell_conf.on_command  = [](const char *command, const char *cwd, void *ud) {
+    auto *c = static_cast<ReplCtx *>(ud);
     if (cwd && cwd[0]) {
-      std::printf("\x1b[2m  $ (cd %s && %s)\x1b[0m\n", cwd, command);
+      above_printf(c->line, "\x1b[2m  $ (cd %s && %s)\x1b[0m", cwd, command);
     } else {
-      std::printf("\x1b[2m  $ %s\x1b[0m\n", command);
+      above_printf(c->line, "\x1b[2m  $ %s\x1b[0m", command);
     }
-    std::fflush(stdout);
   };
   shell_conf.on_result = [](int exit_code, size_t stdout_len, size_t stderr_len,
-                            int timed_out, void *) {
-    std::printf("\x1b[2m  exit=%d stdout=%zu stderr=%zu%s\x1b[0m\n", exit_code,
-                stdout_len, stderr_len, timed_out ? " (timed out)" : "");
-    std::fflush(stdout);
+                            int timed_out, void *ud) {
+    auto *c = static_cast<ReplCtx *>(ud);
+    above_printf(c->line, "\x1b[2m  exit=%d stdout=%zu stderr=%zu%s\x1b[0m",
+                 exit_code, stdout_len, stderr_len,
+                 timed_out ? " (timed out)" : "");
   };
   xAiTool shell_tool = xAiToolShellCreate(loop, &shell_conf);
   if (!shell_tool) {
@@ -647,8 +916,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  const xAiTool   *tool_ptrs[] = {&shell_tool};
-  const size_t TOTAL_TOOLS = 1;
+  const xAiTool *tool_ptrs[] = {&shell_tool};
+  const size_t   TOTAL_TOOLS = 1;
   /* ── Session config (agent's default session) ──────────────────────
    *
    * Instead of creating a session manually and managing its
@@ -656,8 +925,6 @@ int main(int argc, char *argv[]) {
    * creates a built-in default session at construction time.
    * The session is retrieved via xAiAgentDefaultSession() and
    * is destroyed automatically by xAiAgentDestroy(). */
-  ReplCtx ctx;
-  ctx.loop = loop;
 
   xAiSessionConf sconf;
   std::memset(&sconf, 0, sizeof(sconf));
@@ -665,7 +932,7 @@ int main(int argc, char *argv[]) {
   sconf.cbs.on_thinking    = on_thinking;
   sconf.cbs.on_tool        = on_tool;
   sconf.cbs.on_tool_output = on_tool_output;
-  sconf.cbs.on_sidecar    = on_sidecar;
+  sconf.cbs.on_sidecar     = on_sidecar;
   sconf.cbs.on_done        = on_done;
   sconf.cbs.on_error       = on_error;
   sconf.cbs.user_data      = &ctx;
@@ -784,88 +1051,29 @@ int main(int argc, char *argv[]) {
    * hit Tab to see the menu. */
   xLineSetHintDelay(0);
 
-  while (true) {
-    /* xLineReadline prints its own prompt (with styling support) and
-     * returns a heap-allocated UTF-8 string that the caller must
-     * free via xLineFree. Returns NULL on EOF (Ctrl-D on an empty
-     * line) — we treat that like `exit`. */
-    char *line = xLineReadline("");
-    if (!line) break;
+  /* Print banner while still in cooked mode; repl_open_line will
+   * paint the prompt on the next row. Doing it the other way round
+   * glues the banner to the prompt (see xline_async.c for details). */
+  std::puts("Ready. Type a message or /help. While the AI is streaming you "
+            "can still run slash commands; use /cancel to interrupt.");
+  std::fflush(stdout);
 
-    size_t len = std::strlen(line);
-    if (len == 0) {
-      xLineFree(line);
-      continue;
-    }
-    /* Slash commands are intercepted locally — they never reach the
-     * model. Legacy `exit` / `quit` bare words remain as a courtesy
-     * for muscle memory, but `/exit` is the documented spelling. */
-    if (std::strcmp(line, "exit") == 0 || std::strcmp(line, "quit") == 0) {
-      xLineHistoryRemoveLast();
-      xLineFree(line);
-      break;
-    }
-    if (line[0] == '/') {
-      /* Don't pollute history with command chrome — slash commands
-       * are pure REPL actions, not chat input. */
-      xLineHistoryRemoveLast();
-      slash_dispatch(&ctx, line);
-      xLineFree(line);
-      if (ctx.should_exit) break;
-      continue;
-    }
-
-    ctx.saw_first_delta = false;
-    ctx.in_thinking     = false;
-    ctx.reply_bytes     = 0;
-    ctx.input_ms        = xMonoMs();
-
-    /* xAiMessageFromText creates a User-role borrow-view that points
-     * at `line` via a thread-local content slot (see message.c).
-     * xAiSessionInput duplicates every byte into session-owned
-     * memory before it returns, so it's safe to free `line`
-     * immediately after the (possibly-retried) submit completes. */
-    xAiMessage m   = xAiMessageFromText(line);
-    xErrno     err = xAiSessionInput(sess, m);
-    while (err == xErrno_Busy) {
-      /* Busy from SummarizeOldest is expected — the on_budget_event
-       * callback already printed "[budget] compacting ...". Run the
-       * event loop so the compact Query can complete; on_budget_event
-       * will print "[budget] compact done" and then we auto-retry
-       * the user's input. If Busy is from a regular Query still in
-       * flight (shouldn't happen in this single-flight REPL), the
-       * loop returns immediately and we report it below.
-       *
-       * Loop (not single retry): after a compact that degraded to
-       * TruncateOldest, the session may still be over budget, and
-       * session_enforce_budget_ can launch another compact round.
-       * Each Busy return means "an async operation is in flight";
-       * we wait for it to finish and retry until the gate lets the
-       * message through or returns a non-Busy error. */
-      xEventLoopRun(loop);
-      /* Compact done — session is idle now, retry the input. */
-      err = xAiSessionInput(sess, m);
-    }
-    if (err != xErrno_Ok) {
-      /* Synchronous rejection path: the gate fires before the
-       * Query is even handed off, so on_error never runs. Mirror
-       * the PromptTooLong hint from on_error here so the same
-       * advice reaches users regardless of which path triggered.
-       * Other errnos (Busy, InvalidState) have no budget-side
-       * remedy, so they just print the bare code. */
-      std::fprintf(stderr, "[error] input rejected (errno=%d)\n", (int)err);
-      if (err == xErrno_PromptTooLong) {
-        std::fprintf(stderr, "        hit budget cap — raise "
-                             "sconf.budget.max_tokens or lower "
-                             "keep_recent_turns\n");
-      }
-      xLineFree(line);
-      continue;
-    }
-
-    xEventLoopRun(loop);
-    xLineFree(line);
+  if (repl_open_line(&ctx) != 0) {
+    xAiAgentDestroy(agent);
+    for (size_t i = 0; i < TOTAL_TOOLS; ++i)
+      xAiToolDestroy(*tool_ptrs[i]);
+    xAiProviderDestroy(pvd);
+    xHttpClientDestroy(http);
+    xEventLoopDestroy(loop);
+    return 1;
   }
+
+  xEventLoopSignalWatch(loop, SIGINT, repl_on_sigint, &ctx);
+
+  xEventLoopRun(loop);
+
+  xEventLoopSignalWatch(loop, SIGINT, nullptr, nullptr);
+  repl_close_line(&ctx);
 
   std::printf("\nBye!\n");
 

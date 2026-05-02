@@ -1332,6 +1332,22 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
     s->compacting       = 0;
     s->compact_keep_idx = 0;
 
+    /* Free produced entries that the compact Query generated
+     * (they're NOT merged into history — only the summary is). */
+    for (size_t i = 0; i < n_produced; i++) {
+      ai_session_msg_free(&produced[i]);
+    }
+
+    /* Destroy the compact Query BEFORE firing CompactDone/Truncated.
+     * xAiQueryDestroy nulls s->query, and the caller is expected to
+     * re-enter xAiSessionInput from inside the CompactDone callback
+     * (auto-retry pattern). If we kept s->query pointing at the
+     * about-to-be-freed compact Query while the callback ran, the
+     * admission check in xAiSessionInput would still see it and
+     * refuse with xErrno_Busy — defeating the whole point of the
+     * event. */
+    xAiQueryDestroy(q);
+
     /* ── Notify caller: compact finished ──────────────────────
      * Fire CompactDone so the caller knows the session is now idle
      * and can retry xAiSessionInput. summary_ok tells them whether
@@ -1366,15 +1382,6 @@ static void sess_fwd_on_done(xAiQuery q, xAiDoneReason reason,
                            s->budget_event_ud);
       }
     }
-
-    /* Free produced entries that the compact Query generated
-     * (they're NOT merged into history — only the summary is). */
-    for (size_t i = 0; i < n_produced; i++) {
-      ai_session_msg_free(&produced[i]);
-    }
-
-    /* Destroy the compact Query. */
-    xAiQueryDestroy(q);
 
     /* The compact is done. The caller's on_done is NOT fired here
      * — they're still holding a Busy result. The next time they

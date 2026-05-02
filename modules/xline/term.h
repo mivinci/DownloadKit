@@ -15,8 +15,23 @@
 #include "stringbuf.h"
 #include "attr.h"
 
+// ANSI CSI (Control Sequence Introducer) prefix used by every SGR /
+// cursor-movement escape emitted by term.c and term_color.c.
+#define IC_CSI      "\x1B["
+
 struct term_s;
 typedef struct term_s term_t;
+
+// Color support level. Set by `term_new` based on what the terminal
+// advertises and the user's IC_COLOR env overrides; consumed by
+// term_color.c to pick which SGR escape flavor to emit.
+typedef enum palette_e {
+  MONOCHROME,  // no color
+  ANSI8,       // only basic 8 ANSI color     (ESC[<idx>m, idx: 30-37, +10 for background)
+  ANSI16,      // basic + bright ANSI colors  (ESC[<idx>m, idx: 30-37, 90-97, +10 for background)
+  ANSI256,     // ANSI 256 color palette      (ESC[38;5;<idx>m)
+  ANSIRGB      // direct rgb colors           (ESC[38;2;<r>;<g>;<b>m)
+} palette_t;
 
 typedef enum buffer_mode_e {
   UNBUFFERED,
@@ -74,6 +89,17 @@ ic_private void term_italic(term_t* term, bool on);
 
 ic_private void term_color(term_t* term, ic_color_t color);
 ic_private void term_bgcolor(term_t* term, ic_color_t color);
+
+// Exposed so term_color.c can pick the right escape flavor without
+// peeking at `struct term_s` directly.
+ic_private palette_t term_get_palette(const term_t* term);
+
+// Helpers shared with term.c. term_color.c owns the ANSI 256 palette
+// table (some of whose entries term.c patches at init from the
+// terminal's actual configuration on Linux/Windows).
+ic_private bool       color_is_rgb(ic_color_t color);
+ic_private uint32_t   ic_cap8(ssize_t i);
+ic_private extern uint32_t ansi256[256];
 
 // Formatted output
 

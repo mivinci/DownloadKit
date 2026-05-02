@@ -5,19 +5,13 @@
 # LICENSE.isocline for upstream attribution.
 #
 # Build model:
-#   Every top-level .c compiles as its own translation unit. We set
+#   Every .c file compiles as its own translation unit. We set
 #   IC_SEPARATE_OBJS so upstream's ic_private expands to
 #   __attribute__((visibility("hidden"))) instead of `static`, letting
 #   internal helpers cross TU boundaries while still staying out of the
 #   shared library's public symbol table.
-#
-#   A handful of upstream files are designed to be #included into a
-#   parent .c (e.g. term_color.c inside term.c, editline_help.c inside
-#   editline.c, wcwidth.c inside stringbuf.c). Those are marked as
-#   HEADER_FILE_ONLY so the compiler does not produce duplicate object
-#   files for them while IDEs still see them in the project.
 
-set(XLINE_TOPLEVEL_SOURCES
+set(XLINE_SOURCES
   async.c
   attr.c
   bbcode.c
@@ -36,25 +30,17 @@ set(XLINE_TOPLEVEL_SOURCES
   str.c
   stringbuf.c
   term.c
+  term_color.c
   tty.c
   tty_esc.c
   undo.c
   unicode.c
   wcwidth.c)
 
-# Partial translation units that are #included into a parent .c.
-# Kept in the target for IDE visibility but not compiled directly.
-set(XLINE_PARTIAL_SOURCES
-  term_color.c)
-
-set_source_files_properties(${XLINE_PARTIAL_SOURCES}
-  PROPERTIES HEADER_FILE_ONLY TRUE)
-
 file(GLOB XLINE_HEADERS "*.h")
 
 add_library(xline ${XK_LIB_TYPE}
-  ${XLINE_TOPLEVEL_SOURCES}
-  ${XLINE_PARTIAL_SOURCES}
+  ${XLINE_SOURCES}
   ${XLINE_HEADERS})
 
 # Separate-object build: every top-level .c is its own TU. ic_private

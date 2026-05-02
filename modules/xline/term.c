@@ -32,17 +32,6 @@
 #endif
 #endif
 
-#define IC_CSI      "\x1B["
-
-// color support; colors are auto mapped smaller palettes if needed. (see `term_color.c`)
-typedef enum palette_e {
-  MONOCHROME,  // no color
-  ANSI8,       // only basic 8 ANSI color     (ESC[<idx>m, idx: 30-37, +10 for background)
-  ANSI16,      // basic + bright ANSI colors  (ESC[<idx>m, idx: 30-37, 90-97, +10 for background)
-  ANSI256,     // ANSI 256 color palette      (ESC[38;5;<idx>m, idx: 0-15 standard color, 16-231 6x6x6 rbg colors, 232-255 gray shades)
-  ANSIRGB      // direct rgb colors supported (ESC[38;2;<r>;<g>;<b>m)
-} palette_t;
-
 // The terminal screen
 struct term_s {
   int           fd_out;             // output handle
@@ -73,10 +62,12 @@ static bool term_write_direct(term_t* term, const char* s, ssize_t n );
 static void term_append_buf(term_t* term, const char* s, ssize_t n);
 
 //-------------------------------------------------------------
-// Colors
+// Palette accessor (the SGR rendering itself lives in term_color.c)
 //-------------------------------------------------------------
 
-#include "term_color.c"
+ic_private palette_t term_get_palette(const term_t* term) {
+  return term->palette;
+}
 
 //-------------------------------------------------------------
 // Helpers

@@ -5,13 +5,24 @@
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
 
-// This file is included in "term.c"
+// SGR rendering: maps ic_color_t values into ANSI / 256-color / 24-bit
+// escape sequences based on the terminal's advertised palette. Split
+// off from term.c so it can compile as its own TU.
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "platform.h"
+#include "color.h"
+#include "stringbuf.h"
+#include "term.h"
 
 //-------------------------------------------------------------
 // Standard ANSI palette for 256 colors
 //-------------------------------------------------------------
 
-static uint32_t ansi256[256] = {   
+ic_private uint32_t ansi256[256] = {
   // not const as on some platforms (e.g. Windows, xterm) we update the first 16 entries with the actual used colors.
   // 0, standard ANSI
   0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 
@@ -80,7 +91,7 @@ ic_private ic_color_t ic_rgb(uint32_t hex) {
 }
 
 // Limit an int to values between 0 and 255.
-static uint32_t ic_cap8(ssize_t i) {
+ic_private uint32_t ic_cap8(ssize_t i) {
   return (i < 0 ? 0 : (i > 255 ? 255 : (uint32_t)i));
 }
 
@@ -94,7 +105,7 @@ ic_private ic_color_t ic_rgbx(ssize_t r, ssize_t g, ssize_t b) {
 // Match an rgb color to a ansi8, ansi16, or ansi256
 //-------------------------------------------------------------
 
-static bool color_is_rgb( ic_color_t color ) {
+ic_private bool color_is_rgb( ic_color_t color ) {
   return (color >= IC_RGB(0));  // bit 24 is set for rgb colors
 }
 
@@ -331,7 +342,7 @@ static void fmt_color_ex(char* buf, ssize_t len, palette_t palette, ic_color_t c
 
 static void term_color_ex(term_t* term, ic_color_t color, bool bg) {
   char buf[128+1];
-  fmt_color_ex(buf,128,term->palette,color,bg);
+  fmt_color_ex(buf,128,term_get_palette(term),color,bg);
   term_write(term,buf);
 }
 
@@ -347,20 +358,8 @@ ic_private void term_bgcolor(term_t* term, ic_color_t color) {
   term_color_ex(term,color,true);
 }
 
-ic_private void term_append_color(term_t* term, stringbuf_t* sbuf, ic_color_t color) {
-  char buf[128+1];
-  fmt_color_ex(buf,128,term->palette,color,false);
-  sbuf_append(sbuf,buf);
-}
-
-ic_private void term_append_bgcolor(term_t* term, stringbuf_t* sbuf, ic_color_t color) {
-  char buf[128+1];
-  fmt_color_ex(buf, 128, term->palette, color, true);
-  sbuf_append(sbuf, buf);
-}
-
 ic_private int term_get_color_bits(term_t* term) {
-  switch (term->palette) {
+  switch (term_get_palette(term)) {
   case MONOCHROME: return 1;
   case ANSI8:      return 3;
   case ANSI16:     return 4;

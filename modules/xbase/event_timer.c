@@ -15,10 +15,10 @@ static xEventTimer submit_timer(xEventLoop loop_, xEventTimerFunc fn, void *arg,
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
   if (!loop || !fn) return NULL;
 
-  pthread_mutex_lock(&loop->timer_mu);
+  xMutexLock(&loop->timer_mu);
   struct xEventTimer_ *t = event_timer_alloc(loop);
   if (!t) {
-    pthread_mutex_unlock(&loop->timer_mu);
+    xMutexUnlock(&loop->timer_mu);
     return NULL;
   }
 
@@ -29,12 +29,12 @@ static xEventTimer submit_timer(xEventLoop loop_, xEventTimerFunc fn, void *arg,
   t->fired    = 0;
 
   xErrno err = xHeapPush(loop->timer_heap, t);
-  pthread_mutex_unlock(&loop->timer_mu);
+  xMutexUnlock(&loop->timer_mu);
 
   if (err != xErrno_Ok) {
-    pthread_mutex_lock(&loop->timer_mu);
+    xMutexLock(&loop->timer_mu);
     event_timer_free(loop, t);
-    pthread_mutex_unlock(&loop->timer_mu);
+    xMutexUnlock(&loop->timer_mu);
     return NULL;
   }
 
@@ -65,10 +65,10 @@ xErrno xEventLoopTimerCancel(xEventLoop loop_, xEventTimer timer_) {
   struct xEventTimer_ *timer = (struct xEventTimer_ *)timer_;
   if (!loop || !timer) return xErrno_InvalidArg;
 
-  pthread_mutex_lock(&loop->timer_mu);
+  xMutexLock(&loop->timer_mu);
 
   if (timer->fired || timer->heap_idx == EVENT_TIMER_INVALID_IDX) {
-    pthread_mutex_unlock(&loop->timer_mu);
+    xMutexUnlock(&loop->timer_mu);
     return xErrno_InvalidState;
   }
 
@@ -76,7 +76,7 @@ xErrno xEventLoopTimerCancel(xEventLoop loop_, xEventTimer timer_) {
   timer->heap_idx = EVENT_TIMER_INVALID_IDX;
 
   event_timer_free(loop, timer);
-  pthread_mutex_unlock(&loop->timer_mu);
+  xMutexUnlock(&loop->timer_mu);
 
   return xErrno_Ok;
 }

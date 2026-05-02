@@ -492,11 +492,21 @@ TEST(Flag, HelpReturnsAgain) {
 
   /* Redirect stdout to /dev/null so help output doesn't pollute*/
   fflush(stdout);
+#ifdef _WIN32
+  FILE *saved = tmpfile();
+  freopen("NUL", "w", stdout);
+#else
   FILE *saved = stdout;
   stdout      = fopen("/dev/null", "w");
+#endif
   auto r      = Parse(set, {"prog", "--help"});
   fclose(stdout);
+#ifdef _WIN32
+  freopen(tmpnam(NULL), "w", stdout);
+  fclose(saved);
+#else
   stdout = saved;
+#endif
 
   ASSERT_EQ(r.rc, xErrno_Again);
 
@@ -508,13 +518,23 @@ TEST(Flag, VersionReturnsAgainWhenSet) {
   xFlagSetVersion(set, "1.2.3");
 
   fflush(stdout);
-  FILE *saved = stdout;
-  stdout      = fopen("/dev/null", "w");
-  auto r      = Parse(set, {"prog", "--version"});
+#ifdef _WIN32
+  FILE *saved2 = tmpfile();
+  freopen("NUL", "w", stdout);
+#else
+  FILE *saved2 = stdout;
+  stdout       = fopen("/dev/null", "w");
+#endif
+  auto r2      = Parse(set, {"prog", "--version"});
   fclose(stdout);
-  stdout = saved;
+#ifdef _WIN32
+  freopen(tmpnam(NULL), "w", stdout);
+  fclose(saved2);
+#else
+  stdout = saved2;
+#endif
 
-  ASSERT_EQ(r.rc, xErrno_Again);
+  ASSERT_EQ(r2.rc, xErrno_Again);
 
   xFlagSetDestroy(set);
 }

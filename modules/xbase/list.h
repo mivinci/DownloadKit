@@ -143,10 +143,18 @@ XCAPI_INLINE(bool) xListEmpty(xList *head) {
  * @param head   The head of the list (xList *).
  * @param member The name of the xList member inside the struct.
  */
-#define xListForEachEntry(pos, head, member)                       \
-  for ((pos) = xContainerOf((head)->next, typeof(*(pos)), member); \
-       &(pos)->member != (head);                                   \
-       (pos) = xContainerOf((pos)->member.next, typeof(*(pos)), member))
+/* typeof is GCC-specific; use std::remove_reference for MSVC C++ compatibility */
+#ifdef _MSC_VER
+#include <type_traits>
+#define xListTypeof(expr) typename std::remove_reference<decltype(expr)>::type
+#else
+#define xListTypeof(expr) typeof(expr)
+#endif
+
+#define xListForEachEntry(pos, head, member)                            \
+  for ((pos) = xContainerOf((head)->next, xListTypeof(*(pos)), member); \
+       &(pos)->member != (head);                                        \
+       (pos) = xContainerOf((pos)->member.next, xListTypeof(*(pos)), member))
 
 /**
  * @brief Macro to iterate over list entries safely.
@@ -156,10 +164,10 @@ XCAPI_INLINE(bool) xListEmpty(xList *head) {
  * @param head   The head of the list (xList *).
  * @param member The name of the xList member inside the struct.
  */
-#define xListForEachEntrySafe(pos, tmp, head, member)                    \
-  for ((pos) = xContainerOf((head)->next, typeof(*(pos)), member),       \
-      (tmp)  = xContainerOf((pos)->member.next, typeof(*(tmp)), member); \
-       &(pos)->member != (head); (pos) = (tmp),                          \
-      (tmp) = xContainerOf((pos)->member.next, typeof(*(tmp)), member))
+#define xListForEachEntrySafe(pos, tmp, head, member)                         \
+  for ((pos) = xContainerOf((head)->next, xListTypeof(*(pos)), member),       \
+      (tmp)  = xContainerOf((pos)->member.next, xListTypeof(*(tmp)), member); \
+       &(pos)->member != (head); (pos) = (tmp),                              \
+      (tmp) = xContainerOf((pos)->member.next, xListTypeof(*(tmp)), member))
 
 #endif // XBASE_LIST_H

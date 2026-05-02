@@ -39,6 +39,8 @@ extern int __ulock_wait(uint32_t op, void *addr, uint64_t val,
 extern int __ulock_wake(uint32_t op, void *addr, uint64_t val);
 #define XK_UL_COMPARE_AND_WAIT 1
 #define XK_ULF_WAKE_ALL        0x00000100
+#elif defined(_WIN32)
+#include <windows.h>
 #else
 #include <sched.h>
 #endif
@@ -91,6 +93,9 @@ static inline void xNoteSignal(xNote *n) {
   syscall(SYS_futex, &n->state, FUTEX_WAKE, INT_MAX, NULL, NULL, 0);
 #elif defined(__APPLE__)
   __ulock_wake(XK_UL_COMPARE_AND_WAIT | XK_ULF_WAKE_ALL, &n->state, 0);
+#elif defined(_WIN32)
+  /* WakeByAddressAll requires all waiters to be in WakeByAddressSingleWait
+   * — since our Level 3 uses SwitchToThread, no explicit wake needed. */
 #endif
   /* Other platforms: no kernel wake needed; waiter uses sched_yield(). */
 }
@@ -113,8 +118,12 @@ static inline void xNoteWait(xNote *n) {
 
   /* Level 2: brief spin with pause/yield hints (~1μs). */
   for (int i = 0; i < 64; i++) {
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(__x86_64__) || defined(_M_X64) || defined(_M_IX86)
+#if defined(_MSC_VER)
+    _mm_pause();
+#else
     __builtin_ia32_pause();
+#endif
 #elif defined(__aarch64__) || defined(_M_ARM64)
     __asm__ volatile("yield");
 #endif
@@ -129,6 +138,12 @@ static inline void xNoteWait(xNote *n) {
 #elif defined(__APPLE__)
   while (xAtomicLoad(&n->state, xAtomicAcquire) == 0) {
     __ulock_wait(XK_UL_COMPARE_AND_WAIT, &n->state, 0, 0);
+  }
+#elif defined(_WIN32)
+  /* Windows fallback: yield loop. SwitchToThread() is equivalent to
+   * sched_yield() — yields the remainder of the current time slice. */
+  while (xAtomicLoad(&n->state, xAtomicAcquire) == 0) {
+    SwitchToThread();
   }
 #else
   /* Portable fallback: yield loop. */

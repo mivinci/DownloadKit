@@ -8,29 +8,32 @@
 
 #include <xbase/io.h>
 
-#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef _WIN32
+#include <errno.h>
+#endif
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Convenience functions
  * ═══════════════════════════════════════════════════════════════════
  */
 
-ssize_t xRead(xReader r, void *buf, size_t len) {
+xSsize xRead(xReader r, void *buf, size_t len) {
   return r.read(r.ctx, buf, len);
 }
 
-ssize_t xWrite(xWriter w, const void *buf, size_t len) {
-  struct iovec iov = {.iov_base = (void *)buf, .iov_len = len};
+xSsize xWrite(xWriter w, const void *buf, size_t len) {
+  xIovec iov = {.iov_base = (void *)buf, .iov_len = len};
   return w.writev(w.ctx, &iov, 1);
 }
 
-ssize_t xWritev(xWriter w, const struct iovec *iov, int iovcnt) {
+xSsize xWritev(xWriter w, const xIovec *iov, int iovcnt) {
   return w.writev(w.ctx, iov, iovcnt);
 }
 
-off_t xSeek(xSeeker s, off_t offset, int whence) {
+xOff xSeek(xSeeker s, xOff offset, int whence) {
   return s.seek(s.ctx, offset, whence);
 }
 
@@ -41,10 +44,10 @@ int xClose(xCloser c) { return c.close(c.ctx); }
  * ═══════════════════════════════════════════════════════════════════
  */
 
-ssize_t xReadFull(xReader r, void *buf, size_t len) {
+xSsize xReadFull(xReader r, void *buf, size_t len) {
   size_t total = 0;
   while (total < len) {
-    ssize_t n = r.read(r.ctx, (char *)buf + total, len - total);
+    xSsize n = r.read(r.ctx, (char *)buf + total, len - total);
     if (n > 0) {
       total += (size_t)n;
     } else if (n == 0) {
@@ -52,11 +55,13 @@ ssize_t xReadFull(xReader r, void *buf, size_t len) {
       break;
     } else {
       /* n == -1 */
+#ifndef _WIN32
       if (errno == EAGAIN || errno == EINTR) continue;
+#endif
       return -1;
     }
   }
-  return (ssize_t)total;
+  return (xSsize)total;
 }
 
 #define XREAD_ALL_INIT_CAP 4096
@@ -76,7 +81,7 @@ int xReadAll(xReader r, void **out, size_t *out_len) {
       cap = new_cap;
     }
 
-    ssize_t n = r.read(r.ctx, buf + total, cap - total);
+    xSsize n = r.read(r.ctx, buf + total, cap - total);
     if (n > 0) {
       total += (size_t)n;
     } else if (n == 0) {
@@ -86,7 +91,9 @@ int xReadAll(xReader r, void **out, size_t *out_len) {
       return 0;
     } else {
       /* n == -1 */
+#ifndef _WIN32
       if (errno == EAGAIN || errno == EINTR) continue;
+#endif
       goto fail;
     }
   }

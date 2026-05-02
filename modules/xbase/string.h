@@ -101,7 +101,10 @@ XCAPI(int) xStringAppendLen(xString *s, const void *append, size_t len);
  *         (*s is still valid on failure).
  */
 XCAPI(int) xStringAppendFormat(xString *s, const char *fmt, ...)
-  __attribute__((format(printf, 2, 3)));
+#ifdef __GNUC__
+  __attribute__((format(printf, 2, 3)))
+#endif
+  ;
 
 /* ───────────────────── Truncate / Clear ───────────────────── */
 

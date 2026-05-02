@@ -15,13 +15,17 @@
 #include <xbase/mpsc.h>
 #include <xbase/task.h>
 
-#include <fcntl.h>
-#include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#include "thread_private.h"
+
+#ifndef _WIN32
+#include <fcntl.h>
 #include <unistd.h>
+#endif
 
 /* ───────────────────── Signal watch ───────────────────── */
 
@@ -58,37 +62,6 @@ static inline void source_array_init(struct xEventSourceArray_ *s) {
   s->cap   = 0;
 }
 
-static inline void source_array_free(struct xEventSourceArray_ *s) {
-  for (size_t i = 0; i < s->len; i++)
-    free(s->items[i]);
-  free(s->items);
-  s->items = NULL;
-  s->len   = 0;
-  s->cap   = 0;
-}
-
-static inline struct xEventSource_ *
-source_array_add(struct xEventSourceArray_ *s, int fd, xEventMask mask,
-                 xEventFunc fn, void *arg) {
-  if (s->len == s->cap) {
-    size_t                 newcap = s->cap ? s->cap * 2 : 16;
-    struct xEventSource_ **tmp =
-      (struct xEventSource_ **)realloc(s->items, newcap * sizeof(*s->items));
-    if (!tmp) return NULL;
-    s->items = tmp;
-    s->cap   = newcap;
-  }
-  struct xEventSource_ *src =
-    (struct xEventSource_ *)calloc(1, sizeof(struct xEventSource_));
-  if (!src) return NULL;
-  src->fd            = fd;
-  src->mask          = mask;
-  src->fn            = fn;
-  src->arg           = arg;
-  s->items[s->len++] = src;
-  return src;
-}
-
 static inline int source_array_remove(struct xEventSourceArray_ *s,
                                       struct xEventSource_      *src) {
   (void)s;
@@ -98,23 +71,12 @@ static inline int source_array_remove(struct xEventSourceArray_ *s,
   return 0;
 }
 
-/**
- * @brief Sweep deleted sources after a dispatch batch completes.
- *
- * Must be called at the end of each xEventWait() to actually free
- * sources that were removed during callback dispatch.
- */
-static inline void source_array_sweep(struct xEventSourceArray_ *s) {
-  size_t i = 0;
-  while (i < s->len) {
-    if (s->items[i]->deleted) {
-      free(s->items[i]);
-      s->items[i] = s->items[--s->len];
-    } else {
-      i++;
-    }
-  }
-}
+/* Non-inline implementations — see event_private.c */
+void source_array_free(struct xEventSourceArray_ *s);
+struct xEventSource_ *source_array_add(struct xEventSourceArray_ *s, int fd,
+                                       xEventMask mask, xEventFunc fn,
+                                       void *arg);
+void source_array_sweep(struct xEventSourceArray_ *s);
 
 static inline struct xEventSource_ *
 source_array_find_fd(struct xEventSourceArray_ *s, int fd) {
@@ -169,8 +131,12 @@ struct xEventWork_ {
 
 struct xEventLoop_ {
   struct xEventSourceArray_ sources;
-  int                       wake_rfd; /* read end of wake pipe  */
-  int                       wake_wfd; /* write end of wake pipe */
+#ifdef _WIN32
+  HANDLE wake_event; /* manual-reset event for loop wakeup */
+#else
+  int    wake_rfd;   /* read end of wake pipe  */
+  int    wake_wfd;   /* write end of wake pipe */
+#endif
 
   /* Offload done queue (lock-free MPSC) */
   xMpsc *done_head;
@@ -178,9 +144,9 @@ struct xEventLoop_ {
   int    inflight; /* number of in-flight offload workers */
 
   /* Builtin timer heap */
-  xHeap           timer_heap;
-  pthread_mutex_t timer_mu;
-  int             stopped;
+  xHeap  timer_heap;
+  xMutex timer_mu;
+  int    stopped;
 
   /* Timer struct freelist (protected by timer_mu) */
   struct xEventTimer_ *timer_free;  /* singly-linked freelist head */
@@ -202,6 +168,10 @@ struct xEventLoop_ {
 };
 
 static inline int loop_init_wake(struct xEventLoop_ *loop) {
+#ifdef _WIN32
+  loop->wake_event = CreateEventW(NULL, TRUE, FALSE, NULL);
+  return loop->wake_event ? 0 : -1;
+#else
   int fds[2];
   if (pipe(fds) != 0) return -1;
   /* Set read end to non-blocking so loop_drain_wake never blocks. */
@@ -213,11 +183,16 @@ static inline int loop_init_wake(struct xEventLoop_ *loop) {
   loop->wake_rfd = fds[0];
   loop->wake_wfd = fds[1];
   return 0;
+#endif
 }
 
 static inline void loop_close_wake(struct xEventLoop_ *loop) {
+#ifdef _WIN32
+  if (loop->wake_event) CloseHandle(loop->wake_event);
+#else
   if (loop->wake_rfd >= 0) close(loop->wake_rfd);
   if (loop->wake_wfd >= 0) close(loop->wake_wfd);
+#endif
 }
 
 /* ───────────────────── Timer pool helpers ───────────────────── */
@@ -264,72 +239,22 @@ static inline void event_timer_pool_destroy(struct xEventLoop_ *loop) {
   loop->timer_nfree = 0;
 }
 
-/*
- * Pop all expired timers under a single lock acquisition, then fire
- * them and return each struct to the pool.  Replaces the per-pop
- * lock/unlock pattern in all three backends.
- */
-static inline int loop_fire_expired_timers(struct xEventLoop_ *loop) {
-  /* Scratch buffer on stack; fall back to heap for huge batches. */
-  struct xEventTimer_  *stack_buf[128];
-  struct xEventTimer_ **batch     = stack_buf;
-  size_t                batch_cap = 128;
-  size_t                batch_len = 0;
-
-  pthread_mutex_lock(&loop->timer_mu);
-  uint64_t now = xMonoMs();
-  while (xHeapSize(loop->timer_heap) > 0) {
-    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPeek(loop->timer_heap);
-    if (t->deadline > now) break;
-    xHeapPop(loop->timer_heap);
-    t->fired = 1;
-    /* Grow batch if needed */
-    if (batch_len == batch_cap) {
-      size_t                newcap = batch_cap * 2;
-      struct xEventTimer_ **heap_buf;
-      if (batch == stack_buf) {
-        heap_buf = (struct xEventTimer_ **)malloc(
-          newcap * sizeof(struct xEventTimer_ *));
-        if (heap_buf) memcpy(heap_buf, stack_buf, batch_len * sizeof(*batch));
-      } else {
-        heap_buf = (struct xEventTimer_ **)realloc(
-          batch, newcap * sizeof(struct xEventTimer_ *));
-      }
-      if (!heap_buf) {
-        /* Out of memory — fire what we have so far, recycle, retry later */
-        break;
-      }
-      batch     = heap_buf;
-      batch_cap = newcap;
-    }
-    batch[batch_len++] = t;
-  }
-  pthread_mutex_unlock(&loop->timer_mu);
-
-  /* Fire callbacks outside the lock */
-  for (size_t i = 0; i < batch_len; i++) {
-    batch[i]->fn(batch[i]->arg);
-  }
-
-  /* Return structs to the pool (re-acquire lock once) */
-  if (batch_len > 0) {
-    pthread_mutex_lock(&loop->timer_mu);
-    for (size_t i = 0; i < batch_len; i++) {
-      event_timer_free(loop, batch[i]);
-    }
-    pthread_mutex_unlock(&loop->timer_mu);
-  }
-
-  if (batch != stack_buf) free(batch);
-  return (int)batch_len;
-}
+/* Non-inline implementations — see event_private.c */
+int  loop_fire_expired_timers(struct xEventLoop_ *loop);
+void loop_dispatch_done(struct xEventLoop_ *loop);
+void loop_cleanup_done(struct xEventLoop_ *loop);
+void loop_wait_inflight(struct xEventLoop_ *loop);
 
 /* ───────────────────── Wake helpers ───────────────────── */
 
 static inline void loop_drain_wake(struct xEventLoop_ *loop) {
+#ifdef _WIN32
+  ResetEvent(loop->wake_event);
+#else
   char buf[64];
   while (read(loop->wake_rfd, buf, sizeof(buf)) > 0)
     ;
+#endif
 }
 
 /*
@@ -362,7 +287,7 @@ event_work_alloc(struct xEventLoop_ *loop) {
   for (;;) {
     w = xAtomicLoad(&loop->work_freelist, xAtomicAcquire);
     if (!w) break; /* empty — fall back to calloc */
-    if (xAtomicCasWeak(&loop->work_freelist, &w, w->next_free, xAtomicAcqRel))
+    if (xAtomicCasPtrWeak(&loop->work_freelist, &w, w->next_free, xAtomicAcqRel))
       break;
   }
   if (w) {
@@ -380,7 +305,7 @@ static inline void event_work_free(struct xEventLoop_ *loop,
     head         = xAtomicLoad(&loop->work_freelist, xAtomicRelaxed);
     w->next_free = head;
   } while (
-    !xAtomicCasWeak(&loop->work_freelist, &head, w, xAtomicRelease));
+    !xAtomicCasPtrWeak(&loop->work_freelist, &head, w, xAtomicRelease));
 }
 
 static inline void event_work_pool_destroy(struct xEventLoop_ *loop) {
@@ -391,49 +316,6 @@ static inline void event_work_pool_destroy(struct xEventLoop_ *loop) {
     w = next;
   }
   loop->work_freelist = NULL;
-}
-
-/* Dispatch all completed work items (offload + post) from the done queue. */
-static inline void loop_dispatch_done(struct xEventLoop_ *loop) {
-  xMpsc *node;
-  while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
-    struct xEventWork_ *w = xContainerOf(node, struct xEventWork_, mpsc);
-    if (w->task) {
-      /* Offload item: release the xTask handle, then invoke done_fn.
-       * If the task was cancelled, xTaskWait returns xErrno_Cancelled
-       * and we skip the done callback — the work_fn never ran. */
-      xErrno err = xTaskWait(w->task, NULL);
-      if (err != xErrno_Cancelled && w->done_fn)
-        w->done_fn(w->arg, w->result);
-      xAtomicFetchSub(&loop->inflight, 1, xAtomicRelaxed);
-    } else {
-      /* Posted item (xEventLoopPost): invoke the callback directly. */
-      if (w->post_fn) w->post_fn(w->arg);
-    }
-    event_work_free(loop, w);
-  }
-}
-
-/* Drain remaining work items without executing callbacks (for destroy). */
-static inline void loop_cleanup_done(struct xEventLoop_ *loop) {
-  xMpsc *node;
-  while ((node = xMpscPop(&loop->done_head, &loop->done_tail)) != NULL) {
-    struct xEventWork_ *w = xContainerOf(node, struct xEventWork_, mpsc);
-    if (w->task) xTaskWait(w->task, NULL);
-    free(w); /* truly free — loop is being destroyed */
-  }
-}
-
-/*
- * Spin-wait until all in-flight offload workers have finished and
- * pushed their results into the done queue.  Must be called before
- * loop_cleanup_done() during destroy to avoid use-after-free.
- */
-static inline void loop_wait_inflight(struct xEventLoop_ *loop) {
-  while (xAtomicLoad(&loop->inflight, xAtomicAcquire) > 0) {
-    /* Brief yield to let worker threads finish. */
-    usleep(100);
-  }
 }
 
 #endif /* XBASE_EVENT_PRIVATE_H */

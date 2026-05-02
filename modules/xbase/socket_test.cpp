@@ -3,9 +3,14 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * socket_test.cpp - Unit tests for xSocket
+ * socket_test.cpp - Unit tests for xSocket (POSIX)
  */
 
+#include <gtest/gtest.h>
+
+#ifdef _WIN32
+TEST(Socket, SkipOnWindows) { GTEST_SKIP() << "Socket tests need POSIX adapter"; }
+#else
 #include <xbase/socket.h>
 
 #include <chrono>
@@ -847,3 +852,5 @@ TEST(SocketTimeout, IOResetsWriteTimer) {
   close(fds[1]);
   xEventLoopDestroy(loop);
 }
+
+#endif /* _WIN32 */

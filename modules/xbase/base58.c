@@ -8,30 +8,30 @@
 
 #include <xbase/base58.h>
 
+#include <stdlib.h>
 #include <string.h>
 
 /* Bitcoin Base58 alphabet */
 static const char kAlphabet[] =
-    "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 /* Reverse lookup table: ASCII value -> Base58 digit (0-57), -1 for invalid */
 static const int8_t kAlphabetMap[128] = {
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1,  0,  1,  2,  3,  4,  5,  6,  7,  8, -1, -1, -1, -1, -1, -1, /* 0-9 */
-    -1,  9, 10, 11, 12, 13, 14, 15, 16, -1, 17, 18, 19, 20, 21, -1, /* A-O */
-    22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, -1, -1, -1, -1, -1, /* P-Z */
-    -1, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, -1, 44, 45, 46, /* a-o */
-    47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, -1, -1, -1, -1, -1, /* p-z */
+  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+  -1, 0,  1,  2,  3,  4,  5,  6,  7,  8,  -1, -1, -1, -1, -1, -1, /* 0-9 */
+  -1, 9,  10, 11, 12, 13, 14, 15, 16, -1, 17, 18, 19, 20, 21, -1, /* A-O */
+  22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, -1, -1, -1, -1, -1, /* P-Z */
+  -1, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, -1, 44, 45, 46, /* a-o */
+  47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, -1, -1, -1, -1, -1, /* p-z */
 };
 
-int
-xBase58Encode(const uint8_t *src, size_t src_len,
-              char *dst, size_t *dst_len) {
+int xBase58Encode(const uint8_t *src, size_t src_len, char *dst,
+                  size_t *dst_len) {
   if (src_len == 0) {
     if (*dst_len < 1) return -1;
-    dst[0] = '\0';
+    dst[0]   = '\0';
     *dst_len = 0;
     return 0;
   }
@@ -46,8 +46,9 @@ xBase58Encode(const uint8_t *src, size_t src_len,
    * Allocate a temporary buffer for the base58 digits.
    * The maximum size is src_len * 138 / 100 + 1.
    */
-  size_t buf_size = src_len * 138 / 100 + 1;
-  uint8_t buf[buf_size];
+  size_t   buf_size = src_len * 138 / 100 + 1;
+  uint8_t *buf      = (uint8_t *)malloc(buf_size);
+  if (!buf) return -1;
   memset(buf, 0, buf_size);
 
   /* Process each byte of the input */
@@ -82,13 +83,13 @@ xBase58Encode(const uint8_t *src, size_t src_len,
   }
 
   dst[encoded_len] = '\0';
-  *dst_len = encoded_len;
+  *dst_len         = encoded_len;
+  free(buf);
   return 0;
 }
 
-int
-xBase58Decode(const char *src, size_t src_len,
-              uint8_t *dst, size_t *dst_len) {
+int xBase58Decode(const char *src, size_t src_len, uint8_t *dst,
+                  size_t *dst_len) {
   if (src_len == 0) {
     *dst_len = 0;
     return 0;
@@ -104,8 +105,9 @@ xBase58Decode(const char *src, size_t src_len,
    * Allocate a temporary buffer for the decoded bytes.
    * The maximum size is src_len * 733 / 1000 + 1.
    */
-  size_t buf_size = src_len * 733 / 1000 + 1;
-  uint8_t buf[buf_size];
+  size_t   buf_size = src_len * 733 / 1000 + 1;
+  uint8_t *buf      = (uint8_t *)malloc(buf_size);
+  if (!buf) return -1;
   memset(buf, 0, buf_size);
 
   /* Process each character of the input */
@@ -142,5 +144,6 @@ xBase58Decode(const char *src, size_t src_len,
   memcpy(dst + zeros, buf + start, buf_size - start);
 
   *dst_len = decoded_len;
+  free(buf);
   return 0;
 }

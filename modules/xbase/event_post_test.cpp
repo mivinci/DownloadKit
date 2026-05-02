@@ -55,19 +55,19 @@ TEST_F(EventPostTest, BasicPost) {
 /* ───────────────────── Post from another thread ───────────────────── */
 
 TEST_F(EventPostTest, PostFromAnotherThread) {
-  std::atomic<bool>      called{false};
-  std::atomic<pthread_t> cb_thread{0};
+  std::atomic<bool>              called{false};
+  std::atomic<std::thread::id>   cb_thread{};
 
   auto fn = [](void *arg) {
     auto *ctx =
-      static_cast<std::pair<std::atomic<bool> *, std::atomic<pthread_t> *> *>(
+      static_cast<std::pair<std::atomic<bool> *, std::atomic<std::thread::id> *> *>(
         arg);
-    ctx->second->store(pthread_self(), std::memory_order_release);
+    ctx->second->store(std::this_thread::get_id(), std::memory_order_release);
     ctx->first->store(true, std::memory_order_release);
   };
 
-  std::pair<std::atomic<bool> *, std::atomic<pthread_t> *> ctx{&called,
-                                                                &cb_thread};
+  std::pair<std::atomic<bool> *, std::atomic<std::thread::id> *> ctx{&called,
+                                                                       &cb_thread};
 
   std::thread poster([&]() {
     EXPECT_EQ(xEventLoopPost(loop, fn, &ctx), xErrno_Ok);
@@ -76,7 +76,7 @@ TEST_F(EventPostTest, PostFromAnotherThread) {
   poster.join();
 
   /* Pump the loop until the callback fires. */
-  pthread_t loop_thread = pthread_self();
+  std::thread::id loop_thread = std::this_thread::get_id();
   for (int i = 0; i < 200 && !called.load(std::memory_order_acquire); i++) {
     xEventWait(loop, 10);
   }

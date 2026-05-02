@@ -3,9 +3,16 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * timer_test.cpp - Unit tests for xTimer
+ * timer_test.cpp - Unit tests for xTimer (POSIX)
  */
 
+#include <cstring>
+
+#include <gtest/gtest.h>
+
+#ifdef _WIN32
+TEST(Timer, SkipOnWindows) { GTEST_SKIP() << "Timer tests need POSIX adapter"; }
+#else
 #include <xbase/timer.h>
 
 #include <atomic>
@@ -404,3 +411,5 @@ TEST(TimerLifecycle, DestroyNull) {
 TEST(TimerPoll, PollNullReturnsZero) {
   EXPECT_EQ(xTimerPoll(NULL), 0);
 }
+
+#endif /* _WIN32 */

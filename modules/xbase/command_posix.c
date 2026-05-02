@@ -3,8 +3,15 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * command.c - Async command executor over xEventLoop
+ * command_posix.c - Async command executor for POSIX (fork/exec/waitpid)
  */
+
+#include <stdlib.h>
+#include <xbase/command.h>
+
+#ifdef _WIN32
+/* Windows implementation is in command_windows.c */
+#else /* POSIX implementation */
 
 #include <xbase/command.h>
 #include <xbase/string.h>
@@ -1095,3 +1102,5 @@ static void cmd_kill_pg(struct xCommandExecutor_ *exec, int sig) {
     kill(-exec->child_pid, sig);
   }
 }
+
+#endif /* _WIN32 */

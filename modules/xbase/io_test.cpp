@@ -3,10 +3,14 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * io_test.cpp - xReader / xWriter / xSeeker / xCloser unit tests
+ * io_test.cpp - xReader / xWriter / xSeeker / xCloser unit tests (POSIX)
  */
 
 #include <gtest/gtest.h>
+
+#ifdef _WIN32
+TEST(Io, SkipOnWindows) { GTEST_SKIP() << "IO tests are POSIX-only"; }
+#else
 
 #include <cerrno>
 #include <cstdlib>
@@ -331,3 +335,5 @@ TEST(IoTest, ReadAllLargeWithExpansion) {
   EXPECT_EQ(memcmp(out, data.data(), total), 0);
   free(out);
 }
+
+#endif /* _WIN32 */

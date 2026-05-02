@@ -26,7 +26,11 @@ XDEF_STRUCT(xLogCtx) {
   char         bt[XLOG_BT_SIZE];
 };
 
+#ifdef _WIN32
+static __declspec(thread) xLogCtx tl_ctx;
+#else
 static __thread xLogCtx tl_ctx;
+#endif
 
 /* ───────────────── Public API ───────────────── */
 

@@ -10,13 +10,18 @@
 
 #include <atomic>
 #include <chrono>
-#include <csignal>
 #include <cstring>
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 
 #include <gtest/gtest.h>
 
@@ -28,19 +33,99 @@ static void sleep_ms(int n) {
   std::this_thread::sleep_for(ms(n));
 }
 
-/* Create a non-blocking pipe pair. Returns 0 on success. */
+/* Create a non-blocking socket pair (cross-platform). Returns 0 on success. */
 static int make_pipe(int fds[2]) {
+#ifdef _WIN32
+  /* Ensure Winsock is initialized */
+  static bool wsa_init = false;
+  if (!wsa_init) {
+    WSADATA d;
+    WSAStartup(MAKEWORD(2, 2), &d);
+    wsa_init = true;
+  }
+  /* Create a loopback socket pair */
+  SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (listener == INVALID_SOCKET) return -1;
+
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family      = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port        = 0;
+  if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+    closesocket(listener);
+    return -1;
+  }
+  if (listen(listener, 1) != 0) {
+    closesocket(listener);
+    return -1;
+  }
+  int addrlen = sizeof(addr);
+  if (getsockname(listener, (struct sockaddr *)&addr, &addrlen) != 0) {
+    closesocket(listener);
+    return -1;
+  }
+
+  SOCKET conn = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (conn == INVALID_SOCKET) {
+    closesocket(listener);
+    return -1;
+  }
+  if (connect(conn, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+    closesocket(listener);
+    closesocket(conn);
+    return -1;
+  }
+
+  SOCKET acceptor = accept(listener, NULL, NULL);
+  closesocket(listener);
+  if (acceptor == INVALID_SOCKET) {
+    closesocket(conn);
+    return -1;
+  }
+
+  /* Set non-blocking */
+  u_long mode = 1;
+  ioctlsocket(acceptor, FIONBIO, &mode);
+  ioctlsocket(conn, FIONBIO, &mode);
+
+  fds[0] = (int)acceptor;
+  fds[1] = (int)conn;
+  return 0;
+#else
   if (pipe(fds) != 0) return -1;
   fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL, 0) | O_NONBLOCK);
   fcntl(fds[1], F_SETFL, fcntl(fds[1], F_GETFL, 0) | O_NONBLOCK);
   return 0;
+#endif
+}
+
+static void close_fd(int fd) {
+#ifdef _WIN32
+  closesocket((SOCKET)fd);
+#else
+  close(fd);
+#endif
 }
 
 /* Drain all data from a non-blocking fd. */
 static void drain_fd(int fd) {
   char buf[256];
+#ifdef _WIN32
+  while (recv((SOCKET)fd, buf, sizeof(buf), 0) > 0)
+    ;
+#else
   while (read(fd, buf, sizeof(buf)) > 0)
     ;
+#endif
+}
+
+static void write_fd(int fd, const char *data, size_t len) {
+#ifdef _WIN32
+  send((SOCKET)fd, data, (int)len, 0);
+#else
+  write(fd, data, len);
+#endif
 }
 
 /* ───────────────────── Create / Destroy ───────────────────── */
@@ -68,8 +153,8 @@ TEST(EventLifecycle, DestroyWithRegisteredSources) {
 
   /* Destroy without removing source — must not crash or leak */
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
 /* ───────────────────── Add / Del ───────────────────── */
@@ -88,8 +173,8 @@ TEST(EventAddDel, AddAndDel) {
   EXPECT_EQ(xEventDel(loop, src), xErrno_Ok);
 
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
 TEST(EventAddDel, AddNullCallback) {
@@ -103,8 +188,8 @@ TEST(EventAddDel, AddNullCallback) {
   EXPECT_EQ(src, nullptr);
 
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
 TEST(EventAddDel, DelNullArgs) {
@@ -129,8 +214,8 @@ TEST(EventAddDel, AddMultipleSources) {
   /* Remove in reverse order */
   for (int i = N - 1; i >= 0; i--) {
     EXPECT_EQ(xEventDel(loop, srcs[i]), xErrno_Ok);
-    close(pipes[i][0]);
-    close(pipes[i][1]);
+    close_fd(pipes[i][0]);
+    close_fd(pipes[i][1]);
   }
 
   xEventLoopDestroy(loop);
@@ -164,7 +249,7 @@ TEST(EventRead, SingleReadEvent) {
   ASSERT_NE(src, nullptr);
 
   /* Write data to trigger read event */
-  write(fds[1], "hello", 5);
+  write_fd(fds[1], "hello", 5);
 
   int n = xEventWait(loop, 100);
   EXPECT_GE(n, 1);
@@ -174,8 +259,8 @@ TEST(EventRead, SingleReadEvent) {
 
   xEventDel(loop, src);
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
 TEST(EventRead, MultipleReadEvents) {
@@ -209,7 +294,7 @@ TEST(EventRead, MultipleReadEvents) {
 
   /* Write to all pipes */
   for (int i = 0; i < N; i++)
-    write(pipes[i][1], "x", 1);
+    write_fd(pipes[i][1], "x", 1);
 
   int total = xEventWait(loop, 200);
   EXPECT_EQ(total, N);
@@ -217,8 +302,8 @@ TEST(EventRead, MultipleReadEvents) {
   for (int i = 0; i < N; i++) {
     EXPECT_EQ(counts[i], 1);
     xEventDel(loop, srcs[i]);
-    close(pipes[i][0]);
-    close(pipes[i][1]);
+    close_fd(pipes[i][0]);
+    close_fd(pipes[i][1]);
   }
 
   xEventLoopDestroy(loop);
@@ -251,8 +336,8 @@ TEST(EventWrite, WriteReady) {
 
   xEventDel(loop, src);
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
 /* ───────────────────── Mod ───────────────────── */
@@ -287,8 +372,8 @@ TEST(EventMod, SwitchReadToWrite) {
 
   xEventDel(loop, src);
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
 TEST(EventMod, NullArgs) {
@@ -392,7 +477,7 @@ TEST(EventEdgeTriggered, NoRenotifyWithoutDrain) {
   ASSERT_NE(src, nullptr);
 
   /* Write once */
-  write(fds[1], "x", 1);
+  write_fd(fds[1], "x", 1);
 
   /* First wait: should fire */
   int n = xEventWait(loop, 100);
@@ -406,8 +491,8 @@ TEST(EventEdgeTriggered, NoRenotifyWithoutDrain) {
 
   xEventDel(loop, src);
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
 TEST(EventEdgeTriggered, RefiresOnNewData) {
@@ -429,21 +514,21 @@ TEST(EventEdgeTriggered, RefiresOnNewData) {
   ASSERT_NE(src, nullptr);
 
   /* First write + wait */
-  write(fds[1], "a", 1);
+  write_fd(fds[1], "a", 1);
   int n = xEventWait(loop, 100);
   EXPECT_EQ(n, 1);
   EXPECT_EQ(count, 1);
 
   /* Second write + wait: should fire again */
-  write(fds[1], "b", 1);
+  write_fd(fds[1], "b", 1);
   n = xEventWait(loop, 100);
   EXPECT_EQ(n, 1);
   EXPECT_EQ(count, 2);
 
   xEventDel(loop, src);
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
 /* ───────────────────── Concurrent usage ───────────────────── */
@@ -469,7 +554,7 @@ TEST(EventConcurrent, WakeWhileWaiting) {
   /* Writer thread: write data and wake */
   std::thread writer([&]() {
     sleep_ms(30);
-    write(fds[1], "data", 4);
+    write_fd(fds[1], "data", 4);
     xEventWake(loop);
   });
 
@@ -480,8 +565,8 @@ TEST(EventConcurrent, WakeWhileWaiting) {
   writer.join();
   xEventDel(loop, src);
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
 /* ───────────────────── Stress test ───────────────────── */
@@ -517,7 +602,7 @@ TEST(EventStress, ManySourcesManyEvents) {
   const int ROUNDS = 5;
   for (int r = 0; r < ROUNDS; r++) {
     for (int i = 0; i < N; i++)
-      write(pipes[i][1], "x", 1);
+      write_fd(pipes[i][1], "x", 1);
 
     int total = 0;
     /* May need multiple waits to collect all events */
@@ -531,8 +616,8 @@ TEST(EventStress, ManySourcesManyEvents) {
   for (int i = 0; i < N; i++) {
     EXPECT_EQ(counts[i], ROUNDS);
     xEventDel(loop, srcs[i]);
-    close(pipes[i][0]);
-    close(pipes[i][1]);
+    close_fd(pipes[i][0]);
+    close_fd(pipes[i][1]);
   }
 
   xEventLoopDestroy(loop);
@@ -560,7 +645,7 @@ TEST(EventDynamic, AddSourceBetweenWaits) {
   ASSERT_NE(src1, nullptr);
 
   /* First event on src1 */
-  write(fds1[1], "a", 1);
+  write_fd(fds1[1], "a", 1);
   xEventWait(loop, 100);
   EXPECT_EQ(count1, 1);
 
@@ -575,8 +660,8 @@ TEST(EventDynamic, AddSourceBetweenWaits) {
   ASSERT_NE(src2, nullptr);
 
   /* Trigger both */
-  write(fds1[1], "b", 1);
-  write(fds2[1], "c", 1);
+  write_fd(fds1[1], "b", 1);
+  write_fd(fds2[1], "c", 1);
 
   int total = 0;
   for (int i = 0; i < 5 && total < 2; i++) {
@@ -590,10 +675,10 @@ TEST(EventDynamic, AddSourceBetweenWaits) {
   xEventDel(loop, src1);
   xEventDel(loop, src2);
   xEventLoopDestroy(loop);
-  close(fds1[0]);
-  close(fds1[1]);
-  close(fds2[0]);
-  close(fds2[1]);
+  close_fd(fds1[0]);
+  close_fd(fds1[1]);
+  close_fd(fds2[0]);
+  close_fd(fds2[1]);
 }
 
 TEST(EventDynamic, DelSourceBetweenWaits) {
@@ -615,7 +700,7 @@ TEST(EventDynamic, DelSourceBetweenWaits) {
   ASSERT_NE(src, nullptr);
 
   /* Fire once */
-  write(fds[1], "a", 1);
+  write_fd(fds[1], "a", 1);
   xEventWait(loop, 100);
   EXPECT_EQ(count, 1);
 
@@ -623,14 +708,14 @@ TEST(EventDynamic, DelSourceBetweenWaits) {
   xEventDel(loop, src);
 
   /* Write again — should not fire */
-  write(fds[1], "b", 1);
+  write_fd(fds[1], "b", 1);
   int n = xEventWait(loop, 50);
   EXPECT_EQ(n, 0);
   EXPECT_EQ(count, 1);
 
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
 /* ───────────────────── Read + Write combined ───────────────────── */
@@ -670,12 +755,13 @@ TEST(EventReadWrite, BothReadAndWrite) {
   xEventDel(loop, src);
   delete ctx_pair;
   xEventLoopDestroy(loop);
-  close(fds[0]);
-  close(fds[1]);
+  close_fd(fds[0]);
+  close_fd(fds[1]);
 }
 
-/* ───────────────────── Signal watch ───────────────────── */
+/* ───────────────────── Signal watch (POSIX only) ───────────────────── */
 
+#ifndef _WIN32
 #include <csignal>
 #include <sys/types.h>
 
@@ -722,25 +808,20 @@ TEST(EventSignal, CancelStopsCallback) {
               [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count),
             xErrno_Ok);
 
-  /* Trigger once to confirm it works */
   kill(getpid(), SIGUSR1);
   for (int i = 0; i < 10 && count == 0; i++)
     xEventWait(loop, 100);
   EXPECT_GE(count, 1);
 
-  /* Cancel */
   EXPECT_EQ(xEventLoopSignalWatch(loop, SIGUSR1, NULL, NULL), xErrno_Ok);
 
-  /* After cancel, SIG_DFL for SIGUSR1 terminates the process.
-   * Temporarily ignore it so we can safely test that the callback
-   * is no longer invoked. */
   signal(SIGUSR1, SIG_IGN);
   int saved = count;
   kill(getpid(), SIGUSR1);
   xEventWait(loop, 100);
   signal(SIGUSR1, SIG_DFL);
 
-  EXPECT_EQ(count, saved); /* callback should NOT have fired again */
+  EXPECT_EQ(count, saved);
 
   xEventLoopDestroy(loop);
 }
@@ -756,7 +837,6 @@ TEST(EventSignal, ReplaceCallback) {
               [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count1),
             xErrno_Ok);
 
-  /* Replace with a different callback */
   EXPECT_EQ(xEventLoopSignalWatch(
               loop, SIGUSR1,
               [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count2),
@@ -767,8 +847,8 @@ TEST(EventSignal, ReplaceCallback) {
   for (int i = 0; i < 10 && count2 == 0; i++)
     xEventWait(loop, 100);
 
-  EXPECT_EQ(count1, 0); /* old callback should not fire */
-  EXPECT_GE(count2, 1); /* new callback should fire */
+  EXPECT_EQ(count1, 0);
+  EXPECT_GE(count2, 1);
 
   xEventLoopSignalWatch(loop, SIGUSR1, NULL, NULL);
   xEventLoopDestroy(loop);
@@ -780,22 +860,13 @@ TEST(EventSignal, InvalidArgs) {
 
   auto dummy = [](int, void *) {};
 
-  /* NULL loop */
   EXPECT_EQ(xEventLoopSignalWatch(NULL, SIGUSR1, dummy, NULL),
             xErrno_InvalidArg);
-
-  /* SIGKILL */
   EXPECT_EQ(xEventLoopSignalWatch(loop, SIGKILL, dummy, NULL),
             xErrno_InvalidArg);
-
-  /* SIGSTOP */
   EXPECT_EQ(xEventLoopSignalWatch(loop, SIGSTOP, dummy, NULL),
             xErrno_InvalidArg);
-
-  /* Negative signo */
   EXPECT_EQ(xEventLoopSignalWatch(loop, -1, dummy, NULL), xErrno_InvalidArg);
-
-  /* Zero signo */
   EXPECT_EQ(xEventLoopSignalWatch(loop, 0, dummy, NULL), xErrno_InvalidArg);
 
   xEventLoopDestroy(loop);
@@ -842,22 +913,21 @@ TEST(EventSignal, StopLoopFromCallback) {
       loop),
     xErrno_Ok);
 
-  /* Send signal after a short delay from another thread */
   std::thread sender([&]() {
     sleep_ms(50);
     kill(getpid(), SIGUSR1);
   });
 
   auto start = std::chrono::steady_clock::now();
-  xEventLoopRun(loop); /* should return when SIGUSR1 stops the loop */
+  xEventLoopRun(loop);
   auto elapsed =
     std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start)
       .count();
 
-  /* Should have returned well before a long timeout */
   EXPECT_LT(elapsed, 3000);
 
   sender.join();
   xEventLoopSignalWatch(loop, SIGUSR1, NULL, NULL);
   xEventLoopDestroy(loop);
 }
+#endif /* _WIN32 */

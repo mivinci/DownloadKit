@@ -43,23 +43,23 @@ protected:
 /* ───────────────────── Basic offload ───────────────────── */
 
 struct OffloadCtx {
-  std::atomic<bool>      work_done{false};
-  std::atomic<bool>      done_called{false};
-  std::atomic<pthread_t> work_thread{0};
-  std::atomic<pthread_t> done_thread{0};
-  void                  *result_ptr{nullptr};
+  std::atomic<bool>         work_done{false};
+  std::atomic<bool>         done_called{false};
+  std::atomic<std::thread::id> work_thread{};
+  std::atomic<std::thread::id> done_thread{};
+  void                     *result_ptr{nullptr};
 };
 
 static void *basic_work(void *arg) {
   auto *ctx = static_cast<OffloadCtx *>(arg);
-  ctx->work_thread.store(pthread_self(), std::memory_order_relaxed);
+  ctx->work_thread.store(std::this_thread::get_id(), std::memory_order_relaxed);
   ctx->work_done.store(true, std::memory_order_release);
   return ctx; /* return a recognisable pointer */
 }
 
 static void basic_done(void *arg, void *result) {
   auto *ctx = static_cast<OffloadCtx *>(arg);
-  ctx->done_thread.store(pthread_self(), std::memory_order_relaxed);
+  ctx->done_thread.store(std::this_thread::get_id(), std::memory_order_relaxed);
   ctx->result_ptr = result;
   ctx->done_called.store(true, std::memory_order_release);
 }
@@ -79,7 +79,7 @@ TEST_F(EventOffloadTest, BasicOffload) {
   EXPECT_TRUE(ctx.work_done.load());
   EXPECT_TRUE(ctx.done_called.load());
   /* work_fn must have run on a different thread than the test thread. */
-  EXPECT_NE(ctx.work_thread.load(), pthread_self());
+  EXPECT_NE(ctx.work_thread.load(), std::this_thread::get_id());
   /* done_fn receives the return value of work_fn. */
   EXPECT_EQ(ctx.result_ptr, &ctx);
 }

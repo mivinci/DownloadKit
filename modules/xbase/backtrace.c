@@ -8,7 +8,8 @@
  * Backend priority (selected at build time via CMake):
  *   1. libunwind  (XK_HAS_LIBUNWIND)
  *   2. execinfo   (XK_HAS_EXECINFO)  — macOS / Linux glibc
- *   3. stub       (fallback)
+ *   3. DbgHelp    (XK_HAS_DBGHELP)   — Windows
+ *   4. stub       (fallback)
  */
 
 #include <xbase/backtrace.h>
@@ -132,7 +133,82 @@ static int bt_capture(int skip, char *buf, size_t size) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
- * Backend 3: stub (unsupported platform)
+ * Backend 3: DbgHelp (Windows)
+ *
+ * Uses CaptureStackBackTrace() for frame capture and SymFromAddr()
+ * for symbol resolution.  Requires dbghelp.lib.
+ * ═══════════════════════════════════════════════════════════════════ */
+#elif defined(XK_HAS_DBGHELP)
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <dbghelp.h>
+
+/* One-time symbol handler initialization (thread-safe via InitOnce) */
+static INIT_ONCE sym_init_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK sym_init_fn(PINIT_ONCE once, PVOID param, PVOID *ctx) {
+  (void)once; (void)param; (void)ctx;
+  HANDLE hProcess = GetCurrentProcess();
+  SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+  SymInitialize(hProcess, NULL, TRUE);
+  return TRUE;
+}
+
+static void sym_ensure_init(void) {
+  InitOnceExecuteOnce(&sym_init_once, sym_init_fn, NULL, NULL);
+}
+
+static int bt_capture(int skip, char *buf, size_t size) {
+  void    *frames[MAX_FRAMES];
+  int      n          = 0;
+  int      frame      = 0;
+  int      total_skip = skip + INTERNAL_SKIP;
+
+  sym_ensure_init();
+
+  USHORT depth = CaptureStackBackTrace(
+    (ULONG)(total_skip), MAX_FRAMES, frames, NULL);
+  if (depth == 0) return 0;
+
+  HANDLE hProcess = GetCurrentProcess();
+
+  for (USHORT i = 0; i < depth; i++) {
+    DWORD64 address = (DWORD64)(uintptr_t)frames[i];
+
+    /* Symbol lookup */
+    char sym_buf[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
+    SYMBOL_INFO *sym = (SYMBOL_INFO *)sym_buf;
+    sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+    sym->MaxNameLen   = MAX_SYM_NAME;
+
+    int ret;
+    if (SymFromAddr(hProcess, address, NULL, sym)) {
+      ret = snprintf(buf + n, size - (size_t)n,
+                     "#%d 0x%llx %s\n",
+                     frame, (unsigned long long)address, sym->Name);
+    } else {
+      ret = snprintf(buf + n, size - (size_t)n,
+                     "#%d 0x%llx <unknown>\n",
+                     frame, (unsigned long long)address);
+    }
+
+    if (ret < 0) break;
+
+    if ((size_t)(n + ret) >= size) {
+      n = (int)(size - 1);
+      break;
+    }
+
+    n += ret;
+    frame++;
+  }
+
+  return n;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Backend 4: stub (unsupported platform)
  * ═══════════════════════════════════════════════════════════════════ */
 #else
 

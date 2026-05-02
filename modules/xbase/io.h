@@ -73,8 +73,30 @@
 #include <xbase/base.h>
 
 #include <stddef.h>
+
+#ifdef _WIN32
+typedef long xSsize;
+typedef __int64 xOff;
+#else
 #include <sys/types.h>
 #include <sys/uio.h>
+typedef ssize_t xSsize;
+typedef off_t xOff;
+#endif
+
+/**
+ * @brief Portable I/O vector structure.
+ *
+ * On POSIX this is struct iovec; on Windows we define an equivalent.
+ */
+#ifdef _WIN32
+XDEF_STRUCT(xIovec) {
+  void  *iov_base;
+  size_t iov_len;
+};
+#else
+#define xIovec  struct iovec
+#endif
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Core I/O interfaces
@@ -91,7 +113,7 @@
  * xIOBufferReadFunc.
  */
 XDEF_STRUCT(xReader) {
-  ssize_t (*read)(void *ctx, void *buf, size_t len);
+  xSsize (*read)(void *ctx, void *buf, size_t len);
   void *ctx;
 };
 
@@ -105,7 +127,7 @@ XDEF_STRUCT(xReader) {
  * xIOBufferWritevFunc.
  */
 XDEF_STRUCT(xWriter) {
-  ssize_t (*writev)(void *ctx, const struct iovec *iov, int iovcnt);
+  xSsize (*writev)(void *ctx, const xIovec *iov, int iovcnt);
   void *ctx;
 };
 
@@ -116,7 +138,7 @@ XDEF_STRUCT(xWriter) {
  * follows lseek(2) semantics: returns the resulting offset, -1 on error.
  */
 XDEF_STRUCT(xSeeker) {
-  off_t (*seek)(void *ctx, off_t offset, int whence);
+  xOff (*seek)(void *ctx, xOff offset, int whence);
   void *ctx;
 };
 
@@ -146,7 +168,7 @@ XDEF_STRUCT(xCloser) {
  * @param len  Maximum bytes to read.
  * @return     Bytes read, 0 on EOF, -1 on error.
  */
-XCAPI(ssize_t) xRead(xReader r, void *buf, size_t len);
+XCAPI(xSsize) xRead(xReader r, void *buf, size_t len);
 
 /**
  * @brief Write a single buffer through a writer.
@@ -158,7 +180,7 @@ XCAPI(ssize_t) xRead(xReader r, void *buf, size_t len);
  * @param len  Number of bytes to write.
  * @return     Bytes written, or -1 on error.
  */
-XCAPI(ssize_t) xWrite(xWriter w, const void *buf, size_t len);
+XCAPI(xSsize) xWrite(xWriter w, const void *buf, size_t len);
 
 /**
  * @brief Write scattered data through a writer.
@@ -170,7 +192,7 @@ XCAPI(ssize_t) xWrite(xWriter w, const void *buf, size_t len);
  * @param iovcnt  Number of vectors.
  * @return        Total bytes written, or -1 on error.
  */
-XCAPI(ssize_t) xWritev(xWriter w, const struct iovec *iov, int iovcnt);
+XCAPI(xSsize) xWritev(xWriter w, const xIovec *iov, int iovcnt);
 
 /**
  * @brief Seek to a position.
@@ -182,7 +204,7 @@ XCAPI(ssize_t) xWritev(xWriter w, const struct iovec *iov, int iovcnt);
  * @param whence  SEEK_SET, SEEK_CUR, or SEEK_END.
  * @return        Resulting offset, or -1 on error.
  */
-XCAPI(off_t) xSeek(xSeeker s, off_t offset, int whence);
+XCAPI(xOff) xSeek(xSeeker s, xOff offset, int whence);
 
 /**
  * @brief Close a resource.
@@ -210,7 +232,7 @@ XCAPI(int) xClose(xCloser c);
  * @param len  Number of bytes to read.
  * @return     Bytes actually read (may be < len on EOF), or -1 on error.
  */
-XCAPI(ssize_t) xReadFull(xReader r, void *buf, size_t len);
+XCAPI(xSsize) xReadFull(xReader r, void *buf, size_t len);
 
 /**
  * @brief Read all data until EOF into a dynamically allocated buffer.

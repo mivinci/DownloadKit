@@ -8,10 +8,17 @@
 
 #include <xbase/socket.h>
 
-#include <fcntl.h>
 #include <stdlib.h>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 /* ───────────────────── Internal structure ───────────────────── */
 
@@ -109,7 +116,24 @@ static void reset_write_timer(struct xSocket_ *s) {
  * Returns the fd on success, -1 on failure.
  */
 static int socket_open(int family, int type, int protocol) {
-#if defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK)
+#ifdef _WIN32
+  /* WSASocketW with WSA_FLAG_OVERLAPPED gives us a non-inheritable,
+   * non-blocking-capable socket in one call.  WSA_FLAG_NO_HANDLE_INHERIT
+   * (Windows 8+) makes the handle non-inheritable; we fall back to
+   * SetHandleInformation on older systems. */
+  SOCKET sock = WSASocketW(family, type, protocol, NULL, 0,
+                           WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+  /* If WSA_FLAG_NO_HANDLE_INHERIT failed (older Windows), retry without it */
+  if (sock == INVALID_SOCKET) {
+    sock = WSASocketW(family, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
+    if (sock == INVALID_SOCKET) return -1;
+    SetHandleInformation((HANDLE)sock, HANDLE_FLAG_INHERIT, 0);
+  }
+  /* Set non-blocking mode */
+  u_long mode = 1;
+  ioctlsocket(sock, FIONBIO, &mode);
+  return (int)sock;
+#elif defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK)
   return socket(family, type | SOCK_CLOEXEC | SOCK_NONBLOCK, protocol);
 #else
   int fd = socket(family, type, protocol);
@@ -151,7 +175,11 @@ xSocket xSocketCreate(xEventLoop loop, int family, int type, int protocol,
   return (xSocket)s;
 
 fail_fd:
+#ifdef _WIN32
+  closesocket(fd);
+#else
   close(fd);
+#endif
 fail:
   free(s);
   return NULL;
@@ -162,11 +190,19 @@ xSocket xSocketCreateFromFd(xEventLoop loop, int fd, xEventMask mask,
   if (!loop || !callback || fd < 0) return NULL;
 
   /* Ensure non-blocking + close-on-exec */
+#ifdef _WIN32
+  {
+    u_long mode = 1;
+    if (ioctlsocket(fd, FIONBIO, &mode) != 0) return NULL;
+    SetHandleInformation((HANDLE)(SOCKET)fd, HANDLE_FLAG_INHERIT, 0);
+  }
+#else
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return NULL;
 
   int fdflags = fcntl(fd, F_GETFD, 0);
   if (fdflags < 0 || fcntl(fd, F_SETFD, fdflags | FD_CLOEXEC) < 0) return NULL;
+#endif
 
   struct xSocket_ *s = (struct xSocket_ *)calloc(1, sizeof(*s));
   if (!s) return NULL;
@@ -195,7 +231,11 @@ void xSocketDestroy(xEventLoop loop, xSocket sock) {
   cancel_write_timer(s);
 
   xEventDel(loop, s->source);
+#ifdef _WIN32
+  closesocket(s->fd);
+#else
   close(s->fd);
+#endif
   free(s);
 }
 
@@ -242,12 +282,11 @@ xErrno xSocketSetTimeout(xSocket sock, int read_timeout_ms,
 
 /* ───────────────────── Callback ───────────────────── */
 
-xErrno xSocketSetCallback(xSocket sock, xSocketFunc callback,
-                          void *userp) {
+xErrno xSocketSetCallback(xSocket sock, xSocketFunc callback, void *userp) {
   if (!sock || !callback) return xErrno_InvalidArg;
   struct xSocket_ *s = (struct xSocket_ *)sock;
-  s->callback = callback;
-  s->userp    = userp;
+  s->callback        = callback;
+  s->userp           = userp;
   return xErrno_Ok;
 }
 

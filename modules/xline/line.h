@@ -4,7 +4,6 @@
   under the terms of the MIT License. A copy of the license can be
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
-#pragma once
 #ifndef XLINE_LINE_H
 #define XLINE_LINE_H
 
@@ -431,6 +430,15 @@ bool xLineEnableBraceInsertion(bool enable);
 /// Pass \a NULL for the default `()[]{}\"\"''`
 void xLineSetInsertionBraces(const char *brace_pairs);
 
+/// Pin the edit region (prompt + input + below panel) to the screen's
+/// bottom rows while above-region output streams in (enabled by default).
+/// When disabled the edit region flows immediately after the last
+/// above-region byte, matching classic readline layout — useful when
+/// output is being captured / piped and the bottom-stick transcript is
+/// noisy, or for terminals that render pad rows poorly.
+/// @returns the previous setting.
+bool xLineEnableAnchor(bool enable);
+
 /// \}
 
 //--------------------------------------------------------------
@@ -659,6 +667,8 @@ bool xLineAsyncStop(void);
 //     xLineStepResult r = xLineStep(h);
 //     if (r == XLINE_STEP_LINE) { char* s = xLineTake(h); ...; xLineFree(s);
 //     break; } if (r == XLINE_STEP_EOF || r == XLINE_STEP_ERROR) break;
+//     if (r == XLINE_STEP_INTERRUPT) { /* ^C: cancel in-flight work, or
+//                                      * exit if idle */ break; }
 //     // r == XLINE_STEP_PENDING: keep looping
 //   }
 //   xLineEnd(h);
@@ -674,10 +684,19 @@ XDEF_HANDLE(xLineHandle);
 
 /// Result of one non-blocking step.
 XDEF_ENUM(xLineStepResult) {
-  XLINE_STEP_PENDING = 0, ///< more input needed; poll the fd again
-  XLINE_STEP_LINE    = 1, ///< a line is ready; call xLineTake()
-  XLINE_STEP_EOF     = 2, ///< Ctrl-D on empty input or stream closed
-  XLINE_STEP_ERROR   = 3, ///< unrecoverable error
+  XLINE_STEP_PENDING   = 0, ///< more input needed; poll the fd again
+  XLINE_STEP_LINE      = 1, ///< a line is ready; call xLineTake()
+  XLINE_STEP_EOF       = 2, ///< Ctrl-D on empty input or stream closed
+  XLINE_STEP_ERROR     = 3, ///< unrecoverable error
+  XLINE_STEP_INTERRUPT = 4, ///< user pressed Ctrl-C (or Ctrl-G) to
+                            ///< request cancellation. The current edit
+                            ///< buffer has been discarded; the caller
+                            ///< decides what to do next (e.g. cancel a
+                            ///< background job while staying in the
+                            ///< REPL, or exit when idle). After this
+                            ///< return the handle is terminal — call
+                            ///< xLineEnd() and optionally xLineBegin()
+                            ///< to start a fresh edit session.
 };
 
 /// Start a new async line-editing session.
@@ -735,6 +754,30 @@ void xLinePrintAbove(xLineHandle h, const char *s);
 /// their input is preserved verbatim. Does nothing if `h` is
 /// NULL, `s` is NULL, or the session is not live.
 void xLinePrintAboveChunk(xLineHandle h, const char *s);
+
+/// Show a persistent panel below the edit line.
+///
+/// The below panel is a dedicated region that renders beneath the
+/// prompt+input and stays on screen while the above region streams.
+/// It is meant for slash-command output (e.g. `/help`, `/tokens`)
+/// that would otherwise be scrolled off by concurrent model streaming.
+///
+/// @param title  Optional one-line header shown on a dim separator
+///               (e.g. `"/help"` renders as `── /help ──`). Pass NULL
+///               for no header.
+/// @param body   Plain text body; embed `"\n"` for multiple lines.
+///               Passing NULL or `""` hides the panel (equivalent to
+///               xLineClearBelowPanel).
+///
+/// Long bodies are clipped to an internal maximum (currently 10 lines);
+/// surplus rows are replaced with a single `"... (N more lines)"`
+/// marker. The panel is repainted automatically after every
+/// xLinePrintAbove[Chunk] call, window resize, and edit-region repaint.
+/// Does nothing if `h` is NULL or the session is not live.
+void xLineSetBelowPanel(xLineHandle h, const char *title, const char *body);
+
+/// Hide the below panel (same as xLineSetBelowPanel(h, NULL, NULL)).
+void xLineClearBelowPanel(xLineHandle h);
 
 /// \}
 

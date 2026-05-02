@@ -18,10 +18,10 @@ set(XLINE_SOURCES
   bbcode_colors.c
   completers.c
   completions.c
-  editline.c
-  editline_completion.c
-  editline_help.c
-  editline_history.c
+  edit.c
+  edit_completion.c
+  edit_help.c
+  edit_history.c
   highlight.c
   history.c
   line.c

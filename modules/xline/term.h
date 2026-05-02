@@ -4,7 +4,6 @@
   under the terms of the MIT License. A copy of the license can be
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
-#pragma once
 #ifndef IC_TERM_H
 #define IC_TERM_H
 
@@ -55,6 +54,12 @@ ic_private bool term_enable_color(term_t *term, bool enable);
 ic_private void          term_flush(term_t *term);
 ic_private buffer_mode_t term_set_buffer_mode(term_t *term, buffer_mode_t mode);
 
+// Drop any bytes currently queued in the term buffer without writing
+// them to the tty. Useful when a caller has queued output it wants to
+// "un-do" (for example, discarding the initial prompt painted by
+// edit_init before re-anchoring the edit region).
+ic_private void          term_discard_buffer(term_t *term);
+
 ic_private void term_write_n(term_t *term, const char *s, ssize_t n);
 ic_private void term_write(term_t *term, const char *s);
 ic_private void term_writeln(term_t *term, const char *s);
@@ -68,6 +73,20 @@ ic_private bool term_update_dim(term_t *term);
 ic_private ssize_t term_get_width(term_t *term);
 ic_private ssize_t term_get_height(term_t *term);
 ic_private int     term_get_color_bits(term_t *term);
+
+// Query the terminal for the cursor's current screen row (1-based).
+//
+// POSIX caveat: this issues an ESC[6n query and blocks on the response.
+// It assumes the tty is already in raw mode — the async xline loop
+// keeps it that way across xLineBegin/End, so callers from that path
+// are fine. Don't use outside raw mode without wrapping with
+// tty_start_raw / tty_end_raw.
+//
+// Windows: reads the console buffer directly; cheap and synchronous.
+//
+// Returns false on failure (ioctl error, malformed CPR response, tty
+// gave up waiting). On success *row is the current cursor row.
+ic_private bool    term_cursor_row(term_t *term, ssize_t *row);
 
 // Helpers
 ic_private void term_writef(term_t *term, const char *fmt, ...);

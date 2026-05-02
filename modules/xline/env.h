@@ -4,7 +4,6 @@
   under the terms of the MIT License. A copy of the license can be
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
-#pragma once
 #ifndef IC_ENV_H
 #define IC_ENV_H
 
@@ -52,7 +51,21 @@ struct ic_env_s {
   bool no_bracematch;       // enable brace matching?
   bool no_autobrace;        // enable automatic brace insertion?
   bool no_lscolors; // use LSCOLORS/LS_COLORS to colorize file name completions?
+  bool no_anchor;   // disable pinning the edit region (prompt + input + below
+                    // panel) to the screen's bottom rows when tokens stream
+                    // above it; when set the edit region flows immediately
+                    // after the last above-region byte (classic readline
+                    // behavior).
   long hint_delay;  // delay before displaying a hint in milliseconds
+
+  // Pre-refresh hook: called at the top of edit_refresh() so embedders can
+  // (re-)populate eb->extra before the frame is painted. Used by the async
+  // below-panel to survive across completion-menu / history-search frames
+  // that temporarily clobber eb->extra. `arg` is the registered user
+  // pointer; `eb_opaque` is the editor_t currently being refreshed, passed
+  // through as void* to keep env.h free of editline internals.
+  void (*refresh_prepare)(void *arg, void *eb_opaque);
+  void  *refresh_prepare_arg;
 };
 
 ic_private char *ic_editline(ic_env_t *env, const char *prompt_text);

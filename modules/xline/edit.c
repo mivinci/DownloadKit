@@ -9,7 +9,7 @@
 
 #include "completions.h"
 #include <xbase/log.h>
-#include "editline.h"
+#include "edit.h"
 #include "env.h"
 #include "highlight.h"
 #include "history.h"
@@ -234,6 +234,14 @@ static void edit_refresh_rows(ic_env_t *env, editor_t *eb, stringbuf_t *input,
 }
 
 ic_private void edit_refresh(ic_env_t *env, editor_t *eb) {
+  // Let embedders (e.g. the async below-panel) re-inject eb->extra before
+  // we read it below. This ensures the panel survives refreshes triggered
+  // by subsystems (completion menu, history search) that clear eb->extra
+  // for their own use.
+  if (env->refresh_prepare != NULL) {
+    env->refresh_prepare(env->refresh_prepare_arg, (void *)eb);
+  }
+
   // calculate the new cursor row and total rows needed
   ssize_t promptw, cpromptw;
   edit_get_prompt_width(env, eb, false, &promptw, &cpromptw);
@@ -814,8 +822,8 @@ ic_private void edit_insert_char(ic_env_t *env, editor_t *eb, char c) {
 
 //-------------------------------------------------------------
 // Help, History, Completion: now each lives in its own TU
-// (editline_help.c / editline_history.c / editline_completion.c)
-// and reaches back through editline.h for the shared helpers.
+// (edit_help.c / edit_history.c / edit_completion.c)
+// and reaches back through edit.h for the shared helpers.
 //-------------------------------------------------------------
 
 //-------------------------------------------------------------

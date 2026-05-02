@@ -10,7 +10,8 @@
 // navigation for xline.
 //-------------------------------------------------------------
 
-#include "editline.h"
+#include "edit.h"
+#include "env.h"
 #include "history.h"
 #include "mem.h"
 #include "platform.h"

@@ -39,15 +39,16 @@
 #include <xai/tool_shell.h>
 #include <xbase/backtrace.h>
 #include <xbase/event.h>
-#include <xline/line.h>
 #include <xbase/time.h>
 #include <xhttp/client.h>
+#include <xline/line.h>
 
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <signal.h>
+#include <string>
 #include <unistd.h>
 
 /* ── REPL state ─────────────────────────────────────────────────────── */
@@ -57,7 +58,7 @@ struct ReplCtx {
   xLineHandle  line             = nullptr; /* current async editor */
   xEventSource src              = nullptr; /* loop fd registration */
   bool         busy             = false;   /* AI run in flight */
-  bool         pending_retry    = false;   /* retry pending_text after compact */
+  bool         pending_retry    = false; /* retry pending_text after compact */
   char        *pending_text     = nullptr; /* stashed submit text, owned */
   bool         saw_first_delta  = false;
   bool         in_thinking      = false; /* currently streaming thinking? */
@@ -69,9 +70,9 @@ struct ReplCtx {
   size_t       budget_samples   = 0;   /* calibrator observation count */
   size_t       budget_estimated = 0;   /* calibrated pre-submit estimate */
   int last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
-  uint64_t     input_ms   = 0;  /* monotonic timestamp (ms) at user input */
-  bool         should_exit = false;   /* set by /exit handler */
-  const char  *hist_path   = nullptr; /* xline history file, for /history */
+  uint64_t    input_ms   = 0;  /* monotonic timestamp (ms) at user input */
+  bool        should_exit = false;   /* set by /exit handler */
+  const char *hist_path   = nullptr; /* xline history file, for /history */
 };
 
 /* ── Output helpers ───────────────────────────────────────────────────
@@ -203,13 +204,27 @@ static void slash_completer(xLineCompletionEnv cenv, const char *prefix) {
 
 static void slash_cmd_help(ReplCtx *ctx, const char *args) {
   (void)args;
-  above_printf(ctx->line, "Available commands:");
+  /* Command list goes into the below panel so it stays pinned above
+   * the prompt across model streaming. Keep the panel tight — every
+   * row here permanently eats into the above region's visible budget
+   * (and on short terminals an oversize panel will push earlier
+   * above output into scrollback). Usage hints are one-shot
+   * information, so print them through the above channel where they
+   * scroll naturally with the rest of the conversation. */
+  std::string body;
   for (size_t i = 0; i < g_slash_cmds_count; ++i) {
-    above_printf(ctx->line, "  \x1b[1m%-10s\x1b[0m %s", g_slash_cmds[i].name,
-                 g_slash_cmds[i].help);
+    char line[128];
+    std::snprintf(line, sizeof(line), "  %-10s %s", g_slash_cmds[i].name,
+                  g_slash_cmds[i].help);
+    if (!body.empty()) body.push_back('\n');
+    body.append(line);
   }
-  above_printf(ctx->line, "Anything not starting with '/' is sent to the model.");
-  above_printf(ctx->line, "Tip: type '/' and press Tab to browse commands.");
+  /* title suppressed: the body already reads as a help listing and the
+   * "/help" tab on top just stole a row. */
+  xLineSetBelowPanel(ctx->line, nullptr, body.c_str());
+  xLinePrintAbove(ctx->line,
+                  "\x1b[2mAnything not starting with '/' is sent to the "
+                  "model. Type '/' + Tab to browse commands.\x1b[0m");
 }
 
 static void slash_cmd_exit(ReplCtx *ctx, const char *args) {
@@ -224,7 +239,9 @@ static void slash_cmd_clear(ReplCtx *ctx, const char *args) {
    * 3J part is what makes Cmd-K / Ctrl-L equivalents actually wipe
    * the scrollback, not just the viewport. Harmless on terminals
    * that ignore it. Goes through the editor's "above" channel so the
-   * prompt survives the wipe cleanly. */
+   * prompt survives the wipe cleanly. Drop any below panel too so
+   * the freshly cleared viewport isn't cluttered with stale output. */
+  xLineClearBelowPanel(ctx->line);
   xLinePrintAbove(ctx->line, "\x1b[H\x1b[2J\x1b[3J");
 }
 
@@ -247,36 +264,45 @@ static void slash_cmd_history(ReplCtx *ctx, const char *args) {
   /* Isocline persists history at <data_dir>/.ai_session_history via
    * xLineSetHistory but doesn't expose a public enumeration API, so
    * the cheapest way to show the user their recall buffer is to
-   * dump the file line by line through the editor's "above" channel.
-   * If the file doesn't exist yet (first run, no entries saved), say
-   * so rather than printing a confusing blank. */
+   * dump the file line by line. Pinning the result into the below
+   * panel means the listing sticks around across model streaming
+   * and the user can grep it visually while typing a new prompt. */
   if (!ctx->hist_path) {
-    above_printf(ctx->line, "(history not initialised)");
+    xLineSetBelowPanel(ctx->line, nullptr, "(history not initialised)");
     return;
   }
   std::FILE *f = std::fopen(ctx->hist_path, "r");
   if (!f) {
-    above_printf(ctx->line, "(no history yet — submit a message and come back)");
+    xLineSetBelowPanel(
+      ctx->line, nullptr,
+      "(no history yet \u2014 submit a message and come back)");
     return;
   }
-  char   buf[4096];
-  size_t lines = 0;
+  std::string body;
+  char        buf[4096];
+  size_t      lines = 0;
   while (std::fgets(buf, sizeof(buf), f)) {
-    /* Strip the trailing newline for the above_printf call, which
-     * re-adds one; otherwise we'd render a blank row between each
-     * entry. */
     size_t n = std::strlen(buf);
-    while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = '\0';
-    above_printf(ctx->line, "%s", buf);
+    while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r'))
+      buf[--n] = '\0';
+    if (!body.empty()) body.push_back('\n');
+    body.append(buf);
     ++lines;
   }
   std::fclose(f);
-  above_printf(ctx->line, "(%zu history line(s); Ctrl-R to search)", lines);
+  if (body.empty()) body = "(empty)";
+  char tail[64];
+  std::snprintf(tail, sizeof(tail), "\n\n(%zu line(s); Ctrl-R to search)",
+                lines);
+  body.append(tail);
+  xLineSetBelowPanel(ctx->line, nullptr, body.c_str());
 }
-
 static void slash_cmd_tokens(ReplCtx *ctx, const char *args) {
   (void)args;
-  above_printf(ctx->line, "total_tokens=%d", ctx->total_tokens);
+  std::string body;
+  char        buf[256];
+  std::snprintf(buf, sizeof(buf), "total_tokens=%d", ctx->total_tokens);
+  body.append(buf);
   if (ctx->budget_limit > 0) {
     char extra[64];
     extra[0] = '\0';
@@ -284,17 +310,18 @@ static void slash_cmd_tokens(ReplCtx *ctx, const char *args) {
       std::snprintf(extra, sizeof(extra), " last_actual_prompt=%d",
                     ctx->last_actual_prompt);
     }
-    above_printf(ctx->line,
-                 "budget: remaining=%zu/%zu calibrator=%.3fx samples=%zu "
-                 "estimated=%zu%s",
-                 ctx->budget_remaining, ctx->budget_limit, ctx->budget_factor,
-                 ctx->budget_samples, ctx->budget_estimated, extra);
+    std::snprintf(buf, sizeof(buf),
+                  "\nbudget: remaining=%zu/%zu calibrator=%.3fx samples=%zu "
+                  "estimated=%zu%s",
+                  ctx->budget_remaining, ctx->budget_limit, ctx->budget_factor,
+                  ctx->budget_samples, ctx->budget_estimated, extra);
+    body.append(buf);
   } else {
-    above_printf(ctx->line,
-                 "budget: (no GatePassed event yet — submit a message first)");
+    body.append(
+      "\nbudget: (no GatePassed event yet \u2014 submit a message first)");
   }
+  xLineSetBelowPanel(ctx->line, nullptr, body.c_str());
 }
-
 /* Dispatch a '/' line. Returns true if the line was a slash command
  * (whether or not it was recognised); the caller should then skip
  * the model submit path. Returns false for plain chat input.
@@ -453,7 +480,7 @@ static void on_done(xAiSession sess, xAiDoneReason reason,
    * full status line in a local buffer and emit it as one Above
    * call so the prompt repaints exactly once at the end. */
   char   line_buf[512];
-  size_t off = 0;
+  size_t off    = 0;
   double elapse = (xMonoMs() - ctx->input_ms) / 1000.0;
   off += std::snprintf(line_buf + off, sizeof(line_buf) - off,
                        "\x1b[2m\n[done] reason=%s reply_bytes=%zu elapse=%.2fs",
@@ -539,10 +566,9 @@ static void on_error(xAiSession sess, xErrno err, const char *msg, void *ud) {
    * cap" for a calibrator demo; production callers would
    * typically switch to SummarizeOldest or a Callback policy. */
   if (err == xErrno_PromptTooLong) {
-    above_printf(ctx->line,
-                 "\x1b[1;31m        hit budget cap — raise "
-                 "sconf.budget.max_tokens or lower "
-                 "keep_recent_turns\x1b[0m");
+    above_printf(ctx->line, "\x1b[1;31m        hit budget cap — raise "
+                            "sconf.budget.max_tokens or lower "
+                            "keep_recent_turns\x1b[0m");
   }
   ctx->busy = false;
 }
@@ -568,7 +594,8 @@ static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
   switch (event) {
   case xAiBudgetEvent_Compacting: {
     auto *ci = static_cast<const xAiBudgetCompactInfo *>(info);
-    above_printf(ctx->line, "\x1b[2m[budget] compacting %zu old entries...\x1b[0m",
+    above_printf(ctx->line,
+                 "\x1b[2m[budget] compacting %zu old entries...\x1b[0m",
                  ci ? ci->entries_compacted : (size_t)0);
     break;
   }
@@ -703,10 +730,9 @@ static xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
                  "\x1b[1;31m[error] input rejected (errno=%d)\x1b[0m",
                  (int)err);
     if (err == xErrno_PromptTooLong) {
-      above_printf(ctx->line,
-                   "\x1b[1;31m        hit budget cap — raise "
-                   "sconf.budget.max_tokens or lower "
-                   "keep_recent_turns\x1b[0m");
+      above_printf(ctx->line, "\x1b[1;31m        hit budget cap — raise "
+                              "sconf.budget.max_tokens or lower "
+                              "keep_recent_turns\x1b[0m");
     }
     return err;
   }
@@ -741,15 +767,17 @@ static int repl_handle_line(ReplCtx *ctx, char *line) {
      * entry in history so the user can Up-arrow and resend once
      * /cancel (or on_done) clears the flag. */
     above_printf(ctx->line,
-                 "\x1b[33m(AI is busy — use /cancel to interrupt, then "
+                 "\x1b[33m(AI is busy \u2014 use /cancel to interrupt, then "
                  "resend with Up-arrow)\x1b[0m");
     return 0;
   }
 
+  /* Real chat submit: sweep away any slash-command panel from a
+   * previous turn so the new conversation doesn't carry stale UI. */
+  xLineClearBelowPanel(ctx->line);
   (void)repl_submit_text(ctx, line);
   return 0;
 }
-
 static void repl_line_cb(int fd, xEventMask mask, void *arg) {
   (void)fd;
   (void)mask;
@@ -783,6 +811,35 @@ static void repl_line_cb(int fd, xEventMask mask, void *arg) {
       }
       return;
     }
+    case XLINE_STEP_INTERRUPT: {
+      /* User hit Ctrl-C. xline disables ISIG in raw mode, so ^C
+       * never becomes a real SIGINT — it surfaces here instead.
+       *
+       * Two distinct semantics depending on AI state:
+       *   busy → abort the in-flight run, keep the REPL alive
+       *          (mirrors /cancel exactly: xAiSessionCancel is
+       *          async, on_done will eventually arrive with
+       *          reason=Aborted and flip ctx->busy back off).
+       *   idle → treat as a request to leave the REPL. A second
+       *          ^C on an empty prompt is the conventional exit.
+       *
+       * Either way the old editor session has already been
+       * finalised by xline (buffer wiped, state = DONE_INTERRUPT),
+       * so we must close + reopen it to get a fresh prompt drawn
+       * with the cursor back at column 0. */
+      repl_close_line(ctx);
+      if (ctx->busy) {
+        if (repl_open_line(ctx) != 0) {
+          xEventLoopStop(ctx->loop);
+          return;
+        }
+        above_printf(ctx->line, "\x1b[2m[cancel] aborting run…\x1b[0m");
+        xAiSessionCancel(ctx->sess);
+        return;
+      }
+      xEventLoopStop(ctx->loop);
+      return;
+    }
     case XLINE_STEP_EOF:
     case XLINE_STEP_ERROR:
       /* Ctrl-D on empty input, or a fatal tty error. Treat either
@@ -795,16 +852,21 @@ static void repl_line_cb(int fd, xEventMask mask, void *arg) {
 }
 
 static void repl_on_sigint(int signo, void *arg) {
+  /* Kept as a no-op stub only so grep/history still maps ^C to a
+   * single place. In practice we never get here: xline puts the
+   * tty in raw mode with ISIG cleared, so Ctrl-C arrives as a
+   * byte (0x03) that xLineStep surfaces as XLINE_STEP_INTERRUPT.
+   * The real cancel/exit logic lives in repl_on_readable's
+   * INTERRUPT arm. This watch is only retained for the rare
+   * paths that can still deliver SIGINT (kill -INT, GUI terminal
+   * sending SIGINT explicitly): redirect them to the same
+   * behaviour as the in-band interrupt. */
   (void)signo;
   ReplCtx *ctx = static_cast<ReplCtx *>(arg);
-  /* If the AI is busy, the user probably wants to interrupt the
-   * run rather than exit the REPL. Mirror the /cancel behaviour. */
   if (ctx->busy) {
     xAiSessionCancel(ctx->sess);
     return;
   }
-  /* Otherwise unblock the editor; xLineStep() will then return EOF
-   * which our line callback turns into xEventLoopStop(). */
   xLineAsyncStop();
 }
 
@@ -1014,10 +1076,54 @@ int main(int argc, char *argv[]) {
 
   ctx.sess = sess;
 
-  std::printf("xai session REPL (model: %s)\n", model);
-  std::printf("Type a message and press Enter. Type '/' + Tab for commands, "
-              "or /exit to quit.\n"
-              "Registered tools: shell\n\n");
+  /* ── Startup banner ───────────────────────────────────────────────
+   *
+   * Printed once in cooked mode before repl_open_line paints the
+   * prompt. A 60-col bordered box: the top bar carries the demo
+   * title, the body lists the knobs that actually vary between runs
+   * (model, tool list, data_dir) and a Tips block with the keys /
+   * commands a first-time user needs. Everything else lives behind
+   * /help so the banner doesn't grow with every new command.
+   *
+   * Styling: ANSI bold for the title, faint for the border. Box
+   * drawing uses Unicode (any modern terminal; collapses visually
+   * on a dumb tty but still prints sensibly).
+   *
+   * Width discipline: inside the box we rely on the fact that every
+   * body line is pure ASCII, so byte count == display width. That
+   * lets printf's %-Ns pad to the right │ without manual counting.
+   * `model` and `data_dir` are user-supplied so we truncate them to
+   * fit the inner 56-col budget instead of blowing the frame. */
+  enum {
+    BOX_INNER = 56
+  }; // visible cols between "│ " and " │"
+  char line[BOX_INNER + 1];
+  // top: "┌─ AI Agent Core Demo " is 22 cells; + 37 '─' + '┐' = 60
+  std::printf("\x1b[2m┌─ \x1b[22m\x1b[1mAI Agent Core Demo\x1b[22m"
+              "\x1b[2m ─────────────────────────────────────┐\x1b[22m\n");
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
+  std::snprintf(line, sizeof(line), "model=%s, tools=shell", model);
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, line);
+  std::snprintf(line, sizeof(line), "data_dir: %s", data_dir);
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, line);
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "Tips:");
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
+              "  - Enter       send message");
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
+              "  - '/' + Tab   browse slash commands");
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
+              "  - /help       show all commands");
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
+              "  - /cancel     interrupt a running AI call");
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
+              "  - Ctrl-C      cancel current run / exit when idle");
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
+              "  - Ctrl-D      exit on empty line");
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
+  // bottom: '└' + 58 '─' + '┘' = 60
+  std::printf("\x1b[2m└───────────────────────────────────────────────────"
+              "───────┘\x1b[22m\n\n");
 
   /* ── Line editor (xline) ──────────────────────────────────────────
    *
@@ -1051,11 +1157,15 @@ int main(int argc, char *argv[]) {
    * hit Tab to see the menu. */
   xLineSetHintDelay(0);
 
-  /* Print banner while still in cooked mode; repl_open_line will
-   * paint the prompt on the next row. Doing it the other way round
-   * glues the banner to the prompt (see xline_async.c for details). */
-  std::puts("Ready. Type a message or /help. While the AI is streaming you "
-            "can still run slash commands; use /cancel to interrupt.");
+  /* Let the edit region flow right after the above-region stream
+   * instead of being pinned to the bottom of the terminal. Matches
+   * classic readline layout, which is what this demo's transcript-
+   * style UX expects. */
+  xLineEnableAnchor(false);
+
+  /* Flush stdout before handing the terminal to xline. Any pending
+   * output (the banner above) must clear cooked mode or it can
+   * interleave with the prompt paint below. */
   std::fflush(stdout);
 
   if (repl_open_line(&ctx) != 0) {

@@ -186,6 +186,13 @@ static void demo_line_cb(int fd, xEventMask mask, void *arg) {
       demo_close_line(d);
       xEventLoopStop(d->loop);
       return;
+    case XLINE_STEP_INTERRUPT:
+      /* ^C on a bare demo prompt: just treat it as "quit". */
+      fputs("\n[interrupt]\n", stdout);
+      fflush(stdout);
+      demo_close_line(d);
+      xEventLoopStop(d->loop);
+      return;
     }
   }
 }
@@ -215,6 +222,10 @@ int main(void) {
    * decorated into "ai> > ". */
   xLineSetPromptMarker("", NULL);
   xLineStyleDef("prompt", "bold #66ccff");
+
+  /* Let the prompt flow naturally after any above-region output
+   * rather than being anchored to the bottom row of the terminal. */
+  xLineEnableAnchor(false);
 
   /* Print any banner text *before* opening the line session. xLineBegin
    * paints the prompt at the current cursor position, so anything we

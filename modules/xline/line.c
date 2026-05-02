@@ -10,7 +10,7 @@
 //
 // This file implements every xLine* function declared in line.h
 // by delegating to the internal helpers in this directory
-// (editline.c, term.c, history.c, bbcode.c, ...). Feature-test
+// (edit.c, term.c, history.c, bbcode.c, ...). Feature-test
 // macros such as _XOPEN_SOURCE / _DEFAULT_SOURCE and the MSVC
 // _CRT_*_WARNINGS suppressions are set per-target in
 // CMakeLists.txt.
@@ -49,7 +49,7 @@ ic_public char *xLineReadline(const char *prompt_text) {
   if (env == NULL) return NULL;
   if (!env->noedit) {
     // terminal editing enabled
-    return ic_editline(env, prompt_text); // in editline.c
+  return ic_editline(env, prompt_text); // in edit.c
   } else {
     // no editing capability (pipe, dumb terminal, etc)
     if (env->tty != NULL && env->term != NULL) {
@@ -328,6 +328,14 @@ ic_public void xLineSetInsertionBraces(const char *brace_pairs) {
       env->auto_braces = mem_strdup(env->mem, brace_pairs);
     }
   }
+}
+
+ic_public bool xLineEnableAnchor(bool enable) {
+  ic_env_t *env = ic_get_env();
+  if (env == NULL) return false;
+  bool prev      = env->no_anchor;
+  env->no_anchor = !enable;
+  return !prev;
 }
 
 ic_private const char *ic_env_get_match_braces(ic_env_t *env) {

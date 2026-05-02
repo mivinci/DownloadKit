@@ -9,7 +9,8 @@
 // F1 help page rendering for xline.
 //-------------------------------------------------------------
 
-#include "editline.h"
+#include "edit.h"
+#include "env.h"
 #include "platform.h"
 
 static const char *help[] = {
@@ -53,9 +54,9 @@ static const char *help[] = {
 
   "", "Editing:", "enter", "accept current input",
 #ifndef __APPLE__
-  "^enter, ^j", "", "shift-tab",
+  "^enter,alt-enter,^j", "", "shift-tab",
 #else
-  "shift-tab,^j",
+  "alt-enter,shift-tab,^j",
 #endif
   "create a new line for multi-line input",
   //" ",          "(or type '\\' followed by enter)",
@@ -93,7 +94,7 @@ static const char *help_initial =
   "\n[ansi-lightgray]"
   "       home,ctrl-a      cursor     end,ctrl-e\n"
   "         ┌────────────────┼───────────────┐    (navigate)\n"
-//"       │                │               │\n"
+  "         │                │               │\n"
 #ifndef __APPLE__
   "         │    ctrl-left   │  ctrl-right   │\n"
 #else
@@ -101,13 +102,13 @@ static const char *help_initial =
 #endif
   "         │        ┌───────┼──────┐        │    ctrl-r   : search history\n"
   "         ▼        ▼       ▼      ▼        ▼    tab      : complete word\n"
-  "  prompt> [ansi-darkgray]it's the quintessential language[/]     shift-tab: "
+  "  prompt> [ansi-darkgray]it's the quintessential language[/]     alt-enter: "
   "insert new line\n"
   "         ▲        ▲              ▲        ▲    esc      : delete input, "
   "done\n"
   "         │        └──────────────┘        │    ctrl-z   : undo\n"
   "         │   alt-backsp        alt-d      │\n"
-  //"       │                │               │\n"
+  "         │                │               │\n"
   "         └────────────────────────────────┘    (delete)\n"
   "       ctrl-u                          ctrl-k\n"
   "[/ansi-lightgray][/ic-info]\n";

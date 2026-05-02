@@ -455,12 +455,29 @@ ic_private void tty_set_esc_delay(tty_t *tty, long initial_delay_ms,
 
 static bool tty_readc_blocking(tty_t *tty, uint8_t *c) {
   if (tty_cpop(tty, c)) return true;
-  *c            = 0;
-  ssize_t nread = read(tty->fd_in, (char *)c, 1);
-  if (nread < 0 && errno == EINTR) {
-    // can happen on SIGWINCH signal for terminal resize
+  for (;;) {
+    *c            = 0;
+    ssize_t nread = read(tty->fd_in, (char *)c, 1);
+    if (nread == 1) return true;
+    if (nread == 0) return false; // EOF
+    // nread < 0
+    if (errno == EINTR) {
+      // can happen on SIGWINCH signal for terminal resize; retry
+      continue;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      // fd is in O_NONBLOCK mode (e.g. when sharing stdin with an async
+      // event loop). Wait until it becomes readable, then retry.
+      fd_set         readset;
+      FD_ZERO(&readset);
+      FD_SET(tty->fd_in, &readset);
+      int rv = select(tty->fd_in + 1, &readset, NULL, NULL, NULL);
+      if (rv < 0 && errno == EINTR) continue;
+      if (rv <= 0) return false;
+      continue;
+    }
+    return false;
   }
-  return (nread == 1);
 }
 
 // non blocking read -- with a small timeout used for reading escape sequences.

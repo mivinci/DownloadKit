@@ -302,6 +302,11 @@ ic_private void term_flush(term_t *term) {
   }
 }
 
+ic_private void term_discard_buffer(term_t *term) {
+  if (term == NULL) return;
+  sbuf_clear(term->buf);
+}
+
 ic_private buffer_mode_t term_set_buffer_mode(term_t       *term,
                                               buffer_mode_t mode) {
   buffer_mode_t oldmode = term->bufmode;
@@ -596,6 +601,18 @@ static bool term_get_cursor_pos(term_t *term, ssize_t *row, ssize_t *col) {
   if (!GetConsoleScreenBufferInfo(term->hcon, &info)) return false;
   *row = (ssize_t)info.dwCursorPosition.Y + 1;
   *col = (ssize_t)info.dwCursorPosition.X + 1;
+  return true;
+}
+
+// Cross-platform accessor mirroring the POSIX version. Windows doesn't
+// need a CPR round-trip; the console buffer is authoritative. The POSIX
+// caveat about raw mode doesn't apply here.
+ic_private bool term_cursor_row(term_t *term, ssize_t *row) {
+  if (term == NULL || row == NULL) return false;
+  *row = 0;
+  ssize_t r = 0, c = 0;
+  if (!term_get_cursor_pos(term, &r, &c)) return false;
+  *row = r;
   return true;
 }
 
@@ -920,6 +937,21 @@ static bool term_get_cursor_pos(term_t *term, ssize_t *row, ssize_t *col) {
 
 static void term_set_cursor_pos(term_t *term, ssize_t row, ssize_t col) {
   term_writef(term, IC_CSI "%zd;%zdH", row, col);
+}
+
+// Cursor row query that assumes raw mode is already active (matches what
+// the async xline session maintains). Going through term_esc_query would
+// briefly leave raw mode and clobber the session's terminal state, hence
+// the direct call to term_esc_query_raw.
+ic_private bool term_cursor_row(term_t *term, ssize_t *row) {
+  if (term == NULL || row == NULL) return false;
+  *row = 0;
+  char    buf[128];
+  ssize_t r = 0, c = 0;
+  if (!term_esc_query_raw(term, "\x1B[6n", buf, 128)) return false;
+  if (!ic_atoz2(buf, &r, &c)) return false;
+  *row = r;
+  return true;
 }
 
 ic_private bool term_update_dim(term_t *term) {

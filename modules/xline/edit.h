@@ -4,21 +4,21 @@
   under the terms of the MIT License. A copy of the license can be
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
-#pragma once
-#ifndef IC_EDITLINE_H
-#define IC_EDITLINE_H
+#ifndef IC_EDIT_H
+#define IC_EDIT_H
 
 #include "attr.h"
-#include "env.h"
 #include "mem.h"
 #include "platform.h"
 #include "stringbuf.h"
+#include "tty.h"
 #include "undo.h"
+#include "unicode.h"
 
 //-------------------------------------------------------------
 // The editor state
 //
-// Lifted from editline.c so that other internal translation units
+// Lifted from edit.c so that other internal translation units
 // (e.g. async.c) can embed an editor_t by value and call into the
 // synchronous edit primitives directly.
 //-------------------------------------------------------------
@@ -56,9 +56,9 @@ ic_private bool edit_dispatch_key(ic_env_t *env, editor_t *eb, code_t c);
 ic_private char *edit_finalize(ic_env_t *env, editor_t *eb, code_t last_c);
 
 //-------------------------------------------------------------
-// Editor helpers that cross TU boundaries between editline.c and
-// its sibling files (editline_help.c, editline_history.c,
-// editline_completion.c).
+// Editor helpers that cross TU boundaries between edit.c and
+// its sibling files (edit_help.c, edit_history.c,
+// edit_completion.c).
 //-------------------------------------------------------------
 
 ic_private void    edit_refresh(ic_env_t *env, editor_t *eb);
@@ -76,7 +76,7 @@ ic_private void editor_undo_capture(editor_t *eb);
 ic_private void editor_undo_restore(editor_t *eb, bool with_redo);
 ic_private void editor_undo_forget(editor_t *eb);
 
-// Entry points implemented in the editline_* sibling files.
+// Entry points implemented in the edit_* sibling files.
 ic_private void edit_show_help(ic_env_t *env, editor_t *eb);
 ic_private void edit_history_prev(ic_env_t *env, editor_t *eb);
 ic_private void edit_history_next(ic_env_t *env, editor_t *eb);
@@ -85,4 +85,4 @@ ic_private void edit_history_search_with_current_word(ic_env_t *env,
 ic_private void edit_generate_completions(ic_env_t *env, editor_t *eb,
                                           bool autotab);
 
-#endif // IC_EDITLINE_H
+#endif // IC_EDIT_H

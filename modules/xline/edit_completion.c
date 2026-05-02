@@ -12,7 +12,8 @@
 #include "bbcode.h"
 #include "completions.h"
 #include <xbase/log.h>
-#include "editline.h"
+#include "edit.h"
+#include "env.h"
 #include "platform.h"
 #include "stringbuf.h"
 #include "term.h"
@@ -136,7 +137,17 @@ static void edit_completion_menu(ic_env_t *env, editor_t *eb,
   ssize_t selected = (env->complete_nopreview ? 0 : -1); // select first or none
   ssize_t percolumn = count;
 
+  // While rendering a menu frame we own eb->extra: suspend the host's
+  // refresh_prepare hook (used by xline below-panel) so it doesn't
+  // overwrite the menu contents. We restore it right after reading the
+  // key, so subsequent refreshes (menu-exit, esc, page-down, ...) rebuild
+  // the below panel as expected.
+  void (*saved_refresh_prepare)(void *, void *) = env->refresh_prepare;
+  void  *saved_refresh_prepare_arg              = env->refresh_prepare_arg;
+
 again:
+  env->refresh_prepare     = NULL;
+  env->refresh_prepare_arg = NULL;
   // show first 9 (or 8) completions
   sbuf_clear(eb->extra);
   ssize_t twidth = term_get_width(env->term) - 1;
@@ -197,6 +208,11 @@ again:
   if (tty_term_resize_event(env->tty)) {
     edit_resize(env, eb);
   }
+  // Menu frame is done: restore the host's refresh_prepare hook so that
+  // every edit_refresh() triggered from here on (menu-exit, esc, etc.)
+  // rebuilds the below panel.
+  env->refresh_prepare     = saved_refresh_prepare;
+  env->refresh_prepare_arg = saved_refresh_prepare_arg;
   sbuf_clear(eb->extra);
 
   // direct selection?
@@ -208,19 +224,74 @@ again:
     }
   }
 
+  // Grid navigation helpers. Items are laid out column-major:
+  //   index = col * percolumn + row
+  // so percolumn == rows per column; columns are ceil(count_displayed/percolumn).
+  ssize_t ncols = (count_displayed + percolumn - 1) / percolumn;
+  if (ncols < 1) ncols = 1;
+  ssize_t cur_row = (selected < 0 ? 0 : selected % percolumn);
+  ssize_t cur_col = (selected < 0 ? 0 : selected / percolumn);
+
   // process commands
-  if (c == KEY_DOWN || c == KEY_TAB) {
+  if (c == KEY_TAB) {
+    // Tab cycles through all entries in display order (row-major),
+    // matches typical shell behaviour.
     selected++;
-    if (selected >= count_displayed) {
-      // term_beep(env->term);
+    if (selected >= count_displayed) selected = 0;
+    goto again;
+  } else if (c == KEY_SHIFT_TAB) {
+    selected--;
+    if (selected < 0) selected = count_displayed - 1;
+    goto again;
+  } else if (c == KEY_DOWN) {
+    // move down within the current column
+    if (selected < 0) {
       selected = 0;
+    } else {
+      ssize_t nr = cur_row + 1;
+      if (nr >= percolumn || cur_col * percolumn + nr >= count_displayed) {
+        nr = 0;
+      }
+      selected = cur_col * percolumn + nr;
     }
     goto again;
-  } else if (c == KEY_UP || c == KEY_SHIFT_TAB) {
-    selected--;
+  } else if (c == KEY_UP) {
     if (selected < 0) {
-      selected = count_displayed - 1;
-      // term_beep(env->term);
+      selected = 0;
+    } else {
+      ssize_t nr = cur_row - 1;
+      if (nr < 0) {
+        // jump to the last valid row in this column
+        ssize_t last_in_col = count_displayed - cur_col * percolumn - 1;
+        if (last_in_col > percolumn - 1) last_in_col = percolumn - 1;
+        nr = last_in_col;
+      }
+      selected = cur_col * percolumn + nr;
+    }
+    goto again;
+  } else if (c == KEY_RIGHT && ncols > 1) {
+    // move to the same row in the next column; wrap around
+    if (selected < 0) {
+      selected = 0;
+    } else {
+      ssize_t nc = cur_col + 1;
+      if (nc >= ncols || nc * percolumn + cur_row >= count_displayed) {
+        nc = 0;
+      }
+      selected = nc * percolumn + cur_row;
+    }
+    goto again;
+  } else if (c == KEY_LEFT && ncols > 1) {
+    if (selected < 0) {
+      selected = 0;
+    } else {
+      ssize_t nc = cur_col - 1;
+      if (nc < 0) {
+        // wrap to the rightmost column that has this row filled
+        nc = ncols - 1;
+        while (nc > 0 && nc * percolumn + cur_row >= count_displayed) nc--;
+      }
+      selected = nc * percolumn + cur_row;
     }
     goto again;
   } else if (c == KEY_F1) {
@@ -230,8 +301,7 @@ again:
     completions_clear(env->completions);
     edit_refresh(env, eb);
     c = 0; // ignore and return
-  } else if (selected >= 0 && (c == KEY_ENTER || c == KEY_RIGHT ||
-                               c == KEY_END)) /* || c == KEY_TAB*/ {
+  } else if (selected >= 0 && (c == KEY_ENTER || c == KEY_END)) {
     // select the current entry
     assert(selected < count);
     c = 0;

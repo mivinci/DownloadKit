@@ -19,7 +19,7 @@
 //-------------------------------------------------------------
 
 ic_private void    highlight(alloc_t *mem, bbcode_t *bb, const char *s,
-                             attrbuf_t *attrs, xLineHighlightFn *highlighter,
+                             attrbuf_t *attrs, xLineHighlightFunc *highlighter,
                              void *arg);
 ic_private void    highlight_match_braces(const char *s, attrbuf_t *attrs,
                                           ssize_t cursor_pos, const char *braces,

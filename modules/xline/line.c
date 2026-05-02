@@ -338,8 +338,8 @@ ic_private const char *ic_env_get_auto_braces(ic_env_t *env) {
   return (env->auto_braces == NULL ? "()[]{}\"\"''" : env->auto_braces);
 }
 
-ic_public void xLineSetDefaultHighlighter(xLineHighlightFn *highlighter,
-                                          void             *arg) {
+ic_public void xLineSetDefaultHighlighter(xLineHighlightFunc *highlighter,
+                                          void               *arg) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return;
   env->highlighter     = highlighter;
@@ -493,20 +493,20 @@ ic_public void xLineTermColorRgb(bool foreground, uint32_t hcolor) {
 // Readline with temporary completer and highlighter
 //-------------------------------------------------------------
 
-ic_public char *xLineReadlineEx(const char       *prompt_text,
-                                xLineCompleterFn *completer,
-                                void             *completer_arg,
-                                xLineHighlightFn *highlighter,
-                                void             *highlighter_arg) {
+ic_public char *xLineReadlineEx(const char         *prompt_text,
+                                xLineCompleterFunc *completer,
+                                void               *completer_arg,
+                                xLineHighlightFunc *highlighter,
+                                void               *highlighter_arg) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return NULL;
   // save previous
-  xLineCompleterFn *prev_completer;
-  void             *prev_completer_arg;
+  xLineCompleterFunc *prev_completer;
+  void               *prev_completer_arg;
   completions_get_completer(env->completions, &prev_completer,
                             &prev_completer_arg);
-  xLineHighlightFn *prev_highlighter     = env->highlighter;
-  void             *prev_highlighter_arg = env->highlighter_arg;
+  xLineHighlightFunc *prev_highlighter     = env->highlighter;
+  void               *prev_highlighter_arg = env->highlighter_arg;
   // call with current
   if (completer != NULL) {
     xLineSetDefaultCompleter(completer, completer_arg);

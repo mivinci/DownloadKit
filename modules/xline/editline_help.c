@@ -14,11 +14,9 @@
 
 static const char *help[] = {
   "", "Navigation:",
-  "left,"
-  "^b",
+  "left,^b",
   "go one character to the left",
-  "right,"
-  "^f",
+  "right,^f",
   "go one character to the right", "up",
   "go one row up, or back in the history", "down",
   "go one row down, or forward in the history",
@@ -34,17 +32,13 @@ static const char *help[] = {
   "^right",
 #endif
   "go to the end the current word",
-  "home,"
-  "^a",
+  "home,^a",
   "go to the start of the current line",
-  "end,"
-  "^e",
+  "end,^e",
   "go to the end of the current line",
-  "pgup,"
-  "^home",
+  "pgup,^home",
   "go to the start of the current input",
-  "pgdn,"
-  "^end",
+  "pgdn,^end",
   "go to the end of the current input", "alt-m", "jump to matching brace", "^p",
   "go back in the history", "^n", "go forward in the history", "^r,^s",
   "search the history starting with the current word", "", "",
@@ -79,14 +73,11 @@ static const char *help[] = {
   "show all further possible completions", "", "", "",
   "In incremental history search:", "enter",
   "use the currently found history entry",
-  "backsp,"
-  "^z",
+  "backsp,^z",
   "go back to the previous match (undo)",
-  "tab,"
-  "^r",
+  "tab,^r",
   "find the next match",
-  "shift-tab,"
-  "^s",
+  "shift-tab,^s",
   "find an earlier match", "esc", "exit search", " ", "", NULL, NULL};
 
 static const char *help_initial =

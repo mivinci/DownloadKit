@@ -13,7 +13,6 @@
 #include "completions.h"
 #include <xbase/log.h>
 #include "editline.h"
-#include "line.h"
 #include "platform.h"
 #include "stringbuf.h"
 #include "term.h"

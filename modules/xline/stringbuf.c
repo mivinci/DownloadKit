@@ -236,7 +236,7 @@ static ssize_t str_limit_to_length(const char *s, ssize_t n) {
 //-------------------------------------------------------------
 
 static ssize_t str_find_backward(const char *s, ssize_t len, ssize_t pos,
-                                 xLineIsCharClassFn *match,
+                                 xLineIsCharClassFunc *match,
                                  bool                skip_immediate_matches) {
   if (pos > len) pos = len;
   if (pos < 0) pos = 0;
@@ -265,7 +265,7 @@ static ssize_t str_find_backward(const char *s, ssize_t len, ssize_t pos,
 }
 
 static ssize_t str_find_forward(const char *s, ssize_t len, ssize_t pos,
-                                xLineIsCharClassFn *match,
+                                xLineIsCharClassFunc *match,
                                 bool                skip_immediate_matches) {
   if (s == NULL || len < 0) return -1;
   if (pos > len) pos = len;
@@ -1048,7 +1048,7 @@ ic_public bool xLineCharIsFilenameLetter(const char *s, long len) {
 // Convenience: If this is a token start, returns the length (or <= 0 if not
 // found).
 ic_public long xLineIsToken(const char *s, long pos,
-                            xLineIsCharClassFn *is_token_char) {
+                            xLineIsCharClassFunc *is_token_char) {
   if (s == NULL || pos < 0 || is_token_char == NULL) return -1;
   ssize_t len = ic_strlen(s);
   if (pos >= len) return -1;
@@ -1068,7 +1068,7 @@ ic_public long xLineIsToken(const char *s, long pos,
 // match (in bytes). E.g.
 // `xLineMatchToken("function",0,&xLineCharIsLetter,"fun")` returns 0.
 ic_public long xLineMatchToken(const char *s, long pos,
-                               xLineIsCharClassFn *is_token_char,
+                               xLineIsCharClassFunc *is_token_char,
                                const char         *token) {
   long n = xLineIsToken(s, pos, is_token_char);
   if (n > 0 && token != NULL && n == ic_strlen(token) &&
@@ -1085,7 +1085,7 @@ ic_public long xLineMatchToken(const char *s, long pos,
 // `xLineMatchAnyToken("function",0,&xLineCharIsLetter,{"fun","func",NULL})`
 // returns 0.
 ic_public long xLineMatchAnyToken(const char *s, long pos,
-                                  xLineIsCharClassFn *is_token_char,
+                                  xLineIsCharClassFunc *is_token_char,
                                   const char        **tokens) {
   long n = xLineIsToken(s, pos, is_token_char);
   if (n <= 0 || tokens == NULL) return 0;

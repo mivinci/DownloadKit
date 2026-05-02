@@ -14,7 +14,6 @@
 #include "str.h"
 #include "stringbuf.h" // str_next_ofs
 #include "term.h"      // color_from_ansi256
-#include "unicode.h"
 
 //-------------------------------------------------------------
 // Attributes

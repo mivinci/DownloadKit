@@ -17,6 +17,8 @@ extern "C" {
 #include <stddef.h>  // size_t
 #include <stdint.h>  // uint32_t
 
+#include <xbase/base.h> // XDEF_HANDLE, XDEF_ENUM
+
 /*! \mainpage
 Isocline C API reference.
 
@@ -158,11 +160,8 @@ void xLineHistoryAdd(const char *entry);
 /// Basic word completion.
 /// \{
 
-/// A completion environment
-struct xLineCompletionEnvS;
-
-/// A completion environment
-typedef struct xLineCompletionEnvS xLineCompletionEnv;
+/// Opaque completion environment (passed to completer callbacks).
+XDEF_HANDLE(xLineCompletionEnv);
 
 /// A completion callback that is called by isocline when tab is pressed.
 /// It is passed a completion environment (containing the current input and the
@@ -170,14 +169,14 @@ typedef struct xLineCompletionEnvS xLineCompletionEnv;
 /// the user given argument when the callback was set. When using completion
 /// transformers, like `ic_complete_quoted_word` the `prefix` contains the the
 /// word to be completed without escape characters or quotes.
-typedef void(xLineCompleterFn)(xLineCompletionEnv *cenv, const char *prefix);
+typedef void(xLineCompleterFunc)(xLineCompletionEnv cenv, const char *prefix);
 
 /// Set the default completion handler.
 /// @param completer  The completion function
 /// @param arg        Argument passed to the \a completer.
 /// There can only be one default completion function, setting it again disables
 /// the previous one. The initial completer use `xLineCompleteFilename`.
-void xLineSetDefaultCompleter(xLineCompleterFn *completer, void *arg);
+void xLineSetDefaultCompleter(xLineCompleterFunc *completer, void *arg);
 
 /// In a completion callback (usually from xLineCompleteWord()), use this
 /// function to add a completion. (the completion string is copied by isocline
@@ -186,7 +185,7 @@ void xLineSetDefaultCompleter(xLineCompleterFn *completer, void *arg);
 /// Returns `true` if the callback should continue trying to find more possible
 /// completions. If `false` is returned, the callback should try to return and
 /// not add more completions (for improved latency).
-bool xLineAddCompletion(xLineCompletionEnv *cenv, const char *completion);
+bool xLineAddCompletion(xLineCompletionEnv cenv, const char *completion);
 
 /// In a completion callback (usually from xLineCompleteWord()), use this
 /// function to add a completion. The `display` is used to display the
@@ -197,7 +196,7 @@ bool xLineAddCompletion(xLineCompletionEnv *cenv, const char *completion);
 /// Returns `true` if the callback should continue trying to find more possible
 /// completions. If `false` is returned, the callback should try to return and
 /// not add more completions (for improved latency).
-bool xLineAddCompletionEx(xLineCompletionEnv *cenv, const char *completion,
+bool xLineAddCompletionEx(xLineCompletionEnv cenv, const char *completion,
                           const char *display, const char *help);
 
 /// In a completion callback (usually from xLineCompleteWord()), use this
@@ -208,7 +207,7 @@ bool xLineAddCompletionEx(xLineCompletionEnv *cenv, const char *completion,
 /// Returns `true` if the callback should continue trying to find more possible
 /// completions. If `false` is returned, the callback should try to return and
 /// not add more completions (for improved latency).
-bool xLineAddCompletions(xLineCompletionEnv *cenv, const char *prefix,
+bool xLineAddCompletions(xLineCompletionEnv cenv, const char *prefix,
                          const char **completions);
 
 /// Complete a filename.
@@ -226,14 +225,14 @@ bool xLineAddCompletions(xLineCompletionEnv *cenv, const char *prefix,
 /// ```
 /// (This already uses ic_complete_quoted_word() so do not call it from inside a
 /// word handler).
-void xLineCompleteFilename(xLineCompletionEnv *cenv, const char *prefix,
+void xLineCompleteFilename(xLineCompletionEnv cenv, const char *prefix,
                            char dir_separator, const char *roots,
                            const char *extensions);
 
 /// Function that returns whether a (utf8) character (of length `len`) is in a
 /// certain character class
 /// @see xLineCharIsSeparator() etc.
-typedef bool(xLineIsCharClassFn)(const char *s, long len);
+typedef bool(xLineIsCharClassFunc)(const char *s, long len);
 
 /// Complete a _word_ (i.e. _token_).
 /// Calls the user provided function `fun` to complete on the
@@ -245,8 +244,9 @@ typedef bool(xLineIsCharClassFn)(const char *s, long len);
 /// user `fun` only gets `w` and can just complete with "world" resulting in
 /// "hello world" without needing to consider `delete_before` etc.
 /// @see xLineCompleteQword() for completing quoted and escaped tokens.
-void xLineCompleteWord(xLineCompletionEnv *cenv, const char *prefix,
-                       xLineCompleterFn *fun, xLineIsCharClassFn *is_word_char);
+void xLineCompleteWord(xLineCompletionEnv cenv, const char *prefix,
+                       xLineCompleterFunc   *fun,
+                       xLineIsCharClassFunc *is_word_char);
 
 /// Complete a quoted _word_.
 /// Calls the user provided function `fun` to complete while taking
@@ -266,9 +266,9 @@ void xLineCompleteWord(xLineCompletionEnv *cenv, const char *prefix,
 /// with proper quotes and escapes.
 /// If `is_word_char` is NULL, the default `&xLineCharIsNonseparator` is used.
 /// @see ic_complete_quoted_word() to customize the word boundary, quotes etc.
-void xLineCompleteQword(xLineCompletionEnv *cenv, const char *prefix,
-                        xLineCompleterFn   *fun,
-                        xLineIsCharClassFn *is_word_char);
+void xLineCompleteQword(xLineCompletionEnv cenv, const char *prefix,
+                        xLineCompleterFunc   *fun,
+                        xLineIsCharClassFunc *is_word_char);
 
 /// Complete a _word_.
 /// Calls the user provided function `fun` to complete while taking
@@ -280,9 +280,9 @@ void xLineCompleteQword(xLineCompletionEnv *cenv, const char *prefix,
 /// default `"\'\""` quotes.
 /// @see xLineCompleteWord() which uses the default values for `non_word_chars`,
 /// `quote_chars` and `\` for escape characters.
-void xLineCompleteQwordEx(xLineCompletionEnv *cenv, const char *prefix,
-                          xLineCompleterFn    fun,
-                          xLineIsCharClassFn *is_word_char, char escape_char,
+void xLineCompleteQwordEx(xLineCompletionEnv cenv, const char *prefix,
+                          xLineCompleterFunc    fun,
+                          xLineIsCharClassFunc *is_word_char, char escape_char,
                           const char *quote_chars);
 
 /// \}
@@ -292,34 +292,33 @@ void xLineCompleteQwordEx(xLineCompletionEnv *cenv, const char *prefix,
 /// Basic syntax highlighting.
 /// \{
 
-/// A syntax highlight environment
-struct xLineHighlightEnvS;
-typedef struct xLineHighlightEnvS xLineHighlightEnv;
+/// Opaque syntax-highlight environment (passed to highlighter callbacks).
+XDEF_HANDLE(xLineHighlightEnv);
 
 /// A syntax highlighter callback that is called by readline to syntax highlight
 /// user input.
-typedef void(xLineHighlightFn)(xLineHighlightEnv *henv, const char *input,
-                               void *arg);
+typedef void(xLineHighlightFunc)(xLineHighlightEnv henv, const char *input,
+                                 void *arg);
 
 /// Set a syntax highlighter.
 /// There can only be one highlight function, setting it again disables the
 /// previous one.
-void xLineSetDefaultHighlighter(xLineHighlightFn *highlighter, void *arg);
+void xLineSetDefaultHighlighter(xLineHighlightFunc *highlighter, void *arg);
 
 /// Set the style of characters starting at position `pos`.
-void xLineHighlight(xLineHighlightEnv *henv, long pos, long count,
+void xLineHighlight(xLineHighlightEnv henv, long pos, long count,
                     const char *style);
 
 /// Experimental: Convenience callback for a function that highlights `s` using
 /// bbcode's. The returned string should be allocated and is free'd by the
 /// caller.
-typedef char *(xLineHighlightFormatFn)(const char *s, void *arg);
+typedef char *(xLineHighlightFormatFunc)(const char *s, void *arg);
 
 /// Experimental: Convenience function for highlighting with bbcodes.
-/// Can be called in a `xLineHighlightFn` callback to colorize the `input` using
+/// Can be called in a `xLineHighlightFunc` callback to colorize the `input` using
 /// the the provided `formatted` input that is the styled `input` with bbcodes.
 /// The content of `formatted` without bbcode tags should match `input` exactly.
-void xLineHighlightFormatted(xLineHighlightEnv *henv, const char *input,
+void xLineHighlightFormatted(xLineHighlightEnv henv, const char *input,
                              const char *formatted);
 
 /// \}
@@ -336,8 +335,8 @@ void xLineHighlightFormatted(xLineHighlightEnv *henv, const char *input,
 /// both can be NULL in which case the defaults are used.
 /// @see xLineReadline(), xLineSetPromptMarker(), xLineSetDefaultCompleter(),
 /// xLineSetDefaultHighlighter().
-char *xLineReadlineEx(const char *prompt_text, xLineCompleterFn *completer,
-                      void *completer_arg, xLineHighlightFn *highlighter,
+char *xLineReadlineEx(const char *prompt_text, xLineCompleterFunc *completer,
+                      void *completer_arg, xLineHighlightFunc *highlighter,
                       void *highlighter_arg);
 
 /// \}
@@ -445,17 +444,17 @@ void xLineSetInsertionBraces(const char *brace_pairs);
 /// completion. Usually completer functions should look at their `prefix` though
 /// as transformers like `xLineCompleteWord` may modify the prefix (for example,
 /// unescape it).
-const char *xLineCompletionInput(xLineCompletionEnv *cenv, long *cursor);
+const char *xLineCompletionInput(xLineCompletionEnv cenv, long *cursor);
 
 /// Get the completion argument passed to `ic_set_completer`.
-void *xLineCompletionArg(const xLineCompletionEnv *cenv);
+void *xLineCompletionArg(xLineCompletionEnv cenv);
 
 /// Do we have already some completions?
-bool xLineHasCompletions(const xLineCompletionEnv *cenv);
+bool xLineHasCompletions(xLineCompletionEnv cenv);
 
 /// Do we already have enough completions and should we return if possible? (for
 /// improved latency)
-bool xLineStopCompleting(const xLineCompletionEnv *cenv);
+bool xLineStopCompleting(xLineCompletionEnv cenv);
 
 /// Primitive completion, cannot be used with most transformers (like
 /// `xLineCompleteWord` and `xLineCompleteQword`). When completed,
@@ -469,7 +468,7 @@ bool xLineStopCompleting(const xLineCompletionEnv *cenv);
 /// Returns `true` if the callback should continue trying to find more possible
 /// completions. If `false` is returned, the callback should try to return and
 /// not add more completions (for improved latency).
-bool xLineAddCompletionPrim(xLineCompletionEnv *cenv, const char *completion,
+bool xLineAddCompletionPrim(xLineCompletionEnv cenv, const char *completion,
                             const char *display, const char *help,
                             long delete_before, long delete_after);
 
@@ -531,14 +530,14 @@ bool xLineCharIsFilenameLetter(const char *s, long len);
 
 /// Convenience: If this is a token start, return the length. Otherwise return
 /// 0.
-long xLineIsToken(const char *s, long pos, xLineIsCharClassFn *is_token_char);
+long xLineIsToken(const char *s, long pos, xLineIsCharClassFunc *is_token_char);
 
 /// Convenience: Does this match the specified token?
 /// Ensures not to match prefixes or suffixes, and returns the length of the
 /// match (in bytes). E.g.
 /// `xLineMatchToken("function",0,&xLineCharIsLetter,"fun")` returns 0. while
 /// `xLineMatchToken("fun x",0,&xLineCharIsLetter,"fun"})` returns 3.
-long xLineMatchToken(const char *s, long pos, xLineIsCharClassFn *is_token_char,
+long xLineMatchToken(const char *s, long pos, xLineIsCharClassFunc *is_token_char,
                      const char *token);
 
 /// Convenience: Do any of the specified tokens match?
@@ -548,7 +547,7 @@ long xLineMatchToken(const char *s, long pos, xLineIsCharClassFn *is_token_char,
 /// returns 0. while `xLineMatchAnyToken("func
 /// x",0,&xLineCharIsLetter,{"fun","func",NULL})` returns 4.
 long xLineMatchAnyToken(const char *s, long pos,
-                        xLineIsCharClassFn *is_token_char, const char **tokens);
+                        xLineIsCharClassFunc *is_token_char, const char **tokens);
 
 /// \}
 
@@ -652,7 +651,7 @@ bool xLineAsyncStop(void);
 //
 // Call sequence:
 //
-//   xLineHandle* h = xLineBegin("> ");
+//   xLineHandle h = xLineBegin("> ");
 //   int fd = xLineFd(h);
 //   // register `fd` for read-readiness in your event loop...
 //   for (;;) {
@@ -671,22 +670,22 @@ bool xLineAsyncStop(void);
 //--------------------------------------------------------------
 
 /// Opaque async line-editing session handle.
-typedef struct xLineHandle_s xLineHandle;
+XDEF_HANDLE(xLineHandle);
 
 /// Result of one non-blocking step.
-typedef enum xLineStepResult_e {
+XDEF_ENUM(xLineStepResult) {
   XLINE_STEP_PENDING = 0, ///< more input needed; poll the fd again
   XLINE_STEP_LINE    = 1, ///< a line is ready; call xLineTake()
   XLINE_STEP_EOF     = 2, ///< Ctrl-D on empty input or stream closed
   XLINE_STEP_ERROR   = 3, ///< unrecoverable error
-} xLineStepResult;
+};
 
 /// Start a new async line-editing session.
 /// Takes ownership of no memory; `prompt_text` may be NULL for "".
 /// Returns NULL if another session is already live, or if the
 /// terminal is not capable of interactive editing (pipe/dumb tty);
 /// in the latter case callers should fall back to xLineReadline().
-xLineHandle *xLineBegin(const char *prompt_text);
+xLineHandle xLineBegin(const char *prompt_text);
 
 /// Return the fd the session is listening on.
 ///
@@ -698,30 +697,44 @@ xLineHandle *xLineBegin(const char *prompt_text);
 /// cannot be polled with select/WSAPoll; Windows callers should
 /// block on xLineStep() in a worker thread or use a future
 /// xLineStepBlocking() helper (not implemented in this PR).
-int xLineFd(xLineHandle *h);
+int xLineFd(xLineHandle h);
 
 /// Process whatever input is currently ready on the session fd.
 /// Non-blocking: returns immediately if no bytes are available.
 /// May be called any number of times per poll wake-up.
-xLineStepResult xLineStep(xLineHandle *h);
+xLineStepResult xLineStep(xLineHandle h);
 
 /// After xLineStep() returned XLINE_STEP_LINE, take ownership of
 /// the edited line. The returned string is heap-allocated and
 /// must be freed by xLineFree(). Returns NULL if no line is ready
 /// (caller violated the protocol).
-char *xLineTake(xLineHandle *h);
+char *xLineTake(xLineHandle h);
 
 /// End a session. Safe to call in any state (PENDING to cancel,
 /// after LINE once the line has been taken, after EOF/ERROR).
 /// Restores the terminal to cooked mode and frees the handle.
-void xLineEnd(xLineHandle *h);
+void xLineEnd(xLineHandle h);
 
 /// Print `s` above the current edit line, preserving the prompt
 /// and the user's in-progress input. Safe to call from the same
 /// thread that owns the handle between xLineStep() invocations.
-/// `s` is a plain string; embed "\n" for multi-line output. Does
+/// `s` is a plain string; embed "\n" for multi-line output. A
+/// trailing newline is added automatically if `s` does not end
+/// in one, so the prompt repaints on a fresh line below. Does
 /// nothing if `h` is NULL or the session is not live.
-void xLinePrintAbove(xLineHandle *h, const char *s);
+void xLinePrintAbove(xLineHandle h, const char *s);
+
+/// Append a streaming chunk above the current edit line, then
+/// repaint the prompt and any in-progress input immediately
+/// below. Intended for token-by-token output from async
+/// producers (LLMs, log tails, ...). No trailing newline is
+/// added — successive chunks concatenate onto the same visual
+/// line until the caller embeds "\n" or calls xLinePrintAbove()
+/// to flush the current line. Because the prompt is redrawn on
+/// every call, the user may keep typing while chunks stream in;
+/// their input is preserved verbatim. Does nothing if `h` is
+/// NULL, `s` is NULL, or the session is not live.
+void xLinePrintAboveChunk(xLineHandle h, const char *s);
 
 /// \}
 
@@ -730,9 +743,9 @@ void xLinePrintAbove(xLineHandle *h, const char *s);
 /// Register allocation functions for custom allocators
 /// \{
 
-typedef void *(xLineMallocFn)(size_t size);
-typedef void *(xLineReallocFn)(void *p, size_t newsize);
-typedef void(xLineFreeFn)(void *p);
+typedef void *(xLineMallocFunc)(size_t size);
+typedef void *(xLineReallocFunc)(void *p, size_t newsize);
+typedef void(xLineFreeFunc)(void *p);
 
 // NOTE: upstream's ic_init_custom_alloc() has been removed in xline.
 // The library always uses the stdlib allocator (malloc/realloc/free).

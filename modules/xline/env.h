@@ -14,7 +14,6 @@
 #include "line.h"
 #include "mem.h"
 #include "platform.h"
-#include "stringbuf.h"
 #include "term.h"
 #include "tty.h"
 
@@ -33,7 +32,7 @@ struct ic_env_s {
   const char    *prompt_marker; // the prompt marker (defaults to "> ")
   const char *cprompt_marker; // prompt marker for continuation lines (defaults
                               // to `prompt_marker`)
-  xLineHighlightFn *highlighter;     // highlight callback
+  xLineHighlightFunc *highlighter;     // highlight callback
   void             *highlighter_arg; // user state for the highlighter.
   const char       *match_braces;    // matching braces, e.g "()[]{}"
   const char       *auto_braces; // auto insertion braces, e.g "()[]{}\"\"''"

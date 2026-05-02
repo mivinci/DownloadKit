@@ -2,12 +2,13 @@ xline
 =====
 
 xKit's line-editing module. Forked from isocline v1.1.0 by Daan Leijen
-(https://github.com/daanx/isocline), licensed under the MIT License.
+[https://github.com/daanx/isocline], licensed under the MIT License.
 The upstream LICENSE file is preserved verbatim as `LICENSE.isocline`,
 and every original source file retains its MIT copyright header.
 
 Why a fork
 ----------
+
 Upstream isocline is tiny, portable, pure-C, and permissively
 licensed — an ideal starting point. We vendor it rather than consume
 it as an external dependency so that we can:

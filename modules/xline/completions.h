@@ -8,7 +8,7 @@
 #ifndef IC_COMPLETIONS_H
 #define IC_COMPLETIONS_H
 
-#include "line.h" // xLineCompleterFn
+#include "line.h" // xLineCompleterFunc
 #include "mem.h"
 #include "platform.h"
 #include "stringbuf.h"
@@ -32,16 +32,16 @@ ic_private ssize_t completions_generate(struct ic_env_s *env,
                                         completions_t *cms, const char *input,
                                         ssize_t pos, ssize_t max);
 ic_private void    completions_sort(completions_t *cms);
-ic_private void    completions_set_completer(completions_t    *cms,
-                                             xLineCompleterFn *completer,
-                                             void             *arg);
+ic_private void    completions_set_completer(completions_t      *cms,
+                                             xLineCompleterFunc *completer,
+                                             void               *arg);
 ic_private const char *
 completions_get_display(completions_t *cms, ssize_t index, const char **help);
 ic_private const char *completions_get_hint(completions_t *cms, ssize_t index,
                                             const char **help);
-ic_private void        completions_get_completer(completions_t     *cms,
-                                                 xLineCompleterFn **completer,
-                                                 void             **arg);
+ic_private void        completions_get_completer(completions_t       *cms,
+                                                 xLineCompleterFunc **completer,
+                                                 void               **arg);
 
 ic_private ssize_t completions_apply(completions_t *cms, ssize_t index,
                                      stringbuf_t *sbuf, ssize_t pos);
@@ -57,7 +57,7 @@ typedef bool(ic_completion_fun_t)(ic_env_t *env, void *funenv,
                                   const char *help, long delete_before,
                                   long delete_after);
 
-struct xLineCompletionEnvS {
+XDEF_STRUCT(xLineCompletionEnv_) {
   ic_env_t            *env;      // the isocline environment
   const char          *input;    // current full input
   long                 cursor;   // current cursor position

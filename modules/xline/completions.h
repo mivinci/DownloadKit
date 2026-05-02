@@ -10,6 +10,7 @@
 
 #include "platform.h"
 #include "mem.h"
+#include "line.h"  // xLineCompleterFn
 #include "stringbuf.h"
 
 

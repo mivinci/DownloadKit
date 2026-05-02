@@ -429,15 +429,21 @@ ic_public void xLineTermReverse(bool enable) {
 ic_public void xLineTermColorAnsi(bool foreground, int ansi_color) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->term==NULL) return;
   ic_color_t color = color_from_ansi256(ansi_color);
-  if (foreground) { term_color(env->term, color); }
-             else { term_bgcolor(env->term, color); }
+  if (foreground) {
+    term_color(env->term, color);
+  } else {
+    term_bgcolor(env->term, color);
+  }
 }
 
 ic_public void xLineTermColorRgb(bool foreground, uint32_t hcolor) {
   ic_env_t* env = ic_get_env(); if (env==NULL || env->term==NULL) return;
   ic_color_t color = ic_rgb(hcolor);
-  if (foreground) { term_color(env->term, color); }
-             else { term_bgcolor(env->term, color); }
+  if (foreground) {
+    term_color(env->term, color);
+  } else {
+    term_bgcolor(env->term, color);
+  }
 }
 
 

@@ -15,7 +15,7 @@ void xMpscPush(xMpsc **head, xMpsc **tail, xMpsc *node) {
   xMpsc *_tail;
 
   node->next = NULL;
-  _tail      = xAtomicXchg(tail, node, xAtomicAcqRel);
+  _tail      = xAtomicXchgPtr(tail, node, xAtomicAcqRel);
 
   if (_tail) {
     _tail->next = node;
@@ -40,7 +40,7 @@ xMpsc *xMpscPop(xMpsc **head, xMpsc **tail) {
     /* queue has only one node,
      * try to update tail to NULL */
     xMpsc *expected = _head;
-    if (!xAtomicCasStrong(tail, &expected, NULL, xAtomicRelease)) {
+    if (!xAtomicCasPtrStrong(tail, &expected, NULL, xAtomicRelease)) {
       /* other thread is enqueueing new node, spin until it is done.
        * since only one thread at a time can pop nodes, it is safe to spin. */
       while (!_head_next) {
@@ -53,7 +53,7 @@ xMpsc *xMpscPop(xMpsc **head, xMpsc **tail) {
        * Use CAS to set head to NULL only if head is still _head,
        * because a concurrent push may have already updated head. */
       expected = _head;
-      xAtomicCasStrong(head, &expected, NULL, xAtomicRelease);
+      xAtomicCasPtrStrong(head, &expected, NULL, xAtomicRelease);
     }
   } else {
     /* queue has more than one node, just advance head */

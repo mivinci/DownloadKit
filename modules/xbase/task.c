@@ -12,15 +12,14 @@
 
 #include <xbase/task.h>
 
+#include <xbase/atomic.h>
 #include <xbase/mpsc.h>
 #include <xbase/note.h>
 #include <xbase/slab.h>
 
-#include <pthread.h>
-#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include "thread_private.h"
 
 /* ───────────────────── Internal types ───────────────────── */
 
@@ -41,18 +40,19 @@ struct xTask_ {
   /* Lock-free done-list linkage (xMpsc) */
   xMpsc done_link;
 
-  /* Task lifecycle state — used for cancel and drain. */
-  atomic_int state;
+  /* Task lifecycle state — used for cancel and drain.
+   * Type is long for xAtomic* portability (MSVC Interlocked* operates on long). */
+  long state;
 };
 
 struct xTaskGroup_ {
-  pthread_t *workers;
+  xThread *workers;
   size_t     max_threads;
   size_t     nthreads;
 
   /* Task queue (protected by qlock) */
-  pthread_mutex_t qlock;
-  pthread_cond_t  qcond;
+  xMutex        qlock;
+  xCond         qcond;
   struct xTask_  *qhead;
   struct xTask_  *qtail;
   size_t          qsize;
@@ -69,14 +69,14 @@ struct xTaskGroup_ {
    * idle > 0, we signal qcond to wake one instead of spawning. */
   size_t idle;
 
-  atomic_size_t pending;    /* submitted - finished */
-  atomic_size_t done_count; /* tasks that have completed */
+  long pending;    /* submitted - finished (was atomic_size_t) */
+  long done_count; /* tasks that have completed (was atomic_size_t) */
 
   /* Dedicated condition for xTaskGroupWait(), separate from qcond
    * which is shared with idle workers.  Using a single cond caused
-   * lost wake-ups: pthread_cond_signal() could wake an idle worker
-   * instead of the GroupWait caller, leaving it blocked forever. */
-  pthread_cond_t wcond;
+   * lost wake-ups: signal could wake an idle worker instead of the
+   * GroupWait caller, leaving it blocked forever. */
+  xCond wcond;
 
   bool shutdown;
 
@@ -123,17 +123,17 @@ static void *worker_loop(void *arg) {
   struct xTaskGroup_ *g = grp(arg);
 
   for (;;) {
-    pthread_mutex_lock(&g->qlock);
+    xMutexLock(&g->qlock);
 
     /* Mark this thread as idle — waiting for work */
     g->idle++;
     while (!g->qhead && !g->shutdown) {
-      pthread_cond_wait(&g->qcond, &g->qlock);
+      xCondWait(&g->qcond, &g->qlock);
     }
     g->idle--;
 
     if (g->shutdown && !g->qhead) {
-      pthread_mutex_unlock(&g->qlock);
+      xMutexUnlock(&g->qlock);
       return NULL;
     }
 
@@ -143,18 +143,17 @@ static void *worker_loop(void *arg) {
     if (!g->qhead) g->qtail = NULL;
     g->qsize--;
 
-    pthread_mutex_unlock(&g->qlock);
+    xMutexUnlock(&g->qlock);
 
     /* Try to transition QUEUED → RUNNING.  If the task was cancelled
      * between enqueue and here, the CAS fails and we skip execution. */
-    int expected = TASK_QUEUED;
-    if (atomic_compare_exchange_strong_explicit(
-            &task->state, &expected, TASK_RUNNING,
-            memory_order_acq_rel, memory_order_acquire)) {
+    long expected = TASK_QUEUED;
+    if (xAtomicCasStrong(&task->state, &expected, TASK_RUNNING,
+                         xAtomicAcqRel)) {
       /* Execute the task */
       void *result = task->fn(task->arg);
       task->result = result;
-      atomic_store_explicit(&task->state, TASK_DONE, memory_order_release);
+      xAtomicStore(&task->state, TASK_DONE, xAtomicRelease);
     }
     /* else: task was cancelled — skip execution, result stays NULL. */
 
@@ -170,11 +169,11 @@ static void *worker_loop(void *arg) {
 
     /* Update counters and wake GroupWait if all done.
      * These use group-level atomics, not the task pointer. */
-    atomic_fetch_add(&g->done_count, 1);
-    if (atomic_fetch_sub(&g->pending, 1) == 1) {
-      pthread_mutex_lock(&g->qlock);
-      pthread_cond_signal(&g->wcond);
-      pthread_mutex_unlock(&g->qlock);
+    xAtomicFetchAdd(&g->done_count, 1, xAtomicRelaxed);
+    if (xAtomicFetchSub(&g->pending, 1, xAtomicRelaxed) == 1) {
+      xMutexLock(&g->qlock);
+      xCondSignal(&g->wcond);
+      xMutexUnlock(&g->qlock);
     }
   }
 }
@@ -192,15 +191,15 @@ static void drain_done(struct xTaskGroup_ *g) {
 }
 
 static bool spawn_one_worker(struct xTaskGroup_ *g) {
-  pthread_t *new_workers;
+  xThread *new_workers;
 
   if (g->nthreads >= g->max_threads) return false;
 
   new_workers =
-    (pthread_t *)realloc(g->workers, (g->nthreads + 1) * sizeof(pthread_t));
+    (xThread *)realloc(g->workers, (g->nthreads + 1) * sizeof(xThread));
   if (!new_workers) return false;
 
-  if (pthread_create(&new_workers[g->nthreads], NULL, worker_loop, g) != 0) {
+  if (xThreadCreate(&new_workers[g->nthreads], worker_loop, g) != 0) {
     return false;
   }
 
@@ -223,21 +222,21 @@ xTaskGroup xTaskGroupCreate(const xTaskGroupConf *conf) {
   g->workers     = NULL;
   g->qcap        = (conf && conf->queue_cap) ? conf->queue_cap : 0;
 
-  pthread_mutex_init(&g->qlock, NULL);
-  pthread_cond_init(&g->qcond, NULL);
-  pthread_cond_init(&g->wcond, NULL);
+  xMutexInit(&g->qlock);
+  xCondInit(&g->qcond);
+  xCondInit(&g->wcond);
 
   g->task_pool = xSlabMtCreate(sizeof(struct xTask_), 0, 0);
   if (!g->task_pool) {
-    pthread_mutex_destroy(&g->qlock);
-    pthread_cond_destroy(&g->qcond);
-    pthread_cond_destroy(&g->wcond);
+    xMutexDestroy(&g->qlock);
+    xCondDestroy(&g->qcond);
+    xCondDestroy(&g->wcond);
     free(g);
     return NULL;
   }
 
-  atomic_store(&g->pending, 0);
-  atomic_store(&g->done_count, 0);
+  xAtomicStore(&g->pending, 0, xAtomicSeqCst);
+  xAtomicStore(&g->done_count, 0, xAtomicSeqCst);
   g->idle     = 0;
   g->shutdown = false;
 
@@ -250,13 +249,13 @@ void xTaskGroupDestroy(xTaskGroup g_) {
 
   if (!g) return;
 
-  pthread_mutex_lock(&g->qlock);
+  xMutexLock(&g->qlock);
   g->shutdown = true;
-  pthread_cond_broadcast(&g->qcond); /* wake all idle workers */
-  pthread_mutex_unlock(&g->qlock);
+  xCondBroadcast(&g->qcond); /* wake all idle workers */
+  xMutexUnlock(&g->qlock);
 
   for (i = 0; i < g->nthreads; i++) {
-    pthread_join(g->workers[i], NULL);
+    xThreadJoin(g->workers[i]);
   }
 
   /* Drain and free any remaining queued tasks */
@@ -270,9 +269,9 @@ void xTaskGroupDestroy(xTaskGroup g_) {
   drain_done(g);
 
   free(g->workers);
-  pthread_mutex_destroy(&g->qlock);
-  pthread_cond_destroy(&g->qcond);
-  pthread_cond_destroy(&g->wcond);
+  xMutexDestroy(&g->qlock);
+  xCondDestroy(&g->qcond);
+  xCondDestroy(&g->wcond);
   xSlabMtDestroy(g->task_pool);
   free(g);
 }
@@ -292,13 +291,13 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
   task->result = NULL;
   task->group  = g;
   task->next   = NULL;
-  atomic_store_explicit(&task->state, TASK_QUEUED, memory_order_relaxed);
+  xAtomicStore(&task->state, TASK_QUEUED, xAtomicRelaxed);
 
-  pthread_mutex_lock(&g->qlock);
+  xMutexLock(&g->qlock);
 
   /* Check queue capacity */
   if (g->qcap > 0 && g->qsize >= g->qcap) {
-    pthread_mutex_unlock(&g->qlock);
+    xMutexUnlock(&g->qlock);
     xSlabMtFree(g->task_pool, task);
     return NULL;
   }
@@ -312,23 +311,23 @@ xTask xTaskSubmit(xTaskGroup g_, xTaskFunc fn, void *arg) {
   g->qtail = task;
   g->qsize++;
 
-  atomic_fetch_add(&g->pending, 1);
+  xAtomicFetchAdd(&g->pending, 1, xAtomicRelaxed);
 
   /* Try to dispatch to an idle worker first */
   if (g->idle > 0) {
-    pthread_cond_signal(&g->qcond);
-    pthread_mutex_unlock(&g->qlock);
+    xCondSignal(&g->qcond);
+    xMutexUnlock(&g->qlock);
     return task;
   }
 
   /* No idle worker — try to spawn a new one if under the cap */
   if (spawn_one_worker(g)) {
-    pthread_cond_signal(&g->qcond);
+    xCondSignal(&g->qcond);
   }
   /* If at cap, just leave the task in the queue; existing workers
    * or future spawns will pick it up. */
 
-  pthread_mutex_unlock(&g->qlock);
+  xMutexUnlock(&g->qlock);
   return task;
 }
 
@@ -342,7 +341,7 @@ xErrno xTaskWait(xTask t_, void **result) {
    * time we get here, so this is a single atomic load. */
   xNoteWait(&t->note);
 
-  int s = atomic_load_explicit(&t->state, memory_order_acquire);
+  long s = xAtomicLoad(&t->state, xAtomicAcquire);
   if (s == TASK_CANCELLED) {
     return xErrno_Cancelled;
   }
@@ -364,10 +363,9 @@ xErrno xTaskCancel(xTask t_) {
    * If the CAS fails the task is already RUNNING or DONE — we
    * return xErrno_Busy so the caller knows fn() is (or was) in
    * flight and must xTaskWait() before releasing the arg. */
-  int expected = TASK_QUEUED;
-  if (atomic_compare_exchange_strong_explicit(
-          &t->state, &expected, TASK_CANCELLED,
-          memory_order_acq_rel, memory_order_acquire)) {
+  long expected = TASK_QUEUED;
+  if (xAtomicCasStrong(&t->state, &expected, TASK_CANCELLED,
+                        xAtomicAcqRel)) {
     return xErrno_Ok;
   }
 
@@ -379,11 +377,11 @@ xErrno xTaskGroupWait(xTaskGroup g_) {
 
   if (!g_) return xErrno_InvalidArg;
 
-  pthread_mutex_lock(&g->qlock);
-  while (atomic_load(&g->pending) > 0) {
-    pthread_cond_wait(&g->wcond, &g->qlock);
+  xMutexLock(&g->qlock);
+  while (xAtomicLoad(&g->pending, xAtomicAcquire) > 0) {
+    xCondWait(&g->wcond, &g->qlock);
   }
-  pthread_mutex_unlock(&g->qlock);
+  xMutexUnlock(&g->qlock);
 
   /* All tasks finished — drain the done queue to reclaim memory.
    * No workers are producing into the done queue at this point
@@ -400,13 +398,13 @@ size_t xTaskGroupThreads(xTaskGroup g_) {
 
 size_t xTaskGroupPending(xTaskGroup g_) {
   if (!g_) return 0;
-  return atomic_load(&grp(g_)->pending);
+  return (size_t)xAtomicLoad(&grp(g_)->pending, xAtomicSeqCst);
 }
 
 /* ───────────────────── Global task group ───────────────────── */
 
-static xTaskGroup     g_global_group = NULL;
-static pthread_once_t g_global_once  = PTHREAD_ONCE_INIT;
+static xTaskGroup g_global_group = NULL;
+static xOnce    g_global_once  = X_ONCE_INIT;
 
 static void global_group_destroy(void) {
   if (g_global_group) {
@@ -423,6 +421,6 @@ static void global_group_init(void) {
 }
 
 xTaskGroup xTaskGroupGlobal(void) {
-  pthread_once(&g_global_once, global_group_init);
+  xOnceCall(&g_global_once, global_group_init);
   return g_global_group;
 }

@@ -13,6 +13,14 @@
 
 #include <string.h>
 
+/* ───────────────────── Windows: command not supported ───────────────────── */
+
+#ifdef _WIN32
+/* All tests in this file are POSIX-only (fork/exec/signal). Skip on Windows.
+ * We add a single trivial test so the binary still links. */
+TEST(Command, SkipOnWindows) { GTEST_SKIP() << "Command tests are POSIX-only"; }
+#else
+
 /* ───────────────────── Helpers ───────────────────── */
 
 struct TestCtx {
@@ -910,3 +918,5 @@ TEST(Command, PtyStdinFdMatchesPtyFd) {
   xCommandExecutorDestroy(exec);
   xEventLoopDestroy(loop);
 }
+
+#endif /* _WIN32 */

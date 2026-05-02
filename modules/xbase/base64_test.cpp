@@ -12,11 +12,10 @@
 /* ---- Encode tests ---- */
 
 TEST(Base64, Empty) {
-  uint8_t src[]   = {};
   char    buf[8]  = {0};
   size_t  buf_len = sizeof(buf);
 
-  int rc = xBase64Encode(src, 0, buf, &buf_len);
+  int rc = xBase64Encode(NULL, 0, buf, &buf_len);
   EXPECT_EQ(rc, 0);
   EXPECT_STREQ(buf, "");
   EXPECT_EQ(buf_len, 0u);

@@ -7,6 +7,58 @@
  */
 
 #include <xbase/command.h>
+#include <stdlib.h>
+
+#ifdef _WIN32
+
+/* ───────────────────── Windows stubs ───────────────────── */
+
+xCommandExecutor xCommandExecutorCreate(xEventLoop loop) {
+  (void)loop;
+  return NULL;
+}
+
+void xCommandExecutorDestroy(xCommandExecutor exec) {
+  (void)exec;
+}
+
+xErrno xCommandExecutorSubmit(xCommandExecutor exec, const xCommandConf *conf,
+                              xCommandExecutorOutputFunc on_stdout,
+                              xCommandExecutorOutputFunc on_stderr,
+                              xCommandExecutorDoneFunc on_done, void *ud) {
+  (void)exec; (void)conf; (void)on_stdout; (void)on_stderr;
+  (void)on_done; (void)ud;
+  return xErrno_NotSupported;
+}
+
+xErrno xCommandExecutorCancel(xCommandExecutor exec) {
+  (void)exec;
+  return xErrno_NotSupported;
+}
+
+int xCommandExecutorPid(xCommandExecutor exec) {
+  (void)exec;
+  return -1;
+}
+
+int xCommandExecutorIsRunning(xCommandExecutor exec) {
+  (void)exec;
+  return 0;
+}
+
+int xCommandExecutorPtyFd(xCommandExecutor exec) {
+  (void)exec;
+  return -1;
+}
+
+int xCommandExecutorStdinFd(xCommandExecutor exec) {
+  (void)exec;
+  return -1;
+}
+
+#else /* POSIX implementation */
+
+#include <xbase/command.h>
 #include <xbase/string.h>
 
 #include <errno.h>
@@ -1095,3 +1147,5 @@ static void cmd_kill_pg(struct xCommandExecutor_ *exec, int sig) {
     kill(-exec->child_pid, sig);
   }
 }
+
+#endif /* _WIN32 */

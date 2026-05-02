@@ -11,10 +11,9 @@
 #include <xbase/slab.h>
 #include <xbase/timer.h>
 
-#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+#include "thread_private.h"
 
 /* ───────────────────── Internal types ───────────────────── */
 
@@ -50,10 +49,10 @@ struct xTimer_ {
    * still references a task when xTimerDestroy returns. */
   xSlabMt *task_pool;
 
-  pthread_t       thread;
-  pthread_mutex_t mu;
-  pthread_cond_t  cond;
-  int             stopped;
+  xThread thread;
+  xMutex  mu;
+  xCond   cond;
+  int     stopped;
 };
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -122,12 +121,12 @@ static void fire(struct xTimer_ *t, struct xTimerTask_ *task) {
 static void *timer_thread(void *arg) {
   struct xTimer_ *t = (struct xTimer_ *)arg;
 
-  pthread_mutex_lock(&t->mu);
+  xMutexLock(&t->mu);
 
   for (;;) {
     /* Wait while heap is empty and not stopped */
     while (!t->stopped && xHeapSize(t->heap) == 0)
-      pthread_cond_wait(&t->cond, &t->mu);
+      xCondWait(&t->cond, &t->mu);
 
     if (t->stopped) break;
 
@@ -136,12 +135,15 @@ static void *timer_thread(void *arg) {
 
     if (top->deadline <= now) {
       xHeapPop(t->heap);
-      pthread_mutex_unlock(&t->mu);
+      xMutexUnlock(&t->mu);
       fire(t, top);
-      pthread_mutex_lock(&t->mu);
+      xMutexLock(&t->mu);
     } else {
       /* Sleep until next deadline (or until signalled) */
-      uint64_t        wait_ms = top->deadline - now;
+      uint64_t wait_ms = top->deadline - now;
+#ifdef _WIN32
+      SleepConditionVariableCS(&t->cond, &t->mu, (DWORD)wait_ms);
+#else
       struct timespec abs_ts;
       clock_gettime(CLOCK_REALTIME, &abs_ts);
       abs_ts.tv_sec += (time_t)(wait_ms / 1000);
@@ -151,6 +153,7 @@ static void *timer_thread(void *arg) {
         abs_ts.tv_nsec -= 1000000000L;
       }
       pthread_cond_timedwait(&t->cond, &t->mu, &abs_ts);
+#endif
     }
   }
 
@@ -160,7 +163,7 @@ static void *timer_thread(void *arg) {
     xSlabMtFree(t->task_pool, task);
   }
 
-  pthread_mutex_unlock(&t->mu);
+  xMutexUnlock(&t->mu);
   return NULL;
 }
 
@@ -179,17 +182,15 @@ xTimer xTimerCreate(xTaskGroup g) {
   t->task_pool = xSlabMtCreate(sizeof(struct xTimerTask_), 0, 0);
   if (!t->task_pool) goto fail_pool;
 
-  if (pthread_mutex_init(&t->mu, NULL) != 0) goto fail_mutex;
-  if (pthread_cond_init(&t->cond, NULL) != 0) goto fail_cond;
-  if (pthread_create(&t->thread, NULL, timer_thread, t) != 0) goto fail_thread;
+  xMutexInit(&t->mu);
+  xCondInit(&t->cond);
+  if (xThreadCreate(&t->thread, timer_thread, t) != 0) goto fail_thread;
 
   return (xTimer)t;
 
 fail_thread:
-  pthread_cond_destroy(&t->cond);
-fail_cond:
-  pthread_mutex_destroy(&t->mu);
-fail_mutex:
+  xCondDestroy(&t->cond);
+  xMutexDestroy(&t->mu);
   xSlabMtDestroy(t->task_pool);
 fail_pool:
   xHeapDestroy(t->heap);
@@ -202,12 +203,12 @@ void xTimerDestroy(xTimer t_) {
   struct xTimer_ *t = (struct xTimer_ *)t_;
   if (!t) return;
 
-  pthread_mutex_lock(&t->mu);
+  xMutexLock(&t->mu);
   t->stopped = 1;
-  pthread_cond_signal(&t->cond);
-  pthread_mutex_unlock(&t->mu);
+  xCondSignal(&t->cond);
+  xMutexUnlock(&t->mu);
 
-  pthread_join(t->thread, NULL);
+  xThreadJoin(t->thread);
 
   /* Drain poll-mode queue (timer thread is gone, no concurrency) */
   if (!t->group) {
@@ -218,8 +219,8 @@ void xTimerDestroy(xTimer t_) {
     }
   }
 
-  pthread_cond_destroy(&t->cond);
-  pthread_mutex_destroy(&t->mu);
+  xCondDestroy(&t->cond);
+  xMutexDestroy(&t->mu);
   xHeapDestroy(t->heap);
   /* task_pool destroyed last: any late xSlabMtFree above must still work.
    * Caller contract: no worker thread may still reference a task. */
@@ -248,15 +249,15 @@ static xTimerTask submit(xTimer t_, xTimerFunc fn, void *arg, uint64_t abs_ms) {
   task->heap_idx  = TIMER_INVALID_IDX;
   task->cancelled = 0;
 
-  pthread_mutex_lock(&t->mu);
+  xMutexLock(&t->mu);
   xErrno err = xHeapPush(t->heap, task);
   if (err != xErrno_Ok) {
-    pthread_mutex_unlock(&t->mu);
+    xMutexUnlock(&t->mu);
     xSlabMtFree(t->task_pool, task);
     return NULL;
   }
-  pthread_cond_signal(&t->cond);
-  pthread_mutex_unlock(&t->mu);
+  xCondSignal(&t->cond);
+  xMutexUnlock(&t->mu);
 
   return (xTimerTask)task;
 }
@@ -275,10 +276,10 @@ xErrno xTimerCancel(xTimer t_, xTimerTask task_) {
   struct xTimerTask_ *task = (struct xTimerTask_ *)task_;
   if (!t || !task) return xErrno_InvalidArg;
 
-  pthread_mutex_lock(&t->mu);
+  xMutexLock(&t->mu);
 
   if (task->cancelled || task->heap_idx == TIMER_INVALID_IDX) {
-    pthread_mutex_unlock(&t->mu);
+    xMutexUnlock(&t->mu);
     return xErrno_Cancelled; /* already fired or cancelled */
   }
 
@@ -286,7 +287,7 @@ xErrno xTimerCancel(xTimer t_, xTimerTask task_) {
   task->heap_idx  = TIMER_INVALID_IDX;
   task->cancelled = 1;
 
-  pthread_mutex_unlock(&t->mu);
+  xMutexUnlock(&t->mu);
 
   xSlabMtFree(t->task_pool, task);
   return xErrno_Ok;

@@ -198,14 +198,19 @@ TEST_P(MapTest, NullHandleSafety) {
  *  Instantiate for both backends
  * ═══════════════════════════════════════════════════════════════════ */
 
-INSTANTIATE_TEST_SUITE_P(Hash, MapTest, ::testing::Values(xMapType_Hash),
-                         [](const auto & /*info*/) { return "Hash"; });
-
-INSTANTIATE_TEST_SUITE_P(Flat, MapTest, ::testing::Values(xMapType_Flat),
-                         [](const auto & /*info*/) { return "Flat"; });
-
-INSTANTIATE_TEST_SUITE_P(Tree, MapTest, ::testing::Values(xMapType_Tree),
-                         [](const auto & /*info*/) { return "Tree"; });
+#ifdef _MSC_VER
+/* MSVC + GTest FlatTuple workaround: use ValuesIn with an explicit array */
+static const xMapType kHashType[] = {xMapType_Hash};
+static const xMapType kFlatType[] = {xMapType_Flat};
+static const xMapType kTreeType[] = {xMapType_Tree};
+INSTANTIATE_TEST_SUITE_P(Hash, MapTest, ::testing::ValuesIn(kHashType));
+INSTANTIATE_TEST_SUITE_P(Flat, MapTest, ::testing::ValuesIn(kFlatType));
+INSTANTIATE_TEST_SUITE_P(Tree, MapTest, ::testing::ValuesIn(kTreeType));
+#else
+INSTANTIATE_TEST_SUITE_P(Hash, MapTest, ::testing::Values(xMapType_Hash));
+INSTANTIATE_TEST_SUITE_P(Flat, MapTest, ::testing::Values(xMapType_Flat));
+INSTANTIATE_TEST_SUITE_P(Tree, MapTest, ::testing::Values(xMapType_Tree));
+#endif
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Non-parameterised tests

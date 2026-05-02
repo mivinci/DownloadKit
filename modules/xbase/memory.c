@@ -65,7 +65,7 @@ void xRetain(void *ptr) {
   if (vtab->retain) {
     vtab->retain(ptr);
   }
-  xAtomicAdd(&hdr->refs, 1, __ATOMIC_SEQ_CST);
+  xAtomicAdd(&hdr->refs, 1, xAtomicSeqCst);
 }
 
 void xRelease(void *ptr) {
@@ -75,7 +75,7 @@ void xRelease(void *ptr) {
   hdr  = (Header *)ptr - 1;
   vtab = hdr->vtab;
 
-  if (xAtomicSub(&hdr->refs, 1, __ATOMIC_SEQ_CST) == 0) {
+  if (xAtomicSub(&hdr->refs, 1, xAtomicSeqCst) == 0) {
     if (vtab->release) {
       vtab->release(ptr);
     }

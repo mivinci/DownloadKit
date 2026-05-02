@@ -20,8 +20,7 @@
 //
 // Lifted from editline.c so that other internal translation units
 // (e.g. async.c) can embed an editor_t by value and call into the
-// synchronous edit primitives without having to be merged into the
-// isocline.c umbrella TU.
+// synchronous edit primitives directly.
 //-------------------------------------------------------------
 
 typedef struct editor_s {

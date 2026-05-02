@@ -25,7 +25,7 @@ set(XLINE_SOURCES
   editline_history.c
   highlight.c
   history.c
-  isocline.c
+  line.c
   mem.c
   str.c
   stringbuf.c

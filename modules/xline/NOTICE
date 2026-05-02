@@ -29,19 +29,19 @@ The original v1.1.0 snapshot landed in the first commit of branch
 
 Layout
 ------
-  isocline.c              — umbrella TU (compiled); #includes every
-                            other .c in this dir via its
-                            `#if !defined(IC_SEPARATE_OBJS)` block.
-  line.h                  — public header. Exposes `xLine*` /
-                            `XLINE_*` names; a `#ifndef
-                            XLINE_NO_COMPAT` block at the tail
-                            keeps upstream `ic_*` names as
-                            aliases for the duration of this PR.
-  {attr,bbcode,...}.[ch]  — internal implementation; pulled in by
-                            isocline.c, marked HEADER_FILE_ONLY in
-                            CMake. Internal names (`ic_private`,
-                            `ic_env_t`, `ic_get_env`, etc.) are
-                            intentionally kept upstream-style.
+  line.c                  — public API entry points (xLine*), wired
+                            on top of the internal helpers. Formerly
+                            isocline.c; renamed to match xKit's
+                            module/header naming (line.h ⇄ line.c).
+  line.h                  — public header. Exposes the xLine* /
+                            XLINE_* names consumed by xKit.
+  {attr,bbcode,...}.[ch]  — internal implementation. Each .c is its
+                            own translation unit; the former
+                            `#if !defined(IC_SEPARATE_OBJS)` umbrella
+                            has been retired. Internal names
+                            (ic_private, ic_env_t, ic_get_env, etc.)
+                            are intentionally kept upstream-style to
+                            minimise drift when cherry-picking fixes.
 
 Attribution
 -----------

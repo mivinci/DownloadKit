@@ -6,11 +6,13 @@
 -----------------------------------------------------------------------------*/
 
 //-------------------------------------------------------------
-// Every .c in this directory is its own translation unit; the
-// umbrella #include block that upstream used (guarded by
-// !defined(IC_SEPARATE_OBJS)) has been retired. Build flags such
-// as _XOPEN_SOURCE, _DEFAULT_SOURCE and the MSVC-specific
-// _CRT_*_WARNINGS suppressions are now set per-target in
+// Public API entry points for the xline module.
+//
+// This file implements every xLine* function declared in line.h
+// by delegating to the internal helpers in this directory
+// (editline.c, term.c, history.c, bbcode.c, ...). Feature-test
+// macros such as _XOPEN_SOURCE / _DEFAULT_SOURCE and the MSVC
+// _CRT_*_WARNINGS suppressions are set per-target in
 // CMakeLists.txt.
 //-------------------------------------------------------------
 

@@ -11,11 +11,11 @@
 // HTML color-name -> ic_color_t lookup table used by the bbcode parser.
 // The entries are sorted by name so callers can binary-search.
 
-#include "platform.h"
 #include "color.h"
+#include "platform.h"
 
 typedef struct style_color_s {
-  const char* name;
+  const char *name;
   ic_color_t  color;
 } style_color_t;
 

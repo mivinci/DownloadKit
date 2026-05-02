@@ -20,9 +20,9 @@
 #include "platform.h"
 
 #if defined(IC_NO_DEBUG_MSG)
-#define debug_msg(fmt,...)   (void)(0)
+#define debug_msg(fmt, ...) (void)(0)
 #else
-ic_private void debug_msg(const char* fmt, ...);
+ic_private void debug_msg(const char *fmt, ...);
 #endif
 
 #endif // IC_DEBUG_H

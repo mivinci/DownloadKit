@@ -18,22 +18,25 @@
 
 // --- Memory primitives (bounded / asserting wrappers) ---------
 
-ic_private void    ic_memmove(void* dest, const void* src, ssize_t n);
-ic_private void    ic_memcpy(void* dest, const void* src, ssize_t n);
-ic_private void    ic_memset(void* dest, uint8_t value, ssize_t n);
-ic_private bool    ic_memnmove(void* dest, ssize_t dest_size, const void* src, ssize_t n);
+ic_private void ic_memmove(void *dest, const void *src, ssize_t n);
+ic_private void ic_memcpy(void *dest, const void *src, ssize_t n);
+ic_private void ic_memset(void *dest, uint8_t value, ssize_t n);
+ic_private bool ic_memnmove(void *dest, ssize_t dest_size, const void *src,
+                            ssize_t n);
 
 // --- String primitives ----------------------------------------
 
-ic_private ssize_t ic_strlen(const char* s);
-ic_private bool    ic_strcpy(char* dest, ssize_t dest_size /* including 0 */, const char* src);
-ic_private bool    ic_strncpy(char* dest, ssize_t dest_size /* including 0 */, const char* src, ssize_t n);
+ic_private ssize_t ic_strlen(const char *s);
+ic_private bool    ic_strcpy(char *dest, ssize_t dest_size /* including 0 */,
+                             const char *src);
+ic_private bool    ic_strncpy(char *dest, ssize_t dest_size /* including 0 */,
+                              const char *src, ssize_t n);
 
-ic_private bool    ic_contains(const char* big, const char* s);
-ic_private bool    ic_icontains(const char* big, const char* s);
-ic_private char    ic_tolower(char c);
-ic_private void    ic_str_tolower(char* s);
-ic_private int     ic_stricmp(const char* s1, const char* s2);
-ic_private int     ic_strnicmp(const char* s1, const char* s2, ssize_t n);
+ic_private bool ic_contains(const char *big, const char *s);
+ic_private bool ic_icontains(const char *big, const char *s);
+ic_private char ic_tolower(char c);
+ic_private void ic_str_tolower(char *s);
+ic_private int  ic_stricmp(const char *s1, const char *s2);
+ic_private int  ic_strnicmp(const char *s1, const char *s2, ssize_t n);
 
 #endif // IC_STR_H

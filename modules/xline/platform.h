@@ -14,43 +14,43 @@
 // handle that threads through the whole codebase.
 //-------------------------------------------------------------
 
-#include <sys/types.h>  // ssize_t (posix)
+#include <assert.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
-#include <assert.h>
+#include <sys/types.h> // ssize_t (posix)
 
 // --- extern "C" / visibility ----------------------------------
 
-# ifdef __cplusplus
-#  define ic_extern_c   extern "C"
-# else
-#  define ic_extern_c
-# endif
-
-#if defined(IC_SEPARATE_OBJS)
-#  define ic_public     ic_extern_c
-# if defined(__GNUC__) // includes clang and icc
-#  define ic_private    __attribute__((visibility("hidden")))
-# else
-#  define ic_private
-# endif
+#ifdef __cplusplus
+#define ic_extern_c extern "C"
 #else
-# define ic_private     static
-# define ic_public      ic_extern_c
+#define ic_extern_c
 #endif
 
-#define ic_unused(x)    (void)(x)
+#if defined(IC_SEPARATE_OBJS)
+#define ic_public ic_extern_c
+#if defined(__GNUC__) // includes clang and icc
+#define ic_private __attribute__((visibility("hidden")))
+#else
+#define ic_private
+#endif
+#else
+#define ic_private static
+#define ic_public  ic_extern_c
+#endif
+
+#define ic_unused(x) (void)(x)
 
 // Attribute marker for file-local helpers we intentionally keep even
 // when nobody currently calls them (upstream's alternate code paths /
 // future key bindings). Keeps -Wunused-function silent without
 // resorting to a module-wide -Wno-unused-function override.
 #if defined(__GNUC__) || defined(__clang__)
-#  define ic_unused_fn  __attribute__((unused))
+#define ic_unused_fn __attribute__((unused))
 #else
-#  define ic_unused_fn
+#define ic_unused_fn
 #endif
 
 // --- ssize_t helpers ------------------------------------------
@@ -59,9 +59,13 @@
 typedef intptr_t ssize_t;
 #endif
 
-#define ssizeof(tp)   (ssize_t)(sizeof(tp))
-static inline size_t  to_size_t(ssize_t sz) { return (sz >= 0 ? (size_t)sz : 0); }
-static inline ssize_t to_ssize_t(size_t sz) { return (sz <= SIZE_MAX/2 ? (ssize_t)sz : 0); }
+#define ssizeof(tp) (ssize_t)(sizeof(tp))
+static inline size_t to_size_t(ssize_t sz) {
+  return (sz >= 0 ? (size_t)sz : 0);
+}
+static inline ssize_t to_ssize_t(size_t sz) {
+  return (sz <= SIZE_MAX / 2 ? (ssize_t)sz : 0);
+}
 
 // --- Environment forward decl ---------------------------------
 

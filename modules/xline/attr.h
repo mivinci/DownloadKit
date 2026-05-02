@@ -8,7 +8,9 @@
 #ifndef IC_ATTR_H
 #define IC_ATTR_H
 
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
+#include "color.h"
 #include "stringbuf.h"
 
 //-------------------------------------------------------------

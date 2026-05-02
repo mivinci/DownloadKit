@@ -9,7 +9,8 @@
 #define IC_ENV_H
 
 #include "line.h"
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
 #include "term.h"
 #include "tty.h"
 #include "stringbuf.h"

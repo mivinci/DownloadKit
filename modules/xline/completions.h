@@ -8,7 +8,8 @@
 #ifndef IC_COMPLETIONS_H
 #define IC_COMPLETIONS_H
 
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
 #include "stringbuf.h"
 
 

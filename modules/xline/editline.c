@@ -7,7 +7,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
+#include "str.h"
+#include "debug.h"
+#include "unicode.h"
+#include "color.h"
 #include "term.h"
 #include "tty.h"
 #include "env.h"
@@ -16,47 +21,12 @@
 #include "completions.h"
 #include "undo.h"
 #include "highlight.h"
+#include "editline.h"
 
 //-------------------------------------------------------------
-// The editor state
-//-------------------------------------------------------------
-
-
-
-// editor state
-typedef struct editor_s {
-  stringbuf_t*  input;        // current user input
-  stringbuf_t*  extra;        // extra displayed info (for completion menu etc)
-  stringbuf_t*  hint;         // hint displayed as part of the input
-  stringbuf_t*  hint_help;    // help for a hint.
-  ssize_t       pos;          // current cursor position in the input
-  ssize_t       cur_rows;     // current used rows to display our content (including extra content)
-  ssize_t       cur_row;      // current row that has the cursor (0 based, relative to the prompt)
-  ssize_t       termw;
-  bool          modified;     // has a modification happened? (used for history navigation for example)  
-  bool          disable_undo; // temporarily disable auto undo (for history search)
-  ssize_t       history_idx;  // current index in the history 
-  editstate_t*  undo;         // undo buffer  
-  editstate_t*  redo;         // redo buffer
-  const char*   prompt_text;  // text of the prompt before the prompt marker    
-  alloc_t*      mem;          // allocator
-  // caches
-  attrbuf_t*    attrs;        // reuse attribute buffers 
-  attrbuf_t*    attrs_extra; 
-} editor_t;
-
-
-
-
-
-//-------------------------------------------------------------
-// Main edit line 
+// Main edit line
 //-------------------------------------------------------------
 static char* edit_line( ic_env_t* env, const char* prompt_text );  // defined at bottom
-static void edit_refresh(ic_env_t* env, editor_t* eb);
-ic_private bool edit_dispatch_key(ic_env_t* env, editor_t* eb, code_t c);  // defined at bottom; returns true if main loop should exit
-ic_private bool edit_init(ic_env_t* env, editor_t* eb, const char* prompt_text);  // defined at bottom
-ic_private char* edit_finalize(ic_env_t* env, editor_t* eb, code_t last_c);  // defined at bottom
 
 ic_private char* ic_editline(ic_env_t* env, const char* prompt_text) {
   tty_start_raw(env->tty);
@@ -166,7 +136,7 @@ static bool edit_pos_is_at_row_end( ic_env_t* env, editor_t* eb ) {
   return rc.last_on_row;
 }
 
-static void edit_write_prompt( ic_env_t* env, editor_t* eb, ssize_t row, bool in_extra ) {
+ic_private void edit_write_prompt( ic_env_t* env, editor_t* eb, ssize_t row, bool in_extra ) {
   if (in_extra) return;
   bbcode_style_open(env->bbcode, "ic-prompt");
   if (row==0) {
@@ -259,7 +229,7 @@ static void edit_refresh_rows(ic_env_t* env, editor_t* eb, stringbuf_t* input, a
 }
 
 
-static void edit_refresh(ic_env_t* env, editor_t* eb) 
+ic_private void edit_refresh(ic_env_t* env, editor_t* eb)
 {
   // calculate the new cursor row and total rows needed
   ssize_t promptw, cpromptw;

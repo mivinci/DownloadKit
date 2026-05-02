@@ -8,7 +8,8 @@
 #ifndef IC_HIGHLIGHT_H
 #define IC_HIGHLIGHT_H
 
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
 #include "attr.h"
 #include "term.h"
 #include "bbcode.h"

@@ -8,7 +8,12 @@
 #include <stdio.h>
 
 #include "line.h"
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
+#include "str.h"
+#include "debug.h"
+#include "unicode.h"
+#include "color.h"
 #include "env.h"
 #include "stringbuf.h"
 #include "completions.h"

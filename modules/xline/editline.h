@@ -1,0 +1,58 @@
+/* ----------------------------------------------------------------------------
+  Copyright (c) 2021, Daan Leijen
+  This is free software; you can redistribute it and/or modify it
+  under the terms of the MIT License. A copy of the license can be
+  found in the "LICENSE" file at the root of this distribution.
+-----------------------------------------------------------------------------*/
+#pragma once
+#ifndef IC_EDITLINE_H
+#define IC_EDITLINE_H
+
+#include "platform.h"
+#include "mem.h"
+#include "stringbuf.h"
+#include "attr.h"
+#include "undo.h"
+#include "env.h"
+
+//-------------------------------------------------------------
+// The editor state
+//
+// Lifted from editline.c so that other internal translation units
+// (e.g. async.c) can embed an editor_t by value and call into the
+// synchronous edit primitives without having to be merged into the
+// isocline.c umbrella TU.
+//-------------------------------------------------------------
+
+typedef struct editor_s {
+  stringbuf_t*  input;        // current user input
+  stringbuf_t*  extra;        // extra displayed info (for completion menu etc)
+  stringbuf_t*  hint;         // hint displayed as part of the input
+  stringbuf_t*  hint_help;    // help for a hint.
+  ssize_t       pos;          // current cursor position in the input
+  ssize_t       cur_rows;     // current used rows to display our content (including extra content)
+  ssize_t       cur_row;      // current row that has the cursor (0 based, relative to the prompt)
+  ssize_t       termw;
+  bool          modified;     // has a modification happened? (used for history navigation for example)
+  bool          disable_undo; // temporarily disable auto undo (for history search)
+  ssize_t       history_idx;  // current index in the history
+  editstate_t*  undo;         // undo buffer
+  editstate_t*  redo;         // redo buffer
+  const char*   prompt_text;  // text of the prompt before the prompt marker
+  alloc_t*      mem;          // allocator
+  // caches
+  attrbuf_t*    attrs;        // reuse attribute buffers
+  attrbuf_t*    attrs_extra;
+} editor_t;
+
+//-------------------------------------------------------------
+// Edit primitives shared across the xline internals.
+//-------------------------------------------------------------
+
+ic_private bool  edit_init(ic_env_t* env, editor_t* eb, const char* prompt_text);
+ic_private bool  edit_dispatch_key(ic_env_t* env, editor_t* eb, code_t c);
+ic_private char* edit_finalize(ic_env_t* env, editor_t* eb, code_t last_c);
+ic_private void  edit_refresh(ic_env_t* env, editor_t* eb);
+ic_private void  edit_write_prompt(ic_env_t* env, editor_t* eb, ssize_t row, bool in_extra);
+
+#endif // IC_EDITLINE_H

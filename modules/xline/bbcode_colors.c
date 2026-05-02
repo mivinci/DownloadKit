@@ -7,7 +7,12 @@
 
 // This file is included from "bbcode.c" and contains html color names
 
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
+#include "str.h"
+#include "debug.h"
+#include "unicode.h"
+#include "color.h"
 
 typedef struct style_color_s {
   const char* name;

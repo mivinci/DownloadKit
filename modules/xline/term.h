@@ -8,7 +8,9 @@
 #ifndef IC_TERM_H
 #define IC_TERM_H
 
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
+#include "color.h"
 #include "tty.h"
 #include "stringbuf.h"
 #include "attr.h"

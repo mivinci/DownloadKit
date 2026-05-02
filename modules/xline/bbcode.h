@@ -9,7 +9,8 @@
 #define IC_BBCODE_H
 
 #include <stdarg.h>
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
 #include "term.h"
 
 struct bbcode_s;

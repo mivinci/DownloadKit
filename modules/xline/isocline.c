@@ -33,7 +33,10 @@
 # include "tty_esc.c"
 # include "tty.c"
 # include "stringbuf.c"
-# include "common.c"
+# include "str.c"
+# include "unicode.c"
+# include "debug.c"
+# include "mem.c"
 # include "async.c"
 #endif
 
@@ -46,7 +49,10 @@
 #include <stdarg.h>
 
 #include "line.h"
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
+#include "str.h"
+#include "debug.h"
 #include "env.h"
 
 

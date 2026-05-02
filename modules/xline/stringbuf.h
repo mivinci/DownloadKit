@@ -9,7 +9,9 @@
 #define IC_STRINGBUF_H
 
 #include <stdarg.h>
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
+#include "unicode.h"
 
 //-------------------------------------------------------------
 // string buffer

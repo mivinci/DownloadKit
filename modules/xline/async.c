@@ -8,21 +8,22 @@
 //-------------------------------------------------------------
 // FD-level async line editing.
 //
-// Compiled as part of the isocline.c umbrella TU. Relies on internals
-// declared in editline.c (editor_t, edit_init, edit_dispatch_key,
-// edit_finalize, edit_refresh, edit_write_prompt) and tty.c
-// (tty_read_timeout, tty_start_raw, tty_end_raw, tty_fd).
+// Relies on the synchronous edit primitives declared in editline.h
+// (editor_t, edit_init, edit_dispatch_key, edit_finalize, edit_refresh,
+// edit_write_prompt) and tty.c (tty_read_timeout, tty_start_raw,
+// tty_end_raw, tty_fd).
 //-------------------------------------------------------------
 
 #include <stdio.h>
 #include <string.h>
 
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
+#include "debug.h"
 #include "term.h"
 #include "tty.h"
 #include "env.h"
-#include "stringbuf.h"
-#include "history.h"
+#include "editline.h"
 #include "line.h"
 
 //-------------------------------------------------------------

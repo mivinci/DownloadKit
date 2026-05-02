@@ -16,21 +16,24 @@ set(XLINE_UMBRELLA_SOURCES
   attr.c
   bbcode.c
   bbcode_colors.c
-  common.c
   completers.c
   completions.c
+  debug.c
   editline.c
   editline_completion.c
   editline_help.c
   editline_history.c
   highlight.c
   history.c
+  mem.c
+  str.c
   stringbuf.c
   term.c
   term_color.c
   tty.c
   tty_esc.c
   undo.c
+  unicode.c
   wcwidth.c)
 
 set_source_files_properties(${XLINE_UMBRELLA_SOURCES}
@@ -51,6 +54,7 @@ target_compile_definitions(xline PRIVATE IC_NO_DEBUG_MSG)
 # warning never breaks our build.
 target_compile_options(xline PRIVATE
   -Wno-error
+  -Wno-unused-function
   -Wno-variadic-macro-arguments-omitted
   -Wno-gnu-zero-variadic-macro-arguments)
 

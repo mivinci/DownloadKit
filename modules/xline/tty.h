@@ -8,10 +8,12 @@
 #ifndef IC_TTY_H
 #define IC_TTY_H
 
-#include "common.h"
+#include "platform.h"
+#include "mem.h"
+#include "unicode.h"
 
 //-------------------------------------------------------------
-// TTY/Keyboard input 
+// TTY/Keyboard input
 //-------------------------------------------------------------
 
 // Key code

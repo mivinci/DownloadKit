@@ -3,14 +3,14 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * ai_session.cpp - Streaming REPL driven by the full xai stack
- *                  (xAiAgent + xAiSession + xAiTool + xAiProvider).
+ * ai_session.cpp - Streaming REPL driven by the full xagent stack
+ *                  (xAgent + xAgentSession + xAgentTool + xAgentProvider).
  *
  * Unlike ai_openai.cpp (which drives the provider vtable directly for
  * end-to-end diagnostics), this demo is the canonical integration
  * path that user code should copy:
  *
- *   xAiProvider -> xAiAgent -> xAiSession
+ *   xAgentProvider -> xAgent -> xAgentSession
  *
  * The session hides the tool-call loop entirely: when the model asks
  * to call `get_time`, the session invokes our handler, folds the
@@ -30,13 +30,13 @@
  * reverse search. See cmake/FindIsocline.cmake.
  */
 
-#include <xai/agent.h>
-#include <xai/message.h>
-#include <xai/provider.h>
-#include <xai/provider_openai.h>
-#include <xai/session.h>
-#include <xai/tool.h>
-#include <xai/tool_shell.h>
+#include <xagent/agent.h>
+#include <xagent/message.h>
+#include <xagent/provider.h>
+#include <xagent/provider_openai.h>
+#include <xagent/session.h>
+#include <xagent/tool.h>
+#include <xagent/tool_shell.h>
 #include <xbase/backtrace.h>
 #include <xbase/event.h>
 #include <xbase/time.h>
@@ -54,7 +54,7 @@
 /* ── REPL state ─────────────────────────────────────────────────────── */
 struct ReplCtx {
   xEventLoop   loop             = nullptr;
-  xAiSession   sess             = nullptr;
+  xAgentSession   sess             = nullptr;
   xLineHandle  line             = nullptr; /* current async editor */
   xEventSource src              = nullptr; /* loop fd registration */
   bool         busy             = false;   /* AI run in flight */
@@ -251,12 +251,12 @@ static void slash_cmd_cancel(ReplCtx *ctx, const char *args) {
     above_printf(ctx->line, "\x1b[2m(no AI run in flight)\x1b[0m");
     return;
   }
-  /* xAiSessionCancel is async: it asks the provider to unwind and
+  /* xAgentSessionCancel is async: it asks the provider to unwind and
    * on_done is still delivered (with reason == Aborted). Flip busy
    * off there, not here — that keeps on_text/on_done ordering
    * consistent with the natural-completion path. */
   above_printf(ctx->line, "\x1b[2m[cancel] aborting run…\x1b[0m");
-  xAiSessionCancel(ctx->sess);
+  xAgentSessionCancel(ctx->sess);
 }
 
 static void slash_cmd_history(ReplCtx *ctx, const char *args) {
@@ -373,7 +373,7 @@ static void end_thinking(ReplCtx *ctx) {
   ctx->in_thinking = false;
 }
 
-static void on_text(xAiSession sess, const char *chunk, size_t len, void *ud) {
+static void on_text(xAgentSession sess, const char *chunk, size_t len, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   /* Close the thinking block (if any) before the visible reply
@@ -397,7 +397,7 @@ static void on_text(xAiSession sess, const char *chunk, size_t len, void *ud) {
  * honour it (including macOS Terminal and iTerm2). On the rare
  * terminal that doesn't, the `[thinking]` prefix still telegraphs
  * intent. */
-static void on_thinking(xAiSession sess, const char *chunk, size_t len,
+static void on_thinking(xAgentSession sess, const char *chunk, size_t len,
                         void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
@@ -409,7 +409,7 @@ static void on_thinking(xAiSession sess, const char *chunk, size_t len,
   above_chunk(ctx->line, chunk, len);
 }
 
-static void on_tool(xAiSession sess, const char *tool_name, int started,
+static void on_tool(xAgentSession sess, const char *tool_name, int started,
                     void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
@@ -419,7 +419,7 @@ static void on_tool(xAiSession sess, const char *tool_name, int started,
                started ? "starting" : "finished");
 }
 
-static void on_tool_output(xAiSession sess, const char *tool_use_id,
+static void on_tool_output(xAgentSession sess, const char *tool_use_id,
                            const char *tool_name, const char *data, size_t len,
                            void *ud) {
   (void)sess;
@@ -436,42 +436,42 @@ static void on_tool_output(xAiSession sess, const char *tool_use_id,
   xLinePrintAboveChunk(ctx->line, "\x1b[0m");
 }
 
-static void on_sidecar(xAiSession sess, xAiSidecarEvent event, void *ud) {
+static void on_sidecar(xAgentSession sess, xAgentSidecarEvent event, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
   switch (event) {
-  case xAiSidecarEvent_Started:
+  case xAgentSidecarEvent_Started:
     above_printf(ctx->line, "\x1b[2m[sidecar] analyzing idle tool...\x1b[0m");
     break;
-  case xAiSidecarEvent_Done:
+  case xAgentSidecarEvent_Done:
     above_printf(ctx->line, "\x1b[2m[sidecar] done\x1b[0m");
     break;
   }
 }
 
-static const char *done_reason_name(xAiDoneReason r) {
+static const char *done_reason_name(xAgentDoneReason r) {
   switch (r) {
-  case xAiDoneReason_Completed:
+  case xAgentDoneReason_Completed:
     return "completed";
-  case xAiDoneReason_MaxTurns:
+  case xAgentDoneReason_MaxTurns:
     return "max_turns";
-  case xAiDoneReason_PromptTooLong:
+  case xAgentDoneReason_PromptTooLong:
     return "prompt_too_long";
-  case xAiDoneReason_Aborted:
+  case xAgentDoneReason_Aborted:
     return "aborted";
-  case xAiDoneReason_ModelError:
+  case xAgentDoneReason_ModelError:
     return "model_error";
-  case xAiDoneReason_ToolError:
+  case xAgentDoneReason_ToolError:
     return "tool_error";
-  case xAiDoneReason_Stopped:
+  case xAgentDoneReason_Stopped:
     return "stopped";
   }
   return "?";
 }
 
-static void on_done(xAiSession sess, xAiDoneReason reason,
-                    const xAiUsage *usage, void *ud) {
+static void on_done(xAgentSession sess, xAgentDoneReason reason,
+                    const xAgentUsage *usage, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
@@ -546,7 +546,7 @@ static void on_done(xAiSession sess, xAiDoneReason reason,
    * The event loop keeps running so the editor stays interactive. */
 }
 
-static void on_error(xAiSession sess, xErrno err, const char *msg, void *ud) {
+static void on_error(xAgentSession sess, xErrno err, const char *msg, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   /* Same SGR hygiene as on_done — error might fire mid-thinking.
@@ -583,24 +583,24 @@ static xErrno repl_submit_text(ReplCtx *ctx, const char *text);
  * observe the SummarizeOldest / TruncateOldest lifecycle in real time.
  * All three events are informational; ignoring them doesn't change
  * session behaviour, but surfacing them makes the budget demo much
- * easier to follow — the user sees why a subsequent xAiSessionInput
+ * easier to follow — the user sees why a subsequent xAgentSessionInput
  * returned Busy (Compacting) and knows when to retry (CompactDone). */
-static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
+static void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
                             const void *info, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
   /* Budget events are chrome — render faint, same as [tool]/[done]. */
   switch (event) {
-  case xAiBudgetEvent_Compacting: {
-    auto *ci = static_cast<const xAiBudgetCompactInfo *>(info);
+  case xAgentBudgetEvent_Compacting: {
+    auto *ci = static_cast<const xAgentBudgetCompactInfo *>(info);
     above_printf(ctx->line,
                  "\x1b[2m[budget] compacting %zu old entries...\x1b[0m",
                  ci ? ci->entries_compacted : (size_t)0);
     break;
   }
-  case xAiBudgetEvent_CompactDone: {
-    auto *cdi = static_cast<const xAiBudgetCompactDoneInfo *>(info);
+  case xAgentBudgetEvent_CompactDone: {
+    auto *cdi = static_cast<const xAgentBudgetCompactDoneInfo *>(info);
     if (cdi && cdi->summary_ok) {
       above_printf(ctx->line,
                    "\x1b[2m[budget] compact done — summary %zu tokens, "
@@ -625,14 +625,14 @@ static void on_budget_event(xAiSession sess, xAiBudgetEvent event,
     }
     break;
   }
-  case xAiBudgetEvent_Truncated: {
-    auto *ti = static_cast<const xAiBudgetTruncateInfo *>(info);
+  case xAgentBudgetEvent_Truncated: {
+    auto *ti = static_cast<const xAgentBudgetTruncateInfo *>(info);
     above_printf(ctx->line, "\x1b[2m[budget] truncated %zu old entries\x1b[0m",
                  ti ? ti->entries_removed : (size_t)0);
     break;
   }
-  case xAiBudgetEvent_GatePassed: {
-    auto *gi = static_cast<const xAiBudgetGateInfo *>(info);
+  case xAgentBudgetEvent_GatePassed: {
+    auto *gi = static_cast<const xAgentBudgetGateInfo *>(info);
     if (gi) {
       ctx->budget_limit       = gi->limit;
       ctx->budget_remaining   = gi->remaining;
@@ -702,18 +702,18 @@ static void repl_close_line(ReplCtx *ctx) {
 /* Submit a user message to the session. Handles the Busy → compact
  * → retry dance asynchronously: if the gate returns Busy we stash
  * the text and wait for on_budget_event(CompactDone) to resubmit.
- * xAiMessageFromText returns a thread-local borrow-view backed by
+ * xAgentMessageFromText returns a thread-local borrow-view backed by
  * caller-owned storage, so we must keep the text alive until the
  * session has actually accepted (and internally duplicated) it —
- * which, on the Ok path, happens before xAiSessionInput returns. */
+ * which, on the Ok path, happens before xAgentSessionInput returns. */
 static xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
   ctx->saw_first_delta = false;
   ctx->in_thinking     = false;
   ctx->reply_bytes     = 0;
   ctx->input_ms        = xMonoMs();
 
-  xAiMessage m   = xAiMessageFromText(text);
-  xErrno     err = xAiSessionInput(ctx->sess, m);
+  xAgentMessage m   = xAgentMessageFromText(text);
+  xErrno     err = xAgentSessionInput(ctx->sess, m);
   if (err == xErrno_Busy) {
     /* A budget compact is in flight. Stash a copy of the text
      * (the caller's buffer may be freed before CompactDone fires)
@@ -817,7 +817,7 @@ static void repl_line_cb(int fd, xEventMask mask, void *arg) {
        *
        * Two distinct semantics depending on AI state:
        *   busy → abort the in-flight run, keep the REPL alive
-       *          (mirrors /cancel exactly: xAiSessionCancel is
+       *          (mirrors /cancel exactly: xAgentSessionCancel is
        *          async, on_done will eventually arrive with
        *          reason=Aborted and flip ctx->busy back off).
        *   idle → treat as a request to leave the REPL. A second
@@ -834,7 +834,7 @@ static void repl_line_cb(int fd, xEventMask mask, void *arg) {
           return;
         }
         above_printf(ctx->line, "\x1b[2m[cancel] aborting run…\x1b[0m");
-        xAiSessionCancel(ctx->sess);
+        xAgentSessionCancel(ctx->sess);
         return;
       }
       xEventLoopStop(ctx->loop);
@@ -864,7 +864,7 @@ static void repl_on_sigint(int signo, void *arg) {
   (void)signo;
   ReplCtx *ctx = static_cast<ReplCtx *>(arg);
   if (ctx->busy) {
-    xAiSessionCancel(ctx->sess);
+    xAgentSessionCancel(ctx->sess);
     return;
   }
   xLineAsyncStop();
@@ -928,14 +928,14 @@ int main(int argc, char *argv[]) {
   }
 
   /* ── Provider ───────────────────────────────────────────────────── */
-  xAiOpenAIConf pconf;
+  xAgentOpenAIConf pconf;
   std::memset(&pconf, 0, sizeof(pconf));
   pconf.api_key       = api_key;
   pconf.base_url      = api_url;
   pconf.default_model = model;
   pconf.timeout_ms    = 60000;
 
-  xAiProvider pvd = xAiProviderOpenAICreate(loop, http, &pconf);
+  xAgentProvider pvd = xAgentProviderOpenAICreate(loop, http, &pconf);
   if (!pvd) {
     std::fprintf(stderr, "failed to create OpenAI provider\n");
     xHttpClientDestroy(http);
@@ -951,7 +951,7 @@ int main(int argc, char *argv[]) {
   ReplCtx ctx;
   ctx.loop = loop;
 
-  xAiShellConf shell_conf;
+  xAgentShellConf shell_conf;
   std::memset(&shell_conf, 0, sizeof(shell_conf));
   shell_conf.callback_ud = &ctx;
   shell_conf.on_command  = [](const char *command, const char *cwd, void *ud) {
@@ -969,26 +969,26 @@ int main(int argc, char *argv[]) {
                  exit_code, stdout_len, stderr_len,
                  timed_out ? " (timed out)" : "");
   };
-  xAiTool shell_tool = xAiToolShellCreate(loop, &shell_conf);
+  xAgentTool shell_tool = xAgentToolShellCreate(loop, &shell_conf);
   if (!shell_tool) {
     std::fprintf(stderr, "failed to create shell tool\n");
-    xAiProviderDestroy(pvd);
+    xAgentProviderDestroy(pvd);
     xHttpClientDestroy(http);
     xEventLoopDestroy(loop);
     return 1;
   }
 
-  const xAiTool *tool_ptrs[] = {&shell_tool};
+  const xAgentTool *tool_ptrs[] = {&shell_tool};
   const size_t   TOTAL_TOOLS = 1;
   /* ── Session config (agent's default session) ──────────────────────
    *
    * Instead of creating a session manually and managing its
    * lifecycle, we set default_session_conf on the agent so it
    * creates a built-in default session at construction time.
-   * The session is retrieved via xAiAgentDefaultSession() and
-   * is destroyed automatically by xAiAgentDestroy(). */
+   * The session is retrieved via xAgentDefaultSession() and
+   * is destroyed automatically by xAgentDestroy(). */
 
-  xAiSessionConf sconf;
+  xAgentSessionConf sconf;
   std::memset(&sconf, 0, sizeof(sconf));
   sconf.cbs.on_text        = on_text;
   sconf.cbs.on_thinking    = on_thinking;
@@ -1017,7 +1017,7 @@ int main(int argc, char *argv[]) {
    * max_tokens below ~4096 expect xErrno_PromptTooLong (which the
    * REPL and on_error both surface with a hint line below), and
    * see session.c's keep_recent_turns floor logic for why. */
-  sconf.budget.policy            = xAiBudgetPolicy_Auto;
+  sconf.budget.policy            = xAgentBudgetPolicy_Auto;
   sconf.budget.max_tokens        = 8192;
   sconf.budget.keep_recent_turns = 2;
   sconf.budget.on_budget_event   = on_budget_event;
@@ -1030,13 +1030,13 @@ int main(int argc, char *argv[]) {
   sconf.sidecar_idle_ms = 3000;
 
   /* ── Agent ──────────────────────────────────────────────────────── */
-  xAiAgentConf aconf;
+  xAgentConf aconf;
   std::memset(&aconf, 0, sizeof(aconf));
   aconf.loop     = loop;
   aconf.provider = pvd;
   aconf.model    = model;
   aconf.system_prompt =
-    "You are a concise assistant running on xKit's xai session "
+    "You are a concise assistant running on xKit's xagent session "
     "demo. You have access to a shell tool that can execute "
     "commands via /bin/sh -c and return stdout/stderr/exit code. "
     "Use it when you need to run commands, check the system, or "
@@ -1050,11 +1050,11 @@ int main(int argc, char *argv[]) {
   aconf.enable_sidecar_query = 1;
   aconf.default_session_conf = &sconf;
 
-  xAiAgent agent = xAiAgentCreate(&aconf);
+  xAgent agent = xAgentCreate(&aconf);
   if (!agent) {
     std::fprintf(stderr, "failed to create agent\n");
-    xAiToolDestroy(shell_tool);
-    xAiProviderDestroy(pvd);
+    xAgentToolDestroy(shell_tool);
+    xAgentProviderDestroy(pvd);
     xHttpClientDestroy(http);
     xEventLoopDestroy(loop);
     return 1;
@@ -1063,12 +1063,12 @@ int main(int argc, char *argv[]) {
   /* Retrieve the agent's built-in default session — no manual
    * create/destroy needed. The session lives for the agent's
    * entire lifetime. */
-  xAiSession sess = xAiAgentDefaultSession(agent);
+  xAgentSession sess = xAgentDefaultSession(agent);
   if (!sess) {
     std::fprintf(stderr, "agent has no default session\n");
-    xAiAgentDestroy(agent);
-    xAiToolDestroy(shell_tool);
-    xAiProviderDestroy(pvd);
+    xAgentDestroy(agent);
+    xAgentToolDestroy(shell_tool);
+    xAgentProviderDestroy(pvd);
     xHttpClientDestroy(http);
     xEventLoopDestroy(loop);
     return 1;
@@ -1169,10 +1169,10 @@ int main(int argc, char *argv[]) {
   std::fflush(stdout);
 
   if (repl_open_line(&ctx) != 0) {
-    xAiAgentDestroy(agent);
+    xAgentDestroy(agent);
     for (size_t i = 0; i < TOTAL_TOOLS; ++i)
-      xAiToolDestroy(*tool_ptrs[i]);
-    xAiProviderDestroy(pvd);
+      xAgentToolDestroy(*tool_ptrs[i]);
+    xAgentProviderDestroy(pvd);
     xHttpClientDestroy(http);
     xEventLoopDestroy(loop);
     return 1;
@@ -1187,12 +1187,12 @@ int main(int argc, char *argv[]) {
 
   std::printf("\nBye!\n");
 
-  /* No xAiSessionDestroy needed — the default session is owned
-   * by the agent and destroyed automatically in xAiAgentDestroy. */
-  xAiAgentDestroy(agent);
+  /* No xAgentSessionDestroy needed — the default session is owned
+   * by the agent and destroyed automatically in xAgentDestroy. */
+  xAgentDestroy(agent);
   for (size_t i = 0; i < TOTAL_TOOLS; ++i)
-    xAiToolDestroy(*tool_ptrs[i]);
-  xAiProviderDestroy(pvd);
+    xAgentToolDestroy(*tool_ptrs[i]);
+  xAgentProviderDestroy(pvd);
   xHttpClientDestroy(http);
   xEventLoopDestroy(loop);
   return 0;

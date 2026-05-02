@@ -1,0 +1,2 @@
+/usr/bin/ar qc libxp2p.a CMakeFiles/xp2p.dir/ice_agent.c.o CMakeFiles/xp2p.dir/ice_candidate.c.o CMakeFiles/xp2p.dir/ice_pair.c.o CMakeFiles/xp2p.dir/nat_probe.c.o CMakeFiles/xp2p.dir/sdp.c.o CMakeFiles/xp2p.dir/stun_attr.c.o CMakeFiles/xp2p.dir/stun_msg.c.o CMakeFiles/xp2p.dir/stun_txn.c.o CMakeFiles/xp2p.dir/turn_channel.c.o CMakeFiles/xp2p.dir/turn_client.c.o CMakeFiles/xp2p.dir/dtls_transport.c.o CMakeFiles/xp2p.dir/sctp_transport.c.o CMakeFiles/xp2p.dir/datachannel.c.o CMakeFiles/xp2p.dir/peer_connection.c.o CMakeFiles/xp2p.dir/dtls_openssl.c.o
+/usr/bin/ranlib libxp2p.a

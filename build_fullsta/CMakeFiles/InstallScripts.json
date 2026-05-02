@@ -1,0 +1,17 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/cmake_install.cmake",
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/modules/xbase/cmake_install.cmake",
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/modules/xlog/cmake_install.cmake",
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/modules/xbuf/cmake_install.cmake",
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/modules/xnet/cmake_install.cmake",
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/modules/xcrypto/cmake_install.cmake",
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/modules/xhttp/cmake_install.cmake",
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/modules/xp2p/cmake_install.cmake",
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/modules/xfer/cmake_install.cmake",
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/examples/cmake_install.cmake",
+		"/Users/leo/WorkBuddy/Claw/xkit/build_fullsta/bench/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

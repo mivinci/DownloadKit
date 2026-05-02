@@ -1,0 +1,1 @@
+/usr/bin/cc -O3 -DNDEBUG -arch arm64 -dynamiclib -Wl,-headerpad_max_install_names -o libxbuf.dylib -install_name @rpath/libxbuf.dylib CMakeFiles/xbuf.dir/buf.c.o CMakeFiles/xbuf.dir/io.c.o CMakeFiles/xbuf.dir/ring.c.o  -Wl,-rpath,/Users/leo/WorkBuddy/Claw/xkit/build_bsl/modules/xbase ../xbase/libxbase.dylib

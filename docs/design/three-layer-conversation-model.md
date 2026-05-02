@@ -547,13 +547,13 @@ sequenceDiagram
 
 ## 附：在 xKit 中的落地
 
-xKit 的 `xai` 模块大体就是按这个切法做的：
+xKit 的 `xagent` 模块大体就是按这个切法做的：
 
-- `xAiAgent` 承担 Agent 层——身份、长期记忆（计划中）、能力目录（tool 注册表）。
-- `xAiSession` 承担 Session 层——message history、streaming 回调、cancel 作用域。
-- 单次 `xAiSessionSend` 的执行过程对应 Query 层——虽然没有独立的 `xAiQuery` 类型（用运行中的内部状态表达），但它的生存期和取消作用域就是 Query 层概念。
+- `xAgent` 承担 Agent 层——身份、长期记忆（计划中）、能力目录（tool 注册表）。
+- `xAgentSession` 承担 Session 层——message history、streaming 回调、cancel 作用域。
+- 单次 `xAgentSessionSend` 的执行过程对应 Query 层——虽然没有独立的 `xAgentQuery` 类型（用运行中的内部状态表达），但它的生存期和取消作用域就是 Query 层概念。
 
-这个映射不是本文想展开的重点——真正的重点是方法论本身。具体实现细节见 [xai 架构文档](../todo/xai_architecture.md)。
+这个映射不是本文想展开的重点——真正的重点是方法论本身。具体实现细节见 [xagent 架构文档](../todo/xagent_architecture.md)。
 
 ---
 

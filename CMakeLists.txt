@@ -66,7 +66,7 @@ add_subdirectory(modules/xcrypto)
 add_subdirectory(modules/xhttp)
 add_subdirectory(modules/xp2p)
 add_subdirectory(modules/xfer)
-add_subdirectory(modules/xai)
+add_subdirectory(modules/xagent)
 add_subdirectory(modules/xjs)
 add_subdirectory(modules/xline)
 

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libxcrypto.a CMakeFiles/xcrypto.dir/hmac.c.o CMakeFiles/xcrypto.dir/hmac_sha1.c.o CMakeFiles/xcrypto.dir/hmac_sha256.c.o CMakeFiles/xcrypto.dir/hmac_md5.c.o CMakeFiles/xcrypto.dir/crc32.c.o CMakeFiles/xcrypto.dir/md5.c.o CMakeFiles/xcrypto.dir/sha1_openssl.c.o CMakeFiles/xcrypto.dir/sha256_openssl.c.o
+/usr/bin/ranlib libxcrypto.a

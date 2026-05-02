@@ -1,4 +1,4 @@
-# 让 AI "像人"：xai 模块的长期产品方向
+# 让 AI "像人"：xagent 模块的长期产品方向
 
 作者：小W（与麦伯伯讨论后整理）
 日期：2026-04-23
@@ -10,7 +10,7 @@
 
 - "像人" **不等于** "有记忆"。记忆只是四个维度之一，另外三个是：**情绪延续**、**选择性遗忘**、**主动唤醒**。
 - 四个维度的难度递增，SOTA 覆盖度递减。第 1、3 维已有工业方案，第 2、4 维基本空白——**护城河在后两维**。
-- 在现有 `xAiAgent` + `xAiSession` 架构之上，加三个内部组件即可铺开：`xAiMemory`（分层记忆）、`xAiMood`（情绪状态）、`xAiScheduler`（主动唤醒）。公开 API 几乎不用动。
+- 在现有 `xAgent` + `xAgentSession` 架构之上，加三个内部组件即可铺开：`xAgentMemory`（分层记忆）、`xAgentMood`（情绪状态）、`xAgentScheduler`（主动唤醒）。公开 API 几乎不用动。
 - 分三期：**MVP（记忆 + 压缩）→ v1（情绪延续）→ v2（主动唤醒）**。每期都给可测指标，不做"感觉更像人"这种玄学验收。
 - 明确**不做**什么：不做通用 memory-as-a-service、不做无限上下文幻觉、不做"人格扮演"。
 
@@ -48,7 +48,7 @@
 
 - 云端模型（Claude/GPT）在"单次问答能力"上没人追得上，这条路打不过
 - 但**持续陪伴**需要：长期一致的记忆、熟悉的情绪基调、低延迟响应、隐私本地化——这**四个点云端都做不好**
-- `xai` 跑在 xKit 之上，本身就是轻量 / 嵌入式 / 本地优先的定位，正好吃这条赛道
+- `xagent` 跑在 xKit 之上，本身就是轻量 / 嵌入式 / 本地优先的定位，正好吃这条赛道
 - 竞品：Character.AI（情绪在线但无持久记忆）、Replika（记忆有但肤浅）、OpenAI Memory（fact only，无 mood）——都没打穿
 
 ### 1.3 一个简单的判别准则
@@ -115,29 +115,29 @@ AI 如果全部塞 context window，两个问题：
 - **工程派**（MemGPT / A-MEM / Mem0 / Memobase / Memary）：相信结构化分层 + 检索是正道。代价是写入路径有 LLM call 开销。
 - **暴力派**（ChatGPT Memory）：赌 Sutton 的 *Bitter Lesson*——不做检索脚手架，全量塞，等模型和 context 窗口解决一切。代价是端侧和 API 用户用不起。
 
-**对 xai 的启示**：
+**对 xagent 的启示**：
 
-- xai 跑在**端侧**，context 成本硬约束——**不能走 ChatGPT 的暴力路线**，必须分层 + 检索。
+- xagent 跑在**端侧**，context 成本硬约束——**不能走 ChatGPT 的暴力路线**，必须分层 + 检索。
 - A-MEM 的 **Memory Evolution**（新记忆反向改写旧记忆）是真创新，解决了"用户前后矛盾怎么办"的一致性问题。值得吸收。
 - Mem0 的 **Add/Update/Delete/NOOP 四选一**是比 A-MEM 更轻的一致性方案，端侧可能更适合。
 - **共性缺陷**：工程派的六家写入策略都是"LLM 自己决定"，没有明确的价值函数。结果要么存太多（噪声），要么存太少（漏）。这是我们的机会。
 
-#### xai 落地思路
+#### xagent 落地思路
 
 四层存储：
 
 ```text
 ┌─────────────────────────────────────┐
-│ L0: Working Memory                  │  = xAiSession 内 messages 数组
+│ L0: Working Memory                  │  = xAgentSession 内 messages 数组
 │   当前对话的 message 流              │    （已经有了，不用改）
 ├─────────────────────────────────────┤
-│ L1: Episodic Buffer                 │  = 新组件 xAiEpisode
+│ L1: Episodic Buffer                 │  = 新组件 xAgentEpisode
 │   最近 N 轮对话的压缩摘要            │    每轮结束时 LLM 抽取
 ├─────────────────────────────────────┤
-│ L2: Semantic Store                  │  = 新组件 xAiFact
+│ L2: Semantic Store                  │  = 新组件 xAgentFact
 │   稳定事实（偏好、身份、重要决定）    │    vector + keyword 双索引
 ├─────────────────────────────────────┤
-│ L3: Self Model                      │  = 新组件 xAiPersona
+│ L3: Self Model                      │  = 新组件 xAgentPersona
 │   "这个用户是谁"的叙事性画像         │    月级别更新
 └─────────────────────────────────────┘
 ```
@@ -203,12 +203,12 @@ value(event) = α·recency + β·specificity + γ·emotional_intensity + δ·use
 
 这个维度**没有现成工业方案**。Character.AI 有情绪但不持久；Replika 有持久但模型很小 mood 表达粗糙。
 
-#### xai 落地思路（情绪延续）
+#### xagent 落地思路（情绪延续）
 
-引入 `xAiMoodState`，一个**小维度向量**而非 one-hot：
+引入 `xAgentMoodState`，一个**小维度向量**而非 one-hot：
 
 ```c
-XDEF_STRUCT(xAiMoodState) {
+XDEF_STRUCT(xAgentMoodState) {
   float valence;      /* -1 (消极) .. +1 (积极) */
   float arousal;      /* 0 (平静) .. 1 (激动) */
   float fatigue;      /* 0 (精力充沛) .. 1 (疲惫) */
@@ -219,7 +219,7 @@ XDEF_STRUCT(xAiMoodState) {
 
 这是 **VAD 模型（Valence-Arousal-Dominance）的工程简化**，心理学有共识基础，不是我拍脑袋。
 
-**更新**：每轮对话结束时，由一个小 classifier（可以是另一个小模型 call，也可以是规则 + 关键词）给 user mood 打分，指数衰减合并到 `xAiMoodState`。
+**更新**：每轮对话结束时，由一个小 classifier（可以是另一个小模型 call，也可以是规则 + 关键词）给 user mood 打分，指数衰减合并到 `xAgentMoodState`。
 
 ```text
 mood_new = λ·mood_observed + (1-λ)·mood_prev·decay(Δt)
@@ -270,20 +270,20 @@ AI 如果啥都记，有两个问题：
 3. **LLM 判断成本高**——A-MEM/Mem0 路线每次写入都要调模型，端侧玩不起
 4. **没有"情绪峰值保留"**——重要的是情绪强度，不是语义密度
 
-**对 xai 的启示**：
+**对 xagent 的启示**：
 
 - MemoryBank 的**艾宾浩斯曲线**是最接近人脑的，可以借鉴
 - A-MEM 的**演化**太贵，但它的"不删只改写"哲学可以用于 L3 Persona
 - Mem0 的**冲突驱动覆盖**轻量，可以用于 L2 Fact（我们在 2.1 已经借鉴）
 - **没人做"情绪峰值保留"**——这是我们的机会
 
-#### xai 落地思路（选择性遗忘）
+#### xagent 落地思路（选择性遗忘）
 
 双层压缩机制，参考 Claude Code 但做得更细：
 
 ##### Layer A: 实时微压缩（每 N 轮触发一次）
 
-- 把最老的 k 轮原始消息合并成一条摘要（`xAiMessage` role = System，content = "Earlier: ..."）
+- 把最老的 k 轮原始消息合并成一条摘要（`xAgentMessage` role = System，content = "Earlier: ..."）
 - 保留用户/AI 的**关键发言原文**（判据：在 mood 峰值 / 包含专有名词 / 用户后续引用过）
 - 其余用摘要替代
 
@@ -293,12 +293,12 @@ AI 如果啥都记，有两个问题：
 - Episode 结构：
 
   ```c
-  XDEF_STRUCT(xAiEpisode) {
+  XDEF_STRUCT(xAgentEpisode) {
     uint64_t started_ms;
     uint64_t ended_ms;
     const char *summary;       /* 3-5 句 */
     const char *highlights;    /* 带情绪峰值的原文片段 */
-    xAiMoodState closing_mood;
+    xAgentMoodState closing_mood;
     const char **fact_refs;    /* 提升到 L2 的 fact id */
     size_t fact_ref_count;
   };
@@ -336,16 +336,16 @@ AI 如果啥都记，有两个问题：
 
 SOTA：**几乎无**。Replika 有一个定时问候但极其机械。
 
-#### xai 落地思路（主动唤醒）
+#### xagent 落地思路（主动唤醒）
 
-加一个后台组件 `xAiScheduler`，架构上和 `xEventLoop` 的 timer 机制对齐：
+加一个后台组件 `xAgentScheduler`，架构上和 `xEventLoop` 的 timer 机制对齐：
 
 ```c
 /* 声明略——关键思路 */
-XCAPI(xErrno) xAiSchedulerArmProactive(
-    xAiScheduler sch,
-    xAiSession sess,
-    const xAiEpisode *source_episode,
+XCAPI(xErrno) xAgentSchedulerArmProactive(
+    xAgentScheduler sch,
+    xAgentSession sess,
+    const xAgentEpisode *source_episode,
     uint64_t not_before_ms,     /* 最早允许 push 的时间 */
     uint64_t not_after_ms,      /* 超过就作废 */
     float priority);             /* 0-1 */
@@ -371,25 +371,25 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 
 ```c
 ┌──────────────────────────────────────────────┐
-│                xAiAgent                      │
+│                xAgent                      │
 │  (能力模板，长生命周期)                        │
 │                                              │
-│  provider: xAiProvider                       │
-│  tools:    xAiTool[]                         │
+│  provider: xAgentProvider                       │
+│  tools:    xAgentTool[]                         │
 │                                              │
 │  ┌───────────── NEW ──────────────────┐     │
-│  │ memory:    xAiMemory               │     │
-│  │ mood:      xAiMoodTracker          │     │
-│  │ scheduler: xAiScheduler            │     │
+│  │ memory:    xAgentMemory               │     │
+│  │ mood:      xAgentMoodTracker          │     │
+│  │ scheduler: xAgentScheduler            │     │
 │  └────────────────────────────────────┘     │
 └──────────────────────────────────────────────┘
          │ create
          ▼
 ┌──────────────────────────────────────────────┐
-│                xAiSession                    │
+│                xAgentSession                    │
 │  (一次对话实例)                                │
 │                                              │
-│  messages:  xAiMessage[]  ← L0 Working Mem   │
+│  messages:  xAgentMessage[]  ← L0 Working Mem   │
 │  callbacks: on_text/done/error/tool          │
 │                                              │
 │  每轮 input/output 时：                        │
@@ -410,9 +410,9 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 
 **为什么公开 API 不用动**：
 
-- 这三个组件的更新都在 `xAiSession` 内部完成（每次 input/done）
+- 这三个组件的更新都在 `xAgentSession` 内部完成（每次 input/done）
 - 使用方从不直接操作 memory/mood
-- 暴露点仅两个可选配置项加到 `xAiAgentConf`：`memory_backend` 和 `persona_init`
+- 暴露点仅两个可选配置项加到 `xAgentConf`：`memory_backend` 和 `persona_init`
 
 ---
 
@@ -424,7 +424,7 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 
 **交付**：
 
-- `xAiMemory`（L0 复用现有 messages，L1 Episode，L2 Fact）
+- `xAgentMemory`（L0 复用现有 messages，L1 Episode，L2 Fact）
 - Layer A 实时微压缩
 - 基础 value function
 
@@ -443,7 +443,7 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 
 **交付**：
 
-- `xAiMoodTracker`
+- `xAgentMoodTracker`
 - mood classifier（小模型 call 或规则）
 - system prompt 注入
 
@@ -457,7 +457,7 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 
 **交付**：
 
-- `xAiScheduler`
+- `xAgentScheduler`
 - 集成到 Session 首轮 prompt
 - 用户控制（关 / 频率 / 场景白名单）
 
@@ -480,7 +480,7 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
    不做 Letta 那种把 memory 抽成通用服务。memory 必须**深度绑定对话架构和情绪**，拆开就不"像人"了。
 
 3. **人格扮演 / roleplay**
-   `xAiPersona` 是**对用户的画像**，不是给 AI 套皮套。Character.AI 那套路我们不跟。
+   `xAgentPersona` 是**对用户的画像**，不是给 AI 套皮套。Character.AI 那套路我们不跟。
 
 4. **完全 LLM self-management**
    MemGPT 那套"让大模型决定存啥"在云端大模型上能工作，在端侧小模型上会崩。我们用**明确的 value function + 轻量模型辅助**，工程可控。
@@ -494,7 +494,7 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 
 | xKit 惯例 | 本方案是否符合 |
 | --- | --- |
-| 纯 C99、`XDEF_HANDLE` 不透明句柄 | ✅ `xAiMemory` / `xAiMoodTracker` / `xAiScheduler` 都走 handle |
+| 纯 C99、`XDEF_HANDLE` 不透明句柄 | ✅ `xAgentMemory` / `xAgentMoodTracker` / `xAgentScheduler` 都走 handle |
 | 事件循环为一等入参 | ✅ scheduler 用 `xEventLoopTimerAfter`，memory 异步写 |
 | 依赖显式传入，不自 new | ✅ memory 用到的 sqlite handle 由调用方传入 |
 | 回调中指针仅回调期有效 | ✅ memory.retrieve 返回的 fact 列表遵循同约定 |
@@ -541,13 +541,13 @@ XCAPI(xErrno) xAiSchedulerArmProactive(
 ### 本地工程笔记
 
 - Claude Code compact 机制（本地分析文档 `claude-code-agent-loop-analysis.md`）
-- xai 第一批次 plan.md（API 骨架）
+- xagent 第一批次 plan.md（API 骨架）
 
 ---
 
 ## 6. MVP 执行边界（2026-04-24 启动）
 
-> 文档 §0-§5 是**路线图**，回答"做什么 / 为什么做"。本节是**执行边界**，回答"MVP 这一期到底做到哪、用什么做、不做什么"。Session/Query 拆分从此节得到合法性——具体拆分方案见 [`xai_architecture.md`](xai_architecture.md) §10。
+> 文档 §0-§5 是**路线图**，回答"做什么 / 为什么做"。本节是**执行边界**，回答"MVP 这一期到底做到哪、用什么做、不做什么"。Session/Query 拆分从此节得到合法性——具体拆分方案见 [`xagent_architecture.md`](xagent_architecture.md) §10。
 
 ### 6.1 MVP 为什么拆成 MVP-a / MVP-b 两小段
 
@@ -568,8 +568,8 @@ MVP-a 不触 L2，意味着跨 session **只有时间索引 + 文本摘要**，�
 
 #### 决策 1：MVP-a 只做 L0+L1，不做 L2
 
-- **L0**：复用 `xAiSession` 现有 `messages` 数组，零改动
-- **L1 Episode**：新增 `xAiEpisode` 结构，在 session 终结时抽取
+- **L0**：复用 `xAgentSession` 现有 `messages` 数组，零改动
+- **L1 Episode**：新增 `xAgentEpisode` 结构，在 session 终结时抽取
 - **L2 Fact**：推到 MVP-b
 - **L3 Persona**：推到 v1 之后（和 mood 一起做，见原 §4 v1）
 
@@ -577,8 +577,8 @@ MVP-a 不触 L2，意味着跨 session **只有时间索引 + 文本摘要**，�
 
 #### 决策 2：L1 存储用 JSONL，不引 SQLite
 
-- **MVP-a 存储**：每个 session 一个 JSONL 文件，每条 `xAiEpisode` 一行
-- **文件布局**：`~/.<app>/xai/episodes/<agent_id>/<YYYY-MM>/<session_id>.jsonl`
+- **MVP-a 存储**：每个 session 一个 JSONL 文件，每条 `xAgentEpisode` 一行
+- **文件布局**：`~/.<app>/xagent/episodes/<agent_id>/<YYYY-MM>/<session_id>.jsonl`
 - **检索方式**：按时间窗口 scan（MVP-a 检索只需要"最近 N 天"，不需要语义匹配）
 - **MVP-b 切 SQLite + sqlite-vec**：迁移脚本提供，老 JSONL 直接归档不删
 
@@ -599,16 +599,16 @@ MVP-a 不触 L2，意味着跨 session **只有时间索引 + 文本摘要**，�
 **序列（硬依赖，不可并行）**：
 
 ```c
-Step 1 (xai_architecture.md §10)  [2026-04-24 起，约 3-5 天]
+Step 1 (xagent_architecture.md §10)  [2026-04-24 起，约 3-5 天]
   └─ session.c 内部 query_*/session_* 分组 + on_provider_done 拆三份
   └─ session_test 9/9 全绿作为 Step 2 开工门槛
         ↓
-Step 2 (xai_architecture.md §10)  [Step 1 过 review 后，约 5-7 天]
-  └─ 引入 xAiQuery 类型 + 落实 §8 预留勾子
+Step 2 (xagent_architecture.md §10)  [Step 1 过 review 后，约 5-7 天]
+  └─ 引入 xAgentQuery 类型 + 落实 §8 预留勾子
   └─ 对外 API 零 break
         ↓
 MVP-a                              [Step 2 过 review 后，约 3-4 周]
-  └─ xAiEpisode 结构 + 抽取流水线
+  └─ xAgentEpisode 结构 + 抽取流水线
   └─ JSONL 存储层
   └─ Agent 层 memory 勾子雏形（不暴露公开 API）
   └─ 端到端测试：两个连续 session，第二个开场能引用第一个的 Episode
@@ -638,7 +638,7 @@ Part I.3 的"早"测试**不在 MVP-a 验收里**——那个需要 mood（v1）
 
 钉死边界，避免范围漂移：
 
-1. **不做 mood**：情绪延续是 v1 的事，MVP-a 连 `xAiMoodState` 结构都不声明
+1. **不做 mood**：情绪延续是 v1 的事，MVP-a 连 `xAgentMoodState` 结构都不声明
 2. **不做 scheduler**：主动唤醒是 v2 的事，MVP-a 的 Agent 层没有后台 timer
 3. **不做 Layer B 晚期整合**：只做实时 L1 抽取，没有异步 background 压缩任务
 4. **不做 L3 Persona**：Agent 层会预留 `persona` 字段但 MVP-a 不写入
@@ -659,6 +659,6 @@ Part I.3 的"早"测试**不在 MVP-a 验收里**——那个需要 mood（v1）
 
 SOTA 的现状是：第 1、3 维在卷，第 2、4 维几乎空白。**我们的机会在后两维**，尤其是把四维组合起来——没人做过。
 
-在 xai 现有架构上，这条路**不需要推翻 API**，只需要加三个内部组件（Memory / Mood / Scheduler），分三期交付。
+在 xagent 现有架构上，这条路**不需要推翻 API**，只需要加三个内部组件（Memory / Mood / Scheduler），分三期交付。
 
 记**人**，比记**事**更重要。

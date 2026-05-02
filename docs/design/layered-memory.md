@@ -1,6 +1,6 @@
 # 分层记忆体系：L1–L4 的职责、协议与落地路径
 
-> 一套在 **不推翻现有三层架构（Agent / Session / Query）**、**不破坏公开 API** 的前提下，给 `xAiAgent` 加上"全量记忆 → 长期存储 → 情绪追踪 → 自我认知与主动行为"四层能力的结构化方案。
+> 一套在 **不推翻现有三层架构（Agent / Session / Query）**、**不破坏公开 API** 的前提下，给 `xAgent` 加上"全量记忆 → 长期存储 → 情绪追踪 → 自我认知与主动行为"四层能力的结构化方案。
 >
 > 本文面向已经熟悉 xKit 三层会话模型（[Agent / Session / Query](three-layer-conversation-model.md)）、[上下文预算](context-budget.md)和 [类人 AI 四维度](../todo/human-like-ai.md)的读者，描述 L1–L4 每一层住在哪里、跟谁交互、数据怎么流动，以及每层的落地次序。
 
@@ -32,10 +32,10 @@
 
 | 层 | 住哪 | 有状态 | 核心动作 | 落地状态 |
 | --- | --- | --- | --- | --- |
-| **L1** | `xAiSession` 的 `on_l1_preserve` 钩子 + `agent.c` 的 JSONL 持久化 | 无（全量消息即交出） | 保存 Session 全量消息；session 销毁前交付给 L2 | ✅ `on_l1_preserve` 回调 + agent 端 JSONL 持久化已落地 |
-| **L2** | `xAiAgent` 内部 | 有（持久化存储） | 存储 L1 产物；`xAiAgentCreateSession` 时注入 | ❌ 未开始 |
-| **L3** | `xAiAgent` 内部 | 有（running state） | 追踪 mood / 活跃度 / 疲劳度 | ❌ 未开始 |
-| **L4** | `xAiAgent` 内部 | 有（人格 + 调度器） | 人格渲染 + 主动创建 `origin=SystemSynthesized` Session | ❌ 未开始 |
+| **L1** | `xAgentSession` 的 `on_l1_preserve` 钩子 + `agent.c` 的 JSONL 持久化 | 无（全量消息即交出） | 保存 Session 全量消息；session 销毁前交付给 L2 | ✅ `on_l1_preserve` 回调 + agent 端 JSONL 持久化已落地 |
+| **L2** | `xAgent` 内部 | 有（持久化存储） | 存储 L1 产物；`xAgentCreateSession` 时注入 | ❌ 未开始 |
+| **L3** | `xAgent` 内部 | 有（running state） | 追踪 mood / 活跃度 / 疲劳度 | ❌ 未开始 |
+| **L4** | `xAgent` 内部 | 有（人格 + 调度器） | 人格渲染 + 主动创建 `origin=SystemSynthesized` Session | ❌ 未开始 |
 
 ---
 
@@ -43,7 +43,7 @@
 
 拆层的理由跟三层会话模型拆 Agent / Session / Query 一样：**生存期不同，归属不同，消费者不同**。
 
-如果把"记忆"塞进一个 `xAiMemory` 对象：
+如果把"记忆"塞进一个 `xAgentMemory` 对象：
 
 1. **写入路径冲突**——Session 结束时的沉淀（L1→L2）和 Agent 后台反刍（L4）都要写同一个 store，锁冲突。
 2. **读取路径分裂**——Query 需要 L0 工作记忆，Session 需要 L1 情景缓冲，Agent 需要 L2/L3 长期状态。一个 store 要服务三个完全不同的查询模式，要么接口膨胀要么性能差。
@@ -103,7 +103,7 @@ L1 保存的是 Session 的**全量消息流**——user + assistant + tool 全�
 
 ### 为什么"L1 全量在 Session，L2 提取在 Agent"
 
-这是从 [xai_architecture.md](../todo/xai_architecture.md) §2.3 继承的硬要求。简述：
+这是从 [xagent_architecture.md](../todo/xagent_architecture.md) §2.3 继承的硬要求。简述：
 
 - **多 Session 并存时的写冲突**：Session A 和 Session B 同时上报"用户偏好 tab"，Agent 层能去重；Session 层各写各的就会留两条。
 - **全局视野缺失**：某条事实在单个 Session 里价值一般，但**跨 Session 反复出现 5 次**才显出它是稳定事实。去重计数必须由"看得到全局"的层做。
@@ -113,30 +113,30 @@ L1 保存的是 Session 的**全量消息流**——user + assistant + tool 全�
 
 L1 的写入（即 Session 全量消息的采集）通过 **`on_l1_preserve` 回调**实现，已在 Session 层和 Agent 层落地。
 
-核心设计：`xAiSessionConf` 新增 `on_l1_preserve` 回调 + `l1_preserve_owner`，在以下三个时机触发：
+核心设计：`xAgentSessionConf` 新增 `on_l1_preserve` 回调 + `l1_preserve_owner`，在以下三个时机触发：
 
-1. **TruncateOldest 裁剪前**（`xAiL1PreserveReason_Truncated`）：
+1. **TruncateOldest 裁剪前**（`xAgentL1PreserveReason_Truncated`）：
    传递即将被丢弃的 `entries [0, keep)`，回调在 `session_trim_history_front_`
    之前触发，保证数据仍然有效。
-2. **SummarizeOldest compact 替换前**（`xAiL1PreserveReason_Compacted`）：
+2. **SummarizeOldest compact 替换前**（`xAgentL1PreserveReason_Compacted`）：
    传递即将被 summary 替换的原始 `entries [0, keep_idx)`，Consumer 可以
    保留原始全量条目（虽然 session history 只留 summary）。
-3. **Session teardown 时**（`xAiL1PreserveReason_Finalizing`）：
+3. **Session teardown 时**（`xAgentL1PreserveReason_Finalizing`）：
    在 `on_finalizing` 之前传递全量剩余 history，确保从未触发 budget
    的 session 也能将完整对话交付 L1。
 
 回调签名：
 
 ```c
-typedef void (*xAiSessionL1PreserveFunc)(
-  xAiSession sess, const xAiSessionMsg *msgs, size_t n_msgs,
-  xAiL1PreserveReason reason, void *owner);
+typedef void (*xAgentSessionL1PreserveFunc)(
+  xAgentSession sess, const xAgentSessionMsg *msgs, size_t n_msgs,
+  xAgentL1PreserveReason reason, void *owner);
 ```
 
 语义：entries 只在回调期间有效，Consumer 必须 deep-copy 需要保留的内容。
 NULL 回调 = 不做 L1 采集（默认行为，向后兼容）。
 
-Agent 层自动注入：`xAiAgentCreateSession` 在创建 session 时，如果 agent 配置了
+Agent 层自动注入：`xAgentCreateSession` 在创建 session 时，如果 agent 配置了
 `agent_id` 和 `data_dir`，且调用方未自行提供 `on_l1_preserve`，则自动注入
 内置的 `agent_l1_preserve_cb_`——将每条消息以 JSONL 格式追加写入
 `{data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl`。
@@ -148,14 +148,14 @@ L1 作为全量即时记忆，其提取逻辑（L1 → L2 的转化）在 Agent 
 1. **L1 的产物结构化 schema**（L2 存储格式）：
 
 ```c
-XDEF_ENUM(xAiObservationKind) {
-  xAiObservationKind_Preference,   /* "我喜欢简洁的代码风格" */
-  xAiObservationKind_Fact,         /* "项目使用 UTF-8 编码" */
-  xAiObservationKind_Decision,     /* "决定用 SQLite 而不是 JSONL" */
+XDEF_ENUM(xAgentObservationKind) {
+  xAgentObservationKind_Preference,   /* "我喜欢简洁的代码风格" */
+  xAgentObservationKind_Fact,         /* "项目使用 UTF-8 编码" */
+  xAgentObservationKind_Decision,     /* "决定用 SQLite 而不是 JSONL" */
 };
 
-XDEF_STRUCT(xAiObservation) {
-  xAiObservationKind kind;
+XDEF_STRUCT(xAgentObservation) {
+  xAgentObservationKind kind;
   const char *content;    /* 结构化摘要，非原文 */
   float       confidence; /* 0..1，规则路径给 1.0，LLM 路径给模型输出 */
   const char *source_id;  /* 产出它的 session id，供 L2 去重 */
@@ -163,10 +163,10 @@ XDEF_STRUCT(xAiObservation) {
 ```
 
 2. **提取策略**（在 Agent 层从 L1 全量消息中提取 L2 观察）。两阶段：
-   - **规则先过**：检测硬特征（专有名词、数字、时间、URL、明确偏好词"我喜欢/讨厌/用…"），匹配则直接构造 `xAiObservation`，confidence=1.0。
+   - **规则先过**：检测硬特征（专有名词、数字、时间、URL、明确偏好词"我喜欢/讨厌/用…"），匹配则直接构造 `xAgentObservation`，confidence=1.0。
    - **不确定时调 LLM**：一次 prompt ≤ 200 tokens，让模型判断 yes/no + 提取摘要。这个 LLM call 复用 Agent 配置的 provider。
 
-3. **`on_finalizing` 内的汇总逻辑**。用一次 LLM call 做会话级摘要，输出若干 `xAiObservation` + mood delta + 未完结话题。
+3. **`on_finalizing` 内的汇总逻辑**。用一次 LLM call 做会话级摘要，输出若干 `xAgentObservation` + mood delta + 未完结话题。
 
 4. **提取结果交付给 L2**。L2 模块裁决是否落盘（去重、合并、淘汰）。
 
@@ -181,7 +181,7 @@ MVP-a 阶段的目标：**≥ 60% 的观察不需要 LLM call 就能决定入库
 ### 职责 — 持久化与注入
 
 1. **持久化** L1 提取的结构化记忆。
-2. 在 `xAiAgentCreateSession` 创建新 Session 时，**检索与当前上下文相关的记忆，注入到 system prompt**。
+2. 在 `xAgentCreateSession` 创建新 Session 时，**检索与当前上下文相关的记忆，注入到 system prompt**。
 3. 管理记忆的**淘汰与合并**。
 
 ### 记忆存储后端
@@ -200,12 +200,12 @@ MVP-a 的文件布局（与 L1 采集的 `agent_l1_preserve_cb_` 输出路径对
 ```
 
 每条消息一个 JSONL 行，包含 `role`、`kind` 和对应的 payload 字段。
-L2 的 `xAiObservation` 提取结果将写入同一 agent 目录下的
+L2 的 `xAgentObservation` 提取结果将写入同一 agent 目录下的
 `observations.jsonl`。MVP-b 切 SQLite 时提供迁移脚本，老 JSONL 归档不删。
 
 ### 记忆注入到新 Session
 
-`xAiAgentCreateSession` 的注入协议（继承 [xai_architecture.md](../todo/xai_architecture.md) §2.1）：
+`xAgentCreateSession` 的注入协议（继承 [xagent_architecture.md](../todo/xagent_architecture.md) §2.1）：
 
 1. **人格描述 / 风格约束**：注入到 system prompt，跨 Session 一致。
 2. **记忆前缀**：Agent 根据 Session 类型/意图挑选相关记忆，打包成结构化上下文塞进 system prompt。**Session 不反向查询 Agent 的记忆仓**——避免 Session 层需要理解记忆索引。
@@ -214,7 +214,7 @@ L2 的 `xAiObservation` 提取结果将写入同一 agent 目录下的
 注入的数据流：
 
 ```text
-xAiAgentCreateSession(agent, conf)
+xAgentCreateSession(agent, conf)
       │
       ├── 构建 memory_prefix = agent->memory.retrieve(conf->intent_hint)
       ├── 构建 persona_prefix = agent->persona.render()
@@ -249,7 +249,7 @@ xAiAgentCreateSession(agent, conf)
 Mood 不用连续浮点（难解释难 debug），用**小维度向量**：
 
 ```c
-XDEF_STRUCT(xAiMoodState) {
+XDEF_STRUCT(xAgentMoodState) {
   float valence;      /* -1 (消极) .. +1 (积极) */
   float arousal;      /* 0 (平静) .. 1 (激动) */
   float fatigue;      /* 0 (精力充沛) .. 1 (疲惫) */
@@ -284,7 +284,7 @@ half_life = 12 小时（可配置）
 追踪 Agent 的"工作状态"：
 
 ```c
-XDEF_STRUCT(xAiAgentVitality) {
+XDEF_STRUCT(xAgentVitality) {
   int    sessions_last_24h;     /* 近 24h 内完成的 session 数 */
   size_t tokens_last_24h;      /* 近 24h 内消耗的总 token 数 */
   float  activity_score;       /* 0 (空闲) .. 1 (高负载) */
@@ -306,7 +306,7 @@ XDEF_STRUCT(xAiAgentVitality) {
 L4 是 Agent 的**自我认知层**，回答"我是谁"和"我该不该行动"两个问题：
 
 1. **自我认知**：持有并渲染 Agent 的人格设定（persona），决定"我以什么身份说话"、"我擅长什么"、"我的边界在哪里"。
-2. **主动行为**：基于自我认知 + L2 记忆 + L3 状态，决策是否主动创建 `origin=SystemSynthesized` 的 Session，调 `xAiSessionInput` 发起主动对话。
+2. **主动行为**：基于自我认知 + L2 记忆 + L3 状态，决策是否主动创建 `origin=SystemSynthesized` 的 Session，调 `xAgentSessionInput` 发起主动对话。
 
 人格设定（persona）之所以放在 L4 而非 L3，是因为：人格是**静态配置 + 记忆沉淀**的组合体，它的消费者是"决定以什么身份主动开口"——这正是 L4 的职责。L3 只负责情绪/状态的动态追踪，不需要理解"我是谁"。
 
@@ -315,7 +315,7 @@ L4 是 Agent 的**自我认知层**，回答"我是谁"和"我该不该行动"�
 | 场景 | Origin | 谁创建 | 谁销毁 | 生命周期 |
 | --- | --- | --- | --- | --- |
 | Default Session | `User` | Agent 创建时自动 | Agent 销毁时自动 | 跟 Agent 同生共死 |
-| 用户新开 Session | `User` | 用户调 `xAiAgentCreateSession` | 用户调 `xAiSessionDestroy` | 用户控制 |
+| 用户新开 Session | `User` | 用户调 `xAgentCreateSession` | 用户调 `xAgentSessionDestroy` | 用户控制 |
 | Agent 主动唤醒 Session | `SystemSynthesized` | Agent 内部 | Agent 内部 | Agent 控制 |
 
 Default Session 是用户的默认入口——用户可以随时跟它对话，不用显式创建。Agent 也可以自己唤醒自己主动新开一个 Session 叫用户——这种 Session 的 input 不是用户发的，是 Agent 合成的。
@@ -346,11 +346,11 @@ Default Session 是用户的默认入口——用户可以随时跟它对话，�
 
 ```text
 1. Agent 调度器（timer / 事件）决定"该起一个新 Session 了"
-2. Agent 调 xAiAgentCreateSession，origin = SystemSynthesized
+2. Agent 调 xAgentCreateSession，origin = SystemSynthesized
 3. Agent 组装 nudge input："对了，关于 X..."
-4. Agent 调 xAiSessionInput(session, nudge_input)
+4. Agent 调 xAgentSessionInput(session, nudge_input)
 5. Session 像普通对话一样跑起来
-6. 对话结束后 xAiSessionDestroy
+6. 对话结束后 xAgentSessionDestroy
 ```
 
 **与 Default Session 的关系**：两者独立，互不干扰。Default Session 是用户的默认入口（`origin=User`），唤醒 Session 是 Agent 主动发起（`origin=SystemSynthesized`）。同一时刻可以共存。
@@ -380,7 +380,7 @@ graph TB
 
   U["👤 User"] -->|"input"| L0
   L0 -->|"全量消息"| L1_extract
-  L1_extract -->|"xAiObservation[]"| L2
+  L1_extract -->|"xAgentObservation[]"| L2
   L1_extract -->|"mood delta"| L3
 
   L2 -->|"记忆前缀注入"| L0
@@ -444,15 +444,15 @@ L1–L4 不是"另外一套架构"，是**三层会话模型在记忆维度的�
 | `session_private.h` :: `on_finalizing` | ✅ 钩子字段 | L1 汇总逻辑 |
 | `session.h` :: `on_l1_preserve` | ✅ 回调字段 + 三时机触发 | — |
 | `agent.c` :: `agent_l1_preserve_cb_` | ✅ JSONL 持久化 | — |
-| `agent.c` :: `xAiAgentCreateSession` | ✅ 自动注入 `on_l1_preserve` | L2 记忆注入、L3 mood 注入 |
-| `agent.h` :: `xAiAgentCreateSession` | ✅ 创建 Session | L4 SystemSynthesized Session 创建 |
-| `session.h` :: `xAiInputOrigin` | ✅ `User` / `SystemSynthesized` 枚举 | — |
-| `agent.c` / `agent.h` | — | `xAiMemory` 内部组件 |
-| `agent.c` / `agent.h` | — | `xAiMoodTracker` 内部组件 |
-| `agent.c` / `agent.h` | — | `xAiPersona` 内部组件 |
-| `agent.c` / `agent.h` | — | `xAiScheduler` 内部组件 |
+| `agent.c` :: `xAgentCreateSession` | ✅ 自动注入 `on_l1_preserve` | L2 记忆注入、L3 mood 注入 |
+| `agent.h` :: `xAgentCreateSession` | ✅ 创建 Session | L4 SystemSynthesized Session 创建 |
+| `session.h` :: `xAgentInputOrigin` | ✅ `User` / `SystemSynthesized` 枚举 | — |
+| `agent.c` / `agent.h` | — | `xAgentMemory` 内部组件 |
+| `agent.c` / `agent.h` | — | `xAgentMoodTracker` 内部组件 |
+| `agent.c` / `agent.h` | — | `xAgentPersona` 内部组件 |
+| `agent.c` / `agent.h` | — | `xAgentScheduler` 内部组件 |
 
-**核心原则**：这些组件的更新都在 `xAiSession` 内部完成（通过预留的钩子），使用方从不直接操作 memory / mood / scheduler / persona。公开 API 几乎不用动。
+**核心原则**：这些组件的更新都在 `xAgentSession` 内部完成（通过预留的钩子），使用方从不直接操作 memory / mood / scheduler / persona。公开 API 几乎不用动。
 
 ---
 
@@ -464,10 +464,10 @@ L1–L4 不是"另外一套架构"，是**三层会话模型在记忆维度的�
    ├── L1 采集机制 ✅ ──────────────────────────────┐      │
    │   ● on_l1_preserve 回调（三时机触发）           │      │
    │   ● agent_l1_preserve_cb_ JSONL 持久化         │      │
-   │   ● xAiAgentCreateSession 自动注入             │      │
+   │   ● xAgentCreateSession 自动注入             │      │
    │                                                 │      │
    ├── L1 → L2 提取逻辑（当前钩子是空 stub）──┐     │      │
-   │   ● xAiObservation schema                   │     │      │
+   │   ● xAgentObservation schema                   │     │      │
    │   ● on_finalizing 规则 + LLM 提取           │     │      │
    │   ● 提取结果交付接口                         ↓     ↓      │
    │                                                        │
@@ -478,7 +478,7 @@ L1–L4 不是"另外一套架构"，是**三层会话模型在记忆维度的�
    │   ● 淘汰 / 合并策略                             ↓      │
    │                                                        │
    ├── L3 情绪 / 状态追踪 ──────────────────────────┐      │
-   │   ● xAiMoodState 结构                          │      │
+   │   ● xAgentMoodState 结构                          │      │
    │   ● Mood delta 追踪                             │      │
    │   ● 活跃度 / 疲劳度模型                         ↓      │
    │                                                        │
@@ -499,7 +499,7 @@ L1–L4 不是"另外一套架构"，是**三层会话模型在记忆维度的�
 - [三层会话模型：Agent / Session / Query](three-layer-conversation-model.md)
 - [上下文预算：Session 的 prompt-size 守门员](context-budget.md)
 - [类人 AI 的四个维度](../todo/human-like-ai.md)
-- [xai 三层架构设计方案](../todo/xai_architecture.md)
+- [xagent 三层架构设计方案](../todo/xagent_architecture.md)
 - MemGPT: Towards LLMs as Operating Systems (Packer et al., 2023)
 - A-MEM: Agentic Memory for LLM Agents (Xu et al., 2025)
 - Mem0 — github.com/mem0ai/mem0

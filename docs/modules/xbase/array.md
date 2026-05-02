@@ -336,9 +336,9 @@ int main(void) {
 
 ## Use Cases
 
-1. **Session History** — The xai module stores AI session conversation history in an `xArray` of `struct xAiSessionMsg_`. The release callback frees each message's heap-owned strings (text, tool-use arguments, tool-result output), and `xArrayRemoveRange` handles history trimming.
+1. **Session History** — The xagent module stores AI session conversation history in an `xArray` of `struct xAgentSessionMsg_`. The release callback frees each message's heap-owned strings (text, tool-use arguments, tool-result output), and `xArrayRemoveRange` handles history trimming.
 
-2. **Query Turn Buffers** — The xai module's `xAiQuery_` uses separate `xArray` instances for inputs, produced output, and pending tool calls. The release callbacks clean up per-element resources when the query is destroyed or reset.
+2. **Query Turn Buffers** — The xagent module's `xAgentQuery_` uses separate `xArray` instances for inputs, produced output, and pending tool calls. The release callbacks clean up per-element resources when the query is destroyed or reset.
 
 3. **Timer Entry Queue** — A timer subsystem can store active timer entries in an `xArray`, using `xArrayRemoveRange` to cancel a batch of timers and the release callback to free timer-specific resources.
 

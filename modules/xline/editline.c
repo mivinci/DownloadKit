@@ -534,14 +534,14 @@ static void edit_cursor_prev_word(ic_env_t* env, editor_t* eb) {
   edit_refresh(env,eb);
 }
 
-static void edit_cursor_next_ws_word(ic_env_t* env, editor_t* eb) {
+static ic_unused_fn void edit_cursor_next_ws_word(ic_env_t* env, editor_t* eb) {
   ssize_t end = sbuf_find_ws_word_end(eb->input, eb->pos);
   if (end < 0) return;
   eb->pos = end;
   edit_refresh(env, eb);
 }
 
-static void edit_cursor_prev_ws_word(ic_env_t* env, editor_t* eb) {
+static ic_unused_fn void edit_cursor_prev_ws_word(ic_env_t* env, editor_t* eb) {
   ssize_t start = sbuf_find_ws_word_start(eb->input, eb->pos);
   if (start < 0) return;
   eb->pos = start;
@@ -648,7 +648,7 @@ static void edit_delete_to_start_of_line(ic_env_t* env, editor_t* eb) {
   edit_refresh(env,eb);
 }
 
-static void edit_delete_line(ic_env_t* env, editor_t* eb) {
+static ic_unused_fn void edit_delete_line(ic_env_t* env, editor_t* eb) {
   ssize_t start = sbuf_find_line_start(eb->input,eb->pos);
   if (start < 0) return;
   ssize_t end   = sbuf_find_line_end(eb->input,eb->pos);
@@ -696,7 +696,7 @@ static void edit_delete_to_start_of_ws_word(ic_env_t* env, editor_t* eb) {
   edit_refresh(env, eb);
 }
 
-static void edit_delete_to_end_of_ws_word(ic_env_t* env, editor_t* eb) {
+static ic_unused_fn void edit_delete_to_end_of_ws_word(ic_env_t* env, editor_t* eb) {
   ssize_t end = sbuf_find_ws_word_end(eb->input, eb->pos);
   if (end < 0) return;
   editor_start_modify(eb);
@@ -705,7 +705,7 @@ static void edit_delete_to_end_of_ws_word(ic_env_t* env, editor_t* eb) {
 }
 
 
-static void edit_delete_word(ic_env_t* env, editor_t* eb) {
+static ic_unused_fn void edit_delete_word(ic_env_t* env, editor_t* eb) {
   ssize_t start = sbuf_find_word_start(eb->input,eb->pos);
   if (start < 0) return;
   ssize_t end   = sbuf_find_word_end(eb->input,eb->pos);

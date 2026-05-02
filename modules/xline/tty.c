@@ -354,17 +354,17 @@ static unsigned csi_mods(code_t mods) {
 }
 
 // Push ESC [ <vtcode> ; <mods> ~
-static void tty_cpush_csi_vt( tty_t* tty, code_t mods, uint32_t vtcode ) {
+static ic_unused_fn void tty_cpush_csi_vt( tty_t* tty, code_t mods, uint32_t vtcode ) {
   tty_cpushf(tty,"\x1B[%u;%u~", vtcode, csi_mods(mods) );
 }
 
 // push ESC [ 1 ; <mods> <xcmd>
-static void tty_cpush_csi_xterm( tty_t* tty, code_t mods, char xcode ) {
+static ic_unused_fn void tty_cpush_csi_xterm( tty_t* tty, code_t mods, char xcode ) {
   tty_cpushf(tty,"\x1B[1;%u%c", csi_mods(mods), xcode );
 }
 
 // push ESC [ <unicode> ; <mods> u
-static void tty_cpush_csi_unicode( tty_t* tty, code_t mods, uint32_t unicode ) {
+static ic_unused_fn void tty_cpush_csi_unicode( tty_t* tty, code_t mods, uint32_t unicode ) {
   if ((unicode < 0x80 && mods == 0) || 
       (mods == KEY_MOD_CTRL && unicode < ' ' && unicode != KEY_TAB && unicode != KEY_ENTER 
                         && unicode != KEY_LINEFEED && unicode != KEY_BACKSP) ||

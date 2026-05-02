@@ -60,7 +60,6 @@ target_compile_definitions(xline PRIVATE
 # warning never breaks our build.
 target_compile_options(xline PRIVATE
   -Wno-error
-  -Wno-unused-function
   -Wno-variadic-macro-arguments-omitted
   -Wno-gnu-zero-variadic-macro-arguments)
 

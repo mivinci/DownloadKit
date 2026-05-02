@@ -169,7 +169,7 @@ static int_least32_t rgb_distance_rmean( uint32_t color, int r2, int g2, int b2 
 // Another approximation to delta-E CIE color distance using
 // simpler calculations. Similar to `rmean` but adds an adjustment factor
 // based on the "red/blue" difference.
-static int_least32_t rgb_distance_rbmean( uint32_t color, int r2, int g2, int b2 ) {
+static ic_unused_fn int_least32_t rgb_distance_rbmean( uint32_t color, int r2, int g2, int b2 ) {
   int r1, g1, b1;
   color_to_rgb(IC_RGB(color),&r1,&g1,&b1);
   int_least32_t rmean = (r1 + r2) / 2;

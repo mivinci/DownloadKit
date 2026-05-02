@@ -45,6 +45,16 @@
 
 #define ic_unused(x)    (void)(x)
 
+// Attribute marker for file-local helpers we intentionally keep even
+// when nobody currently calls them (upstream's alternate code paths /
+// future key bindings). Keeps -Wunused-function silent without
+// resorting to a module-wide -Wno-unused-function override.
+#if defined(__GNUC__) || defined(__clang__)
+#  define ic_unused_fn  __attribute__((unused))
+#else
+#  define ic_unused_fn
+#endif
+
 // --- ssize_t helpers ------------------------------------------
 
 #if defined(_MSC_VER)

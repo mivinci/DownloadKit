@@ -51,11 +51,11 @@ static void editor_capture(editor_t* eb, editstate_t** es ) {
   }
 }
 
-static void editor_undo_capture(editor_t* eb ) {
+ic_private void editor_undo_capture(editor_t* eb ) {
   editor_capture(eb, &eb->undo );
 }
 
-static void editor_undo_forget(editor_t* eb) {
+ic_private void editor_undo_forget(editor_t* eb) {
   if (eb->disable_undo) return;
   const char* input = NULL;
   ssize_t pos = 0;
@@ -74,7 +74,7 @@ static void editor_restore(editor_t* eb, editstate_t** from, editstate_t** to ) 
   eb->modified = false;
 }
 
-static void editor_undo_restore(editor_t* eb, bool with_redo ) {
+ic_private void editor_undo_restore(editor_t* eb, bool with_redo ) {
   editor_restore(eb, &eb->undo, (with_redo ? &eb->redo : NULL));
 }
 
@@ -83,7 +83,7 @@ static void editor_redo_restore(editor_t* eb ) {
   eb->modified = false;
 }
 
-static void editor_start_modify(editor_t* eb ) {
+ic_private void editor_start_modify(editor_t* eb ) {
   editor_undo_capture(eb);
   editstate_done(eb->mem, &eb->redo);  // clear redo
   eb->modified = true;
@@ -115,7 +115,7 @@ static void edit_get_prompt_width( ic_env_t* env, editor_t* eb, bool in_extra, s
   }
 }
 
-static ssize_t edit_get_rowcol( ic_env_t* env, editor_t* eb, rowcol_t* rc ) {
+ic_private ssize_t edit_get_rowcol( ic_env_t* env, editor_t* eb, rowcol_t* rc ) {
   ssize_t promptw, cpromptw;
   edit_get_prompt_width(env, eb, false, &promptw, &cpromptw);
   return sbuf_get_rc_at_pos( eb->input, eb->termw, promptw, cpromptw, eb->pos, rc );
@@ -341,7 +341,7 @@ ic_private void edit_refresh(ic_env_t* env, editor_t* eb)
 }
 
 // clear current output
-static void edit_clear(ic_env_t* env, editor_t* eb ) {
+ic_private void edit_clear(ic_env_t* env, editor_t* eb ) {
   term_attr_reset(env->term);  
   term_up(env->term, eb->cur_row);
   
@@ -367,7 +367,7 @@ static void edit_clear_screen(ic_env_t* env, editor_t* eb ) {
 
 
 // refresh after a terminal window resized (but before doing further edit operations!)
-static bool edit_resize(ic_env_t* env, editor_t* eb ) {
+ic_private bool edit_resize(ic_env_t* env, editor_t* eb ) {
   // update dimensions
   term_update_dim(env->term);
   ssize_t newtermw = term_get_width(env->term);
@@ -475,9 +475,6 @@ static void edit_refresh_hint(ic_env_t* env, editor_t* eb) {
 //-------------------------------------------------------------
 // Edit operations
 //-------------------------------------------------------------
-
-static void edit_history_prev(ic_env_t* env, editor_t* eb);
-static void edit_history_next(ic_env_t* env, editor_t* eb);
 
 static void edit_undo_restore(ic_env_t* env, editor_t* eb) {
   editor_undo_restore(eb, true);
@@ -592,7 +589,7 @@ static void edit_cursor_match_brace(ic_env_t* env, editor_t* eb) {
   edit_refresh(env,eb);
 }
 
-static void edit_backspace(ic_env_t* env, editor_t* eb) {
+ic_private void edit_backspace(ic_env_t* env, editor_t* eb) {
   if (eb->pos <= 0) return;
   editor_start_modify(eb);
   eb->pos = sbuf_delete_char_before(eb->input,eb->pos);
@@ -736,7 +733,7 @@ static void edit_multiline_eol(ic_env_t* env, editor_t* eb) {
   edit_refresh(env,eb);
 }
 
-static void edit_insert_unicode(ic_env_t* env, editor_t* eb, unicode_t u) {
+ic_private void edit_insert_unicode(ic_env_t* env, editor_t* eb, unicode_t u) {
   editor_start_modify(eb);
   ssize_t nextpos = sbuf_insert_unicode_at(eb->input, u, eb->pos);
   if (nextpos >= 0) eb->pos = nextpos;  
@@ -782,7 +779,7 @@ static void editor_auto_indent(editor_t* eb, const char* pre, const char* post )
   }
 }
 
-static void edit_insert_char(ic_env_t* env, editor_t* eb, char c) {
+ic_private void edit_insert_char(ic_env_t* env, editor_t* eb, char c) {
   editor_start_modify(eb);
   ssize_t nextpos = sbuf_insert_char_at( eb->input, c, eb->pos );
   if (nextpos >= 0) eb->pos = nextpos;
@@ -794,22 +791,10 @@ static void edit_insert_char(ic_env_t* env, editor_t* eb, char c) {
 }
 
 //-------------------------------------------------------------
-// Help
+// Help, History, Completion: now each lives in its own TU
+// (editline_help.c / editline_history.c / editline_completion.c)
+// and reaches back through editline.h for the shared helpers.
 //-------------------------------------------------------------
-
-#include "editline_help.c"
-
-//-------------------------------------------------------------
-// History
-//-------------------------------------------------------------
-
-#include "editline_history.c"
-
-//-------------------------------------------------------------
-// Completion
-//-------------------------------------------------------------
-
-#include "editline_completion.c"
 
 
 //-------------------------------------------------------------

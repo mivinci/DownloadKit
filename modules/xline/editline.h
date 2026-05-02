@@ -52,7 +52,32 @@ typedef struct editor_s {
 ic_private bool  edit_init(ic_env_t* env, editor_t* eb, const char* prompt_text);
 ic_private bool  edit_dispatch_key(ic_env_t* env, editor_t* eb, code_t c);
 ic_private char* edit_finalize(ic_env_t* env, editor_t* eb, code_t last_c);
+
+//-------------------------------------------------------------
+// Editor helpers that cross TU boundaries between editline.c and
+// its sibling files (editline_help.c, editline_history.c,
+// editline_completion.c).
+//-------------------------------------------------------------
+
 ic_private void  edit_refresh(ic_env_t* env, editor_t* eb);
+ic_private void  edit_clear(ic_env_t* env, editor_t* eb);
+ic_private bool  edit_resize(ic_env_t* env, editor_t* eb);
 ic_private void  edit_write_prompt(ic_env_t* env, editor_t* eb, ssize_t row, bool in_extra);
+ic_private ssize_t edit_get_rowcol(ic_env_t* env, editor_t* eb, rowcol_t* rc);
+ic_private void  edit_backspace(ic_env_t* env, editor_t* eb);
+ic_private void  edit_insert_char(ic_env_t* env, editor_t* eb, char c);
+ic_private void  edit_insert_unicode(ic_env_t* env, editor_t* eb, unicode_t u);
+
+ic_private void  editor_start_modify(editor_t* eb);
+ic_private void  editor_undo_capture(editor_t* eb);
+ic_private void  editor_undo_restore(editor_t* eb, bool with_redo);
+ic_private void  editor_undo_forget(editor_t* eb);
+
+// Entry points implemented in the editline_* sibling files.
+ic_private void  edit_show_help(ic_env_t* env, editor_t* eb);
+ic_private void  edit_history_prev(ic_env_t* env, editor_t* eb);
+ic_private void  edit_history_next(ic_env_t* env, editor_t* eb);
+ic_private void  edit_history_search_with_current_word(ic_env_t* env, editor_t* eb);
+ic_private void  edit_generate_completions(ic_env_t* env, editor_t* eb, bool autotab);
 
 #endif // IC_EDITLINE_H

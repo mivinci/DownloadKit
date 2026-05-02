@@ -6,8 +6,12 @@
 -----------------------------------------------------------------------------*/
 
 //-------------------------------------------------------------
-// Help: this is included into editline.c
+// F1 help page rendering for xline.
 //-------------------------------------------------------------
+
+#include "platform.h"
+#include "env.h"
+#include "editline.h"
 
 static const char* help[] = {
   "","Navigation:",
@@ -122,7 +126,7 @@ static const char* help_initial =
   "       ctrl-u                          ctrl-k\n"
   "[/ansi-lightgray][/ic-info]\n";
 
-static void edit_show_help(ic_env_t* env, editor_t* eb) {
+ic_private void edit_show_help(ic_env_t* env, editor_t* eb) {
   edit_clear(env, eb);
   bbcode_println(env->bbcode, help_initial);
   for (ssize_t i = 0; help[i] != NULL && help[i+1] != NULL; i += 2) {

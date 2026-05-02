@@ -6,8 +6,19 @@
 -----------------------------------------------------------------------------*/
 
 //-------------------------------------------------------------
-// Completion menu: this file is included in editline.c
+// Completion / hint menu rendering for xline.
 //-------------------------------------------------------------
+
+#include "platform.h"
+#include "mem.h"
+#include "stringbuf.h"
+#include "completions.h"
+#include "tty.h"
+#include "term.h"
+#include "bbcode.h"
+#include "debug.h"
+#include "env.h"
+#include "editline.h"
 
 // return true if anything changed
 static bool edit_complete(ic_env_t* env, editor_t* eb, ssize_t idx) {
@@ -34,7 +45,7 @@ static bool edit_complete_longest_prefix(ic_env_t* env, editor_t* eb ) {
   return true;
 }
 
-ic_private void sbuf_append_tagged( stringbuf_t* sb, const char* tag, const char* content ) {
+static void sbuf_append_tagged( stringbuf_t* sb, const char* tag, const char* content ) {
   sbuf_appendf(sb, "[%s]", tag);  
   sbuf_append(sb,content);
   sbuf_append(sb,"[/]");
@@ -251,7 +262,7 @@ again:
   if (c != 0) tty_code_pushback(env->tty,c);
 }
 
-static void edit_generate_completions(ic_env_t* env, editor_t* eb, bool autotab) {
+ic_private void edit_generate_completions(ic_env_t* env, editor_t* eb, bool autotab) {
   debug_msg( "edit: complete: %zd: %s\n", eb->pos, sbuf_string(eb->input) );
   if (eb->pos < 0) return;
   ssize_t count = completions_generate(env, env->completions, sbuf_string(eb->input), eb->pos, IC_MAX_COMPLETIONS_TO_TRY);

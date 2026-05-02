@@ -6,8 +6,19 @@
 -----------------------------------------------------------------------------*/
 
 //-------------------------------------------------------------
-// History search: this file is included in editline.c
+// Incremental history search (Ctrl-R / Ctrl-S) and up/down history
+// navigation for xline.
 //-------------------------------------------------------------
+
+#include "platform.h"
+#include "mem.h"
+#include "str.h"
+#include "stringbuf.h"
+#include "history.h"
+#include "tty.h"
+#include "term.h"
+#include "env.h"
+#include "editline.h"
 
 static void edit_history_at(ic_env_t* env, editor_t* eb, int ofs ) 
 {
@@ -36,11 +47,11 @@ static void edit_history_at(ic_env_t* env, editor_t* eb, int ofs )
   }
 }
 
-static void edit_history_prev(ic_env_t* env, editor_t* eb) {
+ic_private void edit_history_prev(ic_env_t* env, editor_t* eb) {
   edit_history_at(env,eb, 1 );
 }
 
-static void edit_history_next(ic_env_t* env, editor_t* eb) {
+ic_private void edit_history_next(ic_env_t* env, editor_t* eb) {
   edit_history_at(env,eb, -1 );
 }
 
@@ -243,7 +254,7 @@ again:
 }
 
 // Start an incremental search with the current word 
-static void edit_history_search_with_current_word(ic_env_t* env, editor_t* eb) {
+ic_private void edit_history_search_with_current_word(ic_env_t* env, editor_t* eb) {
   char* initial = NULL;
   ssize_t start = sbuf_find_word_start( eb->input, eb->pos );
   if (start >= 0) {

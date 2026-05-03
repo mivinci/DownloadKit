@@ -340,6 +340,42 @@ static ssize_t xline_count_rows(ic_env_t *env, const char *s, ssize_t len) {
   return rows;
 }
 
+// Same traversal as xline_count_rows, but also returns the column (0-based)
+// at which the *next* character would land on the final row. This is what
+// the sneak fast path in xLinePrintAboveChunk needs to position the cursor
+// at the tail of last_line before appending a chunk without redrawing the
+// edit region below. Returns 0 rows and *out_col=0 for empty input.
+static ssize_t xline_count_rows_and_last_col(ic_env_t *env, const char *s,
+                                             ssize_t len, ssize_t *out_col) {
+  if (out_col != NULL) *out_col = 0;
+  if (len <= 0) return 0;
+  ssize_t termw = term_get_width(env->term);
+  if (termw <= 0) termw = 80;
+  ssize_t col  = 0;
+  ssize_t rows = 1;
+  ssize_t i    = 0;
+  while (i < len) {
+    ssize_t w    = 0;
+    ssize_t next = str_next_ofs(s, len, i, &w);
+    if (next <= 0) break;
+    if (s[i] == '\n') {
+      rows++;
+      col = 0;
+      i += next;
+      continue;
+    }
+    if (w > 0 && col + w > termw) {
+      rows++;
+      col = w;
+    } else {
+      col += w;
+    }
+    i += next;
+  }
+  if (out_col != NULL) *out_col = col;
+  return rows;
+}
+
 // Rewind the cursor to the start of the above region's trailing line and
 // clear from there to the end of the screen. After this call the terminal
 // write head is positioned exactly where the next above-region byte should
@@ -600,12 +636,20 @@ ic_public xLineStepResult xLineStep(xLineHandle handle) {
   ic_env_t *env = h->env;
   editor_t *eb  = &h->eb;
 
-  for (;;) {
+  // Fairness policy: dispatch at most one key code per xLineStep() call
+  // before handing control back to the outer event loop. Previously this
+  // was a tight for(;;) drain loop that kept running as long as the tty
+  // had anything queued — which meant a user typing fast (or pasting) could
+  // starve other fds in the same loop (notably the AI session's streaming
+  // fd). Returning PENDING after each code lets the caller re-poll and give
+  // every source a turn. If the tty still has buffered input the next
+  // poll wakes up immediately so throughput is unchanged in practice.
+  for (int dispatched = 0; dispatched < 1;) {
     code_t c;
-    // Non-blocking read: drain whatever is ready on the tty right now.
-    // tty_read_timeout(_, 0, _) may still briefly block up to the ESC
-    // follow-up timeout (~10ms) while reassembling a partial escape
-    // sequence — this is short enough to be acceptable in an event loop.
+    // Non-blocking read: tty_read_timeout(_, 0, _) may still briefly block
+    // up to the ESC follow-up timeout (~10ms) while reassembling a partial
+    // escape sequence — this is short enough to be acceptable in an event
+    // loop.
     term_flush(env->term);
 
     // Pick up SIGWINCH between key dispatches. edit_resize recomputes the
@@ -663,7 +707,9 @@ ic_public xLineStepResult xLineStep(xLineHandle handle) {
       h->state = XLINE_ASYNC_DONE_LINE;
       return XLINE_STEP_LINE;
     }
+    dispatched++;
   }
+  return XLINE_STEP_PENDING;
 }
 
 //-------------------------------------------------------------
@@ -715,9 +761,74 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
   if (h == NULL || s == NULL || *s == '\0' || h->env == NULL) return;
   if (h->state != XLINE_ASYNC_RUNNING && h->state != XLINE_ASYNC_INIT) return;
 
-  // Extend the trailing line with the caller's fragment. We need to rewrite
-  // the previous trailing line too (it may now wrap differently, or may be
-  // fully consumed by a '\n' inside `s`), so concatenate and re-emit.
+  // Fast path (token-streaming sneak): the common case for LLM streaming
+  // is one short chunk with no embedded '\n'. Previously every such chunk
+  // triggered the full erase_trailing + emit_bytes + edit_refresh cycle,
+  // which rewrites the entire trailing line and prompt for every token —
+  // O(N²) bytes over the terminal for long single-line replies and very
+  // visible jitter in the edit region.
+  //
+  // Here we instead:
+  //   1. Check the chunk has no '\n' and (last_line ++ chunk) still wraps
+  //      to the same number of screen rows as last_line alone. I.e. the
+  //      chunk extends the trailing line horizontally only — no new rows,
+  //      no autowrap that would clobber the prompt row below.
+  //   2. Save the cursor (it's currently somewhere inside the edit region
+  //      after the previous edit_refresh), move up past the prompt onto
+  //      last_line's final row at column `last_col`, emit the chunk, then
+  //      restore the cursor. The edit region is not touched — no prompt
+  //      redraw, no extra, no below panel repaint — so there's nothing to
+  //      flicker.
+  //   3. Update h->last_line bookkeeping to reflect the new tail.
+  //
+  // Any pre-condition failure (newline inside chunk, would-wrap, etc.)
+  // falls through to the slow path below, which is the original
+  // erase+emit+refresh cycle and handles all the multi-row and '\n'
+  // cases correctly.
+  if (strchr(s, '\n') == NULL && h->last_line_rows > 0) {
+    ic_env_t *env = h->env;
+    editor_t *eb  = &h->eb;
+    ssize_t last_col = 0;
+    (void)xline_count_rows_and_last_col(env, sbuf_string(h->last_line),
+                                        sbuf_len(h->last_line), &last_col);
+    stringbuf_t *probe = sbuf_new();
+    if (probe != NULL) {
+      sbuf_append(probe, sbuf_string(h->last_line));
+      sbuf_append(probe, s);
+      ssize_t new_last_col = 0;
+      ssize_t new_rows     = xline_count_rows_and_last_col(
+        env, sbuf_string(probe), sbuf_len(probe), &new_last_col);
+      if (new_rows == h->last_line_rows) {
+        // Sneak path is viable.
+        xline_trace("sneak: last_rows=%zd last_col=%zd -> col=%zd chunk_len=%zu",
+                    h->last_line_rows, last_col, new_last_col,
+                    (size_t)strlen(s));
+        term_attr_reset(env->term);
+        term_write(env->term, "\x1b[s"); // save cursor (DEC)
+        // Climb from current edit-region cursor to the final row of
+        // last_line. cur_row is 0-based inside the edit region; one
+        // extra row up accounts for the '\n' separator between the
+        // above region and the prompt.
+        term_up(env->term, (ssize_t)eb->cur_row + 1);
+        term_write(env->term, "\r");
+        term_right(env->term, last_col);
+        term_write(env->term, s);
+        term_write(env->term, "\x1b[u"); // restore cursor
+        term_flush(env->term);
+        // Commit the new trailing line; rows unchanged by construction.
+        sbuf_append(h->last_line, s);
+        // h->last_line_rows stays the same.
+        sbuf_free(probe);
+        return;
+      }
+      sbuf_free(probe);
+    }
+  }
+
+  // Slow path: extend the trailing line with the caller's fragment. We need
+  // to rewrite the previous trailing line too (it may now wrap differently,
+  // or may be fully consumed by a '\n' inside `s`), so concatenate and
+  // re-emit.
   stringbuf_t *buf = sbuf_new();
   if (buf == NULL) return;
   sbuf_append(buf, sbuf_string(h->last_line));

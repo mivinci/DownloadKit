@@ -893,6 +893,31 @@ static void sess_fwd_on_tool_output(xAgentQuery q, const char *tool_use_id,
   }
 }
 
+/* Forward the query-level confirmation gate up to the session-level
+ * host callback. The resolver handle is the same concrete type on
+ * both layers \u2014 we just translate the xAgentQuery signature to the
+ * xAgentSession one and pass the host\u2019s user_data. If the host did
+ * not wire on_tool_confirm, this forwarder is never stamped into
+ * the query\u2019s callback table, so we cannot get called at all. */
+static void sess_fwd_on_tool_confirm(xAgentQuery q, const char *tool_name,
+                                     const char *tool_use_id,
+                                     const char *args_json,
+                                     xAgentToolConfirmResolver resolver,
+                                     void                     *ud) {
+  (void)q;
+  struct xAgentSession_ *s = (struct xAgentSession_ *)ud;
+  if (s->cbs.on_tool_confirm) {
+    s->cbs.on_tool_confirm((xAgentSession)s, tool_name, tool_use_id, args_json,
+                           resolver, s->cbs.user_data);
+    return;
+  }
+  /* Defensive fallback: the callback table should not be stamped
+   * with sess_fwd_on_tool_confirm when the host\u2019s handler is NULL,
+   * but if we still arrived here just auto-allow to preserve the
+   * legacy behaviour of "needs_confirm without a host = no gate". */
+  xAgentToolConfirmResolve(resolver, xAgentToolDecision_Allow, NULL);
+}
+
 /* ── Sidecar Query implementation ──────────────────────────────────
  *
  * A sidecar Query is a lightweight, Session-managed Query that runs
@@ -1598,6 +1623,12 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
   xAgentQueryConf      qc = {0};
   qc.cbs               = SESSION_FWD_CBS;
   qc.cbs.user_data     = s;
+  /* Only expose the confirmation gate if the host actually wired a
+   * callback \u2014 otherwise leave on_tool_confirm NULL so needs_confirm
+   * tools keep running without asking (backward-compatible default). */
+  if (s->cbs.on_tool_confirm) {
+    qc.cbs.on_tool_confirm = sess_fwd_on_tool_confirm;
+  }
   qc.provider          = a->provider;
   qc.tools             = (const xAgentTool **)a->tools;
   qc.tools_count       = a->tools_count;

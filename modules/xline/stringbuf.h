@@ -96,7 +96,17 @@ typedef struct rowcol_s {
 ic_private ssize_t sbuf_get_pos_at_rc(stringbuf_t *sbuf, ssize_t termw,
                                       ssize_t promptw, ssize_t cpromptw,
                                       ssize_t row, ssize_t col);
-// get row/col for a given position
+// get row/col for a given position.
+//
+// WARNING: this is editor-geometry, not pure display geometry. The
+// underlying str_for_each_row() reserves one terminal column for the
+// cursor, so the row count it returns is +1 vs. what the terminal would
+// actually autowrap to when the same bytes were printed without a cursor
+// living inside them. Only call this from code paths that are painting
+// an *editable* line (prompt + input + cursor). For the streaming above
+// region in async.c, use xline_count_rows() instead — mixing the two
+// caused the "thinking ate N rows of scrollback" regression, see commit
+// history around xline_count_rows for the full post-mortem.
 ic_private ssize_t sbuf_get_rc_at_pos(stringbuf_t *sbuf, ssize_t termw,
                                       ssize_t promptw, ssize_t cpromptw,
                                       ssize_t pos, rowcol_t *rc);

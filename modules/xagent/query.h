@@ -76,6 +76,61 @@ extern "C" {
 XDEF_HANDLE(xAgentSession);
 
 /**
+ * @brief User decision for a tool call awaiting confirmation.
+ *
+ * Delivered via xAgentToolConfirmResolve(). The tool confirm gate
+ * is query-level and governed by xAgentTool::needs_confirm — only
+ * tools flagged as needing confirmation trigger the gate; everything
+ * else dispatches as before.
+ */
+XDEF_ENUM(xAgentToolDecision){
+  /** Run the tool handler as usual. */
+  xAgentToolDecision_Allow  = 0,
+  /** Refuse the tool call. The agent fabricates an is_error=1
+   *  tool_result carrying @p reason (or a default message when NULL)
+   *  and feeds it back to the model, so the model knows the user
+   *  declined and can change course. */
+  xAgentToolDecision_Reject = 1,
+};
+
+/**
+ * @brief Opaque handle for deferring a tool confirmation decision.
+ *
+ * Passed to xAgentQueryCallbacks::on_tool_confirm (and its session
+ * forwarder xAgentSessionCallbacks::on_tool_confirm). The host keeps
+ * the resolver across UI interaction and eventually calls
+ * xAgentToolConfirmResolve() exactly once to deliver the decision.
+ *
+ * Threading: the handle is tied to the owning query's event loop.
+ * Only call xAgentToolConfirmResolve() from that loop thread.
+ *
+ * Lifetime: the resolver is valid from the on_tool_confirm call
+ * until it is resolved or the owning run is cancelled / destroyed,
+ * whichever comes first. Resolving a stale resolver (e.g. after the
+ * query was cancelled) is a silent no-op — the underlying tool
+ * call is already gone.
+ */
+XDEF_HANDLE(xAgentToolConfirmResolver);
+
+/**
+ * @brief Submit a decision for a pending tool confirmation.
+ *
+ * Must be called exactly once per resolver. A second call on the
+ * same handle is a silent no-op.
+ *
+ * @param r         The resolver handed to the host via
+ *                  on_tool_confirm.
+ * @param decision  Allow or Reject.
+ * @param reason    Optional human-readable message. Only meaningful
+ *                  for Reject — it becomes the text of the
+ *                  synthetic tool_result delivered to the model.
+ *                  May be NULL (default: "rejected by user").
+ */
+XCAPI(void) xAgentToolConfirmResolve(xAgentToolConfirmResolver r,
+                                     xAgentToolDecision        decision,
+                                     const char               *reason);
+
+/**
  * @brief Why the Query's current run stopped.
  *
  * Delivered to the caller via xAgentQueryCallbacks::on_done (and
@@ -199,6 +254,47 @@ XDEF_STRUCT(xAgentQueryCallbacks) {
   void (*on_tool_output)(xAgentQuery q, const char *tool_use_id,
                          const char *tool_name, const char *data, size_t len,
                          void *ud);
+
+  /**
+   * @brief Optional: user-confirmation gate for tools flagged as
+   *        @ref xAgentTool::needs_confirm.
+   *
+   * Fires once per tool invocation whose tool handle was created
+   * with @c needs_confirm != 0, immediately before the handler would
+   * be dispatched. Tools that do NOT opt in never trigger this
+   * callback — they run as usual.
+   *
+   * The host is expected to display a UI, ask the user, and then
+   * call xAgentToolConfirmResolve() with the decision. While the
+   * resolver is outstanding the owning query is paused: the tool
+   * handler is not dispatched, on_tool(started=1) has not yet fired,
+   * and no follow-up provider round is issued. Other tools in the
+   * same batch that do NOT need confirmation are dispatched normally
+   * in parallel.
+   *
+   * Multiple needs_confirm tool calls arriving in the same assistant
+   * turn trigger on_tool_confirm once per call, each with its own
+   * independent resolver.
+   *
+   * If this callback is NULL, all @c needs_confirm tools run without
+   * asking — the gate is disabled by default.
+   *
+   * Cancellation: if the owning run is cancelled while a resolver
+   * is outstanding, the pending call is synthesised as a cancelled
+   * tool_result and the resolver becomes a silent no-op.
+   *
+   * @param q            The Query.
+   * @param tool_name    The registered tool name.
+   * @param tool_use_id  The provider-supplied tool_use_id for this call.
+   * @param args_json    The JSON argument string the model supplied
+   *                     (valid only for the duration of the call —
+   *                     deep-copy if needed beyond the UI turn).
+   * @param resolver     Opaque handle; pass to xAgentToolConfirmResolve.
+   * @param ud           The user_data pointer from this struct.
+   */
+  void (*on_tool_confirm)(xAgentQuery q, const char *tool_name,
+                          const char *tool_use_id, const char *args_json,
+                          xAgentToolConfirmResolver resolver, void *ud);
 
   /** Forwarded to every callback in this struct. */
   void *user_data;

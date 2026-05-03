@@ -386,6 +386,14 @@ bool xLineEnableAutoTab(bool enable);
 /// Returns the previous setting.
 bool xLineEnableCompletionPreview(bool enable);
 
+/// Configure a set of "trigger" characters that auto-open the completion
+/// menu the moment the user types them as the first character of an
+/// otherwise-empty input line (same code path as pressing TAB). Typical
+/// use is `xLineSetCompletionTriggers("/")` in a REPL that uses leading
+/// `/` for slash-commands, so the user sees the command menu the instant
+/// they start a command. Pass \a NULL to disable (the default).
+void xLineSetCompletionTriggers(const char *trigger_chars);
+
 /// Disable or enable automatic identation of continuation lines in multiline
 /// input so it aligns with the initial prompt.
 /// Returns the previous setting.
@@ -429,15 +437,6 @@ bool xLineEnableBraceInsertion(bool enable);
 /// Set matching brace pairs for automatic insertion.
 /// Pass \a NULL for the default `()[]{}\"\"''`
 void xLineSetInsertionBraces(const char *brace_pairs);
-
-/// Pin the edit region (prompt + input + below panel) to the screen's
-/// bottom rows while above-region output streams in (enabled by default).
-/// When disabled the edit region flows immediately after the last
-/// above-region byte, matching classic readline layout — useful when
-/// output is being captured / piped and the bottom-stick transcript is
-/// noisy, or for terminals that render pad rows poorly.
-/// @returns the previous setting.
-bool xLineEnableAnchor(bool enable);
 
 /// \}
 

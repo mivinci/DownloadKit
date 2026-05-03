@@ -222,7 +222,53 @@ XDEF_STRUCT(xAgentSessionCallbacks) {
                          void *ud);
 
   /**
-   * @brief Optional: sidecar query lifecycle signal.
+   * @brief Optional: user-confirmation gate for tools flagged as
+   *        @ref xAgentTool::needs_confirm.
+   *
+   * Fires once per tool invocation whose tool handle was created
+   * with @c needs_confirm != 0, immediately before the handler would
+   * be dispatched. Tools that do NOT opt in never trigger this
+   * callback — they run as usual.
+   *
+   * The host is expected to display a UI, ask the user, and then
+   * call xAgentToolConfirmResolve() with the decision — either
+   * synchronously (from inside this callback) or deferred (typical
+   * case: the host stashes the resolver and calls Resolve later from
+   * a keypress handler). While the resolver is outstanding the
+   * owning query is paused: the tool handler is not dispatched,
+   * on_tool(started=1) has not yet fired, and no follow-up provider
+   * round is issued. Other tools in the same batch that do NOT need
+   * confirmation are dispatched normally in parallel.
+   *
+   * Multiple needs_confirm tool calls arriving in the same assistant
+   * turn trigger on_tool_confirm once per call, each with its own
+   * independent resolver. The host may decide each one independently
+   * (allow some, reject others) or aggregate the UI however it
+   * likes.
+   *
+   * If this callback is NULL, all @c needs_confirm tools run without
+   * asking — the gate is disabled by default so existing callers
+   * see no behaviour change.
+   *
+   * Cancellation: if the owning run is cancelled (via
+   * xAgentSessionCancel or xAgentSessionDestroy) while a resolver is
+   * outstanding, the pending call is synthesised as a cancelled
+   * tool_result and the resolver becomes a silent no-op.
+   *
+   * @param sess         The session.
+   * @param tool_name    The registered tool name.
+   * @param tool_use_id  The provider-supplied tool_use_id for this call.
+   * @param args_json    The JSON argument string the model supplied
+   *                     (valid only for the duration of the call —
+   *                     deep-copy if needed beyond the UI turn).
+   * @param resolver     Opaque handle; pass to xAgentToolConfirmResolve.
+   * @param ud           The user_data pointer from this struct.
+   */
+  void (*on_tool_confirm)(xAgentSession sess, const char *tool_name,
+                          const char *tool_use_id, const char *args_json,
+                          xAgentToolConfirmResolver resolver, void *ud);
+
+  /**
    *
    * Fired when the session launches or finishes a sidecar query.
    * The sidecar is a lightweight, internally-triggered query that

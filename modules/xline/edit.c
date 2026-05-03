@@ -234,6 +234,11 @@ static void edit_refresh_rows(ic_env_t *env, editor_t *eb, stringbuf_t *input,
 }
 
 ic_private void edit_refresh(ic_env_t *env, editor_t *eb) {
+  xline_trace(
+    "edit_refresh: enter pos=%zd input_len=%zd cur_row=%zd cur_rows=%zd",
+    eb->pos, sbuf_len(eb->input), eb->cur_row, eb->cur_rows);
+  xline_trace_bytes("edit_refresh/input", sbuf_string(eb->input),
+                    sbuf_len(eb->input));
   // Let embedders (e.g. the async below-panel) re-inject eb->extra before
   // we read it below. This ensures the panel survives refreshes triggered
   // by subsystems (completion menu, history search) that clear eb->extra
@@ -364,6 +369,8 @@ ic_private void edit_refresh(ic_env_t *env, editor_t *eb) {
   // update previous
   eb->cur_rows = rows;
   eb->cur_row  = rc.row;
+  xline_trace("edit_refresh: leave cur_row=%zd cur_rows=%zd", eb->cur_row,
+              eb->cur_rows);
 }
 
 // clear current output
@@ -810,6 +817,10 @@ static void editor_auto_indent(editor_t *eb, const char *pre,
 }
 
 ic_private void edit_insert_char(ic_env_t *env, editor_t *eb, char c) {
+  xline_trace("edit_insert_char: c=0x%02x ('%c') pos_before=%zd input_len_before=%zd",
+              (unsigned char)c,
+              (c >= 0x20 && c < 0x7f) ? c : '?', eb->pos,
+              sbuf_len(eb->input));
   editor_start_modify(eb);
   ssize_t nextpos = sbuf_insert_char_at(eb->input, c, eb->pos);
   if (nextpos >= 0) eb->pos = nextpos;
@@ -817,6 +828,10 @@ ic_private void edit_insert_char(ic_env_t *env, editor_t *eb, char c) {
   if (c == '\n') {
     editor_auto_indent(eb, "{", "}"); // todo: custom auto indent tokens?
   }
+  xline_trace("edit_insert_char: pos_after=%zd input_len_after=%zd", eb->pos,
+              sbuf_len(eb->input));
+  xline_trace_bytes("edit_insert_char/input", sbuf_string(eb->input),
+                    sbuf_len(eb->input));
   edit_refresh_hint(env, eb);
 }
 
@@ -1021,6 +1036,16 @@ ic_private bool edit_dispatch_key(ic_env_t *env, editor_t *eb, code_t c) {
     unicode_t uchr;
     if (code_is_ascii_char(c, &chr)) {
       edit_insert_char(env, eb, chr);
+      // Auto-open the completion menu if the just-inserted char is a
+      // configured trigger AND it's the first (only) character in the
+      // input. We gate on "first char only" so that typing e.g. a URL
+      // like https://example.com doesn't repeatedly pop the menu — only
+      // leading command-style triggers fire. No-op when the embedder
+      // didn't call xLineSetCompletionTriggers.
+      if (env->completion_triggers != NULL && sbuf_len(eb->input) == 1 &&
+          strchr(env->completion_triggers, (unsigned char)chr) != NULL) {
+        edit_generate_completions(env, eb, false);
+      }
     } else if (code_is_unicode(c, &uchr)) {
       edit_insert_unicode(env, eb, uchr);
     } else {

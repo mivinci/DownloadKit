@@ -29,6 +29,9 @@ struct ic_env_s {
   const char    *prompt_marker; // the prompt marker (defaults to "> ")
   const char *cprompt_marker; // prompt marker for continuation lines (defaults
                               // to `prompt_marker`)
+  const char *completion_triggers; // trigger chars: inserting any of these
+                                   // into an otherwise-empty input auto-opens
+                                   // the completion menu (NULL = disabled)
   xLineHighlightFunc *highlighter;     // highlight callback
   void             *highlighter_arg; // user state for the highlighter.
   const char       *match_braces;    // matching braces, e.g "()[]{}"
@@ -49,11 +52,6 @@ struct ic_env_s {
   bool no_bracematch;       // enable brace matching?
   bool no_autobrace;        // enable automatic brace insertion?
   bool no_lscolors; // use LSCOLORS/LS_COLORS to colorize file name completions?
-  bool no_anchor;   // disable pinning the edit region (prompt + input + below
-                    // panel) to the screen's bottom rows when tokens stream
-                    // above it; when set the edit region flows immediately
-                    // after the last above-region byte (classic readline
-                    // behavior).
   long hint_delay;  // delay before displaying a hint in milliseconds
 
   // Pre-refresh hook: called at the top of edit_refresh() so embedders can

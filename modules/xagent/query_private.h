@@ -81,7 +81,28 @@ struct xAgentQueryAsyncTool_ {
   char            *id;        /* tool_use_id (owned copy)                */
   char            *name;      /* tool name (owned copy)                  */
   char            *args_json; /* arguments JSON (owned copy)              */
+
+  /* Stage — distinguishes entries still waiting for a user
+   * confirmation decision from ones whose handler is actually in
+   * flight. See query.c:dispatch_pending_tools for the state
+   * transitions. */
+  int stage; /* 0 = AwaitingConfirm, 1 = Running                           */
+
+  /* When stage == AwaitingConfirm the resolver handle that
+   * xAgentToolConfirmResolve() closes over. Owned by the
+   * async-pending array (freed on remove / release). NULL once the
+   * entry transitions to Running.
+   *
+   * Back-pointer (struct xAgentToolConfirmResolver_ *) is declared as
+   * void here so this header stays free of the resolver struct's
+   * concrete layout, which is a query.c-private implementation
+   * detail. */
+  void *resolver;
 };
+
+/* Internal stage values for xAgentQueryAsyncTool_::stage. */
+#define XAGENT_ASYNC_STAGE_AWAITING_CONFIRM 0
+#define XAGENT_ASYNC_STAGE_RUNNING          1
 
 /**
  * @brief One run of the agent tool loop.

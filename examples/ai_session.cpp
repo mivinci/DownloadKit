@@ -47,11 +47,19 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <signal.h>
 #include <string>
 #include <unistd.h>
 
 /* ── REPL state ─────────────────────────────────────────────────────── */
+struct PendingConfirm {
+  std::string tool_name;
+  std::string tool_use_id;
+  std::string args_json;
+  xAgentToolConfirmResolver resolver;
+};
+
 struct ReplCtx {
   xEventLoop   loop             = nullptr;
   xAgentSession   sess             = nullptr;
@@ -73,6 +81,18 @@ struct ReplCtx {
   uint64_t    input_ms   = 0;  /* monotonic timestamp (ms) at user input */
   bool        should_exit = false;   /* set by /exit handler */
   const char *hist_path   = nullptr; /* xline history file, for /history */
+
+  /* Tool-confirm gate ────────────────────────────────────────────────
+   * When a needs_confirm tool (currently just shell) is about to run,
+   * on_tool_confirm pushes a PendingConfirm onto this queue and flips
+   * the REPL into "confirm mode": the editor is reopened with a
+   * dedicated prompt and a below-panel showing the pending command,
+   * and the next line the user submits is parsed as a decision rather
+   * than sent to the model. Queued (not single-slot) so that a single
+   * assistant turn can chain multiple tool calls — the user sees them
+   * one at a time in arrival order. */
+  std::deque<PendingConfirm> confirm_queue;
+  bool                       confirm_active = false;
 };
 
 /* ── Output helpers ───────────────────────────────────────────────────
@@ -152,6 +172,15 @@ static void slash_cmd_history(ReplCtx *ctx, const char *args);
 static void slash_cmd_tokens(ReplCtx *ctx, const char *args);
 static void slash_cmd_cancel(ReplCtx *ctx, const char *args);
 
+/* Forward decls for the confirm-gate machinery. Bodies live further
+ * down near the rest of the REPL glue; slash_cmd_cancel and on_done
+ * both reach back here to drain queued resolvers, hence the early
+ * declaration. */
+static void repl_update_confirm_panel(ReplCtx *ctx);
+static void repl_enter_confirm_mode(ReplCtx *ctx);
+static void repl_leave_confirm_mode(ReplCtx *ctx);
+static void repl_drain_confirms_rejected(ReplCtx *ctx, const char *reason);
+
 static const SlashCmd g_slash_cmds[] = {
   {"/help", "show this help", slash_cmd_help},
   {"/exit", "quit the REPL", slash_cmd_exit},
@@ -222,9 +251,6 @@ static void slash_cmd_help(ReplCtx *ctx, const char *args) {
   /* title suppressed: the body already reads as a help listing and the
    * "/help" tab on top just stole a row. */
   xLineSetBelowPanel(ctx->line, nullptr, body.c_str());
-  xLinePrintAbove(ctx->line,
-                  "\x1b[2mAnything not starting with '/' is sent to the "
-                  "model. Type '/' + Tab to browse commands.\x1b[0m");
 }
 
 static void slash_cmd_exit(ReplCtx *ctx, const char *args) {
@@ -247,15 +273,22 @@ static void slash_cmd_clear(ReplCtx *ctx, const char *args) {
 
 static void slash_cmd_cancel(ReplCtx *ctx, const char *args) {
   (void)args;
-  if (!ctx->busy) {
+  if (!ctx->busy && !ctx->confirm_active) {
     above_printf(ctx->line, "\x1b[2m(no AI run in flight)\x1b[0m");
     return;
   }
   /* xAgentSessionCancel is async: it asks the provider to unwind and
    * on_done is still delivered (with reason == Aborted). Flip busy
    * off there, not here — that keeps on_text/on_done ordering
-   * consistent with the natural-completion path. */
+   * consistent with the natural-completion path. If confirm mode is
+   * active, drain the queue first so the session doesn't stall on a
+   * pending resolver (Cancel would eventually turn them into no-ops,
+   * but rejecting explicitly closes our own bookkeeping cleanly and
+   * gets us back to a normal prompt immediately). */
   above_printf(ctx->line, "\x1b[2m[cancel] aborting run…\x1b[0m");
+  if (ctx->confirm_active) {
+    repl_drain_confirms_rejected(ctx, "cancelled by user");
+  }
   xAgentSessionCancel(ctx->sess);
 }
 
@@ -542,6 +575,14 @@ static void on_done(xAgentSession sess, xAgentDoneReason reason,
   xLinePrintAbove(ctx->line, line_buf);
 
   ctx->busy = false;
+  /* Defensive: if the run tore down while a confirm was in flight
+   * (Aborted / ModelError before the user answered), the session has
+   * already invalidated those resolvers — Resolve() is a documented
+   * no-op on a cancelled run. Drain our queue so the UI flips back
+   * to normal instead of leaving a stale "confirm>" prompt. */
+  if (ctx->confirm_active || !ctx->confirm_queue.empty()) {
+    repl_drain_confirms_rejected(ctx, "run ended");
+  }
   /* Natural completion of the user's run — nothing more to do.
    * The event loop keeps running so the editor stays interactive. */
 }
@@ -632,6 +673,11 @@ static void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
     break;
   }
   case xAgentBudgetEvent_GatePassed: {
+    /* GatePassed fires on every successful Input — logging it each
+     * round just produces "[budget] remaining ..." spam that drowns
+     * out the actually-interesting events (Compacting / CompactDone
+     * / Truncated). We still snapshot the latest numbers into ctx so
+     * slash commands like /budget can surface them on demand. */
     auto *gi = static_cast<const xAgentBudgetGateInfo *>(info);
     if (gi) {
       ctx->budget_limit       = gi->limit;
@@ -640,10 +686,6 @@ static void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
       ctx->budget_samples     = gi->calibrator_samples;
       ctx->budget_estimated   = gi->estimated;
       ctx->last_actual_prompt = gi->last_first_round_prompt_tokens;
-      above_printf(ctx->line,
-                   "\x1b[2m[budget] gate passed — remaining %zu/%zu "
-                   "tokens\x1b[0m",
-                   gi->remaining, gi->limit);
     }
     break;
   }
@@ -663,8 +705,8 @@ static void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
 
 static void repl_line_cb(int fd, xEventMask mask, void *arg);
 
-static int repl_open_line(ReplCtx *ctx) {
-  ctx->line = xLineBegin("");
+static int repl_open_line_with_prompt(ReplCtx *ctx, const char *prompt) {
+  ctx->line = xLineBegin(prompt ? prompt : "");
   if (!ctx->line) {
     std::fprintf(stderr,
                  "xLineBegin failed (dumb tty? another session live?)\n");
@@ -688,6 +730,10 @@ static int repl_open_line(ReplCtx *ctx) {
   return 0;
 }
 
+static int repl_open_line(ReplCtx *ctx) {
+  return repl_open_line_with_prompt(ctx, "");
+}
+
 static void repl_close_line(ReplCtx *ctx) {
   if (ctx->src) {
     xEventDel(ctx->loop, ctx->src);
@@ -697,6 +743,215 @@ static void repl_close_line(ReplCtx *ctx) {
     xLineEnd(ctx->line);
     ctx->line = nullptr;
   }
+}
+
+/* ── Tool-confirm gate ──────────────────────────────────────────────
+ *
+ * The shell tool is created with needs_confirm=1 in xAgentToolShellCreate,
+ * so every proposed shell invocation drives on_tool_confirm here before
+ * the handler is allowed to run. We surface the request by reopening
+ * the line editor under a dedicated prompt ("confirm> ") with a below-
+ * panel that renders the tool name, the raw args JSON (short enough
+ * for shell — {"command":"..."} — that a JSON parser isn't worth
+ * pulling in for a demo), and the key hints. The next line the user
+ * submits is routed to repl_handle_confirm_line instead of the model.
+ *
+ * Multiple confirms that arrive in the same assistant turn (the model
+ * chained two shell calls) queue up behind the active one; the user
+ * sees them one at a time, in arrival order, until the queue drains
+ * and the REPL flips back to normal chat mode.
+ *
+ * Resolver lifetime: the session guarantees the resolver handle is
+ * valid from on_tool_confirm until xAgentToolConfirmResolve is called
+ * exactly once (or the owning run is cancelled, in which case Resolve
+ * becomes a silent no-op — we still call it on /cancel paths to keep
+ * our own bookkeeping clean).
+ */
+
+/* Build the body of the confirm panel for the head-of-queue item.
+ * Kept as a helper so both enter_confirm_mode and dequeuing the next
+ * request can refresh the panel without duplicating format strings. */
+static void repl_update_confirm_panel(ReplCtx *ctx) {
+  if (ctx->confirm_queue.empty()) return;
+  const PendingConfirm &pc = ctx->confirm_queue.front();
+  std::string body;
+  body.append("tool: ");
+  body.append(pc.tool_name);
+  body.append("\nargs: ");
+  body.append(pc.args_json);
+  if (ctx->confirm_queue.size() > 1) {
+    char qtail[64];
+    std::snprintf(qtail, sizeof(qtail), "\n(+%zu more queued)",
+                  ctx->confirm_queue.size() - 1);
+    body.append(qtail);
+  }
+  body.append("\n\n  [y] allow   [n] reject   [r <reason>] reject w/ reason");
+  xLineSetBelowPanel(ctx->line, "tool confirm", body.c_str());
+}
+
+/* Enter confirm mode. Caller must have enqueued at least one
+ * PendingConfirm first. Safe to call while the editor is open — we
+ * close + reopen with the new prompt so the visual transition is
+ * clean (old prompt's cursor column is dropped). */
+static void repl_enter_confirm_mode(ReplCtx *ctx) {
+  if (ctx->confirm_queue.empty()) return;
+  repl_close_line(ctx);
+  /* Suppress the default "> " prompt marker while we're asking for a
+   * tool-use decision — otherwise it renders immediately after our
+   * "confirm> " prefix and looks like a stray glyph. Restored in
+   * repl_leave_confirm_mode. */
+  xLineSetPromptMarker("", NULL);
+  if (repl_open_line_with_prompt(ctx, "\x1b[1;33mconfirm>\x1b[0m ") != 0) {
+    /* If we can't reopen the editor we can't ask the user — fall
+     * back to Reject so the run doesn't hang forever. */
+    xLineSetPromptMarker(NULL, NULL);
+    while (!ctx->confirm_queue.empty()) {
+      xAgentToolConfirmResolve(ctx->confirm_queue.front().resolver,
+                               xAgentToolDecision_Reject,
+                               "tty unavailable for confirm");
+      ctx->confirm_queue.pop_front();
+    }
+    ctx->confirm_active = false;
+    xEventLoopStop(ctx->loop);
+    return;
+  }
+  ctx->confirm_active = true;
+  above_printf(ctx->line,
+               "\x1b[1;33m[confirm] tool '%s' wants to run — approve?\x1b[0m",
+               ctx->confirm_queue.front().tool_name.c_str());
+  repl_update_confirm_panel(ctx);
+}
+
+static void repl_leave_confirm_mode(ReplCtx *ctx) {
+  repl_close_line(ctx);
+  /* Restore the default "> " marker before reopening the main chat
+   * prompt so normal input lines look the way the user expects. */
+  xLineSetPromptMarker(NULL, NULL);
+  if (repl_open_line(ctx) != 0) {
+    xEventLoopStop(ctx->loop);
+    return;
+  }
+  ctx->confirm_active = false;
+  xLineClearBelowPanel(ctx->line);
+}
+
+/* Reject everything in the confirm queue and leave confirm mode. Used
+ * on cancel / interrupt paths so the session doesn't stall waiting for
+ * a resolver the user has abandoned. Resolve() on a resolver whose
+ * owning run was already cancelled is a documented silent no-op, so
+ * we can call it unconditionally without racing the session's own
+ * teardown. */
+static void repl_drain_confirms_rejected(ReplCtx *ctx, const char *reason) {
+  while (!ctx->confirm_queue.empty()) {
+    xAgentToolConfirmResolve(ctx->confirm_queue.front().resolver,
+                             xAgentToolDecision_Reject,
+                             reason ? reason : "cancelled");
+    ctx->confirm_queue.pop_front();
+  }
+  if (ctx->confirm_active) repl_leave_confirm_mode(ctx);
+}
+
+/* Handle one line submitted while confirm mode is active. The line
+ * has already been xLineTake()'d by the caller; we own it only for
+ * the duration of the call (caller frees). Semantics:
+ *
+ *   y / yes / a / allow / empty-allow? → Allow
+ *   n / N / empty       → Reject with default reason
+ *   r <reason>          → Reject with user-supplied reason
+ *
+ * Empty input defaults to Reject — safer than Allow for a confirm
+ * gate, matches the uppercase "N" in the "[y/N]" hint. */
+static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
+  if (ctx->confirm_queue.empty()) {
+    /* Shouldn't happen: the gate shouldn't be active with an empty
+     * queue. Recover defensively. */
+    repl_leave_confirm_mode(ctx);
+    return;
+  }
+  PendingConfirm head = std::move(ctx->confirm_queue.front());
+  ctx->confirm_queue.pop_front();
+
+  /* Normalize: skip leading whitespace. */
+  const char *s = raw ? raw : "";
+  while (*s == ' ' || *s == '\t') ++s;
+
+  xAgentToolDecision decision = xAgentToolDecision_Reject;
+  const char        *reason   = "user declined execution";
+
+  if (*s == '\0' || *s == 'n' || *s == 'N') {
+    decision = xAgentToolDecision_Reject;
+    reason   = "user declined execution";
+  } else if (*s == 'y' || *s == 'Y' || *s == 'a' || *s == 'A') {
+    decision = xAgentToolDecision_Allow;
+    reason   = nullptr;
+  } else if (*s == 'r' || *s == 'R') {
+    decision = xAgentToolDecision_Reject;
+    /* Skip the leading 'r' and any whitespace — the rest is the
+     * user's reason. Fallback to default if they typed "r" alone. */
+    const char *tail = s + 1;
+    while (*tail == ' ' || *tail == '\t') ++tail;
+    reason = *tail ? tail : "user declined execution";
+  } else {
+    /* Unrecognised — repaint the panel, re-read. Push back onto
+     * head of queue and stay in confirm mode. */
+    above_printf(ctx->line,
+                 "\x1b[33m(unrecognised; use y / n / r <reason>)\x1b[0m");
+    ctx->confirm_queue.push_front(std::move(head));
+    repl_update_confirm_panel(ctx);
+    return;
+  }
+
+  /* Echo the decision so the transcript records what the user
+   * chose — useful for debugging a run that ended with ToolError. */
+  if (decision == xAgentToolDecision_Allow) {
+    above_printf(ctx->line, "\x1b[2m[confirm] %s → allowed\x1b[0m",
+                 head.tool_name.c_str());
+  } else {
+    above_printf(ctx->line, "\x1b[2m[confirm] %s → rejected: %s\x1b[0m",
+                 head.tool_name.c_str(), reason ? reason : "(none)");
+  }
+
+  xAgentToolConfirmResolve(head.resolver, decision, reason);
+
+  if (!ctx->confirm_queue.empty()) {
+    /* Another request is queued — stay in confirm mode, but refresh
+     * the panel to reflect the new head item. */
+    repl_update_confirm_panel(ctx);
+    above_printf(
+      ctx->line,
+      "\x1b[1;33m[confirm] next: tool '%s' wants to run — approve?\x1b[0m",
+      ctx->confirm_queue.front().tool_name.c_str());
+    return;
+  }
+
+  /* Queue drained — back to normal chat. */
+  repl_leave_confirm_mode(ctx);
+}
+
+/* Session callback: a needs_confirm tool wants to run. */
+static void on_tool_confirm(xAgentSession sess, const char *tool_name,
+                            const char *tool_use_id, const char *args_json,
+                            xAgentToolConfirmResolver resolver, void *ud) {
+  (void)sess;
+  auto *ctx = static_cast<ReplCtx *>(ud);
+  end_thinking(ctx);
+
+  PendingConfirm pc;
+  pc.tool_name   = tool_name ? tool_name : "(null)";
+  pc.tool_use_id = tool_use_id ? tool_use_id : "";
+  pc.args_json   = args_json ? args_json : "";
+  pc.resolver    = resolver;
+  ctx->confirm_queue.push_back(std::move(pc));
+
+  /* Already in confirm mode? Just refresh the "+N queued" count. A
+   * second confirm arriving mid-decision is rare (confirms serialise
+   * dispatch through the same loop turn) but not impossible for
+   * batched tool_use blocks. */
+  if (ctx->confirm_active) {
+    repl_update_confirm_panel(ctx);
+    return;
+  }
+  repl_enter_confirm_mode(ctx);
 }
 
 /* Submit a user message to the session. Handles the Busy → compact
@@ -719,12 +974,21 @@ static xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
      * (the caller's buffer may be freed before CompactDone fires)
      * and let on_budget_event re-enter submit on our behalf. */
     if (ctx->pending_text) std::free(ctx->pending_text);
-    ctx->pending_text  = strdup(text);
+    ctx->pending_text = strdup(text);
+    if (!ctx->pending_text) {
+      /* OOM: fail loudly rather than silently swallow the user's
+       * message. The retry flag stays false so on_budget_event's
+       * CompactDone branch doesn't fire a NULL resubmit. */
+      ctx->pending_retry = false;
+      above_printf(ctx->line,
+                   "\x1b[1;31m[error] out of memory stashing pending text "
+                   "\u2014 please resend after compact completes\x1b[0m");
+      return xErrno_NoMemory;
+    }
     ctx->pending_retry = true;
     above_printf(ctx->line,
-                 "\x1b[2m(session busy — will resubmit after compact)\x1b[0m");
-    return xErrno_Busy;
-  }
+                 "\x1b[2m(session busy \u2014 will resubmit after compact)\x1b[0m");
+    return xErrno_Busy;  }
   if (err != xErrno_Ok) {
     above_printf(ctx->line,
                  "\x1b[1;31m[error] input rejected (errno=%d)\x1b[0m",
@@ -756,7 +1020,10 @@ static int repl_handle_line(ReplCtx *ctx, char *line) {
     return 1;
   }
   if (line[0] == '/') {
-    /* Don't pollute history with command chrome. */
+    /* Don't pollute history with command chrome. The submit-line
+     * echo ("> /help") is emitted upstream in repl_line_cb while
+     * the editor session is still live, so we don't need to echo
+     * here. */
     xLineHistoryRemoveLast();
     slash_dispatch(ctx, line);
     return ctx->should_exit ? 1 : 0;
@@ -772,9 +1039,11 @@ static int repl_handle_line(ReplCtx *ctx, char *line) {
     return 0;
   }
 
-  /* Real chat submit: sweep away any slash-command panel from a
-   * previous turn so the new conversation doesn't carry stale UI. */
-  xLineClearBelowPanel(ctx->line);
+  /* Real chat submit. The stale slash-command panel (if any) and
+   * the submit-line echo ("> ...") were both handled upstream in
+   * repl_line_cb while the previous editor session was still live;
+   * by the time we get here the old session is already torn down
+   * and a fresh one is up, so there's nothing left to clean. */
   (void)repl_submit_text(ctx, line);
   return 0;
 }
@@ -791,17 +1060,73 @@ static void repl_line_cb(int fd, xEventMask mask, void *arg) {
       return;
     case XLINE_STEP_LINE: {
       char *s = xLineTake(ctx->line);
-      /* Close the finished editor session and *immediately* reopen a
-       * fresh one before dispatching. That way slash-command output
-       * (which goes through above_printf) has a live handle to draw
-       * onto, and AI submission hands control back to the event loop
-       * with the new session already active to receive on_text /
-       * on_done Above calls. */
+      /* Confirm-gate branch: the active editor is the "confirm> "
+       * one, so the line is a decision, not chat. Handle it in-
+       * place (which may reopen the line itself when the queue
+       * drains) and bail out — don't fall through to the normal
+       * open/close dance the chat path uses. */
+      if (ctx->confirm_active) {
+        xLineHistoryRemoveLast(); /* don't pollute chat history */
+        repl_handle_confirm_line(ctx, s);
+        xLineFree(s);
+        return;
+      }
+      /* Retire any below panel left over from a previous /help etc.
+       * *before* we close the session. The below panel occupies real
+       * rows between the prompt and the bottom of the viewport; when
+       * it stays up at submit time, xLineEnd's edit-region teardown
+       * leaves the cursor above the panel but the terminal still has
+       * those panel rows on screen until we emit output that rolls
+       * them out. Clearing here, while the session is live, tears
+       * the panel down cleanly and frees the row budget before close.
+       *
+       * Slash commands that want a panel (e.g. /help) re-install it
+       * on the new session after dispatch; clearing here is a no-op
+       * for them beyond collapsing the old panel's screen footprint
+       * first, which is what we want. */
+      xLineClearBelowPanel(ctx->line);
+      /* Close the finished editor session, open a fresh one, then
+       * echo the user's submitted line on the new session via
+       * above_printf.
+       *
+       * Why *this* order (close → open → echo on new session):
+       *   - Echoing via above_printf on the *old* session worked for
+       *     chat paths but confuses the first SetBelowPanel issued
+       *     on the *new* session: the new session's start_row (CPR
+       *     result) lands one row below the echo, and if the panel
+       *     is tall enough to overflow the viewport, xline's anchor
+       *     fast-paths into anchor_stuck and lets the terminal
+       *     auto-scroll. The rows that get scrolled into scrollback
+       *     are the ones above the new start_row — i.e. the echo
+       *     we just emitted. User's submitted line vanishes the
+       *     moment a tall panel (e.g. the tool-confirm body) comes
+       *     up later in the turn.
+       *   - Echoing in cooked mode between End and Begin has the
+       *     same symptom in the opposite direction: the printf-ed
+       *     row ends up at `CPR-measured start_row - 1`, outside
+       *     xline's managed region. Any later scroll triggered by
+       *     panel overflow in the new session yanks it into
+       *     scrollback.
+       *   - Echoing via above_printf on the *new* session makes the
+       *     echo part of xline's own above-region stream. The
+       *     anchor/wipe math treats it as a flushed row (just like
+       *     streaming model output), which means subsequent anchor
+       *     re-computations correctly include the echo when sizing
+       *     the edit region, and the panel-row prediction added to
+       *     xline_anchor_edit_bottom keeps the whole edit region on
+       *     screen. When the terminal does have to scroll (because
+       *     the above region has genuinely grown past one screen),
+       *     the echo rolls into scrollback in the same chronological
+       *     order as the rest of the transcript — no special-case
+       *     disappearance. */
       repl_close_line(ctx);
       if (repl_open_line(ctx) != 0) {
         xLineFree(s);
         xEventLoopStop(ctx->loop);
         return;
+      }
+      if (s && s[0] != '\0') {
+        above_printf(ctx->line, "\x1b[2m>\x1b[22m %s", s);
       }
       int want_stop = repl_handle_line(ctx, s);
       xLineFree(s);
@@ -828,12 +1153,18 @@ static void repl_line_cb(int fd, xEventMask mask, void *arg) {
        * so we must close + reopen it to get a fresh prompt drawn
        * with the cursor back at column 0. */
       repl_close_line(ctx);
-      if (ctx->busy) {
+      if (ctx->busy || ctx->confirm_active) {
         if (repl_open_line(ctx) != 0) {
           xEventLoopStop(ctx->loop);
           return;
         }
         above_printf(ctx->line, "\x1b[2m[cancel] aborting run…\x1b[0m");
+        if (ctx->confirm_active) {
+          /* Drain pending resolvers first so the session's tool-loop
+           * can unwind immediately instead of blocking on a user
+           * decision that will never come. */
+          repl_drain_confirms_rejected(ctx, "cancelled by user");
+        }
         xAgentSessionCancel(ctx->sess);
         return;
       }
@@ -867,7 +1198,12 @@ static void repl_on_sigint(int signo, void *arg) {
     xAgentSessionCancel(ctx->sess);
     return;
   }
-  xLineAsyncStop();
+  /* Idle ^C from out-of-band SIGINT (kill -INT, IDE stop button,
+   * etc.): tear down the event loop just like the EOF path does.
+   * xLineAsyncStop() belongs to the blocking xLineAsync() API and
+   * is a no-op (or worse, a state-machine poke) in the stepped
+   * REPL, so we don't call it here. */
+  xEventLoopStop(ctx->loop);
 }
 
 int main(int argc, char *argv[]) {
@@ -997,6 +1333,7 @@ int main(int argc, char *argv[]) {
   sconf.cbs.on_sidecar     = on_sidecar;
   sconf.cbs.on_done        = on_done;
   sconf.cbs.on_error       = on_error;
+  sconf.cbs.on_tool_confirm = on_tool_confirm;
   sconf.cbs.user_data      = &ctx;
 
   /* Opt into the structured budget pipeline so the calibrator
@@ -1111,7 +1448,7 @@ int main(int argc, char *argv[]) {
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
               "  - Enter       send message");
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-              "  - '/' + Tab   browse slash commands");
+              "  - /           browse slash commands");
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
               "  - /help       show all commands");
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
@@ -1147,6 +1484,14 @@ int main(int argc, char *argv[]) {
    * the menu is open) is already on by default; left as-is. */
   xLineSetDefaultCompleter(slash_completer, nullptr);
   xLineEnableHint(true);
+  /* Auto-open the slash-command menu the instant the user types '/'
+   * on an empty line. Saves a TAB keystroke for the most common
+   * command-discovery path; the menu still respects arrow keys /
+   * ESC / normal character input, so it's a strict UX upgrade over
+   * "type '/' then TAB". Only fires when '/' is the first byte of
+   * the input — mid-line slashes (paths, URLs, regex) are left
+   * alone. */
+  xLineSetCompletionTriggers("/");
   /* Default hint delay is 500ms — fine for typing prose where you
    * don't want a flash every keystroke, but annoying when you've
    * just typed `/c` and know `clear` is coming. Zero delay makes
@@ -1156,12 +1501,6 @@ int main(int argc, char *argv[]) {
    * (`/h` — /help vs /history) stay quiet until you type more or
    * hit Tab to see the menu. */
   xLineSetHintDelay(0);
-
-  /* Let the edit region flow right after the above-region stream
-   * instead of being pinned to the bottom of the terminal. Matches
-   * classic readline layout, which is what this demo's transcript-
-   * style UX expects. */
-  xLineEnableAnchor(false);
 
   /* Flush stdout before handing the terminal to xline. Any pending
    * output (the banner above) must clear cooked mode or it can

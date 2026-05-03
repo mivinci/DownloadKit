@@ -318,6 +318,62 @@ static void pending_release(void *elem) {
 
 static const xArrayCallbacks kPendingCbs = { NULL, pending_release, NULL };
 
+/* ── Tool-confirmation resolver ──────────────────────────────────────
+ *
+ * When a needs_confirm tool arrives in dispatch_pending_tools we do
+ * NOT invoke the handler. Instead we enqueue the call into
+ * async_pending_arr with stage=AwaitingConfirm and hand the host a
+ * resolver handle via q->cbs.on_tool_confirm. The host eventually
+ * calls xAgentToolConfirmResolve(resolver, Allow|Reject, reason)
+ * which routes back here to either:
+ *   - Allow  : transition the entry to stage=Running and invoke the
+ *              tool handler synchronously (the handler itself may
+ *              be sync or async — if it returns xErrno_Pending the
+ *              entry just stays in async_pending_arr as Running).
+ *   - Reject : fabricate an is_error=1 tool_result and feed it back
+ *              through ai_query_async_tool_complete (which is the
+ *              same path async tools take when they finish).
+ *
+ * Because the host might resolve after the query has been
+ * cancelled / destroyed, every resolver carries a generation
+ * counter that is invalidated on destroy; stale resolvers simply
+ * free themselves and return.
+ */
+
+struct xAgentToolConfirmResolver_ {
+  struct xAgentQuery_ *q;     /* owning query; NULL = invalidated */
+  char             *id;    /* tool_use_id, owned copy          */
+  int               done;  /* 1 after resolve() ran once       */
+};
+
+static struct xAgentToolConfirmResolver_ *
+confirm_resolver_new_(struct xAgentQuery_ *q, const char *tool_use_id) {
+  struct xAgentToolConfirmResolver_ *r =
+    (struct xAgentToolConfirmResolver_ *)calloc(1, sizeof(*r));
+  if (!r) return NULL;
+  r->q  = q;
+  r->id = dup_cstr(tool_use_id ? tool_use_id : "");
+  if (!r->id) {
+    free(r);
+    return NULL;
+  }
+  return r;
+}
+
+static void confirm_resolver_free_(struct xAgentToolConfirmResolver_ *r) {
+  if (!r) return;
+  free(r->id);
+  free(r);
+}
+
+/* Invalidate a resolver so that any still-pending xAgentToolConfirmResolve()
+ * from the host becomes a no-op. Called when the entry is removed
+ * from async_pending_arr (Reject path, cancel, destroy). */
+static void confirm_resolver_invalidate_(struct xAgentToolConfirmResolver_ *r) {
+  if (!r) return;
+  r->q = NULL;
+}
+
 /* ── Async pending tool-call bookkeeping ────────────────────────────── */
 
 static void async_pending_release(void *elem) {
@@ -326,6 +382,18 @@ static void async_pending_release(void *elem) {
   free(a->id);
   free(a->name);
   free(a->args_json);
+  if (a->resolver) {
+    /* Invalidate but do NOT free: the resolver handle lives in the
+     * host\u2019s hands. A late xAgentToolConfirmResolve() must be a
+     * safe no-op, so the host\u2019s pointer has to remain valid
+     * memory. The resolver is freed from inside
+     * xAgentToolConfirmResolve() (where we know it\u2019s been dequeued
+     * exactly once). If the host never resolves, the handle leaks
+     * \u2014 a small, per-cancelled-call cost we accept in exchange for
+     * crash-safety. */
+    confirm_resolver_invalidate_(
+        (struct xAgentToolConfirmResolver_ *)a->resolver);
+  }
   memset(a, 0, sizeof(*a));
 }
 
@@ -671,93 +739,190 @@ static xAgentTool find_tool(const xAgentTool **tools, size_t tools_count,
 static void query_finalize(struct xAgentQuery_ *q, xAgentDoneReason reason);
 static xErrno submit_round(struct xAgentQuery_ *q);
 
+/* Invoke a tool handler synchronously on behalf of dispatch_pending_tools
+ * (or the resolver Allow path). On xErrno_Pending the call has been
+ * handed off to async_pending_arr; the caller must NOT append a
+ * tool_result \u2014 the async completion path will do it.
+ *
+ * On any other return the function writes a tool_result entry into
+ * produced_arr and fires on_tool(started=0). For synchronous success
+ * it also fires on_tool(started=1) before the handler and (=0) after.
+ * For the Unknown / handler-error paths on_tool is *not* fired
+ * (the tool never really ran).
+ *
+ * Returns xErrno_Ok when the call has been fully accounted for, or
+ * a fatal xErrno (currently only NoMemory when the async slot or
+ * the tool_result slot fails to allocate).
+ */
+static xErrno invoke_tool_inline_(struct xAgentQuery_ *q, xAgentTool t,
+                                  const char *tool_use_id,
+                                  const char *tool_name,
+                                  const char *args_json) {
+  xAgentContent in = {0};
+  in.type = xAgentContentType_ToolUse;
+  in.u.tool_use.id        = tool_use_id;
+  in.u.tool_use.name      = tool_name;
+  in.u.tool_use.args_json = args_json;
+
+  if (q->cbs.on_tool) {
+    q->cbs.on_tool((xAgentQuery)q, tool_name, /*started=*/1, q->cbs.user_data);
+  }
+
+  xAgentContent out = {0};
+  xErrno      trc = ai_tool_invoke(t, (xAgentQuery)q, &in, &out);
+
+  if (trc == xErrno_Pending) {
+    /* Asynchronous tool: the handler will call on_done_fn later.
+     * Register the in-flight entry so we can track it. The
+     * on_tool(started=0) callback is deferred until the async
+     * completion fires (see ai_query_async_tool_complete). */
+    struct xAgentQueryAsyncTool_ *slot =
+      (struct xAgentQueryAsyncTool_ *)xArrayPush(&q->async_pending_arr);
+    if (!slot) return xErrno_NoMemory;
+    slot->tool      = t;
+    slot->done_fn   = ai_tool_on_done_fn(t);
+    slot->done_ud   = ai_tool_on_done_ud(t);
+    slot->cancel_fn = ai_tool_on_cancel_fn(t);
+    slot->cancel_ud = ai_tool_on_cancel_ud(t);
+    slot->id        = dup_cstr(tool_use_id);
+    slot->name      = dup_cstr(tool_name);
+    slot->args_json = dup_cstr(args_json);
+    slot->stage     = XAGENT_ASYNC_STAGE_RUNNING;
+    slot->resolver  = NULL;
+    if (!slot->id || !slot->name || !slot->args_json) {
+      xArrayPop(q->async_pending_arr);
+      return xErrno_NoMemory;
+    }
+    return xErrno_Ok;
+  }
+
+  const char *out_text;
+  size_t      out_text_len;
+  int         is_error = 0;
+  char        err_buf[256];
+
+  if (trc != xErrno_Ok) {
+    snprintf(err_buf, sizeof(err_buf),
+             "tool handler returned error (xErrno=%d)", (int)trc);
+    out_text     = err_buf;
+    out_text_len = strlen(err_buf);
+    is_error     = 1;
+  } else if (out.type == xAgentContentType_ToolResult) {
+    out_text     = out.u.tool_result.output ? out.u.tool_result.output : "";
+    out_text_len = out.u.tool_result.output_len
+                     ? out.u.tool_result.output_len
+                     : strlen(out_text);
+    is_error     = out.u.tool_result.is_error ? 1 : 0;
+  } else {
+    out_text     = "tool handler did not produce a tool_result";
+    out_text_len = strlen(out_text);
+    is_error     = 1;
+  }
+
+  xErrno rc = turn_buf_append_tool_result(&q->produced_arr, tool_use_id,
+                                          out_text, out_text_len, is_error);
+
+  if (q->cbs.on_tool) {
+    q->cbs.on_tool((xAgentQuery)q, tool_name, /*started=*/0, q->cbs.user_data);
+  }
+
+  return rc;
+}
+
+/* Append a synthetic is_error=1 tool_result directly to produced_arr.
+ * Used by the Reject path of the confirmation gate and by the
+ * unknown-tool path of dispatch_pending_tools. */
+static xErrno append_tool_error_(struct xAgentQuery_ *q, const char *tool_use_id,
+                                 const char *message) {
+  const char *m = message ? message : "tool error";
+  return turn_buf_append_tool_result(&q->produced_arr, tool_use_id, m,
+                                     strlen(m), /*is_error=*/1);
+}
+
+/* Register a pending tool call that is blocked on user confirmation.
+ * Pushes an async_pending entry with stage=AwaitingConfirm and allocates
+ * a resolver handle; the handle is returned so the caller can hand it
+ * to on_tool_confirm. On any failure the function rolls back all
+ * side-effects and returns NULL. */
+static struct xAgentToolConfirmResolver_ *
+register_confirm_pending_(struct xAgentQuery_ *q, xAgentTool t,
+                          const char *tool_use_id, const char *tool_name,
+                          const char *args_json) {
+  struct xAgentQueryAsyncTool_ *slot =
+    (struct xAgentQueryAsyncTool_ *)xArrayPush(&q->async_pending_arr);
+  if (!slot) return NULL;
+  slot->tool      = t;
+  slot->done_fn   = ai_tool_on_done_fn(t);
+  slot->done_ud   = ai_tool_on_done_ud(t);
+  slot->cancel_fn = ai_tool_on_cancel_fn(t);
+  slot->cancel_ud = ai_tool_on_cancel_ud(t);
+  slot->id        = dup_cstr(tool_use_id);
+  slot->name      = dup_cstr(tool_name);
+  slot->args_json = dup_cstr(args_json);
+  slot->stage     = XAGENT_ASYNC_STAGE_AWAITING_CONFIRM;
+  slot->resolver  = NULL;
+  if (!slot->id || !slot->name || !slot->args_json) {
+    xArrayPop(q->async_pending_arr);
+    return NULL;
+  }
+
+  struct xAgentToolConfirmResolver_ *r =
+    confirm_resolver_new_(q, tool_use_id);
+  if (!r) {
+    xArrayPop(q->async_pending_arr);
+    return NULL;
+  }
+  slot->resolver = r;
+  return r;
+}
+
 static xErrno dispatch_pending_tools(struct xAgentQuery_ *q) {
   for (size_t i = 0; i < xArrayLen(q->pending_arr) && !q->cancelled; i++) {
     struct xAgentQueryPending_ *p =
       (struct xAgentQueryPending_ *)xArrayAt(q->pending_arr, i);
 
-    if (q->cbs.on_tool) {
-      q->cbs.on_tool((xAgentQuery)q, p->name, /*started=*/1, q->cbs.user_data);
-    }
-
-    xAgentTool     t        = find_tool(q->tools, q->tools_count, p->name);
-    xAgentContent  out      = {0};
-    int         is_error = 0;
-    const char *out_text;
-    size_t      out_text_len;
-    char        err_buf[256];
+    xAgentTool t = find_tool(q->tools, q->tools_count, p->name);
 
     if (!t) {
       /* Unknown tool: feed the error back to the model rather than
        * aborting the whole run. The model is in a better position
        * to decide whether to retry with a different name or give
        * up. */
+      char err_buf[256];
       snprintf(err_buf, sizeof(err_buf),
                "tool \"%s\" is not registered on this agent", p->name);
-      out_text     = err_buf;
-      out_text_len = strlen(err_buf);
-      is_error     = 1;
-    } else {
-      xAgentContent in           = {0};
-      in.type                 = xAgentContentType_ToolUse;
-      in.u.tool_use.id        = p->id;
-      in.u.tool_use.name      = p->name;
-      in.u.tool_use.args_json = p->args_json;
-      xErrno trc              = ai_tool_invoke(t, (xAgentQuery)q, &in, &out);
-
-      if (trc == xErrno_Pending) {
-        /* Asynchronous tool: the handler will call on_done_fn later.
-         * Register the in-flight entry so we can track it. The
-         * on_tool(started=0) callback is deferred until the async
-         * completion fires (see ai_query_async_tool_complete). */
-        struct xAgentQueryAsyncTool_ *slot =
-          (struct xAgentQueryAsyncTool_ *)xArrayPush(&q->async_pending_arr);
-        if (!slot) return xErrno_NoMemory;
-        slot->tool      = t;
-        slot->done_fn    = ai_tool_on_done_fn(t);
-        slot->done_ud    = ai_tool_on_done_ud(t);
-        slot->cancel_fn  = ai_tool_on_cancel_fn(t);
-        slot->cancel_ud  = ai_tool_on_cancel_ud(t);
-        slot->id        = dup_cstr(p->id);
-        slot->name      = dup_cstr(p->name);
-        slot->args_json = dup_cstr(p->args_json);
-        if (!slot->id || !slot->name || !slot->args_json) {
-          xArrayPop(q->async_pending_arr);
-          return xErrno_NoMemory;
-        }
-        /* Skip the on_tool(started=0) below — async tool is still
-         * in flight. The completion path will fire it later. */
-        continue;
-      }
-
-      if (trc != xErrno_Ok) {
-        snprintf(err_buf, sizeof(err_buf),
-                 "tool handler returned error (xErrno=%d)", (int)trc);
-        out_text     = err_buf;
-        out_text_len = strlen(err_buf);
-        is_error     = 1;
-      } else if (out.type == xAgentContentType_ToolResult) {
-        out_text     = out.u.tool_result.output ? out.u.tool_result.output : "";
-        out_text_len = out.u.tool_result.output_len
-                         ? out.u.tool_result.output_len
-                         : strlen(out_text);
-        is_error     = out.u.tool_result.is_error ? 1 : 0;
-      } else {
-        /* Handler forgot to populate out — treat as error. */
-        out_text     = "tool handler did not produce a tool_result";
-        out_text_len = strlen(out_text);
-        is_error     = 1;
-      }
+      xErrno rc = append_tool_error_(q, p->id, err_buf);
+      if (rc != xErrno_Ok) return rc;
+      continue;
     }
 
-    xErrno rc =
-      turn_buf_append_tool_result(&q->produced_arr, p->id, out_text,
-                                  out_text_len, is_error);
-
-    if (q->cbs.on_tool) {
-      q->cbs.on_tool((xAgentQuery)q, p->name, /*started=*/0, q->cbs.user_data);
+    /* Confirmation gate: a needs_confirm tool whose host has
+     * registered an on_tool_confirm handler gets paused here. The
+     * handler is NOT invoked; instead we enqueue an AwaitingConfirm
+     * entry and hand the host a resolver. The host eventually calls
+     * xAgentToolConfirmResolve() to Allow (resume as inline invoke)
+     * or Reject (synthesise is_error=1 tool_result).
+     *
+     * If on_tool_confirm is NULL the gate is disabled and the tool
+     * runs immediately, preserving the legacy behaviour for callers
+     * who never wired a confirm handler. */
+    if (ai_tool_needs_confirm(t) && q->cbs.on_tool_confirm) {
+      struct xAgentToolConfirmResolver_ *r =
+        register_confirm_pending_(q, t, p->id, p->name, p->args_json);
+      if (!r) return xErrno_NoMemory;
+      /* The callback may resolve synchronously (calling
+       * xAgentToolConfirmResolve right here). That is safe: the
+       * resolver path will transition the entry and, for Allow, run
+       * the handler inline \u2014 which may itself complete
+       * synchronously, or return Pending and leave the entry as
+       * Running. Either way we return to this loop with the array
+       * in a consistent state. */
+      q->cbs.on_tool_confirm((xAgentQuery)q, p->name, p->id, p->args_json,
+                             (xAgentToolConfirmResolver)r, q->cbs.user_data);
+      continue;
     }
 
+    xErrno rc = invoke_tool_inline_(q, t, p->id, p->name, p->args_json);
     if (rc != xErrno_Ok) return rc;
   }
 
@@ -784,6 +949,7 @@ static struct xAgentQueryAsyncTool_ *async_pending_remove(struct xAgentQuery_ *q
       a->id        = NULL;
       a->name      = NULL;
       a->args_json = NULL;
+      a->resolver  = NULL;
       xArrayRemoveRange(q->async_pending_arr, i, 1);
       /* Return the stolen entry; caller owns the strings. */
       struct xAgentQueryAsyncTool_ *out =
@@ -1257,6 +1423,13 @@ void xAgentQueryDestroy(xAgentQuery q) {
     for (size_t i = 0; i < xArrayLen(qq->async_pending_arr); i++) {
       struct xAgentQueryAsyncTool_ *a =
         (struct xAgentQueryAsyncTool_ *)xArrayAt(qq->async_pending_arr, i);
+      /* AwaitingConfirm entries have no handler running; just
+       * invalidate the resolver so any late host callback no-ops. */
+      if (a->stage == XAGENT_ASYNC_STAGE_AWAITING_CONFIRM) {
+        confirm_resolver_invalidate_(
+            (struct xAgentToolConfirmResolver_ *)a->resolver);
+        continue;
+      }
       if (a->cancel_fn) {
         a->cancel_fn((xAgentQuery)qq, a->id, a->tool, a->cancel_ud);
       }
@@ -1303,6 +1476,14 @@ void xAgentQueryCancel(xAgentQuery q) {
   for (size_t i = 0; i < xArrayLen(qq->async_pending_arr); i++) {
     struct xAgentQueryAsyncTool_ *a =
       (struct xAgentQueryAsyncTool_ *)xArrayAt(qq->async_pending_arr, i);
+    /* For entries still blocked on user confirmation there is no
+     * handler yet to cancel \u2014 just invalidate the resolver so a
+     * late xAgentToolConfirmResolve() from the host becomes a no-op. */
+    if (a->stage == XAGENT_ASYNC_STAGE_AWAITING_CONFIRM) {
+      confirm_resolver_invalidate_(
+          (struct xAgentToolConfirmResolver_ *)a->resolver);
+      continue;
+    }
     if (a->cancel_fn) {
       a->cancel_fn((xAgentQuery)qq, a->id, a->tool, a->cancel_ud);
     }
@@ -1310,6 +1491,146 @@ void xAgentQueryCancel(xAgentQuery q) {
 
   /* The provider's on_done will arrive with reason=Cancelled, or
    * dispatch_pending_tools will notice q->cancelled between rounds. */
+}
+
+/* Public API: deliver a user decision for a tool-call that was
+ * paused on the confirmation gate. See <xagent/query.h>. */
+void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle,
+                              xAgentToolDecision        decision,
+                              const char               *reason) {
+  struct xAgentToolConfirmResolver_ *r =
+    (struct xAgentToolConfirmResolver_ *)handle;
+  if (!r) return;
+
+  /* Second resolve on the same handle: silent no-op. */
+  if (r->done) return;
+  r->done = 1;
+
+  /* Query already cancelled / destroyed: the entry is gone, the
+   * resolver was invalidated. Just free the handle \u2014 the caller
+   * won\u2019t get any more use out of it. */
+  if (!r->q) {
+    confirm_resolver_free_(r);
+    return;
+  }
+
+  struct xAgentQuery_ *q = r->q;
+
+  /* Locate + remove the AwaitingConfirm entry. This also NULLs out
+   * a->resolver on the stolen copy so the release path won\u2019t touch
+   * the resolver again. */
+  struct xAgentQueryAsyncTool_ *a = async_pending_remove(q, r->id);
+  if (!a) {
+    /* Entry disappeared between on_tool_confirm and here (e.g. a
+     * concurrent cancel). Free the handle and bail. */
+    confirm_resolver_free_(r);
+    return;
+  }
+
+  if (decision == xAgentToolDecision_Reject) {
+    /* Fabricate an is_error=1 tool_result and push it through the
+     * same completion path an async tool uses. The content gives
+     * the model something human-readable to notice. */
+    const char *msg = (reason && *reason) ? reason : "rejected by user";
+    xAgentContent synth = {0};
+    synth.type = xAgentContentType_ToolResult;
+    synth.u.tool_result.id         = a->id;
+    synth.u.tool_result.output     = msg;
+    synth.u.tool_result.output_len = strlen(msg);
+    synth.u.tool_result.is_error   = 1;
+
+    /* The async_pending_remove + ai_query_async_tool_complete pairing
+     * expects the caller to own the stolen copy; complete() performs
+     * a second lookup on the live array. Since we already removed
+     * the entry, we have to replicate the tail of complete() manually
+     * here \u2014 appending the tool_result and driving the tool-loop
+     * continuation if no asyncs remain. */
+    xErrno rc = turn_buf_append_tool_result(
+        &q->produced_arr, a->id, msg, synth.u.tool_result.output_len,
+        /*is_error=*/1);
+
+    free(a->id);
+    free(a->name);
+    free(a->args_json);
+    free(a);
+    confirm_resolver_free_(r);
+
+    if (rc != xErrno_Ok) {
+      if (q->cbs.on_error) {
+        q->cbs.on_error((xAgentQuery)q, rc,
+                        "failed to record rejected tool_result",
+                        q->cbs.user_data);
+      }
+      query_finalize(q, xAgentDoneReason_ToolError);
+      return;
+    }
+
+    /* If that was the last outstanding async / confirm entry, the
+     * tool-loop can submit the next round. Otherwise keep waiting. */
+    if (xArrayLen(q->async_pending_arr) == 0) {
+      if (q->cancelled) {
+        query_finalize(q, xAgentDoneReason_Aborted);
+        return;
+      }
+      xErrno src = submit_round(q);
+      if (src != xErrno_Ok) {
+        if (q->cbs.on_error) {
+          q->cbs.on_error((xAgentQuery)q, src,
+                          "failed to submit follow-up after rejected tool",
+                          q->cbs.user_data);
+        }
+        query_finalize(q, xAgentDoneReason_ModelError);
+      }
+    }
+    return;
+  }
+
+  /* Allow path: transition to Running by invoking the handler
+   * inline. We\u2019ve already removed the AwaitingConfirm entry from
+   * async_pending_arr, so invoke_tool_inline_ is free to push a new
+   * Running entry if the handler returns Pending.
+   *
+   * Free the stolen entry and the resolver now; invoke owns the
+   * follow-up bookkeeping. */
+  xAgentTool  t         = a->tool;
+  char       *id_copy   = a->id;    /* move ownership of strings into locals */
+  char       *name_copy = a->name;
+  char       *args_copy = a->args_json;
+  free(a);
+  confirm_resolver_free_(r);
+
+  xErrno rc = invoke_tool_inline_(q, t, id_copy, name_copy, args_copy);
+  free(id_copy);
+  free(name_copy);
+  free(args_copy);
+
+  if (rc != xErrno_Ok) {
+    if (q->cbs.on_error) {
+      q->cbs.on_error((xAgentQuery)q, rc,
+                      "failed to invoke confirmed tool", q->cbs.user_data);
+    }
+    query_finalize(q, xAgentDoneReason_ToolError);
+    return;
+  }
+
+  /* If no async/confirm entries are outstanding (all remaining
+   * tools were synchronous), we must drive the loop forward just
+   * like the Reject branch does. */
+  if (xArrayLen(q->async_pending_arr) == 0) {
+    if (q->cancelled) {
+      query_finalize(q, xAgentDoneReason_Aborted);
+      return;
+    }
+    xErrno src = submit_round(q);
+    if (src != xErrno_Ok) {
+      if (q->cbs.on_error) {
+        q->cbs.on_error((xAgentQuery)q, src,
+                        "failed to submit follow-up after confirmed tool",
+                        q->cbs.user_data);
+      }
+      query_finalize(q, xAgentDoneReason_ModelError);
+    }
+  }
 }
 
 int xAgentQueryIsRunning(xAgentQuery q) {

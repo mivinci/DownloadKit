@@ -58,15 +58,23 @@
   **动手时机**：Step 2 引入 `xAgentQuery` 时一起做——`xAgentQueryDestroy` 本来
   也要面对同一个问题，一次改完。
 
-- [ ] **`needs_confirm` 审批流**。
-  Tool 结构体上有 `needs_confirm` 字段但 session 层完全没用。
+- [x] **`needs_confirm` 审批流**。
+  Tool 结构体上的 `needs_confirm` 字段现在被 query/session 层真正用起来了。
   设计：
-  - `xAgentSessionConf` 末尾加可选 `on_tool_confirm` callback
-  - 触发时 session 暂停 tool dispatch，等调用方 `xAgentSessionApprove(call_id)`
-    或 `xAgentSessionReject(call_id, reason)`
-  - Reject 时按"handler 返 error"走，同样回喂 `is_error=1` tool_result
-  **注意**：API 演进要用尾部增字段的方式，别改破坏现有 caller。
-  **动手时机**：独立小 PR，任何时候都可以做。
+  - `xAgentSessionCallbacks` 末尾加了 `on_tool_confirm` 回调（NULL = 关闭）
+  - query.c:dispatch_pending_tools 在 invoke handler 之前做 gate
+    检查；命中的 call 被挂到 `async_pending_arr` (stage=AwaitingConfirm)
+    并创建一个 resolver handle 交给 host
+  - host 任意时刻调 `xAgentToolConfirmResolve(handle, Allow|Reject, reason)`
+    - Allow：handler inline 运行（可同步也可 Pending）
+    - Reject：合成 `is_error=1` 的 tool_result，按 handler-error 路径
+      回喂给模型
+  - 在 resolver 还没 resolve 时 cancel / destroy 会 invalidate handle；
+    后续 resolve 是 silent no-op（不崩溃）
+  - 枚举暂时只有 Allow / Reject。Skip 的语义太容易让模型误以为命令
+    执行成功，先不做，有需求再加。
+  - API 放在 `<xagent/query.h>` 里（`xAgentToolDecision` / `xAgentToolConfirmResolver`
+    / `xAgentToolConfirmResolve`），session 层直接复用同一套类型。
 
 - [ ] **Session 并发 / 排队策略**。
   现状：run 进行中再次 `xAgentSessionInput()` 返 `xErrno_Busy`。

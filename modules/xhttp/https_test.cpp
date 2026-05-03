@@ -38,8 +38,8 @@ extern "C" {
  */
 
 static uint16_t find_free_port() {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0) return 0;
+  xnet_socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd == XNET_INVALID_SOCKET) return 0;
 
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
@@ -102,7 +102,7 @@ TEST(HttpsClientConfig, SetTlsNullConfResetsToDefaults) {
   ASSERT_NE(loop, nullptr);
   /* Create with TLS config */
   xTlsConf tls         = {};
-  tls.ca               = "/tmp/ca.pem";
+  tls.ca               = "nonexistent_ca.pem";
   tls.skip_verify      = 1;
   xHttpClientConf conf = {};
   conf.tls             = &tls;
@@ -124,9 +124,9 @@ TEST(HttpsClientConfig, SetTlsWithAllFields) {
   ASSERT_NE(loop, nullptr);
 
   xTlsConf tls         = {};
-  tls.ca               = "/tmp/ca.pem";
-  tls.cert             = "/tmp/client.pem";
-  tls.key              = "/tmp/client-key.pem";
+  tls.ca               = "nonexistent_ca.pem";
+  tls.cert             = "nonexistent_client.pem";
+  tls.key              = "nonexistent_client-key.pem";
   tls.key_password     = "secret";
   tls.skip_verify      = 0;
   xHttpClientConf conf = {};
@@ -269,14 +269,23 @@ protected:
     ASSERT_NE(tls_port, 0);
 
     /* Generate self-signed certificate (use PID suffix to avoid conflicts) */
-    std::string suffix = std::to_string(getpid());
-    cert_path          = "/tmp/xhttps_test_cert_" + suffix + ".pem";
-    key_path           = "/tmp/xhttps_test_key_" + suffix + ".pem";
-    ca_cert_path       = cert_path; /* self-signed: CA = cert itself */
+    std::string suffix   = std::to_string(xnet_getpid());
+    std::string tmpdir   = xnet_tempdir();
+    cert_path            = tmpdir + "/xhttps_test_cert_" + suffix + ".pem";
+    key_path             = tmpdir + "/xhttps_test_key_" + suffix + ".pem";
+    ca_cert_path         = cert_path; /* self-signed: CA = cert itself */
+
+    /* Bypass the default openssl.cnf which may have incompatible
+     * v3_ca extensions (keyid:nonss removed in OpenSSL 3.x+). */
+#ifdef _WIN32
+    _putenv_s("OPENSSL_CONF", "NUL");
+#else
+    setenv("OPENSSL_CONF", "/dev/null", 1);
+#endif
 
     std::string cmd = "openssl req -x509 -newkey rsa:2048 -keyout " + key_path +
                       " -out " + cert_path +
-                      " -days 1 -nodes -subj '/CN=localhost' 2>/dev/null";
+                      " -days 1 -nodes -subj /CN=localhost 2>" XNET_DEVNULL;
     int         ret = system(cmd.c_str());
     ASSERT_EQ(ret, 0) << "Failed to generate self-signed certificate";
 
@@ -297,8 +306,8 @@ protected:
     if (server) xHttpServerDestroy(server);
     if (server_loop) xEventLoopDestroy(server_loop);
 
-    unlink(cert_path.c_str());
-    unlink(key_path.c_str());
+    xnet_unlink(cert_path.c_str());
+    xnet_unlink(key_path.c_str());
   }
 
   void start_server_loop() {
@@ -516,8 +525,8 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
   listen_tls_and_start();
 
   /* Point to a non-existent CA file */
-  xTlsConf tls = {};
-  tls.ca       = "/tmp/nonexistent_ca_xhttps_test.pem";
+  xTlsConf tls  = {};
+  tls.ca        = "/nonexistent_ca_xhttps_test.pem";
   create_client(&tls);
 
   RespCtx ctx{};
@@ -603,6 +612,14 @@ protected:
   xHttpClient client      = nullptr;
 
   void SetUp() override {
+    /* Bypass the default openssl.cnf which may have incompatible
+     * v3_ca extensions (keyid:nonss removed in OpenSSL 3.x+). */
+#ifdef _WIN32
+    _putenv_s("OPENSSL_CONF", "NUL");
+#else
+    setenv("OPENSSL_CONF", "/dev/null", 1);
+#endif
+
     server_loop = xEventLoopCreate();
     ASSERT_NE(server_loop, nullptr);
     server = xHttpServerCreate(server_loop);
@@ -612,47 +629,48 @@ protected:
     ASSERT_NE(tls_port, 0);
 
     /* Generate CA key + cert (use PID suffix to avoid conflicts) */
-    std::string suffix = std::to_string(getpid());
-    ca_cert            = "/tmp/xhttps_mtls_ca_" + suffix + ".pem";
-    std::string ca_key = "/tmp/xhttps_mtls_ca_key_" + suffix + ".pem";
+    std::string suffix   = std::to_string(xnet_getpid());
+    std::string tmpdir   = xnet_tempdir();
+    ca_cert              = tmpdir + "/xhttps_mtls_ca_" + suffix + ".pem";
+    std::string ca_key   = tmpdir + "/xhttps_mtls_ca_key_" + suffix + ".pem";
 
     std::string cmd;
     int         ret;
 
     cmd = "openssl req -x509 -newkey rsa:2048 -keyout " + ca_key + " -out " +
-          ca_cert + " -days 1 -nodes -subj '/CN=TestCA' 2>/dev/null";
+          ca_cert + " -days 1 -nodes -subj /CN=TestCA 2>" XNET_DEVNULL;
     ret = system(cmd.c_str());
     ASSERT_EQ(ret, 0) << "Failed to generate CA certificate";
 
     /* Generate server cert signed by CA */
-    server_cert            = "/tmp/xhttps_mtls_server_cert_" + suffix + ".pem";
-    server_key             = "/tmp/xhttps_mtls_server_key_" + suffix + ".pem";
-    std::string server_csr = "/tmp/xhttps_mtls_server_" + suffix + ".csr";
+    server_cert            = tmpdir + "/xhttps_mtls_server_cert_" + suffix + ".pem";
+    server_key             = tmpdir + "/xhttps_mtls_server_key_" + suffix + ".pem";
+    std::string server_csr = tmpdir + "/xhttps_mtls_server_" + suffix + ".csr";
 
     cmd = "openssl req -newkey rsa:2048 -keyout " + server_key + " -out " +
-          server_csr + " -nodes -subj '/CN=localhost' 2>/dev/null";
+          server_csr + " -nodes -subj /CN=localhost 2>" XNET_DEVNULL;
     ret = system(cmd.c_str());
     ASSERT_EQ(ret, 0) << "Failed to generate server CSR";
 
     cmd = "openssl x509 -req -in " + server_csr + " -CA " + ca_cert +
           " -CAkey " + ca_key + " -CAcreateserial -out " + server_cert +
-          " -days 1 2>/dev/null";
+          " -days 1 2>" XNET_DEVNULL;
     ret = system(cmd.c_str());
     ASSERT_EQ(ret, 0) << "Failed to sign server certificate";
 
     /* Generate client cert signed by same CA */
-    client_cert            = "/tmp/xhttps_mtls_client_cert_" + suffix + ".pem";
-    client_key             = "/tmp/xhttps_mtls_client_key_" + suffix + ".pem";
-    std::string client_csr = "/tmp/xhttps_mtls_client_" + suffix + ".csr";
+    client_cert            = tmpdir + "/xhttps_mtls_client_cert_" + suffix + ".pem";
+    client_key             = tmpdir + "/xhttps_mtls_client_key_" + suffix + ".pem";
+    std::string client_csr = tmpdir + "/xhttps_mtls_client_" + suffix + ".csr";
 
     cmd = "openssl req -newkey rsa:2048 -keyout " + client_key + " -out " +
-          client_csr + " -nodes -subj '/CN=TestClient' 2>/dev/null";
+          client_csr + " -nodes -subj /CN=TestClient 2>" XNET_DEVNULL;
     ret = system(cmd.c_str());
     ASSERT_EQ(ret, 0) << "Failed to generate client CSR";
 
     cmd = "openssl x509 -req -in " + client_csr + " -CA " + ca_cert +
           " -CAkey " + ca_key + " -CAcreateserial -out " + client_cert +
-          " -days 1 2>/dev/null";
+          " -days 1 2>" XNET_DEVNULL;
     ret = system(cmd.c_str());
     ASSERT_EQ(ret, 0) << "Failed to sign client certificate";
 
@@ -663,11 +681,11 @@ protected:
     ASSERT_NE(client, nullptr);
 
     /* Clean up temp files */
-    unlink(ca_key.c_str());
-    unlink(server_csr.c_str());
-    unlink(client_csr.c_str());
-    std::string srl_path = "/tmp/xhttps_mtls_ca_" + suffix + ".srl";
-    unlink(srl_path.c_str());
+    xnet_unlink(ca_key.c_str());
+    xnet_unlink(server_csr.c_str());
+    xnet_unlink(client_csr.c_str());
+    std::string srl_path = tmpdir + "/xhttps_mtls_ca_" + suffix + ".srl";
+    xnet_unlink(srl_path.c_str());
   }
 
   void TearDown() override {
@@ -681,11 +699,11 @@ protected:
     if (server) xHttpServerDestroy(server);
     if (server_loop) xEventLoopDestroy(server_loop);
 
-    unlink(server_cert.c_str());
-    unlink(server_key.c_str());
-    unlink(client_cert.c_str());
-    unlink(client_key.c_str());
-    unlink(ca_cert.c_str());
+    xnet_unlink(server_cert.c_str());
+    xnet_unlink(server_key.c_str());
+    xnet_unlink(client_cert.c_str());
+    xnet_unlink(client_key.c_str());
+    xnet_unlink(ca_cert.c_str());
   }
 
   void start_server_loop() {

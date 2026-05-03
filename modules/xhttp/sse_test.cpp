@@ -65,7 +65,7 @@ public:
 
   void start() {
     listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
-    ASSERT_GE(listen_fd_, 0);
+    ASSERT_NE(listen_fd_, XNET_INVALID_SOCKET);
 
     int opt = 1;
     xnet_setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -89,9 +89,9 @@ public:
 
   void join() {
     if (thread_.joinable()) thread_.join();
-    if (listen_fd_ >= 0) {
+    if (listen_fd_ != XNET_INVALID_SOCKET) {
       xnet_close(listen_fd_);
-      listen_fd_ = -1;
+      listen_fd_ = XNET_INVALID_SOCKET;
     }
   }
 
@@ -101,8 +101,8 @@ public:
 
 private:
   void serve() {
-    int client_fd = accept(listen_fd_, nullptr, nullptr);
-    if (client_fd < 0) return;
+    xnet_socket_t client_fd = accept(listen_fd_, nullptr, nullptr);
+    if (client_fd == XNET_INVALID_SOCKET) return;
 
     /* Read the HTTP request (we don't care about contents) */
     char         buf[4096];
@@ -126,10 +126,10 @@ private:
     xnet_close(client_fd);
   }
 
-  std::string payload_;
-  int         delay_ms_  = 0;
-  int         listen_fd_ = -1;
-  int         port_      = 0;
+  std::string  payload_;
+  int          delay_ms_  = 0;
+  xnet_socket_t listen_fd_ = XNET_INVALID_SOCKET;
+  int          port_      = 0;
   std::string url_;
   std::thread thread_;
 };

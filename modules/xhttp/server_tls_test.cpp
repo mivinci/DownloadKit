@@ -22,8 +22,8 @@ extern "C" {
 
 TEST_F(HttpServerTest, ListenTLS_NullServerReturnsError) {
   xTlsConf config = {};
-  config.cert     = "/tmp/cert.pem";
-  config.key      = "/tmp/key.pem";
+  config.cert     = "nonexistent_cert.pem";
+  config.key      = "nonexistent_key.pem";
   EXPECT_EQ(xHttpServerListenTls(nullptr, "127.0.0.1", port, &config),
             xErrno_InvalidArg);
 }
@@ -36,14 +36,14 @@ TEST_F(HttpServerTest, ListenTLS_NullConfigReturnsError) {
 TEST_F(HttpServerTest, ListenTLS_NullCertFileReturnsError) {
   xTlsConf config = {};
   config.cert     = nullptr;
-  config.key      = "/tmp/key.pem";
+  config.key      = "nonexistent_key.pem";
   EXPECT_EQ(xHttpServerListenTls(server, "127.0.0.1", port, &config),
             xErrno_InvalidArg);
 }
 
 TEST_F(HttpServerTest, ListenTLS_NullKeyFileReturnsError) {
   xTlsConf config = {};
-  config.cert     = "/tmp/cert.pem";
+  config.cert     = "nonexistent_cert.pem";
   config.key      = nullptr;
   EXPECT_EQ(xHttpServerListenTls(server, "127.0.0.1", port, &config),
             xErrno_InvalidArg);
@@ -93,12 +93,21 @@ protected:
     ASSERT_NE(port, tls_port);
 
     /* Generate self-signed certificate */
-    cert_path = "/tmp/xhttp_test_cert.pem";
-    key_path  = "/tmp/xhttp_test_key.pem";
+    std::string tmpdir   = xnet_tempdir();
+    cert_path            = tmpdir + "/xhttp_test_cert.pem";
+    key_path             = tmpdir + "/xhttp_test_key.pem";
+
+    /* Bypass the default openssl.cnf which may have incompatible
+     * v3_ca extensions (keyid:nonss removed in OpenSSL 3.x+). */
+#ifdef _WIN32
+    _putenv_s("OPENSSL_CONF", "NUL");
+#else
+    setenv("OPENSSL_CONF", "/dev/null", 1);
+#endif
 
     std::string cmd = "openssl req -x509 -newkey rsa:2048 -keyout " + key_path +
                       " -out " + cert_path +
-                      " -days 1 -nodes -subj '/CN=localhost' 2>/dev/null";
+                      " -days 1 -nodes -subj /CN=localhost 2>" XNET_DEVNULL;
     int         ret = system(cmd.c_str());
     ASSERT_EQ(ret, 0) << "Failed to generate self-signed certificate";
   }
@@ -150,11 +159,11 @@ protected:
   struct TlsConn {
     SSL     *ssl;
     SSL_CTX *ctx;
-    int      fd;
+    xnet_socket_t fd;
   };
 
   TlsConn connect_tls(const char *alpn_proto = nullptr) {
-    TlsConn conn = {nullptr, nullptr, -1};
+    TlsConn conn = {nullptr, nullptr, XNET_INVALID_SOCKET};
 
     conn.ctx = SSL_CTX_new(TLS_client_method());
     if (!conn.ctx) return conn;
@@ -173,7 +182,7 @@ protected:
     }
 
     conn.fd = connect_to(tls_port);
-    if (conn.fd < 0) {
+    if (conn.fd == XNET_INVALID_SOCKET) {
       SSL_CTX_free(conn.ctx);
       conn.ctx = nullptr;
       return conn;
@@ -183,12 +192,12 @@ protected:
     if (!conn.ssl) {
       xnet_close(conn.fd);
       SSL_CTX_free(conn.ctx);
-      conn.fd  = -1;
+      conn.fd  = XNET_INVALID_SOCKET;
       conn.ctx = nullptr;
       return conn;
     }
 
-    SSL_set_fd(conn.ssl, conn.fd);
+    SSL_set_fd(conn.ssl, (int)conn.fd);
 
     /* Perform blocking handshake (server loop runs in background thread) */
     int ret = SSL_connect(conn.ssl);
@@ -197,7 +206,7 @@ protected:
       xnet_close(conn.fd);
       SSL_CTX_free(conn.ctx);
       conn.ssl = nullptr;
-      conn.fd  = -1;
+      conn.fd  = XNET_INVALID_SOCKET;
       conn.ctx = nullptr;
       return conn;
     }
@@ -210,10 +219,10 @@ protected:
       SSL_shutdown(conn.ssl);
       SSL_free(conn.ssl);
     }
-    if (conn.fd >= 0) xnet_close(conn.fd);
+    if (conn.fd != XNET_INVALID_SOCKET) xnet_close(conn.fd);
     if (conn.ctx) SSL_CTX_free(conn.ctx);
     conn.ssl = nullptr;
-    conn.fd  = -1;
+    conn.fd  = XNET_INVALID_SOCKET;
     conn.ctx = nullptr;
   }
 
@@ -352,8 +361,8 @@ TEST_F(HttpServerTlsTest, SimultaneousHttpAndHttps) {
   listen_tls_and_start();
 
   /* Test plain HTTP */
-  int plain_fd = connect_to(port);
-  ASSERT_GE(plain_fd, 0);
+  xnet_socket_t plain_fd = connect_to(port);
+  ASSERT_NE(plain_fd, XNET_INVALID_SOCKET);
   send_str(plain_fd, "GET /dual HTTP/1.1\r\nHost: localhost\r\n"
                      "Connection: close\r\n\r\n");
   std::this_thread::sleep_for(std::chrono::milliseconds(200));

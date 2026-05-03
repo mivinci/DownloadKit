@@ -442,7 +442,7 @@ static std::string ws_handshake_request(const std::string &path) {
 }
 
 /* Helper: send a masked client frame over a raw socket */
-static bool ws_send_frame(int fd, uint8_t fin, uint8_t opcode,
+static bool ws_send_frame(xnet_socket_t fd, uint8_t fin, uint8_t opcode,
                           const void *payload, size_t len) {
   uint8_t      mask_key[4] = {0x37, 0xfa, 0x21, 0x3d};
   auto         frame = build_client_frame(fin, opcode, payload, len, mask_key);
@@ -458,7 +458,7 @@ struct RecvFrame {
   bool        valid;
 };
 
-static RecvFrame ws_recv_frame(int fd, int timeout_ms = 2000) {
+static RecvFrame ws_recv_frame(xnet_socket_t fd, int timeout_ms = 2000) {
   RecvFrame result = {0, false, "", false};
 
 #ifdef _WIN32
@@ -535,14 +535,14 @@ protected:
   }
 
   /* Connect and perform WS handshake, return the fd */
-  int ws_connect(const std::string &path = "/ws") {
+  xnet_socket_t ws_connect(const std::string &path = "/ws") {
     xnet_socket_t fd = connect_to(port);
-    if (fd < 0) return -1;
+    if (fd == XNET_INVALID_SOCKET) return XNET_INVALID_SOCKET;
 
     std::string req = ws_handshake_request(path);
     if (!send_str(fd, req)) {
       xnet_close(fd);
-      return -1;
+      return XNET_INVALID_SOCKET;
     }
 
     /* Pump loop to process the handshake */
@@ -552,7 +552,7 @@ protected:
     std::string resp = recv_all(fd, 1000);
     if (resp.find("101") == std::string::npos) {
       xnet_close(fd);
-      return -1;
+      return XNET_INVALID_SOCKET;
     }
 
     return fd;
@@ -563,8 +563,8 @@ TEST_F(WsServerTest, HandshakeSuccess) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = ws_connect();
-  ASSERT_GE(fd, 0) << "WebSocket handshake failed";
+  xnet_socket_t fd = ws_connect();
+  ASSERT_NE(fd, XNET_INVALID_SOCKET) << "WebSocket handshake failed";
 
   pump_loop(loop, 50);
   EXPECT_EQ(ws_ctx.open_count.load(), 1);
@@ -578,7 +578,7 @@ TEST_F(WsServerTest, HandshakeMissingHeaders) {
   listen_and_pump();
 
   xnet_socket_t fd = connect_to(port);
-  ASSERT_GE(fd, 0);
+  ASSERT_NE(fd, XNET_INVALID_SOCKET);
 
   /* Send a GET without WebSocket headers */
   std::string req = "GET /ws HTTP/1.1\r\n"
@@ -601,7 +601,7 @@ TEST_F(WsServerTest, HandshakeWrongVersion) {
   listen_and_pump();
 
   xnet_socket_t fd = connect_to(port);
-  ASSERT_GE(fd, 0);
+  ASSERT_NE(fd, XNET_INVALID_SOCKET);
 
   std::string req = "GET /ws HTTP/1.1\r\n"
                     "Host: localhost\r\n"
@@ -627,7 +627,7 @@ TEST_F(WsServerTest, HandshakeWrongMethod) {
   listen_and_pump();
 
   xnet_socket_t fd = connect_to(port);
-  ASSERT_GE(fd, 0);
+  ASSERT_NE(fd, XNET_INVALID_SOCKET);
 
   /* POST to a GET-only route should get 405 from the router */
   std::string req = "POST /ws HTTP/1.1\r\n"
@@ -655,8 +655,8 @@ TEST_F(WsServerTest, TextMessage) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = ws_connect();
-  ASSERT_GE(fd, 0);
+  xnet_socket_t fd = ws_connect();
+  ASSERT_NE(fd, XNET_INVALID_SOCKET);
   pump_loop(loop, 50);
 
   /* Send a text message */
@@ -675,8 +675,8 @@ TEST_F(WsServerTest, BinaryMessage) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = ws_connect();
-  ASSERT_GE(fd, 0);
+  xnet_socket_t fd = ws_connect();
+  ASSERT_NE(fd, XNET_INVALID_SOCKET);
   pump_loop(loop, 50);
 
   uint8_t data[] = {0x01, 0x02, 0x03, 0x04};
@@ -695,8 +695,8 @@ TEST_F(WsServerTest, PingPong) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = ws_connect();
-  ASSERT_GE(fd, 0);
+  xnet_socket_t fd = ws_connect();
+  ASSERT_NE(fd, XNET_INVALID_SOCKET);
   pump_loop(loop, 50);
 
   /* Send a Ping */
@@ -717,8 +717,8 @@ TEST_F(WsServerTest, CloseHandshake) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = ws_connect();
-  ASSERT_GE(fd, 0);
+  xnet_socket_t fd = ws_connect();
+  ASSERT_NE(fd, XNET_INVALID_SOCKET);
   pump_loop(loop, 50);
 
   /* Send Close frame with code 1000 */
@@ -743,8 +743,8 @@ TEST_F(WsServerTest, ServerSend) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = ws_connect();
-  ASSERT_GE(fd, 0);
+  xnet_socket_t fd = ws_connect();
+  ASSERT_NE(fd, XNET_INVALID_SOCKET);
   pump_loop(loop, 50);
 
   /* Send a message from server to client */
@@ -767,8 +767,8 @@ TEST_F(WsServerTest, FragmentedMessage) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = ws_connect();
-  ASSERT_GE(fd, 0);
+  xnet_socket_t fd = ws_connect();
+  ASSERT_NE(fd, XNET_INVALID_SOCKET);
   pump_loop(loop, 50);
 
   /* Send fragmented message: "Hello" + " " + "World" */
@@ -799,8 +799,8 @@ TEST_F(WsServerTest, ServerInitiatedClose) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = ws_connect();
-  ASSERT_GE(fd, 0);
+  xnet_socket_t fd = ws_connect();
+  ASSERT_NE(fd, XNET_INVALID_SOCKET);
   pump_loop(loop, 50);
 
   /* Server initiates close */

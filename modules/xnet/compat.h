@@ -242,4 +242,42 @@ static inline char *xnet_strndup(const char *s, size_t n) {
 #define xnet_strndup(s, n) strndup(s, n)
 #endif
 
+/* ═══════════════════════════════════════════════════════════════════
+ *  getpid() — MSVC uses _getpid()
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+#include <process.h>
+#define xnet_getpid() ((int)_getpid())
+#else
+#include <unistd.h>
+#define xnet_getpid() ((int)getpid())
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  stderr redirect for shell commands — "2>/dev/null" vs "2>NUL"
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+#define XNET_DEVNULL "NUL"
+#else
+#define XNET_DEVNULL "/dev/null"
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Temporary directory path
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+static inline const char *xnet_tempdir(void) {
+  static char buf[MAX_PATH];
+  if (GetTempPathA(MAX_PATH, buf) > 0) return buf;
+  return "C:\\Temp";
+}
+#else
+static inline const char *xnet_tempdir(void) {
+  return "/tmp";
+}
+#endif
+
 #endif /* XNET_COMPAT_H */

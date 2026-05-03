@@ -54,29 +54,29 @@
 
 /* ── REPL state ─────────────────────────────────────────────────────── */
 struct PendingConfirm {
-  std::string tool_name;
-  std::string tool_use_id;
-  std::string args_json;
+  std::string               tool_name;
+  std::string               tool_use_id;
+  std::string               args_json;
   xAgentToolConfirmResolver resolver;
 };
 
 struct ReplCtx {
-  xEventLoop   loop             = nullptr;
-  xAgentSession   sess             = nullptr;
-  xLineHandle  line             = nullptr; /* current async editor */
-  xEventSource src              = nullptr; /* loop fd registration */
-  bool         busy             = false;   /* AI run in flight */
-  bool         pending_retry    = false; /* retry pending_text after compact */
-  char        *pending_text     = nullptr; /* stashed submit text, owned */
-  bool         saw_first_delta  = false;
-  bool         in_thinking      = false; /* currently streaming thinking? */
-  size_t       reply_bytes      = 0;
-  int          total_tokens     = 0;   /* cumulative across all rounds */
-  size_t       budget_limit     = 0;   /* from last GatePassed event */
-  size_t       budget_remaining = 0;   /* from last GatePassed event */
-  double       budget_factor    = 1.0; /* EWMA calibrator factor */
-  size_t       budget_samples   = 0;   /* calibrator observation count */
-  size_t       budget_estimated = 0;   /* calibrated pre-submit estimate */
+  xEventLoop    loop             = nullptr;
+  xAgentSession sess             = nullptr;
+  xLineHandle   line             = nullptr; /* current async editor */
+  xEventSource  src              = nullptr; /* loop fd registration */
+  bool          busy             = false;   /* AI run in flight */
+  bool          pending_retry    = false; /* retry pending_text after compact */
+  char         *pending_text     = nullptr; /* stashed submit text, owned */
+  bool          saw_first_delta  = false;
+  bool          in_thinking      = false; /* currently streaming thinking? */
+  size_t        reply_bytes      = 0;
+  int           total_tokens     = 0;   /* cumulative across all rounds */
+  size_t        budget_limit     = 0;   /* from last GatePassed event */
+  size_t        budget_remaining = 0;   /* from last GatePassed event */
+  double        budget_factor    = 1.0; /* EWMA calibrator factor */
+  size_t        budget_samples   = 0;   /* calibrator observation count */
+  size_t        budget_estimated = 0;   /* calibrated pre-submit estimate */
   int last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
   uint64_t    input_ms   = 0;  /* monotonic timestamp (ms) at user input */
   bool        should_exit = false;   /* set by /exit handler */
@@ -406,7 +406,8 @@ static void end_thinking(ReplCtx *ctx) {
   ctx->in_thinking = false;
 }
 
-static void on_text(xAgentSession sess, const char *chunk, size_t len, void *ud) {
+static void on_text(xAgentSession sess, const char *chunk, size_t len,
+                    void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   /* Close the thinking block (if any) before the visible reply
@@ -587,7 +588,8 @@ static void on_done(xAgentSession sess, xAgentDoneReason reason,
    * The event loop keeps running so the editor stays interactive. */
 }
 
-static void on_error(xAgentSession sess, xErrno err, const char *msg, void *ud) {
+static void on_error(xAgentSession sess, xErrno err, const char *msg,
+                     void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   /* Same SGR hygiene as on_done — error might fire mid-thinking.
@@ -673,11 +675,6 @@ static void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
     break;
   }
   case xAgentBudgetEvent_GatePassed: {
-    /* GatePassed fires on every successful Input — logging it each
-     * round just produces "[budget] remaining ..." spam that drowns
-     * out the actually-interesting events (Compacting / CompactDone
-     * / Truncated). We still snapshot the latest numbers into ctx so
-     * slash commands like /budget can surface them on demand. */
     auto *gi = static_cast<const xAgentBudgetGateInfo *>(info);
     if (gi) {
       ctx->budget_limit       = gi->limit;
@@ -686,6 +683,10 @@ static void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
       ctx->budget_samples     = gi->calibrator_samples;
       ctx->budget_estimated   = gi->estimated;
       ctx->last_actual_prompt = gi->last_first_round_prompt_tokens;
+      above_printf(ctx->line,
+                   "\x1b[2m[budget] gate passed — remaining %zu/%zu "
+                   "tokens\x1b[0m",
+                   gi->remaining, gi->limit);
     }
     break;
   }
@@ -774,7 +775,7 @@ static void repl_close_line(ReplCtx *ctx) {
 static void repl_update_confirm_panel(ReplCtx *ctx) {
   if (ctx->confirm_queue.empty()) return;
   const PendingConfirm &pc = ctx->confirm_queue.front();
-  std::string body;
+  std::string           body;
   body.append("tool: ");
   body.append(pc.tool_name);
   body.append("\nargs: ");
@@ -786,7 +787,7 @@ static void repl_update_confirm_panel(ReplCtx *ctx) {
     body.append(qtail);
   }
   body.append("\n\n  [y] allow   [n] reject   [r <reason>] reject w/ reason");
-  xLineSetBelowPanel(ctx->line, "tool confirm", body.c_str());
+  xLineSetBelowPanel(ctx->line, "", body.c_str());
 }
 
 /* Enter confirm mode. Caller must have enqueued at least one
@@ -832,7 +833,10 @@ static void repl_leave_confirm_mode(ReplCtx *ctx) {
     return;
   }
   ctx->confirm_active = false;
-  xLineClearBelowPanel(ctx->line);
+  /* No xLineClearBelowPanel here: the below panel lived on the old
+   * handle released by repl_close_line above. The fresh handle from
+   * repl_open_line starts with empty panel buffers, so clearing would
+   * only trigger a redundant wipe+repaint cycle. */
 }
 
 /* Reject everything in the confirm queue and leave confirm mode. Used
@@ -873,7 +877,8 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
 
   /* Normalize: skip leading whitespace. */
   const char *s = raw ? raw : "";
-  while (*s == ' ' || *s == '\t') ++s;
+  while (*s == ' ' || *s == '\t')
+    ++s;
 
   xAgentToolDecision decision = xAgentToolDecision_Reject;
   const char        *reason   = "user declined execution";
@@ -889,7 +894,8 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
     /* Skip the leading 'r' and any whitespace — the rest is the
      * user's reason. Fallback to default if they typed "r" alone. */
     const char *tail = s + 1;
-    while (*tail == ' ' || *tail == '\t') ++tail;
+    while (*tail == ' ' || *tail == '\t')
+      ++tail;
     reason = *tail ? tail : "user declined execution";
   } else {
     /* Unrecognised — repaint the panel, re-read. Push back onto
@@ -902,18 +908,39 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
   }
 
   /* Echo the decision so the transcript records what the user
-   * chose — useful for debugging a run that ended with ToolError. */
+   * chose — useful for debugging a run that ended with ToolError.
+   * We include the raw input verbatim because xline clears the
+   * submitted "confirm> …" line on done, so without this echo the
+   * history would show the prompt but not the keystroke.
+   *
+   * DIAGNOSTIC: when this is the last item in the queue, tear down
+   * the confirm mode *first* (closes the "confirm>" editor, clears
+   * the below panel, reopens the normal chat editor) before echoing
+   * the decision or calling Resolve. Resolve is synchronous and
+   * drives the tool handler's on_tool/on_command/on_tool_output
+   * callbacks on this stack frame; if the confirm editor + panel
+   * were still attached, every one of those above_printf calls
+   * would have to dodge a ~6-row panel that's about to be torn
+   * down anyway. Doing the teardown upfront means the tool run
+   * prints into a clean chat session. */
+  const bool  last_in_queue = ctx->confirm_queue.empty();
+  const char *echo          = (raw && *raw) ? raw : "(empty)";
+  if (last_in_queue) {
+    repl_leave_confirm_mode(ctx);
+  }
+
   if (decision == xAgentToolDecision_Allow) {
-    above_printf(ctx->line, "\x1b[2m[confirm] %s → allowed\x1b[0m",
-                 head.tool_name.c_str());
+    above_printf(ctx->line, "\x1b[2m[confirm] %s → allowed (%s)\x1b[0m",
+                 head.tool_name.c_str(), echo);
   } else {
-    above_printf(ctx->line, "\x1b[2m[confirm] %s → rejected: %s\x1b[0m",
-                 head.tool_name.c_str(), reason ? reason : "(none)");
+    above_printf(ctx->line, "\x1b[2m[confirm] %s → rejected (%s): %s\x1b[0m",
+                 head.tool_name.c_str(), echo,
+                 reason ? reason : "(none)");
   }
 
   xAgentToolConfirmResolve(head.resolver, decision, reason);
 
-  if (!ctx->confirm_queue.empty()) {
+  if (!last_in_queue) {
     /* Another request is queued — stay in confirm mode, but refresh
      * the panel to reflect the new head item. */
     repl_update_confirm_panel(ctx);
@@ -921,11 +948,8 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
       ctx->line,
       "\x1b[1;33m[confirm] next: tool '%s' wants to run — approve?\x1b[0m",
       ctx->confirm_queue.front().tool_name.c_str());
-    return;
   }
-
-  /* Queue drained — back to normal chat. */
-  repl_leave_confirm_mode(ctx);
+  /* Queue drained case: repl_leave_confirm_mode was called above. */
 }
 
 /* Session callback: a needs_confirm tool wants to run. */
@@ -968,7 +992,7 @@ static xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
   ctx->input_ms        = xMonoMs();
 
   xAgentMessage m   = xAgentMessageFromText(text);
-  xErrno     err = xAgentSessionInput(ctx->sess, m);
+  xErrno        err = xAgentSessionInput(ctx->sess, m);
   if (err == xErrno_Busy) {
     /* A budget compact is in flight. Stash a copy of the text
      * (the caller's buffer may be freed before CompactDone fires)
@@ -986,9 +1010,11 @@ static xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
       return xErrno_NoMemory;
     }
     ctx->pending_retry = true;
-    above_printf(ctx->line,
-                 "\x1b[2m(session busy \u2014 will resubmit after compact)\x1b[0m");
-    return xErrno_Busy;  }
+    above_printf(
+      ctx->line,
+      "\x1b[2m(session busy \u2014 will resubmit after compact)\x1b[0m");
+    return xErrno_Busy;
+  }
   if (err != xErrno_Ok) {
     above_printf(ctx->line,
                  "\x1b[1;31m[error] input rejected (errno=%d)\x1b[0m",
@@ -1315,7 +1341,7 @@ int main(int argc, char *argv[]) {
   }
 
   const xAgentTool *tool_ptrs[] = {&shell_tool};
-  const size_t   TOTAL_TOOLS = 1;
+  const size_t      TOTAL_TOOLS = 1;
   /* ── Session config (agent's default session) ──────────────────────
    *
    * Instead of creating a session manually and managing its
@@ -1326,15 +1352,15 @@ int main(int argc, char *argv[]) {
 
   xAgentSessionConf sconf;
   std::memset(&sconf, 0, sizeof(sconf));
-  sconf.cbs.on_text        = on_text;
-  sconf.cbs.on_thinking    = on_thinking;
-  sconf.cbs.on_tool        = on_tool;
-  sconf.cbs.on_tool_output = on_tool_output;
-  sconf.cbs.on_sidecar     = on_sidecar;
-  sconf.cbs.on_done        = on_done;
-  sconf.cbs.on_error       = on_error;
+  sconf.cbs.on_text         = on_text;
+  sconf.cbs.on_thinking     = on_thinking;
+  sconf.cbs.on_tool         = on_tool;
+  sconf.cbs.on_tool_output  = on_tool_output;
+  sconf.cbs.on_sidecar      = on_sidecar;
+  sconf.cbs.on_done         = on_done;
+  sconf.cbs.on_error        = on_error;
   sconf.cbs.on_tool_confirm = on_tool_confirm;
-  sconf.cbs.user_data      = &ctx;
+  sconf.cbs.user_data       = &ctx;
 
   /* Opt into the structured budget pipeline so the calibrator
    * actually runs. Without a non-Disabled policy the gate short-
@@ -1444,19 +1470,18 @@ int main(int argc, char *argv[]) {
   std::snprintf(line, sizeof(line), "data_dir: %s", data_dir);
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, line);
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
-  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "Tips:");
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-              "  - Enter       send message");
+              "- Enter       send message");
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-              "  - /           browse slash commands");
+              "- /           browse slash commands");
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-              "  - /help       show all commands");
+              "- /help       show all commands");
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-              "  - /cancel     interrupt a running AI call");
+              "- /cancel     interrupt a running AI call");
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-              "  - Ctrl-C      cancel current run / exit when idle");
+              "- Ctrl-C      cancel current run / exit when idle");
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-              "  - Ctrl-D      exit on empty line");
+              "- Ctrl-D      exit on empty line");
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
   // bottom: '└' + 58 '─' + '┘' = 60
   std::printf("\x1b[2m└───────────────────────────────────────────────────"

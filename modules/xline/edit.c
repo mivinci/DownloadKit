@@ -234,6 +234,14 @@ static void edit_refresh_rows(ic_env_t *env, editor_t *eb, stringbuf_t *input,
 }
 
 ic_private void edit_refresh(ic_env_t *env, editor_t *eb) {
+  // Paste coalescing: while the async layer batches a bracketed paste,
+  // every edit_insert_char / edit_insert_unicode inside the paste
+  // would otherwise trigger a full prompt repaint. The single
+  // post-paste refresh the async layer issues after KEY_EVENT_PASTE_END
+  // renders everything at once. See editor_t::suspend_refresh.
+  if (eb->suspend_refresh) {
+    return;
+  }
   xline_trace(
     "edit_refresh: enter pos=%zd input_len=%zd cur_row=%zd cur_rows=%zd",
     eb->pos, sbuf_len(eb->input), eb->cur_row, eb->cur_rows);
@@ -461,6 +469,12 @@ static void editor_append_hint_help(editor_t *eb, const char *help) {
 
 // refresh with possible hint
 static void edit_refresh_hint(ic_env_t *env, editor_t *eb) {
+  // Mirror the suspend_refresh short-circuit in edit_refresh: during a
+  // bracketed paste we want neither the repaint nor the (expensive)
+  // completion generation that runs below.
+  if (eb->suspend_refresh) {
+    return;
+  }
   if (env->no_hint || env->hint_delay > 0) {
     // refresh without hint first
     edit_refresh(env, eb);

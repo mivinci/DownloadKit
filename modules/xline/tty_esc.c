@@ -395,8 +395,19 @@ static code_t tty_read_csi(tty_t *tty, uint8_t c1, uint8_t peek, code_t mods0,
   // and translate
   code_t code = KEY_NONE;
   if (final == '~') {
-    // vt codes
-    code = esc_decode_vt(num1);
+    // Bracketed paste boundaries (DECSET ?2004). We want these out of
+    // band from the normal vt-code path because vt 200/201 are
+    // otherwise unassigned and esc_decode_vt would drop them. Returning
+    // a dedicated event lets async.c switch into paste mode and stop
+    // treating \r as submit while the paste is in flight.
+    if (c1 == '[' && num1 == 200) {
+      code = KEY_EVENT_PASTE_BEGIN;
+    } else if (c1 == '[' && num1 == 201) {
+      code = KEY_EVENT_PASTE_END;
+    } else {
+      // vt codes
+      code = esc_decode_vt(num1);
+    }
   } else if (c1 == '[' && final == 'u') {
     // unicode
     code = key_unicode(num1);
@@ -415,6 +426,11 @@ static code_t tty_read_csi(tty_t *tty, uint8_t c1, uint8_t peek, code_t mods0,
   if (code == KEY_NONE && final != 'R') {
     XDEBUG("tty: ignore escape sequence: ESC %c %zu;%zu %c\n", c1, num1,
               num2, final);
+  }
+  // Paste boundaries are event codes, not keys — don't let stray
+  // modifiers (unlikely but defensive) leak into them.
+  if (code == KEY_EVENT_PASTE_BEGIN || code == KEY_EVENT_PASTE_END) {
+    return code;
   }
   return (code != KEY_NONE ? (code | modifiers) : KEY_NONE);
 }

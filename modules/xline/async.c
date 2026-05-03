@@ -19,6 +19,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#if !defined(_WIN32)
+#include <sys/ioctl.h>
+#endif
 
 #include <xbase/log.h>
 #include "edit.h"
@@ -170,9 +173,30 @@ XDEF_STRUCT(xLineHandle_) {
   // (columns/rows actually changed) from spurious ones (the terminal
   // emulator re-raises SIGWINCH on focus/theme events, and
   // tty_term_resize_event also hard-returns true on platforms without a
-  // native event). Only real changes trigger edit_resize bookkeeping.
+  // native resize event). Only real changes trigger edit_resize bookkeeping.
   ssize_t             last_term_w;
   ssize_t             last_term_h;
+
+  // Bracketed paste state.
+  //
+  // We enable DECSET ?2004 in xLineBegin, so xterm-compatible terminals
+  // wrap pasted bytes in CSI 200 ~ ... CSI 201 ~. tty_esc.c decodes
+  // those markers into KEY_EVENT_PASTE_BEGIN / KEY_EVENT_PASTE_END; the
+  // drain loop in xLineStep flips in_paste and, while true, routes
+  // incoming codes through the "insert literal" path instead of
+  // edit_dispatch_key. This is required because edit_dispatch_key
+  // treats KEY_ENTER (== '\r') as "submit the line", and most terminal
+  // emulators on macOS / Linux send '\r' for newlines inside a paste —
+  // without this branch a multi-line paste would be truncated at the
+  // first newline and the remainder would become the prefix of the
+  // next submission.
+  //
+  // While in_paste is true we also suspend the per-keystroke refresh
+  // (edit_refresh / edit_refresh_hint short-circuit when
+  // eb->suspend_refresh is set) and issue exactly one refresh after
+  // the terminator. For a 1 KB paste that turns O(N) full repaints
+  // into a single one, eliminating the otherwise very visible flicker.
+  bool                in_paste;
 };
 
 // Max visible lines for the below panel. Longer bodies are truncated with a
@@ -206,12 +230,43 @@ static void xline_sync_extra_from_below(xLineHandle_ *h) {
   sbuf_clear(eb->extra);
   if (body == NULL || body_n == 0) return;
 
-  // Separator line with optional title: "── /help ──" (dim).
+  // Header row:
+  //   - With title: "── <title> ────────" with a fixed 8-cell trailing rule,
+  //     dim style. Deliberately does NOT stretch to terminal width — the
+  //     short rule gives a visual "section" feel without dominating the
+  //     screen, and we don't have to worry about autowrap on the last cell.
+  //   - Without title: draw a full-width horizontal rule instead of a
+  //     blank row. Gives the same "section break" feel as the titled
+  //     case but without wasting a row on whitespace. We cap the length
+  //     at termw-2 (not -1 like edit_completion.c): `-1` was still
+  //     overflowing on some emulators (iTerm2 showed a trailing ↵ and
+  //     the row wrapped), presumably because the bbcode renderer can
+  //     emit a CR or reset sequence that nudges the final column.
+  //     Width is sampled from h->env->term (set in xLineOpen) and
+  //     falls back to a safe default if env isn't wired up yet.
   if (h->below_title != NULL && sbuf_len(h->below_title) > 0) {
-    sbuf_appendf(eb->extra, "[ic-diminish]\xe2\x94\x80\xe2\x94\x80 [!pre]%s[/pre] \xe2\x94\x80\xe2\x94\x80[/]\n",
+    sbuf_appendf(eb->extra, "[ic-diminish]\xe2\x94\x80\xe2\x94\x80 [!pre]%s[/pre] ",
                  sbuf_string(h->below_title));
+    for (int i = 0; i < 8; i++) {
+      sbuf_append(eb->extra, "\xe2\x94\x80");
+    }
+    sbuf_append(eb->extra, "[/]\n");
   } else {
-    sbuf_append(eb->extra, "[ic-diminish]\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80[/]\n");
+    // Use a raw ANSI faint escape (\x1b[2m … \x1b[22m) instead of the
+    // bbcode [ic-diminish] tag. Despite its name, ic-diminish is defined
+    // as ansi-lightgray in line.c — a concrete foreground colour that
+    // renders nearly white on dark terminals. We want the actual "dim"
+    // attribute used by the startup banner border, which is \x1b[2m.
+    // bbcode has no built-in faint/dim style, so we emit the SGR bytes
+    // directly; the renderer passes unknown escape sequences through.
+    ssize_t rule_w = (h->env != NULL ? term_get_width(h->env->term) - 2 : 78);
+    if (rule_w < 4)  rule_w = 4;
+    if (rule_w > 512) rule_w = 512; // defensive cap; no real terminal is wider
+    sbuf_append(eb->extra, "\x1b[2m");
+    for (ssize_t i = 0; i < rule_w; i++) {
+      sbuf_append(eb->extra, "\xe2\x94\x80");
+    }
+    sbuf_append(eb->extra, "\x1b[22m\n");
   }
 
   // Clip to XLINE_BELOW_PANEL_MAX_ROWS logical lines. Count newlines; if the
@@ -493,6 +548,14 @@ ic_public xLineHandle xLineBegin(const char *prompt_text) {
   tty_start_raw(env->tty);
   term_start_raw(env->term);
 
+  // Enable bracketed paste (DECSET ?2004). Paired with the DECRST in
+  // xLineEnd. xterm-compatible terminals will now wrap pasted text in
+  // CSI 200 ~ ... CSI 201 ~, which async.c decodes into PASTE_BEGIN /
+  // PASTE_END events. Terminals that don't understand the sequence
+  // silently ignore it (it's a standard CSI "unknown private mode"
+  // no-op), so there's no fallback branch needed.
+  term_write(env->term, "\x1b[?2004h");
+
   h->last_line      = sbuf_new();
   h->last_line_rows = 0;
   h->below_title    = sbuf_new();
@@ -587,6 +650,12 @@ ic_public void xLineEnd(xLineHandle handle) {
   xline_wipe_edit_region(env, &h->eb);
   term_flush(env->term);
 
+  // Disable bracketed paste before we drop raw mode. Leaving ?2004 on
+  // would be harmless functionally, but a well-behaved library always
+  // restores the modes it touched.
+  term_write(env->term, "\x1b[?2004l");
+  term_flush(env->term);
+
   term_end_raw(env->term, false);
   tty_end_raw(env->tty);
 
@@ -636,15 +705,29 @@ ic_public xLineStepResult xLineStep(xLineHandle handle) {
   ic_env_t *env = h->env;
   editor_t *eb  = &h->eb;
 
-  // Fairness policy: dispatch at most one key code per xLineStep() call
-  // before handing control back to the outer event loop. Previously this
-  // was a tight for(;;) drain loop that kept running as long as the tty
-  // had anything queued — which meant a user typing fast (or pasting) could
-  // starve other fds in the same loop (notably the AI session's streaming
-  // fd). Returning PENDING after each code lets the caller re-poll and give
-  // every source a turn. If the tty still has buffered input the next
-  // poll wakes up immediately so throughput is unchanged in practice.
-  for (int dispatched = 0; dispatched < 1;) {
+#if !defined(_WIN32)
+  {
+    int navail = -1;
+    int fd     = tty_fd(env->tty);
+    if (fd >= 0 && ioctl(fd, FIONREAD, &navail) != 0) navail = -2;
+    xline_trace("step: enter state=%d fionread=%d", (int)h->state, navail);
+  }
+#endif
+
+  // Drain policy: xLineStep is driven by an edge-triggered event loop
+  // (kqueue EV_CLEAR / epoll EPOLLET). The loop only re-fires when *new*
+  // bytes arrive on the tty fd, so if we return PENDING while bytes are
+  // still buffered in the kernel — typical for IME commits and paste,
+  // where a single read-ready event delivers many bytes at once — those
+  // bytes sit in the kernel buffer indefinitely (edge won't re-fire
+  // without fresh writes) until the user happens to press another key.
+  // We must therefore drain the tty fully every time we're invoked,
+  // returning PENDING only once tty_read_timeout reports no input left.
+  //
+  // Starvation of other fds isn't a practical concern here: tty input
+  // rate is bounded by human typing / a single paste buffer, and the
+  // outer loop re-enters on each poll cycle anyway.
+  for (;;) {
     code_t c;
     // Non-blocking read: tty_read_timeout(_, 0, _) may still briefly block
     // up to the ESC follow-up timeout (~10ms) while reassembling a partial
@@ -673,9 +756,63 @@ ic_public xLineStepResult xLineStep(xLineHandle handle) {
     }
 
     if (!tty_read_timeout(env->tty, 0, &c)) {
+#if !defined(_WIN32)
+      {
+        int navail = -1;
+        int fd     = tty_fd(env->tty);
+        if (fd >= 0 && ioctl(fd, FIONREAD, &navail) != 0) navail = -2;
+        xline_trace("step: exit PENDING fionread=%d", navail);
+      }
+#endif
       return XLINE_STEP_PENDING;
     }
     xline_trace("step: got key code=0x%x", (unsigned)c);
+
+    // Bracketed paste boundary handling. We must intercept these
+    // BEFORE edit_dispatch_key: PASTE_BEGIN flips us into a mode where
+    // incoming bytes bypass KEY_ENTER's "submit" semantics and get
+    // inserted literally (with \r normalised to \n), and PASTE_END
+    // restores normal dispatch plus issues the one coalesced refresh.
+    if (c == KEY_EVENT_PASTE_BEGIN) {
+      xline_trace("paste: begin");
+      h->in_paste        = true;
+      eb->suspend_refresh = true;
+      continue;
+    }
+    if (c == KEY_EVENT_PASTE_END) {
+      xline_trace("paste: end input_len=%zd", sbuf_len(eb->input));
+      h->in_paste        = false;
+      eb->suspend_refresh = false;
+      // Single coalesced repaint for the whole paste. Using
+      // edit_refresh (not _hint) is deliberate: we don't want the
+      // post-paste frame to auto-pop a completion hint based on the
+      // now-huge buffer — hints are a typing-affordance and fire
+      // naturally on the next real keystroke.
+      edit_refresh(env, eb);
+      continue;
+    }
+    if (h->in_paste) {
+      // Literal insertion path. Accept anything that represents a
+      // character; reject control keys and events (arrows etc. should
+      // never appear inside a paste but be defensive). \r is
+      // normalised to \n so multi-line pastes look sane regardless of
+      // whether the terminal sent CR, LF or CRLF line endings.
+      char      chr;
+      unicode_t uchr;
+      if (c == KEY_ENTER /* '\r' */ || c == KEY_LINEFEED /* '\n' */) {
+        edit_insert_char(env, eb, '\n');
+      } else if (c == KEY_TAB) {
+        edit_insert_char(env, eb, '\t');
+      } else if (code_is_ascii_char(c, &chr)) {
+        edit_insert_char(env, eb, chr);
+      } else if (code_is_unicode(c, &uchr)) {
+        edit_insert_unicode(env, eb, uchr);
+      } else {
+        xline_trace("paste: drop non-char code=0x%x", (unsigned)c);
+      }
+      continue;
+    }
+
     if (edit_dispatch_key(env, eb, c)) {
       // terminal condition: finalize and record the outcome
       h->last_code  = c;
@@ -707,9 +844,7 @@ ic_public xLineStepResult xLineStep(xLineHandle handle) {
       h->state = XLINE_ASYNC_DONE_LINE;
       return XLINE_STEP_LINE;
     }
-    dispatched++;
   }
-  return XLINE_STEP_PENDING;
 }
 
 //-------------------------------------------------------------
@@ -804,7 +939,7 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
                     h->last_line_rows, last_col, new_last_col,
                     (size_t)strlen(s));
         term_attr_reset(env->term);
-        term_write(env->term, "\x1b[s"); // save cursor (DEC)
+        term_write(env->term, "\x1b" "7"); // save cursor (DECSC)
         // Climb from current edit-region cursor to the final row of
         // last_line. cur_row is 0-based inside the edit region; one
         // extra row up accounts for the '\n' separator between the
@@ -813,7 +948,7 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
         term_write(env->term, "\r");
         term_right(env->term, last_col);
         term_write(env->term, s);
-        term_write(env->term, "\x1b[u"); // restore cursor
+        term_write(env->term, "\x1b" "8"); // restore cursor (DECRC)
         term_flush(env->term);
         // Commit the new trailing line; rows unchanged by construction.
         sbuf_append(h->last_line, s);
@@ -853,6 +988,14 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
 
 static void xline_repaint_below(xLineHandle_ *h) {
   if (h->state != XLINE_ASYNC_RUNNING && h->state != XLINE_ASYNC_INIT) return;
+  /* No trailing line and no panel contents means nothing on screen
+   * would change — avoid the wipe+refresh cycle so callers that clear
+   * an already-empty panel don't cost a redundant repaint. */
+  if (sbuf_len(h->last_line) == 0 &&
+      sbuf_len(h->below_title) == 0 &&
+      sbuf_len(h->below_body) == 0) {
+    return;
+  }
   stringbuf_t *buf = sbuf_new();
   if (buf == NULL) return;
   sbuf_append(buf, sbuf_string(h->last_line));

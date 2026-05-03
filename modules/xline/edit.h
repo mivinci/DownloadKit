@@ -36,6 +36,14 @@ typedef struct editor_s {
   bool    modified; // has a modification happened? (used for history navigation
                     // for example)
   bool    disable_undo; // temporarily disable auto undo (for history search)
+  // When true, edit_refresh / edit_refresh_hint short-circuit without
+  // touching the terminal. Used by the async layer's bracketed-paste
+  // handling to coalesce O(paste_len) per-character repaints into a
+  // single refresh issued when the paste terminator arrives. The field
+  // is an editor-level flag (rather than an env-level one) so that
+  // concurrent sessions — should we ever allow them — don't stomp on
+  // each other's refresh state.
+  bool    suspend_refresh;
   ssize_t history_idx;  // current index in the history
   editstate_t *undo;    // undo buffer
   editstate_t *redo;    // redo buffer

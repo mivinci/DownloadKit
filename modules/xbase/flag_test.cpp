@@ -489,57 +489,48 @@ TEST(Flag, MultiStringCollectsAllOccurrences) {
 /* ───────────────────── Built-in help / version ───────────────────── */
 
 TEST(Flag, HelpReturnsAgain) {
+#ifdef _WIN32
+  /* Skip on Windows: redirecting stdout via freopen() and restoring it
+   * is unreliable on Windows. After freopen("NUL", "w", stdout),
+   * restoring stdout to the console hangs or silently fails. */
+  GTEST_SKIP() << "Skipped on Windows (stdout redirect/restore unreliable)";
+#else
   xFlagSet set = xFlagSetCreate("prog", "summary");
   bool     v   = false;
   xFlagAddBool(set, "verbose", 'v', "be loud", &v, xFlagAttr_None);
 
   /* Redirect stdout to /dev/null so help output doesn't pollute*/
   fflush(stdout);
-#ifdef _WIN32
-  FILE *saved = tmpfile();
-  freopen("NUL", "w", stdout);
-#else
   FILE *saved = stdout;
   stdout      = fopen("/dev/null", "w");
-#endif
   auto r = Parse(set, {"prog", "--help"});
   fclose(stdout);
-#ifdef _WIN32
-  freopen(tmpnam(NULL), "w", stdout);
-  fclose(saved);
-#else
   stdout = saved;
-#endif
 
   ASSERT_EQ(r.rc, xErrno_Again);
 
   xFlagSetDestroy(set);
+#endif
 }
 
 TEST(Flag, VersionReturnsAgainWhenSet) {
+#ifdef _WIN32
+  GTEST_SKIP() << "Skipped on Windows (stdout redirect/restore unreliable)";
+#else
   xFlagSet set = xFlagSetCreate("prog", nullptr);
   xFlagSetVersion(set, "1.2.3");
 
   fflush(stdout);
-#ifdef _WIN32
-  FILE *saved2 = tmpfile();
-  freopen("NUL", "w", stdout);
-#else
   FILE *saved2 = stdout;
   stdout       = fopen("/dev/null", "w");
-#endif
   auto r2 = Parse(set, {"prog", "--version"});
   fclose(stdout);
-#ifdef _WIN32
-  freopen(tmpnam(NULL), "w", stdout);
-  fclose(saved2);
-#else
   stdout = saved2;
-#endif
 
   ASSERT_EQ(r2.rc, xErrno_Again);
 
   xFlagSetDestroy(set);
+#endif
 }
 
 TEST(Flag, VersionNotRecognisedWhenUnset) {
@@ -571,7 +562,12 @@ TEST(Flag, PrintUsageAndHelp) {
   xFlagSetEpilog(set, "see also: xkit(1)");
   xFlagSetVersion(set, "0.1.0");
 
-  FILE *fp = fopen("/dev/null", "w");
+  FILE *fp =
+#ifdef _WIN32
+    fopen("NUL", "w");
+#else
+    fopen("/dev/null", "w");
+#endif
   ASSERT_NE(fp, nullptr);
   xFlagPrintUsage(set, fp);
   xFlagPrintHelp(set, fp);

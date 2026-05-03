@@ -20,6 +20,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+#include <xbase/base.h> /* ssize_t */
+
 /**
  * Windows-compatible iovec structure.
  */

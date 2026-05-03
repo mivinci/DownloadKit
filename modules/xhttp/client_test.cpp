@@ -19,10 +19,15 @@ extern "C" {
 #include <xhttp/client.h>
 }
 
-/* Skip network-dependent tests when XKIT_SKIP_NETWORK_TESTS=1 */
+/* Skip network-dependent tests when XKIT_SKIP_NETWORK_TESTS=1, or on Windows
+ * where external network access is often unavailable in CI environments. */
 static bool skip_network_tests() {
+#ifdef _WIN32
+  return true; /* Windows CI typically has no external network access */
+#else
   const char *v = std::getenv("XKIT_SKIP_NETWORK_TESTS");
   return v && std::string(v) == "1";
+#endif
 }
 
 #define SKIP_IF_NO_NETWORK() \

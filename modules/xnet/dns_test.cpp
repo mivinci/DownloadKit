@@ -106,6 +106,12 @@ TEST_F(DnsTest, ResolveLocalhost) {
 /* ───────────────────── Non-existent domain ───────────────────── */
 
 TEST_F(DnsTest, ResolveNonExistentDomain) {
+#ifdef _WIN32
+  /* Skip on Windows: Windows DNS resolver may resolve ".invalid" domains
+   * via DNS suffix search lists, returning a successful result instead of
+   * EAI_NONAME. This is a known platform behavior difference. */
+  GTEST_SKIP() << "Skipped on Windows (DNS suffix search may resolve .invalid domains)";
+#endif
   DnsCtx ctx;
 
   xDnsQuery q = xDnsResolve(loop, "this.domain.does.not.exist.invalid", NULL,

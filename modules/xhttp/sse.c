@@ -14,6 +14,8 @@
 
 #include "client_private.h"
 
+#include <xnet/compat.h>
+
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -92,7 +94,7 @@ static void parse_sse_field(struct xSseParser_ *p, char *line, size_t len) {
 
   if (strcmp(field, "event") == 0) {
     free(p->event_type);
-    p->event_type = strndup(value, value_len);
+    p->event_type = xnet_strndup(value, value_len);
   } else if (strcmp(field, "data") == 0) {
     if (p->data) {
       /* Append \n + new value */
@@ -105,14 +107,14 @@ static void parse_sse_field(struct xSseParser_ *p, char *line, size_t len) {
         p->data[old_len + 1 + value_len] = '\0';
       }
     } else {
-      p->data = strndup(value, value_len);
+      p->data = xnet_strndup(value, value_len);
     }
   } else if (strcmp(field, "id") == 0) {
     /* Ignore if value contains embedded NUL (per spec: last-event-id
      * must not contain U+0000) — check via field length vs string len */
     if (value_len > 0 && strlen(value) == value_len) {
       free(p->id);
-      p->id = strndup(value, value_len);
+      p->id = xnet_strndup(value, value_len);
     }
   } else if (strcmp(field, "retry") == 0) {
     /* Must be all ASCII digits */

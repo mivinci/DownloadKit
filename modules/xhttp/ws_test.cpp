@@ -536,7 +536,7 @@ protected:
 
   /* Connect and perform WS handshake, return the fd */
   int ws_connect(const std::string &path = "/ws") {
-    int fd = connect_to(port);
+    xnet_socket_t fd = connect_to(port);
     if (fd < 0) return -1;
 
     std::string req = ws_handshake_request(path);
@@ -577,7 +577,7 @@ TEST_F(WsServerTest, HandshakeMissingHeaders) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   /* Send a GET without WebSocket headers */
@@ -600,7 +600,7 @@ TEST_F(WsServerTest, HandshakeWrongVersion) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string req = "GET /ws HTTP/1.1\r\n"
@@ -626,7 +626,7 @@ TEST_F(WsServerTest, HandshakeWrongMethod) {
   SetUpWsRoute();
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   /* POST to a GET-only route should get 405 from the router */

@@ -27,5 +27,7 @@ function(xk_add_benchmark name)
     GBenchmark::benchmark_main
   )
   # Disable -Werror for benchmark C++ code
-  target_compile_options(${name} PRIVATE -Wno-error)
+  if(NOT MSVC)
+    target_compile_options(${name} PRIVATE -Wno-error)
+  endif()
 endfunction()

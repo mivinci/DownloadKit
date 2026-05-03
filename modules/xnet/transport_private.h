@@ -13,6 +13,7 @@
 #ifndef XNET_TRANSPORT_PRIVATE_H
 #define XNET_TRANSPORT_PRIVATE_H
 
+#include <xbase/base.h>
 #include "transport.h"
 
 /* ───────────────────── Transport initialization ───────────────────── */
@@ -25,7 +26,7 @@
  * @param transport  Transport to initialize (must not be NULL).
  * @param fd         File descriptor for the connection.
  */
-void xTransportPlainInit(xTransport *transport, int fd);
+XK_EXPORT void xTransportPlainInit(xTransport *transport, int fd);
 
 /**
  * Initialize a TLS server transport for the given file descriptor.
@@ -35,7 +36,7 @@ void xTransportPlainInit(xTransport *transport, int fd);
  * @param tls_ctx    Server TLS context from xTlsCtxCreate() (must not be NULL).
  * @param fd         File descriptor for the accepted connection.
  */
-void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd);
+XK_EXPORT void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd);
 
 /**
  * Initialize a TLS client transport for the given file descriptor.
@@ -48,7 +49,7 @@ void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd);
  * @param fd         File descriptor for the TCP connection.
  * @return           0 on success, -1 on error.
  */
-int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx,
+XK_EXPORT int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx,
                             const char *hostname, int fd);
 
 #endif /* XNET_TRANSPORT_PRIVATE_H */

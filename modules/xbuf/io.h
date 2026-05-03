@@ -68,7 +68,7 @@
  * Users should not manipulate blocks directly.
  */
 XDEF_STRUCT(xIOBlock) {
-  size_t refs;                       /**< Reference count (atomic)     */
+  long   refs;                       /**< Reference count (atomic)     */
   size_t size;                       /**< Usable data size in bytes    */
   char   data[XIOBUFFER_BLOCK_SIZE]; /**< Inline data storage          */
 };

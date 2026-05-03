@@ -272,7 +272,7 @@ private:
     (void)user_data;
     H2Client *self      = (H2Client *)source->ptr;
     size_t    remaining = self->post_body_.size() - self->post_pos_;
-    size_t    to_copy   = std::min(remaining, length);
+    size_t    to_copy   = (std::min)(remaining, length);
 
     if (to_copy > 0) {
       memcpy(buf, self->post_body_.data() + self->post_pos_, to_copy);
@@ -388,7 +388,7 @@ TEST_F(HttpServerH2Test, H1AndH2Coexist) {
 
   /* First: H1 request */
   {
-    int fd = connect_to(port);
+    xnet_socket_t fd = connect_to(port);
     ASSERT_GE(fd, 0);
     std::string request = "GET /hello HTTP/1.1\r\nHost: localhost\r\n"
                           "Connection: close\r\n\r\n";

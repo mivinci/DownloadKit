@@ -35,8 +35,8 @@ static inline void pump_loop(xEventLoop loop, int ms) {
  * @brief Find a free port by binding to port 0.
  */
 static inline uint16_t find_free_port() {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0) return 0;
+  xnet_socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd == XNET_INVALID_SOCKET) return 0;
 
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
@@ -63,9 +63,9 @@ static inline uint16_t find_free_port() {
 /**
  * @brief Connect to localhost on the given port and return the fd.
  */
-static inline int connect_to(uint16_t port) {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0) return -1;
+static inline xnet_socket_t connect_to(uint16_t port) {
+  xnet_socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd == XNET_INVALID_SOCKET) return XNET_INVALID_SOCKET;
 
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
@@ -75,7 +75,7 @@ static inline int connect_to(uint16_t port) {
 
   if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
     xnet_close(fd);
-    return -1;
+    return XNET_INVALID_SOCKET;
   }
   return fd;
 }
@@ -83,7 +83,7 @@ static inline int connect_to(uint16_t port) {
 /**
  * @brief Send a string over a socket.
  */
-static inline bool send_str(int fd, const std::string &s) {
+static inline bool send_str(xnet_socket_t fd, const std::string &s) {
   xnet_ssize_t n = send(fd, s.data(), (int)s.size(), 0);
   return n == (xnet_ssize_t)s.size();
 }
@@ -91,7 +91,7 @@ static inline bool send_str(int fd, const std::string &s) {
 /**
  * @brief Receive all available data from a socket (with timeout).
  */
-static inline std::string recv_all(int fd, int timeout_ms = 2000) {
+static inline std::string recv_all(xnet_socket_t fd, int timeout_ms = 2000) {
   std::string result;
   char        buf[4096];
 

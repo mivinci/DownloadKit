@@ -146,7 +146,9 @@ else()
   # Suppress warnings-as-errors inherited from parent project
   # and enable PIC for linking into shared libraries
   if(TARGET libcurl_static)
-    target_compile_options(libcurl_static PRIVATE -Wno-error)
+    if(NOT MSVC)
+      target_compile_options(libcurl_static PRIVATE -Wno-error)
+    endif()
     set_target_properties(libcurl_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
   endif()
 

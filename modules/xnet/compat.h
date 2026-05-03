@@ -17,6 +17,7 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
@@ -36,6 +37,18 @@
 #define xnet_close(fd) closesocket(fd)
 #else
 #define xnet_close(fd) close(fd)
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Socket type and invalid socket constant
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+typedef SOCKET xnet_socket_t;
+#define XNET_INVALID_SOCKET INVALID_SOCKET
+#else
+typedef int xnet_socket_t;
+#define XNET_INVALID_SOCKET (-1)
 #endif
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -207,6 +220,26 @@ static inline void xnet_random_bytes(void *buf, size_t len) {
 #else
 #include <unistd.h>
 #define xnet_unlink(path) unlink(path)
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  strndup() — not available on MSVC
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+#include <stdlib.h>
+#include <string.h>
+static inline char *xnet_strndup(const char *s, size_t n) {
+  size_t len = strnlen(s, n);
+  char  *dup = (char *)malloc(len + 1);
+  if (dup) {
+    memcpy(dup, s, len);
+    dup[len] = '\0';
+  }
+  return dup;
+}
+#else
+#define xnet_strndup(s, n) strndup(s, n)
 #endif
 
 #endif /* XNET_COMPAT_H */

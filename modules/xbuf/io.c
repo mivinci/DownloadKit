@@ -44,7 +44,7 @@ static void pool_push(xIOBlock *blk) {
   do {
     head       = xAtomicLoad(&g_pool_head, xAtomicAcquire);
     node->next = head;
-  } while (!xAtomicCasWeak(&g_pool_head, &head, node, xAtomicRelease));
+  } while (!xAtomicCasPtrWeak(&g_pool_head, &head, node, xAtomicRelease));
 }
 
 static xIOBlock *pool_pop(void) {
@@ -54,7 +54,7 @@ static xIOBlock *pool_pop(void) {
     head = xAtomicLoad(&g_pool_head, xAtomicAcquire);
     if (!head) return NULL;
     next = head->next;
-  } while (!xAtomicCasWeak(&g_pool_head, &head, next, xAtomicRelease));
+  } while (!xAtomicCasPtrWeak(&g_pool_head, &head, next, xAtomicRelease));
   return (xIOBlock *)head;
 }
 
@@ -81,7 +81,7 @@ void xIOBlockRetain(xIOBlock *blk) {
 void xIOBlockRelease(xIOBlock *blk) {
   if (!blk) return;
   if (xAtomicSub(&blk->refs, 1, xAtomicSeqCst) == 0) {
-    pool_push(blk); /* return to pool instead of free */
+    pool_push(blk);
   }
 }
 

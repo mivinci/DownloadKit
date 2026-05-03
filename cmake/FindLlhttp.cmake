@@ -75,7 +75,9 @@ else()
   # Suppress warnings-as-errors inherited from parent project
   # and enable PIC for linking into shared libraries
   if(TARGET llhttp_static)
-    target_compile_options(llhttp_static PRIVATE -Wno-error -Wno-unused-parameter)
+    if(NOT MSVC)
+      target_compile_options(llhttp_static PRIVATE -Wno-error -Wno-unused-parameter)
+    endif()
     set_target_properties(llhttp_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
   endif()
 

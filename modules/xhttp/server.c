@@ -759,11 +759,11 @@ static int route_parse_segments(const char                 *path,
     if (start[0] == ':' && len > 1) {
       /* Param segment: skip the leading ':' */
       segs[i].text  = NULL;
-      segs[i].param = strndup(start + 1, len - 1);
+      segs[i].param = xnet_strndup(start + 1, len - 1);
       if (!segs[i].param) goto fail;
     } else {
       /* Static segment */
-      segs[i].text  = strndup(start, len);
+      segs[i].text  = xnet_strndup(start, len);
       segs[i].param = NULL;
       if (!segs[i].text) goto fail;
     }

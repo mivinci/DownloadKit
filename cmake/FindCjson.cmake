@@ -79,7 +79,9 @@ else()
   # Suppress warnings-as-errors inherited from parent project
   # and enable PIC for linking into shared libraries
   if(TARGET cjson)
-    target_compile_options(cjson PRIVATE -Wno-error)
+    if(NOT MSVC)
+      target_compile_options(cjson PRIVATE -Wno-error)
+    endif()
     set_target_properties(cjson PROPERTIES POSITION_INDEPENDENT_CODE ON)
   endif()
 

@@ -155,7 +155,9 @@ else()
   # (e.g. a future libxjs.so).  quickjs-ng already marks qjs PUBLIC
   # include dirs, so we don't need to re-declare them here.
   if(TARGET qjs)
-    target_compile_options(qjs PRIVATE -w -Wno-error)
+    if(NOT MSVC)
+      target_compile_options(qjs PRIVATE -w -Wno-error)
+    endif()
     set_target_properties(qjs PROPERTIES POSITION_INDEPENDENT_CODE ON)
   endif()
 

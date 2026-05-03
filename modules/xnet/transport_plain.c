@@ -9,6 +9,7 @@
  */
 
 #include "transport.h"
+#include "transport_private.h"
 
 #include <errno.h>
 #include <stdlib.h>

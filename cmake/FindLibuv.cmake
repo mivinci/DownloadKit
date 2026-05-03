@@ -73,11 +73,15 @@ else()
   # Suppress warnings-as-errors inherited from parent project
   # and enable PIC for linking into shared libraries
   if(TARGET uv_a)
-    target_compile_options(uv_a PRIVATE -Wno-error)
+    if(NOT MSVC)
+      target_compile_options(uv_a PRIVATE -Wno-error)
+    endif()
     set_target_properties(uv_a PROPERTIES POSITION_INDEPENDENT_CODE ON)
   endif()
   if(TARGET uv)
-    target_compile_options(uv PRIVATE -Wno-error)
+    if(NOT MSVC)
+      target_compile_options(uv PRIVATE -Wno-error)
+    endif()
     set_target_properties(uv PROPERTIES POSITION_INDEPENDENT_CODE ON)
   endif()
 

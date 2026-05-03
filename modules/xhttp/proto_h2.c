@@ -9,8 +9,10 @@
 #include "proto_h2.h"
 #include "server_private.h"
 
-#include <ctype.h>
 #include <nghttp2/nghttp2.h>
+#include <xnet/compat.h>
+
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -124,7 +126,7 @@ static int h2_on_header_callback(nghttp2_session     *session,
     if (namelen == 7 && memcmp(name, ":method", 7) == 0) {
       /* Store method string */
       free(sd->method);
-      sd->method = strndup((const char *)value, valuelen);
+      sd->method = xnet_strndup((const char *)value, valuelen);
     } else if (namelen == 5 && memcmp(name, ":path", 5) == 0) {
       /* Store URL */
       if (!stream->url) stream->url = xBufferCreate(256);

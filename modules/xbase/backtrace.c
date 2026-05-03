@@ -141,8 +141,8 @@ static int bt_capture(int skip, char *buf, size_t size) {
 #elif defined(XK_HAS_DBGHELP)
 
 #define WIN32_LEAN_AND_MEAN
-#include <dbghelp.h>
 #include <windows.h>
+#include <dbghelp.h>
 
 /* One-time symbol handler initialization (thread-safe via InitOnce) */
 static INIT_ONCE sym_init_once = INIT_ONCE_STATIC_INIT;

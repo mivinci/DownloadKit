@@ -13,6 +13,7 @@
 
 #include "tls_private.h"
 #include "transport.h"
+#include "transport_private.h"
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>

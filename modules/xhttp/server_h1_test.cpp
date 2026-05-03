@@ -116,7 +116,7 @@ TEST_F(HttpServerTest, BasicGetRequest) {
   xHttpServerRoute(server, "GET /hello", echo_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0) << "Failed to connect";
 
   std::string request = "GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n";
@@ -158,7 +158,7 @@ TEST_F(HttpServerTest, PostRequestWithBody) {
   xHttpServerRoute(server, "POST /echo", body_echo_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string body    = "{\"key\":\"value\"}";
@@ -189,7 +189,7 @@ TEST_F(HttpServerTest, NotFoundResponse) {
   xHttpServerRoute(server, "GET /exists", dummy_handler, nullptr);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string request = "GET /nonexistent HTTP/1.1\r\nHost: localhost\r\n"
@@ -210,7 +210,7 @@ TEST_F(HttpServerTest, MethodNotAllowedResponse) {
   xHttpServerRoute(server, "GET /only-get", dummy_handler, nullptr);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string request = "POST /only-get HTTP/1.1\r\nHost: localhost\r\n"
@@ -234,7 +234,7 @@ TEST_F(HttpServerTest, KeepAliveConnectionReuse) {
   xHttpServerRoute(server, "GET /ka", echo_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   /* Send first request */
@@ -269,7 +269,7 @@ TEST_F(HttpServerTest, DefaultResponseWhenHandlerDoesNotSend) {
                    nullptr);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string request = "GET /noop HTTP/1.1\r\nHost: localhost\r\n"
@@ -290,7 +290,7 @@ TEST_F(HttpServerTest, BadRequestOnParseError) {
   xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   /* Send malformed HTTP */
@@ -312,7 +312,7 @@ TEST_F(HttpServerTest, HeaderTooLargeReturns431) {
   xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   /* Build a request with a very large header */
@@ -340,7 +340,7 @@ TEST_F(HttpServerTest, BodyTooLargeReturns413) {
   xHttpServerRoute(server, "POST /test", dummy_handler, nullptr);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string body(64, 'A');
@@ -367,7 +367,7 @@ TEST_F(HttpServerTest, ClientDisconnectDoesNotCrash) {
   xHttpServerRoute(server, "GET /test", dummy_handler, nullptr);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   /* Send partial request and close immediately */
@@ -389,7 +389,7 @@ TEST_F(HttpServerTest, NullMethodMatchesAll) {
 
   /* Test with GET */
   {
-    int fd = connect_to(port);
+    xnet_socket_t fd = connect_to(port);
     ASSERT_GE(fd, 0);
     std::string request = "GET /any HTTP/1.1\r\nHost: localhost\r\n"
                           "Connection: close\r\n\r\n";
@@ -402,7 +402,7 @@ TEST_F(HttpServerTest, NullMethodMatchesAll) {
 
   /* Test with POST */
   {
-    int fd = connect_to(port);
+    xnet_socket_t fd = connect_to(port);
     ASSERT_GE(fd, 0);
     std::string request = "POST /any HTTP/1.1\r\nHost: localhost\r\n"
                           "Content-Length: 0\r\n"
@@ -425,7 +425,7 @@ TEST_F(HttpServerTest, DestroyWithActiveConnections) {
   listen_and_pump();
 
   /* Open a connection but don't send anything */
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   pump_loop(loop, 50);
@@ -459,7 +459,7 @@ TEST_F(HttpServerTest, StreamingResponse) {
   xHttpServerRoute(server, "GET /stream", stream_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string request = "GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n";
@@ -500,7 +500,7 @@ TEST_F(HttpServerTest, StreamingAutoEnd) {
   xHttpServerRoute(server, "GET /stream-auto", stream_no_end_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string request = "GET /stream-auto HTTP/1.1\r\nHost: localhost\r\n\r\n";
@@ -537,7 +537,7 @@ TEST_F(HttpServerTest, WriteAndSendMutuallyExclusive) {
   xHttpServerRoute(server, "GET /mix", write_then_send_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string request = "GET /mix HTTP/1.1\r\nHost: localhost\r\n\r\n";
@@ -575,7 +575,7 @@ TEST_F(HttpServerTest, ParamRouteBasic) {
   xHttpServerRoute(server, "GET /users/:id", param_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string request = "GET /users/42 HTTP/1.1\r\nHost: localhost\r\n"
@@ -597,7 +597,7 @@ TEST_F(HttpServerTest, ParamRouteStringId) {
   xHttpServerRoute(server, "GET /users/:id", param_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string request = "GET /users/alice HTTP/1.1\r\nHost: localhost\r\n"
@@ -638,7 +638,7 @@ TEST_F(HttpServerTest, ParamRouteMultipleParams) {
   xHttpServerRoute(server, "GET /users/:id/:action", multi_param_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string request = "GET /users/99/edit HTTP/1.1\r\nHost: localhost\r\n"
@@ -662,7 +662,7 @@ TEST_F(HttpServerTest, ParamRouteExtraSegments404) {
   xHttpServerRoute(server, "GET /users/:id", param_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   /* /users/42/extra should NOT match /users/:id */
@@ -697,7 +697,7 @@ TEST_F(HttpServerTest, ParamRouteNonexistentParam) {
   xHttpServerRoute(server, "GET /items/:id", missing_param_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   std::string request = "GET /items/7 HTTP/1.1\r\nHost: localhost\r\n"
@@ -725,7 +725,7 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
 
   /* /users/me should match the static route */
   {
-    int fd = connect_to(port);
+    xnet_socket_t fd = connect_to(port);
     ASSERT_GE(fd, 0);
     std::string request = "GET /users/me HTTP/1.1\r\nHost: localhost\r\n"
                           "Connection: close\r\n\r\n";
@@ -739,7 +739,7 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
 
   /* /users/42 should match the param route */
   {
-    int fd = connect_to(port);
+    xnet_socket_t fd = connect_to(port);
     ASSERT_GE(fd, 0);
     std::string request = "GET /users/42 HTTP/1.1\r\nHost: localhost\r\n"
                           "Connection: close\r\n\r\n";
@@ -759,7 +759,7 @@ TEST_F(HttpServerTest, ParamRouteMethodNotAllowed) {
   xHttpServerRoute(server, "GET /items/:id", param_handler, &ctx);
   listen_and_pump();
 
-  int fd = connect_to(port);
+  xnet_socket_t fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
   /* POST to a GET-only param route should be 405 */

@@ -77,7 +77,9 @@ else()
   # Suppress warnings-as-errors inherited from parent project
   # and enable PIC for linking into shared libraries
   if(TARGET usrsctp)
-    target_compile_options(usrsctp PRIVATE -Wno-error)
+    if(NOT MSVC)
+      target_compile_options(usrsctp PRIVATE -Wno-error)
+    endif()
     set_target_properties(usrsctp PROPERTIES POSITION_INDEPENDENT_CODE ON)
   endif()
 

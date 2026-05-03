@@ -60,7 +60,7 @@ struct xLogFreeList_ g_entry_freelist = {
 static struct xLogEntry_ *entry_alloc(void) {
   struct xLogEntry_ *e = xAtomicLoad(&g_entry_freelist.head, xAtomicAcquire);
   while (e) {
-    if (xAtomicCasWeak(&g_entry_freelist.head, &e, e->free_next,
+    if (xAtomicCasPtrWeak(&g_entry_freelist.head, &e, e->free_next,
                        xAtomicAcqRel)) {
       xAtomicFetchSub(&g_entry_freelist.count, 1, xAtomicRelaxed);
       return e;
@@ -82,7 +82,7 @@ static void entry_free(struct xLogEntry_ *e) {
   }
   e->free_next = xAtomicLoad(&g_entry_freelist.head, xAtomicRelaxed);
   while (
-    !xAtomicCasWeak(&g_entry_freelist.head, &e->free_next, e, xAtomicAcqRel)) {
+    !xAtomicCasPtrWeak(&g_entry_freelist.head, &e->free_next, e, xAtomicAcqRel)) {
     /* CAS failed, e->free_next is reloaded */
   }
   xAtomicFetchAdd(&g_entry_freelist.count, 1, xAtomicRelaxed);

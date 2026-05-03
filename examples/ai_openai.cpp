@@ -4,15 +4,15 @@
  * found in the LICENSE file.
  *
  * ai_openai.cpp - Streaming REPL for an OpenAI-compatible endpoint
- *                 driven directly through the xai provider layer.
+ *                 driven directly through the xagent provider layer.
  *
  * Why "provider-level" and not "agent"?
- *   The xai module currently ships:
- *     - xai/message, xai/tool, xai/provider (+ provider_openai)  — done
- *     - xai/agent, xai/session                                   — header-only
+ *   The xagent module currently ships:
+ *     - xagent/message, xagent/tool, xagent/provider (+ provider_openai)  — done
+ *     - xagent/agent, xagent/session                                   — header-only
  *
  *   Once session.c / agent.c land, the canonical demo will use
- *   xAiAgentCreate + xAiSessionCreate + xAiSessionInput and never
+ *   xAgentCreate + xAgentSessionCreate + xAgentSessionInput and never
  *   touch the provider vtable. For now, we drive the provider directly
  *   via the internal `ai_provider_submit` dispatcher so you can sanity-
  *   check the OpenAI provider end-to-end against a real endpoint.
@@ -38,15 +38,15 @@
  *     tool result back for another round; we just surface the intent.
  */
 
-#include <xai/message.h>
-#include <xai/provider.h>
-#include <xai/provider_openai.h>
-#include <xai/tool.h>
+#include <xagent/message.h>
+#include <xagent/provider.h>
+#include <xagent/provider_openai.h>
+#include <xagent/tool.h>
 #include <xbase/event.h>
 #include <xhttp/client.h>
 
 /* Internal dispatcher — see file banner for justification. */
-#include <xai/provider_private.h>
+#include <xagent/provider_private.h>
 
 #include <csignal>
 #include <cstdio>
@@ -60,14 +60,14 @@
 
 /* ── A tiny "owning" conversation history ──────────────────────────────
  *
- * xAiMessage / xAiContent are borrow-only views. To hold a multi-turn
+ * xAgentMessage / xAgentContent are borrow-only views. To hold a multi-turn
  * history across the REPL, we have to keep the backing strings alive
  * ourselves.
  */
 struct OwnedTurn {
-  xAiRole                     role;
+  xAgentRole                     role;
   std::string                 text;
-  std::unique_ptr<xAiContent> content; /* stable address; held by msg */
+  std::unique_ptr<xAgentContent> content; /* stable address; held by msg */
 };
 
 /* ── REPL state ─────────────────────────────────────────────────────── */
@@ -81,7 +81,7 @@ struct ReplCtx {
 
 /* ── Tool: get_time (demo only) ─────────────────────────────────────── */
 
-static xErrno tool_get_time(xAiQuery q, const xAiContent *in, xAiContent *out,
+static xErrno tool_get_time(xAgentQuery q, const xAgentContent *in, xAgentContent *out,
                             void *ud) {
   (void)q;
   (void)in;
@@ -101,7 +101,7 @@ static xErrno tool_get_time(xAiQuery q, const xAiContent *in, xAiContent *out,
 #endif
   std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
 
-  out->type                     = xAiContentType_ToolResult;
+  out->type                     = xAgentContentType_ToolResult;
   out->u.tool_result.id         = "(unused)";
   out->u.tool_result.output     = buf;
   out->u.tool_result.output_len = std::strlen(buf);
@@ -122,9 +122,9 @@ static void on_text(const char *chunk, size_t len, void *arg) {
   ctx->reply.append(chunk, len);
 }
 
-static void on_tool_call(const xAiContent *call, void *arg) {
+static void on_tool_call(const xAgentContent *call, void *arg) {
   (void)arg;
-  if (!call || call->type != xAiContentType_ToolUse) return;
+  if (!call || call->type != xAgentContentType_ToolUse) return;
   std::printf("\n[tool_call] name=%s id=%s args=%s\n",
               call->u.tool_use.name ? call->u.tool_use.name : "(null)",
               call->u.tool_use.id ? call->u.tool_use.id : "(null)",
@@ -133,28 +133,28 @@ static void on_tool_call(const xAiContent *call, void *arg) {
               "that requires the session layer (TODO).\n");
 }
 
-static const char *stop_reason_name(xAiProviderStopReason r) {
+static const char *stop_reason_name(xAgentProviderStopReason r) {
   switch (r) {
-  case xAiProviderStop_EndTurn:
+  case xAgentProviderStop_EndTurn:
     return "end_turn";
-  case xAiProviderStop_ToolUse:
+  case xAgentProviderStop_ToolUse:
     return "tool_use";
-  case xAiProviderStop_MaxTokens:
+  case xAgentProviderStop_MaxTokens:
     return "max_tokens";
-  case xAiProviderStop_StopSeq:
+  case xAgentProviderStop_StopSeq:
     return "stop_seq";
-  case xAiProviderStop_PromptLong:
+  case xAgentProviderStop_PromptLong:
     return "prompt_too_long";
-  case xAiProviderStop_Error:
+  case xAgentProviderStop_Error:
     return "error";
-  case xAiProviderStop_Cancelled:
+  case xAgentProviderStop_Cancelled:
     return "cancelled";
   }
   return "?";
 }
 
-static void on_done(xAiProviderStopReason reason, xErrno err,
-                    const xAiUsage *usage, const char *errmsg, void *arg) {
+static void on_done(xAgentProviderStopReason reason, xErrno err,
+                    const xAgentUsage *usage, const char *errmsg, void *arg) {
   (void)errmsg;
   auto *ctx = static_cast<ReplCtx *>(arg);
 
@@ -216,14 +216,14 @@ int main() {
   }
 
   /* ── Provider ───────────────────────────────────────────────────── */
-  xAiOpenAIConf pconf;
+  xAgentOpenAIConf pconf;
   std::memset(&pconf, 0, sizeof(pconf));
   pconf.api_key       = api_key;
   pconf.base_url      = api_url; /* NULL = default */
   pconf.default_model = model;
   pconf.timeout_ms    = 60000;
 
-  xAiProvider pvd = xAiProviderOpenAICreate(loop, http, &pconf);
+  xAgentProvider pvd = xAgentProviderOpenAICreate(loop, http, &pconf);
   if (!pvd) {
     std::fprintf(stderr, "failed to create OpenAI provider\n");
     xHttpClientDestroy(http);
@@ -232,7 +232,7 @@ int main() {
   }
 
   /* ── Tool: get_time ─────────────────────────────────────────────── */
-  xAiToolConf tconf;
+  xAgentToolConf tconf;
   std::memset(&tconf, 0, sizeof(tconf));
   tconf.name        = "get_time";
   tconf.description = "Return the current UTC time in ISO-8601 format.";
@@ -240,43 +240,43 @@ int main() {
                       "\"additionalProperties\":false}";
   tconf.handler     = tool_get_time;
 
-  xAiTool time_tool = xAiToolCreate(&tconf);
+  xAgentTool time_tool = xAgentToolCreate(&tconf);
   if (!time_tool) {
     std::fprintf(stderr, "failed to create tool\n");
-    xAiProviderDestroy(pvd);
+    xAgentProviderDestroy(pvd);
     xHttpClientDestroy(http);
     xEventLoopDestroy(loop);
     return 1;
   }
-  const xAiTool *tools[] = {&time_tool}; /* xAiTool is opaque void*;
-                                          * sconf.tools is xAiTool**
+  const xAgentTool *tools[] = {&time_tool}; /* xAgentTool is opaque void*;
+                                          * sconf.tools is xAgentTool**
                                           * (array of handle pointers) */
 
   ReplCtx ctx;
   ctx.loop = loop;
-  xAiProviderStreamCallbacks cbs;
+  xAgentProviderStreamCallbacks cbs;
   cbs.on_text      = on_text;
   cbs.on_tool_call = on_tool_call;
   cbs.on_done      = on_done;
 
   /* ── History ────────────────────────────────────────────────────── */
   std::vector<std::unique_ptr<OwnedTurn>> turns; /* stable addresses  */
-  std::vector<xAiMessage>                 history;
+  std::vector<xAgentMessage>                 history;
 
   /* Seed with a system message. */
   {
     auto t         = std::make_unique<OwnedTurn>();
-    t->role        = xAiRole_System;
-    t->text        = "You are a concise assistant running on xKit's xai "
+    t->role        = xAgentRole_System;
+    t->text        = "You are a concise assistant running on xKit's xagent "
                      "provider-level demo. Answer briefly.";
-    t->content     = std::make_unique<xAiContent>();
-    *t->content    = xAiContentText(t->text.c_str());
-    xAiMessage sys = xAiMessageFromContent(xAiRole_System, t->content.get(), 1);
+    t->content     = std::make_unique<xAgentContent>();
+    *t->content    = xAgentContentText(t->text.c_str());
+    xAgentMessage sys = xAgentMessageFromContent(xAgentRole_System, t->content.get(), 1);
     history.push_back(sys);
     turns.push_back(std::move(t));
   }
 
-  std::printf("xai provider-level REPL (model: %s)\n", model);
+  std::printf("xagent provider-level REPL (model: %s)\n", model);
   std::printf("Type a message and press Enter. Ctrl-D or \"exit\" to quit.\n"
               "Tool 'get_time' is advertised (demo only — not executed).\n\n");
 
@@ -296,17 +296,17 @@ int main() {
     /* Append user turn. */
     {
       auto t       = std::make_unique<OwnedTurn>();
-      t->role      = xAiRole_User;
+      t->role      = xAgentRole_User;
       t->text      = line;
-      t->content   = std::make_unique<xAiContent>();
-      *t->content  = xAiContentText(t->text.c_str());
-      xAiMessage m = xAiMessageFromContent(xAiRole_User, t->content.get(), 1);
+      t->content   = std::make_unique<xAgentContent>();
+      *t->content  = xAgentContentText(t->text.c_str());
+      xAgentMessage m = xAgentMessageFromContent(xAgentRole_User, t->content.get(), 1);
       history.push_back(m);
       turns.push_back(std::move(t));
     }
 
     /* ── Submit one round ─────────────────────────────────────────── */
-    xAiProviderSubmitConf sconf;
+    xAgentProviderSubmitConf sconf;
     std::memset(&sconf, 0, sizeof(sconf));
     sconf.model       = nullptr; /* provider falls back to default_model */
     sconf.messages    = history.data();
@@ -333,12 +333,12 @@ int main() {
     /* Append assistant reply to history if we got one. */
     if (!ctx.reply.empty()) {
       auto t      = std::make_unique<OwnedTurn>();
-      t->role     = xAiRole_Assistant;
+      t->role     = xAgentRole_Assistant;
       t->text     = std::move(ctx.reply);
-      t->content  = std::make_unique<xAiContent>();
-      *t->content = xAiContentText(t->text.c_str());
-      xAiMessage m =
-        xAiMessageFromContent(xAiRole_Assistant, t->content.get(), 1);
+      t->content  = std::make_unique<xAgentContent>();
+      *t->content = xAgentContentText(t->text.c_str());
+      xAgentMessage m =
+        xAgentMessageFromContent(xAgentRole_Assistant, t->content.get(), 1);
       history.push_back(m);
       turns.push_back(std::move(t));
     }
@@ -346,8 +346,8 @@ int main() {
 
   std::printf("\nBye!\n");
 
-  xAiToolDestroy(time_tool);
-  xAiProviderDestroy(pvd);
+  xAgentToolDestroy(time_tool);
+  xAgentProviderDestroy(pvd);
   xHttpClientDestroy(http);
   xEventLoopDestroy(loop);
   return 0;

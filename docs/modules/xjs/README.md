@@ -108,7 +108,7 @@ A fuller walk-through — ES modules, native hooks, and synchronous Promise awai
 ## Relationship with Other Modules
 
 - **xbase** — xjs depends on `xbase/base.h` for `XCAPI`, `XDEF_STRUCT`, and error-code conventions. No event loop or IO integration is mandated: xjs stays runtime-agnostic.
-- **xai** (planned) — xjs is the intended substrate for letting agent/tool logic be authored in JavaScript instead of C; see the [xai roadmap](../../todo/xai_architecture.md).
+- **xagent** (planned) — xjs is the intended substrate for letting agent/tool logic be authored in JavaScript instead of C; see the [xagent roadmap](../../todo/xagent_architecture.md).
 
 ## Backend Notes
 

@@ -35,19 +35,19 @@ add_executable(nat_probe nat_probe.c)
 target_link_libraries(nat_probe PRIVATE xp2p xbase)
 
 add_executable(ai_openai ai_openai.cpp)
-target_link_libraries(ai_openai PRIVATE xai xhttp xbase)
-# Demo reaches into modules/xai/provider_private.h for the internal
+target_link_libraries(ai_openai PRIVATE xagent xhttp xbase)
+# Demo reaches into modules/xagent/provider_private.h for the internal
 # dispatcher because session.c has not landed yet. Once session lands,
 # this include path should be removed and the demo rewritten against
-# xAiAgentCreate + xAiSessionCreate.
+# xAgentCreate + xAgentSessionCreate.
 target_include_directories(ai_openai PRIVATE
   ${CMAKE_SOURCE_DIR}/modules)
 
-# Canonical end-to-end demo: xAiProvider -> xAiAgent -> xAiSession.
+# Canonical end-to-end demo: xAgentProvider -> xAgent -> xAgentSession.
 # The session layer hides the tool-call loop entirely, so this demo
 # never touches provider internals.
 #
-# It *does* reach into xai/session_private.h to print a one-line
+# It *does* reach into xagent/session_private.h to print a one-line
 # budget-calibrator snapshot in on_done (see the file-header
 # comment in ai_session.cpp). That is an intentional diagnostic
 # escape hatch — the calibrator has no public accessor by design
@@ -60,7 +60,7 @@ target_include_directories(ai_openai PRIVATE
 # history, and Ctrl-R search.
 
 add_executable(ai_session ai_session.cpp)
-target_link_libraries(ai_session PRIVATE xai xhttp xbase xline)
+target_link_libraries(ai_session PRIVATE xagent xhttp xbase xline)
 target_include_directories(ai_session PRIVATE
   ${CMAKE_SOURCE_DIR}/modules)
 

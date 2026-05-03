@@ -1,6 +1,6 @@
-# 上下文预算：xAiSession 的 prompt-size 守门员
+# 上下文预算：xAgentSession 的 prompt-size 守门员
 
-> 一套在 **不改 Provider、不改 Query、不侵入业务代码** 的前提下，给 `xAiSession` 加上 "prompt 太长怎么办" 能力的结构化方案。
+> 一套在 **不改 Provider、不改 Query、不侵入业务代码** 的前提下，给 `xAgentSession` 加上 "prompt 太长怎么办" 能力的结构化方案。
 >
 > 本文面向已经熟悉 xKit 三层会话模型（[Agent / Session / Query](three-layer-conversation-model.md)）的读者，描述 Session 层的预算闸门是怎么拆出来的、每一块负责什么、以及我们在 `examples/ai_session.cpp` 里跑到的真实数字是怎么解释的。
 
@@ -8,7 +8,7 @@
 
 ## TL;DR
 
-每次 `xAiSessionInput` 调用都会经过一个三步流水线：
+每次 `xAgentSessionInput` 调用都会经过一个三步流水线：
 
 ```text
   incoming user msg + rolling history
@@ -37,9 +37,9 @@
 | 裁剪器 | `budget.c :: ai_budget_earliest_keep` | 在保证 `keep_recent_turns` 的前提下，给出最早允许保留的下标 | 无状态，纯函数 |
 | 工具占比 | `budget.c :: ai_budget_tool_ratio` | 计算 history 中 ToolUse/ToolResult 的 token 占比 | 无状态，纯函数 |
 | Auto 决策 | `session.c :: session_enforce_budget_` (Auto case) | 用工具占比选择 TruncateOldest 或 SummarizeOldest | 复用 Session 的 history |
-| 闸门 | `session.c :: session_enforce_budget_` | 把前三者缝起来，按 `xAiBudgetPolicy` 决定放行 / 裁剪 / 拒绝 | 复用 Session 的 history + calibrator |
+| 闸门 | `session.c :: session_enforce_budget_` | 把前三者缝起来，按 `xAgentBudgetPolicy` 决定放行 / 裁剪 / 拒绝 | 复用 Session 的 history + calibrator |
 
-整套机制默认 (`xAiBudgetPolicy_Disabled`) 是字节级别的 no-op——老 Session 不需要改一行代码。只有当用户显式把 `sconf.budget.policy` 设为非 Disabled 时，闸门才开始工作。
+整套机制默认 (`xAgentBudgetPolicy_Disabled`) 是字节级别的 no-op——老 Session 不需要改一行代码。只有当用户显式把 `sconf.budget.policy` 设为非 Disabled 时，闸门才开始工作。
 
 ---
 
@@ -57,19 +57,19 @@
 
 ## 三件套 I：估算器
 
-**目标**：给定任意 `xAiSessionMsg_` 数组，在不调用远端的前提下，对 "这堆东西序列化后发给 provider 大概多少 token" 给一个合理近似。
+**目标**：给定任意 `xAgentSessionMsg_` 数组，在不调用远端的前提下，对 "这堆东西序列化后发给 provider 大概多少 token" 给一个合理近似。
 
 公式：
 
 ```c
-tokens ≈ (Σ payload_bytes) / XAI_BUDGET_BYTES_PER_TOKEN
-       + n_entries * XAI_BUDGET_PER_MSG_TOKENS
+tokens ≈ (Σ payload_bytes) / XAGENT_BUDGET_BYTES_PER_TOKEN
+       + n_entries * XAGENT_BUDGET_PER_MSG_TOKENS
 ```
 
 两个常量都在 `budget_private.h`：
 
-- `XAI_BUDGET_BYTES_PER_TOKEN = 4`——英文 "一个 token 大约 4 字节" 的经典启发式。CJK 下会高估（真实 1.5~2 bytes/token），紧凑 JSON 下会略低估。
-- `XAI_BUDGET_PER_MSG_TOKENS = 8`——每条消息的角色标记 + JSON 框架 overhead。真实 provider 大多在 3~7 token 之间，给 8 是故意偏保守。
+- `XAGENT_BUDGET_BYTES_PER_TOKEN = 4`——英文 "一个 token 大约 4 字节" 的经典启发式。CJK 下会高估（真实 1.5~2 bytes/token），紧凑 JSON 下会略低估。
+- `XAGENT_BUDGET_PER_MSG_TOKENS = 8`——每条消息的角色标记 + JSON 框架 overhead。真实 provider 大多在 3~7 token 之间，给 8 是故意偏保守。
 
 按 entry kind 统计 payload：
 
@@ -85,17 +85,17 @@ tokens ≈ (Σ payload_bytes) / XAI_BUDGET_BYTES_PER_TOKEN
 
 ## 三件套 II：校准器
 
-粗估必然有系统性偏差。不同 provider、不同语言、不同内容风格，bytes/4 都会偏一个固定比例。校准器的作用：**拿 provider 真实返回的 `xAiUsage.prompt_tokens` 反过来修正本地估算**。
+粗估必然有系统性偏差。不同 provider、不同语言、不同内容风格，bytes/4 都会偏一个固定比例。校准器的作用：**拿 provider 真实返回的 `xAgentUsage.prompt_tokens` 反过来修正本地估算**。
 
 ### 状态
 
 每个 Session 带一个小状态：
 
 ```c
-typedef struct xAiBudgetCalibrator_ {
+typedef struct xAgentBudgetCalibrator_ {
   double factor;  /* EWMA-smoothed multiplier, 初始 1.0 */
   size_t samples; /* 已接受的观测数，饱和到 SIZE_MAX */
-} xAiBudgetCalibrator;
+} xAgentBudgetCalibrator;
 ```
 
 ### 更新规则
@@ -111,8 +111,8 @@ samples++;
 
 常量（`budget_private.h`）：
 
-- `XAI_BUDGET_CALIBRATION_ALPHA = 0.25`——一次观测把 factor 往新值方向拉 1/4。**5~10 轮收敛**、单个离群样本不会主导下一次决策。
-- `XAI_BUDGET_CALIBRATION_MIN_FACTOR = 0.5`、`MAX_FACTOR = 2.0`——硬夹紧。防止 provider 偶尔返回一个莫名其妙的 usage 块把 factor 打飞。
+- `XAGENT_BUDGET_CALIBRATION_ALPHA = 0.25`——一次观测把 factor 往新值方向拉 1/4。**5~10 轮收敛**、单个离群样本不会主导下一次决策。
+- `XAGENT_BUDGET_CALIBRATION_MIN_FACTOR = 0.5`、`MAX_FACTOR = 2.0`——硬夹紧。防止 provider 偶尔返回一个莫名其妙的 usage 块把 factor 打飞。
 
 ### Opt-out 规则
 
@@ -126,7 +126,7 @@ samples++;
 旧实现中 `Query.usage.prompt_tokens` 是跨 round **累加**的（见 `query.c:usage_accumulate`），多轮工具对话时该值会膨胀数倍，无法对应到单次 submit 的 prompt 大小，因此用"产出里有没有 ToolUse"来 opt-out。
 
 新实现改为：`prompt_tokens` 取跨轮 **max**（每轮 provider 报的是完整输入量而非增量，
-所以 max 就是总输入量），同时在 `xAiQuery_` 中新增 `first_round_prompt_tokens` 字段，
+所以 max 就是总输入量），同时在 `xAgentQuery_` 中新增 `first_round_prompt_tokens` 字段，
 只记录首轮的 `prompt_tokens`。校准器改用 `first_round_prompt_tokens` 与
 `last_prompt_estimate` 配对——gate 只在首轮之前执行，所以首轮的 provider 报告才是
 唯一可与 gate 估算归因的数据点。这样一来，多轮工具对话也能产生有效的校准信号，
@@ -147,7 +147,7 @@ samples++;
 
 裁剪器只做 "允许裁到哪" 这件事，**不做 "要不要裁" 的决策**——那是闸门的事。
 
-### 四条不变量（来自 `xAiBudgetPolicy` 的 doc）
+### 四条不变量（来自 `xAgentBudgetPolicy` 的 doc）
 
 所有策略共同遵守：
 
@@ -195,14 +195,14 @@ LLM 对纯文本 history 做摘要的能力很强——一段 2000 token 的闲�
 纯函数，返回 `[0.0, 1.0]`：
 
 ```c
-double ai_budget_tool_ratio(const xAiSessionMsg_ *msgs, size_t n);
+double ai_budget_tool_ratio(const xAgentSessionMsg_ *msgs, size_t n);
 ```
 
 计算方式：对每个 entry 按和估算器相同的 per-kind 字节公式加权（不是按条目数量），求 `tool_bytes / total_bytes`。这样一条 2 KiB 的 `tool_result` 会比三条 10 字节的 `Text` entry 更有话语权——和闸门看到的 token 压力一致。
 
 ### 阈值
 
-`XAI_BUDGET_AUTO_TOOL_RATIO_THRESHOLD = 0.4`
+`XAGENT_BUDGET_AUTO_TOOL_RATIO_THRESHOLD = 0.4`
 
 含义：当 history 中 ≥ 40% 的 token 压力来自工具条目时，选择 TruncateOldest；否则选择 SummarizeOldest。
 
@@ -216,7 +216,7 @@ Auto 选了 SummarizeOldest 之后，如果 compact 失败（OOM、provider erro
 
 ## 闸门：把四件套缝起来
 
-`session_enforce_budget_` 在 `xAiSessionInput` 里、**在 history 落盘之前** 跑。位置选在这里有讲究：
+`session_enforce_budget_` 在 `xAgentSessionInput` 里、**在 history 落盘之前** 跑。位置选在这里有讲究：
 
 - Error 策略可以拒绝而 **不留脏 history**。
 - TruncateOldest 策略可以先塑形 history、再让后面的 append 跑在已经合规的底子上。
@@ -304,7 +304,7 @@ xErrno session_enforce_budget_(s, msg) {
 ## 完整信息流（一次 Input 的命运）
 
 ```text
-  xAiSessionInput(sess, msg)
+  xAgentSessionInput(sess, msg)
          │
          ▼
   ┌──────────────────────────────────────────┐
@@ -333,7 +333,7 @@ xErrno session_enforce_budget_(s, msg) {
          │ ok
          ▼
   ┌──────────────────────────────────────────┐
-  │ 4. build view + xAiQueryCreate/Run       │
+  │ 4. build view + xAgentQueryCreate/Run       │
   └──────────────────────────────────────────┘
          │
          ▼ (async provider round-trip)
@@ -355,7 +355,7 @@ xErrno session_enforce_budget_(s, msg) {
 demo 把闸门配成：
 
 ```cpp
-sconf.budget.policy            = xAiBudgetPolicy_Auto;
+sconf.budget.policy            = xAgentBudgetPolicy_Auto;
 sconf.budget.max_tokens        = 8192;          // 故意留余量
 sconf.budget.keep_recent_turns = 2;             // 至少保留最近两轮
 ```
@@ -368,9 +368,9 @@ sconf.budget.keep_recent_turns = 2;             // 至少保留最近两轮
 
 | 字段 | 含义 |
 | --- | --- |
-| `reason` | `xAiDoneReason` 名字 |
+| `reason` | `xAgentDoneReason` 名字 |
 | `reply_bytes` | 本轮 assistant 向 `on_text` 吐出的字节数（累计） |
-| `tokens=P/C total=T` | `xAiUsage` 里的 `prompt / completion / total_tokens`（跨 round 累加） |
+| `tokens=P/C total=T` | `xAgentUsage` 里的 `prompt / completion / total_tokens`（跨 round 累加） |
 | `budget=<factor>x` | 校准器当前的 EWMA factor，1.0 是出厂值 |
 | `samples=<n>` | 校准器已接受的观测数 |
 | `est=<n>` | **本轮** gate 记下的 `last_prompt_estimate`（打印前尚未被 `on_done` 清零？—— 已清零，所以稳定显示 0） |
@@ -427,7 +427,7 @@ REPL 里撞到这个错会看到两种前缀：
 
 同一个 errno，两种触发点：
 
-- **同步路径**：`xAiSessionInput` 返回 `xErrno_PromptTooLong`——gate 本地判死。`on_error` 永远不会 fire，所以 demo 在 `xAiSessionInput` 返回值处再打一遍同样的 hint。
+- **同步路径**：`xAgentSessionInput` 返回 `xErrno_PromptTooLong`——gate 本地判死。`on_error` 永远不会 fire，所以 demo 在 `xAgentSessionInput` 返回值处再打一遍同样的 hint。
 - **异步路径**：gate 放行了（calibrator 偶尔偏乐观），但 provider 真的嫌太长——`on_error` fire。
 
 两条路径都给用户 **同一句建议**：raise `max_tokens` 或 lower `keep_recent_turns`。
@@ -448,7 +448,7 @@ REPL 里撞到这个错会看到两种前缀：
    而不是静默违反 floor——因为 "用户明确要求保留最近 10 轮" 的承诺比
    "尽量让它跑" 更强。
 4. **Disabled 策略的开销到底是多少**？一条 `if` + 一次返回。对于所有 zero-init
-   `xAiSessionConf` 的调用方，行为与实现 c2 之前完全 byte-identical。
+   `xAgentSessionConf` 的调用方，行为与实现 c2 之前完全 byte-identical。
    这是上线这套机制的硬前提。
 5. **Auto 的 tool_ratio 阈值是否对目标工作负载合理**？0.4 是在 "工具调用密集" 场景下
    推出来的（典型：AI agent 反复调 API）。如果目标工作负载是 "长文写作 + 偶尔查字典"，
@@ -457,7 +457,7 @@ REPL 里撞到这个错会看到两种前缀：
    Auto 退化为 TruncateOldest——直接用 TruncateOldest 更省。
    **Auto 的价值在于混合场景**。
 6. **SummarizeOldest 的 compact Query 自身会不会再触发预算闸门**？不会——compact 走的是
-   `xAiSessionCompact` 内部的一次性 Query，不经过 `xAiSessionInput`，因此不进闸门。
+   `xAgentSessionCompact` 内部的一次性 Query，不经过 `xAgentSessionInput`，因此不进闸门。
    但 compact Query 的输出（摘要条目）会替换旧 history，如果摘要太长导致仍然超限，
    `sess_fwd_on_done` 的降级逻辑会转到 TruncateOldest。
 
@@ -465,10 +465,10 @@ REPL 里撞到这个错会看到两种前缀：
 
 ## 相关代码
 
-- 公共 API：`modules/xai/session.h`（`xAiBudgetPolicy`、`xAiBudgetConf`、`xAiSessionConf::budget`）
-- 策略闸门：`modules/xai/session.c :: session_enforce_budget_`
-- 三件套：`modules/xai/budget.c` + `modules/xai/budget_private.h`
-- 测试：`modules/xai/budget_test.cpp`、`modules/xai/session_test.cpp :: BudgetCalibrator / BudgetEnforcement`
+- 公共 API：`modules/xagent/session.h`（`xAgentBudgetPolicy`、`xAgentBudgetConf`、`xAgentSessionConf::budget`）
+- 策略闸门：`modules/xagent/session.c :: session_enforce_budget_`
+- 三件套：`modules/xagent/budget.c` + `modules/xagent/budget_private.h`
+- 测试：`modules/xagent/budget_test.cpp`、`modules/xagent/session_test.cpp :: BudgetCalibrator / BudgetEnforcement`
 - 活体 demo：`examples/ai_session.cpp`
 
 ---

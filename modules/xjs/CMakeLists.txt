@@ -1,7 +1,7 @@
 # xjs: JavaScript scripting engine built on QuickJS.
 #
 # Provides a lightweight JS VM that can be embedded in xKit
-# applications.  Designed to pair with xai so that tool/agent
+# applications.  Designed to pair with xagent so that tool/agent
 # logic can be written in JavaScript instead of C.
 
 file(GLOB_RECURSE XJS_HEADERS "*.h")

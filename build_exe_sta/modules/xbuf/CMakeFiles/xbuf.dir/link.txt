@@ -1,2 +1,0 @@
-/usr/bin/ar qc libxbuf.a CMakeFiles/xbuf.dir/buf.c.o CMakeFiles/xbuf.dir/io.c.o CMakeFiles/xbuf.dir/ring.c.o
-/usr/bin/ranlib libxbuf.a

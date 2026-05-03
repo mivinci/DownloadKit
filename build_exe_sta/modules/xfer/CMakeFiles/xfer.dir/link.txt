@@ -1,2 +1,0 @@
-/usr/bin/ar qc libxfer.a CMakeFiles/xfer.dir/xfer.c.o CMakeFiles/xfer.dir/xfer_protocol.c.o CMakeFiles/xfer.dir/xfer_receiver.c.o CMakeFiles/xfer.dir/xfer_sender.c.o CMakeFiles/xfer.dir/xfer_signal_client.c.o CMakeFiles/xfer.dir/xfer_signal_server.c.o CMakeFiles/xfer.dir/xfer_vfs_posix.c.o
-/usr/bin/ranlib libxfer.a

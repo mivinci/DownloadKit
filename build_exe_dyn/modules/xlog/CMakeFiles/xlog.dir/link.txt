@@ -1,1 +1,0 @@
-/usr/bin/cc -O3 -DNDEBUG -arch arm64 -dynamiclib -Wl,-headerpad_max_install_names -o libxlog.dylib -install_name @rpath/libxlog.dylib CMakeFiles/xlog.dir/logger.c.o  -Wl,-rpath,/Users/leo/WorkBuddy/Claw/xkit/build_exe_dyn/modules/xbase ../xbase/libxbase.dylib

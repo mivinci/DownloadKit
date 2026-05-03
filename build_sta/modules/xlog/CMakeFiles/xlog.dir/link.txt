@@ -1,2 +1,0 @@
-/usr/bin/ar qc libxlog.a CMakeFiles/xlog.dir/logger.c.o
-/usr/bin/ranlib libxlog.a

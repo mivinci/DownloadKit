@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/tcp_echo_client.dir/tcp_echo_client.cpp.o -o tcp_echo_client  ../modules/xbase/libxbase.a

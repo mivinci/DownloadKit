@@ -1,2 +1,0 @@
-/usr/bin/ar qc libxnet.a CMakeFiles/xnet.dir/dns.c.o CMakeFiles/xnet.dir/tcp_conn.c.o CMakeFiles/xnet.dir/tcp_connect.c.o CMakeFiles/xnet.dir/tcp_listener.c.o CMakeFiles/xnet.dir/transport_plain.c.o CMakeFiles/xnet.dir/url.c.o CMakeFiles/xnet.dir/tls_openssl.c.o CMakeFiles/xnet.dir/transport_openssl.c.o
-/usr/bin/ranlib libxnet.a

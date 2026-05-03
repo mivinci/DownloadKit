@@ -1,10 +1,6 @@
 file(GLOB_RECURSE XBUF_HEADERS "*.h")
 file(GLOB_RECURSE XBUF_SOURCES "*.c")
-if(WIN32)
-  add_library(xbuf STATIC ${XBUF_SOURCES} ${XBUF_HEADERS})
-else()
-  add_library(xbuf ${XK_LIB_TYPE} ${XBUF_SOURCES} ${XBUF_HEADERS})
-endif()
+add_library(xbuf ${XK_LIB_TYPE} ${XBUF_SOURCES} ${XBUF_HEADERS})
 
 target_link_libraries(xbuf PUBLIC xbase)
 if(WIN32)

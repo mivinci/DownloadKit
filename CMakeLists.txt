@@ -25,9 +25,14 @@ option(XK_DEBUG_LEVEL "Debug logging level (0-3, higher means more verbose)" 0)
 
 if(XK_BUILD_STATIC)
   set(XK_LIB_TYPE STATIC)
+  add_compile_definitions(XK_STATIC)
 else()
   set(XK_LIB_TYPE SHARED)
 endif()
+
+# Mark that we are building xKit itself (not consuming it).
+# Used by base.h for Windows DLL export/import annotations.
+add_compile_definitions(XK_BUILD)
 
 if(MSVC)
   add_compile_options(/W3)

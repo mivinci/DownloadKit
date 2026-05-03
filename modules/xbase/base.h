@@ -10,7 +10,29 @@
 #define XBASE_BASE_H
 
 /**
- * XCAPI(T) — declares a C-linkage symbol of type T.
+ * Symbol export macros for Windows DLL support.
+ *
+ * When building a shared library (DLL) on Windows, symbols must be
+ * explicitly marked with __declspec(dllexport) during compilation
+ * and __declspec(dllimport) when used by consumers.  On non-Windows
+ * platforms (or when building statically) these macros expand to nothing.
+ *
+ * XK_BUILD is defined globally when building xKit itself.
+ * XK_STATIC is defined globally when XK_BUILD_STATIC=ON.
+ */
+
+#if defined(_WIN32) && !defined(XK_STATIC)
+#  ifdef XK_BUILD
+#    define XK_EXPORT __declspec(dllexport)
+#  else
+#    define XK_EXPORT __declspec(dllimport)
+#  endif
+#else
+#  define XK_EXPORT
+#endif
+
+/**
+ * XCAPI(T) — declares a C-linkage exported symbol of type T.
  *
  * For function declarations, T is the return type.
  *
@@ -20,13 +42,16 @@
  * to avoid multiple-definition errors when the header is included by
  * several translation units).
  *
+ * On Windows DLL builds, XK_EXPORT expands to __declspec(dllexport)
+ * when compiling the owning module and __declspec(dllimport) otherwise.
+ *
  * Usage (variable):   XCAPI(const xFoo) gFoo;   // extern const xFoo gFoo;
  * Usage (function):   XCAPI(int) xFooBar(void);
  */
 #ifdef __cplusplus
-#define XCAPI(T) extern "C" T
+#define XCAPI(T) extern "C" XK_EXPORT T
 #else
-#define XCAPI(T) extern T
+#define XCAPI(T) extern XK_EXPORT T
 #endif
 
 #ifdef __cplusplus

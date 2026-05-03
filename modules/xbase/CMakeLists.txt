@@ -7,12 +7,7 @@ if(WIN32)
     "event_epoll\\.c$|event_kqueue\\.c$|event_poll\\.c$")
 endif()
 
-# On Windows, always build as static library to simplify linking with tests
-if(WIN32)
-  add_library(xbase STATIC ${XBASE_SOURCES} ${XBASE_HEADERS})
-else()
-  add_library(xbase ${XK_LIB_TYPE} ${XBASE_SOURCES} ${XBASE_HEADERS})
-endif()
+add_library(xbase ${XK_LIB_TYPE} ${XBASE_SOURCES} ${XBASE_HEADERS})
 
 if(WIN32)
   target_compile_definitions(xbase PRIVATE _WIN32_WINNT=0x0601 _CRT_SECURE_NO_WARNINGS)

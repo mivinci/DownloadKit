@@ -36,6 +36,14 @@ typedef struct editor_s {
   bool    modified; // has a modification happened? (used for history navigation
                     // for example)
   bool    disable_undo; // temporarily disable auto undo (for history search)
+  // When true, edit_refresh / edit_refresh_hint short-circuit without
+  // touching the terminal. Used by the async layer's bracketed-paste
+  // handling to coalesce O(paste_len) per-character repaints into a
+  // single refresh issued when the paste terminator arrives. The field
+  // is an editor-level flag (rather than an env-level one) so that
+  // concurrent sessions — should we ever allow them — don't stomp on
+  // each other's refresh state.
+  bool    suspend_refresh;
   ssize_t history_idx;  // current index in the history
   editstate_t *undo;    // undo buffer
   editstate_t *redo;    // redo buffer
@@ -82,5 +90,31 @@ ic_private void edit_history_search_with_current_word(ic_env_t *env,
                                                       editor_t *eb);
 ic_private void edit_generate_completions(ic_env_t *env, editor_t *eb,
                                           bool autotab);
+
+//-------------------------------------------------------------
+// Cross-TU trace logging (implemented in async.c). Controlled at
+// *compile time* by XLINE_TRACE_ENABLED, and at *runtime* by the
+// XLINE_TRACE env var (value = log file path). When the compile-time
+// switch is off (the default) both calls expand to (void)0 so release
+// builds pay zero cost — no function call, no varargs marshalling,
+// not even a getenv(). Flip it on via e.g.
+//   cmake -DCMAKE_C_FLAGS="-DXLINE_TRACE_ENABLED=1"
+// to revive the tracer while debugging above-region / edit geometry.
+// Keep this gated, not deleted — the bytes-level dumps (edit_refresh,
+// emit_bytes, erase_trailing …) were invaluable for the "thinking ate
+// N rows" regression and will almost certainly be needed again.
+//-------------------------------------------------------------
+#ifndef XLINE_TRACE_ENABLED
+#define XLINE_TRACE_ENABLED 0
+#endif
+
+#if XLINE_TRACE_ENABLED
+ic_private void xline_trace(const char *fmt, ...);
+ic_private void xline_trace_bytes(const char *label, const char *data,
+                                  ssize_t len);
+#else
+#define xline_trace(...)              ((void)0)
+#define xline_trace_bytes(label, data, len) ((void)0)
+#endif
 
 #endif // IC_EDIT_H

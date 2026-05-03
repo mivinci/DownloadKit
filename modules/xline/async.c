@@ -14,9 +14,14 @@
 // tty_end_raw, tty_fd).
 //-------------------------------------------------------------
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#if !defined(_WIN32)
+#include <sys/ioctl.h>
+#endif
 
 #include <xbase/log.h>
 #include "edit.h"
@@ -26,6 +31,74 @@
 #include "stringbuf.h"
 #include "term.h"
 #include "tty.h"
+
+//-------------------------------------------------------------
+// Trace logging to a side file. Two-stage gate:
+//   1. Compile-time: XLINE_TRACE_ENABLED (see edit.h). When 0 the
+//      whole block below is stripped and every xline_trace(...) call
+//      site expands to (void)0 via the header's macro fallback.
+//   2. Runtime: the XLINE_TRACE env var holds the log path; if unset
+//      the file is never opened and every call returns immediately.
+// Kept behind a flag rather than deleted because bringing it back is
+// the fastest way to diagnose the next above-region / cursor-geometry
+// regression. DO NOT remove.
+//-------------------------------------------------------------
+
+#if XLINE_TRACE_ENABLED
+
+static FILE *g_xline_trace_fp      = NULL;
+static int   g_xline_trace_tried   = 0;
+
+static FILE *xline_trace_file(void) {
+  if (g_xline_trace_tried) return g_xline_trace_fp;
+  g_xline_trace_tried = 1;
+  const char *path = getenv("XLINE_TRACE");
+  if (path == NULL || *path == '\0') return NULL;
+  g_xline_trace_fp = fopen(path, "w");
+  if (g_xline_trace_fp != NULL) {
+    setvbuf(g_xline_trace_fp, NULL, _IOLBF, 0);
+    fprintf(g_xline_trace_fp, "# xline trace opened\n");
+  }
+  return g_xline_trace_fp;
+}
+
+ic_private void xline_trace(const char *fmt, ...) {
+  FILE *fp = xline_trace_file();
+  if (fp == NULL) return;
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  fprintf(fp, "[%ld.%06ld] ", (long)ts.tv_sec, ts.tv_nsec / 1000);
+  va_list ap;
+  va_start(ap, fmt);
+  vfprintf(fp, fmt, ap);
+  va_end(ap);
+  fputc('\n', fp);
+}
+
+// Dump raw bytes with control-char escaping. Useful for recording exactly
+// what gets written to / read from the tty around a suspected race.
+ic_private void xline_trace_bytes(const char *label, const char *data,
+                                  ssize_t len) {
+  FILE *fp = xline_trace_file();
+  if (fp == NULL) return;
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  fprintf(fp, "[%ld.%06ld] %s: len=%zd bytes=[", (long)ts.tv_sec,
+          ts.tv_nsec / 1000, label ? label : "bytes", len);
+  for (ssize_t i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)data[i];
+    if (c == '\\')       fputs("\\\\", fp);
+    else if (c == '\n')  fputs("\\n", fp);
+    else if (c == '\r')  fputs("\\r", fp);
+    else if (c == '\t')  fputs("\\t", fp);
+    else if (c == 0x1b)  fputs("\\e", fp);
+    else if (c < 0x20 || c == 0x7f) fprintf(fp, "\\x%02x", c);
+    else                 fputc((int)c, fp);
+  }
+  fputs("]\n", fp);
+}
+
+#endif // XLINE_TRACE_ENABLED
 
 //-------------------------------------------------------------
 // Handle state
@@ -96,43 +169,34 @@ XDEF_STRUCT(xLineHandle_) {
   stringbuf_t        *below_title;
   stringbuf_t        *below_body;
 
-  // Vertical anchoring — keep the edit region (prompt + input + below
-  // panel) glued to the screen's bottom rows.
+  // Last observed terminal geometry. Used to distinguish a real SIGWINCH
+  // (columns/rows actually changed) from spurious ones (the terminal
+  // emulator re-raises SIGWINCH on focus/theme events, and
+  // tty_term_resize_event also hard-returns true on platforms without a
+  // native resize event). Only real changes trigger edit_resize bookkeeping.
+  ssize_t             last_term_w;
+  ssize_t             last_term_h;
+
+  // Bracketed paste state.
   //
-  // Early design used an ESC[6n (CPR) round-trip on every frame to ask
-  // the terminal where the cursor actually is. That cost ~5–20ms per
-  // token and caused a visible flicker (the cursor froze at the end of
-  // the above bytes while we waited for the response, then snapped back
-  // to the prompt after the next refresh).
+  // We enable DECSET ?2004 in xLineBegin, so xterm-compatible terminals
+  // wrap pasted bytes in CSI 200 ~ ... CSI 201 ~. tty_esc.c decodes
+  // those markers into KEY_EVENT_PASTE_BEGIN / KEY_EVENT_PASTE_END; the
+  // drain loop in xLineStep flips in_paste and, while true, routes
+  // incoming codes through the "insert literal" path instead of
+  // edit_dispatch_key. This is required because edit_dispatch_key
+  // treats KEY_ENTER (== '\r') as "submit the line", and most terminal
+  // emulators on macOS / Linux send '\r' for newlines inside a paste —
+  // without this branch a multi-line paste would be truncated at the
+  // first newline and the remainder would become the prefix of the
+  // next submission.
   //
-  // Instead we query CPR exactly once, in xLineBegin, to learn the
-  // starting row, and keep a pure-local estimate of where the cursor
-  // ends up after each above-region write:
-  //
-  //   cur_row_after_above = min(start_row + above_flushed_rows +
-  //                             last_line_rows, screen_height)
-  //
-  // The terminal pins the cursor to the bottom row once output would
-  // scroll past the screen, so we clamp at `th` to model that. When the
-  // edit region would render above `th - edit_rows + 1`, we pad with
-  // that many '\n's and remember the count in `anchor_pad` so the next
-  // wipe walks past them.
-  //
-  // `anchor_stuck` latches once above_flushed_rows + last_line_rows +
-  // edit_rows >= screen_height: from then on the terminal self-scrolls
-  // the above region and anchoring is a no-op. SIGWINCH clears it so we
-  // re-measure against the new geometry; `start_row` is re-queried on
-  // the next paint via a lazy bool.
-  ssize_t             anchor_pad;
-  bool                anchor_stuck;
-  // Cumulative count of '\n' bytes committed to the above region since
-  // start_row was sampled (not counting anchor pad).
-  ssize_t             above_flushed_rows;
-  // Screen row (1-based) where the above region's top sits, as returned
-  // by the one-shot CPR query. 0 means "not yet sampled"; the next
-  // anchor call will sample it.
-  ssize_t             start_row;
-  bool                start_row_valid;
+  // While in_paste is true we also suspend the per-keystroke refresh
+  // (edit_refresh / edit_refresh_hint short-circuit when
+  // eb->suspend_refresh is set) and issue exactly one refresh after
+  // the terminator. For a 1 KB paste that turns O(N) full repaints
+  // into a single one, eliminating the otherwise very visible flicker.
+  bool                in_paste;
 };
 
 // Max visible lines for the below panel. Longer bodies are truncated with a
@@ -166,12 +230,43 @@ static void xline_sync_extra_from_below(xLineHandle_ *h) {
   sbuf_clear(eb->extra);
   if (body == NULL || body_n == 0) return;
 
-  // Separator line with optional title: "── /help ──" (dim).
+  // Header row:
+  //   - With title: "── <title> ────────" with a fixed 8-cell trailing rule,
+  //     dim style. Deliberately does NOT stretch to terminal width — the
+  //     short rule gives a visual "section" feel without dominating the
+  //     screen, and we don't have to worry about autowrap on the last cell.
+  //   - Without title: draw a full-width horizontal rule instead of a
+  //     blank row. Gives the same "section break" feel as the titled
+  //     case but without wasting a row on whitespace. We cap the length
+  //     at termw-2 (not -1 like edit_completion.c): `-1` was still
+  //     overflowing on some emulators (iTerm2 showed a trailing ↵ and
+  //     the row wrapped), presumably because the bbcode renderer can
+  //     emit a CR or reset sequence that nudges the final column.
+  //     Width is sampled from h->env->term (set in xLineOpen) and
+  //     falls back to a safe default if env isn't wired up yet.
   if (h->below_title != NULL && sbuf_len(h->below_title) > 0) {
-    sbuf_appendf(eb->extra, "[ic-diminish]\xe2\x94\x80\xe2\x94\x80 [!pre]%s[/pre] \xe2\x94\x80\xe2\x94\x80[/]\n",
+    sbuf_appendf(eb->extra, "[ic-diminish]\xe2\x94\x80\xe2\x94\x80 [!pre]%s[/pre] ",
                  sbuf_string(h->below_title));
+    for (int i = 0; i < 8; i++) {
+      sbuf_append(eb->extra, "\xe2\x94\x80");
+    }
+    sbuf_append(eb->extra, "[/]\n");
   } else {
-    sbuf_append(eb->extra, "[ic-diminish]\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80[/]\n");
+    // Use a raw ANSI faint escape (\x1b[2m … \x1b[22m) instead of the
+    // bbcode [ic-diminish] tag. Despite its name, ic-diminish is defined
+    // as ansi-lightgray in line.c — a concrete foreground colour that
+    // renders nearly white on dark terminals. We want the actual "dim"
+    // attribute used by the startup banner border, which is \x1b[2m.
+    // bbcode has no built-in faint/dim style, so we emit the SGR bytes
+    // directly; the renderer passes unknown escape sequences through.
+    ssize_t rule_w = (h->env != NULL ? term_get_width(h->env->term) - 2 : 78);
+    if (rule_w < 4)  rule_w = 4;
+    if (rule_w > 512) rule_w = 512; // defensive cap; no real terminal is wider
+    sbuf_append(eb->extra, "\x1b[2m");
+    for (ssize_t i = 0; i < rule_w; i++) {
+      sbuf_append(eb->extra, "\xe2\x94\x80");
+    }
+    sbuf_append(eb->extra, "\x1b[22m\n");
   }
 
   // Clip to XLINE_BELOW_PANEL_MAX_ROWS logical lines. Count newlines; if the
@@ -256,34 +351,83 @@ static void xline_wipe_edit_region(ic_env_t *env, editor_t *eb) {
   eb->cur_rows = 1;
 }
 
-// Same as xline_wipe_edit_region but also walks up past the anchor
-// padding (blank '\n' rows we injected just before the previous paint
-// to keep the edit region glued to the screen bottom). After the call
-// the cursor sits exactly where the previous paint's above-region
-// content ended, ready for the next above chunk to append.
-static void xline_wipe_edit_region_and_anchor(xLineHandle_ *h) {
-  ic_env_t *env = h->env;
-  editor_t *eb  = &h->eb;
-  xline_wipe_edit_region(env, eb);
-  if (h->anchor_pad > 0) {
-    term_up(env->term, h->anchor_pad);
-    term_write(env->term, "\r\x1b[J");
-    h->anchor_pad = 0;
-  }
-}
-
 // Count how many screen rows `s` (len bytes, no trailing '\n' expected)
 // would occupy when painted starting at column 0 under the current term
 // width. Returns 0 when `s` is empty.
+//
+// We deliberately do NOT delegate to sbuf_get_rc_at_pos / str_for_each_row
+// here: those helpers serve the line editor, which reserves one cell for
+// the cursor (they wrap when `col + w + 1 >= termw`). For pure above-region
+// output no cursor lives inside the text, so reusing the editor's counter
+// *overestimates* by one row every time the tail character lands in the
+// last column. An overestimated last_line_rows causes xline_erase_trailing
+// to term_up() one row too many on the next chunk, and the follow-up
+// \x1b[J then wipes the bottom of already-committed scrollback — which
+// is exactly the "thinking ate N rows" symptom we chased.
 static ssize_t xline_count_rows(ic_env_t *env, const char *s, ssize_t len) {
   if (len <= 0) return 0;
-  stringbuf_t *tmp = sbuf_new();
-  if (tmp == NULL) return 1; // best-effort fallback
-  sbuf_append_n(tmp, s, len);
-  ssize_t  termw = term_get_width(env->term);
-  rowcol_t rc    = {0};
-  ssize_t  rows  = sbuf_get_rc_at_pos(tmp, termw, 0, 0, sbuf_len(tmp), &rc);
-  sbuf_free(tmp);
+  ssize_t termw = term_get_width(env->term);
+  if (termw <= 0) termw = 80;
+  ssize_t col  = 0;
+  ssize_t rows = 1;
+  ssize_t i    = 0;
+  while (i < len) {
+    ssize_t w    = 0;
+    ssize_t next = str_next_ofs(s, len, i, &w);
+    if (next <= 0) break;
+    if (s[i] == '\n') {
+      rows++;
+      col = 0;
+      i += next;
+      continue;
+    }
+    // Mirror the terminal's autowrap rule: a visible glyph of width `w`
+    // fits iff col + w <= termw. When it doesn't fit we wrap BEFORE
+    // drawing it, then place it at column w on the new row.
+    if (w > 0 && col + w > termw) {
+      rows++;
+      col = w;
+    } else {
+      col += w;
+    }
+    i += next;
+  }
+  return rows;
+}
+
+// Same traversal as xline_count_rows, but also returns the column (0-based)
+// at which the *next* character would land on the final row. This is what
+// the sneak fast path in xLinePrintAboveChunk needs to position the cursor
+// at the tail of last_line before appending a chunk without redrawing the
+// edit region below. Returns 0 rows and *out_col=0 for empty input.
+static ssize_t xline_count_rows_and_last_col(ic_env_t *env, const char *s,
+                                             ssize_t len, ssize_t *out_col) {
+  if (out_col != NULL) *out_col = 0;
+  if (len <= 0) return 0;
+  ssize_t termw = term_get_width(env->term);
+  if (termw <= 0) termw = 80;
+  ssize_t col  = 0;
+  ssize_t rows = 1;
+  ssize_t i    = 0;
+  while (i < len) {
+    ssize_t w    = 0;
+    ssize_t next = str_next_ofs(s, len, i, &w);
+    if (next <= 0) break;
+    if (s[i] == '\n') {
+      rows++;
+      col = 0;
+      i += next;
+      continue;
+    }
+    if (w > 0 && col + w > termw) {
+      rows++;
+      col = w;
+    } else {
+      col += w;
+    }
+    i += next;
+  }
+  if (out_col != NULL) *out_col = col;
   return rows;
 }
 
@@ -292,103 +436,50 @@ static ssize_t xline_count_rows(ic_env_t *env, const char *s, ssize_t len) {
 // write head is positioned exactly where the next above-region byte should
 // land. `h->last_line_rows` is the number of screen rows occupied by the
 // old trailing line; the separator '\n' that follows it is one extra row.
+//
+// Safety clamp: if the terminal auto-scrolled after we wrote last_line
+// (its upper rows moved into scrollback), an unguarded
+// term_up(last_line_rows) would be clipped by the terminal to row 1 and
+// the follow-up \x1b[J would wipe every visible row above the cursor
+// (previous reply, user echo, etc.). To prevent that we issue one
+// on-demand CPR round-trip *only when* we're about to climb more than
+// one row, and cap the climb at "current row - 1". CPR cost (5-20 ms)
+// is acceptable here because this branch is only taken when last_line
+// wraps to 2+ screen rows, which is rare.
 static void xline_erase_trailing(xLineHandle_ *h) {
   ic_env_t *env = h->env;
   editor_t *eb  = &h->eb;
-  xline_wipe_edit_region_and_anchor(h);
-  if (h->last_line_rows > 0) {
-    // edit_refresh landed the prompt on the line *after* last_line; we've
-    // just walked up onto that separator line. Step up past last_line's
-    // rows too.
-    term_up(env->term, h->last_line_rows);
-    term_write(env->term, "\r\x1b[J");
+  xline_trace("erase_trailing: cur_row=%zd cur_rows=%zd last_line_rows=%zd",
+              (ssize_t)eb->cur_row, (ssize_t)eb->cur_rows, h->last_line_rows);
+  xline_wipe_edit_region(env, eb);
+  if (h->last_line_rows <= 0) return;
+
+  // Start by stepping up onto the separator row (the '\n' we emitted
+  // after last_line). If last_line only wrapped to one screen row we're
+  // done: one term_up + clear handles it.
+  ssize_t up = h->last_line_rows;
+  if (up > 1) {
+    // Multi-row last_line. Ask the terminal where the cursor *actually*
+    // is before we walk up, and clamp to (row-1) so we cannot overshoot
+    // into already-committed content above.
+    term_flush(env->term);
+    ssize_t cr = 0;
+    if (term_cursor_row(env->term, &cr) && cr > 0) {
+      ssize_t max_up = cr - 1;
+      if (max_up < 0) max_up = 0;
+      if (up > max_up) {
+        xline_trace("erase_trailing: clamp term_up %zd -> %zd (cr=%zd)",
+                    up, max_up, cr);
+        up = max_up;
+      }
+    } else {
+      xline_trace("erase_trailing: CPR failed, keeping up=%zd", up);
+    }
   }
-  (void)eb; // retained for readability; modifications happened inside wipe
-}
-
-// Ensure h->start_row is populated. On first call (or after SIGWINCH
-// invalidated it), flush the pending term buffer and issue a single
-// ESC[6n CPR round-trip. All subsequent anchor decisions are pure
-// arithmetic against this anchor point.
-static void xline_ensure_start_row(xLineHandle_ *h) {
-  if (h->start_row_valid) return;
-  ic_env_t *env = h->env;
-  term_flush(env->term);
-  ssize_t cr = 0;
-  if (!term_cursor_row(env->term, &cr) || cr <= 0) {
-    // CPR failed. Best-effort fallback: assume we're at the bottom row,
-    // which makes anchor a no-op (no pad needed).
-    h->start_row       = term_get_height(env->term);
-    h->start_row_valid = true;
-    h->anchor_stuck    = true;
-    return;
+  if (up > 0) {
+    term_up(env->term, up);
   }
-  h->start_row       = cr;
-  h->start_row_valid = true;
-}
-
-// Adjust vertical position of the prompt so the edit region sits flush
-// against the screen's bottom rows. Called once per paint right before
-// edit_refresh. Entirely local arithmetic — no CPR round-trip, no flush
-// — so the hot-path cost is a handful of comparisons.
-//
-// Limitation: we compute against `eb->cur_rows` as left over by the
-// previous refresh. If the input grows across this paint (wrapping
-// input line, completion menu opening, etc.) the target is off by a
-// row or two on the first frame — the next paint corrects it.
-static void xline_anchor_edit_bottom(xLineHandle_ *h) {
-  ic_env_t *env = h->env;
-  // Caller opted out of bottom-anchoring via xLineEnableAnchor(false).
-  // Clear any pad we had injected on a previous frame so the next
-  // xline_wipe_edit_region_and_anchor walk doesn't chew into real
-  // above-region content, then bail before we compute a new pad.
-  if (env->no_anchor) {
-    h->anchor_pad = 0;
-    return;
-  }
-  if (h->anchor_stuck) {
-    h->anchor_pad = 0;
-    return;
-  }
-  editor_t *eb = &h->eb;
-  ssize_t   th = term_get_height(env->term);
-  if (th <= 1) return; // unknown height — refuse to guess
-
-  xline_ensure_start_row(h);
-  if (h->anchor_stuck) return; // CPR fallback already latched
-
-  ssize_t edit_rows = eb->cur_rows > 0 ? eb->cur_rows : 1;
-
-  // Where would the cursor sit right now, just after the above-region
-  // bytes for this paint have been written (including the separator '\n'
-  // this emit added)? It's start_row plus every flushed row we've
-  // committed so far, plus however many rows last_line currently wraps
-  // to. The terminal clamps cursor to the bottom row once output would
-  // scroll past the screen, so mirror that clamp.
-  ssize_t cr = h->start_row + h->above_flushed_rows + h->last_line_rows;
-  if (cr > th) cr = th;
-  if (cr < 1)  cr = 1;
-
-  // Fast path: once the real above-region rows have caught up to the
-  // screen height, the terminal is self-scrolling the above region
-  // into scrollback and we don't need to pad anymore. Latch.
-  if (cr + edit_rows - 1 >= th) {
-    h->anchor_stuck = true;
-    h->anchor_pad   = 0;
-    return;
-  }
-
-  // Desired top row of the edit region:
-  ssize_t want_top = th - edit_rows + 1;
-  if (want_top < 1) want_top = 1;
-
-  if (cr < want_top) {
-    ssize_t pad = want_top - cr;
-    term_write_repeat(env->term, "\n", pad);
-    h->anchor_pad = pad;
-  } else {
-    h->anchor_pad = 0;
-  }
+  term_write(env->term, "\r\x1b[J");
 }
 
 // Emit `data` (len bytes) verbatim into the above region, then repaint the
@@ -398,20 +489,15 @@ static void xline_anchor_edit_bottom(xLineHandle_ *h) {
 static void xline_emit_bytes(xLineHandle_ *h, const char *data, ssize_t len) {
   ic_env_t *env = h->env;
   editor_t *eb  = &h->eb;
+  xline_trace("emit_bytes: len=%zd", len);
+  if (len > 0) xline_trace_bytes("emit_bytes/data", data, len);
   if (len > 0) term_write_n(env->term, data, len);
 
-  // Find last '\n' to split "flushed lines" vs "new trailing line", and
-  // accumulate the flushed-line count used by anchor_stuck's self-scroll
-  // detection.
+  // Find last '\n' to split "flushed lines" vs "new trailing line".
   ssize_t last_nl = -1;
-  ssize_t nls     = 0;
   for (ssize_t i = len - 1; i >= 0; i--) {
-    if (data[i] == '\n') {
-      nls++;
-      if (last_nl < 0) last_nl = i;
-    }
+    if (data[i] == '\n') { last_nl = i; break; }
   }
-  h->above_flushed_rows += nls;
   sbuf_clear(h->last_line);
   if (last_nl + 1 < len) {
     sbuf_append_n(h->last_line, data + last_nl + 1, len - last_nl - 1);
@@ -428,11 +514,6 @@ static void xline_emit_bytes(xLineHandle_ *h, const char *data, ssize_t len) {
   // before it reads extra, so the below panel re-materialises even after
   // completion menus / history search have clobbered the slot.
 
-  // Push the prompt down to the bottom of the screen if it would
-  // otherwise float mid-screen. After the above region has grown past
-  // one screen this is a no-op (anchor_stuck latches).
-  xline_anchor_edit_bottom(h);
-
   edit_refresh(env, eb);
   term_flush(env->term);
 }
@@ -442,6 +523,7 @@ static void xline_emit_bytes(xLineHandle_ *h, const char *data, ssize_t len) {
 //-------------------------------------------------------------
 
 ic_public xLineHandle xLineBegin(const char *prompt_text) {
+  xline_trace("===== xLineBegin(prompt=%s) =====", prompt_text ? prompt_text : "");
   if (g_live_session != NULL) {
   XDEBUG("xline: xLineBegin() called while another session is live\n");
     return NULL;
@@ -466,38 +548,32 @@ ic_public xLineHandle xLineBegin(const char *prompt_text) {
   tty_start_raw(env->tty);
   term_start_raw(env->term);
 
-  h->last_line          = sbuf_new();
-  h->last_line_rows     = 0;
-  h->below_title        = sbuf_new();
-  h->below_body         = sbuf_new();
-  h->anchor_pad         = 0;
-  h->anchor_stuck       = false;
-  h->above_flushed_rows = 0;
-  h->start_row          = 0;
-  h->start_row_valid    = false;
+  // Enable bracketed paste (DECSET ?2004). Paired with the DECRST in
+  // xLineEnd. xterm-compatible terminals will now wrap pasted text in
+  // CSI 200 ~ ... CSI 201 ~, which async.c decodes into PASTE_BEGIN /
+  // PASTE_END events. Terminals that don't understand the sequence
+  // silently ignore it (it's a standard CSI "unknown private mode"
+  // no-op), so there's no fallback branch needed.
+  term_write(env->term, "\x1b[?2004h");
+
+  h->last_line      = sbuf_new();
+  h->last_line_rows = 0;
+  h->below_title    = sbuf_new();
+  h->below_body     = sbuf_new();
+  h->last_term_w    = term_get_width(env->term);
+  h->last_term_h    = term_get_height(env->term);
 
   // Register our refresh hook so every edit_refresh re-injects the
   // below panel (survives completion menus / history search).
   env->refresh_prepare     = &xline_refresh_prepare;
   env->refresh_prepare_arg = h;
 
-  // edit_init already queued a copy of the prompt into the term buffer via
-  // edit_write_prompt. Drop it on the floor: we are about to repaint the
-  // prompt ourselves from edit_refresh after anchoring the edit region to
-  // the bottom of the screen, and a stray pre-anchor copy would otherwise
-  // ghost on the starting row once we flush.
-  term_discard_buffer(env->term);
-  term_attr_reset(env->term); // neutralise any in-flight SGR state
-
-  // Push the prompt down to the bottom of the screen before the very first
-  // refresh so the session opens with the edit region glued to the bottom
-  // rows instead of floating mid-screen.
-  xline_anchor_edit_bottom(h);
-
   // Force a refresh+flush now so the prompt actually appears on screen
   // before we hand control back to the event loop. The synchronous readline
   // loop doesn't need this because it blocks on input immediately, but we
-  // yield to the caller right after xLineBegin.
+  // yield to the caller right after xLineBegin. edit_init already queued
+  // a prompt copy via edit_write_prompt — edit_refresh below repaints it,
+  // term_flush commits both to the tty in order.
   edit_refresh(env, &h->eb);
   term_flush(env->term);
 
@@ -510,6 +586,8 @@ ic_public void xLineEnd(xLineHandle handle) {
   if (handle == NULL) return;
   xLineHandle_ *h   = (xLineHandle_ *)handle;
   ic_env_t     *env = h->env;
+  xline_trace("===== xLineEnd cur_row=%zd cur_rows=%zd =====",
+              (ssize_t)h->eb.cur_row, (ssize_t)h->eb.cur_rows);
 
   // Release streaming state. The final cooked-mode term_writeln below
   // advances to a fresh line, so even if last_line had unterminated bytes
@@ -555,10 +633,31 @@ ic_public void xLineEnd(xLineHandle handle) {
     env->refresh_prepare_arg = NULL;
   }
 
+  // Wipe the edit region (the "> <input>" echo that edit_finalize's last
+  // edit_refresh left on screen) before dropping raw mode. After this
+  // call the cursor sits exactly where the last above-region content
+  // ended — i.e. the natural continuation point for the next cooked-mode
+  // transcript line.
+  //
+  // Why wipe instead of leaving the echo in place + writeln:
+  //   ai_session's transcript flow re-emits the submitted line via
+  //   above_printf("> %s", s) on the *next* xline session so it becomes
+  //   a first-class above-region row (same chronological order as
+  //   streaming model output, scrolls into scrollback cleanly). If we
+  //   left the edit_refresh echo on screen and added a newline, every
+  //   submit would show the echo twice: once from xline's edit_refresh,
+  //   once from above_printf.
+  xline_wipe_edit_region(env, &h->eb);
+  term_flush(env->term);
+
+  // Disable bracketed paste before we drop raw mode. Leaving ?2004 on
+  // would be harmless functionally, but a well-behaved library always
+  // restores the modes it touched.
+  term_write(env->term, "\x1b[?2004l");
+  term_flush(env->term);
+
   term_end_raw(env->term, false);
   tty_end_raw(env->tty);
-  term_writeln(env->term, "");
-  term_flush(env->term);
 
   if (g_live_session == h) g_live_session = NULL;
   free(h);
@@ -606,34 +705,114 @@ ic_public xLineStepResult xLineStep(xLineHandle handle) {
   ic_env_t *env = h->env;
   editor_t *eb  = &h->eb;
 
+#if !defined(_WIN32)
+  {
+    int navail = -1;
+    int fd     = tty_fd(env->tty);
+    if (fd >= 0 && ioctl(fd, FIONREAD, &navail) != 0) navail = -2;
+    xline_trace("step: enter state=%d fionread=%d", (int)h->state, navail);
+  }
+#endif
+
+  // Drain policy: xLineStep is driven by an edge-triggered event loop
+  // (kqueue EV_CLEAR / epoll EPOLLET). The loop only re-fires when *new*
+  // bytes arrive on the tty fd, so if we return PENDING while bytes are
+  // still buffered in the kernel — typical for IME commits and paste,
+  // where a single read-ready event delivers many bytes at once — those
+  // bytes sit in the kernel buffer indefinitely (edge won't re-fire
+  // without fresh writes) until the user happens to press another key.
+  // We must therefore drain the tty fully every time we're invoked,
+  // returning PENDING only once tty_read_timeout reports no input left.
+  //
+  // Starvation of other fds isn't a practical concern here: tty input
+  // rate is bounded by human typing / a single paste buffer, and the
+  // outer loop re-enters on each poll cycle anyway.
   for (;;) {
     code_t c;
-    // Non-blocking read: drain whatever is ready on the tty right now.
-    // tty_read_timeout(_, 0, _) may still briefly block up to the ESC
-    // follow-up timeout (~10ms) while reassembling a partial escape
-    // sequence — this is short enough to be acceptable in an event loop.
+    // Non-blocking read: tty_read_timeout(_, 0, _) may still briefly block
+    // up to the ESC follow-up timeout (~10ms) while reassembling a partial
+    // escape sequence — this is short enough to be acceptable in an event
+    // loop.
     term_flush(env->term);
 
     // Pick up SIGWINCH between key dispatches. edit_resize recomputes the
-    // edit region's layout against the new geometry; we also clear the
-    // anchor latch so the next paint re-measures against the new screen
-    // height. Any pad rows we had injected on the old screen were
-    // invalidated by the resize and will be refreshed out on the next
-    // emit.
+    // edit region's layout against the new geometry. tty_term_resize_event()
+    // cannot distinguish a real geometry change from a spurious SIGWINCH
+    // (focus/theme events in some terminal emulators) or, on platforms
+    // without a native resize event, simply returns true every time. So we
+    // gate the expensive edit_resize on an actual change in columns/rows.
     if (tty_term_resize_event(env->tty)) {
-      edit_resize(env, eb);
-      // Screen geometry changed. Drop all cached anchor state so the
-      // next paint re-samples the cursor row via CPR once, then
-      // proceeds entirely with local arithmetic again.
-      h->anchor_pad         = 0;
-      h->anchor_stuck       = false;
-      h->above_flushed_rows = 0;
-      h->start_row_valid    = false;
+      ssize_t nw = term_get_width(env->term);
+      ssize_t nh = term_get_height(env->term);
+      if (nw != h->last_term_w || nh != h->last_term_h) {
+        xline_trace("resize event (real): %zdx%zd -> %zdx%zd",
+                    h->last_term_w, h->last_term_h, nw, nh);
+        edit_resize(env, eb);
+        h->last_term_w = nw;
+        h->last_term_h = nh;
+      } else {
+        xline_trace("resize event (spurious): %zdx%zd unchanged", nw, nh);
+      }
     }
 
     if (!tty_read_timeout(env->tty, 0, &c)) {
+#if !defined(_WIN32)
+      {
+        int navail = -1;
+        int fd     = tty_fd(env->tty);
+        if (fd >= 0 && ioctl(fd, FIONREAD, &navail) != 0) navail = -2;
+        xline_trace("step: exit PENDING fionread=%d", navail);
+      }
+#endif
       return XLINE_STEP_PENDING;
     }
+    xline_trace("step: got key code=0x%x", (unsigned)c);
+
+    // Bracketed paste boundary handling. We must intercept these
+    // BEFORE edit_dispatch_key: PASTE_BEGIN flips us into a mode where
+    // incoming bytes bypass KEY_ENTER's "submit" semantics and get
+    // inserted literally (with \r normalised to \n), and PASTE_END
+    // restores normal dispatch plus issues the one coalesced refresh.
+    if (c == KEY_EVENT_PASTE_BEGIN) {
+      xline_trace("paste: begin");
+      h->in_paste        = true;
+      eb->suspend_refresh = true;
+      continue;
+    }
+    if (c == KEY_EVENT_PASTE_END) {
+      xline_trace("paste: end input_len=%zd", sbuf_len(eb->input));
+      h->in_paste        = false;
+      eb->suspend_refresh = false;
+      // Single coalesced repaint for the whole paste. Using
+      // edit_refresh (not _hint) is deliberate: we don't want the
+      // post-paste frame to auto-pop a completion hint based on the
+      // now-huge buffer — hints are a typing-affordance and fire
+      // naturally on the next real keystroke.
+      edit_refresh(env, eb);
+      continue;
+    }
+    if (h->in_paste) {
+      // Literal insertion path. Accept anything that represents a
+      // character; reject control keys and events (arrows etc. should
+      // never appear inside a paste but be defensive). \r is
+      // normalised to \n so multi-line pastes look sane regardless of
+      // whether the terminal sent CR, LF or CRLF line endings.
+      char      chr;
+      unicode_t uchr;
+      if (c == KEY_ENTER /* '\r' */ || c == KEY_LINEFEED /* '\n' */) {
+        edit_insert_char(env, eb, '\n');
+      } else if (c == KEY_TAB) {
+        edit_insert_char(env, eb, '\t');
+      } else if (code_is_ascii_char(c, &chr)) {
+        edit_insert_char(env, eb, chr);
+      } else if (code_is_unicode(c, &uchr)) {
+        edit_insert_unicode(env, eb, uchr);
+      } else {
+        xline_trace("paste: drop non-char code=0x%x", (unsigned)c);
+      }
+      continue;
+    }
+
     if (edit_dispatch_key(env, eb, c)) {
       // terminal condition: finalize and record the outcome
       h->last_code  = c;
@@ -717,9 +896,74 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
   if (h == NULL || s == NULL || *s == '\0' || h->env == NULL) return;
   if (h->state != XLINE_ASYNC_RUNNING && h->state != XLINE_ASYNC_INIT) return;
 
-  // Extend the trailing line with the caller's fragment. We need to rewrite
-  // the previous trailing line too (it may now wrap differently, or may be
-  // fully consumed by a '\n' inside `s`), so concatenate and re-emit.
+  // Fast path (token-streaming sneak): the common case for LLM streaming
+  // is one short chunk with no embedded '\n'. Previously every such chunk
+  // triggered the full erase_trailing + emit_bytes + edit_refresh cycle,
+  // which rewrites the entire trailing line and prompt for every token —
+  // O(N²) bytes over the terminal for long single-line replies and very
+  // visible jitter in the edit region.
+  //
+  // Here we instead:
+  //   1. Check the chunk has no '\n' and (last_line ++ chunk) still wraps
+  //      to the same number of screen rows as last_line alone. I.e. the
+  //      chunk extends the trailing line horizontally only — no new rows,
+  //      no autowrap that would clobber the prompt row below.
+  //   2. Save the cursor (it's currently somewhere inside the edit region
+  //      after the previous edit_refresh), move up past the prompt onto
+  //      last_line's final row at column `last_col`, emit the chunk, then
+  //      restore the cursor. The edit region is not touched — no prompt
+  //      redraw, no extra, no below panel repaint — so there's nothing to
+  //      flicker.
+  //   3. Update h->last_line bookkeeping to reflect the new tail.
+  //
+  // Any pre-condition failure (newline inside chunk, would-wrap, etc.)
+  // falls through to the slow path below, which is the original
+  // erase+emit+refresh cycle and handles all the multi-row and '\n'
+  // cases correctly.
+  if (strchr(s, '\n') == NULL && h->last_line_rows > 0) {
+    ic_env_t *env = h->env;
+    editor_t *eb  = &h->eb;
+    ssize_t last_col = 0;
+    (void)xline_count_rows_and_last_col(env, sbuf_string(h->last_line),
+                                        sbuf_len(h->last_line), &last_col);
+    stringbuf_t *probe = sbuf_new();
+    if (probe != NULL) {
+      sbuf_append(probe, sbuf_string(h->last_line));
+      sbuf_append(probe, s);
+      ssize_t new_last_col = 0;
+      ssize_t new_rows     = xline_count_rows_and_last_col(
+        env, sbuf_string(probe), sbuf_len(probe), &new_last_col);
+      if (new_rows == h->last_line_rows) {
+        // Sneak path is viable.
+        xline_trace("sneak: last_rows=%zd last_col=%zd -> col=%zd chunk_len=%zu",
+                    h->last_line_rows, last_col, new_last_col,
+                    (size_t)strlen(s));
+        term_attr_reset(env->term);
+        term_write(env->term, "\x1b" "7"); // save cursor (DECSC)
+        // Climb from current edit-region cursor to the final row of
+        // last_line. cur_row is 0-based inside the edit region; one
+        // extra row up accounts for the '\n' separator between the
+        // above region and the prompt.
+        term_up(env->term, (ssize_t)eb->cur_row + 1);
+        term_write(env->term, "\r");
+        term_right(env->term, last_col);
+        term_write(env->term, s);
+        term_write(env->term, "\x1b" "8"); // restore cursor (DECRC)
+        term_flush(env->term);
+        // Commit the new trailing line; rows unchanged by construction.
+        sbuf_append(h->last_line, s);
+        // h->last_line_rows stays the same.
+        sbuf_free(probe);
+        return;
+      }
+      sbuf_free(probe);
+    }
+  }
+
+  // Slow path: extend the trailing line with the caller's fragment. We need
+  // to rewrite the previous trailing line too (it may now wrap differently,
+  // or may be fully consumed by a '\n' inside `s`), so concatenate and
+  // re-emit.
   stringbuf_t *buf = sbuf_new();
   if (buf == NULL) return;
   sbuf_append(buf, sbuf_string(h->last_line));
@@ -744,6 +988,14 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
 
 static void xline_repaint_below(xLineHandle_ *h) {
   if (h->state != XLINE_ASYNC_RUNNING && h->state != XLINE_ASYNC_INIT) return;
+  /* No trailing line and no panel contents means nothing on screen
+   * would change — avoid the wipe+refresh cycle so callers that clear
+   * an already-empty panel don't cost a redundant repaint. */
+  if (sbuf_len(h->last_line) == 0 &&
+      sbuf_len(h->below_title) == 0 &&
+      sbuf_len(h->below_body) == 0) {
+    return;
+  }
   stringbuf_t *buf = sbuf_new();
   if (buf == NULL) return;
   sbuf_append(buf, sbuf_string(h->last_line));

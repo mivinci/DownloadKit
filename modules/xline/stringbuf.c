@@ -357,6 +357,13 @@ static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw,
       break;
     }
     startw          = (rcount == 0 ? promptw : cpromptw);
+    // NOTE: editor-geometry. The `+ 1` reserves one column for the
+    // cursor that the line editor parks at the end of `input`, and the
+    // `>= termw` (rather than `> termw`) consequently wraps one glyph
+    // earlier than a bare terminal would autowrap the same bytes. Do
+    // not reuse this counter for pure display-width measurement of
+    // above-region output — see xline_count_rows() in async.c and the
+    // warning on sbuf_get_rc_at_pos() in stringbuf.h.
     ssize_t termcol = rcol + w + startw + 1 /* for the cursor */;
     if (termw != 0 && i != 0 && termcol >= termw) {
       // wrap

@@ -223,10 +223,6 @@ int main(void) {
   xLineSetPromptMarker("", NULL);
   xLineStyleDef("prompt", "bold #66ccff");
 
-  /* Let the prompt flow naturally after any above-region output
-   * rather than being anchored to the bottom row of the terminal. */
-  xLineEnableAnchor(false);
-
   /* Print any banner text *before* opening the line session. xLineBegin
    * paints the prompt at the current cursor position, so anything we
    * puts/printf after it would appear on the prompt's row until the next

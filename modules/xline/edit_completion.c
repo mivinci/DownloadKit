@@ -310,10 +310,24 @@ again:
       tty_code_pushback(env->tty,
                         KEY_EVENT_AUTOTAB); // immediately try to complete again
     }
-  } else if (!env->complete_nopreview && !code_is_virt_key(c)) {
-    // if in preview mode, select the current entry and exit the menu
+  } else if (!env->complete_nopreview && selected >= 0 &&
+             !code_is_virt_key(c)) {
+    // if in preview mode and the user has highlighted an entry, accept it
+    // and exit the menu; the typed key then flows through to the main
+    // dispatcher (via the pushback below) so it lands after the accepted
+    // completion text.
     assert(selected < count);
     edit_complete(env, eb, selected);
+  } else if (!code_is_virt_key(c)) {
+    // No entry was highlighted and the user typed a printable key: treat
+    // the key as "menu off, keep typing". Without this branch the menu
+    // falls through to the final else (which only refreshes the input
+    // region) — leaving the menu's extra rows as a visual residue on
+    // screen until the next paint happens to re-cover them. Explicitly
+    // refreshing here with a cleared extra guarantees the menu rows are
+    // erased in the same frame the key is pushed back.
+    completions_clear(env->completions);
+    edit_refresh(env, eb);
   } else if ((c == KEY_PAGEDOWN || c == KEY_LINEFEED) && count > 9) {
     // show all completions
     c = 0;

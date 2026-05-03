@@ -140,10 +140,18 @@ static inline code_t key_unicode(unicode_t u) {
 #define KEY_F12  (KEY_VIRT + 22)
 #define KEY_F(n) (KEY_F1 + (n) - 1)
 
-#define KEY_EVENT_BASE    (0x02000000U)
-#define KEY_EVENT_RESIZE  (KEY_EVENT_BASE + 1)
-#define KEY_EVENT_AUTOTAB (KEY_EVENT_BASE + 2)
-#define KEY_EVENT_STOP    (KEY_EVENT_BASE + 3)
+#define KEY_EVENT_BASE        (0x02000000U)
+#define KEY_EVENT_RESIZE      (KEY_EVENT_BASE + 1)
+#define KEY_EVENT_AUTOTAB     (KEY_EVENT_BASE + 2)
+#define KEY_EVENT_STOP        (KEY_EVENT_BASE + 3)
+// Bracketed paste boundary markers. Emitted by tty_esc.c when it
+// decodes CSI 200 ~ / CSI 201 ~ — i.e. the DECSET ?2004 wrapper that
+// xterm-compatible terminals put around pasted text. Higher layers
+// (async.c) use these to bypass the usual KEY_ENTER-means-submit logic
+// for bytes arriving inside a paste, so multi-line pastes land in the
+// input buffer verbatim instead of getting truncated at the first \r.
+#define KEY_EVENT_PASTE_BEGIN (KEY_EVENT_BASE + 4)
+#define KEY_EVENT_PASTE_END   (KEY_EVENT_BASE + 5)
 
 // Convenience
 #define KEY_CTRL_UP       (WITH_CTRL(KEY_UP))

@@ -173,6 +173,22 @@ ic_public void xLineSetPromptMarker(const char *prompt_marker,
   set_prompt_marker(env, prompt_marker, cprompt_marker);
 }
 
+// Set the trigger-character set for auto-opening the completion menu.
+// When the user inserts any byte from `trigger_chars` as the first
+// character of an otherwise-empty input line, xline behaves as if the
+// user had also pressed TAB: the registered completer runs and, if it
+// yields more than one candidate, the menu pops up. Pass NULL (or an
+// empty string) to disable the feature. The string is copied.
+ic_public void xLineSetCompletionTriggers(const char *trigger_chars) {
+  ic_env_t *env = ic_get_env();
+  if (env == NULL) return;
+  free((void *)env->completion_triggers);
+  env->completion_triggers =
+    (trigger_chars != NULL && trigger_chars[0] != '\0')
+      ? ic_strdup(trigger_chars)
+      : NULL;
+}
+
 ic_public bool xLineEnableMultiline(bool enable) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return false;
@@ -327,14 +343,6 @@ ic_public void xLineSetInsertionBraces(const char *brace_pairs) {
       env->auto_braces = ic_strdup(brace_pairs);
     }
   }
-}
-
-ic_public bool xLineEnableAnchor(bool enable) {
-  ic_env_t *env = ic_get_env();
-  if (env == NULL) return false;
-  bool prev      = env->no_anchor;
-  env->no_anchor = !enable;
-  return !prev;
 }
 
 ic_private const char *ic_env_get_match_braces(ic_env_t *env) {
@@ -532,9 +540,11 @@ static void ic_env_free(ic_env_t *env) {
   tty_free(env->tty);
   free((void *)env->cprompt_marker);
   free((void *)env->prompt_marker);
+  free((void *)env->completion_triggers);
   free((void *)env->match_braces);
   free((void *)env->auto_braces);
-  env->prompt_marker = NULL;
+  env->prompt_marker       = NULL;
+  env->completion_triggers = NULL;
 
   free(env);
 }

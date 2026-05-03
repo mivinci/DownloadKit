@@ -2742,3 +2742,255 @@ TEST_F(SessionTest, L1PreserveFinalizingSkipsEmptyHistory) {
   EXPECT_EQ(l1.calls[0].n_msgs, 0u);
   EXPECT_EQ(l1.calls[0].reason, xAgentL1PreserveReason_Finalizing);
 }
+
+/* ── Tool-confirmation gate (needs_confirm) ─────────────────────────
+ *
+ * Fixture: an agent carrying a needs_confirm=1 "guard" tool (same
+ * echo_handler under the hood). Every test below scripts the model
+ * to emit a tool_use for "guard" and then wires on_tool_confirm
+ * differently. */
+
+class ConfirmGateFixture : public SessionTest {
+ protected:
+  xAgentTool tool_guard_ = nullptr;
+  std::vector<ToolRec> guard_log_;
+
+  void SetUp() override {
+    SessionTest::SetUp();
+    xAgentDestroy(agent_);
+
+    xAgentToolConf tc = {};
+    tc.name        = "guard";
+    tc.description = "dangerous echo";
+    tc.json_schema = "{\"type\":\"object\"}";
+    tc.handler     = echo_handler;
+    tc.user_data   = &guard_log_;
+    tc.needs_confirm = 1;                 /* key difference */
+    tool_guard_    = xAgentToolCreate(&tc);
+
+    static const xAgentTool *kTools[1];
+    kTools[0] = &tool_guard_;
+
+    xAgentConf ac   = {};
+    ac.loop         = loop_;
+    ac.provider     = provider_;
+    ac.model        = "fake-model";
+    ac.system_prompt = "you are a test";
+    ac.max_turns    = 5;
+    ac.max_tokens   = 1024;
+    ac.tools        = kTools;
+    ac.tools_count  = 1;
+    agent_          = xAgentCreate(&ac);
+    ASSERT_NE(agent_, nullptr);
+  }
+
+  void TearDown() override {
+    xAgentToolDestroy(tool_guard_);
+    SessionTest::TearDown();
+  }
+};
+
+/* Shared capture struct for confirm gate tests. */
+struct ConfirmCap : Captured {
+  int    confirm_calls = 0;
+  std::string saw_name;
+  std::string saw_id;
+  std::string saw_args;
+  xAgentToolConfirmResolver stashed = nullptr;
+};
+
+/* Allow path: the host calls Resolve(Allow) synchronously from the
+ * on_tool_confirm callback. The handler runs, and the follow-up
+ * round fires as usual. */
+TEST_F(ConfirmGateFixture, AllowLetsHandlerRun) {
+  ConfirmCap cap;
+
+  auto cbs           = make_cbs(&cap);
+  cbs.on_tool_confirm = [](xAgentSession, const char *name, const char *id,
+                           const char *args,
+                           xAgentToolConfirmResolver resolver, void *ud) {
+    auto *c = static_cast<ConfirmCap *>(ud);
+    c->confirm_calls++;
+    c->saw_name = name ? name : "";
+    c->saw_id   = id   ? id   : "";
+    c->saw_args = args ? args : "";
+    xAgentToolConfirmResolve(resolver, xAgentToolDecision_Allow, nullptr);
+  };
+  xAgentSession sess = make_session(cbs);
+
+  fake_->script_queue.push_back({
+      SToolCall("guard", "c1", "{\"x\":1}"),
+      SDone(xAgentProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({SDone(xAgentProviderStop_EndTurn)});
+
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("go")), xErrno_Ok);
+
+  /* Gate fired exactly once with the right payload. */
+  EXPECT_EQ(cap.confirm_calls, 1);
+  EXPECT_EQ(cap.saw_name, "guard");
+  EXPECT_EQ(cap.saw_id, "c1");
+  EXPECT_EQ(cap.saw_args, "{\"x\":1}");
+
+  /* Handler ran because we allowed. */
+  ASSERT_EQ(guard_log_.size(), 1u);
+  EXPECT_EQ(guard_log_[0].id, "c1");
+
+  EXPECT_EQ(cap.done_fired, 1);
+  EXPECT_EQ(cap.done_reason, xAgentDoneReason_Completed);
+
+  xAgentSessionDestroy(sess);
+}
+
+/* Reject path: Resolve(Reject, "nope") fabricates an is_error=1
+ * tool_result, the handler never runs, and the follow-up round sees
+ * the rejection text. */
+TEST_F(ConfirmGateFixture, RejectBlocksHandlerAndFeedsError) {
+  ConfirmCap cap;
+
+  auto cbs           = make_cbs(&cap);
+  cbs.on_tool_confirm = [](xAgentSession, const char *, const char *,
+                           const char *,
+                           xAgentToolConfirmResolver resolver, void *ud) {
+    auto *c = static_cast<ConfirmCap *>(ud);
+    c->confirm_calls++;
+    xAgentToolConfirmResolve(resolver, xAgentToolDecision_Reject,
+                             "policy denied");
+  };
+  xAgentSession sess = make_session(cbs);
+
+  fake_->script_queue.push_back({
+      SToolCall("guard", "c1", "{}"),
+      SDone(xAgentProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({SDone(xAgentProviderStop_EndTurn)});
+
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("try")), xErrno_Ok);
+
+  EXPECT_EQ(cap.confirm_calls, 1);
+  /* Handler did NOT run. */
+  EXPECT_EQ(guard_log_.size(), 0u);
+
+  /* Completed (tool_error was folded back to the model, not
+   * surfaced as a run failure). */
+  EXPECT_EQ(cap.done_fired, 1);
+  EXPECT_EQ(cap.done_reason, xAgentDoneReason_Completed);
+
+  /* Second submit's tool_result is the synthetic rejection. */
+  ASSERT_GE(fake_->captured_msgs_per_submit.size(), 2u);
+  const auto &m2 = fake_->captured_msgs_per_submit[1];
+  bool found_reject = false;
+  for (const auto &m : m2) {
+    if (m.role != xAgentRole_Tool) continue;
+    for (const auto &b : m.blocks) {
+      if (b.type != xAgentContentType_ToolResult) continue;
+      if (b.tool_result_is_error &&
+          b.tool_result_output.find("policy denied") != std::string::npos) {
+        found_reject = true;
+      }
+    }
+  }
+  EXPECT_TRUE(found_reject);
+
+  xAgentSessionDestroy(sess);
+}
+
+/* If the host does NOT wire on_tool_confirm, needs_confirm tools
+ * still run — the gate is disabled by default so existing callers
+ * observe no behaviour change. */
+TEST_F(ConfirmGateFixture, NoCallbackMeansAutoAllow) {
+  ConfirmCap cap;
+
+  auto cbs = make_cbs(&cap);
+  /* cbs.on_tool_confirm left NULL on purpose. */
+  xAgentSession sess = make_session(cbs);
+
+  fake_->script_queue.push_back({
+      SToolCall("guard", "c1", "{}"),
+      SDone(xAgentProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({SDone(xAgentProviderStop_EndTurn)});
+
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("go")), xErrno_Ok);
+
+  EXPECT_EQ(cap.confirm_calls, 0); /* gate never fired */
+  ASSERT_EQ(guard_log_.size(), 1u); /* handler ran */
+  EXPECT_EQ(cap.done_reason, xAgentDoneReason_Completed);
+
+  xAgentSessionDestroy(sess);
+}
+
+/* Deferred Allow: the host stashes the resolver and resolves it
+ * AFTER on_tool_confirm has returned. The run should drive forward
+ * just like the synchronous Allow case. */
+TEST_F(ConfirmGateFixture, DeferredAllowCompletesRun) {
+  ConfirmCap cap;
+
+  auto cbs           = make_cbs(&cap);
+  cbs.on_tool_confirm = [](xAgentSession, const char *, const char *,
+                           const char *,
+                           xAgentToolConfirmResolver resolver, void *ud) {
+    auto *c = static_cast<ConfirmCap *>(ud);
+    c->confirm_calls++;
+    c->stashed = resolver; /* resolve later */
+  };
+  xAgentSession sess = make_session(cbs);
+
+  fake_->script_queue.push_back({
+      SToolCall("guard", "c1", "{}"),
+      SDone(xAgentProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({SDone(xAgentProviderStop_EndTurn)});
+
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("go")), xErrno_Ok);
+
+  /* Until we resolve, the run is paused mid-loop: the gate fired,
+   * but the handler has NOT run and on_done has NOT fired. */
+  EXPECT_EQ(cap.confirm_calls, 1);
+  EXPECT_EQ(guard_log_.size(), 0u);
+  EXPECT_EQ(cap.done_fired, 0);
+
+  /* Now resolve. Everything proceeds. */
+  ASSERT_NE(cap.stashed, nullptr);
+  xAgentToolConfirmResolve(cap.stashed, xAgentToolDecision_Allow, nullptr);
+
+  EXPECT_EQ(guard_log_.size(), 1u);
+  EXPECT_EQ(cap.done_fired, 1);
+  EXPECT_EQ(cap.done_reason, xAgentDoneReason_Completed);
+
+  xAgentSessionDestroy(sess);
+}
+
+/* Stale resolver: resolving after session destroy must be a no-op,
+ * not a crash (tests the resolver generation/invalidation path). */
+TEST_F(ConfirmGateFixture, StaleResolverIsNoOp) {
+  ConfirmCap cap;
+
+  auto cbs           = make_cbs(&cap);
+  cbs.on_tool_confirm = [](xAgentSession, const char *, const char *,
+                           const char *,
+                           xAgentToolConfirmResolver resolver, void *ud) {
+    auto *c = static_cast<ConfirmCap *>(ud);
+    c->confirm_calls++;
+    c->stashed = resolver;
+  };
+  xAgentSession sess = make_session(cbs);
+
+  fake_->script_queue.push_back({
+      SToolCall("guard", "c1", "{}"),
+      SDone(xAgentProviderStop_ToolUse),
+  });
+
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("go")), xErrno_Ok);
+  EXPECT_EQ(cap.confirm_calls, 1);
+  ASSERT_NE(cap.stashed, nullptr);
+
+  /* Destroy while the resolver is still outstanding. The session's
+   * teardown path invalidates the resolver. */
+  xAgentSessionDestroy(sess);
+
+  /* Late resolve: must not crash or dispatch anything. */
+  xAgentToolConfirmResolve(cap.stashed, xAgentToolDecision_Allow, nullptr);
+
+  EXPECT_EQ(guard_log_.size(), 0u); /* handler never ran */
+}

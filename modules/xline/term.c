@@ -548,8 +548,54 @@ static void term_append_buf(term_t *term, const char *s, ssize_t len) {
 
 #if !defined(_WIN32)
 
+#include <time.h>
+
+// Write byte-level dump to the same file as xline's anchor/emit trace, so
+// wipe/emit events and actual terminal bytes can be correlated on one
+// timeline. Active only when env var XLINE_TRACE points to a writable file.
+static FILE *term_trace_fp(void) {
+  static FILE *fp    = NULL;
+  static int   tried = 0;
+  if (tried) return fp;
+  tried = 1;
+  const char *path = getenv("XLINE_TRACE");
+  if (path == NULL || *path == '\0') return NULL;
+  // Append mode: async.c opens it with "w" first to truncate at startup,
+  // then we append here so both streams share the same file.
+  fp = fopen(path, "a");
+  if (fp != NULL) setvbuf(fp, NULL, _IOLBF, 0);
+  return fp;
+}
+
+static void term_trace_dump(const char *s, ssize_t n) {
+  FILE *fp = term_trace_fp();
+  if (fp == NULL) return;
+  char buf[1024];
+  ssize_t o = 0;
+  for (ssize_t i = 0; i < n && o + 8 < (ssize_t)sizeof(buf); i++) {
+    unsigned char c = (unsigned char)s[i];
+    if (c == 0x1B) { buf[o++]='\\'; buf[o++]='e'; }
+    else if (c == '\n') { buf[o++]='\\'; buf[o++]='n'; }
+    else if (c == '\r') { buf[o++]='\\'; buf[o++]='r'; }
+    else if (c == '\t') { buf[o++]='\\'; buf[o++]='t'; }
+    else if (c == '\b') { buf[o++]='\\'; buf[o++]='b'; }
+    else if (c == '\a') { buf[o++]='\\'; buf[o++]='a'; }
+    else if (c >= 0x20 && c < 0x7F) { buf[o++]=(char)c; }
+    else {
+      int w = snprintf(buf + o, sizeof(buf) - o, "\\x%02x", c);
+      if (w > 0) o += w;
+    }
+  }
+  buf[o] = '\0';
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  fprintf(fp, "[%ld.%06ld] term_write: len=%zd bytes=[%s]\n",
+          (long)ts.tv_sec, ts.tv_nsec / 1000, n, buf);
+}
+
 // write to the console without further processing
 static bool term_write_direct(term_t *term, const char *s, ssize_t n) {
+  if (n > 0) term_trace_dump(s, n);
   ssize_t count = 0;
   while (count < n) {
     ssize_t nwritten = write(term->fd_out, s + count, to_size_t(n - count));

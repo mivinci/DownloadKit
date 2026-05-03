@@ -141,14 +141,16 @@ static int bt_capture(int skip, char *buf, size_t size) {
 #elif defined(XK_HAS_DBGHELP)
 
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #include <dbghelp.h>
+#include <windows.h>
 
 /* One-time symbol handler initialization (thread-safe via InitOnce) */
 static INIT_ONCE sym_init_once = INIT_ONCE_STATIC_INIT;
 
 static BOOL CALLBACK sym_init_fn(PINIT_ONCE once, PVOID param, PVOID *ctx) {
-  (void)once; (void)param; (void)ctx;
+  (void)once;
+  (void)param;
+  (void)ctx;
   HANDLE hProcess = GetCurrentProcess();
   SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
   SymInitialize(hProcess, NULL, TRUE);
@@ -160,15 +162,15 @@ static void sym_ensure_init(void) {
 }
 
 static int bt_capture(int skip, char *buf, size_t size) {
-  void    *frames[MAX_FRAMES];
-  int      n          = 0;
-  int      frame      = 0;
-  int      total_skip = skip + INTERNAL_SKIP;
+  void *frames[MAX_FRAMES];
+  int   n          = 0;
+  int   frame      = 0;
+  int   total_skip = skip + INTERNAL_SKIP;
 
   sym_ensure_init();
 
-  USHORT depth = CaptureStackBackTrace(
-    (ULONG)(total_skip), MAX_FRAMES, frames, NULL);
+  USHORT depth =
+    CaptureStackBackTrace((ULONG)(total_skip), MAX_FRAMES, frames, NULL);
   if (depth == 0) return 0;
 
   HANDLE hProcess = GetCurrentProcess();
@@ -177,20 +179,18 @@ static int bt_capture(int skip, char *buf, size_t size) {
     DWORD64 address = (DWORD64)(uintptr_t)frames[i];
 
     /* Symbol lookup */
-    char sym_buf[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
-    SYMBOL_INFO *sym = (SYMBOL_INFO *)sym_buf;
+    char         sym_buf[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
+    SYMBOL_INFO *sym  = (SYMBOL_INFO *)sym_buf;
     sym->SizeOfStruct = sizeof(SYMBOL_INFO);
     sym->MaxNameLen   = MAX_SYM_NAME;
 
     int ret;
     if (SymFromAddr(hProcess, address, NULL, sym)) {
-      ret = snprintf(buf + n, size - (size_t)n,
-                     "#%d 0x%llx %s\n",
-                     frame, (unsigned long long)address, sym->Name);
+      ret = snprintf(buf + n, size - (size_t)n, "#%d 0x%llx %s\n", frame,
+                     (unsigned long long)address, sym->Name);
     } else {
-      ret = snprintf(buf + n, size - (size_t)n,
-                     "#%d 0x%llx <unknown>\n",
-                     frame, (unsigned long long)address);
+      ret = snprintf(buf + n, size - (size_t)n, "#%d 0x%llx <unknown>\n", frame,
+                     (unsigned long long)address);
     }
 
     if (ret < 0) break;
@@ -249,15 +249,22 @@ static void xbt_crash_handler(int sig) {
   const char *name = "UNKNOWN";
   switch (sig) {
 #ifdef SIGSEGV
-    case SIGSEGV: name = "SIGSEGV"; break;
+  case SIGSEGV:
+    name = "SIGSEGV";
+    break;
 #endif
 #ifdef SIGABRT
-    case SIGABRT: name = "SIGABRT"; break;
+  case SIGABRT:
+    name = "SIGABRT";
+    break;
 #endif
 #ifdef SIGBUS
-    case SIGBUS:  name = "SIGBUS";  break;
+  case SIGBUS:
+    name = "SIGBUS";
+    break;
 #endif
-    default: break;
+  default:
+    break;
   }
 
   char buf[4096];
@@ -285,6 +292,6 @@ void xPrintBacktraceOnCrash(void) {
   signal(SIGABRT, xbt_crash_handler);
 #endif
 #ifdef SIGBUS
-  signal(SIGBUS,  xbt_crash_handler);
+  signal(SIGBUS, xbt_crash_handler);
 #endif
 }

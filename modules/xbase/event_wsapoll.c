@@ -126,8 +126,8 @@ struct xEventLoopWSAPoll_ {
 };
 
 static int pfd_grow(struct xEventLoopWSAPoll_ *loop) {
-  size_t      newcap = loop->pfd_cap ? loop->pfd_cap * 2 : 16;
-  WSAPOLLFD  *tmp =
+  size_t     newcap = loop->pfd_cap ? loop->pfd_cap * 2 : 16;
+  WSAPOLLFD *tmp =
     (WSAPOLLFD *)realloc(loop->pollfds, newcap * sizeof(WSAPOLLFD));
   if (!tmp) return -1;
   loop->pollfds = tmp;
@@ -169,13 +169,13 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
     (struct xEventLoopWSAPoll_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
-  loop->base.wake_event   = NULL; /* not used by WSAPoll backend */
-  loop->base.stopped      = 0;
-  loop->base.timer_heap   = NULL;
-  loop->base.task_group   = group;
+  loop->base.wake_event = NULL; /* not used by WSAPoll backend */
+  loop->base.stopped    = 0;
+  loop->base.timer_heap = NULL;
+  loop->base.task_group = group;
   source_array_init(&loop->base.sources);
-  loop->base.done_head    = NULL;
-  loop->base.done_tail    = NULL;
+  loop->base.done_head     = NULL;
+  loop->base.done_tail     = NULL;
   loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
   xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);
@@ -313,7 +313,8 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 
     if (ready) {
       xEventMask orig_mask = src->mask;
-      src->mask = 0; /* edge-triggered: disable to prevent level-triggered re-fire */
+      src->mask =
+        0; /* edge-triggered: disable to prevent level-triggered re-fire */
       src->fn(src->fd, ready, src->arg);
 
       /* Re-arm the source if the fd was fully drained.
@@ -325,7 +326,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
         if (orig_mask & xEvent_Read) {
           /* Peek to check if the read buffer is empty */
           char buf;
-          int r = recv((SOCKET)src->fd, &buf, 1, MSG_PEEK);
+          int  r = recv((SOCKET)src->fd, &buf, 1, MSG_PEEK);
           if (r <= 0) {
             /* Buffer is empty (EWOULDBLOCK) or connection closed — re-arm */
             restore |= (orig_mask & xEvent_Read);

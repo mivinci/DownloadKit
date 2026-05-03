@@ -32,7 +32,7 @@ xErrno xBitmapInit(xBitmap *bm, uint32_t nbits) {
   if (!bm || nbits == 0) return xErrno_InvalidArg;
 
   uint32_t nbytes = bits_to_bytes(nbits);
-  uint8_t *data = (uint8_t *)calloc(nbytes, 1);
+  uint8_t *data   = (uint8_t *)calloc(nbytes, 1);
   if (!data) return xErrno_NoMemory;
 
   bm->data   = data;
@@ -42,8 +42,8 @@ xErrno xBitmapInit(xBitmap *bm, uint32_t nbits) {
   return xErrno_Ok;
 }
 
-xErrno xBitmapInitStatic(xBitmap *bm, uint8_t *data,
-                          uint32_t nbytes, uint32_t nbits) {
+xErrno xBitmapInitStatic(xBitmap *bm, uint8_t *data, uint32_t nbytes,
+                         uint32_t nbits) {
   if (!bm || !data || nbits == 0) return xErrno_InvalidArg;
   if (nbytes < bits_to_bytes(nbits)) return xErrno_InvalidArg;
 
@@ -123,8 +123,8 @@ uint32_t xBitmapCount(const xBitmap *bm) {
   uint32_t tail = bm->nbits % 8;
   if (tail != 0) {
     /* Subtract any bits counted in the unused high positions */
-    uint8_t last = bm->data[bm->nbytes - 1];
-    uint8_t mask = (uint8_t)((1u << tail) - 1);
+    uint8_t last  = bm->data[bm->nbytes - 1];
+    uint8_t mask  = (uint8_t)((1u << tail) - 1);
     uint8_t extra = last & (uint8_t)~mask;
     count -= popcount8(extra);
   }

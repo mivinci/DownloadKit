@@ -12,8 +12,8 @@
 /* ---- Encode tests ---- */
 
 TEST(Base64, Empty) {
-  char    buf[8]  = {0};
-  size_t  buf_len = sizeof(buf);
+  char   buf[8]  = {0};
+  size_t buf_len = sizeof(buf);
 
   int rc = xBase64Encode(NULL, 0, buf, &buf_len);
   EXPECT_EQ(rc, 0);

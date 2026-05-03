@@ -72,11 +72,11 @@ static inline int source_array_remove(struct xEventSourceArray_ *s,
 }
 
 /* Non-inline implementations — see event_private.c */
-void source_array_free(struct xEventSourceArray_ *s);
+void                  source_array_free(struct xEventSourceArray_ *s);
 struct xEventSource_ *source_array_add(struct xEventSourceArray_ *s, int fd,
                                        xEventMask mask, xEventFunc fn,
                                        void *arg);
-void source_array_sweep(struct xEventSourceArray_ *s);
+void                  source_array_sweep(struct xEventSourceArray_ *s);
 
 static inline struct xEventSource_ *
 source_array_find_fd(struct xEventSourceArray_ *s, int fd) {
@@ -134,8 +134,8 @@ struct xEventLoop_ {
 #ifdef _WIN32
   HANDLE wake_event; /* manual-reset event for loop wakeup */
 #else
-  int    wake_rfd;   /* read end of wake pipe  */
-  int    wake_wfd;   /* write end of wake pipe */
+  int wake_rfd; /* read end of wake pipe  */
+  int wake_wfd; /* write end of wake pipe */
 #endif
 
   /* Offload done queue (lock-free MPSC) */
@@ -281,13 +281,13 @@ static inline void loop_clear_wake_pending(struct xEventLoop_ *loop) {
  *   - alloc: from the submitting thread (xEventLoopSubmit)
  *   - free:  from the event-loop thread  (loop_dispatch_done)
  */
-static inline struct xEventWork_ *
-event_work_alloc(struct xEventLoop_ *loop) {
+static inline struct xEventWork_ *event_work_alloc(struct xEventLoop_ *loop) {
   struct xEventWork_ *w;
   for (;;) {
     w = xAtomicLoad(&loop->work_freelist, xAtomicAcquire);
     if (!w) break; /* empty — fall back to calloc */
-    if (xAtomicCasPtrWeak(&loop->work_freelist, &w, w->next_free, xAtomicAcqRel))
+    if (xAtomicCasPtrWeak(&loop->work_freelist, &w, w->next_free,
+                          xAtomicAcqRel))
       break;
   }
   if (w) {
@@ -304,8 +304,7 @@ static inline void event_work_free(struct xEventLoop_ *loop,
   do {
     head         = xAtomicLoad(&loop->work_freelist, xAtomicRelaxed);
     w->next_free = head;
-  } while (
-    !xAtomicCasPtrWeak(&loop->work_freelist, &head, w, xAtomicRelease));
+  } while (!xAtomicCasPtrWeak(&loop->work_freelist, &head, w, xAtomicRelease));
 }
 
 static inline void event_work_pool_destroy(struct xEventLoop_ *loop) {

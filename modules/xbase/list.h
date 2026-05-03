@@ -143,7 +143,8 @@ XCAPI_INLINE(bool) xListEmpty(xList *head) {
  * @param head   The head of the list (xList *).
  * @param member The name of the xList member inside the struct.
  */
-/* typeof is GCC-specific; use std::remove_reference for MSVC C++ compatibility */
+/* typeof is GCC-specific; use std::remove_reference for MSVC C++ compatibility
+ */
 #ifdef _MSC_VER
 #include <type_traits>
 #define xListTypeof(expr) typename std::remove_reference<decltype(expr)>::type
@@ -167,7 +168,7 @@ XCAPI_INLINE(bool) xListEmpty(xList *head) {
 #define xListForEachEntrySafe(pos, tmp, head, member)                         \
   for ((pos) = xContainerOf((head)->next, xListTypeof(*(pos)), member),       \
       (tmp)  = xContainerOf((pos)->member.next, xListTypeof(*(tmp)), member); \
-       &(pos)->member != (head); (pos) = (tmp),                              \
+       &(pos)->member != (head); (pos) = (tmp),                               \
       (tmp) = xContainerOf((pos)->member.next, xListTypeof(*(tmp)), member))
 
 #endif // XBASE_LIST_H

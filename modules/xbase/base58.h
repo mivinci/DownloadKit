@@ -36,7 +36,8 @@
  * Base58 decoding shrinks data by roughly log(58)/log(256) ≈ 0.73x.
  * This macro returns a safe upper bound (input_len * 733 / 1000 + 1).
  */
-#define XBASE58_DECODE_MAXLEN(input_len) ((size_t)((input_len) * 733 / 1000 + 1))
+#define XBASE58_DECODE_MAXLEN(input_len) \
+  ((size_t)((input_len) * 733 / 1000 + 1))
 
 /**
  * @brief Encode binary data to a Base58 string.
@@ -49,8 +50,8 @@
  *                 the null terminator).
  * @return         0 on success, -1 if the output buffer is too small.
  */
-XCAPI(int) xBase58Encode(const uint8_t *src, size_t src_len,
-                         char *dst, size_t *dst_len);
+XCAPI(int) xBase58Encode(const uint8_t *src, size_t src_len, char *dst,
+                         size_t *dst_len);
 
 /**
  * @brief Decode a Base58 string to binary data.
@@ -63,7 +64,7 @@ XCAPI(int) xBase58Encode(const uint8_t *src, size_t src_len,
  * @return         0 on success, -1 if the output buffer is too small
  *                 or the input contains invalid characters.
  */
-XCAPI(int) xBase58Decode(const char *src, size_t src_len,
-                         uint8_t *dst, size_t *dst_len);
+XCAPI(int) xBase58Decode(const char *src, size_t src_len, uint8_t *dst,
+                         size_t *dst_len);
 
 #endif /* XBASE_BASE58_H */

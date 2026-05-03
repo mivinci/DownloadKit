@@ -78,15 +78,15 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
     (struct xEventLoopKqueue_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
-  loop->kqfd              = -1;
-  loop->base.wake_rfd     = -1;
-  loop->base.wake_wfd     = -1;
-  loop->base.stopped      = 0;
-  loop->base.timer_heap   = NULL;
-  loop->base.task_group   = group;
+  loop->kqfd            = -1;
+  loop->base.wake_rfd   = -1;
+  loop->base.wake_wfd   = -1;
+  loop->base.stopped    = 0;
+  loop->base.timer_heap = NULL;
+  loop->base.task_group = group;
   source_array_init(&loop->base.sources);
-  loop->base.done_head = NULL;
-  loop->base.done_tail = NULL;
+  loop->base.done_head     = NULL;
+  loop->base.done_tail     = NULL;
   loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
   xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);
@@ -220,8 +220,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   int dispatched = 0;
   for (int i = 0; i < n; i++) {
     /* EVFILT_USER wake event */
-    if (events[i].filter == EVFILT_USER &&
-        events[i].ident == KQ_WAKE_IDENT) {
+    if (events[i].filter == EVFILT_USER && events[i].ident == KQ_WAKE_IDENT) {
       loop_clear_wake_pending(&loop->base);
       loop_dispatch_done(&loop->base);
       continue;
@@ -269,7 +268,9 @@ static int signo_valid(int signo) {
 /* On macOS/BSD, kqueue's EVFILT_SIGNAL only fires if the signal is actually
  * delivered to the process.  Setting SIG_IGN prevents delivery entirely,
  * so the kqueue filter never triggers.  Use a no-op handler instead. */
-static void signal_noop(int signo) { (void)signo; }
+static void signal_noop(int signo) {
+  (void)signo;
+}
 
 xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
                              void *arg) {

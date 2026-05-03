@@ -142,11 +142,10 @@ static void BM_EventLoop_OffloadSingle(benchmark::State &state) {
     std::atomic<bool> done{false};
 
     xEventLoopSubmit(
-      loop, nullptr,
-      [](void *) -> void * { return nullptr; },
+      loop, nullptr, [](void *) -> void * { return nullptr; },
       [](void *arg, void *) {
-        static_cast<std::atomic<bool> *>(arg)->store(
-          true, std::memory_order_release);
+        static_cast<std::atomic<bool> *>(arg)->store(true,
+                                                     std::memory_order_release);
       },
       &done, nullptr);
 
@@ -179,8 +178,7 @@ static void BM_EventLoop_OffloadBatch(benchmark::State &state) {
 
     for (int64_t i = 0; i < batch; i++) {
       xEventLoopSubmit(
-        loop, nullptr,
-        [](void *) -> void * { return nullptr; },
+        loop, nullptr, [](void *) -> void * { return nullptr; },
         [](void *arg, void *) {
           static_cast<std::atomic<int64_t> *>(arg)->fetch_sub(
             1, std::memory_order_release);
@@ -309,8 +307,8 @@ static void BM_Libuv_OffloadSingle(benchmark::State &state) {
   uv_loop_init(&loop);
 
   for (auto _ : state) {
-    uv_work_t          req;
-    std::atomic<bool>  done{false};
+    uv_work_t         req;
+    std::atomic<bool> done{false};
 
     req.data = &done;
     uv_queue_work(

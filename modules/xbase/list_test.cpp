@@ -31,7 +31,9 @@ class ListTest : public ::testing::Test {
 protected:
   xList head;
 
-  void SetUp() override { xListInit(&head); }
+  void SetUp() override {
+    xListInit(&head);
+  }
 };
 
 /* ========== Init & Empty ========== */
@@ -43,16 +45,20 @@ TEST_F(ListTest, InitProducesEmptyList) {
 }
 
 TEST_F(ListTest, EmptyListForEachYieldsNothing) {
-  int count = 0;
+  int    count = 0;
   xList *pos;
-  xListForEach(pos, &head) { ++count; }
+  xListForEach(pos, &head) {
+    ++count;
+  }
   EXPECT_EQ(count, 0);
 }
 
 TEST_F(ListTest, EmptyListForEachEntryYieldsNothing) {
-  int count = 0;
+  int   count = 0;
   Item *pos;
-  xListForEachEntry(pos, &head, node) { ++count; }
+  xListForEachEntry(pos, &head, node) {
+    ++count;
+  }
   EXPECT_EQ(count, 0);
 }
 
@@ -80,8 +86,10 @@ TEST_F(ListTest, AddHeadOrdering) {
 
   /* c → b → a → head (stack order) */
   std::vector<int> vals;
-  Item *pos;
-  xListForEachEntry(pos, &head, node) { vals.push_back(pos->value); }
+  Item            *pos;
+  xListForEachEntry(pos, &head, node) {
+    vals.push_back(pos->value);
+  }
   ASSERT_EQ(vals.size(), 3u);
   EXPECT_EQ(vals[0], 3);
   EXPECT_EQ(vals[1], 2);
@@ -99,8 +107,10 @@ TEST_F(ListTest, AddTailOrdering) {
 
   /* a → b → c → head (queue order) */
   std::vector<int> vals;
-  Item *pos;
-  xListForEachEntry(pos, &head, node) { vals.push_back(pos->value); }
+  Item            *pos;
+  xListForEachEntry(pos, &head, node) {
+    vals.push_back(pos->value);
+  }
   ASSERT_EQ(vals.size(), 3u);
   EXPECT_EQ(vals[0], 1);
   EXPECT_EQ(vals[1], 2);
@@ -118,8 +128,10 @@ TEST_F(ListTest, AddBefore) {
   xListAddBefore(&b.node, &c.node);
 
   std::vector<int> vals;
-  Item *pos;
-  xListForEachEntry(pos, &head, node) { vals.push_back(pos->value); }
+  Item            *pos;
+  xListForEachEntry(pos, &head, node) {
+    vals.push_back(pos->value);
+  }
   ASSERT_EQ(vals.size(), 3u);
   EXPECT_EQ(vals[0], 1);
   EXPECT_EQ(vals[1], 2);
@@ -151,8 +163,10 @@ TEST_F(ListTest, DelMiddleNode) {
   xListDel(&b.node);
 
   std::vector<int> vals;
-  Item *pos;
-  xListForEachEntry(pos, &head, node) { vals.push_back(pos->value); }
+  Item            *pos;
+  xListForEachEntry(pos, &head, node) {
+    vals.push_back(pos->value);
+  }
   ASSERT_EQ(vals.size(), 2u);
   EXPECT_EQ(vals[0], 1);
   EXPECT_EQ(vals[1], 3);
@@ -174,8 +188,10 @@ TEST_F(ListTest, DelFirstNode) {
   xListDel(&a.node);
 
   std::vector<int> vals;
-  Item *pos;
-  xListForEachEntry(pos, &head, node) { vals.push_back(pos->value); }
+  Item            *pos;
+  xListForEachEntry(pos, &head, node) {
+    vals.push_back(pos->value);
+  }
   ASSERT_EQ(vals.size(), 2u);
   EXPECT_EQ(vals[0], 2);
   EXPECT_EQ(vals[1], 3);
@@ -193,8 +209,10 @@ TEST_F(ListTest, DelLastNode) {
   xListDel(&c.node);
 
   std::vector<int> vals;
-  Item *pos;
-  xListForEachEntry(pos, &head, node) { vals.push_back(pos->value); }
+  Item            *pos;
+  xListForEachEntry(pos, &head, node) {
+    vals.push_back(pos->value);
+  }
   ASSERT_EQ(vals.size(), 2u);
   EXPECT_EQ(vals[0], 1);
   EXPECT_EQ(vals[1], 2);
@@ -219,7 +237,7 @@ TEST_F(ListTest, ForEachSafeDeleteAll) {
   }
 
   xList *pos, *tmp;
-  int count = 0;
+  int    count = 0;
   xListForEachSafe(pos, tmp, &head) {
     xListDel(pos);
     ++count;
@@ -241,8 +259,10 @@ TEST_F(ListTest, ForEachEntrySafeDeleteOdd) {
   }
 
   std::vector<int> vals;
-  Item *p;
-  xListForEachEntry(p, &head, node) { vals.push_back(p->value); }
+  Item            *p;
+  xListForEachEntry(p, &head, node) {
+    vals.push_back(p->value);
+  }
   ASSERT_EQ(vals.size(), 3u);
   EXPECT_EQ(vals[0], 2);
   EXPECT_EQ(vals[1], 4);
@@ -280,7 +300,7 @@ TEST_F(ListTest, ContainerOfRoundTrip) {
   xListAddTail(&head, &a.node);
 
   xList *first = head.next;
-  Item *item = item_of(first);
+  Item  *item  = item_of(first);
   EXPECT_EQ(item, &a);
   EXPECT_EQ(item->value, 42);
 }
@@ -288,7 +308,7 @@ TEST_F(ListTest, ContainerOfRoundTrip) {
 /* ========== Scale & stress ========== */
 
 TEST_F(ListTest, ManyItemsAddTailDelAll) {
-  constexpr int N = 1000;
+  constexpr int     N = 1000;
   std::vector<Item> items(N);
 
   for (int i = 0; i < N; i++) {
@@ -305,7 +325,7 @@ TEST_F(ListTest, ManyItemsAddTailDelAll) {
 }
 
 TEST_F(ListTest, ManyItemsAddHeadDelReverse) {
-  constexpr int N = 1000;
+  constexpr int     N = 1000;
   std::vector<Item> items(N);
 
   for (int i = 0; i < N; i++) {

@@ -155,8 +155,7 @@ XCAPI(void) xFlagSetVersion(xFlagSet set, const char *version);
  */
 XCAPI(xErrno) xFlagAddString(xFlagSet set, const char *name, char shortc,
                              const char *meta, const char *help,
-                             const char **storage, const char *def,
-                             int attrs);
+                             const char **storage, const char *def, int attrs);
 
 /**
  * @brief Register a boolean switch. Present → true; takes no argument.
@@ -171,22 +170,22 @@ XCAPI(xErrno) xFlagAddBool(xFlagSet set, const char *name, char shortc,
  * Accepts decimal, 0x hex, 0b binary, and 0-prefixed octal.
  */
 XCAPI(xErrno) xFlagAddInt(xFlagSet set, const char *name, char shortc,
-                          const char *meta, const char *help,
-                          int *storage, int def, int attrs);
+                          const char *meta, const char *help, int *storage,
+                          int def, int attrs);
 
 /**
  * @brief Register a signed 64-bit integer flag.
  */
 XCAPI(xErrno) xFlagAddI64(xFlagSet set, const char *name, char shortc,
-                          const char *meta, const char *help,
-                          int64_t *storage, int64_t def, int attrs);
+                          const char *meta, const char *help, int64_t *storage,
+                          int64_t def, int attrs);
 
 /**
  * @brief Register an unsigned 64-bit integer flag.
  */
 XCAPI(xErrno) xFlagAddU64(xFlagSet set, const char *name, char shortc,
-                          const char *meta, const char *help,
-                          uint64_t *storage, uint64_t def, int attrs);
+                          const char *meta, const char *help, uint64_t *storage,
+                          uint64_t def, int attrs);
 
 /**
  * @brief Register a double-precision floating-point flag.
@@ -205,9 +204,8 @@ XCAPI(xErrno) xFlagAddDouble(xFlagSet set, const char *name, char shortc,
  */
 XCAPI(xErrno) xFlagAddChoice(xFlagSet set, const char *name, char shortc,
                              const char *meta, const char *help,
-                             const char *const *choices,
-                             const char **storage, const char *def,
-                             int attrs);
+                             const char *const *choices, const char **storage,
+                             const char *def, int attrs);
 
 /**
  * @brief Register a counter flag. Each occurrence increments
@@ -248,9 +246,8 @@ XCAPI(xErrno) xFlagAddPositional(xFlagSet set, const char *name,
  * @param count    Optional out-parameter for element count; may be NULL.
  */
 XCAPI(xErrno) xFlagAddPositionalTail(xFlagSet set, const char *name,
-                                     const char *help,
-                                     const char ***storage, size_t *count,
-                                     int attrs);
+                                     const char *help, const char ***storage,
+                                     size_t *count, int attrs);
 
 /* ───────────────────── Parse ───────────────────── */
 

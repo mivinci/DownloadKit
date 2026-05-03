@@ -15,10 +15,9 @@
 
 uint64_t xMonoMs(void) {
   static LARGE_INTEGER freq;
-  LARGE_INTEGER count;
+  LARGE_INTEGER        count;
 
-  if (freq.QuadPart == 0)
-    QueryPerformanceFrequency(&freq);
+  if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
 
   QueryPerformanceCounter(&count);
   /* Convert to milliseconds without overflow:
@@ -29,7 +28,7 @@ uint64_t xMonoMs(void) {
 }
 
 uint64_t xWallMs(void) {
-  FILETIME ft;
+  FILETIME       ft;
   ULARGE_INTEGER ul;
 
   GetSystemTimeAsFileTime(&ft);

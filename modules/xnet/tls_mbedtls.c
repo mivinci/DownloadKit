@@ -97,8 +97,7 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *config) {
 
   /* Configure as TLS server or client */
   ret = mbedtls_ssl_config_defaults(
-    &ctx->conf,
-    is_server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
+    &ctx->conf, is_server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
     MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
   if (ret != 0) {
     xLog(false, "xnet: mbedtls_ssl_config_defaults failed: -0x%04x", -ret);
@@ -306,7 +305,7 @@ int xTlsCtxReload(xTlsCtx raw, const xTlsConf *config) {
   if (!raw || !config || !config->cert || !config->key) return -1;
 
   xTlsCtxMbedTLS_ *ctx = (xTlsCtxMbedTLS_ *)raw;
-  int ret;
+  int              ret;
 
   /* Reload certificate: free old, parse new */
   mbedtls_x509_crt new_cert;

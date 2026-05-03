@@ -22,9 +22,9 @@ static std::string sv(const char *p, size_t len) {
 
 TEST(UrlParse, FullUrl) {
   xUrl url;
-  ASSERT_EQ(xUrlParse(
-    "https://user:pass@example.com:8443/ws/chat?token=abc#top",
-    &url), xErrno_Ok);
+  ASSERT_EQ(
+    xUrlParse("https://user:pass@example.com:8443/ws/chat?token=abc#top", &url),
+    xErrno_Ok);
 
   EXPECT_EQ(sv(url.scheme, url.scheme_len), "https");
   EXPECT_EQ(sv(url.userinfo, url.userinfo_len), "user:pass");
@@ -51,8 +51,7 @@ TEST(UrlParse, MinimalHttp) {
 
 TEST(UrlParse, WsWithPath) {
   xUrl url;
-  ASSERT_EQ(xUrlParse("ws://10.0.0.1:9090/ws", &url),
-            xErrno_Ok);
+  ASSERT_EQ(xUrlParse("ws://10.0.0.1:9090/ws", &url), xErrno_Ok);
 
   EXPECT_EQ(sv(url.scheme, url.scheme_len), "ws");
   EXPECT_EQ(sv(url.host, url.host_len), "10.0.0.1");
@@ -63,8 +62,7 @@ TEST(UrlParse, WsWithPath) {
 
 TEST(UrlParse, WssNoPort) {
   xUrl url;
-  ASSERT_EQ(xUrlParse("wss://echo.example.com/sock", &url),
-            xErrno_Ok);
+  ASSERT_EQ(xUrlParse("wss://echo.example.com/sock", &url), xErrno_Ok);
 
   EXPECT_EQ(sv(url.scheme, url.scheme_len), "wss");
   EXPECT_EQ(sv(url.host, url.host_len), "echo.example.com");
@@ -75,8 +73,7 @@ TEST(UrlParse, WssNoPort) {
 
 TEST(UrlParse, Ipv6Literal) {
   xUrl url;
-  ASSERT_EQ(xUrlParse("http://[::1]:8080/test", &url),
-            xErrno_Ok);
+  ASSERT_EQ(xUrlParse("http://[::1]:8080/test", &url), xErrno_Ok);
 
   EXPECT_EQ(sv(url.host, url.host_len), "::1");
   EXPECT_EQ(sv(url.port, url.port_len), "8080");
@@ -86,9 +83,7 @@ TEST(UrlParse, Ipv6Literal) {
 
 TEST(UrlParse, Ipv6NoPort) {
   xUrl url;
-  ASSERT_EQ(
-    xUrlParse("http://[2001:db8::1]/index", &url),
-    xErrno_Ok);
+  ASSERT_EQ(xUrlParse("http://[2001:db8::1]/index", &url), xErrno_Ok);
 
   EXPECT_EQ(sv(url.host, url.host_len), "2001:db8::1");
   EXPECT_EQ(url.port, nullptr);
@@ -126,14 +121,12 @@ TEST(UrlParse, NullInput) {
 
 TEST(UrlParse, NoScheme) {
   xUrl url;
-  EXPECT_EQ(xUrlParse("example.com/path", &url),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xUrlParse("example.com/path", &url), xErrno_InvalidArg);
 }
 
 TEST(UrlParse, EmptyHost) {
   xUrl url;
-  EXPECT_EQ(xUrlParse("http:///path", &url),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xUrlParse("http:///path", &url), xErrno_InvalidArg);
 }
 
 /* ───────────────── xUrlPort ───────────────── */

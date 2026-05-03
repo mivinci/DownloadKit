@@ -36,7 +36,7 @@ static void heap_setidx(void *e, size_t idx) {
 
 // BM_Heap_Push: Measure push throughput at different heap sizes
 static void BM_Heap_Push(benchmark::State &state) {
-  const int64_t n = state.range(0);
+  const int64_t         n = state.range(0);
   std::vector<HeapElem> elems(n);
 
   for (auto _ : state) {
@@ -61,7 +61,7 @@ BENCHMARK(BM_Heap_Push)->Arg(8)->Arg(64)->Arg(512)->Arg(4096);
 
 // BM_Heap_Pop: Measure pop throughput at different heap sizes
 static void BM_Heap_Pop(benchmark::State &state) {
-  const int64_t n = state.range(0);
+  const int64_t         n = state.range(0);
   std::vector<HeapElem> elems(n);
 
   for (auto _ : state) {
@@ -87,7 +87,7 @@ BENCHMARK(BM_Heap_Pop)->Arg(8)->Arg(64)->Arg(512)->Arg(4096);
 
 // BM_Heap_Remove: Measure random removal throughput at different heap sizes
 static void BM_Heap_Remove(benchmark::State &state) {
-  const int64_t n = state.range(0);
+  const int64_t         n = state.range(0);
   std::vector<HeapElem> elems(n);
 
   for (auto _ : state) {
@@ -99,7 +99,8 @@ static void BM_Heap_Remove(benchmark::State &state) {
     }
     // Build a random removal order
     std::vector<size_t> order(n);
-    for (int64_t i = 0; i < n; i++) order[i] = i;
+    for (int64_t i = 0; i < n; i++)
+      order[i] = i;
     for (int64_t i = n - 1; i > 0; i--) {
       size_t j = rand() % (i + 1);
       std::swap(order[i], order[j]);

@@ -35,7 +35,8 @@ static inline ssize_t xwritev(int fd, const xiovec *iov, int iovcnt) {
   ssize_t total = 0;
   for (int i = 0; i < iovcnt; i++) {
     if (iov[i].iov_len == 0) continue;
-    int n = send((SOCKET)fd, (const char *)iov[i].iov_base, (int)iov[i].iov_len, 0);
+    int n =
+      send((SOCKET)fd, (const char *)iov[i].iov_base, (int)iov[i].iov_len, 0);
     if (n < 0) {
       if (total > 0) return total;
       return -1;

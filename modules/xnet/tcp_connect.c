@@ -18,8 +18,8 @@
 #include <string.h>
 
 #include <xbase/log.h>
-#include <xnet/dns.h>
 #include <xnet/compat.h>
+#include <xnet/dns.h>
 
 /* Default connect timeout: 10 seconds */
 #define XTCP_DEFAULT_TIMEOUT_MS 10000
@@ -52,8 +52,8 @@ XDEF_STRUCT(xTcpConnector_) {
   uint16_t        port;
 
   /* TLS context (shared or auto-created) */
-  xTlsCtx  tls_ctx;
-  int      owns_tls_ctx; /**< Non-zero if we created tls_ctx internally */
+  xTlsCtx tls_ctx;
+  int     owns_tls_ctx; /**< Non-zero if we created tls_ctx internally */
 
   /* DNS */
   xDnsQuery   dns_query;

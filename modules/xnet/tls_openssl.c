@@ -203,8 +203,8 @@ void xTlsCtxDestroy(xTlsCtx raw) {
 int xTlsCtxReload(xTlsCtx raw, const xTlsConf *conf) {
   if (!raw || !conf || !conf->cert || !conf->key) return -1;
 
-  xTlsCtxOpenSSL_ *ctx = (xTlsCtxOpenSSL_ *)raw;
-  SSL_CTX *ssl_ctx = ctx->ssl_ctx;
+  xTlsCtxOpenSSL_ *ctx     = (xTlsCtxOpenSSL_ *)raw;
+  SSL_CTX         *ssl_ctx = ctx->ssl_ctx;
 
   /* Load new certificate */
   if (SSL_CTX_use_certificate_chain_file(ssl_ctx, conf->cert) != 1) {

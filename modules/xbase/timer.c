@@ -11,28 +11,28 @@
 #include <xbase/slab.h>
 #include <xbase/timer.h>
 
+#include "thread_private.h"
 #include <stdlib.h>
 #include <string.h>
-#include "thread_private.h"
 
 /* ───────────────────── Internal types ───────────────────── */
 
-#define TIMER_INVALID_IDX ((size_t) - 1)
+#define TIMER_INVALID_IDX ((size_t)-1)
 
 /* Forward declaration so xTimerTask_ can hold a pointer to its owner. */
 struct xTimer_;
 
 struct xTimerTask_ {
-  xMpsc node;          /* intrusive MPSC node; xContainerOf is used to   */
-                       /* recover the enclosing struct, so this field may */
-                       /* appear anywhere in the layout                   */
-  struct xTimer_ *owner;   /* back-pointer to the timer (for slab free)      */
-  uint64_t   deadline; /* expiry time in ms, CLOCK_MONOTONIC             */
-  xTimerFunc fn;
-  void      *arg;
-  size_t     heap_idx; /* current position in the min-heap;              */
-                       /* TIMER_INVALID_IDX when not in the heap          */
-  int cancelled;       /* set to 1 under mu before removing from heap    */
+  xMpsc node;            /* intrusive MPSC node; xContainerOf is used to   */
+                         /* recover the enclosing struct, so this field may */
+                         /* appear anywhere in the layout                   */
+  struct xTimer_ *owner; /* back-pointer to the timer (for slab free)      */
+  uint64_t        deadline; /* expiry time in ms, CLOCK_MONOTONIC             */
+  xTimerFunc      fn;
+  void           *arg;
+  size_t          heap_idx; /* current position in the min-heap;              */
+  /* TIMER_INVALID_IDX when not in the heap          */
+  int cancelled; /* set to 1 under mu before removing from heap    */
 };
 
 struct xTimer_ {
@@ -238,8 +238,7 @@ static xTimerTask submit(xTimer t_, xTimerFunc fn, void *arg, uint64_t abs_ms) {
   struct xTimer_ *t = (struct xTimer_ *)t_;
   if (!t || !fn) return NULL;
 
-  struct xTimerTask_ *task =
-    (struct xTimerTask_ *)xSlabMtAlloc(t->task_pool);
+  struct xTimerTask_ *task = (struct xTimerTask_ *)xSlabMtAlloc(t->task_pool);
   if (!task) return NULL;
 
   task->owner     = t;

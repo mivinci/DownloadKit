@@ -73,7 +73,8 @@ XCAPI(xString) xStringDup(const xString s);
  * May reallocate; the pointer is updated in-place:
  *   xStringAppend(&s, "hello");
  *
- * @param s       Pointer to existing xString (must not be NULL, *s must not be NULL).
+ * @param s       Pointer to existing xString (must not be NULL, *s must not be
+ * NULL).
  * @param append  C string to append (must not be NULL).
  * @return Number of bytes appended on success, or negative xErrno on failure
  *         (*s is still valid on failure).
@@ -83,7 +84,8 @@ XCAPI(int) xStringAppend(xString *s, const char *append);
 /**
  * @brief Append raw bytes (binary-safe).
  *
- * @param s       Pointer to existing xString (must not be NULL, *s must not be NULL).
+ * @param s       Pointer to existing xString (must not be NULL, *s must not be
+ * NULL).
  * @param append  Data to append (must not be NULL if len > 0).
  * @param len     Number of bytes to append.
  * @return Number of bytes appended on success, or negative xErrno on failure
@@ -94,7 +96,8 @@ XCAPI(int) xStringAppendLen(xString *s, const void *append, size_t len);
 /**
  * @brief Append a printf-style formatted string.
  *
- * @param s     Pointer to existing xString (must not be NULL, *s must not be NULL).
+ * @param s     Pointer to existing xString (must not be NULL, *s must not be
+ * NULL).
  * @param fmt   printf format string.
  * @param ...   Format arguments.
  * @return Number of bytes appended on success, or negative xErrno on failure
@@ -155,7 +158,8 @@ XCAPI(xString) xStringGrow(xString s, size_t add_len);
  * @brief Shrink allocation to fit the current content exactly.
  *
  * @param s  xString (must not be NULL).
- * @return Updated xString (may differ), or NULL on failure (original still valid).
+ * @return Updated xString (may differ), or NULL on failure (original still
+ * valid).
  */
 XCAPI(xString) xStringShrinkToFit(xString s);
 

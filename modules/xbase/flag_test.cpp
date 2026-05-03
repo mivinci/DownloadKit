@@ -24,14 +24,18 @@ struct ParseResult {
   xErrno rc;
   char  *err;
 
-  ~ParseResult() { free(err); }
+  ~ParseResult() {
+    free(err);
+  }
 };
 
-static ParseResult Parse(xFlagSet set, std::initializer_list<const char *> args) {
+static ParseResult Parse(xFlagSet                            set,
+                         std::initializer_list<const char *> args) {
   /* argv must be char *const []; copy into a mutable buffer.   */
   std::vector<char *> argv;
   argv.reserve(args.size() + 1);
-  for (const char *a : args) argv.push_back(const_cast<char *>(a));
+  for (const char *a : args)
+    argv.push_back(const_cast<char *>(a));
   argv.push_back(nullptr);
   ParseResult r{xErrno_Ok, nullptr};
   r.rc = xFlagParse(set, (int)args.size(), argv.data(), &r.err);
@@ -85,11 +89,10 @@ TEST(Flag, DefaultsApplied) {
   int64_t     big  = 0;
   bool        ipv6 = true; /* should be reset to false         */
 
-  ASSERT_EQ(xFlagAddString(set, "url", 'u', "URL", "", &url,
-                           "ws://127.0.0.1", xFlagAttr_None),
+  ASSERT_EQ(xFlagAddString(set, "url", 'u', "URL", "", &url, "ws://127.0.0.1",
+                           xFlagAttr_None),
             xErrno_Ok);
-  ASSERT_EQ(xFlagAddInt(set, "port", 'p', "N", "", &port, 8080,
-                        xFlagAttr_None),
+  ASSERT_EQ(xFlagAddInt(set, "port", 'p', "N", "", &port, 8080, xFlagAttr_None),
             xErrno_Ok);
   ASSERT_EQ(xFlagAddI64(set, "big", 0, "N", "", &big, 12345, xFlagAttr_None),
             xErrno_Ok);
@@ -404,9 +407,9 @@ TEST(Flag, MissingRequiredPositional) {
 }
 
 TEST(Flag, PositionalTailCollectsRemaining) {
-  xFlagSet    set = xFlagSetCreate("prog", nullptr);
-  bool        v   = false;
-  const char *in  = nullptr;
+  xFlagSet     set  = xFlagSetCreate("prog", nullptr);
+  bool         v    = false;
+  const char  *in   = nullptr;
   const char **tail = nullptr;
   size_t       cnt  = 0;
   xFlagAddBool(set, "verbose", 'v', "", &v, xFlagAttr_None);
@@ -426,8 +429,8 @@ TEST(Flag, PositionalTailCollectsRemaining) {
 }
 
 TEST(Flag, DoubleDashEndsOptions) {
-  xFlagSet    set = xFlagSetCreate("prog", nullptr);
-  bool        v   = false;
+  xFlagSet     set  = xFlagSetCreate("prog", nullptr);
+  bool         v    = false;
   const char **tail = nullptr;
   size_t       cnt  = 0;
   xFlagAddBool(set, "verbose", 'v', "", &v, xFlagAttr_None);
@@ -469,7 +472,7 @@ TEST(Flag, UnexpectedExtraPositional) {
 /* ───────────────────── Multi flag ───────────────────── */
 
 TEST(Flag, MultiStringCollectsAllOccurrences) {
-  xFlagSet    set = xFlagSetCreate("prog", nullptr);
+  xFlagSet    set  = xFlagSetCreate("prog", nullptr);
   const char *last = nullptr;
   xFlagAddString(set, "include", 'I', "DIR", "", &last, nullptr,
                  xFlagAttr_Multi);
@@ -499,7 +502,7 @@ TEST(Flag, HelpReturnsAgain) {
   FILE *saved = stdout;
   stdout      = fopen("/dev/null", "w");
 #endif
-  auto r      = Parse(set, {"prog", "--help"});
+  auto r = Parse(set, {"prog", "--help"});
   fclose(stdout);
 #ifdef _WIN32
   freopen(tmpnam(NULL), "w", stdout);
@@ -525,7 +528,7 @@ TEST(Flag, VersionReturnsAgainWhenSet) {
   FILE *saved2 = stdout;
   stdout       = fopen("/dev/null", "w");
 #endif
-  auto r2      = Parse(set, {"prog", "--version"});
+  auto r2 = Parse(set, {"prog", "--version"});
   fclose(stdout);
 #ifdef _WIN32
   freopen(tmpnam(NULL), "w", stdout);
@@ -551,11 +554,11 @@ TEST(Flag, VersionNotRecognisedWhenUnset) {
 /* ───────────────────── Print helpers don't crash ───────────────────── */
 
 TEST(Flag, PrintUsageAndHelp) {
-  xFlagSet    set = xFlagSetCreate("prog", "a test");
-  bool        v   = false;
-  const char *url = nullptr;
-  const char *in  = nullptr;
-  int         n   = 0;
+  xFlagSet    set       = xFlagSetCreate("prog", "a test");
+  bool        v         = false;
+  const char *url       = nullptr;
+  const char *in        = nullptr;
+  int         n         = 0;
   const char *choices[] = {"tcp", "udp", nullptr};
   const char *proto     = nullptr;
   xFlagAddBool(set, "verbose", 'v', "be loud", &v, xFlagAttr_None);

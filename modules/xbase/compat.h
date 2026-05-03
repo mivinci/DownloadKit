@@ -24,17 +24,16 @@
 #if !defined(__APPLE__) && !defined(_GNU_SOURCE)
 
 static inline void *xcompat_memmem(const void *haystack, size_t hlen,
-                               const void *needle, size_t nlen) {
+                                   const void *needle, size_t nlen) {
   if (nlen == 0) return (void *)haystack;
   if (nlen > hlen) return NULL;
 
-  const unsigned char *h = (const unsigned char *)haystack;
-  const unsigned char *n = (const unsigned char *)needle;
+  const unsigned char *h   = (const unsigned char *)haystack;
+  const unsigned char *n   = (const unsigned char *)needle;
   const unsigned char *end = h + hlen - nlen;
 
   for (; h <= end; h++) {
-    if (h[0] == n[0] && memcmp(h, n, nlen) == 0)
-      return (void *)h;
+    if (h[0] == n[0] && memcmp(h, n, nlen) == 0) return (void *)h;
   }
   return NULL;
 }

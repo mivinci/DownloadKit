@@ -40,10 +40,10 @@ static xString xstring_alloc(size_t cap) {
   if (cap < XSTRING_MIN_CAP) cap = XSTRING_MIN_CAP;
   xStringHeader *hdr = (xStringHeader *)malloc(XSTRING_HEADER_SIZE + cap + 1);
   if (!hdr) return NULL;
-  hdr->len = 0;
-  hdr->cap = cap;
-  xString s  = (xString)(hdr + 1);
-  s[0]       = '\0';
+  hdr->len  = 0;
+  hdr->cap  = cap;
+  xString s = (xString)(hdr + 1);
+  s[0]      = '\0';
   return s;
 }
 
@@ -74,8 +74,8 @@ static xString xstring_ensure(xString s, size_t add_len) {
 /* ───────────────────── Lifecycle ───────────────────── */
 
 xString xStringCreate(const char *init) {
-  size_t   len = init ? strlen(init) : 0;
-  xString  s   = xstring_alloc(len);
+  size_t  len = init ? strlen(init) : 0;
+  xString s   = xstring_alloc(len);
   if (!s) return NULL;
   if (len > 0) {
     memcpy(s, init, len);
@@ -125,7 +125,7 @@ int xStringAppendLen(xString *s, const void *append, size_t len) {
   }
   xstring_hdr(ns)->len += len;
   ns[xstring_hdr(ns)->len] = '\0';
-  *s = ns;
+  *s                       = ns;
   return (int)len;
 }
 
@@ -166,7 +166,10 @@ int xStringAppendFormat(xString *s, const char *fmt, ...) {
   hdr = xstring_hdr(ns);
   n   = vsnprintf(ns + hdr->len, needed + 1, fmt, ap);
   va_end(ap);
-  if (n < 0) { *s = ns; return 0; } /* shouldn't happen */
+  if (n < 0) {
+    *s = ns;
+    return 0;
+  } /* shouldn't happen */
   hdr->len += (size_t)n;
   *s = ns;
   return n;
@@ -178,8 +181,8 @@ void xStringTruncate(xString s, size_t new_len) {
   if (!s) return;
   xStringHeader *hdr = xstring_hdr(s);
   if (new_len > hdr->len) return;
-  hdr->len    = new_len;
-  s[new_len]  = '\0';
+  hdr->len   = new_len;
+  s[new_len] = '\0';
 }
 
 void xStringClear(xString s) {
@@ -231,7 +234,8 @@ xString xStringShrinkToFit(xString s) {
 /** Pattern length threshold: below → naive memcmp, >= → memmem. */
 #define XSTRING_FIND_THRESHOLD 32
 
-size_t xStringFind(const xString haystack, const char *needle, size_t needle_len) {
+size_t xStringFind(const xString haystack, const char *needle,
+                   size_t needle_len) {
   if (!haystack) return XSTRING_NONE;
   if (needle_len == 0) return 0;
 
@@ -242,15 +246,13 @@ size_t xStringFind(const xString haystack, const char *needle, size_t needle_len
     /* Naive scan — avoids memmem call overhead for short patterns. */
     size_t last = hlen - needle_len;
     for (size_t i = 0; i <= last; i++) {
-      if (memcmp(haystack + i, needle, needle_len) == 0)
-        return i;
+      if (memcmp(haystack + i, needle, needle_len) == 0) return i;
     }
     return XSTRING_NONE;
   }
 
   /* memmem — leverages platform-optimized search (Two-Way on glibc). */
-  const char *found =
-    (const char *)memmem(haystack, hlen, needle, needle_len);
+  const char *found = (const char *)memmem(haystack, hlen, needle, needle_len);
   return found ? (size_t)(found - haystack) : XSTRING_NONE;
 }
 

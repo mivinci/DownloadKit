@@ -15,9 +15,9 @@
 
 extern "C" {
 #include <xbase/io.h>
+#include <xnet/compat.h>
 #include <xnet/tcp.h>
 #include <xnet/transport.h>
-#include <xnet/compat.h>
 }
 
 /**
@@ -177,8 +177,8 @@ TEST_F(TcpTest, LoopbackPlainTcp) {
     ASSERT_NE(ct->writev, nullptr);
     ASSERT_NE(st->read, nullptr);
 
-    const char  *msg = "hello from client";
-    xnet_iovec iov;
+    const char *msg = "hello from client";
+    xnet_iovec  iov;
     iov.iov_base = (void *)msg;
     iov.iov_len  = strlen(msg);
     ssize_t nw   = ct->writev(ct->ctx, &iov, 1);
@@ -455,8 +455,8 @@ static void adapter_connect_cb(xTcpConn conn, xErrno err, void *arg) {
 }
 
 static void adapter_accept_cb(xTcpListener listener, xTcpConn conn,
-                               const struct sockaddr *addr, socklen_t addrlen,
-                               void *arg) {
+                              const struct sockaddr *addr, socklen_t addrlen,
+                              void *arg) {
   (void)listener;
   (void)addr;
   (void)addrlen;
@@ -514,7 +514,7 @@ TEST_F(TcpTest, ReaderWriterAdapterLoopback) {
 
   /* Verify adapter behavior matches direct API */
   const char *msg2 = "direct compare";
-  nw = xTcpConnSend(ctx.client_conn, msg2, strlen(msg2));
+  nw               = xTcpConnSend(ctx.client_conn, msg2, strlen(msg2));
   EXPECT_GT(nw, 0);
 
   sleep_ms(50);

@@ -111,14 +111,14 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
     (struct xEventLoopPoll_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
-  loop->base.wake_rfd     = -1;
-  loop->base.wake_wfd     = -1;
-  loop->base.stopped      = 0;
-  loop->base.timer_heap   = NULL;
-  loop->base.task_group   = group;
+  loop->base.wake_rfd   = -1;
+  loop->base.wake_wfd   = -1;
+  loop->base.stopped    = 0;
+  loop->base.timer_heap = NULL;
+  loop->base.task_group = group;
   source_array_init(&loop->base.sources);
-  loop->base.done_head = NULL;
-  loop->base.done_tail = NULL;
+  loop->base.done_head     = NULL;
+  loop->base.done_tail     = NULL;
   loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
   xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);
@@ -261,7 +261,8 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 
     if (ready) {
       xEventMask orig_mask = src->mask;
-      src->mask = 0; /* edge-triggered: disable to prevent level-triggered re-fire */
+      src->mask =
+        0; /* edge-triggered: disable to prevent level-triggered re-fire */
       src->fn(src->fd, ready, src->arg);
 
       /* Re-arm the source if the fd was fully drained.
@@ -271,12 +272,14 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
       if (!src->deleted && src->mask == 0) {
         xEventMask restore = 0;
         if (orig_mask & xEvent_Read) {
-          /* Check if the read buffer is empty (works for both pipes and sockets) */
+          /* Check if the read buffer is empty (works for both pipes and
+           * sockets) */
           int avail = 0;
           if (ioctl(src->fd, FIONREAD, &avail) == 0 && avail == 0) {
             restore |= (orig_mask & xEvent_Read);
           }
-          /* avail > 0: data still available, keep read disabled (no new edge) */
+          /* avail > 0: data still available, keep read disabled (no new edge)
+           */
         }
         if (orig_mask & xEvent_Write) {
           /* Re-arm write: if the write buffer was full (blocking write),

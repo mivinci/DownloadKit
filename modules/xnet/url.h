@@ -30,26 +30,26 @@
  *   scheme://[userinfo@]host[:port][/path][?query][#fragment]
  */
 XDEF_STRUCT(xUrl) {
-  char       *raw_;          /**< Owned copy (internal, do not touch) */
-  const char *scheme;       /**< e.g. "http", "wss"          */
+  char       *raw_;   /**< Owned copy (internal, do not touch) */
+  const char *scheme; /**< e.g. "http", "wss"          */
   size_t      scheme_len;
 
-  const char *userinfo;     /**< e.g. "user:pass" (optional) */
+  const char *userinfo; /**< e.g. "user:pass" (optional) */
   size_t      userinfo_len;
 
-  const char *host;         /**< e.g. "example.com"          */
+  const char *host; /**< e.g. "example.com"          */
   size_t      host_len;
 
-  const char *port;         /**< e.g. "8080" (optional)      */
+  const char *port; /**< e.g. "8080" (optional)      */
   size_t      port_len;
 
-  const char *path;         /**< e.g. "/ws/chat"             */
+  const char *path; /**< e.g. "/ws/chat"             */
   size_t      path_len;
 
-  const char *query;        /**< e.g. "key=val" (optional)   */
+  const char *query; /**< e.g. "key=val" (optional)   */
   size_t      query_len;
 
-  const char *fragment;     /**< e.g. "section1" (optional)  */
+  const char *fragment; /**< e.g. "section1" (optional)  */
   size_t      fragment_len;
 };
 

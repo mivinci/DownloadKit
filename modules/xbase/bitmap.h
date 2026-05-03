@@ -30,10 +30,10 @@
  * for lifecycle management, or xBitmapInitStatic to wrap an external buffer.
  */
 XDEF_STRUCT(xBitmap) {
-  uint8_t *data;    /**< Backing byte array                          */
-  uint32_t nbits;   /**< Total number of bits                        */
-  uint32_t nbytes;  /**< Length of @c data in bytes = ceil(nbits/8)  */
-  bool     owned;   /**< True if @c data was allocated by xBitmapInit */
+  uint8_t *data;   /**< Backing byte array                          */
+  uint32_t nbits;  /**< Total number of bits                        */
+  uint32_t nbytes; /**< Length of @c data in bytes = ceil(nbits/8)  */
+  bool     owned;  /**< True if @c data was allocated by xBitmapInit */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────── */
@@ -42,7 +42,8 @@ XDEF_STRUCT(xBitmap) {
  * @brief Initialise a bitmap with @p nbits bits, all cleared to 0.
  * @param bm    Pointer to an uninitialised xBitmap.
  * @param nbits Number of bits (must be > 0).
- * @return xErrno_Ok on success, xErrno_InvalidArg or xErrno_NoMemory on failure.
+ * @return xErrno_Ok on success, xErrno_InvalidArg or xErrno_NoMemory on
+ * failure.
  */
 XCAPI(xErrno) xBitmapInit(xBitmap *bm, uint32_t nbits);
 
@@ -54,8 +55,8 @@ XCAPI(xErrno) xBitmapInit(xBitmap *bm, uint32_t nbits);
  * @param nbits  Logical number of bits (<= nbytes * 8).
  * @return xErrno_Ok on success.
  */
-XCAPI(xErrno) xBitmapInitStatic(xBitmap *bm, uint8_t *data,
-                                uint32_t nbytes, uint32_t nbits);
+XCAPI(xErrno) xBitmapInitStatic(xBitmap *bm, uint8_t *data, uint32_t nbytes,
+                                uint32_t nbits);
 
 /**
  * @brief Free the bitmap's internal buffer (no-op for static bitmaps).

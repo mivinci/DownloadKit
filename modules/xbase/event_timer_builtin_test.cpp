@@ -50,21 +50,34 @@ static int make_pipe(int fds[2]) {
   addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   addr.sin_port        = 0;
   if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-    closesocket(listener); return -1;
+    closesocket(listener);
+    return -1;
   }
-  if (listen(listener, 1) != 0) { closesocket(listener); return -1; }
+  if (listen(listener, 1) != 0) {
+    closesocket(listener);
+    return -1;
+  }
   int addrlen = sizeof(addr);
   if (getsockname(listener, (struct sockaddr *)&addr, &addrlen) != 0) {
-    closesocket(listener); return -1;
+    closesocket(listener);
+    return -1;
   }
   SOCKET conn = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (conn == INVALID_SOCKET) { closesocket(listener); return -1; }
+  if (conn == INVALID_SOCKET) {
+    closesocket(listener);
+    return -1;
+  }
   if (connect(conn, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-    closesocket(listener); closesocket(conn); return -1;
+    closesocket(listener);
+    closesocket(conn);
+    return -1;
   }
   SOCKET acceptor = accept(listener, NULL, NULL);
   closesocket(listener);
-  if (acceptor == INVALID_SOCKET) { closesocket(conn); return -1; }
+  if (acceptor == INVALID_SOCKET) {
+    closesocket(conn);
+    return -1;
+  }
   u_long mode = 1;
   ioctlsocket(acceptor, FIONBIO, &mode);
   ioctlsocket(conn, FIONBIO, &mode);

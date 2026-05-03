@@ -15,8 +15,8 @@ extern "C" {
 #include "tls_private.h"
 #endif
 #include "transport_private.h"
-#include <xnet/transport.h>
 #include <xnet/compat.h>
+#include <xnet/transport.h>
 }
 
 /* ─── Cross-platform socketpair for Windows ─── */
@@ -30,9 +30,9 @@ static int xnet_socketpair(int domain, int type, int protocol, int sv[2]) {
   if (listener < 0) return -1;
 
   struct sockaddr_in addr = {};
-  addr.sin_family      = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  addr.sin_port        = 0;
+  addr.sin_family         = AF_INET;
+  addr.sin_addr.s_addr    = htonl(INADDR_LOOPBACK);
+  addr.sin_port           = 0;
 
   if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
     xnet_close(listener);
@@ -67,7 +67,7 @@ static int xnet_socketpair(int domain, int type, int protocol, int sv[2]) {
   }
   return 0;
 }
-#define socketpair(d,t,p,sv) xnet_socketpair(d,t,p,sv)
+#define socketpair(d, t, p, sv) xnet_socketpair(d, t, p, sv)
 #endif
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -124,13 +124,13 @@ TEST_F(PlainTransportTest, Writev) {
   ASSERT_NE(t.writev, nullptr);
 
   /* Write through the transport using scatter-gather */
-  xnet_iovec iov[2];
-  const char  *part1 = "hello ";
-  const char  *part2 = "world";
-  iov[0].iov_base    = (void *)part1;
-  iov[0].iov_len     = strlen(part1);
-  iov[1].iov_base    = (void *)part2;
-  iov[1].iov_len     = strlen(part2);
+  xnet_iovec  iov[2];
+  const char *part1 = "hello ";
+  const char *part2 = "world";
+  iov[0].iov_base   = (void *)part1;
+  iov[0].iov_len    = strlen(part1);
+  iov[1].iov_base   = (void *)part2;
+  iov[1].iov_len    = strlen(part2);
 
   ssize_t nw = t.writev(t.ctx, iov, 2);
   ASSERT_GT(nw, 0);

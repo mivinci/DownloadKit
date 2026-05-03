@@ -11,7 +11,9 @@
 #include <gtest/gtest.h>
 
 #ifdef _WIN32
-TEST(Timer, SkipOnWindows) { GTEST_SKIP() << "Timer tests need POSIX adapter"; }
+TEST(Timer, SkipOnWindows) {
+  GTEST_SKIP() << "Timer tests need POSIX adapter";
+}
 #else
 #include <xbase/timer.h>
 

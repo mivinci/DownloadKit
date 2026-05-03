@@ -54,7 +54,7 @@ XDEF_STRUCT(xTreeNode) {
 XDEF_STRUCT(xMapTree) {
   xMapBase   base; /* must be first */
   xTreeNode *root;
-  size_t     size; /* total key-value pairs (including overflow) */
+  size_t     size;          /* total key-value pairs (including overflow) */
   xSlab     *node_pool;     /* xTreeNode pool */
   xSlab     *overflow_pool; /* xTreeOverflow pool */
 };

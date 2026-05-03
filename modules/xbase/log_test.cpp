@@ -237,11 +237,9 @@ TEST(LogDeathTest, FatalCallbackReceivesBacktrace) {
 
 TEST_F(LogTest, NonFatalBacktraceIsNull) {
   static const char *received_bt = nullptr;
-  xLogSetCallback(
-    [](const char *, const char *backtrace, void *) {
-      received_bt = backtrace;
-    },
-    nullptr);
+  xLogSetCallback([](const char *, const char *backtrace,
+                     void *) { received_bt = backtrace; },
+                  nullptr);
   xLog(false, "non-fatal");
   EXPECT_EQ(received_bt, nullptr);
 }

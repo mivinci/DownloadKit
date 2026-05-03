@@ -57,8 +57,7 @@ XDEF_STRUCT(xNote) {
 };
 
 /** @brief Static initializer for xNote. */
-#define X_NOTE_INIT \
-  { 0 }
+#define X_NOTE_INIT {0}
 
 /**
  * @brief Initialize a note to the pending state.

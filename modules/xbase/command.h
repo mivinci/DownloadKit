@@ -235,7 +235,8 @@ XCAPI(int) xCommandExecutorPtyFd(xCommandExecutor exec);
  * is destroyed. The caller should NOT close the returned fd.
  *
  * @param exec  Executor handle (NULL-safe).
- * @return      Writable fd for child stdin, or -1 if not running / not available.
+ * @return      Writable fd for child stdin, or -1 if not running / not
+ * available.
  */
 XCAPI(int) xCommandExecutorStdinFd(xCommandExecutor exec);
 

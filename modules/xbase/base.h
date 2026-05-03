@@ -22,13 +22,13 @@
  */
 
 #if defined(_WIN32) && !defined(XK_STATIC)
-#  ifdef XK_BUILD
-#    define XK_EXPORT __declspec(dllexport)
-#  else
-#    define XK_EXPORT __declspec(dllimport)
-#  endif
+#ifdef XK_BUILD
+#define XK_EXPORT __declspec(dllexport)
 #else
-#  define XK_EXPORT
+#define XK_EXPORT __declspec(dllimport)
+#endif
+#else
+#define XK_EXPORT
 #endif
 
 /**

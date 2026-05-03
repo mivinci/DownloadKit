@@ -732,8 +732,8 @@ TEST(EventReadWrite, BothReadAndWrite) {
 
   /* Monitor write end for both read and write.
    * Write end of a pipe is always writable. */
-  auto *ctx_pair = new std::pair<xEventMask *, int *>(&got_mask, &count);
-  xEventSource src = xEventAdd(
+  auto        *ctx_pair = new std::pair<xEventMask *, int *>(&got_mask, &count);
+  xEventSource src      = xEventAdd(
     loop, fds[1], (xEventMask)(xEvent_Read | xEvent_Write),
     [](int, xEventMask mask, void *arg) {
       auto *ctx = static_cast<std::pair<xEventMask *, int *> *>(arg);

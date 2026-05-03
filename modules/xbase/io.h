@@ -76,12 +76,12 @@
 #include <stddef.h>
 
 #ifdef _WIN32
-typedef long xSsize;
+typedef long    xSsize;
 typedef __int64 xOff;
 #else
 #include <sys/types.h>
 typedef ssize_t xSsize;
-typedef off_t xOff;
+typedef off_t   xOff;
 #endif
 
 /**

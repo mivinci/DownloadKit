@@ -101,6 +101,7 @@ TEST(ErrorTest, ReturnValueNeverNull) {
   for (int i = -10; i < 100; i++) {
     const char *msg = xstrerror((xErrno)i);
     ASSERT_NE(msg, nullptr) << "xstrerror(" << i << ") returned NULL";
-    EXPECT_GT(std::strlen(msg), 0u) << "xstrerror(" << i << ") returned empty string";
+    EXPECT_GT(std::strlen(msg), 0u)
+      << "xstrerror(" << i << ") returned empty string";
   }
 }

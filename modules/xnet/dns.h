@@ -19,12 +19,12 @@
  * @brief A single resolved address entry (linked list node).
  */
 XDEF_STRUCT(xDnsAddr) {
-  struct sockaddr_storage addr; /**< Resolved socket address              */
-  socklen_t               addrlen;  /**< Length of the address            */
-  int                     family;   /**< Address family (AF_INET / AF_INET6) */
-  int                     socktype; /**< Socket type (SOCK_STREAM / SOCK_DGRAM) */
-  int                     protocol; /**< Protocol (IPPROTO_TCP / IPPROTO_UDP) */
-  xDnsAddr               *next;     /**< Next address in the list, or NULL */
+  struct sockaddr_storage addr;    /**< Resolved socket address              */
+  socklen_t               addrlen; /**< Length of the address            */
+  int                     family;  /**< Address family (AF_INET / AF_INET6) */
+  int       socktype; /**< Socket type (SOCK_STREAM / SOCK_DGRAM) */
+  int       protocol; /**< Protocol (IPPROTO_TCP / IPPROTO_UDP) */
+  xDnsAddr *next;     /**< Next address in the list, or NULL */
 };
 
 /**
@@ -74,8 +74,7 @@ typedef void (*xDnsCallback)(xDnsResult *result, void *arg);
  * @return          A query handle, or NULL on invalid arguments.
  */
 XCAPI(xDnsQuery) xDnsResolve(xEventLoop loop, const char *hostname,
-                             const char *service,
-                             const struct addrinfo *hints,
+                             const char *service, const struct addrinfo *hints,
                              xDnsCallback callback, void *arg);
 
 /**

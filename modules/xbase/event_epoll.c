@@ -96,15 +96,15 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
     (struct xEventLoopEpoll_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
-  loop->epfd              = -1;
-  loop->base.wake_rfd     = -1;
-  loop->base.wake_wfd     = -1;
-  loop->base.stopped      = 0;
-  loop->base.timer_heap   = NULL;
-  loop->base.task_group   = group;
+  loop->epfd            = -1;
+  loop->base.wake_rfd   = -1;
+  loop->base.wake_wfd   = -1;
+  loop->base.stopped    = 0;
+  loop->base.timer_heap = NULL;
+  loop->base.task_group = group;
   source_array_init(&loop->base.sources);
-  loop->base.done_head = NULL;
-  loop->base.done_tail = NULL;
+  loop->base.done_head     = NULL;
+  loop->base.done_tail     = NULL;
   loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
   xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);

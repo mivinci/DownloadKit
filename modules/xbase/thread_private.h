@@ -65,8 +65,7 @@ static inline void xCondWait(xCond *c, xMutex *m) {
   SleepConditionVariableCS(c, m, INFINITE);
 }
 
-static inline int xThreadCreate(xThread *t,
-                                 void *(*fn)(void *), void *arg) {
+static inline int xThreadCreate(xThread *t, void *(*fn)(void *), void *arg) {
   *t = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)fn, arg, 0, NULL);
   return *t ? 0 : -1;
 }
@@ -76,8 +75,7 @@ static inline void xThreadJoin(xThread t) {
   CloseHandle(t);
 }
 
-static BOOL CALLBACK _xonce_trampoline(PINIT_ONCE o, PVOID param,
-                                        PVOID *ctx) {
+static BOOL CALLBACK _xonce_trampoline(PINIT_ONCE o, PVOID param, PVOID *ctx) {
   ((void (*)(void))param)();
   return TRUE;
 }
@@ -92,10 +90,10 @@ static inline void xOnceCall(xOnce *o, void (*fn)(void)) {
 
 #include <pthread.h>
 
-typedef pthread_t        xThread;
-typedef pthread_mutex_t  xMutex;
-typedef pthread_cond_t   xCond;
-typedef pthread_once_t   xOnce;
+typedef pthread_t       xThread;
+typedef pthread_mutex_t xMutex;
+typedef pthread_cond_t  xCond;
+typedef pthread_once_t  xOnce;
 
 #define X_ONCE_INIT PTHREAD_ONCE_INIT
 
@@ -135,8 +133,7 @@ static inline void xCondWait(xCond *c, xMutex *m) {
   pthread_cond_wait(c, m);
 }
 
-static inline int xThreadCreate(xThread *t,
-                                 void *(*fn)(void *), void *arg) {
+static inline int xThreadCreate(xThread *t, void *(*fn)(void *), void *arg) {
   return pthread_create(t, NULL, fn, arg);
 }
 

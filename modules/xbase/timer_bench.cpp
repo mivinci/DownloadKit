@@ -33,9 +33,9 @@ BENCHMARK(BM_Timer_SubmitCancel);
 // BM_Timer_SubmitBatch: Measure batch submit throughput
 static void BM_Timer_SubmitBatch(benchmark::State &state) {
   const int64_t n = state.range(0);
-  xTimer t = xTimerCreate(nullptr);
+  xTimer        t = xTimerCreate(nullptr);
 
-  auto noop = [](void *) {};
+  auto                    noop = [](void *) {};
   std::vector<xTimerTask> tasks(n);
 
   for (auto _ : state) {
@@ -58,12 +58,12 @@ BENCHMARK(BM_Timer_SubmitBatch)->Arg(10)->Arg(100)->Arg(1000);
 // BM_Timer_FirePoll: Measure timer fire + poll throughput
 static void BM_Timer_FirePoll(benchmark::State &state) {
   const int64_t n = state.range(0);
-  xTimer t = xTimerCreate(nullptr); // Poll mode
+  xTimer        t = xTimerCreate(nullptr); // Poll mode
 
   std::atomic<int64_t> counter{0};
-  auto cb = [](void *arg) {
-    static_cast<std::atomic<int64_t> *>(arg)->fetch_add(1,
-                                                         std::memory_order_relaxed);
+  auto                 cb = [](void *arg) {
+    static_cast<std::atomic<int64_t> *>(arg)->fetch_add(
+      1, std::memory_order_relaxed);
   };
 
   for (auto _ : state) {

@@ -13,8 +13,8 @@
 #define XNET_TRANSPORT_H
 
 #include <xbase/base.h>
-#include <xnet/tls.h>
 #include <xnet/compat.h>
+#include <xnet/tls.h>
 
 #include <stddef.h>
 

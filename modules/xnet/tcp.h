@@ -19,9 +19,9 @@
 #include <xbase/event.h>
 #include <xbase/io.h>
 #include <xbase/socket.h>
+#include <xnet/compat.h>
 #include <xnet/tls.h>
 #include <xnet/transport.h>
-#include <xnet/compat.h>
 
 /* ═══════════════════════════════════════════════════════════════════
  *  xTcpConn — connection resource wrapper
@@ -169,11 +169,11 @@ XCAPI(xWriter) xTcpConnWriter(xTcpConn conn);
  * @brief Configuration for xTcpConnect.
  */
 XDEF_STRUCT(xTcpConnectConf) {
-  xTlsCtx         tls_ctx;   /**< Shared TLS context (preferred), or NULL */
-  const xTlsConf *tls;       /**< TLS config for auto-created ctx, or NULL */
-  int timeout_ms;            /**< Connect timeout in ms (0 = default 10s) */
-  int nodelay;               /**< Set TCP_NODELAY if non-zero             */
-  int keepalive;             /**< Set SO_KEEPALIVE if non-zero            */
+  xTlsCtx         tls_ctx;    /**< Shared TLS context (preferred), or NULL */
+  const xTlsConf *tls;        /**< TLS config for auto-created ctx, or NULL */
+  int             timeout_ms; /**< Connect timeout in ms (0 = default 10s) */
+  int             nodelay;    /**< Set TCP_NODELAY if non-zero             */
+  int             keepalive;  /**< Set SO_KEEPALIVE if non-zero            */
 };
 
 /**
@@ -220,9 +220,9 @@ XDEF_HANDLE(xTcpListener);
  * @brief Configuration for xTcpListener.
  */
 XDEF_STRUCT(xTcpListenerConf) {
-  xTlsCtx tls_ctx; /**< TLS context from xTlsCtxCreate(), or NULL       */
-  int   backlog;   /**< listen() backlog (0 = default 128)               */
-  int   reuseport; /**< Set SO_REUSEPORT if non-zero                    */
+  xTlsCtx tls_ctx;   /**< TLS context from xTlsCtxCreate(), or NULL       */
+  int     backlog;   /**< listen() backlog (0 = default 128)               */
+  int     reuseport; /**< Set SO_REUSEPORT if non-zero                    */
 };
 
 /**

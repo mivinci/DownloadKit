@@ -17,9 +17,9 @@
 #include <xbase/note.h>
 #include <xbase/slab.h>
 
+#include "thread_private.h"
 #include <stdlib.h>
 #include <string.h>
-#include "thread_private.h"
 
 /* ───────────────────── Internal types ───────────────────── */
 
@@ -28,8 +28,8 @@ struct xTask_ {
   void     *arg;
 
   /* Completion notification — lightweight one-shot (4 bytes, no destroy). */
-  xNote  note;
-  void  *result;
+  xNote note;
+  void *result;
 
   /* Back-pointer to owning group */
   struct xTaskGroup_ *group;
@@ -41,22 +41,23 @@ struct xTask_ {
   xMpsc done_link;
 
   /* Task lifecycle state — used for cancel and drain.
-   * Type is long for xAtomic* portability (MSVC Interlocked* operates on long). */
+   * Type is long for xAtomic* portability (MSVC Interlocked* operates on long).
+   */
   long state;
 };
 
 struct xTaskGroup_ {
   xThread *workers;
-  size_t     max_threads;
-  size_t     nthreads;
+  size_t   max_threads;
+  size_t   nthreads;
 
   /* Task queue (protected by qlock) */
-  xMutex        qlock;
-  xCond         qcond;
-  struct xTask_  *qhead;
-  struct xTask_  *qtail;
-  size_t          qsize;
-  size_t          qcap;
+  xMutex         qlock;
+  xCond          qcond;
+  struct xTask_ *qhead;
+  struct xTask_ *qtail;
+  size_t         qsize;
+  size_t         qcap;
 
   /* Completed tasks — lock-free MPSC queue.
    * Workers push via xMpscPush (multi-producer), drain happens on a
@@ -364,8 +365,7 @@ xErrno xTaskCancel(xTask t_) {
    * return xErrno_Busy so the caller knows fn() is (or was) in
    * flight and must xTaskWait() before releasing the arg. */
   long expected = TASK_QUEUED;
-  if (xAtomicCasStrong(&t->state, &expected, TASK_CANCELLED,
-                        xAtomicAcqRel)) {
+  if (xAtomicCasStrong(&t->state, &expected, TASK_CANCELLED, xAtomicAcqRel)) {
     return xErrno_Ok;
   }
 
@@ -404,7 +404,7 @@ size_t xTaskGroupPending(xTaskGroup g_) {
 /* ───────────────────── Global task group ───────────────────── */
 
 static xTaskGroup g_global_group = NULL;
-static xOnce    g_global_once  = X_ONCE_INIT;
+static xOnce      g_global_once  = X_ONCE_INIT;
 
 static void global_group_destroy(void) {
   if (g_global_group) {

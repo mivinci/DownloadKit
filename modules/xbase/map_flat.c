@@ -197,7 +197,8 @@ static const xMapVTable flat_vtable = {
 
 xMap xMapFlatCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq) {
   /* Single allocation: struct + initial slot array in contiguous memory */
-  xMapFlat *f = (xMapFlat *)calloc(1, sizeof(xMapFlat) + cap * sizeof(xMapFlatSlot));
+  xMapFlat *f =
+    (xMapFlat *)calloc(1, sizeof(xMapFlat) + cap * sizeof(xMapFlatSlot));
   if (!f) return NULL;
 
   f->slots       = (xMapFlatSlot *)(f + 1);

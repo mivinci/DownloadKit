@@ -44,12 +44,12 @@ XDEF_HANDLE(xTlsCtx);
  *   - `key_password` provides the private key passphrase.
  */
 XDEF_STRUCT(xTlsConf) {
-  const char  *cert;         /**< Path to PEM certificate file (NULL = none)       */
-  const char  *key;          /**< Path to PEM private key file (NULL = none)       */
-  const char  *ca;           /**< Path to CA cert file (NULL = system default)     */
-  const char  *key_password; /**< Private key password (NULL = none)               */
-  const char **alpn;         /**< NULL-terminated ALPN protocol list (NULL = none) */
-  int          skip_verify;  /**< If non-zero, skip peer & host verification       */
+  const char  *cert; /**< Path to PEM certificate file (NULL = none)       */
+  const char  *key;  /**< Path to PEM private key file (NULL = none)       */
+  const char  *ca;   /**< Path to CA cert file (NULL = system default)     */
+  const char  *key_password; /**< Private key password (NULL = none) */
+  const char **alpn; /**< NULL-terminated ALPN protocol list (NULL = none) */
+  int skip_verify;   /**< If non-zero, skip peer & host verification       */
 };
 
 /**

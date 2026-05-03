@@ -78,12 +78,15 @@
 static inline long _xInterlockedXchg(volatile long *p, long v) {
   return _InterlockedExchange(p, v);
 }
-#define xAtomicXchg(p, v, o)  _xInterlockedXchg((volatile long *)(p), (long)(v))
+#define xAtomicXchg(p, v, o) _xInterlockedXchg((volatile long *)(p), (long)(v))
 
 static inline long _xInterlockedCas(volatile long *p, long *e, long d) {
   long comparand = *e;
-  long old = _InterlockedCompareExchange(p, d, comparand);
-  if (old != comparand) { *e = old; return 0; }
+  long old       = _InterlockedCompareExchange(p, d, comparand);
+  if (old != comparand) {
+    *e = old;
+    return 0;
+  }
   return 1;
 }
 #define xAtomicCasWeak(p, e, d, o) \
@@ -149,8 +152,11 @@ static inline void *_xInterlockedXchgPtr(void *volatile *p, void *v) {
 
 static inline int _xInterlockedCasPtr(void *volatile *p, void **e, void *d) {
   void *comparand = *e;
-  void *old = _InterlockedCompareExchangePointer(p, d, comparand);
-  if (old != comparand) { *e = old; return 0; }
+  void *old       = _InterlockedCompareExchangePointer(p, d, comparand);
+  if (old != comparand) {
+    *e = old;
+    return 0;
+  }
   return 1;
 }
 #define xAtomicCasPtrWeak(p, e, d, o) \

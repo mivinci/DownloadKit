@@ -33,14 +33,14 @@ enum xFlagKind_ {
 struct xFlagEntry_ {
   struct xFlagEntry_ *next;
 
-  char               *name;   /**< Long name (may be NULL)      */
-  char                shortc; /**< Short name, 0 if unused      */
-  char               *meta;   /**< Placeholder (may be NULL)    */
-  char               *help;   /**< One-line description         */
-  char               *def;    /**< Default value as string      */
-  int                 attrs;  /**< xFlagAttr bitmask            */
-  enum xFlagKind_     kind;
-  int                 seen;   /**< Occurrence count             */
+  char           *name;   /**< Long name (may be NULL)      */
+  char            shortc; /**< Short name, 0 if unused      */
+  char           *meta;   /**< Placeholder (may be NULL)    */
+  char           *help;   /**< One-line description         */
+  char           *def;    /**< Default value as string      */
+  int             attrs;  /**< xFlagAttr bitmask            */
+  enum xFlagKind_ kind;
+  int             seen; /**< Occurrence count             */
 
   /* Caller-owned storage pointer. Discriminated by @c kind.    */
   union {
@@ -65,18 +65,18 @@ struct xFlagEntry_ {
 struct xFlagPositional_ {
   struct xFlagPositional_ *next;
 
-  char        *name;
-  char        *help;
-  int          attrs;
-  bool         is_tail;
+  char *name;
+  char *help;
+  int   attrs;
+  bool  is_tail;
 
   /* Single positional storage                                  */
   const char **out_single;
 
   /* Tail storage (xFlagAddPositionalTail)                      */
   const char ***out_tail;
-  size_t        *out_tail_count;
-  const char   **tail_buf; /**< Owned NUL-terminated array     */
+  size_t       *out_tail_count;
+  const char  **tail_buf; /**< Owned NUL-terminated array     */
 };
 
 struct xFlagSet_ {
@@ -85,9 +85,9 @@ struct xFlagSet_ {
   char *epilog;
   char *version;
 
-  struct xFlagEntry_      *flags;     /**< Head of registration order   */
+  struct xFlagEntry_      *flags; /**< Head of registration order   */
   struct xFlagPositional_ *positionals;
-  struct xFlagPositional_ *tail;      /**< Optional single tail entry   */
+  struct xFlagPositional_ *tail; /**< Optional single tail entry   */
 
   size_t n_flags;
   size_t n_positionals;
@@ -175,15 +175,18 @@ static bool xFlagNeedsValue(const struct xFlagEntry_ *e) {
 
 static bool xFlagParseI64(const char *s, int64_t *out) {
   if (!s || !*s) return false;
-  errno = 0;
-  char    *end = NULL;
-  long long v  = strtoll(s, &end, 0); /* auto base: 0x/0b/0     */
+  errno         = 0;
+  char     *end = NULL;
+  long long v   = strtoll(s, &end, 0); /* auto base: 0x/0b/0     */
   /* strtoll does not handle 0b prefix; do it manually.         */
   if ((s[0] == '0' && (s[1] == 'b' || s[1] == 'B')) ||
       (s[0] == '-' && s[1] == '0' && (s[2] == 'b' || s[2] == 'B'))) {
-    int sign = 1;
-    const char *p = s;
-    if (*p == '-') { sign = -1; ++p; }
+    int         sign = 1;
+    const char *p    = s;
+    if (*p == '-') {
+      sign = -1;
+      ++p;
+    }
     p += 2; /* skip 0b */
     if (!*p) return false;
     unsigned long long acc = 0;
@@ -201,7 +204,7 @@ static bool xFlagParseI64(const char *s, int64_t *out) {
 
 static bool xFlagParseU64(const char *s, uint64_t *out) {
   if (!s || !*s || *s == '-') return false;
-  errno = 0;
+  errno                  = 0;
   char              *end = NULL;
   unsigned long long v   = strtoull(s, &end, 0);
   if ((s[0] == '0' && (s[1] == 'b' || s[1] == 'B'))) {
@@ -222,7 +225,7 @@ static bool xFlagParseU64(const char *s, uint64_t *out) {
 
 static bool xFlagParseDouble(const char *s, double *out) {
   if (!s || !*s) return false;
-  errno = 0;
+  errno      = 0;
   char  *end = NULL;
   double v   = strtod(s, &end);
   if (errno != 0 || end == s || *end != '\0') return false;
@@ -347,7 +350,8 @@ static xErrno xFlagSetAddEntry(struct xFlagSet_ *set, struct xFlagEntry_ *e,
     set->flags = e;
   } else {
     struct xFlagEntry_ *x = set->flags;
-    while (x->next) x = x->next;
+    while (x->next)
+      x = x->next;
     x->next = e;
   }
   set->n_flags++;
@@ -449,10 +453,9 @@ XCAPI(void) xFlagSetVersion(xFlagSet set_, const char *version) {
 
 XCAPI(xErrno) xFlagAddString(xFlagSet set_, const char *name, char shortc,
                              const char *meta, const char *help,
-                             const char **storage, const char *def,
-                             int attrs) {
+                             const char **storage, const char *def, int attrs) {
   if (!set_ || !storage || (!name && !shortc)) return xErrno_InvalidArg;
-  struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
+  struct xFlagSet_   *set = (struct xFlagSet_ *)set_;
   struct xFlagEntry_ *e =
     xFlagEntryNew(name, shortc, meta, help, attrs, xFlagKind_String);
   if (!e) return xErrno_NoMemory;
@@ -465,7 +468,7 @@ XCAPI(xErrno) xFlagAddString(xFlagSet set_, const char *name, char shortc,
     free(e);
     return xErrno_NoMemory;
   }
-  *storage = def; /* initialise to default */
+  *storage  = def; /* initialise to default */
   xErrno rc = xFlagSetAddEntry(set, e, name, shortc);
   if (rc != xErrno_Ok) {
     free(e->name);
@@ -480,12 +483,12 @@ XCAPI(xErrno) xFlagAddString(xFlagSet set_, const char *name, char shortc,
 XCAPI(xErrno) xFlagAddBool(xFlagSet set_, const char *name, char shortc,
                            const char *help, bool *storage, int attrs) {
   if (!set_ || !storage || (!name && !shortc)) return xErrno_InvalidArg;
-  struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
+  struct xFlagSet_   *set = (struct xFlagSet_ *)set_;
   struct xFlagEntry_ *e =
     xFlagEntryNew(name, shortc, NULL, help, attrs, xFlagKind_Bool);
   if (!e) return xErrno_NoMemory;
-  e->out.b = storage;
-  *storage = false;
+  e->out.b  = storage;
+  *storage  = false;
   xErrno rc = xFlagSetAddEntry(set, e, name, shortc);
   if (rc != xErrno_Ok) {
     free(e->name);
@@ -496,16 +499,16 @@ XCAPI(xErrno) xFlagAddBool(xFlagSet set_, const char *name, char shortc,
 }
 
 XCAPI(xErrno) xFlagAddInt(xFlagSet set_, const char *name, char shortc,
-                          const char *meta, const char *help,
-                          int *storage, int def, int attrs) {
+                          const char *meta, const char *help, int *storage,
+                          int def, int attrs) {
   if (!set_ || !storage || (!name && !shortc)) return xErrno_InvalidArg;
-  struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
+  struct xFlagSet_   *set = (struct xFlagSet_ *)set_;
   struct xFlagEntry_ *e =
     xFlagEntryNew(name, shortc, meta, help, attrs, xFlagKind_Int);
   if (!e) return xErrno_NoMemory;
-  e->out.i = storage;
-  e->def   = xFlagAsprintf("%d", def);
-  *storage = def;
+  e->out.i  = storage;
+  e->def    = xFlagAsprintf("%d", def);
+  *storage  = def;
   xErrno rc = xFlagSetAddEntry(set, e, name, shortc);
   if (rc != xErrno_Ok) {
     free(e->name);
@@ -518,10 +521,10 @@ XCAPI(xErrno) xFlagAddInt(xFlagSet set_, const char *name, char shortc,
 }
 
 XCAPI(xErrno) xFlagAddI64(xFlagSet set_, const char *name, char shortc,
-                          const char *meta, const char *help,
-                          int64_t *storage, int64_t def, int attrs) {
+                          const char *meta, const char *help, int64_t *storage,
+                          int64_t def, int attrs) {
   if (!set_ || !storage || (!name && !shortc)) return xErrno_InvalidArg;
-  struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
+  struct xFlagSet_   *set = (struct xFlagSet_ *)set_;
   struct xFlagEntry_ *e =
     xFlagEntryNew(name, shortc, meta, help, attrs, xFlagKind_I64);
   if (!e) return xErrno_NoMemory;
@@ -540,10 +543,10 @@ XCAPI(xErrno) xFlagAddI64(xFlagSet set_, const char *name, char shortc,
 }
 
 XCAPI(xErrno) xFlagAddU64(xFlagSet set_, const char *name, char shortc,
-                          const char *meta, const char *help,
-                          uint64_t *storage, uint64_t def, int attrs) {
+                          const char *meta, const char *help, uint64_t *storage,
+                          uint64_t def, int attrs) {
   if (!set_ || !storage || (!name && !shortc)) return xErrno_InvalidArg;
-  struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
+  struct xFlagSet_   *set = (struct xFlagSet_ *)set_;
   struct xFlagEntry_ *e =
     xFlagEntryNew(name, shortc, meta, help, attrs, xFlagKind_U64);
   if (!e) return xErrno_NoMemory;
@@ -565,13 +568,13 @@ XCAPI(xErrno) xFlagAddDouble(xFlagSet set_, const char *name, char shortc,
                              const char *meta, const char *help,
                              double *storage, double def, int attrs) {
   if (!set_ || !storage || (!name && !shortc)) return xErrno_InvalidArg;
-  struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
+  struct xFlagSet_   *set = (struct xFlagSet_ *)set_;
   struct xFlagEntry_ *e =
     xFlagEntryNew(name, shortc, meta, help, attrs, xFlagKind_Double);
   if (!e) return xErrno_NoMemory;
-  e->out.d = storage;
-  e->def   = xFlagAsprintf("%g", def);
-  *storage = def;
+  e->out.d  = storage;
+  e->def    = xFlagAsprintf("%g", def);
+  *storage  = def;
   xErrno rc = xFlagSetAddEntry(set, e, name, shortc);
   if (rc != xErrno_Ok) {
     free(e->name);
@@ -585,12 +588,11 @@ XCAPI(xErrno) xFlagAddDouble(xFlagSet set_, const char *name, char shortc,
 
 XCAPI(xErrno) xFlagAddChoice(xFlagSet set_, const char *name, char shortc,
                              const char *meta, const char *help,
-                             const char *const *choices,
-                             const char **storage, const char *def,
-                             int attrs) {
+                             const char *const *choices, const char **storage,
+                             const char *def, int attrs) {
   if (!set_ || !storage || !choices || (!name && !shortc))
     return xErrno_InvalidArg;
-  struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
+  struct xFlagSet_   *set = (struct xFlagSet_ *)set_;
   struct xFlagEntry_ *e =
     xFlagEntryNew(name, shortc, meta, help, attrs, xFlagKind_Choice);
   if (!e) return xErrno_NoMemory;
@@ -612,7 +614,7 @@ XCAPI(xErrno) xFlagAddChoice(xFlagSet set_, const char *name, char shortc,
 XCAPI(xErrno) xFlagAddCounter(xFlagSet set_, const char *name, char shortc,
                               const char *help, int *storage, int attrs) {
   if (!set_ || !storage || (!name && !shortc)) return xErrno_InvalidArg;
-  struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
+  struct xFlagSet_   *set = (struct xFlagSet_ *)set_;
   struct xFlagEntry_ *e =
     xFlagEntryNew(name, shortc, NULL, help, attrs, xFlagKind_Counter);
   if (!e) return xErrno_NoMemory;
@@ -638,8 +640,7 @@ XCAPI(xErrno) xFlagAddPositional(xFlagSet set_, const char *name,
     /* Positionals after a tail are not allowed.                */
     return xErrno_InvalidArg;
   }
-  struct xFlagPositional_ *p =
-    (struct xFlagPositional_ *)calloc(1, sizeof(*p));
+  struct xFlagPositional_ *p = (struct xFlagPositional_ *)calloc(1, sizeof(*p));
   if (!p) return xErrno_NoMemory;
   p->name       = xFlagStrdup(name);
   p->help       = xFlagStrdup(help);
@@ -651,7 +652,8 @@ XCAPI(xErrno) xFlagAddPositional(xFlagSet set_, const char *name,
     set->positionals = p;
   } else {
     struct xFlagPositional_ *x = set->positionals;
-    while (x->next) x = x->next;
+    while (x->next)
+      x = x->next;
     x->next = p;
   }
   set->n_positionals++;
@@ -659,14 +661,12 @@ XCAPI(xErrno) xFlagAddPositional(xFlagSet set_, const char *name,
 }
 
 XCAPI(xErrno) xFlagAddPositionalTail(xFlagSet set_, const char *name,
-                                     const char *help,
-                                     const char ***storage, size_t *count,
-                                     int attrs) {
+                                     const char *help, const char ***storage,
+                                     size_t *count, int attrs) {
   if (!set_ || !storage || !name) return xErrno_InvalidArg;
   struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
   if (set->tail) return xErrno_AlreadyExists;
-  struct xFlagPositional_ *p =
-    (struct xFlagPositional_ *)calloc(1, sizeof(*p));
+  struct xFlagPositional_ *p = (struct xFlagPositional_ *)calloc(1, sizeof(*p));
   if (!p) return xErrno_NoMemory;
   p->name           = xFlagStrdup(name);
   p->help           = xFlagStrdup(help);
@@ -725,9 +725,12 @@ XCAPI(xErrno) xFlagParse(xFlagSet set_, int argc, char *const argv[],
       ++i;
       while (i < argc) {
         if (pos_cnt >= pos_cap) {
-          int   ncap = pos_cap ? pos_cap * 2 : 8;
-          int  *p    = (int *)realloc(pos_idx, (size_t)ncap * sizeof(int));
-          if (!p) { free(pos_idx); return xErrno_NoMemory; }
+          int  ncap = pos_cap ? pos_cap * 2 : 8;
+          int *p    = (int *)realloc(pos_idx, (size_t)ncap * sizeof(int));
+          if (!p) {
+            free(pos_idx);
+            return xErrno_NoMemory;
+          }
           pos_idx = p;
           pos_cap = ncap;
         }
@@ -739,9 +742,12 @@ XCAPI(xErrno) xFlagParse(xFlagSet set_, int argc, char *const argv[],
     /* "-" alone is a positional (stdin idiom).                  */
     if (a[0] != '-' || a[1] == '\0') {
       if (pos_cnt >= pos_cap) {
-        int   ncap = pos_cap ? pos_cap * 2 : 8;
-        int  *p    = (int *)realloc(pos_idx, (size_t)ncap * sizeof(int));
-        if (!p) { free(pos_idx); return xErrno_NoMemory; }
+        int  ncap = pos_cap ? pos_cap * 2 : 8;
+        int *p    = (int *)realloc(pos_idx, (size_t)ncap * sizeof(int));
+        if (!p) {
+          free(pos_idx);
+          return xErrno_NoMemory;
+        }
         pos_idx = p;
         pos_cap = ncap;
       }
@@ -791,13 +797,16 @@ XCAPI(xErrno) xFlagParse(xFlagSet set_, int argc, char *const argv[],
         return xErrno_InvalidArg;
       }
       xErrno rc = xFlagApplyFlag(e, value, err_out);
-      if (rc != xErrno_Ok) { free(pos_idx); return rc; }
+      if (rc != xErrno_Ok) {
+        free(pos_idx);
+        return rc;
+      }
       ++i;
       continue;
     }
 
     /* Short option(s): -a / -abc / -fvalue / -f value           */
-    const char *p = a + 1;
+    const char *p             = a + 1;
     bool        consumed_next = false;
     while (*p) {
       /* Built-ins: -h / -V                                      */
@@ -832,13 +841,19 @@ XCAPI(xErrno) xFlagParse(xFlagSet set_, int argc, char *const argv[],
           return xErrno_InvalidArg;
         }
         xErrno rc = xFlagApplyFlag(e, value, err_out);
-        if (rc != xErrno_Ok) { free(pos_idx); return rc; }
+        if (rc != xErrno_Ok) {
+          free(pos_idx);
+          return rc;
+        }
         break; /* short-with-arg consumes the rest of this token */
       }
 
       /* No-arg short (bool / counter): keep bundling.           */
       xErrno rc = xFlagApplyFlag(e, NULL, err_out);
-      if (rc != xErrno_Ok) { free(pos_idx); return rc; }
+      if (rc != xErrno_Ok) {
+        free(pos_idx);
+        return rc;
+      }
       ++p;
     }
     (void)consumed_next;
@@ -860,8 +875,8 @@ XCAPI(xErrno) xFlagParse(xFlagSet set_, int argc, char *const argv[],
   }
 
   /* Positional assignment.                                      */
-  int p_at = 0;
-  struct xFlagPositional_ *pp = set->positionals;
+  int                      p_at = 0;
+  struct xFlagPositional_ *pp   = set->positionals;
   while (pp) {
     if (p_at < pos_cnt) {
       *pp->out_single = argv[pos_idx[p_at++]];
@@ -877,10 +892,13 @@ XCAPI(xErrno) xFlagParse(xFlagSet set_, int argc, char *const argv[],
     /* Expand remaining positionals into tail array.             */
     int n = pos_cnt - p_at;
     if (n < 0) n = 0;
-    const char **buf =
-      (const char **)malloc((size_t)(n + 1) * sizeof(*buf));
-    if (!buf) { free(pos_idx); return xErrno_NoMemory; }
-    for (int k = 0; k < n; ++k) buf[k] = argv[pos_idx[p_at + k]];
+    const char **buf = (const char **)malloc((size_t)(n + 1) * sizeof(*buf));
+    if (!buf) {
+      free(pos_idx);
+      return xErrno_NoMemory;
+    }
+    for (int k = 0; k < n; ++k)
+      buf[k] = argv[pos_idx[p_at + k]];
     buf[n] = NULL;
     free(set->tail->tail_buf);
     set->tail->tail_buf  = buf;
@@ -905,8 +923,8 @@ XCAPI(xErrno) xFlagParse(xFlagSet set_, int argc, char *const argv[],
 
 /* "-f, --file FILE" header used in help.                        */
 static void xFlagFormatHeader(const struct xFlagEntry_ *e, FILE *fp) {
-  bool needs = xFlagNeedsValue(e);
-  const char *meta = e->meta ? e->meta : (needs ? "VALUE" : NULL);
+  bool        needs = xFlagNeedsValue(e);
+  const char *meta  = e->meta ? e->meta : (needs ? "VALUE" : NULL);
   if (e->shortc && e->name) {
     fprintf(fp, "  -%c, --%s", e->shortc, e->name);
   } else if (e->shortc) {
@@ -920,7 +938,7 @@ static void xFlagFormatHeader(const struct xFlagEntry_ *e, FILE *fp) {
 XCAPI(void) xFlagPrintUsage(xFlagSet set_, void *fp_) {
   if (!set_ || !fp_) return;
   struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
-  FILE *fp = (FILE *)fp_;
+  FILE             *fp  = (FILE *)fp_;
   fprintf(fp, "USAGE: %s", set->prog);
 
   bool has_options = false;
@@ -951,7 +969,7 @@ XCAPI(void) xFlagPrintUsage(xFlagSet set_, void *fp_) {
 XCAPI(void) xFlagPrintHelp(xFlagSet set_, void *fp_) {
   if (!set_ || !fp_) return;
   struct xFlagSet_ *set = (struct xFlagSet_ *)set_;
-  FILE *fp = (FILE *)fp_;
+  FILE             *fp  = (FILE *)fp_;
 
   xFlagPrintUsage(set, fp);
   if (set->summary) fprintf(fp, "\n%s\n", set->summary);
@@ -973,7 +991,10 @@ XCAPI(void) xFlagPrintHelp(xFlagSet set_, void *fp_) {
   /* Options section.                                            */
   bool any_visible = false;
   for (struct xFlagEntry_ *e = set->flags; e; e = e->next) {
-    if (!(e->attrs & xFlagAttr_Hidden)) { any_visible = true; break; }
+    if (!(e->attrs & xFlagAttr_Hidden)) {
+      any_visible = true;
+      break;
+    }
   }
   if (any_visible) {
     fprintf(fp, "\nOPTIONS:\n");

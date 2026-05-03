@@ -17,8 +17,8 @@ extern "C" {
 /* ── Test element ── */
 
 struct Pod {
-  int  x;
-  int  y;
+  int x;
+  int y;
 };
 
 struct Heap {
@@ -27,7 +27,7 @@ struct Heap {
 
 /* ── Callbacks ── */
 
-static int g_retain_count = 0;
+static int g_retain_count  = 0;
 static int g_release_count = 0;
 
 static void pod_retain(void *elem) {
@@ -47,16 +47,16 @@ static void heap_release(void *elem) {
 }
 
 static int pod_equal_x(const void *elem, const void *key) {
-  const Pod *e  = static_cast<const Pod *>(elem);
-  const int *k  = static_cast<const int *>(key);
+  const Pod *e = static_cast<const Pod *>(elem);
+  const int *k = static_cast<const int *>(key);
   return e->x == *k;
 }
 
 /* ── Callback sets ── */
 
-static const xArrayCallbacks kPodCbs = { pod_retain, pod_release, pod_equal_x };
-static const xArrayCallbacks kHeapCbs = { nullptr, heap_release, nullptr };
-static const xArrayCallbacks kNoCbs = { nullptr, nullptr, nullptr };
+static const xArrayCallbacks kPodCbs  = {pod_retain, pod_release, pod_equal_x};
+static const xArrayCallbacks kHeapCbs = {nullptr, heap_release, nullptr};
+static const xArrayCallbacks kNoCbs   = {nullptr, nullptr, nullptr};
 
 /* ── Fixture ── */
 
@@ -67,7 +67,7 @@ protected:
   void SetUp() override {
     g_retain_count  = 0;
     g_release_count = 0;
-    arr = xArrayCreate(sizeof(Pod), 4, &kPodCbs);
+    arr             = xArrayCreate(sizeof(Pod), 4, &kPodCbs);
     ASSERT_NE(arr, nullptr);
   }
 
@@ -161,7 +161,7 @@ TEST_F(ArrayTest, PushTriggersGrowth) {
 
 TEST_F(ArrayTest, PopBasic) {
   Pod *slot = (Pod *)xArrayPush(&arr);
-  slot->x = 42;
+  slot->x   = 42;
   EXPECT_EQ(xArrayLen(arr), 1u);
 
   xErrno err = xArrayPop(arr);
@@ -194,7 +194,7 @@ TEST_F(ArrayTest, PopWithRelease) {
 TEST_F(ArrayTest, Reset) {
   for (int i = 0; i < 3; i++) {
     Pod *slot = (Pod *)xArrayPush(&arr);
-    slot->x = i;
+    slot->x   = i;
   }
   EXPECT_EQ(xArrayLen(arr), 3u);
 
@@ -211,7 +211,7 @@ TEST_F(ArrayTest, ResetWithRelease) {
 
   for (int i = 0; i < 3; i++) {
     Heap *slot = (Heap *)xArrayPush(&ha);
-    char buf[16];
+    char  buf[16];
     snprintf(buf, sizeof(buf), "item%d", i);
     slot->data = strdup(buf);
   }
@@ -242,7 +242,7 @@ TEST_F(ArrayTest, ResizeGrow) {
 TEST_F(ArrayTest, ResizeShrink) {
   for (int i = 0; i < 5; i++) {
     Pod *slot = (Pod *)xArrayPush(&arr);
-    slot->x = i;
+    slot->x   = i;
   }
 
   xErrno err = xArrayResize(&arr, 2);
@@ -261,7 +261,7 @@ TEST_F(ArrayTest, ResizeShrinkWithRelease) {
 
   for (int i = 0; i < 5; i++) {
     Heap *slot = (Heap *)xArrayPush(&ha);
-    char buf[16];
+    char  buf[16];
     snprintf(buf, sizeof(buf), "item%d", i);
     slot->data = strdup(buf);
   }
@@ -277,10 +277,10 @@ TEST_F(ArrayTest, ResizeShrinkWithRelease) {
 TEST_F(ArrayTest, FindBasic) {
   for (int i = 0; i < 5; i++) {
     Pod *slot = (Pod *)xArrayPush(&arr);
-    slot->x = i * 10;
+    slot->x   = i * 10;
   }
 
-  int key = 20;
+  int    key = 20;
   size_t idx = xArrayFind(arr, &key);
   EXPECT_EQ(idx, 2u);
 
@@ -290,8 +290,8 @@ TEST_F(ArrayTest, FindBasic) {
 }
 
 TEST_F(ArrayTest, FindNoEqualCb) {
-  xArray a = xArrayCreate(sizeof(Pod), 4, &kNoCbs);
-  int key = 0;
+  xArray a   = xArrayCreate(sizeof(Pod), 4, &kNoCbs);
+  int    key = 0;
   EXPECT_EQ(xArrayFind(a, &key), (size_t)-1);
   xArrayDestroy(a);
 }
@@ -305,9 +305,9 @@ TEST_F(ArrayTest, AtOutOfRange) {
 
 TEST_F(ArrayTest, Data) {
   Pod *s1 = (Pod *)xArrayPush(&arr);
-  s1->x = 1;
+  s1->x   = 1;
   Pod *s2 = (Pod *)xArrayPush(&arr);
-  s2->x = 2;
+  s2->x   = 2;
 
   Pod *base = (Pod *)xArrayData(arr);
   ASSERT_NE(base, nullptr);
@@ -359,7 +359,7 @@ TEST_F(ArrayTest, PushAndPopCycle) {
   /* Push 100, pop 50, push 50 more - verify integrity */
   for (int i = 0; i < 100; i++) {
     Pod *slot = (Pod *)xArrayPush(&arr);
-    slot->x = i;
+    slot->x   = i;
   }
   EXPECT_EQ(xArrayLen(arr), 100u);
   EXPECT_EQ(g_retain_count, 100);
@@ -379,7 +379,7 @@ TEST_F(ArrayTest, PushAndPopCycle) {
   /* Push 50 more */
   for (int i = 100; i < 150; i++) {
     Pod *slot = (Pod *)xArrayPush(&arr);
-    slot->x = i;
+    slot->x   = i;
   }
   EXPECT_EQ(xArrayLen(arr), 100u);
   EXPECT_EQ(g_retain_count, 150);

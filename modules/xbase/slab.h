@@ -39,7 +39,8 @@
 #include <stddef.h>
 #include <xbase/base.h>
 
-/** @brief Default slot alignment when 0 is passed to xSlabCreate / xSlabMtCreate. */
+/** @brief Default slot alignment when 0 is passed to xSlabCreate /
+ * xSlabMtCreate. */
 #define XSLAB_DEFAULT_ALIGN ((size_t)16)
 
 /** @brief Default chunk size when 0 is passed. 64 KiB. */

@@ -9,7 +9,9 @@
 #include <gtest/gtest.h>
 
 #ifdef _WIN32
-TEST(Socket, SkipOnWindows) { GTEST_SKIP() << "Socket tests need POSIX adapter"; }
+TEST(Socket, SkipOnWindows) {
+  GTEST_SKIP() << "Socket tests need POSIX adapter";
+}
 #else
 #include <xbase/socket.h>
 
@@ -573,8 +575,8 @@ TEST(SocketCreateFromFd, Success) {
   int fds[2];
   ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
-  xSocket sock = xSocketCreateFromFd(loop, fds[0], xEvent_Read,
-                                     noop_callback, nullptr);
+  xSocket sock =
+    xSocketCreateFromFd(loop, fds[0], xEvent_Read, noop_callback, nullptr);
   ASSERT_NE(sock, nullptr);
 
   int fd = xSocketFd(sock);
@@ -597,8 +599,8 @@ TEST(SocketCreateFromFd, NullLoop) {
   int fds[2];
   ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
-  xSocket sock = xSocketCreateFromFd(NULL, fds[0], xEvent_Read,
-                                     noop_callback, nullptr);
+  xSocket sock =
+    xSocketCreateFromFd(NULL, fds[0], xEvent_Read, noop_callback, nullptr);
   EXPECT_EQ(sock, nullptr);
 
   close(fds[0]);
@@ -624,8 +626,8 @@ TEST(SocketCreateFromFd, InvalidFd) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xSocket sock = xSocketCreateFromFd(loop, -1, xEvent_Read,
-                                     noop_callback, nullptr);
+  xSocket sock =
+    xSocketCreateFromFd(loop, -1, xEvent_Read, noop_callback, nullptr);
   EXPECT_EQ(sock, nullptr);
 
   xEventLoopDestroy(loop);
@@ -682,8 +684,7 @@ TEST(SocketSetCallback, ReplaceCallback) {
 
   /* Replace callback */
   xErrno err = xSocketSetCallback(
-    sock,
-    [](xSocket, xEventMask, void *arg) { (*static_cast<int *>(arg))++; },
+    sock, [](xSocket, xEventMask, void *arg) { (*static_cast<int *>(arg))++; },
     &new_count);
   EXPECT_EQ(err, xErrno_Ok);
 

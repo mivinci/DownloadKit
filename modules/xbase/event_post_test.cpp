@@ -55,23 +55,21 @@ TEST_F(EventPostTest, BasicPost) {
 /* ───────────────────── Post from another thread ───────────────────── */
 
 TEST_F(EventPostTest, PostFromAnotherThread) {
-  std::atomic<bool>              called{false};
-  std::atomic<std::thread::id>   cb_thread{};
+  std::atomic<bool>            called{false};
+  std::atomic<std::thread::id> cb_thread{};
 
   auto fn = [](void *arg) {
-    auto *ctx =
-      static_cast<std::pair<std::atomic<bool> *, std::atomic<std::thread::id> *> *>(
-        arg);
+    auto *ctx = static_cast<
+      std::pair<std::atomic<bool> *, std::atomic<std::thread::id> *> *>(arg);
     ctx->second->store(std::this_thread::get_id(), std::memory_order_release);
     ctx->first->store(true, std::memory_order_release);
   };
 
-  std::pair<std::atomic<bool> *, std::atomic<std::thread::id> *> ctx{&called,
-                                                                       &cb_thread};
+  std::pair<std::atomic<bool> *, std::atomic<std::thread::id> *> ctx{
+    &called, &cb_thread};
 
-  std::thread poster([&]() {
-    EXPECT_EQ(xEventLoopPost(loop, fn, &ctx), xErrno_Ok);
-  });
+  std::thread poster(
+    [&]() { EXPECT_EQ(xEventLoopPost(loop, fn, &ctx), xErrno_Ok); });
 
   poster.join();
 
@@ -89,8 +87,8 @@ TEST_F(EventPostTest, PostFromAnotherThread) {
 /* ───────────────────── Multiple posts ───────────────────── */
 
 TEST_F(EventPostTest, MultiplePosts) {
-  constexpr int      N = 100;
-  std::atomic<int>   count{0};
+  constexpr int    N = 100;
+  std::atomic<int> count{0};
 
   auto fn = [](void *arg) {
     static_cast<std::atomic<int> *>(arg)->fetch_add(1,

@@ -13,15 +13,13 @@
 #include "transport_private.h"
 
 #include <errno.h>
-#include <netinet/tcp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #include <xbase/log.h>
 #include <xnet/dns.h>
+#include <xnet/compat.h>
 
 /* Default connect timeout: 10 seconds */
 #define XTCP_DEFAULT_TIMEOUT_MS 10000
@@ -145,11 +143,11 @@ static void connector_succeed(xTcpConnector_ *c) {
   /* Apply socket options */
   if (c->conf.nodelay) {
     int val = 1;
-    setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
+    xnet_setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
   }
   if (c->conf.keepalive) {
     int val = 1;
-    setsockopt(c->fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val));
+    xnet_setsockopt(c->fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val));
   }
 
   /* Cancel timeout */
@@ -254,7 +252,7 @@ static void connector_do_tcp_connect(xTcpConnector_ *c) {
       }
       connector_succeed(c);
     }
-  } else if (errno == EINPROGRESS) {
+  } else if (xnet_errno() == XNET_EINPROGRESS) {
     /* Normal: wait for writable event */
   } else {
     connector_fail(c, xErrno_SysError);
@@ -315,7 +313,7 @@ static void connector_on_writable(xTcpConnector_ *c) {
     /* TCP connect completed: check for errors */
     int       err    = 0;
     socklen_t errlen = sizeof(err);
-    getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+    xnet_getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
     if (err != 0) {
       connector_fail(c, xErrno_SysError);
       return;

@@ -10,7 +10,6 @@
 
 #include <xbase/atomic.h>
 
-#include <arpa/inet.h>
 #include <stdlib.h>
 #include <string.h>
 

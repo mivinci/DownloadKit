@@ -12,7 +12,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xbase/uio.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#else
 #include <unistd.h>
+#endif
 
 /* ───────────────────── Types ───────────────────── */
 
@@ -212,7 +218,11 @@ ssize_t xBufferReadFd(xBuffer *bufp, int fd) {
 
   b = (xBuffer_ *)*bufp;
   do {
+#ifdef _WIN32
+    n = recv(fd, b->data + b->wpos, (int)(b->cap - b->wpos), 0);
+#else
     n = read(fd, b->data + b->wpos, b->cap - b->wpos);
+#endif
   } while (n < 0 && errno == EINTR);
   if (n > 0) b->wpos += (size_t)n;
   return n;
@@ -229,7 +239,11 @@ ssize_t xBufferWriteFd(xBuffer buf, int fd) {
   if (readable == 0) return 0;
 
   do {
+#ifdef _WIN32
+    n = send(fd, b->data + b->rpos, (int)readable, 0);
+#else
     n = write(fd, b->data + b->rpos, readable);
+#endif
   } while (n < 0 && errno == EINTR);
   if (n > 0) xBufferConsume(buf, (size_t)n);
   return n;

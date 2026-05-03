@@ -17,31 +17,28 @@ extern "C" {
 #include <xbase/io.h>
 #include <xnet/tcp.h>
 #include <xnet/transport.h>
+#include <xnet/compat.h>
 }
-
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 /**
  * Helper: get a free port by binding to port 0 and reading back the port.
  */
 static uint16_t get_free_port() {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  xnet_init();
+  int fd = (int)socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) return 0;
   struct sockaddr_in addr = {};
   addr.sin_family         = AF_INET;
   addr.sin_addr.s_addr    = htonl(INADDR_LOOPBACK);
   addr.sin_port           = 0;
   if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    close(fd);
+    xnet_close(fd);
     return 0;
   }
   socklen_t len = sizeof(addr);
   (void)getsockname(fd, (struct sockaddr *)&addr, &len);
   uint16_t port = ntohs(addr.sin_port);
-  close(fd);
+  xnet_close(fd);
   return port;
 }
 
@@ -60,6 +57,7 @@ protected:
   xEventLoop loop = nullptr;
 
   void SetUp() override {
+    xnet_init();
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
   }
@@ -180,7 +178,7 @@ TEST_F(TcpTest, LoopbackPlainTcp) {
     ASSERT_NE(st->read, nullptr);
 
     const char  *msg = "hello from client";
-    struct iovec iov;
+    xnet_iovec iov;
     iov.iov_base = (void *)msg;
     iov.iov_len  = strlen(msg);
     ssize_t nw   = ct->writev(ct->ctx, &iov, 1);
@@ -228,7 +226,7 @@ TEST_F(TcpTest, ConnectTimeout) {
   /* Create a listening socket with backlog=0 and fill it up,
    * so subsequent connects will hang (SYN queue full).
    * This is the most reliable way to test connect timeout. */
-  int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+  int listen_fd = (int)socket(AF_INET, SOCK_STREAM, 0);
   ASSERT_GE(listen_fd, 0);
 
   struct sockaddr_in addr = {};
@@ -245,13 +243,13 @@ TEST_F(TcpTest, ConnectTimeout) {
   ASSERT_EQ(listen(listen_fd, 1), 0);
 
   /* Fill the backlog with a dummy connection */
-  int dummy_fd = socket(AF_INET, SOCK_STREAM, 0);
+  int dummy_fd = (int)socket(AF_INET, SOCK_STREAM, 0);
   ASSERT_GE(dummy_fd, 0);
   int err = connect(dummy_fd, (struct sockaddr *)&addr, sizeof(addr));
   (void)err;
 
   /* Another dummy to overflow */
-  int dummy_fd2 = socket(AF_INET, SOCK_STREAM, 0);
+  int dummy_fd2 = (int)socket(AF_INET, SOCK_STREAM, 0);
   ASSERT_GE(dummy_fd2, 0);
   err = connect(dummy_fd2, (struct sockaddr *)&addr, sizeof(addr));
   (void)err;
@@ -271,9 +269,9 @@ TEST_F(TcpTest, ConnectTimeout) {
     xTcpConnClose(loop, ctx.conn);
   }
 
-  close(dummy_fd2);
-  close(dummy_fd);
-  close(listen_fd);
+  xnet_close(dummy_fd2);
+  xnet_close(dummy_fd);
+  xnet_close(listen_fd);
 }
 
 /* ═══════════════════════════════════════════════════════════════════

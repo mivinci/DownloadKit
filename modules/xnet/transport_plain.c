@@ -12,8 +12,7 @@
 
 #include <errno.h>
 #include <stdlib.h>
-#include <sys/uio.h>
-#include <unistd.h>
+#include <xnet/compat.h>
 
 /* ───────────────────── Plain TCP context ───────────────────── */
 
@@ -27,17 +26,17 @@ static ssize_t plain_read(void *ctx, void *buf, size_t len) {
   xTransportPlain_ *p = (xTransportPlain_ *)ctx;
   ssize_t           n;
   do {
-    n = read(p->fd, buf, len);
-  } while (n < 0 && errno == EINTR);
+    n = xnet_read(p->fd, buf, len);
+  } while (n < 0 && xnet_errno() == XNET_EINTR);
   return n;
 }
 
-static ssize_t plain_writev(void *ctx, const struct iovec *iov, int iovcnt) {
+static ssize_t plain_writev(void *ctx, const xnet_iovec *iov, int iovcnt) {
   xTransportPlain_ *p = (xTransportPlain_ *)ctx;
   ssize_t           n;
   do {
-    n = writev(p->fd, iov, iovcnt);
-  } while (n < 0 && errno == EINTR);
+    n = xnet_writev(p->fd, iov, iovcnt);
+  } while (n < 0 && xnet_errno() == XNET_EINTR);
   return n;
 }
 

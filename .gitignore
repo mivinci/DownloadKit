@@ -48,8 +48,7 @@
 .vscode
 .venv
 .env
-build
-build-*
+build*
 cmake-build-*
 book
 tmp

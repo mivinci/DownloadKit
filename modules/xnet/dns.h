@@ -13,8 +13,7 @@
 #include <xbase/error.h>
 #include <xbase/event.h>
 
-#include <netdb.h>
-#include <sys/socket.h>
+#include <xnet/compat.h>
 
 /**
  * @brief A single resolved address entry (linked list node).

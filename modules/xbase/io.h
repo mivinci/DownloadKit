@@ -71,6 +71,7 @@
 #define XBASE_IO_H
 
 #include <xbase/base.h>
+#include <xbase/uio.h>
 
 #include <stddef.h>
 
@@ -79,7 +80,6 @@ typedef long xSsize;
 typedef __int64 xOff;
 #else
 #include <sys/types.h>
-#include <sys/uio.h>
 typedef ssize_t xSsize;
 typedef off_t xOff;
 #endif
@@ -88,15 +88,9 @@ typedef off_t xOff;
  * @brief Portable I/O vector structure.
  *
  * On POSIX this is struct iovec; on Windows we define an equivalent.
+ * Now unified with xbase/uio.h's xiovec type.
  */
-#ifdef _WIN32
-XDEF_STRUCT(xIovec) {
-  void  *iov_base;
-  size_t iov_len;
-};
-#else
-#define xIovec  struct iovec
-#endif
+typedef xiovec xIovec;
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Core I/O interfaces

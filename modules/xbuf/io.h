@@ -42,10 +42,10 @@
 
 #include <xbase/base.h>
 #include <xbase/error.h>
+#include <xbase/uio.h>
 
 #include <stddef.h>
 #include <sys/types.h>
-#include <sys/uio.h>
 
 /* ───────────────────── Configuration ───────────────────── */
 
@@ -259,7 +259,7 @@ typedef ssize_t (*xIOBufferReadFunc)(void *ctx, void *buf, size_t len);
  * @param iovcnt  Number of iovec entries.
  * @return Bytes written, or -1 on error.
  */
-typedef ssize_t (*xIOBufferWritevFunc)(void *ctx, const struct iovec *iov,
+typedef ssize_t (*xIOBufferWritevFunc)(void *ctx, const xiovec *iov,
                                        int iovcnt);
 
 /* ───────────────────── I/O helpers ───────────────────── */
@@ -272,7 +272,7 @@ typedef ssize_t (*xIOBufferWritevFunc)(void *ctx, const struct iovec *iov,
  * @param max_iov Maximum number of iovec entries to fill.
  * @return Number of iovec entries filled.
  */
-XCAPI(int) xIOBufferReadIov(const xIOBuffer *io, struct iovec *iov,
+XCAPI(int) xIOBufferReadIov(const xIOBuffer *io, xiovec *iov,
                             int max_iov);
 
 /**

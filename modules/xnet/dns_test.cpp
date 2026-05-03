@@ -12,10 +12,9 @@
 #include <chrono>
 #include <thread>
 
-#include <pthread.h>
-
 extern "C" {
 #include <xnet/dns.h>
+#include <xnet/compat.h>
 }
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -33,6 +32,7 @@ protected:
   xEventLoop loop = nullptr;
 
   void SetUp() override {
+    xnet_init();
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
   }
@@ -67,13 +67,13 @@ struct DnsCtx {
   xErrno            error{xErrno_Unknown};
   int               addr_count{0};
   int               first_family{0};
-  pthread_t         callback_thread{0};
+  std::thread::id    callback_thread{};
   xDnsResult       *result{nullptr}; /* caller frees */
 };
 
 static void dns_callback(xDnsResult *result, void *arg) {
   auto *ctx          = static_cast<DnsCtx *>(arg);
-  ctx->callback_thread = pthread_self();
+  ctx->callback_thread = std::this_thread::get_id();
   ctx->error         = result->error;
   ctx->result        = result;
 
@@ -246,7 +246,7 @@ TEST_F(DnsTest, CallbackOnEventLoopThread) {
   ASSERT_NE(q, nullptr);
 
   /* Run the event loop on the current thread so we can compare thread IDs */
-  pthread_t loop_thread = pthread_self();
+  std::thread::id loop_thread = std::this_thread::get_id();
 
   /* Use a timer to stop the loop after the DNS callback fires */
   xEventLoopTimerAfter(
@@ -261,7 +261,7 @@ TEST_F(DnsTest, CallbackOnEventLoopThread) {
   }
 
   EXPECT_TRUE(ctx.called.load());
-  EXPECT_TRUE(pthread_equal(ctx.callback_thread, loop_thread));
+  EXPECT_TRUE(ctx.callback_thread == loop_thread);
 
   xDnsResultFree(ctx.result);
 }

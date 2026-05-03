@@ -48,6 +48,15 @@
 
 #include <stddef.h>
 
+/* ssize_t is not available in MSVC's C mode. */
+#ifdef _WIN32
+#ifndef _SSIZE_T_DEFINED
+#define _SSIZE_T_DEFINED
+#include <basetsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+#endif
+
 /**
  * @brief Obtain a pointer to the enclosing struct from a pointer to a member.
  * @param ptr    Pointer to the member field.

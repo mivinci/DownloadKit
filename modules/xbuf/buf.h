@@ -25,10 +25,10 @@
 
 #include <xbase/base.h>
 #include <xbase/error.h>
+#include <xbase/uio.h>
 
 #include <stddef.h>
 #include <sys/types.h>
-#include <sys/uio.h>
 
 /* ───────────────────── Types ───────────────────── */
 

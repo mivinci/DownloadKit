@@ -21,8 +21,8 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/uio.h>
 #include <xbase/log.h>
+#include <xnet/compat.h>
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Per-connection TLS state (shared by server and client)
@@ -61,7 +61,7 @@ static ssize_t openssl_read(void *ctx, void *buf, size_t len) {
   }
 }
 
-static ssize_t openssl_writev(void *ctx, const struct iovec *iov, int iovcnt) {
+static ssize_t openssl_writev(void *ctx, const xnet_iovec *iov, int iovcnt) {
   xTlsOpenSSL_ *t     = (xTlsOpenSSL_ *)ctx;
   ssize_t       total = 0;
 

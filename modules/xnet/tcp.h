@@ -14,8 +14,6 @@
 #define XNET_TCP_H
 
 #include <stdint.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
 #include <xbase/base.h>
 #include <xbase/error.h>
 #include <xbase/event.h>
@@ -23,6 +21,7 @@
 #include <xbase/socket.h>
 #include <xnet/tls.h>
 #include <xnet/transport.h>
+#include <xnet/compat.h>
 
 /* ═══════════════════════════════════════════════════════════════════
  *  xTcpConn — connection resource wrapper
@@ -101,7 +100,7 @@ XCAPI(ssize_t) xTcpConnSend(xTcpConn conn, const char *buf, size_t len);
  * @param iovcnt  Number of vectors in @p iov.
  * @return        Total bytes written, or -1 on error (errno set).
  */
-XCAPI(ssize_t) xTcpConnSendIov(xTcpConn conn, const struct iovec *iov,
+XCAPI(ssize_t) xTcpConnSendIov(xTcpConn conn, const xnet_iovec *iov,
                                int iovcnt);
 
 /**

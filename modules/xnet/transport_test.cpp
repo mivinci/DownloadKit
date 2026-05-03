@@ -16,11 +16,59 @@ extern "C" {
 #endif
 #include "transport_private.h"
 #include <xnet/transport.h>
+#include <xnet/compat.h>
 }
 
-#include <sys/socket.h>
-#include <sys/uio.h>
-#include <unistd.h>
+/* ─── Cross-platform socketpair for Windows ─── */
+#ifdef _WIN32
+static int xnet_socketpair(int domain, int type, int protocol, int sv[2]) {
+  (void)domain;
+  (void)protocol;
+  xnet_init();
+  /* Use TCP loopback as Windows lacks AF_UNIX socketpair */
+  int listener = (int)socket(AF_INET, type, 0);
+  if (listener < 0) return -1;
+
+  struct sockaddr_in addr = {};
+  addr.sin_family      = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port        = 0;
+
+  if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    xnet_close(listener);
+    return -1;
+  }
+  socklen_t alen = sizeof(addr);
+  if (getsockname(listener, (struct sockaddr *)&addr, &alen) < 0) {
+    xnet_close(listener);
+    return -1;
+  }
+  if (listen(listener, 1) < 0) {
+    xnet_close(listener);
+    return -1;
+  }
+
+  sv[0] = (int)socket(AF_INET, type, 0);
+  if (sv[0] < 0) {
+    xnet_close(listener);
+    return -1;
+  }
+  if (connect(sv[0], (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    xnet_close(sv[0]);
+    xnet_close(listener);
+    return -1;
+  }
+
+  sv[1] = (int)accept(listener, NULL, NULL);
+  xnet_close(listener);
+  if (sv[1] < 0) {
+    xnet_close(sv[0]);
+    return -1;
+  }
+  return 0;
+}
+#define socketpair(d,t,p,sv) xnet_socketpair(d,t,p,sv)
+#endif
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Plain TCP Transport Tests
@@ -33,14 +81,15 @@ protected:
   xTransport t;
 
   void SetUp() override {
+    xnet_init();
     memset(&t, 0, sizeof(t));
     ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
   }
 
   void TearDown() override {
     if (t.destroy) t.destroy(t.ctx);
-    if (fds[0] >= 0) close(fds[0]);
-    if (fds[1] >= 0) close(fds[1]);
+    if (fds[0] >= 0) xnet_close(fds[0]);
+    if (fds[1] >= 0) xnet_close(fds[1]);
   }
 };
 
@@ -60,7 +109,7 @@ TEST_F(PlainTransportTest, ReadWrite) {
 
   /* Write through the peer fd */
   const char *msg = "hello transport";
-  ssize_t     nw  = write(fds[1], msg, strlen(msg));
+  ssize_t     nw  = xnet_write(fds[1], msg, (int)strlen(msg));
   ASSERT_GT(nw, 0);
 
   /* Read through the transport */
@@ -75,7 +124,7 @@ TEST_F(PlainTransportTest, Writev) {
   ASSERT_NE(t.writev, nullptr);
 
   /* Write through the transport using scatter-gather */
-  struct iovec iov[2];
+  xnet_iovec iov[2];
   const char  *part1 = "hello ";
   const char  *part2 = "world";
   iov[0].iov_base    = (void *)part1;
@@ -88,7 +137,7 @@ TEST_F(PlainTransportTest, Writev) {
 
   /* Read from the peer fd */
   char    buf[64] = {};
-  ssize_t nr      = read(fds[1], buf, sizeof(buf));
+  ssize_t nr      = xnet_read(fds[1], buf, sizeof(buf));
   ASSERT_EQ(nr, nw);
   EXPECT_STREQ(buf, "hello world");
 }
@@ -104,11 +153,11 @@ TEST_F(PlainTransportTest, DestroyDoesNotCloseFd) {
 
   /* The fd should still be valid (write should succeed) */
   const char *msg = "still alive";
-  ssize_t     nw  = write(fds[0], msg, strlen(msg));
+  ssize_t     nw  = xnet_write(fds[0], msg, (int)strlen(msg));
   EXPECT_GT(nw, 0);
 
   char    buf[64] = {};
-  ssize_t nr      = read(fds[1], buf, sizeof(buf));
+  ssize_t nr      = xnet_read(fds[1], buf, sizeof(buf));
   EXPECT_EQ(nr, nw);
   EXPECT_STREQ(buf, msg);
 }
@@ -164,8 +213,8 @@ TEST(TlsCtxTest, ClientInitWithInvalidConfFails) {
     xTlsCtxDestroy(ctx);
   }
 
-  close(fds[0]);
-  close(fds[1]);
+  xnet_close(fds[0]);
+  xnet_close(fds[1]);
 }
 
 TEST(TlsCtxTest, ClientCtxCreateWithDefaults) {

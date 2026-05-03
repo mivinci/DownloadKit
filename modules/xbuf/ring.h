@@ -27,10 +27,10 @@
 
 #include <xbase/base.h>
 #include <xbase/error.h>
+#include <xbase/uio.h>
 
 #include <stddef.h>
 #include <sys/types.h>
-#include <sys/uio.h>
 
 /* ───────────────────── Types ───────────────────── */
 
@@ -162,7 +162,7 @@ XCAPI(size_t) xRingBufferDiscard(xRingBuffer rb, size_t n);
  * @param iov  Array of at least 2 iovec structs.
  * @return Number of iovec entries filled (0, 1, or 2).
  */
-XCAPI(int) xRingBufferReadIov(xRingBuffer rb, struct iovec iov[2]);
+XCAPI(int) xRingBufferReadIov(xRingBuffer rb, xiovec iov[2]);
 
 /**
  * @brief Fill iovec array for readv() with writable regions.
@@ -171,7 +171,7 @@ XCAPI(int) xRingBufferReadIov(xRingBuffer rb, struct iovec iov[2]);
  * @param iov  Array of at least 2 iovec structs.
  * @return Number of iovec entries filled (0, 1, or 2).
  */
-XCAPI(int) xRingBufferWriteIov(xRingBuffer rb, struct iovec iov[2]);
+XCAPI(int) xRingBufferWriteIov(xRingBuffer rb, xiovec iov[2]);
 
 /**
  * @brief Read from a file descriptor into the ring buffer.

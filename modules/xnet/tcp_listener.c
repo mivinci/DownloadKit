@@ -12,16 +12,13 @@
 #include "tcp_private.h"
 #include "transport_private.h"
 
-#include <arpa/inet.h>
 #include <errno.h>
-#include <netinet/in.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #include <xbase/log.h>
+#include <xnet/compat.h>
 
 /* Default listen backlog */
 #define XTCP_DEFAULT_BACKLOG 128
@@ -164,10 +161,10 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
     int                     client_fd =
       accept(l->listen_fd, (struct sockaddr *)&client_addr, &addr_len);
     if (client_fd < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-      if (errno == EMFILE || errno == ENFILE) {
-        xLog(false, "xnet: accept() failed: %s (fd exhaustion)",
-             strerror(errno));
+      int err = xnet_errno();
+      if (err == XNET_EAGAIN || err == XNET_EWOULDBLOCK) break;
+      if (err == XNET_EMFILE || err == XNET_ENFILE) {
+        xLog(false, "xnet: accept() failed: %s (fd exhaustion)", strerror(err));
         break;
       }
       break;
@@ -178,7 +175,7 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
       xTcpPendingConn_ *pc =
         (xTcpPendingConn_ *)calloc(1, sizeof(xTcpPendingConn_));
       if (!pc) {
-        close(client_fd);
+        xnet_close(client_fd);
         continue;
       }
 
@@ -191,7 +188,7 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
       xTransportTlsServerInit(&pc->transport, l->tls_ctx, client_fd);
       if (!pc->transport.read) {
         /* Init failed */
-        close(client_fd);
+        xnet_close(client_fd);
         free(pc);
         continue;
       }
@@ -202,7 +199,7 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
                             pending_conn_on_event, pc);
       if (!pc->sock) {
         if (pc->transport.destroy) pc->transport.destroy(pc->transport.ctx);
-        close(client_fd);
+        xnet_close(client_fd);
         free(pc);
         continue;
       }
@@ -219,7 +216,7 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
         xSocketSetCallback(s, noop_sock_cb, NULL);
         xSocketSetMask(l->loop, s, 0);
 
-        pc->sock     = NULL;
+        pc->sock = NULL;
         memset(&pc->transport, 0, sizeof(pc->transport));
 
         xTcpConn conn = xTcpConnCreate_(s, t);
@@ -251,7 +248,7 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
       memset(&transport, 0, sizeof(transport));
       xTransportPlainInit(&transport, client_fd);
       if (!transport.read) {
-        close(client_fd);
+        xnet_close(client_fd);
         continue;
       }
 
@@ -259,7 +256,7 @@ static void listener_on_event(xSocket sock, xEventMask mask, void *arg) {
                                                 noop_sock_cb, NULL);
       if (!client_sock) {
         if (transport.destroy) transport.destroy(transport.ctx);
-        close(client_fd);
+        xnet_close(client_fd);
         continue;
       }
 
@@ -286,24 +283,26 @@ xTcpListener xTcpListenerCreate(xEventLoop loop, const char *host,
                                 xTcpListenerFunc callback, void *arg) {
   if (!loop || !callback) return NULL;
 
-  /* Ignore SIGPIPE */
+  /* Ignore SIGPIPE (POSIX only; Windows has no SIGPIPE) */
+#ifndef _WIN32
   signal(SIGPIPE, SIG_IGN);
+#endif
 
   /* Create listening socket */
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) {
-    xLog(false, "xnet: socket() failed: %s", strerror(errno));
+    xLog(false, "xnet: socket() failed: %s", strerror(xnet_errno()));
     return NULL;
   }
 
   /* SO_REUSEADDR */
   int optval = 1;
-  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+  xnet_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
   /* SO_REUSEPORT (optional) */
   if (conf && conf->reuseport) {
 #ifdef SO_REUSEPORT
-    setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
+    xnet_setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
 #endif
   }
 
@@ -316,7 +315,7 @@ xTcpListener xTcpListenerCreate(xEventLoop loop, const char *host,
   if (host) {
     if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
       xLog(false, "xnet: invalid bind address: %s", host);
-      close(fd);
+      xnet_close(fd);
       return NULL;
     }
   } else {
@@ -324,23 +323,23 @@ xTcpListener xTcpListenerCreate(xEventLoop loop, const char *host,
   }
 
   if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    xLog(false, "xnet: bind() failed: %s", strerror(errno));
-    close(fd);
+    xLog(false, "xnet: bind() failed: %s", strerror(xnet_errno()));
+    xnet_close(fd);
     return NULL;
   }
 
   int backlog =
     (conf && conf->backlog > 0) ? conf->backlog : XTCP_DEFAULT_BACKLOG;
   if (listen(fd, backlog) < 0) {
-    xLog(false, "xnet: listen() failed: %s", strerror(errno));
-    close(fd);
+    xLog(false, "xnet: listen() failed: %s", strerror(xnet_errno()));
+    xnet_close(fd);
     return NULL;
   }
 
   /* Allocate listener */
   xTcpListener_ *l = (xTcpListener_ *)calloc(1, sizeof(xTcpListener_));
   if (!l) {
-    close(fd);
+    xnet_close(fd);
     return NULL;
   }
 
@@ -354,7 +353,7 @@ xTcpListener xTcpListenerCreate(xEventLoop loop, const char *host,
   l->listen_sock =
     xSocketCreateFromFd(loop, fd, xEvent_Read, listener_on_event, l);
   if (!l->listen_sock) {
-    close(fd);
+    xnet_close(fd);
     free(l);
     return NULL;
   }

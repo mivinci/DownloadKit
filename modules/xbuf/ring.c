@@ -12,8 +12,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/uio.h>
-#include <unistd.h>
+#include <xbase/uio.h>
 
 /* ───────────────────── Types ───────────────────── */
 
@@ -189,7 +188,7 @@ size_t xRingBufferDiscard(xRingBuffer rb, size_t n) {
 
 /* ───────────────────── I/O helpers ───────────────────── */
 
-int xRingBufferReadIov(xRingBuffer rb, struct iovec iov[2]) {
+int xRingBufferReadIov(xRingBuffer rb, xiovec iov[2]) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
   size_t        readable, pos, first;
 
@@ -214,7 +213,7 @@ int xRingBufferReadIov(xRingBuffer rb, struct iovec iov[2]) {
   return 2;
 }
 
-int xRingBufferWriteIov(xRingBuffer rb, struct iovec iov[2]) {
+int xRingBufferWriteIov(xRingBuffer rb, xiovec iov[2]) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
   size_t        writable, pos, first;
 
@@ -241,7 +240,7 @@ int xRingBufferWriteIov(xRingBuffer rb, struct iovec iov[2]) {
 
 ssize_t xRingBufferReadFd(xRingBuffer rb, int fd) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  struct iovec  iov[2];
+  xiovec        iov[2];
   ssize_t       n;
   int           cnt;
 
@@ -251,7 +250,7 @@ ssize_t xRingBufferReadFd(xRingBuffer rb, int fd) {
   if (cnt == 0) return 0; /* full */
 
   do {
-    n = readv(fd, iov, cnt);
+    n = xreadv(fd, iov, cnt);
   } while (n < 0 && errno == EINTR);
   if (n > 0) r->head += (size_t)n;
   return n;
@@ -259,7 +258,7 @@ ssize_t xRingBufferReadFd(xRingBuffer rb, int fd) {
 
 ssize_t xRingBufferWriteFd(xRingBuffer rb, int fd) {
   xRingBuffer_ *r = (xRingBuffer_ *)rb;
-  struct iovec  iov[2];
+  xiovec        iov[2];
   ssize_t       n;
   int           cnt;
 
@@ -269,7 +268,7 @@ ssize_t xRingBufferWriteFd(xRingBuffer rb, int fd) {
   if (cnt == 0) return 0; /* empty */
 
   do {
-    n = writev(fd, iov, cnt);
+    n = xwritev(fd, iov, cnt);
   } while (n < 0 && errno == EINTR);
   if (n > 0) r->tail += (size_t)n;
   return n;

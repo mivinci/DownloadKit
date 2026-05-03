@@ -47,9 +47,8 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/uio.h>
-#include <unistd.h>
 #include <xbase/log.h>
+#include <xnet/compat.h>
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Custom I/O callbacks for mbedTLS
@@ -74,10 +73,10 @@ static int mbed_send_cb(void *ctx, const unsigned char *buf, size_t len) {
   xTlsMbedTLS_ *t = (xTlsMbedTLS_ *)ctx;
   ssize_t       n;
   do {
-    n = write(t->fd, buf, len);
-  } while (n < 0 && errno == EINTR);
+    n = xnet_write(t->fd, buf, len);
+  } while (n < 0 && xnet_errno() == XNET_EINTR);
   if (n < 0) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
+    if (xnet_errno() == XNET_EAGAIN || xnet_errno() == XNET_EWOULDBLOCK)
       return MBEDTLS_ERR_SSL_WANT_WRITE;
     return MBEDTLS_ERR_NET_SEND_FAILED;
   }
@@ -88,10 +87,10 @@ static int mbed_recv_cb(void *ctx, unsigned char *buf, size_t len) {
   xTlsMbedTLS_ *t = (xTlsMbedTLS_ *)ctx;
   ssize_t       n;
   do {
-    n = read(t->fd, buf, len);
-  } while (n < 0 && errno == EINTR);
+    n = xnet_read(t->fd, buf, len);
+  } while (n < 0 && xnet_errno() == XNET_EINTR);
   if (n < 0) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
+    if (xnet_errno() == XNET_EAGAIN || xnet_errno() == XNET_EWOULDBLOCK)
       return MBEDTLS_ERR_SSL_WANT_READ;
     return MBEDTLS_ERR_NET_RECV_FAILED;
   }
@@ -123,7 +122,7 @@ static ssize_t mbed_read(void *ctx, void *buf, size_t len) {
   }
 }
 
-static ssize_t mbed_writev(void *ctx, const struct iovec *iov, int iovcnt) {
+static ssize_t mbed_writev(void *ctx, const xnet_iovec *iov, int iovcnt) {
   xTlsMbedTLS_ *t     = (xTlsMbedTLS_ *)ctx;
   ssize_t       total = 0;
 

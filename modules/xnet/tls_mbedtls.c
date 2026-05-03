@@ -178,6 +178,27 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *config) {
         }
       } else {
         /* Load system default CA bundle */
+#ifdef _WIN32
+        /* Windows: load from the system certificate store */
+        static const char *ca_paths[] = {
+          NULL,
+        };
+        int loaded = 0;
+        /* On Windows, try common CA bundle paths from MSYS2/Git/etc. */
+        static const char *win_ca_paths[] = {
+          "C:/msys64/ucrt64/ssl/certs/ca-bundle.crt",
+          "C:/msys64/mingw64/ssl/certs/ca-bundle.crt",
+          "C:/Program Files/Git/mingw64/ssl/certs/ca-bundle.crt",
+          NULL,
+        };
+        for (int i = 0; win_ca_paths[i]; i++) {
+          ret = mbedtls_x509_crt_parse_file(&ctx->ca_cert, win_ca_paths[i]);
+          if (ret == 0) {
+            loaded = 1;
+            break;
+          }
+        }
+#else
         static const char *ca_paths[] = {
           "/etc/ssl/certs/ca-certificates.crt",
           "/etc/pki/tls/certs/ca-bundle.crt",
@@ -200,6 +221,7 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *config) {
         if (!loaded) {
           xLog(false, "xnet: no system CA bundle found for mbedTLS client");
         }
+#endif
       }
       mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->ca_cert, NULL);
       ctx->has_ca = 1;

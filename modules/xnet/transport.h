@@ -14,10 +14,9 @@
 
 #include <xbase/base.h>
 #include <xnet/tls.h>
+#include <xnet/compat.h>
 
 #include <stddef.h>
-#include <sys/types.h>
-#include <sys/uio.h>
 
 /* ───────────────────── Transport handshake result ───────────────────── */
 
@@ -55,7 +54,7 @@ XDEF_STRUCT(xTransport) {
    * Semantics match writev(2): returns bytes written, -1 on error.
    * For TLS, data is encrypted before sending.
    */
-  ssize_t (*writev)(void *ctx, const struct iovec *iov, int iovcnt);
+  ssize_t (*writev)(void *ctx, const xnet_iovec *iov, int iovcnt);
 
   /**
    * Perform (or continue) an async handshake.

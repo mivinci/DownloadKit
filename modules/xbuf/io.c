@@ -12,11 +12,15 @@
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
-#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/uio.h>
+#include <xbase/uio.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#else
 #include <unistd.h>
+#endif
 
 /* ═══════════════════════════════════════════════════════
  *  Block pool — lock-free stack (Treiber stack)
@@ -446,7 +450,7 @@ size_t xIOBufferCopyTo(const xIOBuffer *io, void *out) {
  *  I/O helpers
  * ═══════════════════════════════════════════════════════ */
 
-int xIOBufferReadIov(const xIOBuffer *io, struct iovec *iov, int max_iov) {
+int xIOBufferReadIov(const xIOBuffer *io, xiovec *iov, int max_iov) {
   int    cnt = 0;
   size_t i;
 
@@ -477,7 +481,12 @@ ssize_t xIOBufferReadFd(xIOBuffer *io, int fd) {
     avail = XIOBUFFER_BLOCK_SIZE - (tail->offset + tail->length);
     if (avail > 0) {
       do {
+#ifdef _WIN32
+        n = recv(fd, (char *)tail->block->data + tail->offset + tail->length,
+                 (int)avail, 0);
+#else
         n = read(fd, tail->block->data + tail->offset + tail->length, avail);
+#endif
       } while (n < 0 && errno == EINTR);
       if (n > 0) {
         tail->length += (size_t)n;
@@ -492,7 +501,11 @@ ssize_t xIOBufferReadFd(xIOBuffer *io, int fd) {
   if (!blk) return -1;
 
   do {
+#ifdef _WIN32
+    n = recv(fd, (char *)blk->data, (int)XIOBUFFER_BLOCK_SIZE, 0);
+#else
     n = read(fd, blk->data, XIOBUFFER_BLOCK_SIZE);
+#endif
   } while (n < 0 && errno == EINTR);
   if (n <= 0) {
     xIOBlockRelease(blk);
@@ -513,9 +526,9 @@ ssize_t xIOBufferWriteFd(xIOBuffer *io, int fd) {
 #ifndef IOV_MAX
 #define IOV_MAX 1024
 #endif
-  struct iovec iov[IOV_MAX < 64 ? IOV_MAX : 64];
-  int          cnt;
-  ssize_t      n;
+  xiovec  iov[IOV_MAX < 64 ? IOV_MAX : 64];
+  int     cnt;
+  ssize_t n;
 
   if (!io) return -1;
 
@@ -523,7 +536,7 @@ ssize_t xIOBufferWriteFd(xIOBuffer *io, int fd) {
   if (cnt == 0) return 0;
 
   do {
-    n = writev(fd, iov, cnt);
+    n = xwritev(fd, iov, cnt);
   } while (n < 0 && errno == EINTR);
   if (n > 0) xIOBufferConsume(io, (size_t)n);
   return n;
@@ -576,9 +589,9 @@ ssize_t xIOBufferWriteWith(xIOBuffer *io, xIOBufferWritevFunc fn, void *ctx) {
 #ifndef IOV_MAX
 #define IOV_MAX 1024
 #endif
-  struct iovec iov[IOV_MAX < 64 ? IOV_MAX : 64];
-  int          cnt;
-  ssize_t      n;
+  xiovec  iov[IOV_MAX < 64 ? IOV_MAX : 64];
+  int     cnt;
+  ssize_t n;
 
   if (!io || !fn) return -1;
 

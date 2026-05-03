@@ -10,7 +10,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <sys/uio.h>
 
 /* ───────────────────── Internal constructor ───────────────────── */
 
@@ -47,11 +46,11 @@ ssize_t xTcpConnSend(xTcpConn conn, const char *buf, size_t len) {
   if (!conn) return -1;
   xTcpConn_ *c = (xTcpConn_ *)conn;
   if (!c->transport.writev) return -1;
-  struct iovec iov = {.iov_base = (void *)buf, .iov_len = len};
+  xnet_iovec iov = {.iov_base = (void *)buf, .iov_len = len};
   return c->transport.writev(c->transport.ctx, &iov, 1);
 }
 
-ssize_t xTcpConnSendIov(xTcpConn conn, const struct iovec *iov, int iovcnt) {
+ssize_t xTcpConnSendIov(xTcpConn conn, const xnet_iovec *iov, int iovcnt) {
   if (!conn) return -1;
   xTcpConn_ *c = (xTcpConn_ *)conn;
   if (!c->transport.writev) return -1;

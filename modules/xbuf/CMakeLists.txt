@@ -1,8 +1,15 @@
 file(GLOB_RECURSE XBUF_HEADERS "*.h")
 file(GLOB_RECURSE XBUF_SOURCES "*.c")
-add_library(xbuf ${XK_LIB_TYPE} ${XBUF_SOURCES} ${XBUF_HEADERS})
+if(WIN32)
+  add_library(xbuf STATIC ${XBUF_SOURCES} ${XBUF_HEADERS})
+else()
+  add_library(xbuf ${XK_LIB_TYPE} ${XBUF_SOURCES} ${XBUF_HEADERS})
+endif()
 
 target_link_libraries(xbuf PUBLIC xbase)
+if(WIN32)
+  target_link_libraries(xbuf PUBLIC ws2_32)
+endif()
 
 message(STATUS "xbuf: buffer module enabled (xBuffer + xRingBuffer + xIOBuffer)")
 

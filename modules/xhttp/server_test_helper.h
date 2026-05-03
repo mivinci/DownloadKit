@@ -17,12 +17,8 @@
 
 extern "C" {
 #include <xhttp/server.h>
+#include <xnet/compat.h>
 }
-
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 /* ───────────────────── Helpers ───────────────────── */
 
@@ -49,18 +45,18 @@ static inline uint16_t find_free_port() {
   addr.sin_port        = 0;
 
   if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    close(fd);
+    xnet_close(fd);
     return 0;
   }
 
-  socklen_t len = sizeof(addr);
+  xnet_socklen_t len = sizeof(addr);
   if (getsockname(fd, (struct sockaddr *)&addr, &len) < 0) {
-    close(fd);
+    xnet_close(fd);
     return 0;
   }
 
   uint16_t port = ntohs(addr.sin_port);
-  close(fd);
+  xnet_close(fd);
   return port;
 }
 
@@ -78,7 +74,7 @@ static inline int connect_to(uint16_t port) {
   addr.sin_port        = htons(port);
 
   if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    close(fd);
+    xnet_close(fd);
     return -1;
   }
   return fd;
@@ -88,8 +84,8 @@ static inline int connect_to(uint16_t port) {
  * @brief Send a string over a socket.
  */
 static inline bool send_str(int fd, const std::string &s) {
-  ssize_t n = send(fd, s.data(), s.size(), 0);
-  return n == (ssize_t)s.size();
+  xnet_ssize_t n = send(fd, s.data(), (int)s.size(), 0);
+  return n == (xnet_ssize_t)s.size();
 }
 
 /**
@@ -99,13 +95,18 @@ static inline std::string recv_all(int fd, int timeout_ms = 2000) {
   std::string result;
   char        buf[4096];
 
+#ifdef _WIN32
+  DWORD tv = (DWORD)timeout_ms;
+  xnet_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#else
   struct timeval tv;
   tv.tv_sec  = timeout_ms / 1000;
   tv.tv_usec = (timeout_ms % 1000) * 1000;
-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  xnet_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
 
   for (;;) {
-    ssize_t n = recv(fd, buf, sizeof(buf), 0);
+    xnet_ssize_t n = recv(fd, buf, sizeof(buf), 0);
     if (n <= 0) break;
     result.append(buf, (size_t)n);
 
@@ -154,6 +155,7 @@ protected:
   uint16_t    port   = 0;
 
   void SetUp() override {
+    xnet_init();
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
 

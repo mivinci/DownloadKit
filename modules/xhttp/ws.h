@@ -74,8 +74,7 @@ typedef void (*xWsOnOpenFunc)(xWsConn conn, void *arg);
  * @param arg      User-provided argument.
  */
 typedef void (*xWsOnMessageFunc)(xWsConn conn, xWsOpcode opcode,
-                                 const void *payload, size_t len,
-                                 void *arg);
+                                 const void *payload, size_t len, void *arg);
 
 /**
  * @brief Called when a WebSocket connection is closed.
@@ -90,9 +89,8 @@ typedef void (*xWsOnMessageFunc)(xWsConn conn, xWsOpcode opcode,
  * @param len     Length of reason in bytes.
  * @param arg     User-provided argument.
  */
-typedef void (*xWsOnCloseFunc)(xWsConn conn, uint16_t code,
-                               const char *reason, size_t len,
-                               void *arg);
+typedef void (*xWsOnCloseFunc)(xWsConn conn, uint16_t code, const char *reason,
+                               size_t len, void *arg);
 
 /**
  * @brief WebSocket event callbacks.
@@ -121,8 +119,8 @@ XDEF_STRUCT(xWsCallbacks) {
  * @param len      Length of payload in bytes.
  * @return         xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xWsSend(xWsConn conn, xWsOpcode opcode,
-                      const void *payload, size_t len);
+XCAPI(xErrno) xWsSend(xWsConn conn, xWsOpcode opcode, const void *payload,
+                      size_t len);
 
 /**
  * @brief Initiate a graceful close of a WebSocket connection.
@@ -161,10 +159,8 @@ XCAPI(xErrno) xWsClose(xWsConn conn, uint16_t code);
  * @param arg        User argument forwarded to callbacks.
  * @return           xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xWsUpgrade(xHttpResponseWriter writer,
-                         const xHttpRequest *req,
-                         const xWsCallbacks *callbacks,
-                         void *arg);
+XCAPI(xErrno) xWsUpgrade(xHttpResponseWriter writer, const xHttpRequest *req,
+                         const xWsCallbacks *callbacks, void *arg);
 
 /* ── Client Connect ─────────────────────────────────────────────────── */
 
@@ -227,10 +223,8 @@ XDEF_STRUCT(xWsConnectConf) {
  * @return           xErrno_Ok if the async process started,
  *                   or xErrno_InvalidArg for bad parameters.
  */
-XCAPI(xErrno) xWsConnect(xEventLoop loop,
-                         const xWsConnectConf *conf,
-                         const xWsCallbacks *callbacks,
-                         void *arg);
+XCAPI(xErrno) xWsConnect(xEventLoop loop, const xWsConnectConf *conf,
+                         const xWsCallbacks *callbacks, void *arg);
 
 /* ── Convenience: WebSocket-only server ─────────────────────────────── */
 
@@ -252,10 +246,7 @@ XCAPI(xErrno) xWsConnect(xEventLoop loop,
  * @param arg        User argument forwarded to all callbacks.
  * @return           The server handle, or NULL on failure.
  */
-XCAPI(xHttpServer) xWsServe(xEventLoop loop,
-                             const char *host,
-                             uint16_t port,
-                             const xWsCallbacks *callbacks,
-                             void *arg);
+XCAPI(xHttpServer) xWsServe(xEventLoop loop, const char *host, uint16_t port,
+                            const xWsCallbacks *callbacks, void *arg);
 
 #endif /* XHTTP_WS_H */

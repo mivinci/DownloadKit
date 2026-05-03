@@ -12,14 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <xbase/compat.h>
-
-#ifdef __linux__
-#include <sys/random.h>
-#else
-#include <stdlib.h>
-#endif
+#include <xnet/compat.h>
 
 /* RFC 6455 §4.2.2: magic GUID for Sec-WebSocket-Accept */
 static const char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -27,11 +21,7 @@ static const char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 /* ─────────────────── Random bytes ─────────────────── */
 
 static void ws_client_random(uint8_t *buf, size_t len) {
-#ifdef __linux__
-  (void)getrandom(buf, len, 0);
-#else
-  arc4random_buf(buf, len);
-#endif
+  xnet_random_bytes(buf, len);
 }
 
 /* ─────────────────── Build Upgrade request ─────────────────── */
@@ -152,7 +142,7 @@ static const char *find_resp_header(const char *data, size_t len,
     if (!eol) eol = end;
 
     size_t line_len = (size_t)(eol - p);
-    if (line_len > key_len + 1 && strncasecmp(p, key, key_len) == 0 &&
+    if (line_len > key_len + 1 && xnet_strncasecmp(p, key, key_len) == 0 &&
         p[key_len] == ':') {
       const char *val = p + key_len + 1;
       while (val < eol && *val == ' ')
@@ -183,7 +173,8 @@ static int header_token_match(const char *value, size_t vlen,
     while (te < end && *te != ',' && *te != ' ')
       te++;
 
-    if ((size_t)(te - p) == tlen && strncasecmp(p, token, tlen) == 0) return 1;
+    if ((size_t)(te - p) == tlen && xnet_strncasecmp(p, token, tlen) == 0)
+      return 1;
 
     p = te;
   }

@@ -8,9 +8,8 @@
 
 #include "server_test_helper.h"
 
-#include <fcntl.h>
 #include <nghttp2/nghttp2.h>
-#include <poll.h>
+#include <xnet/compat.h>
 
 #include <map>
 #include <set>
@@ -27,7 +26,7 @@ public:
 
   ~H2Client() {
     if (session_) nghttp2_session_del(session_);
-    if (fd_ >= 0) close(fd_);
+    if (fd_ >= 0) xnet_close(fd_);
   }
 
   bool connect(uint16_t port) {
@@ -123,11 +122,11 @@ public:
     pfd.fd     = fd_;
     pfd.events = POLLIN;
 
-    while (poll(&pfd, 1, 10) > 0 && (pfd.revents & POLLIN)) {
-      ssize_t n = recv(fd_, buf, sizeof(buf), 0);
+    while (xnet_poll(&pfd, 1, 10) > 0 && (pfd.revents & POLLIN)) {
+      xnet_ssize_t n = recv(fd_, buf, sizeof(buf), 0);
       if (n <= 0) break;
 
-      ssize_t rv =
+      xnet_ssize_t rv =
         nghttp2_session_mem_recv(session_, (const uint8_t *)buf, (size_t)n);
       if (rv < 0) break;
 
@@ -202,10 +201,10 @@ private:
                          size_t length, int flags, void *user_data) {
     (void)session;
     (void)flags;
-    H2Client *self = (H2Client *)user_data;
-    ssize_t   n    = send(self->fd_, data, length, 0);
+    H2Client    *self = (H2Client *)user_data;
+    xnet_ssize_t n    = send(self->fd_, (const char *)data, (int)length, 0);
     if (n < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK)
+      if (xnet_errno() == XNET_EAGAIN || xnet_errno() == XNET_EWOULDBLOCK)
         return NGHTTP2_ERR_WOULDBLOCK;
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
@@ -297,6 +296,7 @@ protected:
   uint16_t    port   = 0;
 
   void SetUp() override {
+    xnet_init();
     loop = xEventLoopCreate();
     ASSERT_NE(loop, nullptr);
 
@@ -395,7 +395,7 @@ TEST_F(HttpServerH2Test, H1AndH2Coexist) {
     ASSERT_TRUE(send_str(fd, request));
     pump_loop(loop, 100);
     std::string response = recv_all(fd);
-    close(fd);
+    xnet_close(fd);
     EXPECT_NE(response.find("200 OK"), std::string::npos);
     EXPECT_NE(response.find("hello h2"), std::string::npos);
   }

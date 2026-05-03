@@ -22,15 +22,12 @@ extern "C" {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-static void encode_then_parse(const char *payload,
-                              size_t len,
-                              int masked,
+static void encode_then_parse(const char *payload, size_t len, int masked,
                               int expect_masked) {
   xIOBuffer io;
   xIOBufferInit(&io);
 
-  int rc = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT,
-                          payload, len, masked);
+  int rc = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT, payload, len, masked);
   ASSERT_EQ(rc, 0);
 
   xWsFrameParser parser;
@@ -112,8 +109,7 @@ TEST(WsFrameMask, ServerRejectsUnmaskedFrame) {
   xIOBuffer io;
   xIOBufferInit(&io);
 
-  int rc = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT,
-                          "test", 4, /*masked=*/0);
+  int rc = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT, "test", 4, /*masked=*/0);
   ASSERT_EQ(rc, 0);
 
   xWsFrameParser parser;
@@ -130,8 +126,7 @@ TEST(WsFrameMask, ClientRejectsMaskedFrame) {
   xIOBuffer io;
   xIOBufferInit(&io);
 
-  int rc = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT,
-                          "test", 4, /*masked=*/1);
+  int rc = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT, "test", 4, /*masked=*/1);
   ASSERT_EQ(rc, 0);
 
   xWsFrameParser parser;
@@ -153,8 +148,7 @@ TEST(WsFrameMask, MaskedWireFormatHasMaskBit) {
   xIOBuffer io;
   xIOBufferInit(&io);
 
-  int rc = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT,
-                          "Hi", 2, /*masked=*/1);
+  int rc = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT, "Hi", 2, /*masked=*/1);
   ASSERT_EQ(rc, 0);
 
   /* Masked frame: 2-byte header + 4-byte mask key + 2 payload
@@ -188,8 +182,7 @@ TEST(WsFrameMask, UnmaskedWireFormatNoMaskBit) {
   xIOBuffer io;
   xIOBufferInit(&io);
 
-  int rc = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT,
-                          "Hi", 2, /*masked=*/0);
+  int rc = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT, "Hi", 2, /*masked=*/0);
   ASSERT_EQ(rc, 0);
 
   size_t total = xIOBufferLen(&io);
@@ -231,8 +224,8 @@ TEST(WsFrameMask, MaskedCloseFrame) {
   EXPECT_EQ(parser.frame.payload_len, 5u);
 
   /* Verify close code (network byte order) */
-  uint16_t code = (uint16_t)((parser.frame.payload[0] << 8) |
-                              parser.frame.payload[1]);
+  uint16_t code =
+    (uint16_t)((parser.frame.payload[0] << 8) | parser.frame.payload[1]);
   EXPECT_EQ(code, 1000);
   EXPECT_EQ(memcmp(parser.frame.payload + 2, "bye", 3), 0);
 

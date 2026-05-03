@@ -97,7 +97,8 @@ static void check_multi_info(struct xHttpClient_ *c) {
       req->cleaned = 1;
       /* Remove from client's request list */
       struct xHttpReq_ **pp = &c->reqs;
-      while (*pp && *pp != req) pp = &(*pp)->next;
+      while (*pp && *pp != req)
+        pp = &(*pp)->next;
       if (*pp) *pp = req->next;
       curl_multi_remove_handle(c->multi, easy);
       curl_easy_cleanup(easy);
@@ -267,23 +268,22 @@ static void tls_conf_free(struct xHttpClient_ *c) {
   free(c->tls_cert);
   free(c->tls_key);
   free(c->tls_key_password);
-  c->tls_ca      = NULL;
-  c->tls_cert  = NULL;
-  c->tls_key   = NULL;
+  c->tls_ca           = NULL;
+  c->tls_cert         = NULL;
+  c->tls_key          = NULL;
   c->tls_key_password = NULL;
   c->tls_skip_verify  = 0;
 }
 
-static void apply_tls_conf(struct xHttpClient_ *c,
-                           const xTlsConf *conf) {
+static void apply_tls_conf(struct xHttpClient_ *c, const xTlsConf *conf) {
   /* Free any previous TLS config */
   tls_conf_free(c);
 
   if (!conf) return; /* reset to defaults */
 
-  c->tls_ca      = xstrdup_(conf->ca);
-  c->tls_cert  = xstrdup_(conf->cert);
-  c->tls_key   = xstrdup_(conf->key);
+  c->tls_ca           = xstrdup_(conf->ca);
+  c->tls_cert         = xstrdup_(conf->cert);
+  c->tls_key          = xstrdup_(conf->key);
   c->tls_key_password = xstrdup_(conf->key_password);
   c->tls_skip_verify  = conf->skip_verify;
 }
@@ -311,8 +311,7 @@ xHttpClient xHttpClientCreate(xEventLoop loop, const xHttpClientConf *conf) {
   curl_multi_setopt(c->multi, CURLMOPT_TIMERDATA, c);
 
   if (conf) {
-    if (conf->tls)
-      apply_tls_conf(c, conf->tls);
+    if (conf->tls) apply_tls_conf(c, conf->tls);
     if (conf->http_version != xHttpVersion_Default)
       c->http_ver = conf->http_version;
   }
@@ -346,7 +345,8 @@ static void destroy_req(struct xHttpClient_ *c, CURL *easy,
     req->cleaned = 1;
     /* Remove from client's request list */
     struct xHttpReq_ **pp = &c->reqs;
-    while (*pp && *pp != req) pp = &(*pp)->next;
+    while (*pp && *pp != req)
+      pp = &(*pp)->next;
     if (*pp) *pp = req->next;
     curl_multi_remove_handle(c->multi, easy);
     curl_easy_cleanup(easy);
@@ -417,12 +417,10 @@ static xErrno http_submit(struct xHttpClient_ *c, struct xHttpReq_ *req) {
       curl_easy_setopt(req->easy, CURLOPT_SSL_VERIFYPEER, 0L);
       curl_easy_setopt(req->easy, CURLOPT_SSL_VERIFYHOST, 0L);
     }
-    if (cl->tls_ca)
-      curl_easy_setopt(req->easy, CURLOPT_CAINFO, cl->tls_ca);
+    if (cl->tls_ca) curl_easy_setopt(req->easy, CURLOPT_CAINFO, cl->tls_ca);
     if (cl->tls_cert)
       curl_easy_setopt(req->easy, CURLOPT_SSLCERT, cl->tls_cert);
-    if (cl->tls_key)
-      curl_easy_setopt(req->easy, CURLOPT_SSLKEY, cl->tls_key);
+    if (cl->tls_key) curl_easy_setopt(req->easy, CURLOPT_SSLKEY, cl->tls_key);
     if (cl->tls_key_password)
       curl_easy_setopt(req->easy, CURLOPT_KEYPASSWD, cl->tls_key_password);
   }

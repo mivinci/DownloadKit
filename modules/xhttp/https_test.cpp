@@ -29,12 +29,8 @@
 extern "C" {
 #include <xhttp/client.h>
 #include <xhttp/server.h>
+#include <xnet/compat.h>
 }
-
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Helpers
@@ -52,18 +48,18 @@ static uint16_t find_free_port() {
   addr.sin_port        = 0;
 
   if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    close(fd);
+    xnet_close(fd);
     return 0;
   }
 
-  socklen_t len = sizeof(addr);
+  xnet_socklen_t len = sizeof(addr);
   if (getsockname(fd, (struct sockaddr *)&addr, &len) < 0) {
-    close(fd);
+    xnet_close(fd);
     return 0;
   }
 
   uint16_t port = ntohs(addr.sin_port);
-  close(fd);
+  xnet_close(fd);
   return port;
 }
 
@@ -94,10 +90,10 @@ TEST(HttpsClientConfig, SetTlsNullClientDoesNotCrash) {
   /* With the new API, TLS is set at creation time.
    * Creating with NULL loop should return NULL — no crash. */
   xHttpClientConf conf = {};
-  xTlsConf  tls  = {};
+  xTlsConf        tls  = {};
   tls.skip_verify      = 1;
   conf.tls             = &tls;
-  xHttpClient c = xHttpClientCreate(nullptr, &conf);
+  xHttpClient c        = xHttpClientCreate(nullptr, &conf);
   EXPECT_EQ(c, nullptr);
 }
 
@@ -105,12 +101,12 @@ TEST(HttpsClientConfig, SetTlsNullConfResetsToDefaults) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
   /* Create with TLS config */
-  xTlsConf  tls  = {};
+  xTlsConf tls         = {};
   tls.ca               = "/tmp/ca.pem";
   tls.skip_verify      = 1;
   xHttpClientConf conf = {};
   conf.tls             = &tls;
-  xHttpClient client = xHttpClientCreate(loop, &conf);
+  xHttpClient client   = xHttpClientCreate(loop, &conf);
   ASSERT_NE(client, nullptr);
 
   /* Recreate with defaults (NULL conf) */
@@ -127,24 +123,24 @@ TEST(HttpsClientConfig, SetTlsWithAllFields) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xTlsConf tls = {};
-  tls.ca              = "/tmp/ca.pem";
-  tls.cert            = "/tmp/client.pem";
-  tls.key             = "/tmp/client-key.pem";
-  tls.key_password    = "secret";
-  tls.skip_verify     = 0;
+  xTlsConf tls         = {};
+  tls.ca               = "/tmp/ca.pem";
+  tls.cert             = "/tmp/client.pem";
+  tls.key              = "/tmp/client-key.pem";
+  tls.key_password     = "secret";
+  tls.skip_verify      = 0;
   xHttpClientConf conf = {};
   conf.tls             = &tls;
-  xHttpClient client = xHttpClientCreate(loop, &conf);
+  xHttpClient client   = xHttpClientCreate(loop, &conf);
   ASSERT_NE(client, nullptr);
 
   /* Overwrite with different config by recreating */
   xHttpClientDestroy(client);
-  xTlsConf tls2 = {};
-  tls2.skip_verify     = 1;
+  xTlsConf tls2         = {};
+  tls2.skip_verify      = 1;
   xHttpClientConf conf2 = {};
   conf2.tls             = &tls2;
-  client = xHttpClientCreate(loop, &conf2);
+  client                = xHttpClientCreate(loop, &conf2);
   ASSERT_NE(client, nullptr);
 
   xHttpClientDestroy(client);
@@ -183,7 +179,7 @@ static void on_resp(const xHttpResponse *resp, void *arg) {
   ctx->done.store(true, std::memory_order_release);
 }
 
-}  // namespace
+} // namespace
 
 /* ── SSE context (disabled: server TLS streaming not yet supported) ──── */
 
@@ -274,14 +270,14 @@ protected:
 
     /* Generate self-signed certificate (use PID suffix to avoid conflicts) */
     std::string suffix = std::to_string(getpid());
-    cert_path    = "/tmp/xhttps_test_cert_" + suffix + ".pem";
-    key_path     = "/tmp/xhttps_test_key_" + suffix + ".pem";
-    ca_cert_path = cert_path; /* self-signed: CA = cert itself */
+    cert_path          = "/tmp/xhttps_test_cert_" + suffix + ".pem";
+    key_path           = "/tmp/xhttps_test_key_" + suffix + ".pem";
+    ca_cert_path       = cert_path; /* self-signed: CA = cert itself */
 
     std::string cmd = "openssl req -x509 -newkey rsa:2048 -keyout " + key_path +
                       " -out " + cert_path +
                       " -days 1 -nodes -subj '/CN=localhost' 2>/dev/null";
-    int ret = system(cmd.c_str());
+    int         ret = system(cmd.c_str());
     ASSERT_EQ(ret, 0) << "Failed to generate self-signed certificate";
 
     /* ── Client setup ── */
@@ -321,9 +317,9 @@ protected:
 
   /** Start TLS server and background event loop. */
   void listen_tls_and_start(int verify_client = 0) {
-  xTlsConf config = {};
-    config.cert          = cert_path.c_str();
-    config.key           = key_path.c_str();
+    xTlsConf config = {};
+    config.cert     = cert_path.c_str();
+    config.key      = key_path.c_str();
     if (verify_client == 0) config.skip_verify = 1;
     if (verify_client > 0) config.ca = ca_cert_path.c_str();
 
@@ -346,21 +342,21 @@ protected:
     }
     xHttpClientConf conf = {};
     conf.tls             = tls;
-    client = xHttpClientCreate(client_loop, &conf);
+    client               = xHttpClientCreate(client_loop, &conf);
     ASSERT_NE(client, nullptr);
   }
 
   /** Configure client to skip TLS verification (for self-signed certs). */
   void client_skip_verify() {
-    xTlsConf tls = {};
-    tls.skip_verify    = 1;
+    xTlsConf tls    = {};
+    tls.skip_verify = 1;
     create_client(&tls);
   }
 
   /** Configure client with a specific CA path. */
   void client_set_ca(const std::string &ca) {
     xTlsConf tls = {};
-    tls.ca             = ca.c_str();
+    tls.ca       = ca.c_str();
     create_client(&tls);
   }
 };
@@ -521,7 +517,7 @@ TEST_F(HttpsIntegrationTest, WrongCaPathFails) {
 
   /* Point to a non-existent CA file */
   xTlsConf tls = {};
-  tls.ca             = "/tmp/nonexistent_ca_xhttps_test.pem";
+  tls.ca       = "/tmp/nonexistent_ca_xhttps_test.pem";
   create_client(&tls);
 
   RespCtx ctx{};
@@ -711,9 +707,9 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
 
   /* Server requires client certificate (verify_client = 2) */
   xTlsConf srv_conf = {};
-  srv_conf.cert          = server_cert.c_str();
-  srv_conf.key           = server_key.c_str();
-  srv_conf.ca            = ca_cert.c_str();
+  srv_conf.cert     = server_cert.c_str();
+  srv_conf.key      = server_key.c_str();
+  srv_conf.ca       = ca_cert.c_str();
 
   xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &srv_conf);
   ASSERT_EQ(err, xErrno_Ok);
@@ -721,10 +717,10 @@ TEST_F(HttpsMtlsTest, MtlsWithClientCert) {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Client provides cert + key + CA */
-  xTlsConf cli_tls = {};
-  cli_tls.ca             = ca_cert.c_str();
-  cli_tls.cert           = client_cert.c_str();
-  cli_tls.key            = client_key.c_str();
+  xTlsConf cli_tls         = {};
+  cli_tls.ca               = ca_cert.c_str();
+  cli_tls.cert             = client_cert.c_str();
+  cli_tls.key              = client_key.c_str();
   xHttpClientConf cli_conf = {};
   cli_conf.tls             = &cli_tls;
   xHttpClientDestroy(client);
@@ -748,9 +744,9 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
 
   /* Server requires client certificate */
   xTlsConf srv_conf = {};
-  srv_conf.cert          = server_cert.c_str();
-  srv_conf.key           = server_key.c_str();
-  srv_conf.ca            = ca_cert.c_str();
+  srv_conf.cert     = server_cert.c_str();
+  srv_conf.key      = server_key.c_str();
+  srv_conf.ca       = ca_cert.c_str();
 
   xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &srv_conf);
   ASSERT_EQ(err, xErrno_Ok);
@@ -758,8 +754,8 @@ TEST_F(HttpsMtlsTest, MtlsMissingClientCertFails) {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Client provides CA but NO client cert */
-  xTlsConf cli_tls = {};
-  cli_tls.ca             = ca_cert.c_str();
+  xTlsConf cli_tls         = {};
+  cli_tls.ca               = ca_cert.c_str();
   xHttpClientConf cli_conf = {};
   cli_conf.tls             = &cli_tls;
   xHttpClientDestroy(client);
@@ -872,8 +868,8 @@ TEST_F(HttpsIntegrationTest, ResetTlsConfigBetweenRequests) {
 
   /* First request: skip verify → should succeed */
   {
-    xTlsConf tls = {};
-    tls.skip_verify    = 1;
+    xTlsConf tls    = {};
+    tls.skip_verify = 1;
     create_client(&tls);
   }
 

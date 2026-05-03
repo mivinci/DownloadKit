@@ -13,8 +13,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <xbase/compat.h>
+#include <xnet/compat.h>
 
 /* RFC 6455 §4.2.2: magic GUID for Sec-WebSocket-Accept */
 static const char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -40,7 +40,7 @@ static const char *find_header(const char *headers, size_t headers_len,
 
     /* Check if this line starts with "key: " */
     size_t line_len = (size_t)(eol - p);
-    if (line_len > key_len + 2 && strncasecmp(p, key, key_len) == 0 &&
+    if (line_len > key_len + 2 && xnet_strncasecmp(p, key, key_len) == 0 &&
         p[key_len] == ':') {
       /* Skip ": " */
       const char *val = p + key_len + 1;
@@ -79,7 +79,7 @@ static int header_contains_token(const char *value, size_t value_len,
       tok_end++;
 
     size_t tok_len = (size_t)(tok_end - p);
-    if (tok_len == token_len && strncasecmp(p, token, token_len) == 0) {
+    if (tok_len == token_len && xnet_strncasecmp(p, token, token_len) == 0) {
       return 1;
     }
 
@@ -202,11 +202,11 @@ xErrno xWsUpgrade(xHttpResponseWriter writer, const xHttpRequest *req,
   char response[768];
   int  resp_len = snprintf(response, sizeof(response),
                            "HTTP/1.1 101 Switching Protocols\r\n"
-                            "Upgrade: websocket\r\n"
-                            "Connection: Upgrade\r\n"
-                            "Sec-WebSocket-Accept: %s\r\n"
-                            "%s"
-                            "\r\n",
+                           "Upgrade: websocket\r\n"
+                           "Connection: Upgrade\r\n"
+                           "Sec-WebSocket-Accept: %s\r\n"
+                           "%s"
+                           "\r\n",
                            accept_value, ext_resp_hdr);
 
   if (resp_len < 0 || (size_t)resp_len >= sizeof(response)) {

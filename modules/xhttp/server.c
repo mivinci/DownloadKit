@@ -11,18 +11,12 @@
 #include "server_private.h"
 #include <xnet/transport_private.h>
 
-#include <arpa/inet.h>
 #include <errno.h>
-#include <netinet/in.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-#include <unistd.h>
 #include <xbase/log.h>
+#include <xnet/compat.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Forward declarations
@@ -97,7 +91,7 @@ xHttpServer xHttpServerCreate(xEventLoop loop) {
   /* Ignore SIGPIPE so that writing to a closed socket returns EPIPE
    * instead of killing the process. This is essential for any network
    * server that handles client disconnections gracefully. */
-  signal(SIGPIPE, SIG_IGN);
+  xnet_ignore_sigpipe();
 
   struct xHttpServer_ *s = (struct xHttpServer_ *)calloc(1, sizeof(*s));
   if (!s) return NULL;
@@ -129,7 +123,7 @@ xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port) {
 
   /* SO_REUSEADDR */
   int optval = 1;
-  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+  xnet_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
   /* Bind */
   struct sockaddr_in addr;
@@ -139,7 +133,7 @@ xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port) {
 
   if (host) {
     if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
-      close(fd);
+      xnet_close(fd);
       return xErrno_InvalidArg;
     }
   } else {
@@ -147,12 +141,12 @@ xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port) {
   }
 
   if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    close(fd);
+    xnet_close(fd);
     return xErrno_SysError;
   }
 
   if (listen(fd, SOMAXCONN) < 0) {
-    close(fd);
+    xnet_close(fd);
     return xErrno_SysError;
   }
 
@@ -160,7 +154,7 @@ xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port) {
   xSocket sock =
     xSocketCreateFromFd(s->loop, fd, xEvent_Read, on_listen_event, s);
   if (!sock) {
-    close(fd);
+    xnet_close(fd);
     return xErrno_SysError;
   }
 
@@ -178,9 +172,9 @@ void xHttpServerDestroy(xHttpServer server) {
   {
     /* Include ws_private.h types via forward decl;
      * xWsConnClose / xWsConnDestroy are linked from ws.c */
-    extern void xWsConnClose(struct xWsConn_ *conn, uint16_t code,
+    extern void xWsConnClose(struct xWsConn_ * conn, uint16_t code,
                              const char *reason, size_t len);
-    extern void xWsConnDestroy(struct xWsConn_ *conn);
+    extern void xWsConnDestroy(struct xWsConn_ * conn);
     while (s->ws_conns) {
       xWsConnClose(s->ws_conns, 1001 /* Going Away */, NULL, 0);
       xWsConnDestroy(s->ws_conns);
@@ -274,15 +268,16 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
   /* Accept in a loop to drain all pending connections (edge-triggered) */
   for (;;) {
     struct sockaddr_in client_addr;
-    socklen_t          addr_len = sizeof(client_addr);
+    xnet_socklen_t     addr_len = sizeof(client_addr);
     int                client_fd =
       accept(s->listen_fd, (struct sockaddr *)&client_addr, &addr_len);
     if (client_fd < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-      if (errno == EMFILE || errno == ENFILE) {
+      if (xnet_errno() == XNET_EAGAIN || xnet_errno() == XNET_EWOULDBLOCK)
+        break;
+      if (xnet_errno() == XNET_EMFILE || xnet_errno() == XNET_ENFILE) {
         /* fd exhaustion: log warning and continue */
         xLog(false, "xhttp: accept() failed: %s (fd exhaustion)",
-             strerror(errno));
+             strerror(xnet_errno()));
         break;
       }
       /* Other errors: stop accepting this round */
@@ -293,7 +288,7 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
     struct xHttpConn_ *conn =
       (struct xHttpConn_ *)calloc(1, sizeof(struct xHttpConn_));
     if (!conn) {
-      close(client_fd);
+      xnet_close(client_fd);
       continue;
     }
 
@@ -317,7 +312,7 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
       xIOBufferDeinit(&conn->read_buf);
       xIOBufferDeinit(&conn->write_buf);
       free(conn);
-      close(client_fd);
+      xnet_close(client_fd);
       continue;
     }
     conn->sock = client_sock;
@@ -589,9 +584,10 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
        * xIOBufferReadWith reuses tail-block space or acquires a new block,
        * then invokes the transport read callback with the block's data
        * pointer — no intermediate stack buffer needed. */
-      ssize_t n = xIOBufferReadWith(&conn->read_buf, conn->transport.read,
-                                    conn->transport.ctx);
-      if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+      xnet_ssize_t n = xIOBufferReadWith(&conn->read_buf, conn->transport.read,
+                                         conn->transport.ctx);
+      if (n < 0 && xnet_errno() != XNET_EAGAIN &&
+          xnet_errno() != XNET_EWOULDBLOCK) {
         /* Read error: close connection */
         xHttpConnClose(conn);
         return;
@@ -964,7 +960,7 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
     if (route_match(r, req.url, params, &param_count)) {
       path_matched = 1;
       /* Check method match (NULL method matches all) */
-      if (!r->method || strcasecmp(r->method, method_str) == 0) {
+      if (!r->method || xnet_strcasecmp(r->method, method_str) == 0) {
         /* Terminate params array with a sentinel */
         params[param_count].name      = NULL;
         params[param_count].value     = NULL;
@@ -1135,13 +1131,13 @@ static void conn_try_flush(struct xHttpConn_ *conn) {
    * Capped at XHTTP_MAX_IOV entries; any excess is flushed on the next
    * writable event via the backpressure path below.
    */
-  struct iovec iov[XHTTP_MAX_IOV];
-  int          cnt = xIOBufferReadIov(&conn->write_buf, iov, XHTTP_MAX_IOV);
+  xnet_iovec iov[XHTTP_MAX_IOV];
+  int        cnt = xIOBufferReadIov(&conn->write_buf, iov, XHTTP_MAX_IOV);
   if (cnt == 0) return;
 
-  ssize_t n = conn->transport.writev(conn->transport.ctx, iov, cnt);
+  xnet_ssize_t n = conn->transport.writev(conn->transport.ctx, iov, cnt);
   if (n < 0) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+    if (xnet_errno() == XNET_EAGAIN || xnet_errno() == XNET_EWOULDBLOCK) {
       /* Register for write events (backpressure) */
       if (!conn->writing) {
         conn->writing = 1;
@@ -1326,7 +1322,7 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
 
   /* Create TLS context with HTTP ALPN */
   static const char *http_alpn[] = {"h2", "http/1.1", NULL};
-  xTlsConf tls_conf = *config;
+  xTlsConf           tls_conf    = *config;
   if (!tls_conf.alpn) tls_conf.alpn = http_alpn;
   xTlsCtx tls_ctx = xTlsCtxCreate(&tls_conf);
   if (!tls_ctx) return xErrno_SysError;
@@ -1340,7 +1336,7 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
 
   /* SO_REUSEADDR */
   int optval = 1;
-  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+  xnet_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
   /* Bind */
   struct sockaddr_in addr;
@@ -1350,7 +1346,7 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
 
   if (host) {
     if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
-      close(fd);
+      xnet_close(fd);
       xTlsCtxDestroy(tls_ctx);
       return xErrno_InvalidArg;
     }
@@ -1359,13 +1355,13 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
   }
 
   if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    close(fd);
+    xnet_close(fd);
     xTlsCtxDestroy(tls_ctx);
     return xErrno_SysError;
   }
 
   if (listen(fd, SOMAXCONN) < 0) {
-    close(fd);
+    xnet_close(fd);
     xTlsCtxDestroy(tls_ctx);
     return xErrno_SysError;
   }
@@ -1374,7 +1370,7 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
   xSocket sock =
     xSocketCreateFromFd(s->loop, fd, xEvent_Read, on_tls_listen_event, s);
   if (!sock) {
-    close(fd);
+    xnet_close(fd);
     xTlsCtxDestroy(tls_ctx);
     return xErrno_SysError;
   }
@@ -1400,14 +1396,15 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg) {
   struct xHttpServer_ *s = (struct xHttpServer_ *)arg;
   for (;;) {
     struct sockaddr_in client_addr;
-    socklen_t          addr_len = sizeof(client_addr);
+    xnet_socklen_t     addr_len = sizeof(client_addr);
     int                client_fd =
       accept(s->tls_listen_fd, (struct sockaddr *)&client_addr, &addr_len);
     if (client_fd < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-      if (errno == EMFILE || errno == ENFILE) {
+      if (xnet_errno() == XNET_EAGAIN || xnet_errno() == XNET_EWOULDBLOCK)
+        break;
+      if (xnet_errno() == XNET_EMFILE || xnet_errno() == XNET_ENFILE) {
         xLog(false, "xhttp: TLS accept() failed: %s (fd exhaustion)",
-             strerror(errno));
+             strerror(xnet_errno()));
         break;
       }
       break;
@@ -1417,7 +1414,7 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg) {
     struct xHttpConn_ *conn =
       (struct xHttpConn_ *)calloc(1, sizeof(struct xHttpConn_));
     if (!conn) {
-      close(client_fd);
+      xnet_close(client_fd);
       continue;
     }
 
@@ -1444,7 +1441,7 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg) {
       xIOBufferDeinit(&conn->read_buf);
       xIOBufferDeinit(&conn->write_buf);
       free(conn);
-      close(client_fd);
+      xnet_close(client_fd);
       continue;
     }
     conn->sock = client_sock;

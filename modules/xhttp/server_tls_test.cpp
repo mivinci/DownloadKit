@@ -22,8 +22,8 @@ extern "C" {
 
 TEST_F(HttpServerTest, ListenTLS_NullServerReturnsError) {
   xTlsConf config = {};
-  config.cert          = "/tmp/cert.pem";
-  config.key           = "/tmp/key.pem";
+  config.cert     = "/tmp/cert.pem";
+  config.key      = "/tmp/key.pem";
   EXPECT_EQ(xHttpServerListenTls(nullptr, "127.0.0.1", port, &config),
             xErrno_InvalidArg);
 }
@@ -35,16 +35,16 @@ TEST_F(HttpServerTest, ListenTLS_NullConfigReturnsError) {
 
 TEST_F(HttpServerTest, ListenTLS_NullCertFileReturnsError) {
   xTlsConf config = {};
-  config.cert          = nullptr;
-  config.key           = "/tmp/key.pem";
+  config.cert     = nullptr;
+  config.key      = "/tmp/key.pem";
   EXPECT_EQ(xHttpServerListenTls(server, "127.0.0.1", port, &config),
             xErrno_InvalidArg);
 }
 
 TEST_F(HttpServerTest, ListenTLS_NullKeyFileReturnsError) {
   xTlsConf config = {};
-  config.cert          = "/tmp/cert.pem";
-  config.key           = nullptr;
+  config.cert     = "/tmp/cert.pem";
+  config.key      = nullptr;
   EXPECT_EQ(xHttpServerListenTls(server, "127.0.0.1", port, &config),
             xErrno_InvalidArg);
 }
@@ -99,7 +99,7 @@ protected:
     std::string cmd = "openssl req -x509 -newkey rsa:2048 -keyout " + key_path +
                       " -out " + cert_path +
                       " -days 1 -nodes -subj '/CN=localhost' 2>/dev/null";
-    int ret = system(cmd.c_str());
+    int         ret = system(cmd.c_str());
     ASSERT_EQ(ret, 0) << "Failed to generate self-signed certificate";
   }
 
@@ -108,8 +108,8 @@ protected:
     if (server) xHttpServerDestroy(server);
     if (loop) xEventLoopDestroy(loop);
 
-    unlink(cert_path.c_str());
-    unlink(key_path.c_str());
+    xnet_unlink(cert_path.c_str());
+    xnet_unlink(key_path.c_str());
   }
 
   /** Start the event loop in a background thread. */
@@ -130,10 +130,10 @@ protected:
 
   /** Start TLS listening and start the event loop thread. */
   void listen_tls_and_start() {
-    xTlsConf config = {};
-    config.cert          = cert_path.c_str();
-    config.key           = key_path.c_str();
-    config.skip_verify      = 1;
+    xTlsConf config    = {};
+    config.cert        = cert_path.c_str();
+    config.key         = key_path.c_str();
+    config.skip_verify = 1;
 
     xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &config);
     ASSERT_EQ(err, xErrno_Ok) << "Failed to listen TLS on port " << tls_port;
@@ -181,7 +181,7 @@ protected:
 
     conn.ssl = SSL_new(conn.ctx);
     if (!conn.ssl) {
-      close(conn.fd);
+      xnet_close(conn.fd);
       SSL_CTX_free(conn.ctx);
       conn.fd  = -1;
       conn.ctx = nullptr;
@@ -194,7 +194,7 @@ protected:
     int ret = SSL_connect(conn.ssl);
     if (ret != 1) {
       SSL_free(conn.ssl);
-      close(conn.fd);
+      xnet_close(conn.fd);
       SSL_CTX_free(conn.ctx);
       conn.ssl = nullptr;
       conn.fd  = -1;
@@ -210,7 +210,7 @@ protected:
       SSL_shutdown(conn.ssl);
       SSL_free(conn.ssl);
     }
-    if (conn.fd >= 0) close(conn.fd);
+    if (conn.fd >= 0) xnet_close(conn.fd);
     if (conn.ctx) SSL_CTX_free(conn.ctx);
     conn.ssl = nullptr;
     conn.fd  = -1;
@@ -227,10 +227,15 @@ protected:
     char        buf[4096];
 
     /* Set socket timeout for reads */
+#ifdef _WIN32
+    DWORD tv = (DWORD)timeout_ms;
+    xnet_setsockopt(conn.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#else
     struct timeval tv;
     tv.tv_sec  = timeout_ms / 1000;
     tv.tv_usec = (timeout_ms % 1000) * 1000;
-    setsockopt(conn.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    xnet_setsockopt(conn.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
 
     for (;;) {
       int n = SSL_read(conn.ssl, buf, sizeof(buf));
@@ -315,20 +320,20 @@ TEST_F(HttpServerTlsTest, AlpnNegotiatesH1) {
 /* ── Invalid certificate path ─────────────────────────────────────────── */
 
 TEST_F(HttpServerTlsTest, InvalidCertPathReturnsError) {
-  xTlsConf config = {};
-  config.cert          = "/nonexistent/cert.pem";
-  config.key           = key_path.c_str();
-  config.skip_verify      = 1;
+  xTlsConf config    = {};
+  config.cert        = "/nonexistent/cert.pem";
+  config.key         = key_path.c_str();
+  config.skip_verify = 1;
 
   xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &config);
   EXPECT_EQ(err, xErrno_SysError);
 }
 
 TEST_F(HttpServerTlsTest, InvalidKeyPathReturnsError) {
-  xTlsConf config = {};
-  config.cert          = cert_path.c_str();
-  config.key           = "/nonexistent/key.pem";
-  config.skip_verify      = 1;
+  xTlsConf config    = {};
+  config.cert        = cert_path.c_str();
+  config.key         = "/nonexistent/key.pem";
+  config.skip_verify = 1;
 
   xErrno err = xHttpServerListenTls(server, "127.0.0.1", tls_port, &config);
   EXPECT_EQ(err, xErrno_SysError);
@@ -353,7 +358,7 @@ TEST_F(HttpServerTlsTest, SimultaneousHttpAndHttps) {
                      "Connection: close\r\n\r\n");
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
   std::string plain_response = recv_all(plain_fd);
-  close(plain_fd);
+  xnet_close(plain_fd);
 
   EXPECT_TRUE(plain_response.find("200") != std::string::npos)
     << "Plain HTTP failed: " << plain_response;
@@ -381,8 +386,8 @@ TEST_F(HttpServerTlsTest, SimultaneousHttpAndHttps) {
 
 TEST_F(HttpServerTest, ListenTLS_NoBackendReturnsNotSupported) {
   xTlsServerConf config = {};
-  config.cert          = "/tmp/cert.pem";
-  config.key           = "/tmp/key.pem";
+  config.cert           = "/tmp/cert.pem";
+  config.key            = "/tmp/key.pem";
   EXPECT_EQ(xHttpServerListenTls(server, "127.0.0.1", port, &config),
             xErrno_NotSupported);
 }

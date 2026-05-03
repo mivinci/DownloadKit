@@ -9,7 +9,6 @@
 #ifndef XHTTP_SERVER_PRIVATE_H
 #define XHTTP_SERVER_PRIVATE_H
 
-#include <xnet/transport.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <xbase/base.h>
@@ -18,6 +17,7 @@
 #include <xbuf/buf.h>
 #include <xbuf/io.h>
 #include <xhttp/server.h>
+#include <xnet/transport.h>
 
 /* ───────────────────── Default configuration ───────────────────── */
 
@@ -148,8 +148,8 @@ XDEF_STRUCT(xHttpConn_) {
   xIOBuffer            write_buf; /**< Write buffer                     */
 
   /* Transport layer (vtable) */
-  xTransport transport;          /**< Transport I/O interface          */
-  int            handshake_done; /**< Whether TLS handshake is complete */
+  xTransport transport;      /**< Transport I/O interface          */
+  int        handshake_done; /**< Whether TLS handshake is complete */
 
   /* Protocol handler (vtable) */
   xHttpProto proto; /**< Protocol handler interface       */
@@ -196,7 +196,7 @@ XDEF_STRUCT(xHttpServer_) {
   size_t max_body_size;
 
   /* Auxiliary data (set by convenience wrappers like xWsServe) */
-  void  *aux_data;
+  void *aux_data;
   void (*aux_free)(void *);
 };
 

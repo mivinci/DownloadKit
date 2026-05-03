@@ -125,7 +125,7 @@ TEST_F(HttpServerTest, BasicGetRequest) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_EQ(ctx.last_method, "GET");
@@ -174,7 +174,7 @@ TEST_F(HttpServerTest, PostRequestWithBody) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_EQ(ctx.last_method, "POST");
@@ -199,7 +199,7 @@ TEST_F(HttpServerTest, NotFoundResponse) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_NE(response.find("HTTP/1.1 404 Not Found"), std::string::npos);
 }
@@ -221,7 +221,7 @@ TEST_F(HttpServerTest, MethodNotAllowedResponse) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_NE(response.find("HTTP/1.1 405 Method Not Allowed"),
             std::string::npos);
@@ -255,7 +255,7 @@ TEST_F(HttpServerTest, KeepAliveConnectionReuse) {
   EXPECT_NE(resp2.find("HTTP/1.1 200 OK"), std::string::npos);
   EXPECT_EQ(ctx.call_count.load(), 2);
 
-  close(fd);
+  xnet_close(fd);
 }
 
 /* ───────────────────── Default 200 OK when handler doesn't respond ──── */
@@ -279,7 +279,7 @@ TEST_F(HttpServerTest, DefaultResponseWhenHandlerDoesNotSend) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
 }
@@ -300,7 +300,7 @@ TEST_F(HttpServerTest, BadRequestOnParseError) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_NE(response.find("400 Bad Request"), std::string::npos);
 }
@@ -328,7 +328,7 @@ TEST_F(HttpServerTest, HeaderTooLargeReturns431) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_NE(response.find("431"), std::string::npos);
 }
@@ -356,7 +356,7 @@ TEST_F(HttpServerTest, BodyTooLargeReturns413) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_NE(response.find("413"), std::string::npos);
 }
@@ -373,7 +373,7 @@ TEST_F(HttpServerTest, ClientDisconnectDoesNotCrash) {
   /* Send partial request and close immediately */
   std::string partial = "GET /test HTTP/1.1\r\nHost: lo";
   send_str(fd, partial);
-  close(fd);
+  xnet_close(fd);
 
   /* Pump to process the disconnect — should not crash */
   pump_loop(loop, 100);
@@ -396,7 +396,7 @@ TEST_F(HttpServerTest, NullMethodMatchesAll) {
     ASSERT_TRUE(send_str(fd, request));
     pump_loop(loop, 100);
     std::string response = recv_all(fd);
-    close(fd);
+    xnet_close(fd);
     EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
   }
 
@@ -410,7 +410,7 @@ TEST_F(HttpServerTest, NullMethodMatchesAll) {
     ASSERT_TRUE(send_str(fd, request));
     pump_loop(loop, 100);
     std::string response = recv_all(fd);
-    close(fd);
+    xnet_close(fd);
     EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
   }
 
@@ -434,7 +434,7 @@ TEST_F(HttpServerTest, DestroyWithActiveConnections) {
   xHttpServerDestroy(server);
   server = nullptr; /* prevent double-destroy in TearDown */
 
-  close(fd);
+  xnet_close(fd);
 }
 
 /* ───────────────────── Streaming response (xHttpResponseWrite) ───────── */
@@ -468,7 +468,7 @@ TEST_F(HttpServerTest, StreamingResponse) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
@@ -509,7 +509,7 @@ TEST_F(HttpServerTest, StreamingAutoEnd) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
@@ -546,7 +546,7 @@ TEST_F(HttpServerTest, WriteAndSendMutuallyExclusive) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_EQ(ctx.last_body, "InvalidState");
@@ -584,7 +584,7 @@ TEST_F(HttpServerTest, ParamRouteBasic) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_EQ(ctx.param_id, "42");
@@ -606,7 +606,7 @@ TEST_F(HttpServerTest, ParamRouteStringId) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_EQ(ctx.param_id, "alice");
@@ -635,8 +635,7 @@ static void multi_param_handler(xHttpResponseWriter writer,
 
 TEST_F(HttpServerTest, ParamRouteMultipleParams) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET /users/:id/:action", multi_param_handler,
-                   &ctx);
+  xHttpServerRoute(server, "GET /users/:id/:action", multi_param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -648,7 +647,7 @@ TEST_F(HttpServerTest, ParamRouteMultipleParams) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_EQ(ctx.param_id, "99");
@@ -673,7 +672,7 @@ TEST_F(HttpServerTest, ParamRouteExtraSegments404) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 0);
   EXPECT_NE(response.find("404"), std::string::npos);
@@ -707,7 +706,7 @@ TEST_F(HttpServerTest, ParamRouteNonexistentParam) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_EQ(ctx.param_id, "null");
@@ -733,7 +732,7 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
     ASSERT_TRUE(send_str(fd, request));
     pump_loop(loop, 100);
     std::string response = recv_all(fd);
-    close(fd);
+    xnet_close(fd);
     EXPECT_EQ(static_ctx.call_count.load(), 1);
     EXPECT_EQ(param_ctx.call_count.load(), 0);
   }
@@ -747,7 +746,7 @@ TEST_F(HttpServerTest, StaticRoutePriorityOverParam) {
     ASSERT_TRUE(send_str(fd, request));
     pump_loop(loop, 100);
     std::string response = recv_all(fd);
-    close(fd);
+    xnet_close(fd);
     EXPECT_EQ(param_ctx.call_count.load(), 1);
     EXPECT_EQ(param_ctx.param_id, "42");
   }
@@ -771,7 +770,7 @@ TEST_F(HttpServerTest, ParamRouteMethodNotAllowed) {
   pump_loop(loop, 100);
 
   std::string response = recv_all(fd);
-  close(fd);
+  xnet_close(fd);
 
   EXPECT_EQ(ctx.call_count.load(), 0);
   EXPECT_NE(response.find("405"), std::string::npos);

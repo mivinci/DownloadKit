@@ -6,10 +6,19 @@ list(FILTER XHTTP_HEADERS EXCLUDE REGEX "_test")
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "transport_")
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_crypto_")
 list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_deflate")
-add_library(xhttp ${XK_LIB_TYPE} ${XHTTP_SOURCES} ${XHTTP_HEADERS})
+if(WIN32)
+  add_library(xhttp STATIC ${XHTTP_SOURCES} ${XHTTP_HEADERS})
+else()
+  add_library(xhttp ${XK_LIB_TYPE} ${XHTTP_SOURCES} ${XHTTP_HEADERS})
+endif()
 
 target_compile_definitions(xhttp PUBLIC XK_HAS_CURL)
 target_link_libraries(xhttp PUBLIC xbase xbuf xnet PRIVATE Libcurl::Libcurl)
+
+# Windows: link Winsock and bcrypt
+if(WIN32)
+  target_link_libraries(xhttp PRIVATE ws2_32 bcrypt)
+endif()
 
 message(STATUS "xhttp: libcurl integration enabled")
 

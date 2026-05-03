@@ -15,13 +15,9 @@
 #include <thread>
 #include <vector>
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 extern "C" {
 #include <xhttp/client.h>
+#include <xnet/compat.h>
 }
 
 /* ───────────────────── Helpers ───────────────────── */
@@ -72,9 +68,9 @@ public:
     ASSERT_GE(listen_fd_, 0);
 
     int opt = 1;
-    setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    xnet_setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    struct sockaddr_in addr {};
+    struct sockaddr_in addr{};
     addr.sin_family      = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port        = 0; /* OS picks a free port */
@@ -82,7 +78,7 @@ public:
     ASSERT_EQ(bind(listen_fd_, (struct sockaddr *)&addr, sizeof(addr)), 0);
     ASSERT_EQ(listen(listen_fd_, 1), 0);
 
-    socklen_t len = sizeof(addr);
+    xnet_socklen_t len = sizeof(addr);
     getsockname(listen_fd_, (struct sockaddr *)&addr, &len);
     port_ = ntohs(addr.sin_port);
 
@@ -94,7 +90,7 @@ public:
   void join() {
     if (thread_.joinable()) thread_.join();
     if (listen_fd_ >= 0) {
-      close(listen_fd_);
+      xnet_close(listen_fd_);
       listen_fd_ = -1;
     }
   }
@@ -109,8 +105,8 @@ private:
     if (client_fd < 0) return;
 
     /* Read the HTTP request (we don't care about contents) */
-    char    buf[4096];
-    ssize_t n = read(client_fd, buf, sizeof(buf));
+    char         buf[4096];
+    xnet_ssize_t n = xnet_read(client_fd, buf, sizeof(buf));
     (void)n;
 
     if (delay_ms_ > 0) std::this_thread::sleep_for(ms(delay_ms_));
@@ -123,11 +119,11 @@ private:
                            "\r\n" +
                            payload_;
 
-    ssize_t sent = write(client_fd, response.data(), response.size());
+    xnet_ssize_t sent = xnet_write(client_fd, response.data(), response.size());
     (void)sent;
 
     /* Close to signal end of stream */
-    close(client_fd);
+    xnet_close(client_fd);
   }
 
   std::string payload_;

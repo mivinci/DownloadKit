@@ -27,11 +27,11 @@
  * configure the zlib streams.
  */
 XDEF_STRUCT(xWsDeflateParams) {
-  int enabled;                  /**< Extension negotiated     */
+  int enabled;                    /**< Extension negotiated     */
   int server_no_context_takeover; /**< Server resets deflate  */
   int client_no_context_takeover; /**< Client resets deflate  */
-  int server_max_window_bits;   /**< Server LZ77 window size  */
-  int client_max_window_bits;   /**< Client LZ77 window size  */
+  int server_max_window_bits;     /**< Server LZ77 window size  */
+  int client_max_window_bits;     /**< Client LZ77 window size  */
 };
 
 /* ───────────────── Deflate context ───────────────── */
@@ -48,8 +48,7 @@ typedef struct xWsDeflateCtx_ xWsDeflateCtx;
  * @param is_client  Non-zero for client side.
  * @return Context, or NULL on failure.
  */
-xWsDeflateCtx *xWsDeflateCreate(const xWsDeflateParams *params,
-                                 int is_client);
+xWsDeflateCtx *xWsDeflateCreate(const xWsDeflateParams *params, int is_client);
 
 /**
  * Destroy a deflate context and free zlib resources.
@@ -72,8 +71,7 @@ void xWsDeflateDestroy(xWsDeflateCtx *ctx);
  * @param out_len   Receives compressed length.
  * @return 0 on success, -1 on error.
  */
-int xWsDeflateCompress(xWsDeflateCtx *ctx,
-                       const uint8_t *in, size_t in_len,
+int xWsDeflateCompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_len,
                        uint8_t **out, size_t *out_len);
 
 /**
@@ -90,8 +88,7 @@ int xWsDeflateCompress(xWsDeflateCtx *ctx,
  * @param out_len   Receives decompressed length.
  * @return 0 on success, -1 on error.
  */
-int xWsDeflateDecompress(xWsDeflateCtx *ctx,
-                         const uint8_t *in, size_t in_len,
+int xWsDeflateDecompress(xWsDeflateCtx *ctx, const uint8_t *in, size_t in_len,
                          uint8_t **out, size_t *out_len);
 
 /**
@@ -125,8 +122,8 @@ int xWsDeflateBuildClientOffer(char *buf, size_t buf_sz);
  * @param buf_sz   Buffer size.
  * @return Number of bytes written (excluding NUL), or -1.
  */
-int xWsDeflateBuildServerResponse(const xWsDeflateParams *params,
-                                  char *buf, size_t buf_sz);
+int xWsDeflateBuildServerResponse(const xWsDeflateParams *params, char *buf,
+                                  size_t buf_sz);
 
 #endif /* XHTTP_WS_DEFLATE */
 #endif /* XHTTP_WS_DEFLATE_H */

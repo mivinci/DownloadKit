@@ -103,7 +103,7 @@ typedef xTlsConf xHttpTlsClientConf;
  */
 XDEF_STRUCT(xHttpClientConf) {
   const xTlsConf *tls;          /**< TLS config, or NULL         */
-  xHttpVersion          http_version; /**< Default HTTP version (0=H1) */
+  xHttpVersion    http_version; /**< Default HTTP version (0=H1) */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
@@ -119,7 +119,7 @@ XDEF_STRUCT(xHttpClientConf) {
  * @param conf  Client configuration, or NULL for defaults.
  * @return      A new client handle, or NULL on failure.
  */
-XCAPI(xHttpClient) xHttpClientCreate(xEventLoop loop,
+XCAPI(xHttpClient) xHttpClientCreate(xEventLoop             loop,
                                      const xHttpClientConf *conf);
 
 /**
@@ -131,8 +131,6 @@ XCAPI(xHttpClient) xHttpClientCreate(xEventLoop loop,
  * @param client  The client to destroy.
  */
 XCAPI(void) xHttpClientDestroy(xHttpClient client);
-
-
 
 /* ── Convenience request helpers ───────────────────────────────────────── */
 

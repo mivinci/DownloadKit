@@ -281,7 +281,6 @@ typedef xTlsConf xHttpTlsServerConf;
  * @return        xErrno_Ok on success, or an error code.
  */
 XCAPI(xErrno) xHttpServerListenTls(xHttpServer server, const char *host,
-                                   uint16_t                  port,
-                                   const xTlsConf *config);
+                                   uint16_t port, const xTlsConf *config);
 
 #endif /* XHTTP_SERVER_H */

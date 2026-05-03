@@ -9,19 +9,17 @@
  * HTTP Upgrade → xWsConn creation, all fully asynchronous.
  */
 
-#include <xnet/transport_private.h>
 #include "ws_handshake_client.h"
 #include "ws_private.h"
+#include <xnet/transport_private.h>
 
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-#include <unistd.h>
 
 #include <xbase/log.h>
+#include <xnet/compat.h>
 #include <xnet/dns.h>
 #include <xnet/url.h>
 
@@ -51,50 +49,50 @@ XDEF_ENUM(xWsConnectPhase){
  */
 
 XDEF_STRUCT(xWsConnector) {
-  xEventLoop     loop;
-  xWsCallbacks   callbacks;
-  void          *user_arg;
+  xEventLoop   loop;
+  xWsCallbacks callbacks;
+  void        *user_arg;
 
   /* URL */
-  xUrl           url;
-  int            use_tls;
+  xUrl url;
+  int  use_tls;
 
   /* TLS config (may be NULL) */
   const xTlsConf *tls_conf;
 
   /* Pre-created TLS context from conf (may be NULL) */
-  xTlsCtx        conf_tls_ctx;
+  xTlsCtx conf_tls_ctx;
 
   /* Resolved TLS context (set during handshake) */
-  xTlsCtx        tls_ctx;
-  int             owns_tls_ctx;
+  xTlsCtx tls_ctx;
+  int     owns_tls_ctx;
 
   /* Extra headers */
-  const char    *headers;
+  const char *headers;
 
   /* DNS */
-  xDnsQuery      dns_query;
-  xDnsResult    *dns_result;
-  xDnsAddr      *current_addr; /* Current address being tried */
+  xDnsQuery   dns_query;
+  xDnsResult *dns_result;
+  xDnsAddr   *current_addr; /* Current address being tried */
 
   /* Socket */
-  xSocket        sock;
-  int            fd;
+  xSocket sock;
+  int     fd;
 
   /* Transport */
   xTransport transport;
 
   /* Timeout */
-  xEventTimer    timer;
-  int            timeout_ms;
+  xEventTimer timer;
+  int         timeout_ms;
 
   /* HTTP Upgrade */
-  xIOBuffer      write_buf;
-  char           expected_accept[64];
+  xIOBuffer write_buf;
+  char      expected_accept[64];
 
   /* Response buffer */
-  char           resp_buf[XWS_MAX_RESPONSE_SIZE];
-  size_t         resp_len;
+  char   resp_buf[XWS_MAX_RESPONSE_SIZE];
+  size_t resp_len;
 
   /* Current phase */
   xWsConnectPhase phase;
@@ -108,8 +106,7 @@ XDEF_STRUCT(xWsConnector) {
 static void connector_destroy(xWsConnector *c);
 static void connector_fail(xWsConnector *c, uint16_t code);
 static void connector_dns_cb(xDnsResult *result, void *arg);
-static void connector_sock_cb(xSocket sock, xEventMask mask,
-                              void *arg);
+static void connector_sock_cb(xSocket sock, xEventMask mask, void *arg);
 static void connector_timeout_cb(void *arg);
 static void connector_do_tcp_connect(xWsConnector *c);
 static void connector_try_next_addr(xWsConnector *c);
@@ -157,7 +154,7 @@ static void connector_destroy(xWsConnector *c) {
 
 static void connector_fail(xWsConnector *c, uint16_t code) {
   xWsCallbacks cbs = c->callbacks;
-  void *arg = c->user_arg;
+  void        *arg = c->user_arg;
   connector_destroy(c);
 
   /* Fire on_close without ever calling on_open */
@@ -173,7 +170,7 @@ static void connector_fail(xWsConnector *c, uint16_t code) {
 
 static void connector_timeout_cb(void *arg) {
   xWsConnector *c = (xWsConnector *)arg;
-  c->timer = NULL;
+  c->timer        = NULL;
   connector_fail(c, XWS_CLOSE_ABNORMAL);
 }
 
@@ -184,7 +181,7 @@ static void connector_timeout_cb(void *arg) {
 
 static void connector_dns_cb(xDnsResult *result, void *arg) {
   xWsConnector *c = (xWsConnector *)arg;
-  c->dns_query = NULL;
+  c->dns_query    = NULL;
 
   if (result->error != xErrno_Ok || !result->addrs) {
     xDnsResultFree(result);
@@ -192,9 +189,9 @@ static void connector_dns_cb(xDnsResult *result, void *arg) {
     return;
   }
 
-  c->dns_result = result;
+  c->dns_result   = result;
   c->current_addr = result->addrs; /* Start with first address */
-  c->phase = xWsConnectPhase_TcpConnect;
+  c->phase        = xWsConnectPhase_TcpConnect;
   connector_do_tcp_connect(c);
 }
 
@@ -224,9 +221,7 @@ static void connector_do_tcp_connect(xWsConnector *c) {
   xDnsAddr *addr = c->current_addr;
 
   /* Create socket */
-  c->sock = xSocketCreate(c->loop, addr->family,
-                          SOCK_STREAM, 0,
-                          xEvent_Write,
+  c->sock = xSocketCreate(c->loop, addr->family, SOCK_STREAM, 0, xEvent_Write,
                           connector_sock_cb, c);
   if (!c->sock) {
     connector_try_next_addr(c);
@@ -236,9 +231,7 @@ static void connector_do_tcp_connect(xWsConnector *c) {
   c->fd = xSocketFd(c->sock);
 
   /* Initiate async connect */
-  int ret = connect(c->fd,
-                    (struct sockaddr *)&addr->addr,
-                    addr->addrlen);
+  int ret = connect(c->fd, (struct sockaddr *)&addr->addr, addr->addrlen);
   if (ret == 0) {
     /* Connected immediately (unlikely for TCP) */
     if (c->use_tls) {
@@ -247,7 +240,7 @@ static void connector_do_tcp_connect(xWsConnector *c) {
     } else {
       connector_do_http_upgrade(c);
     }
-  } else if (errno == EINPROGRESS) {
+  } else if (xnet_errno() == XNET_EINPROGRESS) {
     /* Normal: wait for writable event */
     /* Socket is already watching xEvent_Write */
   } else {
@@ -268,7 +261,7 @@ static void connector_do_tls_handshake(xWsConnector *c) {
       c->owns_tls_ctx = 0;
     } else {
       /* Create from tls_conf (or defaults if NULL) */
-      xTlsConf defaults;
+      xTlsConf        defaults;
       const xTlsConf *conf = c->tls_conf;
       if (!conf) {
         memset(&defaults, 0, sizeof(defaults));
@@ -284,14 +277,13 @@ static void connector_do_tls_handshake(xWsConnector *c) {
   }
 
   /* Extract hostname as NUL-terminated string */
-  char hostname[256];
+  char   hostname[256];
   size_t hlen = c->url.host_len;
   if (hlen >= sizeof(hostname)) hlen = sizeof(hostname) - 1;
   memcpy(hostname, c->url.host, hlen);
   hostname[hlen] = '\0';
 
-  if (xTransportTlsClientInit(&c->transport, c->tls_ctx,
-                                  hostname, c->fd) < 0) {
+  if (xTransportTlsClientInit(&c->transport, c->tls_ctx, hostname, c->fd) < 0) {
     connector_fail(c, XWS_CLOSE_ABNORMAL);
     return;
   }
@@ -323,11 +315,9 @@ static void connector_do_http_upgrade(xWsConnector *c) {
   c->phase = xWsConnectPhase_HttpUpgradeWrite;
 
   /* Build the Upgrade request */
-  if (xWsClientBuildUpgradeRequest(&c->write_buf, &c->url,
-                                   c->headers,
+  if (xWsClientBuildUpgradeRequest(&c->write_buf, &c->url, c->headers,
                                    c->expected_accept,
-                                   sizeof(c->expected_accept))
-      < 0) {
+                                   sizeof(c->expected_accept)) < 0) {
     connector_fail(c, XWS_CLOSE_ABNORMAL);
     return;
   }
@@ -344,9 +334,9 @@ static void connector_do_http_upgrade(xWsConnector *c) {
 static void connector_on_writable(xWsConnector *c) {
   if (c->phase == xWsConnectPhase_TcpConnect) {
     /* TCP connect completed: check for errors */
-    int err = 0;
-    socklen_t errlen = sizeof(err);
-    getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+    int            err    = 0;
+    xnet_socklen_t errlen = sizeof(err);
+    xnet_getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
     if (err != 0) {
       /* Try next address in the list */
       connector_try_next_addr(c);
@@ -384,14 +374,13 @@ static void connector_on_writable(xWsConnector *c) {
   if (c->phase == xWsConnectPhase_HttpUpgradeWrite) {
     /* Flush the Upgrade request */
     while (!xIOBufferEmpty(&c->write_buf)) {
-      struct iovec iov[16];
-      int cnt = xIOBufferReadIov(&c->write_buf, iov, 16);
+      xnet_iovec iov[16];
+      int        cnt = xIOBufferReadIov(&c->write_buf, iov, 16);
       if (cnt == 0) break;
 
-      ssize_t n = c->transport.writev(c->transport.ctx,
-                                      iov, cnt);
+      xnet_ssize_t n = c->transport.writev(c->transport.ctx, iov, cnt);
       if (n < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (xnet_errno() == XNET_EAGAIN || xnet_errno() == XNET_EWOULDBLOCK) {
           xSocketSetMask(c->loop, c->sock, xEvent_Write);
           return;
         }
@@ -402,7 +391,7 @@ static void connector_on_writable(xWsConnector *c) {
     }
 
     /* Request fully sent: switch to reading response */
-    c->phase = xWsConnectPhase_HttpUpgradeRead;
+    c->phase    = xWsConnectPhase_HttpUpgradeRead;
     c->resp_len = 0;
     xSocketSetMask(c->loop, c->sock, xEvent_Read);
     return;
@@ -438,11 +427,11 @@ static void connector_on_readable(xWsConnector *c) {
       return;
     }
 
-    ssize_t n = c->transport.read(
-      c->transport.ctx,
-      c->resp_buf + c->resp_len, space);
+    xnet_ssize_t n =
+      c->transport.read(c->transport.ctx, c->resp_buf + c->resp_len, space);
     if (n < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) return;
+      if (xnet_errno() == XNET_EAGAIN || xnet_errno() == XNET_EWOULDBLOCK)
+        return;
       connector_fail(c, XWS_CLOSE_ABNORMAL);
       return;
     }
@@ -462,9 +451,8 @@ static void connector_on_readable(xWsConnector *c) {
     size_t hdr_end = (size_t)(end - c->resp_buf) + 4;
 
     /* Validate the 101 response */
-    if (xWsClientValidateUpgradeResponse(
-          c->resp_buf, hdr_end,
-          c->expected_accept) < 0) {
+    if (xWsClientValidateUpgradeResponse(c->resp_buf, hdr_end,
+                                         c->expected_accept) < 0) {
       connector_fail(c, XWS_CLOSE_PROTOCOL_ERR);
       return;
     }
@@ -479,37 +467,33 @@ static void connector_on_readable(xWsConnector *c) {
     }
 
     /* Transfer ownership of socket and transport */
-    xSocket sock = c->sock;
-    xTransport transport = c->transport;
-    xEventLoop loop = c->loop;
-    xWsCallbacks cbs = c->callbacks;
-    void *arg = c->user_arg;
+    xSocket      sock      = c->sock;
+    xTransport   transport = c->transport;
+    xEventLoop   loop      = c->loop;
+    xWsCallbacks cbs       = c->callbacks;
+    void        *arg       = c->user_arg;
 
     /* Prevent connector_destroy from closing these */
     c->sock = NULL;
     memset(&c->transport, 0, sizeof(c->transport));
 
     /* Create WS connection (server=NULL → client mode) */
-    struct xWsConn_ *ws = xWsConnCreate(
-      NULL, loop, sock, transport,
-      &cbs, arg, 0);
+    struct xWsConn_ *ws =
+      xWsConnCreate(NULL, loop, sock, transport, &cbs, arg, 0);
 
     if (!ws) {
       /* Restore and clean up */
-      if (transport.destroy)
-        transport.destroy(transport.ctx);
+      if (transport.destroy) transport.destroy(transport.ctx);
       xSocketDestroy(loop, sock);
       connector_destroy(c);
-      if (cbs.on_close)
-        cbs.on_close(NULL, XWS_CLOSE_ABNORMAL, NULL, 0, arg);
+      if (cbs.on_close) cbs.on_close(NULL, XWS_CLOSE_ABNORMAL, NULL, 0, arg);
       return;
     }
 
     /* Transfer any extra data after the HTTP headers
      * into the WS read buffer */
     if (c->resp_len > hdr_end) {
-      xIOBufferAppend(&ws->read_buf,
-                      c->resp_buf + hdr_end,
+      xIOBufferAppend(&ws->read_buf, c->resp_buf + hdr_end,
                       c->resp_len - hdr_end);
     }
 
@@ -517,11 +501,10 @@ static void connector_on_readable(xWsConnector *c) {
     /* Check if server accepted permessage-deflate */
     {
       xWsDeflateParams dp;
-      if (xWsClientParseDeflateResponse(
-            c->resp_buf, hdr_end, &dp) == 0 &&
+      if (xWsClientParseDeflateResponse(c->resp_buf, hdr_end, &dp) == 0 &&
           dp.enabled) {
         ws->deflate_params = dp;
-        ws->deflate_ctx = xWsDeflateCreate(&dp, 1);
+        ws->deflate_ctx    = xWsDeflateCreate(&dp, 1);
         if (ws->deflate_ctx) {
           ws->parser.allow_rsv1 = 1;
         }
@@ -545,8 +528,7 @@ static void connector_on_readable(xWsConnector *c) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-static void connector_sock_cb(xSocket sock, xEventMask mask,
-                              void *arg) {
+static void connector_sock_cb(xSocket sock, xEventMask mask, void *arg) {
   xWsConnector *c = (xWsConnector *)arg;
   (void)sock;
 
@@ -563,26 +545,21 @@ static void connector_sock_cb(xSocket sock, xEventMask mask,
  * ═══════════════════════════════════════════════════════════════════
  */
 
-xErrno xWsConnect(xEventLoop loop,
-                  const xWsConnectConf *conf,
-                  const xWsCallbacks *callbacks,
-                  void *arg) {
+xErrno xWsConnect(xEventLoop loop, const xWsConnectConf *conf,
+                  const xWsCallbacks *callbacks, void *arg) {
   if (!loop || !conf || !callbacks) return xErrno_InvalidArg;
   if (!conf->url) return xErrno_InvalidArg;
 
   /* Parse URL */
   xUrl url;
   memset(&url, 0, sizeof(url));
-  if (xUrlParse(conf->url, &url) != xErrno_Ok)
-    return xErrno_InvalidArg;
+  if (xUrlParse(conf->url, &url) != xErrno_Ok) return xErrno_InvalidArg;
 
   /* Validate scheme */
   int use_tls = 0;
-  if (url.scheme_len == 2 &&
-      strncmp(url.scheme, "ws", 2) == 0) {
+  if (url.scheme_len == 2 && strncmp(url.scheme, "ws", 2) == 0) {
     use_tls = 0;
-  } else if (url.scheme_len == 3 &&
-             strncmp(url.scheme, "wss", 3) == 0) {
+  } else if (url.scheme_len == 3 && strncmp(url.scheme, "wss", 3) == 0) {
     use_tls = 1;
   } else {
     xUrlFree(&url);
@@ -590,42 +567,39 @@ xErrno xWsConnect(xEventLoop loop,
   }
 
   /* Allocate connector */
-  xWsConnector *c =
-    (xWsConnector *)calloc(1, sizeof(xWsConnector));
+  xWsConnector *c = (xWsConnector *)calloc(1, sizeof(xWsConnector));
   if (!c) {
     xUrlFree(&url);
     return xErrno_NoMemory;
   }
 
-  c->loop      = loop;
-  c->callbacks = *callbacks;
-  c->user_arg  = arg;
-  c->url       = url; /* Transfer ownership */
-  c->use_tls   = use_tls;
+  c->loop         = loop;
+  c->callbacks    = *callbacks;
+  c->user_arg     = arg;
+  c->url          = url; /* Transfer ownership */
+  c->use_tls      = use_tls;
   c->tls_conf     = conf->tls;
-  c->conf_tls_ctx  = conf->tls_ctx;
-  c->headers       = conf->headers;
-  c->phase     = xWsConnectPhase_Dns;
+  c->conf_tls_ctx = conf->tls_ctx;
+  c->headers      = conf->headers;
+  c->phase        = xWsConnectPhase_Dns;
 
   xIOBufferInit(&c->write_buf);
 
   /* Set timeout */
-  c->timeout_ms = conf->timeout_ms > 0
-                    ? conf->timeout_ms
-                    : XWS_DEFAULT_TIMEOUT_MS;
-  c->timer = xEventLoopTimerAfter(
-    loop, connector_timeout_cb, c,
-    (uint64_t)c->timeout_ms);
+  c->timeout_ms =
+    conf->timeout_ms > 0 ? conf->timeout_ms : XWS_DEFAULT_TIMEOUT_MS;
+  c->timer = xEventLoopTimerAfter(loop, connector_timeout_cb, c,
+                                  (uint64_t)c->timeout_ms);
 
   /* Extract hostname for DNS */
-  char hostname[256];
+  char   hostname[256];
   size_t hlen = c->url.host_len;
   if (hlen >= sizeof(hostname)) hlen = sizeof(hostname) - 1;
   memcpy(hostname, c->url.host, hlen);
   hostname[hlen] = '\0';
 
   /* Get port string */
-  char port_str[8];
+  char     port_str[8];
   uint16_t port = xUrlPort(&c->url);
   snprintf(port_str, sizeof(port_str), "%u", port);
 
@@ -635,8 +609,8 @@ xErrno xWsConnect(xEventLoop loop,
   hints.ai_family   = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
 
-  c->dns_query = xDnsResolve(loop, hostname, port_str,
-                             &hints, connector_dns_cb, c);
+  c->dns_query =
+    xDnsResolve(loop, hostname, port_str, &hints, connector_dns_cb, c);
   if (!c->dns_query) {
     connector_destroy(c);
     return xErrno_SysError;

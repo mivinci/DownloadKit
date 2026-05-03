@@ -73,6 +73,18 @@
 #endif
 
 /* ═══════════════════════════════════════════════════════════════════
+ *  Type aliases (socklen_t, ssize_t)
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+typedef int     xnet_socklen_t;
+typedef SSIZE_T xnet_ssize_t;
+#else
+typedef socklen_t xnet_socklen_t;
+typedef ssize_t   xnet_ssize_t;
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════
  *  iovec / writev / readv — use xbase/uio.h types
  * ═══════════════════════════════════════════════════════════════════ */
 
@@ -123,6 +135,78 @@ static inline int xnet_init(void) {
   return 0;
 }
 static inline void xnet_cleanup(void) {}
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Case-insensitive string comparison
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+#define xnet_strcasecmp(s1, s2)     _stricmp(s1, s2)
+#define xnet_strncasecmp(s1, s2, n) _strnicmp(s1, s2, n)
+#else
+#define xnet_strcasecmp(s1, s2)     strcasecmp(s1, s2)
+#define xnet_strncasecmp(s1, s2, n) strncasecmp(s1, s2, n)
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Secure random bytes
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+#include <bcrypt.h>
+static inline void xnet_random_bytes(void *buf, size_t len) {
+  BCryptGenRandom(NULL, (PUCHAR)buf, (ULONG)len,
+                  BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+}
+#elif defined(__linux__)
+#include <sys/random.h>
+static inline void xnet_random_bytes(void *buf, size_t len) {
+  (void)getrandom(buf, len, 0);
+}
+#else
+/* macOS / BSD */
+static inline void xnet_random_bytes(void *buf, size_t len) {
+  arc4random_buf(buf, len);
+}
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  SIGPIPE suppression
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+/* Windows has no SIGPIPE; no-op. */
+#define xnet_ignore_sigpipe() ((void)0)
+#else
+#include <signal.h>
+#define xnet_ignore_sigpipe() signal(SIGPIPE, SIG_IGN)
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  poll() abstraction
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+/* Windows uses WSAPoll which has the same signature as poll() */
+#define xnet_poll(fds, nfds, timeout) WSAPoll((fds), (nfds), (timeout))
+#else
+#include <poll.h>
+#define xnet_poll(fds, nfds, timeout) poll((fds), (nfds), (timeout))
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  unlink() abstraction
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef _WIN32
+#include <io.h>
+#define xnet_unlink(path) _unlink(path)
+#else
+#include <unistd.h>
+#define xnet_unlink(path) unlink(path)
 #endif
 
 #endif /* XNET_COMPAT_H */

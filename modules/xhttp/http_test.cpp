@@ -313,7 +313,7 @@ TEST_F(IntegrationTest, ClientDefaultH2c) {
   xHttpClientDestroy(client);
   xHttpClientConf conf = {};
   conf.http_version    = xHttpVersion_H2C;
-  client = xHttpClientCreate(loop, &conf);
+  client               = xHttpClientCreate(loop, &conf);
   ASSERT_NE(client, nullptr);
 
   RespCtx     ctx;
@@ -612,7 +612,7 @@ static void sse_post_handler(xHttpResponseWriter w, const xHttpRequest *req,
 
   char buf[512];
   int  n = snprintf(buf, sizeof(buf), "data: %.*s\n\n", (int)req->body_len,
-                   req->body ? req->body : "");
+                    req->body ? req->body : "");
   xHttpResponseWrite(w, buf, (size_t)n);
   xHttpResponseWrite(w, "event: done\ndata: [DONE]\n\n", 26);
   xHttpResponseEnd(w);

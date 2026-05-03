@@ -105,10 +105,10 @@ MODULE_DEPS=(
     [xhttp]="xbase xbuf xnet"
     [xp2p]="xbase xnet xcrypto"
     [xfer]="xp2p xhttp xnet xcrypto xbase"
-    [xai]="xbase xnet xhttp"
+    [xagent]="xbase xnet xhttp"
 )
 
-ALL_MODULES=(xbase xlog xbuf xnet xcrypto xhttp xp2p xfer xai)
+ALL_MODULES=(xbase xlog xbuf xnet xcrypto xhttp xp2p xfer xagent)
 
 # ── Compute reverse dependents (transitive) ────────────────────────────
 compute_affected() {

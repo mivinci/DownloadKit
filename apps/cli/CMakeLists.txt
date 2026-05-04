@@ -14,12 +14,15 @@
 # than export a getter that exists only to feed a cli.
 add_executable(cli
   main.cpp
+  config.cpp
   output.cpp
   slash.cpp
   callbacks.cpp
   repl.cpp
 )
-target_link_libraries(cli PRIVATE xagent xhttp xbase xline)
+# cJSON is a PRIVATE dep: config.cpp parses models.json with it.
+find_package(Cjson REQUIRED)
+target_link_libraries(cli PRIVATE xagent xhttp xbase xline Cjson::Cjson)
 target_include_directories(cli PRIVATE
   ${CMAKE_SOURCE_DIR}/modules
   ${CMAKE_CURRENT_SOURCE_DIR}

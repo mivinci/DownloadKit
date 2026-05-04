@@ -19,6 +19,7 @@
 #ifndef XKIT_APPS_CLI_CTX_H
 #define XKIT_APPS_CLI_CTX_H
 
+#include <xagent/model.h>
 #include <xagent/session.h>
 #include <xagent/tool.h>
 #include <xbase/event.h>
@@ -56,7 +57,16 @@ struct ReplCtx {
   int last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
   uint64_t    input_ms   = 0;  /* monotonic timestamp (ms) at user input */
   bool        should_exit = false;   /* set by /exit handler */
-  const char *hist_path   = nullptr; /* xline history file, for /history */
+
+  /* ── Model registry + current selection ────────────────────────
+   * The registry is borrowed from the CliModelConfig owned by main;
+   * it outlives the ReplCtx. current_model_id tracks the id the
+   * session was last switched to via xAgentSessionSetModel (or the
+   * initial "default" id loaded from models.json). Used by /model
+   * to display and switch, and by the banner to show the active
+   * backend. */
+  xAgentModelRegistry model_registry  = nullptr;
+  std::string         current_model_id;
 
   /* Tool-confirm gate ────────────────────────────────────────────────
    * When a needs_confirm tool (currently just shell) is about to run,

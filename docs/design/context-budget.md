@@ -2,7 +2,7 @@
 
 > 一套在 **不改 Provider、不改 Query、不侵入业务代码** 的前提下，给 `xAgentSession` 加上 "prompt 太长怎么办" 能力的结构化方案。
 >
-> 本文面向已经熟悉 xKit 三层会话模型（[Agent / Session / Query](three-layer-conversation-model.md)）的读者，描述 Session 层的预算闸门是怎么拆出来的、每一块负责什么、以及我们在 `examples/ai_session.cpp` 里跑到的真实数字是怎么解释的。
+> 本文面向已经熟悉 xKit 三层会话模型（[Agent / Session / Query](three-layer-conversation-model.md)）的读者，描述 Session 层的预算闸门是怎么拆出来的、每一块负责什么、以及我们在 `apps/cli` 里跑到的真实数字是怎么解释的。
 
 ---
 
@@ -350,7 +350,7 @@ xErrno session_enforce_budget_(s, msg) {
 
 ---
 
-## 在 `examples/ai_session.cpp` 里看活的
+## 在 `apps/cli` 里看活的
 
 demo 把闸门配成：
 
@@ -469,7 +469,7 @@ REPL 里撞到这个错会看到两种前缀：
 - 策略闸门：`modules/xagent/session.c :: session_enforce_budget_`
 - 三件套：`modules/xagent/budget.c` + `modules/xagent/budget_private.h`
 - 测试：`modules/xagent/budget_test.cpp`、`modules/xagent/session_test.cpp :: BudgetCalibrator / BudgetEnforcement`
-- 活体 demo：`examples/ai_session.cpp`
+- 活体 demo：`apps/cli`
 
 ---
 

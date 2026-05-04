@@ -18,7 +18,7 @@ intended to be readable on their own, without prior knowledge of xKit internals.
   How the Session layer keeps outgoing prompts under a token ceiling without
   bleeding history ownership into Provider or Query. Covers the three-piece
   split (estimator / EWMA calibrator / front-trimmer), the policy gate wiring,
-  and walks through the live numbers printed by `examples/ai_session.cpp`.
+and walks through the live numbers printed by `apps/cli`.
 - [Layered Memory](layered-memory.md) —
   The four-layer memory / behaviour stack that sits on top of the three-layer
   conversation model: L1 immediate extraction, L2 long-term store & retrieval,

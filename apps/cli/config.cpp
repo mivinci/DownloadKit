@@ -33,11 +33,17 @@ namespace {
 
 /* Slurp an entire file into a std::string. Returns true on success.
  * On failure leaves @p out empty and writes a diagnostic to
- * @p err_out. */
+ * @p err_out. When the file doesn't exist @p not_found (if provided)
+ * is set to true so the caller can distinguish "missing config" —
+ * which we now treat as a soft, non-fatal condition that drops the
+ * CLI into a degraded "no model" mode — from genuine I/O errors
+ * (permission denied, short read, etc.) that stay fatal. */
 bool read_file_all(const std::string &path, std::string *out,
-                   std::string *err_out) {
+                   std::string *err_out, bool *not_found = nullptr) {
+  if (not_found) *not_found = false;
   FILE *fp = std::fopen(path.c_str(), "rb");
   if (!fp) {
+    if (errno == ENOENT && not_found) *not_found = true;
     if (err_out) {
       *err_out = "cannot open ";
       err_out->append(path);
@@ -78,6 +84,57 @@ std::string json_string(const cJSON *obj, const char *key) {
   return std::string(v->valuestring);
 }
 
+/* Detect the "<...>" placeholders we ship in kModelsJsonTemplate.
+ * A value that still looks like <foo-bar> means the user saved the
+ * scaffold unchanged (or only partially filled it in). We treat
+ * such a field as "not yet configured" rather than "malformed",
+ * so the REPL can drop into the same degraded mode it uses when
+ * models.json is entirely missing — with the same
+ * "edit …/models.json to enable chat" hint — instead of silently
+ * constructing a provider that's guaranteed to 401 on first use.
+ *
+ * The check is intentionally narrow: a single leading '<' and a
+ * single trailing '>'. Anything else (real URLs, real keys that
+ * happen to contain '<') passes through untouched. */
+bool is_placeholder(const std::string &s) {
+  return s.size() >= 2 && s.front() == '<' && s.back() == '>';
+}
+
+/* Template written to <data_dir>/models.json when the file is
+ * missing, to give first-time users something concrete to edit.
+ * Mirrors the schema documented in config.h. Fields that MUST be
+ * replaced before the config becomes usable are marked with obvious
+ * angle-bracket placeholders ("<your-api-key>" etc.). Kept as a
+ * raw string literal so the on-disk file matches byte-for-byte
+ * what a user would see in the docs. */
+constexpr const char *kModelsJsonTemplate =
+  "{\n"
+  "  \"default\": \"my-model\",\n"
+  "  \"models\": [\n"
+  "    {\n"
+  "      \"id\": \"my-model\",\n"
+  "      \"kind\": \"openai\",\n"
+  "      \"model\": \"<model-name>\",\n"
+  "      \"api_key\": \"<your-api-key>\",\n"
+  "      \"base_url\": \"<provider-base-url>\"\n"
+  "    }\n"
+  "  ]\n"
+  "}\n";
+
+/* Best-effort: write kModelsJsonTemplate to @p path if we can. Any
+ * failure is swallowed on purpose — the template is a convenience,
+ * not a contract, and we don't want a read-only data_dir to turn a
+ * "please configure me" hint into a hard startup error. The caller
+ * always falls through to the "no model configured" degraded mode
+ * regardless of whether the scaffold landed. */
+void try_write_template(const std::string &path) {
+  FILE *fp = std::fopen(path.c_str(), "wb");
+  if (!fp) return;
+  const size_t len = std::strlen(kModelsJsonTemplate);
+  std::fwrite(kModelsJsonTemplate, 1, len, fp);
+  std::fclose(fp);
+}
+
 } /* anonymous namespace */
 
 int cli_model_config_load(const char     *data_dir,
@@ -96,7 +153,39 @@ int cli_model_config_load(const char     *data_dir,
   path.append("models.json");
 
   std::string text;
-  if (!read_file_all(path, &text, err_out)) return -1;
+  bool        not_found = false;
+  if (!read_file_all(path, &text, err_out, &not_found)) {
+    if (not_found) {
+      /* Missing models.json is soft: instead of failing startup we
+       * hand back a valid but empty CliModelConfig (empty registry,
+       * empty default_id, no entries). main.cpp detects this by
+       * inspecting default_id.empty() and skips agent creation,
+       * dropping the REPL into a degraded mode where slash commands
+       * still work but chat submits are rejected with a hint to
+       * create the file. Clear err_out so we don't leak the
+       * "cannot open …" diagnostic: the caller will render its own
+       * (warmer) message once it sees the empty config.
+       *
+       * Before we bail out, scaffold a template models.json at the
+       * expected path so the hint ("edit …/models.json to enable
+       * chat") lands the user on a real file that's already
+       * structured correctly — they only need to paste in an API
+       * key. try_write_template is best-effort; any failure here
+       * (read-only fs, etc.) is silently ignored. */
+      if (err_out) err_out->clear();
+      try_write_template(path);
+      xAgentModelRegistry registry = xAgentModelRegistryCreate();
+      if (!registry) {
+        if (err_out) *err_out = "out of memory";
+        return -1;
+      }
+      out->entries.clear();
+      out->registry = registry;
+      out->default_id.clear();
+      return 0;
+    }
+    return -1;
+  }
 
   cJSON *root = cJSON_ParseWithLength(text.c_str(), text.size());
   if (!root) {
@@ -156,6 +245,14 @@ int cli_model_config_load(const char     *data_dir,
     return bail(path + ": \"models\" array is empty");
   }
 
+  /* Track whether any entry still carries template placeholders.
+   * If so, we abandon the partially-built registry after the walk
+   * and return the same empty CliModelConfig we produce for a
+   * missing file, so main.cpp renders exactly one consistent
+   * "no model is configured" hint regardless of whether the file
+   * is missing, freshly scaffolded, or half-filled-in. */
+  bool has_placeholder = false;
+
   /* Walk each entry and build its provider. */
   cJSON *item = nullptr;
   cJSON_ArrayForEach(item, models_v) {
@@ -171,6 +268,7 @@ int cli_model_config_load(const char     *data_dir,
       return bail(path + ": model \"" + id + "\" missing \"kind\"");
     if (model.empty())
       return bail(path + ": model \"" + id + "\" missing \"model\"");
+    if (is_placeholder(model)) has_placeholder = true;
 
     xAgentProvider pvd = nullptr;
 
@@ -180,6 +278,8 @@ int cli_model_config_load(const char     *data_dir,
       std::string org      = json_string(item, "organization");
       if (api_key.empty())
         return bail(path + ": model \"" + id + "\" missing \"api_key\"");
+      if (is_placeholder(api_key) || is_placeholder(base_url))
+        has_placeholder = true;
 
       xAgentOpenAIConf pconf;
       std::memset(&pconf, 0, sizeof(pconf));
@@ -223,6 +323,30 @@ int cli_model_config_load(const char     *data_dir,
   }
 
   cJSON_Delete(root);
+
+  /* If any entry still carries <placeholders>, the file parses but
+   * isn't actually usable. Tear down everything we built and return
+   * the same empty CliModelConfig we produce for a missing file —
+   * main.cpp detects default_id.empty() and renders the standard
+   * "edit …/models.json to enable chat" hint, rather than letting
+   * the user submit a chat turn that would instantly 401. err_out
+   * is cleared for the same reason as in the ENOENT branch. */
+  if (has_placeholder) {
+    xAgentModelRegistryDestroy(registry);
+    for (auto &e : entries) {
+      if (e.provider) xAgentProviderDestroy(e.provider);
+    }
+    if (err_out) err_out->clear();
+    xAgentModelRegistry empty = xAgentModelRegistryCreate();
+    if (!empty) {
+      if (err_out) *err_out = "out of memory";
+      return -1;
+    }
+    out->entries.clear();
+    out->registry = empty;
+    out->default_id.clear();
+    return 0;
+  }
 
   /* Commit to the out-parameter. The registry already owns deep
    * copies of every id/model string (see xAgentModelRegistryAdd), so

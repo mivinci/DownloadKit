@@ -56,6 +56,7 @@
 #include <signal.h>
 #include <string>
 #include <unistd.h>
+#include <vector>
 
 #include <xagent/agent.h>
 #include <xagent/model.h>
@@ -68,6 +69,68 @@
 #include <xbase/flag.h>
 #include <xhttp/client.h>
 #include <xline/line.h>
+
+/* ── Banner text-wrap helper ──────────────────────────────────────
+ *
+ * Soft-wrap a pure-ASCII paragraph to a column width for drawing
+ * inside the startup banner's bordered box. Break priority:
+ *   1. space   — natural word break, preferred
+ *   2. '/'     — next-best break point (long POSIX paths have
+ *                plenty of these, so a deeply-nested data_dir
+ *                doesn't overflow); break kept *after* the slash
+ *                so the reader still sees the separator on the
+ *                upper line.
+ *   3. hard cut at `width` — last-resort fallback when a single
+ *                token (e.g. a path component with no slashes)
+ *                is longer than the column.
+ *
+ * Input must be pure ASCII (byte count == display width); the
+ * banner's width accounting relies on that and Unicode here would
+ * throw off the %-*s padding downstream. Empty input produces one
+ * empty line so the caller can still emit a blank row and keep
+ * vertical rhythm. */
+static std::vector<std::string> banner_wrap(const std::string &text,
+                                            size_t             width) {
+  std::vector<std::string> out;
+  if (width == 0) {
+    out.push_back(text);
+    return out;
+  }
+  size_t i = 0, n = text.size();
+  while (i < n) {
+    /* Remaining text fits on one line — emit and done. */
+    if (n - i <= width) {
+      out.push_back(text.substr(i));
+      break;
+    }
+    /* Scan the next `width` bytes for the rightmost break point.
+     * Prefer space; if none, fall back to the rightmost '/'. */
+    size_t brk_space = std::string::npos;
+    size_t brk_slash = std::string::npos;
+    for (size_t j = 0; j < width; j++) {
+      char c = text[i + j];
+      if (c == ' ') brk_space = j;
+      else if (c == '/') brk_slash = j;
+    }
+    if (brk_space != std::string::npos) {
+      /* Break *at* the space: line ends before it, next line skips
+       * the space itself. */
+      out.push_back(text.substr(i, brk_space));
+      i += brk_space + 1;
+    } else if (brk_slash != std::string::npos) {
+      /* Break *after* the slash: keep the '/' on the upper line so
+       * the path separator is still visible to the reader. */
+      out.push_back(text.substr(i, brk_slash + 1));
+      i += brk_slash + 1;
+    } else {
+      /* Single token longer than the column — hard cut. */
+      out.push_back(text.substr(i, width));
+      i += width;
+    }
+  }
+  return out;
+}
+
 
 int main(int argc, char *argv[]) {
   xPrintBacktraceOnCrash();
@@ -173,10 +236,16 @@ int main(int argc, char *argv[]) {
 
     /* ── Load <data_dir>/models.json ────────────────────────────
      *
-     * Fatal if missing / malformed: we'd rather surface a clear error
-     * at boot than wait for the first submit to fail with a cryptic
-     * provider-level message. The config owns every created provider
-     * plus the registry; teardown goes through cli_model_config_destroy
+     * Non-fatal if the file is simply missing: cli_model_config_load
+     * hands back an empty CliModelConfig (registry created but no
+     * entries, default_id empty) and we drop into degraded mode —
+     * agent/session are skipped, the REPL still starts so the user
+     * can reach /help, /exit, etc. Any *other* error (malformed
+     * JSON, unknown "kind", "default" not in "models", I/O error
+     * other than ENOENT) is still fatal, because in those cases the
+     * user wrote a file and got it wrong — silently degrading would
+     * hide the mistake. The config owns every created provider plus
+     * the registry; teardown goes through cli_model_config_destroy
      * at the end of main. */
     {
       std::string cfg_err;
@@ -188,8 +257,19 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    /* Degraded "no model configured" mode: models.json was absent,
+     * so the registry is empty and default_id is "". Chat submits
+     * would have nothing to route to, so we skip xAgentCreate
+     * entirely. ctx.sess stays nullptr, which repl_handle_line
+     * uses as the sentinel to reject chat input with a helpful
+     * hint while letting every slash command (including /model,
+     * which will correctly print "(no models registered)") keep
+     * working. */
+    const bool no_models = model_cfg.default_id.empty();
+
     /* ── Tools ─────────────────────────────────────────────────── */
-    ctx.loop = loop;
+    ctx.loop           = loop;
+    ctx.model_registry = model_cfg.registry;
 
     shell_conf.callback_ud = &ctx;
     shell_conf.on_command  = [](const char *command, const char *cwd,
@@ -274,8 +354,8 @@ int main(int argc, char *argv[]) {
     aconf.model_registry   = model_cfg.registry;
     aconf.default_model_id = model_cfg.default_id.c_str();
     aconf.system_prompt =
-      "You are a concise assistant running on xKit's xagent session "
-      "demo. You have access to a shell tool that can execute "
+      "You are a concise assistant running in xKit's command-line "
+      "chat. You have access to a shell tool that can execute "
       "commands via /bin/sh -c and return stdout/stderr/exit code. "
       "Use it when you need to run commands, check the system, or "
       "compute things. You may chain multiple tool calls in a single "
@@ -288,17 +368,22 @@ int main(int argc, char *argv[]) {
     aconf.enable_sidecar_query = 1;
     aconf.default_session_conf = &sconf;
 
-    agent = xAgentCreate(&aconf);
-    if (!agent) {
-      std::fprintf(stderr, "failed to create agent\n");
-      rc = 1;
-      goto out_tool;
-    }
+    /* Only build the agent when we actually have a model to route
+     * to. In degraded mode (no_models) ctx.sess stays nullptr and
+     * the chat path is gated off in repl_handle_line; the tools,
+     * registry, loop and http client are still wired up so the
+     * rest of the REPL machinery behaves normally. */
+    if (!no_models) {
+      agent = xAgentCreate(&aconf);
+      if (!agent) {
+        std::fprintf(stderr, "failed to create agent\n");
+        rc = 1;
+        goto out_tool;
+      }
 
-    /* Retrieve the agent's built-in default session — no manual
-     * create/destroy needed. The session lives for the agent's
-     * entire lifetime. */
-    {
+      /* Retrieve the agent's built-in default session — no manual
+       * create/destroy needed. The session lives for the agent's
+       * entire lifetime. */
       xAgentSession sess = xAgentDefaultSession(agent);
       if (!sess) {
         std::fprintf(stderr, "agent has no default session\n");
@@ -307,18 +392,26 @@ int main(int argc, char *argv[]) {
       }
 
       ctx.sess             = sess;
-      ctx.model_registry   = model_cfg.registry;
       ctx.current_model_id = model_cfg.default_id;
     }
 
     /* ── Startup banner ─────────────────────────────────────────
      *
      * Printed once in cooked mode before repl_open_line paints the
-     * prompt. A 72-col bordered box with a two-column body: a small
-     * ASCII-art "xkit" logo pinned to the left (slant font, 3 lines)
-     * and the session knobs + a one-line tips strip on the right.
-     * Everything else lives behind /help so the banner stays a single
-     * screenful even as commands accrue.
+     * prompt. A 72-col bordered box. The body has two shapes:
+     *
+     *   Happy path (model configured):
+     *     Two-column layout — a small ASCII-art "xkit" logo pinned
+     *     to the left (slant font, 3 lines) alongside the session
+     *     knobs (model id, data_dir) on the right. A one-line tips
+     *     strip sits below.
+     *
+     *   Degraded path (no models.json / empty registry):
+     *     Same logo on the left, but the right column is empty.
+     *     Below the logo, a yellow warning paragraph explains how
+     *     to enable chat, soft-wrapped across as many lines as
+     *     needed — a deeply-nested data_dir thus expands the
+     *     banner gracefully instead of being truncated.
      *
      * Styling: ANSI bold for the title, faint for the border. Box
      * drawing uses Unicode (any modern terminal; collapses visually
@@ -341,15 +434,23 @@ int main(int argc, char *argv[]) {
       BOX_INNER = LOGO_W + GAP_W + RIGHT_W, // 68
     };
     char right[RIGHT_W + 1];
-    // Top border is 72 cells: "┌─ " (3) + VERSION + " " (1) + N*"─" + "┐" (1).
+    // Leading blank line: the parent shell's prompt sits right above
+    // our first row, so without this gap the top border visually
+    // collides with `$ xkit` (or whatever PS1 trailed on). One row
+    // of breathing room is enough and costs nothing.
+    std::printf("\n");
+    // Top border is 72 cells: "┌─ " (3) + "xKit " (5) + VERSION + " " (1)
+    // + N*"─" + "┐" (1). The product name is hard-coded (not themed via
+    // XKIT_NAME or similar) because there's exactly one product and a
+    // macro would just be indirection for indirection's sake.
     // XKIT_VERSION is injected by CMake from XK_VERSION in the root
     // CMakeLists.txt so the banner never drifts from the real build.
     {
       const char *ver    = XKIT_VERSION;
       int         ver_w  = (int) std::strlen(ver);
-      int         dashes = 72 - 3 - ver_w - 1 - 1;
+      int         dashes = 72 - 3 - 5 - ver_w - 1 - 1;
       if (dashes < 0) dashes = 0;
-      std::printf("\x1b[2m┌─ \x1b[22m\x1b[1m%s\x1b[22m\x1b[2m ", ver);
+      std::printf("\x1b[2m┌─ \x1b[22m\x1b[1mxKit %s\x1b[22m\x1b[2m ", ver);
       for (int i = 0; i < dashes; i++) std::printf("─");
       std::printf("┐\x1b[22m\n");
     }
@@ -368,25 +469,70 @@ int main(int argc, char *argv[]) {
     const char *logo1 = "   / _ \\/ /(_) /_";
     const char *logo2 = "  /_//_/_//_/\\__/";
 
-    {
+    /* Logo + right column. In degraded mode the right column is
+     * intentionally blank: model/data_dir carry no actionable info
+     * when there's no model to chat with, and the space is better
+     * spent on the wrap block below that tells the user what to do.
+     * In the happy path we show model id on row 0 and data_dir on
+     * row 1; row 2 is a spacer. */
+    if (no_models) {
+      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo0,
+                  GAP_W, "", RIGHT_W, "");
+      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo1,
+                  GAP_W, "", RIGHT_W, "");
+      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo2,
+                  GAP_W, "", RIGHT_W, "");
+    } else {
       const xAgentModelSpec *dspec = xAgentModelRegistryGet(
         model_cfg.registry, model_cfg.default_id.c_str());
       const char *dmodel = dspec && dspec->model ? dspec->model : "?";
       std::snprintf(right, sizeof(right), "model=%s (id=%s), tools=shell",
                     dmodel, model_cfg.default_id.c_str());
+      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo0,
+                  GAP_W, "", RIGHT_W, right);
+
+      std::snprintf(right, sizeof(right), "data_dir: %s", data_dir);
+      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo1,
+                  GAP_W, "", RIGHT_W, right);
+
+      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo2,
+                  GAP_W, "", RIGHT_W, "");
     }
-    std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo0, GAP_W,
-                "", RIGHT_W, right);
 
-    std::snprintf(right, sizeof(right), "data_dir: %s", data_dir);
-    std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo1, GAP_W,
-                "", RIGHT_W, right);
-
-    std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo2, GAP_W,
-                "", RIGHT_W, "");
-
-    // blank separator before tips
+    // blank separator before the degraded-mode hint / tips strip
     std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
+
+    /* Degraded-mode hint block.
+     *
+     * Full-width wrapped paragraph placed below the logo rather
+     * than compressed into the 49-col right column. A 2-col left
+     * indent (matching the tips strip and logo inset) anchors the
+     * block visually; the wrap width is therefore BOX_INNER - 2 so
+     * the indent sits *inside* the printed field and every line —
+     * first and continuations alike — aligns under the same
+     * column. Each line is printed with the yellow attribute so
+     * the block reads as a single advisory, with the "[!]" marker
+     * on the first line anchoring it visually. */
+    if (no_models) {
+      char hint_buf[4096];
+      std::snprintf(hint_buf, sizeof(hint_buf),
+                    "[!] no model is configured, edit %s/models.json "
+                    "to enable chat",
+                    data_dir);
+      const size_t indent = 2;
+      auto hint_lines = banner_wrap(hint_buf, BOX_INNER - indent);
+      char padded[BOX_INNER + 1];
+      for (const auto &ln : hint_lines) {
+        /* Prepend the shared indent by hand so %-*s pads the
+         * indent+text as one unit to BOX_INNER. */
+        std::snprintf(padded, sizeof(padded), "  %s", ln.c_str());
+        std::printf(
+          "\x1b[2m│\x1b[22m \x1b[33m%-*s\x1b[39m \x1b[2m│\x1b[22m\n",
+          BOX_INNER, padded);
+      }
+      // spacer between hint block and tips strip
+      std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
+    }
     // one-line tips strip (indent 2 cols to match logo inset)
     std::printf(
       "\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,

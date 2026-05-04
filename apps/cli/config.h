@@ -65,11 +65,27 @@ struct CliModelConfig {
 
 /* Load `<data_dir>/models.json` and build a CliModelConfig.
  *
- * Returns 0 on success, non-zero on failure (file missing, JSON
- * malformed, unknown "kind", empty model list, or the declared
- * "default" id not present). On failure @p err_out receives a
- * human-readable diagnostic the caller can print to stderr; the
- * out-parameter @p out is left untouched.
+ * Returns 0 on success, non-zero on failure (JSON malformed, unknown
+ * "kind", empty model list, or the declared "default" id not present
+ * in "models"). On failure @p err_out receives a human-readable
+ * diagnostic the caller can print to stderr; the out-parameter @p
+ * out is left untouched.
+ *
+ * A MISSING file (ENOENT) is NOT treated as failure: we still return
+ * 0 but with an empty CliModelConfig (entries empty, default_id
+ * empty, registry a freshly-created empty registry). As a courtesy
+ * we also best-effort-write a template models.json at the expected
+ * path so the REPL's "[!] edit <data_dir>/models.json" hint lands
+ * the user on a real, pre-structured file — they only need to drop
+ * in an API key. The scaffold write is silently skipped if it
+ * fails (e.g. read-only data_dir), since the template is a
+ * convenience and not a contract. The caller is expected to detect
+ * the degraded state via default_id.empty() and drop into a
+ * "no model configured" mode so the user can still reach slash
+ * commands and fix their configuration from inside the REPL.
+ * Every other I/O error (permission denied, short read, …) stays
+ * fatal — we'd rather be loud about a file we can see but can't
+ * read.
  *
  * The backing providers reuse the shared @p loop / @p http so the
  * host doesn't pay for per-model HTTP clients.

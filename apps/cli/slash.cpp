@@ -402,6 +402,17 @@ static void slash_cmd_model(ReplCtx *ctx, const char *args) {
     return;
   }
 
+  /* Degraded "no model configured" mode: without a session there's
+   * nothing to switch. We still rendered the (empty) listing branch
+   * above so /model with no args keeps working as a discovery tool;
+   * only the switch path bails out here. */
+  if (!ctx->sess) {
+    above_printf(ctx->line,
+                 "\x1b[1;33m[no model]\x1b[22;39m cannot switch \u2014 "
+                 "edit models.json in your data_dir and restart.");
+    return;
+  }
+
   xErrno rc = xAgentSessionSetModel(ctx->sess, args);
   if (rc == xErrno_NotFound) {
     above_printf(ctx->line,

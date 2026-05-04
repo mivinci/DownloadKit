@@ -143,11 +143,33 @@ void xLineSetHistory(const char *fname, long max_entries);
 /// history; this function removes it.
 void xLineHistoryRemoveLast(void);
 
+/// Mark the last entry in the history as transient.
+/// Transient entries remain in the in-memory history (navigable via arrow
+/// keys, visible to xLineHistoryGet()) but are skipped when the history is
+/// persisted to disk. Useful for slash commands and other ephemeral input
+/// that should not pollute the cross-session history file.
+void xLineHistoryMarkLastTransient(void);
+
 /// Clear the history.
 void xLineHistoryClear(void);
 
 /// Add an entry to the history
 void xLineHistoryAdd(const char *entry);
+
+/// Number of entries currently in the in-memory history.
+/// Returns 0 before xLineSetHistory() has been called.
+long xLineHistoryCount(void);
+
+/// Fetch a history entry, where \a n is the distance from the most
+/// recent entry (0 = newest, xLineHistoryCount()-1 = oldest).
+/// Returns NULL when \a n is out of range. The returned pointer is
+/// owned by xline and remains valid until the next history mutation.
+///
+/// This reads the *decoded* in-memory buffer, which is the right
+/// thing to use for display: the on-disk history file stores
+/// non-ASCII bytes using an internal \\xHH escape format and is
+/// not safe to print verbatim.
+const char *xLineHistoryGet(long n);
 
 /// \}
 
@@ -387,11 +409,18 @@ bool xLineEnableAutoTab(bool enable);
 bool xLineEnableCompletionPreview(bool enable);
 
 /// Configure a set of "trigger" characters that auto-open the completion
-/// menu the moment the user types them as the first character of an
-/// otherwise-empty input line (same code path as pressing TAB). Typical
-/// use is `xLineSetCompletionTriggers("/")` in a REPL that uses leading
-/// `/` for slash-commands, so the user sees the command menu the instant
-/// they start a command. Pass \a NULL to disable (the default).
+/// menu the moment the user types them at the start of a fresh token —
+/// i.e. either the first character of the input, or the character
+/// immediately after whitespace. Equivalent to pressing TAB at that
+/// spot. Typical uses: `xLineSetCompletionTriggers("/")` in a REPL
+/// that uses leading `/` for slash-commands (menu pops the instant the
+/// user starts a command), or `xLineSetCompletionTriggers("/ ")` to
+/// additionally pop the argument menu when the user crosses the
+/// cmd→arg boundary (e.g. `/model <SPACE>`). Auto-triggered completions
+/// stay silent when the completer yields no candidates (no beep,
+/// no empty menu), so adding space to the trigger set is safe — it
+/// only produces a menu at spots where the completer actually has
+/// something to offer. Pass \a NULL to disable (the default).
 void xLineSetCompletionTriggers(const char *trigger_chars);
 
 /// Disable or enable automatic identation of continuation lines in multiline

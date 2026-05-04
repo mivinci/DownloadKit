@@ -185,12 +185,17 @@ again:
     }
   }
   if (count > count_displayed) {
+    // Note: ctrl-j (KEY_LINEFEED) is accepted here as a fallback on dumb
+    // ttys where page-down doesn't decode (see the KEY_PAGEDOWN handler
+    // below), but we deliberately don't advertise it: ctrl-j == LF and
+    // users reasonably expect it to behave like Enter everywhere, so
+    // putting it in the hint text would be misleading.
     if (more_available) {
-      sbuf_append(eb->extra, "\n[ic-info](press page-down (or ctrl-j) to see "
+      sbuf_append(eb->extra, "\n[ic-info](press page-down to see "
                              "all further completions)[/]");
     } else {
       sbuf_appendf(eb->extra,
-                   "\n[ic-info](press page-down (or ctrl-j) to see all %zd "
+                   "\n[ic-info](press page-down to see all %zd "
                    "completions)[/]",
                    count);
     }

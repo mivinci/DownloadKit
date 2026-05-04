@@ -843,6 +843,69 @@ XCAPI(xErrno) xAgentSessionInput(xAgentSession sess, xAgentMessage msg);
 XCAPI(void) xAgentSessionCancel(xAgentSession sess);
 
 /**
+ * @brief Override the provider used for the session's NEXT query.
+ *
+ * When @p provider is non-NULL, subsequent xAgentSessionInput() calls
+ * (and any sidecar Queries they spawn) dispatch to @p provider instead
+ * of the agent's default provider. When @p provider is NULL, the
+ * override is cleared and the session reverts to the agent's default.
+ *
+ * Only affects the next Query created after this call — any Query
+ * currently in flight keeps streaming on the provider it was launched
+ * with. Internal maintenance Queries (e.g. history summarisation for
+ * budget compaction) always use the agent's default provider and are
+ * NOT affected by this override.
+ *
+ * Typical use: a host (e.g. a REPL) implements a "/model" command by
+ * creating one provider per backend at startup and flipping the
+ * active one via this setter, without tearing down the session.
+ *
+ * The session borrows @p provider; the caller must keep it alive
+ * until either the override is cleared / replaced or the session
+ * is destroyed.
+ *
+ * @param sess      Session handle (NULL is a no-op).
+ * @param provider  Provider to use for the next query, or NULL to
+ *                  clear the override.
+ */
+XCAPI(void) xAgentSessionSetProvider(xAgentSession sess,
+                                     xAgentProvider provider);
+
+/**
+ * @brief Switch the session to a spec registered in its agent's
+ *        model registry.
+ *
+ * Looks up @p model_id in the agent's xAgentConf::model_registry
+ * and, on success, sets the session's per-session provider and
+ * model overrides to the spec's (provider, model). The next Query
+ * the session launches (main or sidecar) will use the new backend;
+ * any Query already in flight keeps streaming on the provider it
+ * was launched with. Internal maintenance Queries (summary/compact)
+ * always use the agent's default provider regardless of this
+ * override.
+ *
+ * Passing @p model_id == NULL clears both overrides and reverts the
+ * session to the agent defaults (equivalent to
+ * xAgentSessionSetProvider(sess, NULL) for the provider side, while
+ * also dropping any model-name override).
+ *
+ * Requires the agent to have been created via the REGISTRY path
+ * (xAgentConf::model_registry non-NULL). Calling this on a session
+ * whose agent uses the LEGACY single-provider path returns
+ * xErrno_InvalidState.
+ *
+ * @param sess      Session handle.
+ * @param model_id  Registered spec id, or NULL to clear the override.
+ * @return          xErrno_Ok on success; xErrno_InvalidArg when
+ *                  @p sess is NULL; xErrno_InvalidState when the
+ *                  agent has no model registry; xErrno_NotFound
+ *                  when @p model_id is non-NULL but not present
+ *                  in the registry; xErrno_NoMemory on allocation
+ *                  failure.
+ */
+XCAPI(xErrno) xAgentSessionSetModel(xAgentSession sess, const char *model_id);
+
+/**
  * @brief Destroy the session and release its resources.
  *
  * Implicitly cancels any active run and drains pending callbacks.

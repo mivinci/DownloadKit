@@ -24,6 +24,8 @@ struct history_s {
   ssize_t      count; // current number of entries in use
   ssize_t      len;   // size of elems
   const char **elems; // history items (up to count)
+  bool        *transient; // parallel to elems; if true, entry stays in
+                          // memory but is skipped on save
   const char  *fname; // history file
   bool         allow_duplicates; // allow duplicate entries?
 };
@@ -39,7 +41,9 @@ ic_private void history_free(history_t *h) {
   if (h->len > 0) {
     free(h->elems);
     h->elems = NULL;
-    h->len   = 0;
+    free(h->transient);
+    h->transient = NULL;
+    h->len       = 0;
   }
   free((void *)h->fname);
   h->fname = NULL;
@@ -74,8 +78,10 @@ static void history_delete_at(history_t *h, ssize_t idx) {
   free((void *)h->elems[idx]);
   for (ssize_t i = idx + 1; i < h->count; i++) {
     h->elems[i - 1] = h->elems[i];
+    if (h->transient != NULL) h->transient[i - 1] = h->transient[i];
   }
   h->count--;
+  if (h->transient != NULL) h->transient[h->count] = false;
 }
 
 ic_private bool history_push(history_t *h, const char *entry) {
@@ -95,6 +101,7 @@ ic_private bool history_push(history_t *h, const char *entry) {
   }
   assert(h->count < h->len);
   h->elems[h->count] = ic_strdup(entry);
+  if (h->transient != NULL) h->transient[h->count] = false;
   h->count++;
   return true;
 }
@@ -104,6 +111,7 @@ static void history_remove_last_n(history_t *h, ssize_t n) {
   if (n > h->count) n = h->count;
   for (ssize_t i = h->count - n; i < h->count; i++) {
     free((void *)h->elems[i]);
+    if (h->transient != NULL) h->transient[i] = false;
   }
   h->count -= n;
   assert(h->count >= 0);
@@ -111,6 +119,11 @@ static void history_remove_last_n(history_t *h, ssize_t n) {
 
 ic_private void history_remove_last(history_t *h) {
   history_remove_last_n(h, 1);
+}
+
+ic_private void history_mark_last_transient(history_t *h) {
+  if (h == NULL || h->count <= 0 || h->transient == NULL) return;
+  h->transient[h->count - 1] = true;
 }
 
 ic_private void history_clear(history_t *h) {
@@ -160,6 +173,12 @@ ic_private void history_load_from(history_t *h, const char *fname,
     max_entries = IC_MAX_HISTORY;
   h->elems = (const char **)calloc(to_size_t(max_entries), sizeof(char *));
   if (h->elems == NULL) return;
+  h->transient = (bool *)calloc(to_size_t(max_entries), sizeof(bool));
+  if (h->transient == NULL) {
+    free(h->elems);
+    h->elems = NULL;
+    return;
+  }
   h->len = max_entries;
   history_load(h);
 }
@@ -273,6 +292,7 @@ ic_private void history_save(const history_t *h) {
   stringbuf_t *sbuf = sbuf_new();
   if (sbuf != NULL) {
     for (int i = 0; i < h->count; i++) {
+      if (h->transient != NULL && h->transient[i]) continue; // skip volatile
       if (!history_write_entry(h->elems[i], f, sbuf)) break; // error
     }
     sbuf_free(sbuf);

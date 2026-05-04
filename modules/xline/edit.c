@@ -1051,14 +1051,36 @@ ic_private bool edit_dispatch_key(ic_env_t *env, editor_t *eb, code_t c) {
     if (code_is_ascii_char(c, &chr)) {
       edit_insert_char(env, eb, chr);
       // Auto-open the completion menu if the just-inserted char is a
-      // configured trigger AND it's the first (only) character in the
-      // input. We gate on "first char only" so that typing e.g. a URL
-      // like https://example.com doesn't repeatedly pop the menu — only
-      // leading command-style triggers fire. No-op when the embedder
-      // didn't call xLineSetCompletionTriggers.
-      if (env->completion_triggers != NULL && sbuf_len(eb->input) == 1 &&
+      // configured trigger AND we're at a point where starting a new
+      // token makes sense. Two shapes:
+      //   (a) the trigger is itself whitespace (space / tab) — the
+      //       cursor is now sitting at the start of a fresh token, so
+      //       fire unconditionally. This is the `/model <SPACE>` →
+      //       arg-menu case.
+      //   (b) the trigger is a non-whitespace character — require
+      //       that it's the first character of the input OR that the
+      //       previous character is whitespace, so typing e.g. the
+      //       '/' in https://example.com doesn't re-fire the menu.
+      // Auto-triggers pass autotab=true so the path stays silent when
+      // the completer declines to offer candidates (e.g. a space
+      // pressed mid-prose).
+      if (env->completion_triggers != NULL &&
           strchr(env->completion_triggers, (unsigned char)chr) != NULL) {
-        edit_generate_completions(env, eb, false);
+        bool fire = false;
+        if (chr == ' ' || chr == '\t') {
+          fire = true;  // case (a): whitespace trigger is self-evident
+        } else {
+          ssize_t trig_pos = eb->pos - 1;  // just-inserted char
+          if (trig_pos <= 0) {
+            fire = true;  // case (b1): first char in input
+          } else {
+            char prev = sbuf_string(eb->input)[trig_pos - 1];
+            fire      = (prev == ' ' || prev == '\t' || prev == '\n');
+          }
+        }
+        if (fire) {
+          edit_generate_completions(env, eb, true /*autotab: silent if none*/);
+        }
       }
     } else if (code_is_unicode(c, &uchr)) {
       edit_insert_unicode(env, eb, uchr);

@@ -220,7 +220,8 @@ xErrno ai_history_append_tool_result(struct xAgentSession_ *s, const char *id,
  * pipeline, not xAgentSessionInput). Kept static: only xAgentSessionInput
  * consumes this shape now that the Query no longer drives history
  * writes itself. */
-static xErrno history_append_user_msg(struct xAgentSession_ *s, xAgentMessage msg) {
+static xErrno history_append_user_msg(struct xAgentSession_ *s,
+                                      xAgentMessage          msg) {
   size_t total = 0;
   for (size_t i = 0; i < msg.n; i++) {
     if (msg.contents[i].type == xAgentContentType_Text) {
@@ -310,7 +311,7 @@ static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
  * xAgentSessionInput run, and shrinking the backing array would just
  * churn realloc. */
 static void session_trim_history_front_(struct xAgentSession_ *s,
-                                        size_t              keep_idx) {
+                                        size_t                 keep_idx) {
   if (keep_idx == 0 || keep_idx >= xArrayLen(s->history_arr)) return;
   xArrayRemoveRange(s->history_arr, 0, keep_idx);
 }
@@ -358,9 +359,9 @@ static xErrno session_try_truncate_(struct xAgentSession_ *s, size_t incoming,
      * retain. This fires BEFORE the actual trim so the entries
      * are still valid in the history array. */
     if (s->on_l1_preserve) {
-      s->on_l1_preserve((xAgentSession)s,
-                        (const xAgentSessionMsg *)xArrayData(s->history_arr), keep,
-                        xAgentL1PreserveReason_Truncated, s->l1_preserve_owner);
+      s->on_l1_preserve(
+        (xAgentSession)s, (const xAgentSessionMsg *)xArrayData(s->history_arr),
+        keep, xAgentL1PreserveReason_Truncated, s->l1_preserve_owner);
     }
     session_trim_history_front_(s, keep);
     size_t current = ai_budget_estimate_tokens_calibrated(
@@ -380,7 +381,8 @@ static xErrno session_try_truncate_(struct xAgentSession_ *s, size_t incoming,
   return xErrno_PromptTooLong;
 }
 
-static xErrno session_enforce_budget_(struct xAgentSession_ *s, xAgentMessage msg) {
+static xErrno session_enforce_budget_(struct xAgentSession_ *s,
+                                      xAgentMessage          msg) {
   if (s->budget.policy == xAgentBudgetPolicy_Disabled) return xErrno_Ok;
 
   size_t limit    = session_budget_limit_(s);
@@ -522,7 +524,8 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s, xAgentMessage ms
 
     /* Build the summary system prompt with the message count. */
     char summary_sys[256];
-    snprintf(summary_sys, sizeof(summary_sys), XAGENT_SUMMARY_SYSTEM_PROMPT, keep);
+    snprintf(summary_sys, sizeof(summary_sys), XAGENT_SUMMARY_SYSTEM_PROMPT,
+             keep);
 
     /* Concatenate the old messages (entries [0, keep)) into one
      * user message string. We build a single text blob that the
@@ -563,15 +566,19 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s, xAgentMessage ms
      *   Query is created by session_enforce_budget_ which gates
      *   on s->compacting, so no recursive budget check occurs. */
     struct xAgent_ *a  = (struct xAgent_ *)s->agent;
-    xAgentQueryConf      qc = {0};
-    qc.cbs.on_done       = sess_fwd_on_done;
-    qc.cbs.user_data     = s;
-    qc.provider          = a->provider;
-    qc.tools             = (const xAgentTool **)a->tools;
-    qc.tools_count       = a->tools_count;
-    qc.model             = s->model;
-    qc.max_tokens        = s->max_tokens;
-    qc.session           = (xAgentSession)s;
+    xAgentQueryConf qc = {0};
+    qc.cbs.on_done     = sess_fwd_on_done;
+    qc.cbs.user_data   = s;
+    /* Internal compact/summary Queries deliberately bypass any
+     * per-session provider/model override and run on the agent's
+     * defaults — we want consistent summarisation regardless of
+     * what backend the user picked for the conversation. */
+    qc.provider        = a->provider;
+    qc.tools           = (const xAgentTool **)a->tools;
+    qc.tools_count     = a->tools_count;
+    qc.model           = a->model;
+    qc.max_tokens      = s->max_tokens;
+    qc.session         = (xAgentSession)s;
 
     xAgentQuery q = xAgentQueryCreate(&qc);
     if (!q) {
@@ -655,8 +662,8 @@ truncate_fallback:
 struct sess_input_view_ {
   xAgentMessage *msgs;
   xAgentContent *blocks;
-  size_t      n_msgs;
-  size_t      n_blocks;
+  size_t         n_msgs;
+  size_t         n_blocks;
 };
 
 static void sess_input_view_free(struct sess_input_view_ *v) {
@@ -668,7 +675,7 @@ static void sess_input_view_free(struct sess_input_view_ *v) {
 /* Build a message array from the current session state. Consecutive
  * Assistant entries are folded into one xAgentMessage (so thinking +
  * text + tool_use blocks travel together); other roles map 1:1. */
-static xErrno sess_input_view_build(struct xAgentSession_      *s,
+static xErrno sess_input_view_build(struct xAgentSession_   *s,
                                     struct sess_input_view_ *out) {
   memset(out, 0, sizeof(*out));
   size_t extra_system = (s->system_prompt && s->system_prompt[0]) ? 1 : 0;
@@ -856,8 +863,8 @@ static void sess_fwd_on_tool_output(xAgentQuery q, const char *tool_use_id,
    * session has sidecar_idle_ms configured, (re-)arm a timer so
    * that a sidecar Query is launched when the tool goes idle. */
   struct xAgent_ *a = (struct xAgent_ *)s->agent;
-  if (s->sidecar_idle_ms > 0 && a->enable_sidecar_query
-      && s->query && !s->sidecar) {
+  if (s->sidecar_idle_ms > 0 && a->enable_sidecar_query && s->query &&
+      !s->sidecar) {
 
     /* Record which tool_use_id is producing output (the one most
      * likely to need stdin if it stalls). */
@@ -900,8 +907,8 @@ static void sess_fwd_on_tool_output(xAgentQuery q, const char *tool_use_id,
  * not wire on_tool_confirm, this forwarder is never stamped into
  * the query\u2019s callback table, so we cannot get called at all. */
 static void sess_fwd_on_tool_confirm(xAgentQuery q, const char *tool_name,
-                                     const char *tool_use_id,
-                                     const char *args_json,
+                                     const char               *tool_use_id,
+                                     const char               *args_json,
                                      xAgentToolConfirmResolver resolver,
                                      void                     *ud) {
   (void)q;
@@ -949,16 +956,16 @@ static void sess_fwd_on_tool_confirm(xAgentQuery q, const char *tool_name,
  * The sidecar receives the full conversation history so it can
  * understand the user's original intent and what the assistant was
  * trying to accomplish. */
-#define XAGENT_SIDECAR_SYSTEM_PROMPT                                           \
-  "You are a diagnostic assistant. A tool call is blocking the main "       \
-  "conversation because it has not produced output for a while. "           \
-  "You are given the conversation history above for context so you "        \
-  "can understand what the user asked and what the assistant was "          \
-  "doing. Analyse the tool output shown below and decide whether to "       \
-  "send input to the running command. If the command is waiting for "       \
-  "user input (e.g. a prompt, confirmation, or REPL), use the "            \
-  "shell_stdin tool to send the appropriate input. If the command "         \
-  "appears to be genuinely running (e.g. compiling, downloading), "        \
+#define XAGENT_SIDECAR_SYSTEM_PROMPT                                  \
+  "You are a diagnostic assistant. A tool call is blocking the main " \
+  "conversation because it has not produced output for a while. "     \
+  "You are given the conversation history above for context so you "  \
+  "can understand what the user asked and what the assistant was "    \
+  "doing. Analyse the tool output shown below and decide whether to " \
+  "send input to the running command. If the command is waiting for " \
+  "user input (e.g. a prompt, confirmation, or REPL), use the "       \
+  "shell_stdin tool to send the appropriate input. If the command "   \
+  "appears to be genuinely running (e.g. compiling, downloading), "   \
   "respond with empty text — no action is needed."
 
 static void session_sidecar_cleanup(struct xAgentSession_ *s) {
@@ -999,7 +1006,7 @@ static void session_sidecar_on_done(xAgentQuery q, xAgentDoneReason reason,
    * they can see what the sidecar decided to do. */
   if (s->query && q) {
     struct xAgentSessionMsg_ *produced   = NULL;
-    size_t                 n_produced = 0;
+    size_t                    n_produced = 0;
     ai_query_take_produced((struct xAgentQuery_ *)q, &produced, &n_produced);
 
     for (size_t i = 0; i < n_produced; i++) {
@@ -1007,8 +1014,8 @@ static void session_sidecar_on_done(xAgentQuery q, xAgentDoneReason reason,
           produced[i].text_len > 0) {
         /* Sidecar text is informational — just forward it. */
         if (s->cbs.on_text) {
-          s->cbs.on_text((xAgentSession)s, produced[i].text, produced[i].text_len,
-                         s->cbs.user_data);
+          s->cbs.on_text((xAgentSession)s, produced[i].text,
+                         produced[i].text_len, s->cbs.user_data);
         }
       }
     }
@@ -1016,7 +1023,8 @@ static void session_sidecar_on_done(xAgentQuery q, xAgentDoneReason reason,
 
   /* Notify the caller that the sidecar query has completed. */
   if (s->cbs.on_sidecar) {
-    s->cbs.on_sidecar((xAgentSession)s, xAgentSidecarEvent_Done, s->cbs.user_data);
+    s->cbs.on_sidecar((xAgentSession)s, xAgentSidecarEvent_Done,
+                      s->cbs.user_data);
   }
 
   /* Clean up the sidecar state. */
@@ -1028,7 +1036,7 @@ static void session_sidecar_on_done(xAgentQuery q, xAgentDoneReason reason,
  * the situation. */
 static void session_sidecar_idle_timer_cb(void *arg) {
   struct xAgentSession_ *s = (struct xAgentSession_ *)arg;
-  s->sidecar_idle_timer = NULL; /* timer has fired, handle is stale */
+  s->sidecar_idle_timer    = NULL; /* timer has fired, handle is stale */
 
   /* Guard: only launch if the main Query is still in flight, the
    * session is not compacting, and no sidecar is already running. */
@@ -1081,11 +1089,12 @@ static void session_sidecar_idle_timer_cb(void *arg) {
     "for a while. tool_use_id=\"";
   static const char kIdleMid[] = "\"\n\nLast accumulated output:\n";
 
-  const char *tid = s->sidecar_tool_use_id ? s->sidecar_tool_use_id : "(unknown)";
-  size_t tid_len = strlen(tid);
+  const char *tid =
+    s->sidecar_tool_use_id ? s->sidecar_tool_use_id : "(unknown)";
+  size_t tid_len    = strlen(tid);
   size_t prefix_len = sizeof(kIdlePrefix) - 1;
-  size_t mid_len = sizeof(kIdleMid) - 1;
-  size_t user_len = prefix_len + tid_len + mid_len + total_len;
+  size_t mid_len    = sizeof(kIdleMid) - 1;
+  size_t user_len   = prefix_len + tid_len + mid_len + total_len;
 
   char *user_text = (char *)malloc(user_len + 1);
   if (!user_text) {
@@ -1093,11 +1102,15 @@ static void session_sidecar_idle_timer_cb(void *arg) {
     return;
   }
   size_t uoff = 0;
-  memcpy(user_text + uoff, kIdlePrefix, prefix_len); uoff += prefix_len;
-  memcpy(user_text + uoff, tid, tid_len); uoff += tid_len;
-  memcpy(user_text + uoff, kIdleMid, mid_len); uoff += mid_len;
+  memcpy(user_text + uoff, kIdlePrefix, prefix_len);
+  uoff += prefix_len;
+  memcpy(user_text + uoff, tid, tid_len);
+  uoff += tid_len;
+  memcpy(user_text + uoff, kIdleMid, mid_len);
+  uoff += mid_len;
   if (output_text && total_len > 0) {
-    memcpy(user_text + uoff, output_text, total_len); uoff += total_len;
+    memcpy(user_text + uoff, output_text, total_len);
+    uoff += total_len;
   }
   user_text[uoff] = '\0';
   free(output_text);
@@ -1106,7 +1119,7 @@ static void session_sidecar_idle_timer_cb(void *arg) {
    * has context about the user's original request and the assistant's
    * actions so far. */
   struct sess_input_view_ hist_view;
-  xErrno vrc = sess_input_view_build(s, &hist_view);
+  xErrno                  vrc = sess_input_view_build(s, &hist_view);
   if (vrc != xErrno_Ok) {
     free(user_text);
     return;
@@ -1114,8 +1127,8 @@ static void session_sidecar_idle_timer_cb(void *arg) {
 
   /* Determine whether the history view starts with a system prompt
    * (we'll skip it and use the sidecar-specific one instead). */
-  int has_system = (hist_view.n_msgs > 0 &&
-                    hist_view.msgs[0].role == xAgentRole_System);
+  int has_system =
+    (hist_view.n_msgs > 0 && hist_view.msgs[0].role == xAgentRole_System);
   size_t hist_skip = has_system ? 1 : 0;
 
   /* ── Find the shell_stdin tool among the agent's tools ──────── */
@@ -1134,10 +1147,10 @@ static void session_sidecar_idle_timer_cb(void *arg) {
    * available). If shell_stdin is not registered, the sidecar
    * runs without tools — it can only produce text advice. */
   const xAgentTool *sidecar_tools[1];
-  size_t sidecar_tools_count = 0;
+  size_t            sidecar_tools_count = 0;
   if (stdin_tool) {
-    sidecar_tools[0]     = stdin_tool;
-    sidecar_tools_count  = 1;
+    sidecar_tools[0]    = stdin_tool;
+    sidecar_tools_count = 1;
   }
 
   /* ── Allocate the combined message array ───────────────────────
@@ -1149,8 +1162,10 @@ static void session_sidecar_idle_timer_cb(void *arg) {
   /* +1 for the sidecar system msg + +1 for the idle user message. */
   size_t n_total_msgs = 1 + n_hist + 1;
 
-  xAgentMessage *msgs = (xAgentMessage *)calloc(n_total_msgs, sizeof(xAgentMessage));
-  xAgentContent *extra_blocks = (xAgentContent *)calloc(2, sizeof(xAgentContent));
+  xAgentMessage *msgs =
+    (xAgentMessage *)calloc(n_total_msgs, sizeof(xAgentMessage));
+  xAgentContent *extra_blocks =
+    (xAgentContent *)calloc(2, sizeof(xAgentContent));
   if (!msgs || !extra_blocks) {
     free(msgs);
     free(extra_blocks);
@@ -1165,9 +1180,9 @@ static void session_sidecar_idle_timer_cb(void *arg) {
   extra_blocks[0].type        = xAgentContentType_Text;
   extra_blocks[0].u.text.text = XAGENT_SIDECAR_SYSTEM_PROMPT;
   extra_blocks[0].u.text.len  = strlen(XAGENT_SIDECAR_SYSTEM_PROMPT);
-  msgs[mi].role     = xAgentRole_System;
-  msgs[mi].contents = &extra_blocks[0];
-  msgs[mi].n        = 1;
+  msgs[mi].role               = xAgentRole_System;
+  msgs[mi].contents           = &extra_blocks[0];
+  msgs[mi].n                  = 1;
   mi++;
 
   /* Copy the history view messages (skipping the original system
@@ -1181,22 +1196,25 @@ static void session_sidecar_idle_timer_cb(void *arg) {
   extra_blocks[1].type        = xAgentContentType_Text;
   extra_blocks[1].u.text.text = user_text;
   extra_blocks[1].u.text.len  = uoff;
-  msgs[mi].role     = xAgentRole_User;
-  msgs[mi].contents = &extra_blocks[1];
-  msgs[mi].n        = 1;
+  msgs[mi].role               = xAgentRole_User;
+  msgs[mi].contents           = &extra_blocks[1];
+  msgs[mi].n                  = 1;
   mi++;
 
   /* ── Create and run the sidecar Query ──────────────────────── */
   xAgentQueryConf qc = {0};
-  qc.cbs.on_done   = session_sidecar_on_done;
-  qc.cbs.user_data = s;
-  qc.provider      = a->provider;
-  qc.tools         = sidecar_tools_count > 0 ? sidecar_tools : NULL;
-  qc.tools_count   = sidecar_tools_count;
-  qc.model         = s->model;
-  qc.max_tokens    = 256;  /* sidecar should be concise */
-  qc.max_turns     = 1;    /* single round: analyse + act */
-  qc.session       = (xAgentSession)s;
+  qc.cbs.on_done     = session_sidecar_on_done;
+  qc.cbs.user_data   = s;
+  /* Honour any per-session provider/model override; fall back to
+   * the agent's defaults when none is set. See
+   * xAgentSessionSetProvider() / xAgentSessionSetModel(). */
+  qc.provider    = s->provider_override ? s->provider_override : a->provider;
+  qc.tools       = sidecar_tools_count > 0 ? sidecar_tools : NULL;
+  qc.tools_count = sidecar_tools_count;
+  qc.model       = s->model_override ? s->model_override : s->model;
+  qc.max_tokens  = 256; /* sidecar should be concise */
+  qc.max_turns   = 1;   /* single round: analyse + act */
+  qc.session     = (xAgentSession)s;
 
   xAgentQuery sq = xAgentQueryCreate(&qc);
   if (!sq) {
@@ -1225,7 +1243,8 @@ static void session_sidecar_idle_timer_cb(void *arg) {
 
   /* Notify the caller that a sidecar query has started. */
   if (s->cbs.on_sidecar) {
-    s->cbs.on_sidecar((xAgentSession)s, xAgentSidecarEvent_Started, s->cbs.user_data);
+    s->cbs.on_sidecar((xAgentSession)s, xAgentSidecarEvent_Started,
+                      s->cbs.user_data);
   }
 }
 
@@ -1251,7 +1270,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
   /* Steal the produced list (ownership transfer). After this the
    * Query's own destructor won't touch these entries. */
   struct xAgentSessionMsg_ *produced   = NULL;
-  size_t                 n_produced = 0;
+  size_t                    n_produced = 0;
   ai_query_take_produced((struct xAgentQuery_ *)q, &produced, &n_produced);
 
   /* ── SummarizeOldest compact completion ─────────────────────────
@@ -1313,9 +1332,10 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
        * the original full-fidelity entries even though a summary will take
        * their place in the session's history. This fires BEFORE the trim. */
       if (s->on_l1_preserve && keep_idx > 0) {
-        s->on_l1_preserve(
-          (xAgentSession)s, (const xAgentSessionMsg *)xArrayData(s->history_arr),
-          keep_idx, xAgentL1PreserveReason_Compacted, s->l1_preserve_owner);
+        s->on_l1_preserve((xAgentSession)s,
+                          (const xAgentSessionMsg *)xArrayData(s->history_arr),
+                          keep_idx, xAgentL1PreserveReason_Compacted,
+                          s->l1_preserve_owner);
       }
       /* Remove the old entries [0, keep_idx). */
       session_trim_history_front_(s, keep_idx);
@@ -1569,7 +1589,8 @@ xAgentSession xAgentSessionCreate(xAgent agent, const xAgentSessionConf *conf) {
   /* Create the history array with a release callback that frees
    * per-element heap resources. No retain — callers fill the
    * zero-initialised slot manually after xArrayPush(). */
-  s->history_arr = xArrayCreate(sizeof(struct xAgentSessionMsg_), 8, &kHistoryCbs);
+  s->history_arr =
+    xArrayCreate(sizeof(struct xAgentSessionMsg_), 8, &kHistoryCbs);
   if (!s->history_arr) {
     free(s);
     return NULL;
@@ -1620,22 +1641,25 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
    * to this Session. xAgentQueryCreate also sets s->query so a second
    * Input call during the same run hits the Busy branch above. */
   struct xAgent_ *a  = (struct xAgent_ *)s->agent;
-  xAgentQueryConf      qc = {0};
-  qc.cbs               = SESSION_FWD_CBS;
-  qc.cbs.user_data     = s;
+  xAgentQueryConf qc = {0};
+  qc.cbs             = SESSION_FWD_CBS;
+  qc.cbs.user_data   = s;
   /* Only expose the confirmation gate if the host actually wired a
    * callback \u2014 otherwise leave on_tool_confirm NULL so needs_confirm
    * tools keep running without asking (backward-compatible default). */
   if (s->cbs.on_tool_confirm) {
     qc.cbs.on_tool_confirm = sess_fwd_on_tool_confirm;
   }
-  qc.provider          = a->provider;
-  qc.tools             = (const xAgentTool **)a->tools;
-  qc.tools_count       = a->tools_count;
-  qc.model             = s->model;
-  qc.max_tokens        = s->max_tokens;
-  qc.max_turns         = s->max_turns;
-  qc.session           = sess;
+  /* Honour any per-session provider/model override; fall back to
+   * the agent's defaults when none is set. See
+   * xAgentSessionSetProvider() / xAgentSessionSetModel(). */
+  qc.provider    = s->provider_override ? s->provider_override : a->provider;
+  qc.tools       = (const xAgentTool **)a->tools;
+  qc.tools_count = a->tools_count;
+  qc.model       = s->model_override ? s->model_override : s->model;
+  qc.max_tokens  = s->max_tokens;
+  qc.max_turns   = s->max_turns;
+  qc.session     = sess;
 
   xAgentQuery q = xAgentQueryCreate(&qc);
   if (!q) {
@@ -1672,6 +1696,56 @@ void xAgentSessionCancel(xAgentSession sess) {
   xAgentQueryCancel(xAgentSessionQuery(sess));
 }
 
+void xAgentSessionSetProvider(xAgentSession sess, xAgentProvider provider) {
+  /* Per the API contract this only affects the NEXT Query the
+   * session launches (main or sidecar). Any in-flight Query keeps
+   * streaming on the provider it was created with — we deliberately
+   * do not touch s->query here. Internal maintenance Queries
+   * (summary/compact) always use the agent's default provider and
+   * ignore this override by design, so no special handling is
+   * needed for them either. */
+  if (!sess) return;
+  struct xAgentSession_ *s = (struct xAgentSession_ *)sess;
+  s->provider_override     = provider;
+}
+
+xErrno xAgentSessionSetModel(xAgentSession sess, const char *model_id) {
+  if (!sess) return xErrno_InvalidArg;
+  struct xAgentSession_ *s = (struct xAgentSession_ *)sess;
+  struct xAgent_        *a = (struct xAgent_ *)s->agent;
+
+  /* The registry path is the only way this API makes sense —
+   * legacy single-provider agents have nothing to look up. */
+  if (!a->model_registry) return xErrno_InvalidState;
+
+  /* NULL id — clear both overrides and revert to agent defaults. */
+  if (!model_id) {
+    s->provider_override = NULL;
+    free(s->model_override);
+    s->model_override = NULL;
+    return xErrno_Ok;
+  }
+
+  const xAgentModelSpec *spec =
+    xAgentModelRegistryGet(a->model_registry, model_id);
+  if (!spec) return xErrno_NotFound;
+
+  /* Prepare the new model-name copy up front so a failed strdup
+   * leaves both overrides untouched. spec->model may legitimately
+   * be NULL ("use the provider's own default") — in that case we
+   * mirror it with a NULL override. */
+  char *new_model = NULL;
+  if (spec->model) {
+    new_model = strdup(spec->model);
+    if (!new_model) return xErrno_NoMemory;
+  }
+
+  s->provider_override = spec->provider;
+  free(s->model_override);
+  s->model_override = new_model;
+  return xErrno_Ok;
+}
+
 void xAgentSessionDestroy(xAgentSession sess) {
   if (!sess) return;
   struct xAgentSession_ *s = (struct xAgentSession_ *)sess;
@@ -1702,10 +1776,10 @@ void xAgentSessionDestroy(xAgentSession sess) {
    * on_finalizing so the consumer sees the data first. */
   if (s->on_l1_preserve) {
     xAgentSessionL1PreserveFunc hook  = s->on_l1_preserve;
-    void                    *owner = s->l1_preserve_owner;
-    s->on_l1_preserve              = NULL;
-    s->l1_preserve_owner           = NULL;
-    size_t hist_len                = xArrayLen(s->history_arr);
+    void                       *owner = s->l1_preserve_owner;
+    s->on_l1_preserve                 = NULL;
+    s->l1_preserve_owner              = NULL;
+    size_t hist_len                   = xArrayLen(s->history_arr);
     /* Always invoke the hook on Finalizing so the owner can free
      * its context even when the history is empty.  Pass the
      * (possibly empty) array and its length; the callback is
@@ -1716,15 +1790,16 @@ void xAgentSessionDestroy(xAgentSession sess) {
 
   if (s->on_finalizing) {
     xAgentSessionFinalizingFunc hook  = s->on_finalizing;
-    void                    *owner = s->finalizing_owner;
-    s->on_finalizing               = NULL;
-    s->finalizing_owner            = NULL;
+    void                       *owner = s->finalizing_owner;
+    s->on_finalizing                  = NULL;
+    s->finalizing_owner               = NULL;
     hook(sess, owner);
   }
 
   /* xArrayDestroy calls the release callback (ai_session_msg_free)
    * for every element still in the array. */
   xArrayDestroy(s->history_arr);
+  free(s->model_override);
   free(s);
 }
 

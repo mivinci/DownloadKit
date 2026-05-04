@@ -16,6 +16,7 @@
 
 #include <stddef.h>
 #include <xagent/agent.h>
+#include <xagent/model.h>
 #include <xagent/provider.h>
 #include <xagent/tool.h>
 #include <xbase/base.h>
@@ -65,6 +66,18 @@ struct xAgent_ {
    * may be NULL.
    */
   const char *system_prompt;
+
+  /**
+   * Model registry the agent was configured against, or NULL when
+   * the agent was created via the legacy single-provider path
+   * (xAgentConf::provider set directly). Borrowed from
+   * xAgentConf::model_registry; must outlive the agent. Consulted
+   * by xAgentSessionSetModel() to resolve an id -> (provider, model)
+   * at runtime, and available to future agent-internal subsystems
+   * (hierarchical memory, summary, plan) that want to pick a
+   * different spec per job.
+   */
+  xAgentModelRegistry model_registry;
 
   /**
    * Array of tool definitions available to sessions derived from

@@ -454,7 +454,7 @@ modules/xagent/message_test.cpp     — message 结构
 - [ ] 实装 L2/L3 的持久化后端（选型：sqlite? 文本? 文件布局？——独立起一份 `docs/design/xagent_memory_storage.md`）
 - [ ] 主动唤醒调度器（先做一个最简单的定时器 MVP）
 - [ ] Mood state（v1，不在 MVP 内）
-- [ ] 示例 `examples/ai_agent.cpp`（像 `ai_session.cpp` 一样的 REPL，但持有 Agent）
+- [ ] 示例 `examples/ai_agent.cpp`（像 `apps/cli` 一样的 REPL，但持有 Agent）
 - [ ] 测试：`agent_test.cpp` 扩展 + `session_agent_integration_test.cpp`
 
 ### 15. Agent 层开放问题

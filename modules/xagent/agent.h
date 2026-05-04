@@ -27,6 +27,7 @@
 #define XAGENT_AGENT_H
 
 #include <stddef.h>
+#include <xagent/model.h>
 #include <xagent/provider.h>
 #include <xagent/tool.h>
 #include <xbase/base.h>
@@ -78,19 +79,53 @@ XDEF_STRUCT(xAgentConf) {
    * @brief LLM provider to drive conversations.
    *
    * Borrowed from the caller; the agent does not take ownership.
-   * Must not be NULL. Must remain alive until every session has
-   * been destroyed and xAgentDestroy() has been called.
+   * Must remain alive until every session has been destroyed and
+   * xAgentDestroy() has been called.
+   *
+   * Exactly one of the two provider-selection paths must be used:
+   *   - LEGACY: set @ref provider (and optionally @ref model) to
+   *     bind the agent to a single backend for its whole lifetime.
+   *   - REGISTRY: leave @ref provider NULL and set
+   *     @ref model_registry + @ref default_model_id; the agent
+   *     looks up the default spec at create time and also keeps
+   *     a borrowed reference to the registry so sessions can
+   *     switch models at runtime via xAgentSessionSetModel().
+   *
+   * Mixing the two is an error (xAgentCreate returns NULL).
    */
   xAgentProvider provider;
 
   /**
-   * @brief Default model identifier.
+   * @brief Default model identifier (LEGACY path only).
    *
    * May be NULL to fall back to the provider's default model.
    * Borrowed from the caller; sessions that do not override this
    * in their xAgentSessionConf inherit the value from here.
+   * Ignored when @ref model_registry is non-NULL.
    */
   const char *model;
+
+  /**
+   * @brief Model registry (REGISTRY path).
+   *
+   * Borrowed from the caller; must outlive every agent and session
+   * that uses it. When non-NULL the agent resolves
+   * @ref default_model_id against it at create time to populate
+   * its active provider+model, and retains the pointer so
+   * xAgentSessionSetModel() can flip sessions between registered
+   * specs at runtime. NULL selects the LEGACY path.
+   */
+  xAgentModelRegistry model_registry;
+
+  /**
+   * @brief Key into @ref model_registry for the agent's default
+   *        spec.
+   *
+   * Must be non-NULL, non-empty, and resolve to an entry in
+   * @ref model_registry when the latter is non-NULL. Ignored
+   * when @ref model_registry is NULL (LEGACY path).
+   */
+  const char *default_model_id;
 
   /**
    * @brief Base persona description (system prompt).
@@ -218,8 +253,13 @@ XDEF_STRUCT(xAgentConf) {
  * xAgentDefaultSession()). The default session is destroyed
  * automatically when the agent is destroyed.
  *
- * @param conf  Agent configuration (must not be NULL, conf->loop and
- *              conf->provider must not be NULL).
+ * @param conf  Agent configuration (must not be NULL, conf->loop
+ *              must not be NULL). Exactly one of the following
+ *              must be provided:
+ *                - conf->provider non-NULL (LEGACY path), OR
+ *                - conf->model_registry non-NULL AND
+ *                  conf->default_model_id non-NULL and resolvable
+ *                  (REGISTRY path).
  * @return      A new agent handle, or NULL on failure.
  */
 XCAPI(xAgent) xAgentCreate(const xAgentConf *conf);

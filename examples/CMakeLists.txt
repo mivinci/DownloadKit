@@ -43,27 +43,11 @@ target_link_libraries(ai_openai PRIVATE xagent xhttp xbase)
 target_include_directories(ai_openai PRIVATE
   ${CMAKE_SOURCE_DIR}/modules)
 
-# Canonical end-to-end demo: xAgentProvider -> xAgent -> xAgentSession.
-# The session layer hides the tool-call loop entirely, so this demo
-# never touches provider internals.
-#
-# It *does* reach into xagent/session_private.h to print a one-line
-# budget-calibrator snapshot in on_done (see the file-header
-# comment in ai_session.cpp). That is an intentional diagnostic
-# escape hatch — the calibrator has no public accessor by design
-# (session-internal diagnostics, see session_test.cpp's
-# BudgetCalibrator suite) and we'd rather keep the surface small
-# than export a getter that exists only to feed a demo.
-#
-# The REPL uses xline (the vendored/rebranded fork of isocline, see
-# modules/xline/NOTICE) for CJK-aware line editing, persistent
-# history, and Ctrl-R search.
+# The canonical end-to-end xagent REPL that used to live here has
+# graduated to apps/cli/. Build it via the top-level project — it's
+# no longer gated behind XK_BUILD_EXAMPLES.
 
-add_executable(ai_session ai_session.cpp)
-target_link_libraries(ai_session PRIVATE xagent xhttp xbase xline)
-target_include_directories(ai_session PRIVATE
-  ${CMAKE_SOURCE_DIR}/modules)
-
+# ES-module demo:
 # ES-module demo: show how to expose host-native functionality as
 # an `import`-able module by combining native callbacks on the
 # global object with a module loader that synthesises a small JS

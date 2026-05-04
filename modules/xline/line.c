@@ -174,11 +174,12 @@ ic_public void xLineSetPromptMarker(const char *prompt_marker,
 }
 
 // Set the trigger-character set for auto-opening the completion menu.
-// When the user inserts any byte from `trigger_chars` as the first
-// character of an otherwise-empty input line, xline behaves as if the
-// user had also pressed TAB: the registered completer runs and, if it
-// yields more than one candidate, the menu pops up. Pass NULL (or an
-// empty string) to disable the feature. The string is copied.
+// When the user inserts any byte from `trigger_chars` at the start of
+// a fresh token (BOF or right after whitespace), xline behaves as if
+// the user had also pressed TAB: the registered completer runs and,
+// if it yields candidates, the menu pops up. No-op (silent) when
+// candidates are empty, so adding ' ' to the set is safe. Pass NULL
+// (or an empty string) to disable the feature. The string is copied.
 ic_public void xLineSetCompletionTriggers(const char *trigger_chars) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return;
@@ -227,10 +228,29 @@ ic_public void xLineHistoryRemoveLast(void) {
   history_remove_last(env->history);
 }
 
+ic_public void xLineHistoryMarkLastTransient(void) {
+  ic_env_t *env = ic_get_env();
+  if (env == NULL) return;
+  history_mark_last_transient(env->history);
+}
+
 ic_public void xLineHistoryAdd(const char *entry) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return;
   history_push(env->history, entry);
+}
+
+ic_public long xLineHistoryCount(void) {
+  ic_env_t *env = ic_get_env();
+  if (env == NULL) return 0;
+  return (long)history_count(env->history);
+}
+
+ic_public const char *xLineHistoryGet(long n) {
+  ic_env_t *env = ic_get_env();
+  if (env == NULL) return NULL;
+  if (n < 0) return NULL;
+  return history_get(env->history, (ssize_t)n);
 }
 
 ic_public void xLineHistoryClear(void) {
@@ -571,7 +591,7 @@ static ic_env_t *ic_env_create(void) {
   bbcode_style_def(env->bbcode, "ic-prompt", "ansi-green");
   bbcode_style_def(env->bbcode, "ic-info", "ansi-darkgray");
   bbcode_style_def(env->bbcode, "ic-diminish", "ansi-lightgray");
-  bbcode_style_def(env->bbcode, "ic-emphasis", "#ffffd7");
+  bbcode_style_def(env->bbcode, "ic-emphasis", "ansi-yellow bold");
   bbcode_style_def(env->bbcode, "ic-hint", "ansi-darkgray");
   bbcode_style_def(env->bbcode, "ic-error", "#d70000");
   bbcode_style_def(env->bbcode, "ic-bracematch",

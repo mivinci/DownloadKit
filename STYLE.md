@@ -93,7 +93,7 @@ docs/           # 文档站点源文件
 | 维度 | `apps/` | `examples/` |
 | ------ | ------ | ------ |
 | 定位 | 正式产物（`cli`、未来的 `server` 等） | 最小用法样例、API 诊断 |
-| 默认构建 | **始终构建**（不受 `XK_BUILD_EXAMPLES` 约束） | 仅当 `XK_BUILD_EXAMPLES=ON` 时构建 |
+| 默认构建 | 仅当 `XK_BUILD_APPS=ON` 时构建（默认 `OFF`） | 仅当 `XK_BUILD_EXAMPLES=ON` 时构建 |
 | 规模 | 可跨多个 TU，按职责拆分子文件 | 单文件为主 |
 | 语言 | C / C++ 均可（选最合适的） | 跟随所演示模块的语言 |
 | 依赖 | 可依赖任意 `modules/*` 公共库 | 同左 |

@@ -154,6 +154,22 @@ XDEF_STRUCT(xLineHandle_) {
   stringbuf_t        *last_line;
   ssize_t             last_line_rows;
 
+  // Active SGR stack for the above region.
+  //
+  // `last_line` alone is not enough to reconstruct the styling that should
+  // apply to a newly-appended chunk: if the caller wrote '\x1b[2m' early,
+  // then several full lines of text followed by a '\n' (which rotates the
+  // trailing line out of `last_line`), the faint attribute is still active
+  // as far as the terminal is concerned, but a subsequent term_attr_reset
+  // (done on every sneak fast path) would clear it with no way to restore.
+  //
+  // `active_sgr` accumulates every SGR sequence ever emitted to the above
+  // region since the last \x1b[0m / \x1b[m reset. Whenever we need to
+  // re-establish styling after term_attr_reset (sneak path), or prepend it
+  // to a slow-path rewrite so the re-emitted last_line inherits it, we
+  // replay this buffer. See xline_track_sgr() for the bookkeeping.
+  stringbuf_t        *active_sgr;
+
   // Below panel (persistent UI area underneath the edit region).
   //
   // Content that survives across above-region streaming. We piggy-back on
@@ -499,6 +515,62 @@ static void xline_erase_trailing(xLineHandle_ *h) {
   term_write(env->term, "\r\x1b[J");
 }
 
+// Walk `data` and update `dst` to reflect the cumulative SGR state after
+// emitting those bytes. Any complete SGR sequence (ESC '[' ... 'm') is
+// appended verbatim; a reset (ESC '[' 'm' or ESC '[' '0' 'm', possibly with
+// leading zeros like '00') clears `dst` instead of being appended. All
+// non-SGR bytes are ignored. Malformed / truncated sequences are dropped.
+//
+// The result is a minimal "replay prefix" that, when written to a terminal
+// after a term_attr_reset, restores the styling that was in effect at the
+// end of `data` — modulo compound SGRs where a later sequence only
+// partially cancels an earlier one (e.g. \x1b[22m cancels faint but not
+// color). For our use (thinking / tool-output \x1b[2m paired with \x1b[0m)
+// this is exact.
+static void xline_track_sgr(stringbuf_t *dst, const char *data, ssize_t len) {
+  if (dst == NULL) return;
+  ssize_t i = 0;
+  while (i < len) {
+    if ((unsigned char)data[i] != 0x1b) { i++; continue; }
+    if (i + 1 >= len || data[i + 1] != '[') { i++; continue; }
+    ssize_t start = i;
+    ssize_t j     = i + 2;
+    // parameter bytes 0x30-0x3f
+    while (j < len) {
+      unsigned char c = (unsigned char)data[j];
+      if (c >= 0x30 && c <= 0x3f) j++; else break;
+    }
+    // intermediate bytes 0x20-0x2f
+    while (j < len) {
+      unsigned char c = (unsigned char)data[j];
+      if (c >= 0x20 && c <= 0x2f) j++; else break;
+    }
+    if (j >= len) break; // malformed, stop scanning
+    char    final = data[j];
+    ssize_t end   = j + 1; // one past the final byte
+    if (final == 'm') {
+      // Detect reset: parameter bytes are in [start+2, j). A sequence with
+      // no parameters (\x1b[m) or one whose params reduce to 0 (e.g.
+      // \x1b[0m, \x1b[00m, \x1b[0;0m) clears the stack. Anything else is
+      // appended as-is; compound resets embedded in longer sequences are
+      // rare enough that we don't bother parsing them.
+      int is_reset = 1;
+      for (ssize_t k = start + 2; k < j; k++) {
+        char c = data[k];
+        if (c == '0' || c == ';') continue;
+        is_reset = 0;
+        break;
+      }
+      if (is_reset) {
+        sbuf_clear(dst);
+      } else {
+        sbuf_append_n(dst, data + start, end - start);
+      }
+    }
+    i = end;
+  }
+}
+
 // Emit `data` (len bytes) verbatim into the above region, then repaint the
 // edit region underneath. `data` may contain embedded '\n's; any bytes
 // following the final '\n' become the new trailing line. When `data` ends
@@ -508,7 +580,13 @@ static void xline_emit_bytes(xLineHandle_ *h, const char *data, ssize_t len) {
   editor_t *eb  = &h->eb;
   xline_trace("emit_bytes: len=%zd", len);
   if (len > 0) xline_trace_bytes("emit_bytes/data", data, len);
-  if (len > 0) term_write_n(env->term, data, len);
+  if (len > 0) {
+    term_write_n(env->term, data, len);
+    // Track cumulative SGR so slow-path rewrites and sneak fast-path
+    // replays always see the live styling stack, even after the defining
+    // escape has scrolled out of last_line.
+    xline_track_sgr(h->active_sgr, data, len);
+  }
 
   // Find last '\n' to split "flushed lines" vs "new trailing line".
   ssize_t last_nl = -1;
@@ -575,6 +653,7 @@ ic_public xLineHandle xLineBegin(const char *prompt_text) {
 
   h->last_line      = sbuf_new();
   h->last_line_rows = 0;
+  h->active_sgr     = sbuf_new();
   h->below_title    = sbuf_new();
   h->below_body     = sbuf_new();
   h->last_term_w    = term_get_width(env->term);
@@ -613,6 +692,10 @@ ic_public void xLineEnd(xLineHandle handle) {
     sbuf_free(h->last_line);
     h->last_line      = NULL;
     h->last_line_rows = 0;
+  }
+  if (h->active_sgr != NULL) {
+    sbuf_free(h->active_sgr);
+    h->active_sgr = NULL;
   }
   if (h->below_title != NULL) {
     sbuf_free(h->below_title);
@@ -894,8 +977,17 @@ ic_public void xLinePrintAbove(xLineHandle handle, const char *s) {
   // the current trailing line. Append `s`, then a '\n' if it isn't already
   // one, so the whole lot becomes "flushed lines" and the new trailing line
   // is empty.
+  //
+  // We also prepend the currently-active SGR stack so that a caller whose
+  // styling was set on a scrolled-out line still influences this emission.
+  // xline_emit_bytes rebuilds active_sgr from the data it's handed, so we
+  // clear it first to avoid double-tracking the prefix we prepend.
   stringbuf_t *buf = sbuf_new();
   if (buf == NULL) return;
+  if (h->active_sgr != NULL && sbuf_len(h->active_sgr) > 0) {
+    sbuf_append(buf, sbuf_string(h->active_sgr));
+    sbuf_clear(h->active_sgr);
+  }
   sbuf_append(buf, sbuf_string(h->last_line));
   sbuf_append(buf, s);
   ssize_t blen = sbuf_len(buf);
@@ -906,52 +998,6 @@ ic_public void xLinePrintAbove(xLineHandle handle, const char *s) {
   xline_erase_trailing(h);
   xline_emit_bytes(h, sbuf_string(buf), sbuf_len(buf));
   sbuf_free(buf);
-}
-
-// Replay every complete SGR (\x1b[...m) sequence found in `data` to the
-// terminal, preserving order. All non-SGR bytes (literal text, cursor
-// movement escapes, OSC sequences, etc.) are skipped because replaying them
-// would move the cursor or redraw text. This is used on the sneak fast path
-// below: right after term_attr_reset() clears the active SGR state, we
-// re-establish whatever styling was in effect at the end of last_line so the
-// incoming chunk inherits it (e.g. thinking's faint \x1b[2m, tool output's
-// dim, etc.).
-//
-// SGR recognition is strict: ESC '[' then zero or more parameter bytes
-// (0x30-0x3f: digits, ';', ':', '<', '=', '>', '?'), zero or more
-// intermediate bytes (0x20-0x2f), and a final byte that must be 'm'. Any
-// other terminator (K, J, H, A-D, ...) is silently skipped. Malformed
-// sequences (EOF before final byte, out-of-range bytes) are dropped.
-//
-// The replay is idempotent: re-emitting already-cancelled SGR (e.g. a stray
-// '[0m' in the middle) is fine because we always run after term_attr_reset,
-// so the final effective state matches last_line's logical tail.
-static void xline_replay_sgr(term_t *term, const char *data, ssize_t len) {
-  ssize_t i = 0;
-  while (i < len) {
-    if ((unsigned char)data[i] != 0x1b) { i++; continue; }
-    if (i + 1 >= len || data[i + 1] != '[') { i++; continue; }
-    ssize_t start = i;
-    ssize_t j = i + 2;
-    // parameter bytes 0x30-0x3f
-    while (j < len) {
-      unsigned char c = (unsigned char)data[j];
-      if (c >= 0x30 && c <= 0x3f) j++; else break;
-    }
-    // intermediate bytes 0x20-0x2f
-    while (j < len) {
-      unsigned char c = (unsigned char)data[j];
-      if (c >= 0x20 && c <= 0x2f) j++; else break;
-    }
-    if (j >= len) break; // malformed, stop scanning
-    char final = data[j];
-    if (final == 'm') {
-      // Inclusive of the final 'm'.
-      term_write_n(term, data + start, j - start + 1);
-    }
-    // Whether SGR or not, advance past the final byte and keep scanning.
-    i = j + 1;
-  }
 }
 
 ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
@@ -1010,19 +1056,27 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
         term_up(env->term, (ssize_t)eb->cur_row + 1);
         term_write(env->term, "\r");
         term_right(env->term, last_col);
-        // Re-establish last_line's SGR state before writing the chunk, so
-        // styling set by an earlier above_chunk (e.g. \x1b[2m for thinking
-        // or tool-output faint) survives the term_attr_reset above.
-        // Zero-width, so cursor position set up by term_up/term_right
-        // stays valid. DECSC above saved the default attrs, so DECRC
-        // below still restores the edit region to a clean state.
-        xline_replay_sgr(env->term, sbuf_string(h->last_line),
-                         sbuf_len(h->last_line));
+        // Re-establish the active SGR stack before writing the chunk, so
+        // styling set by an earlier above_chunk survives the term_attr_reset
+        // above — even if the defining escape has since scrolled out of
+        // last_line (e.g. \x1b[2m on row 0, then a '\n' followed by more
+        // thinking text on row 1+). active_sgr is kept in sync by
+        // xline_emit_bytes (slow path) and xline_track_sgr below (fast
+        // path). Zero-width, so cursor position set up by term_up/
+        // term_right stays valid; DECSC above saved the default attrs, so
+        // DECRC below still restores the edit region to a clean state.
+        if (h->active_sgr != NULL && sbuf_len(h->active_sgr) > 0) {
+          term_write_n(env->term, sbuf_string(h->active_sgr),
+                       sbuf_len(h->active_sgr));
+        }
         term_write(env->term, s);
         term_write(env->term, "\x1b" "8"); // restore cursor (DECRC)
         term_flush(env->term);
         // Commit the new trailing line; rows unchanged by construction.
         sbuf_append(h->last_line, s);
+        // Keep active_sgr up to date with what the chunk just emitted:
+        // the slow path reads from it, and the next sneak tick replays it.
+        xline_track_sgr(h->active_sgr, s, (ssize_t)strlen(s));
         // h->last_line_rows stays the same.
         sbuf_free(probe);
         return;
@@ -1034,9 +1088,15 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
   // Slow path: extend the trailing line with the caller's fragment. We need
   // to rewrite the previous trailing line too (it may now wrap differently,
   // or may be fully consumed by a '\n' inside `s`), so concatenate and
-  // re-emit.
+  // re-emit. Prepend the active SGR stack so styling set on a now-scrolled
+  // line is re-armed before the re-emission; clear active_sgr because
+  // xline_emit_bytes will rebuild it from the exact bytes we hand it.
   stringbuf_t *buf = sbuf_new();
   if (buf == NULL) return;
+  if (h->active_sgr != NULL && sbuf_len(h->active_sgr) > 0) {
+    sbuf_append(buf, sbuf_string(h->active_sgr));
+    sbuf_clear(h->active_sgr);
+  }
   sbuf_append(buf, sbuf_string(h->last_line));
   sbuf_append(buf, s);
 

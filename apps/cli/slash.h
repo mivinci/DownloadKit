@@ -18,8 +18,10 @@
 #include <xline/line.h>
 
 /* Register the slash-command completer with xline. Called once from
- * main() after xLineSetHistory. */
-void slash_install_completer(void);
+ * main() after xLineSetHistory. `ctx` is stashed as the xline
+ * completer arg so per-command argument completers (e.g. /model
+ * <id>) can reach the registry / session state. */
+void slash_install_completer(ReplCtx *ctx);
 
 /* Dispatch a raw input line starting with '/'. Returns true if the
  * line was a slash command (recognised or not — unknown commands

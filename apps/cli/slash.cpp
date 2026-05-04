@@ -28,6 +28,7 @@
 
 #include "slash.h"
 
+#include "ctx.h"
 #include "output.h"
 #include "repl.h"
 
@@ -35,16 +36,32 @@
 #include <cstring>
 #include <string>
 
+#include <xagent/model.h>
 #include <xagent/session.h>
 #include <xbase/time.h>
 #include <xline/line.h>
 
 typedef void (*SlashCmdFunc)(ReplCtx *ctx, const char *args);
 
+/* Per-command argument completer: invoked when the user is typing the
+ * first positional argument of `/<cmd>` (i.e. the input already
+ * matches `/<cmd><space>+<token>` up to the cursor). `token` is the
+ * partial argument extracted by xLineCompleteWord; handlers should
+ * feed replacements via xLineAddCompletionEx, which will correctly
+ * delete-before the partial. Return with no completions added to
+ * produce a silent no-op (keeps the hint overlay quiet).
+ *
+ * This is the "xLineSetArgCompleter(\"/foo\", ...)" equivalent: it's a
+ * table lookup rather than a separate API, but the ergonomics are
+ * the same — one function per command, no shared global state. */
+typedef void (*SlashArgCompleter)(xLineCompletionEnv cenv, ReplCtx *ctx,
+                                  const char *token);
+
 struct SlashCmd {
-  const char  *name; /* including leading '/' */
-  const char  *help;
-  SlashCmdFunc fn;
+  const char       *name; /* including leading '/' */
+  const char       *help;
+  SlashCmdFunc      fn;
+  SlashArgCompleter arg_completer; /* NULL = no arg completion */
 };
 
 static void slash_cmd_help(ReplCtx *ctx, const char *args);
@@ -53,14 +70,19 @@ static void slash_cmd_clear(ReplCtx *ctx, const char *args);
 static void slash_cmd_history(ReplCtx *ctx, const char *args);
 static void slash_cmd_tokens(ReplCtx *ctx, const char *args);
 static void slash_cmd_cancel(ReplCtx *ctx, const char *args);
+static void slash_cmd_model(ReplCtx *ctx, const char *args);
+static void slash_argc_model(xLineCompletionEnv cenv, ReplCtx *ctx,
+                             const char *token);
 
 static const SlashCmd g_slash_cmds[] = {
-  {"/help", "show this help", slash_cmd_help},
-  {"/exit", "quit the REPL", slash_cmd_exit},
-  {"/clear", "clear the terminal screen", slash_cmd_clear},
-  {"/history", "print input history", slash_cmd_history},
-  {"/tokens", "show cumulative token usage", slash_cmd_tokens},
-  {"/cancel", "interrupt the active AI run", slash_cmd_cancel},
+  {"/help", "show this help", slash_cmd_help, nullptr},
+  {"/exit", "quit the REPL", slash_cmd_exit, nullptr},
+  {"/clear", "clear the terminal screen", slash_cmd_clear, nullptr},
+  {"/history", "print input history", slash_cmd_history, nullptr},
+  {"/tokens", "show cumulative token usage", slash_cmd_tokens, nullptr},
+  {"/cancel", "interrupt the active AI run", slash_cmd_cancel, nullptr},
+  {"/model", "show / switch the active model (e.g. /model kimi)",
+   slash_cmd_model, slash_argc_model},
 };
 static const size_t g_slash_cmds_count =
   sizeof(g_slash_cmds) / sizeof(g_slash_cmds[0]);
@@ -94,18 +116,87 @@ static void slash_completer_inner(xLineCompletionEnv cenv, const char *prefix) {
   }
 }
 
-/* Top-level completer registered with xline. We delegate to
- * xLineCompleteWord so prefix extraction and replacement semantics
- * are consistent with the rest of the library — otherwise Tab on
- * `/cl` would append `/clear` producing `/cl/clear` (and the inline
- * hint renders the same broken overlay). */
+/* Find the SlashCmd whose name is the first whitespace-delimited
+ * token of `prefix` (the input up to the cursor) AND is immediately
+ * followed by at least one space. Returns NULL when the cursor is
+ * still inside the command token itself — that's the signal to fall
+ * through to command-name completion instead of argument completion.
+ *
+ * `*arg_start_out` (optional) receives the offset into `prefix` of
+ * the first character of the argument region (first non-space after
+ * the command). Used only for sanity checks; the actual token
+ * extraction is handled by xLineCompleteWord downstream. */
+static const SlashCmd *slash_match_cmd_for_arg(const char *prefix,
+                                               size_t     *arg_start_out) {
+  if (!prefix || prefix[0] != '/') return nullptr;
+  /* Walk to the end of the command token. */
+  size_t i = 0;
+  while (prefix[i] && prefix[i] != ' ' && prefix[i] != '\t')
+    ++i;
+  /* Need at least one whitespace after the command to be "in args". */
+  if (prefix[i] != ' ' && prefix[i] != '\t') return nullptr;
+  size_t cmd_len = i;
+  /* Skip the separator run. */
+  while (prefix[i] == ' ' || prefix[i] == '\t')
+    ++i;
+  if (arg_start_out) *arg_start_out = i;
+  for (size_t k = 0; k < g_slash_cmds_count; ++k) {
+    const SlashCmd *c = &g_slash_cmds[k];
+    if (std::strlen(c->name) == cmd_len &&
+        std::strncmp(c->name, prefix, cmd_len) == 0) {
+      return c;
+    }
+  }
+  return nullptr;
+}
+
+/* Trampoline: xLineCompleteWord hands us the argument token with the
+ * delete-before bookkeeping already primed. We forward to the
+ * command-specific arg completer found in the SlashCmd table. The
+ * pair (cmd, ctx) is smuggled through a thread-local since
+ * xLineCompleteWord's signature doesn't carry user closure. This is
+ * fine: completion is always single-threaded inside xline's event
+ * loop and the variable is written then read inside the same call. */
+static thread_local const SlashCmd *tls_arg_cmd;
+static thread_local ReplCtx       *tls_arg_ctx;
+
+static void slash_arg_completer_inner(xLineCompletionEnv cenv,
+                                      const char        *token) {
+  const SlashCmd *c   = tls_arg_cmd;
+  ReplCtx        *ctx = tls_arg_ctx;
+  if (c && c->arg_completer) c->arg_completer(cenv, ctx, token);
+}
+
+/* Top-level completer registered with xline. Two modes:
+ *   1) cursor still inside the command token (`/cl<TAB>`) — run the
+ *      command-name completer, identical to the original behaviour.
+ *   2) cursor past `/<cmd> ` — look up that command's arg completer
+ *      and run it through xLineCompleteWord so the partial argument
+ *      gets replaced cleanly (no `/model k/model kimi` artifacts).
+ *
+ * We delegate to xLineCompleteWord in both modes so prefix extraction
+ * and replacement semantics stay consistent with the rest of xline. */
 static void slash_completer(xLineCompletionEnv cenv, const char *prefix) {
+  const SlashCmd *cmd = slash_match_cmd_for_arg(prefix, nullptr);
+  if (cmd && cmd->arg_completer) {
+    /* Argument-completion mode. Using the default word-char predicate
+     * (NULL → xLineCharIsNonseparator) means any non-whitespace run
+     * is treated as the arg token, which matches how users type
+     * model ids, filenames, etc. */
+    tls_arg_cmd = cmd;
+    tls_arg_ctx = static_cast<ReplCtx *>(xLineCompletionArg(cenv));
+    xLineCompleteWord(cenv, prefix, slash_arg_completer_inner, nullptr);
+    tls_arg_cmd = nullptr;
+    tls_arg_ctx = nullptr;
+    return;
+  }
+  /* Command-name mode (original path). */
   (void)prefix; /* xLineCompleteWord re-derives it using our predicate */
   xLineCompleteWord(cenv, prefix, slash_completer_inner, is_slash_cmd_char);
 }
 
-void slash_install_completer(void) {
-  xLineSetDefaultCompleter(slash_completer, nullptr);
+void slash_install_completer(ReplCtx *ctx) {
+  xLineSetDefaultCompleter(slash_completer, ctx);
 }
 
 static void slash_cmd_help(ReplCtx *ctx, const char *args) {
@@ -171,39 +262,34 @@ static void slash_cmd_cancel(ReplCtx *ctx, const char *args) {
 
 static void slash_cmd_history(ReplCtx *ctx, const char *args) {
   (void)args;
-  /* Isocline persists history at <data_dir>/.ai_session_history via
-   * xLineSetHistory but doesn't expose a public enumeration API, so
-   * the cheapest way to show the user their recall buffer is to
-   * dump the file line by line. Pinning the result into the below
-   * panel means the listing sticks around across model streaming
-   * and the user can grep it visually while typing a new prompt. */
-  if (!ctx->hist_path) {
-    xLineSetBelowPanel(ctx->line, nullptr, "(history not initialised)");
-    return;
-  }
-  std::FILE *f = std::fopen(ctx->hist_path, "r");
-  if (!f) {
+  /* Enumerate the in-memory history via xLineHistoryGet. We used to
+   * read the persisted .ai_session_history file directly, but that
+   * file stores non-ASCII bytes using isocline's internal \xHH
+   * escape format (see history_write_entry in modules/xline/
+   * history.c) — CJK and emoji came out as a wall of "\xE7\x9C\x8B"
+   * literals. The in-memory buffer is already decoded, which is
+   * exactly what the user wants to see. As a bonus this also picks
+   * up entries from the current session that haven't been flushed
+   * to disk yet. */
+  long n = xLineHistoryCount();
+  if (n <= 0) {
     xLineSetBelowPanel(
       ctx->line, nullptr,
       "(no history yet \u2014 submit a message and come back)");
     return;
   }
   std::string body;
-  char        buf[4096];
-  size_t      lines = 0;
-  while (std::fgets(buf, sizeof(buf), f)) {
-    size_t n = std::strlen(buf);
-    while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r'))
-      buf[--n] = '\0';
+  /* Walk oldest -> newest so the list reads top-to-bottom in the
+   * order entries were submitted; xLineHistoryGet uses 0 = newest. */
+  for (long i = n - 1; i >= 0; --i) {
+    const char *entry = xLineHistoryGet(i);
+    if (entry == nullptr) continue;
     if (!body.empty()) body.push_back('\n');
-    body.append(buf);
-    ++lines;
+    body.append(entry);
   }
-  std::fclose(f);
   if (body.empty()) body = "(empty)";
   char tail[64];
-  std::snprintf(tail, sizeof(tail), "\n\n(%zu line(s); Ctrl-R to search)",
-                lines);
+  std::snprintf(tail, sizeof(tail), "\n\n(%ld line(s); Ctrl-R to search)", n);
   body.append(tail);
   xLineSetBelowPanel(ctx->line, nullptr, body.c_str());
 }
@@ -232,6 +318,96 @@ static void slash_cmd_tokens(ReplCtx *ctx, const char *args) {
       "\nbudget: (no GatePassed event yet \u2014 submit a message first)");
   }
   xLineSetBelowPanel(ctx->line, nullptr, body.c_str());
+}
+
+/* Render the registry as a "id -> wire model" listing. Used by
+ * /model (when no argument is given) so the user can see every
+ * registered id alongside the "*" marker for the active one. */
+static std::string render_registry_listing(const ReplCtx *ctx) {
+  std::string body;
+  if (!ctx->model_registry) return "(no registry \u2014 startup was misconfigured)";
+
+  size_t n = xAgentModelRegistryCount(ctx->model_registry);
+  for (size_t i = 0; i < n; ++i) {
+    const xAgentModelSpec *s = xAgentModelRegistryAt(ctx->model_registry, i);
+    if (!s) continue;
+    char line[256];
+    /* Mark the currently-active spec with "*" so the user can tell
+     * which one /model with no args would re-select. */
+    const char *mark =
+      (ctx->current_model_id == s->id) ? "*" : " ";
+    std::snprintf(line, sizeof(line), " %s %-12s %s", mark, s->id,
+                  s->model ? s->model : "(provider default)");
+    if (!body.empty()) body.push_back('\n');
+    body.append(line);
+  }
+  if (body.empty()) body = "(no models registered)";
+  return body;
+}
+
+/* Arg completer for /model: enumerate every id in the registry whose
+ * name extends the typed token. Display uses the id; help shows the
+ * wire model so the menu doubles as a "what does this id map to?"
+ * reference. Startup misconfiguration (no registry) simply yields
+ * no completions — the hint stays quiet instead of crashing. */
+static void slash_argc_model(xLineCompletionEnv cenv, ReplCtx *ctx,
+                             const char *token) {
+  if (!ctx || !ctx->model_registry) return;
+  size_t n = xAgentModelRegistryCount(ctx->model_registry);
+  for (size_t i = 0; i < n; ++i) {
+    const xAgentModelSpec *s = xAgentModelRegistryAt(ctx->model_registry, i);
+    if (!s || !s->id) continue;
+    if (!xLineStartsWith(s->id, token)) continue;
+    const char *wire = s->model ? s->model : "(provider default)";
+    xLineAddCompletionEx(cenv, s->id, s->id, wire);
+  }
+}
+
+static void slash_cmd_model(ReplCtx *ctx, const char *args) {
+  /* No argument: show the current selection + full listing in the
+   * below panel. This doubles as "list every registered id" so
+   * there's only one command to remember. */
+  if (!args || !*args) {
+    std::string body = "current: " + ctx->current_model_id + "\n\n";
+    body += render_registry_listing(ctx);
+    xLineSetBelowPanel(ctx->line, "model", body.c_str());
+    return;
+  }
+
+  /* Reject the switch while a run is in flight — xAgentSessionSetModel
+   * only affects the NEXT Query, but changing mid-run is still
+   * surprising and the REPL's busy-flag bookkeeping assumes a
+   * single provider per in-flight Query. Ask the user to /cancel
+   * first. */
+  if (ctx->busy) {
+    above_printf(ctx->line,
+                 "\x1b[2m(cannot switch model while a run is in flight; "
+                 "try /cancel first)\x1b[0m");
+    return;
+  }
+
+  xErrno rc = xAgentSessionSetModel(ctx->sess, args);
+  if (rc == xErrno_NotFound) {
+    above_printf(ctx->line,
+                 "unknown model id: %s  (try /model to see available ids)",
+                 args);
+    return;
+  }
+  if (rc != xErrno_Ok) {
+    above_printf(ctx->line, "/model: failed (err=%d)", (int)rc);
+    return;
+  }
+
+  /* Success — record the new selection so the listing's "*" marker
+   * and future banner updates reflect it. */
+  ctx->current_model_id = args;
+
+  const xAgentModelSpec *spec =
+    xAgentModelRegistryGet(ctx->model_registry, args);
+  const char *wire = spec && spec->model ? spec->model : "(provider default)";
+  above_printf(ctx->line,
+               "\x1b[2m[model] switched to id=%s (wire model=%s)\x1b[0m",
+               args, wire);
 }
 
 /* Dispatch a '/' line. Returns true if the line was a slash command

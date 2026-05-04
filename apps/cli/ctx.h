@@ -79,6 +79,15 @@ struct ReplCtx {
    * one at a time in arrival order. */
   std::deque<PendingConfirm> confirm_queue;
   bool                       confirm_active = false;
+
+  /* Bypass gate ────────────────────────────────────────────────────
+   * When true, on_tool_confirm short-circuits: every needs_confirm
+   * tool is auto-allowed without prompting. Toggled by /bypass.
+   * The flag is process-local and resets to false on each cli
+   * invocation — persisting it across runs would be too easy to
+   * forget about, and the point of the flag is that you explicitly
+   * opt in for the current session. */
+  bool bypass_confirm = false;
 };
 
 #endif /* XKIT_APPS_CLI_CTX_H */

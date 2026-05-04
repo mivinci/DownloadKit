@@ -40,6 +40,7 @@ static void repl_line_cb(int fd, xEventMask mask, void *arg);
 static void repl_update_confirm_panel(ReplCtx *ctx);
 static void repl_enter_confirm_mode(ReplCtx *ctx);
 static void repl_leave_confirm_mode(ReplCtx *ctx);
+static int  repl_refresh_confirm_editor(ReplCtx *ctx);
 
 int repl_open_line_with_prompt(ReplCtx *ctx, const char *prompt) {
   ctx->line = xLineBegin(prompt ? prompt : "");
@@ -174,6 +175,35 @@ static void repl_leave_confirm_mode(ReplCtx *ctx) {
    * only trigger a redundant wipe+repaint cycle. */
 }
 
+/* Tear down the just-submitted "confirm>" editor session and open a
+ * fresh one under the same prompt, so we can continue reading user
+ * input while staying in confirm mode.
+ *
+ * Why this exists: xline handles are single-shot. Once xLineStep
+ * returns XLINE_STEP_LINE and xLineTake has consumed the buffer,
+ * the session is terminal — subsequent xLineStep calls won't accept
+ * new keystrokes and the editor is effectively dead. Chat flow
+ * handles this with close+open around each submitted line; every
+ * confirm-mode path that wants to keep reading (queue has another
+ * item, idle-wait between tool calls, unrecognised input redraw,
+ * empty-input redraw) needs the same dance. We factor it out here
+ * so the four call sites stay in sync. The caller is expected to
+ * set up the below panel afterwards (either via repl_update_confirm
+ * _panel or xLineSetBelowPanel for the idle hint). Returns 0 on
+ * success; on failure it's already stopped the event loop. */
+static int repl_refresh_confirm_editor(ReplCtx *ctx) {
+  repl_close_line(ctx);
+  /* Marker was already cleared when we first entered confirm mode;
+   * no need to touch it again. Just reopen under the same "confirm>"
+   * prompt so the visual transition is invisible to the user. */
+  if (repl_open_line_with_prompt(ctx, "\x1b[1;33mconfirm>\x1b[0m ") != 0) {
+    xEventLoopStop(ctx->loop);
+    return -1;
+  }
+  ctx->confirm_active = true;
+  return 0;
+}
+
 /* Reject everything in the confirm queue and leave confirm mode. Used
  * on cancel / interrupt paths so the session doesn't stall waiting for
  * a resolver the user has abandoned. Resolve() on a resolver whose
@@ -194,12 +224,19 @@ void repl_drain_confirms_rejected(ReplCtx *ctx, const char *reason) {
  * has already been xLineTake()'d by the caller; we own it only for
  * the duration of the call (caller frees). Semantics:
  *
- *   y / yes / a / allow / empty-allow? → Allow
- *   n / N / empty       → Reject with default reason
- *   r <reason>          → Reject with user-supplied reason
+ *   y / yes / a / allow  → Allow
+ *   n / N                → Reject with default reason
+ *   r <reason>           → Reject with user-supplied reason
+ *   empty / unrecognised → no-op; redraw panel, stay in confirm mode
  *
- * Empty input defaults to Reject — safer than Allow for a confirm
- * gate, matches the uppercase "N" in the "[y/N]" hint. */
+ * Empty input is deliberately *not* a shortcut for Reject. Confirm
+ * gates on shell commands are destructive-adjacent and silently
+ * consuming stray Enters (e.g. leaked from the previous chat editor
+ * just before on_tool_confirm swapped us in) has bitten users. The
+ * redraw-and-wait path makes the decision strictly opt-in: the user
+ * must type one of y/n/r explicitly. repl_enter_confirm_mode also
+ * tcflush()es the kernel tty input queue on entry as a first line
+ * of defence; this branch is the belt-and-braces second line. */
 static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
   if (ctx->confirm_queue.empty()) {
     /* Shouldn't happen: the gate shouldn't be active with an empty
@@ -218,7 +255,21 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
   xAgentToolDecision decision = xAgentToolDecision_Reject;
   const char        *reason   = "user declined execution";
 
-  if (*s == '\0' || *s == 'n' || *s == 'N') {
+  if (*s == '\0') {
+    /* Empty submission — almost never intentional at a confirm gate.
+     * Push the request back and redraw. A faint hint nudges the
+     * user toward an explicit answer without shouting like the
+     * "unrecognised" warning would. The editor session just
+     * submitted an (empty) line and is therefore terminal; we must
+     * close+reopen it before we can read the next keystroke. */
+    ctx->confirm_queue.push_front(std::move(head));
+    if (repl_refresh_confirm_editor(ctx) != 0) return;
+    above_printf(ctx->line,
+                 "\x1b[2m(type y to allow, n to reject, r <reason> "
+                 "to reject with reason)\x1b[0m");
+    repl_update_confirm_panel(ctx);
+    return;
+  } else if (*s == 'n' || *s == 'N') {
     decision = xAgentToolDecision_Reject;
     reason   = "user declined execution";
   } else if (*s == 'y' || *s == 'Y' || *s == 'a' || *s == 'A') {
@@ -234,10 +285,13 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
     reason = *tail ? tail : "user declined execution";
   } else {
     /* Unrecognised — repaint the panel, re-read. Push back onto
-     * head of queue and stay in confirm mode. */
+     * head of queue and stay in confirm mode. Same single-shot
+     * caveat as the empty-input branch: refresh the editor before
+     * we print/repaint so the new session owns the below panel. */
+    ctx->confirm_queue.push_front(std::move(head));
+    if (repl_refresh_confirm_editor(ctx) != 0) return;
     above_printf(ctx->line,
                  "\x1b[33m(unrecognised; use y / n / r <reason>)\x1b[0m");
-    ctx->confirm_queue.push_front(std::move(head));
     repl_update_confirm_panel(ctx);
     return;
   }
@@ -248,21 +302,33 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
    * submitted "confirm> …" line on done, so without this echo the
    * history would show the prompt but not the keystroke.
    *
-   * DIAGNOSTIC: when this is the last item in the queue, tear down
-   * the confirm mode *first* (closes the "confirm>" editor, clears
-   * the below panel, reopens the normal chat editor) before echoing
-   * the decision or calling Resolve. Resolve is synchronous and
-   * drives the tool handler's on_tool/on_command/on_tool_output
-   * callbacks on this stack frame; if the confirm editor + panel
-   * were still attached, every one of those above_printf calls
-   * would have to dodge a ~6-row panel that's about to be torn
-   * down anyway. Doing the teardown upfront means the tool run
-   * prints into a clean chat session. */
-  const bool  last_in_queue = ctx->confirm_queue.empty();
-  const char *echo          = (raw && *raw) ? raw : "(empty)";
-  if (last_in_queue) {
-    repl_leave_confirm_mode(ctx);
-  }
+   * Lifecycle note: unlike the original "tear down the confirm
+   * editor as soon as the queue drains" design, we now KEEP the
+   * "confirm>" editor alive for the rest of the AI run and only
+   * flip back to the regular chat editor once on_done fires (via
+   * repl_drain_confirms_rejected's leave fallback — queue is
+   * already empty, so drain is a no-op but leave still runs).
+   *
+   * Why: between one tool's Resolve and the next tool's
+   * on_tool_confirm, the AI kicks off submit_round over HTTP and
+   * the model takes a second or two to return the next tool_use.
+   * If we swapped back to the chat editor during that window,
+   * any keys the user mashed (waiting for the next confirm
+   * prompt, or just impatient) would land in the chat buffer,
+   * be echoed as "> ...", and either be submitted as a new turn
+   * (racing the in-flight run — caught by the ctx->busy check
+   * and rejected with a faint "(AI is busy...)" notice) or
+   * simply sit there confusing the user when the next confirm
+   * finally popped. Keeping the "confirm>" editor up closes
+   * that window entirely: the user can't accidentally chat while
+   * a run is in flight, and Ctrl-C still routes through the
+   * INTERRUPT arm to cancel cleanly.
+   *
+   * Staying in confirm mode also lets the *next* on_tool_confirm
+   * just repl_update_confirm_panel() without tearing down and
+   * rebuilding the editor — visual continuity when the model
+   * chains several tool calls. */
+  const char *echo = (raw && *raw) ? raw : "(empty)";
 
   if (decision == xAgentToolDecision_Allow) {
     above_printf(ctx->line, "\x1b[2m[confirm] %s → allowed (%s)\x1b[0m",
@@ -273,18 +339,63 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
                  reason ? reason : "(none)");
   }
 
+  /* Resolve is synchronous and drives the tool handler's on_tool /
+   * on_command / on_tool_output callbacks on this stack frame.
+   * Those all stream through above_printf / above_chunk, which
+   * correctly route around the "confirm>" editor's edit region
+   * and below panel, so keeping the editor attached here is safe. */
   xAgentToolConfirmResolve(head.resolver, decision, reason);
 
-  if (!last_in_queue) {
-    /* Another request is queued — stay in confirm mode, but refresh
-     * the panel to reflect the new head item. */
+  if (!ctx->confirm_queue.empty()) {
+    /* Another request is already queued (the model chained two
+     * tool_use blocks in the same round, or Resolve's synchronous
+     * tool-handler path re-entered on_tool_confirm). Rebuild the
+     * editor session (xline handle is single-shot after LINE) and
+     * refresh the panel to reflect the new head and nudge the user. */
+    if (repl_refresh_confirm_editor(ctx) != 0) return;
     repl_update_confirm_panel(ctx);
     above_printf(
       ctx->line,
       "\x1b[1;33m[confirm] next: tool '%s' wants to run — approve?\x1b[0m",
       ctx->confirm_queue.front().tool_name.c_str());
+    return;
   }
-  /* Queue drained case: repl_leave_confirm_mode was called above. */
+
+  /* Queue drained. Two cases:
+   *
+   *   1. ctx->busy == true   → AI is still running (typical: we
+   *      just allowed a tool, Resolve kicked off submit_round over
+   *      HTTP, the next tool_use may arrive in a second or two).
+   *      Keep the "confirm>" editor up to absorb / ignore user
+   *      input and swap the below panel for an idle hint so the
+   *      user knows why the prompt hasn't returned.
+   *
+   *   2. ctx->busy == false  → AI finished synchronously (unusual;
+   *      would require Resolve's tool-loop to call on_done in the
+   *      same stack frame, which only happens on ToolError with no
+   *      further rounds). Fall back to leaving confirm mode here
+   *      so the user isn't stranded at a "confirm>" prompt with
+   *      nothing to confirm. on_done's own repl_drain_confirms_
+   *      rejected handler would otherwise handle this, but it
+   *      runs *after* we return from this callback. */
+  if (ctx->busy) {
+    /* Queue drained but AI is still running; stay in confirm mode
+     * so the next tool_use lands on a live "confirm>" editor and
+     * the user can't accidentally type into a chat prompt that
+     * would be rejected anyway. The submit that brought us here
+     * left the xline handle in a terminal state, so we must
+     * close+reopen before we can absorb further keystrokes — the
+     * original "just swap the below panel" shortcut forgot this
+     * and wedged the tty until the next tool_use fired. Then
+     * install the idle hint panel on the fresh session. */
+    if (repl_refresh_confirm_editor(ctx) != 0) return;
+    xLineSetBelowPanel(
+      ctx->line, "",
+      "\x1b[2m(AI is running; next tool will appear here. Ctrl-C to "
+      "cancel.)\x1b[0m");
+  } else {
+    repl_leave_confirm_mode(ctx);
+  }
 }
 
 /* Session callback: a needs_confirm tool wants to run. */
@@ -295,6 +406,32 @@ void on_tool_confirm(xAgentSession sess, const char *tool_name,
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
 
+  /* Bypass mode short-circuit. We intentionally don't push onto the
+   * confirm queue or touch confirm_active — the point of bypass is
+   * zero user interaction, so skipping the gate entirely keeps the
+   * UI free of the "confirm>" prompt and below-panel flicker. We
+   * still log a single faint line so bypass-enabled runs don't hide
+   * the fact that a confirm-worthy tool just ran (searchable in
+   * history, visible while scrolling). The resolver handle is
+   * documented as valid from the callback until Resolve is called,
+   * so calling it synchronously here is safe. */
+  if (ctx->bypass_confirm) {
+    above_printf(ctx->line,
+                 "\x1b[2m[bypass] %s \u2192 auto-allow\x1b[0m",
+                 tool_name ? tool_name : "(null)");
+    xAgentToolConfirmResolve(resolver, xAgentToolDecision_Allow, nullptr);
+    return;
+  }
+
+  /* Note whether this is the wake-up arrival (queue was empty and
+   * the "confirm>" editor was showing the idle hint) vs a pile-on
+   * (queue already had items waiting). Used below to decide
+   * whether to re-announce the gate — we don't want to spam the
+   * banner on every back-to-back tool_use, only when the user was
+   * previously looking at an idle/waiting panel. */
+  const bool woke_from_idle =
+    ctx->confirm_active && ctx->confirm_queue.empty();
+
   PendingConfirm pc;
   pc.tool_name   = tool_name ? tool_name : "(null)";
   pc.tool_use_id = tool_use_id ? tool_use_id : "";
@@ -302,12 +439,32 @@ void on_tool_confirm(xAgentSession sess, const char *tool_name,
   pc.resolver    = resolver;
   ctx->confirm_queue.push_back(std::move(pc));
 
-  /* Already in confirm mode? Just refresh the "+N queued" count. A
-   * second confirm arriving mid-decision is rare (confirms serialise
-   * dispatch through the same loop turn) but not impossible for
-   * batched tool_use blocks. */
+  /* Already in confirm mode? Two sub-cases:
+   *
+   *   a) pile-on (queue already non-empty): repaint so the
+   *      "+N queued" count is accurate, but don't re-announce —
+   *      the user is actively deciding on the current head and
+   *      a new banner would be noise.
+   *   b) woke from idle (queue was empty, we were showing the
+   *      "AI is running; next tool will appear here" hint):
+   *      repaint to swap out the idle hint for the real decision
+   *      panel, then emit a banner so the user notices the
+   *      previously-idle gate now has work. */
   if (ctx->confirm_active) {
+    /* Two sub-cases, both of which arrive with a *live* editor
+     * session (either the idle-hint editor from
+     * repl_handle_confirm_line's drained-but-busy branch, or the
+     * editor we just refreshed in the pile-on branch of
+     * repl_handle_confirm_line for the previous head). No need to
+     * close+reopen here — the existing session is still willing
+     * to accept input; just repaint the below panel. */
     repl_update_confirm_panel(ctx);
+    if (woke_from_idle) {
+      above_printf(
+        ctx->line,
+        "\x1b[1;33m[confirm] tool '%s' wants to run — approve?\x1b[0m",
+        ctx->confirm_queue.front().tool_name.c_str());
+    }
     return;
   }
   repl_enter_confirm_mode(ctx);
@@ -374,18 +531,13 @@ static int repl_handle_line(ReplCtx *ctx, char *line) {
   size_t len = std::strlen(line);
   if (len == 0) return 0;
 
-  /* Legacy `exit` / `quit` bare words remain as a courtesy for
-   * muscle memory, but `/exit` is the documented spelling. */
-  if (std::strcmp(line, "exit") == 0 || std::strcmp(line, "quit") == 0) {
-    xLineHistoryRemoveLast();
-    return 1;
-  }
   if (line[0] == '/') {
-    /* Don't pollute history with command chrome. The submit-line
-     * echo ("> /help") is emitted upstream in repl_line_cb while
-     * the editor session is still live, so we don't need to echo
-     * here. */
-    xLineHistoryRemoveLast();
+    /* Keep the command in the in-memory history so Up-arrow and
+     * /history can still reach it, but mark it transient so it
+     * never reaches the on-disk session history file. The submit
+     * echo ("> /help") was already emitted upstream in
+     * repl_line_cb while the editor was live. */
+    xLineHistoryMarkLastTransient();
     slash_dispatch(ctx, line);
     return ctx->should_exit ? 1 : 0;
   }

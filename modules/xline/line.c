@@ -228,6 +228,12 @@ ic_public void xLineHistoryRemoveLast(void) {
   history_remove_last(env->history);
 }
 
+ic_public void xLineHistoryMarkLastTransient(void) {
+  ic_env_t *env = ic_get_env();
+  if (env == NULL) return;
+  history_mark_last_transient(env->history);
+}
+
 ic_public void xLineHistoryAdd(const char *entry) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return;
@@ -585,7 +591,7 @@ static ic_env_t *ic_env_create(void) {
   bbcode_style_def(env->bbcode, "ic-prompt", "ansi-green");
   bbcode_style_def(env->bbcode, "ic-info", "ansi-darkgray");
   bbcode_style_def(env->bbcode, "ic-diminish", "ansi-lightgray");
-  bbcode_style_def(env->bbcode, "ic-emphasis", "#ffffd7");
+  bbcode_style_def(env->bbcode, "ic-emphasis", "ansi-yellow bold");
   bbcode_style_def(env->bbcode, "ic-hint", "ansi-darkgray");
   bbcode_style_def(env->bbcode, "ic-error", "#d70000");
   bbcode_style_def(env->bbcode, "ic-bracematch",

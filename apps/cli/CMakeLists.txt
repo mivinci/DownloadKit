@@ -27,3 +27,6 @@ target_include_directories(cli PRIVATE
   ${CMAKE_SOURCE_DIR}/modules
   ${CMAKE_CURRENT_SOURCE_DIR}
 )
+# Startup banner reads this to avoid drifting from the single source of
+# truth in the root CMakeLists.txt (PROJECT_VERSION + channel + buildno).
+target_compile_definitions(cli PRIVATE XKIT_VERSION="${XK_VERSION}")

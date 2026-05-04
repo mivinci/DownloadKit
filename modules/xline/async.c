@@ -231,42 +231,59 @@ static void xline_sync_extra_from_below(xLineHandle_ *h) {
   if (body == NULL || body_n == 0) return;
 
   // Header row:
-  //   - With title: "── <title> ────────" with a fixed 8-cell trailing rule,
-  //     dim style. Deliberately does NOT stretch to terminal width — the
-  //     short rule gives a visual "section" feel without dominating the
-  //     screen, and we don't have to worry about autowrap on the last cell.
-  //   - Without title: draw a full-width horizontal rule instead of a
-  //     blank row. Gives the same "section break" feel as the titled
-  //     case but without wasting a row on whitespace. We cap the length
-  //     at termw-2 (not -1 like edit_completion.c): `-1` was still
-  //     overflowing on some emulators (iTerm2 showed a trailing ↵ and
-  //     the row wrapped), presumably because the bbcode renderer can
-  //     emit a CR or reset sequence that nudges the final column.
-  //     Width is sampled from h->env->term (set in xLineOpen) and
-  //     falls back to a safe default if env isn't wired up yet.
+  //   - With title: "── <title> ──────────…" stretched to full width, so the
+  //     rule lands in the same column as the untitled case. The leading
+  //     "── <title> " segment is fixed; the trailing run expands to fill
+  //     whatever's left of the terminal width.
+  //   - Without title: just the rule, same full width.
+  //
+  // We cap the total width at termw-2 (not -1 like edit_completion.c):
+  // `-1` was still overflowing on some emulators (iTerm2 showed a
+  // trailing ↵ and the row wrapped), presumably because the bbcode
+  // renderer can emit a CR or reset sequence that nudges the final
+  // column. Width is sampled from h->env->term (set in xLineOpen) and
+  // falls back to a safe default if env isn't wired up yet.
+  //
+  // Both branches use a raw ANSI faint escape (\x1b[2m … \x1b[22m)
+  // rather than the bbcode [ic-diminish] tag: despite its name,
+  // ic-diminish is defined as ansi-lightgray in line.c — a concrete
+  // foreground colour that renders nearly white on dark terminals. We
+  // want the actual "dim" SGR attribute used by the startup banner
+  // border, which is \x1b[2m. bbcode has no built-in faint/dim style,
+  // so we emit the SGR bytes directly; the renderer passes unknown
+  // escape sequences through. Keeping both branches on the same
+  // escape keeps the title rule and untitled rule visually identical.
+  //
+  // Titles are emitted as raw bytes (no [!pre] wrapper), so callers
+  // must pass plain text — no bbcode tags, no control characters.
+  // All current callers pass ASCII literals (e.g. "bypass") so this
+  // is fine in practice.
+  ssize_t rule_w = (h->env != NULL ? term_get_width(h->env->term) - 2 : 78);
+  if (rule_w < 4)  rule_w = 4;
+  if (rule_w > 512) rule_w = 512; // defensive cap; no real terminal is wider
+
+  sbuf_append(eb->extra, "\x1b[2m");
   if (h->below_title != NULL && sbuf_len(h->below_title) > 0) {
-    sbuf_appendf(eb->extra, "[ic-diminish]\xe2\x94\x80\xe2\x94\x80 [!pre]%s[/pre] ",
-                 sbuf_string(h->below_title));
-    for (int i = 0; i < 8; i++) {
+    const char *title   = sbuf_string(h->below_title);
+    // "── " (2 glyphs + 1 space) + title + " "  → fixed prefix width.
+    ssize_t     title_w = str_column_width(title);
+    ssize_t     prefix  = 2 + 1 + title_w + 1;
+    ssize_t     tail    = rule_w - prefix;
+    if (tail < 3) tail = 3; // always leave a minimum visible rule stub
+    sbuf_appendf(eb->extra, "\xe2\x94\x80\xe2\x94\x80 %s ", title);
+    for (ssize_t i = 0; i < tail; i++) {
       sbuf_append(eb->extra, "\xe2\x94\x80");
     }
-    sbuf_append(eb->extra, "[/]\n");
   } else {
-    // Use a raw ANSI faint escape (\x1b[2m … \x1b[22m) instead of the
-    // bbcode [ic-diminish] tag. Despite its name, ic-diminish is defined
-    // as ansi-lightgray in line.c — a concrete foreground colour that
-    // renders nearly white on dark terminals. We want the actual "dim"
-    // attribute used by the startup banner border, which is \x1b[2m.
-    // bbcode has no built-in faint/dim style, so we emit the SGR bytes
-    // directly; the renderer passes unknown escape sequences through.
-    ssize_t rule_w = (h->env != NULL ? term_get_width(h->env->term) - 2 : 78);
-    if (rule_w < 4)  rule_w = 4;
-    if (rule_w > 512) rule_w = 512; // defensive cap; no real terminal is wider
-    sbuf_append(eb->extra, "\x1b[2m");
     for (ssize_t i = 0; i < rule_w; i++) {
       sbuf_append(eb->extra, "\xe2\x94\x80");
     }
-    sbuf_append(eb->extra, "\x1b[22m\n");
+  }
+  sbuf_append(eb->extra, "\x1b[22m\n");
+  // Breathing room under a titled header; untitled rules stay flush
+  // because the rule itself is already visually part of the body.
+  if (h->below_title != NULL && sbuf_len(h->below_title) > 0) {
+    sbuf_append(eb->extra, "\n");
   }
 
   // Clip to XLINE_BELOW_PANEL_MAX_ROWS logical lines. Count newlines; if the
@@ -891,6 +908,52 @@ ic_public void xLinePrintAbove(xLineHandle handle, const char *s) {
   sbuf_free(buf);
 }
 
+// Replay every complete SGR (\x1b[...m) sequence found in `data` to the
+// terminal, preserving order. All non-SGR bytes (literal text, cursor
+// movement escapes, OSC sequences, etc.) are skipped because replaying them
+// would move the cursor or redraw text. This is used on the sneak fast path
+// below: right after term_attr_reset() clears the active SGR state, we
+// re-establish whatever styling was in effect at the end of last_line so the
+// incoming chunk inherits it (e.g. thinking's faint \x1b[2m, tool output's
+// dim, etc.).
+//
+// SGR recognition is strict: ESC '[' then zero or more parameter bytes
+// (0x30-0x3f: digits, ';', ':', '<', '=', '>', '?'), zero or more
+// intermediate bytes (0x20-0x2f), and a final byte that must be 'm'. Any
+// other terminator (K, J, H, A-D, ...) is silently skipped. Malformed
+// sequences (EOF before final byte, out-of-range bytes) are dropped.
+//
+// The replay is idempotent: re-emitting already-cancelled SGR (e.g. a stray
+// '[0m' in the middle) is fine because we always run after term_attr_reset,
+// so the final effective state matches last_line's logical tail.
+static void xline_replay_sgr(term_t *term, const char *data, ssize_t len) {
+  ssize_t i = 0;
+  while (i < len) {
+    if ((unsigned char)data[i] != 0x1b) { i++; continue; }
+    if (i + 1 >= len || data[i + 1] != '[') { i++; continue; }
+    ssize_t start = i;
+    ssize_t j = i + 2;
+    // parameter bytes 0x30-0x3f
+    while (j < len) {
+      unsigned char c = (unsigned char)data[j];
+      if (c >= 0x30 && c <= 0x3f) j++; else break;
+    }
+    // intermediate bytes 0x20-0x2f
+    while (j < len) {
+      unsigned char c = (unsigned char)data[j];
+      if (c >= 0x20 && c <= 0x2f) j++; else break;
+    }
+    if (j >= len) break; // malformed, stop scanning
+    char final = data[j];
+    if (final == 'm') {
+      // Inclusive of the final 'm'.
+      term_write_n(term, data + start, j - start + 1);
+    }
+    // Whether SGR or not, advance past the final byte and keep scanning.
+    i = j + 1;
+  }
+}
+
 ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
   xLineHandle_ *h = (xLineHandle_ *)handle;
   if (h == NULL || s == NULL || *s == '\0' || h->env == NULL) return;
@@ -947,6 +1010,14 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
         term_up(env->term, (ssize_t)eb->cur_row + 1);
         term_write(env->term, "\r");
         term_right(env->term, last_col);
+        // Re-establish last_line's SGR state before writing the chunk, so
+        // styling set by an earlier above_chunk (e.g. \x1b[2m for thinking
+        // or tool-output faint) survives the term_attr_reset above.
+        // Zero-width, so cursor position set up by term_up/term_right
+        // stays valid. DECSC above saved the default attrs, so DECRC
+        // below still restores the edit region to a clean state.
+        xline_replay_sgr(env->term, sbuf_string(h->last_line),
+                         sbuf_len(h->last_line));
         term_write(env->term, s);
         term_write(env->term, "\x1b" "8"); // restore cursor (DECRC)
         term_flush(env->term);

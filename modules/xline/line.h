@@ -143,6 +143,13 @@ void xLineSetHistory(const char *fname, long max_entries);
 /// history; this function removes it.
 void xLineHistoryRemoveLast(void);
 
+/// Mark the last entry in the history as transient.
+/// Transient entries remain in the in-memory history (navigable via arrow
+/// keys, visible to xLineHistoryGet()) but are skipped when the history is
+/// persisted to disk. Useful for slash commands and other ephemeral input
+/// that should not pollute the cross-session history file.
+void xLineHistoryMarkLastTransient(void);
+
 /// Clear the history.
 void xLineHistoryClear(void);
 

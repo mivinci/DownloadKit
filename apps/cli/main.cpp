@@ -114,6 +114,10 @@ int main(int argc, char *argv[]) {
     rc = 1;
     goto out;
   }
+  /* Wire --version / -V to the CMake-injected build version so
+   * `cli --version` stays in lockstep with the banner. xFlagParse
+   * prints and returns xErrno_Again (handled below). */
+  xFlagSetVersion(fset, XKIT_VERSION);
   xFlagAddString(fset, "data-dir", 'd', "PATH",
                  "data directory (history, agent state)", &data_dir_arg,
                  nullptr, xFlagAttr_None);
@@ -310,11 +314,11 @@ int main(int argc, char *argv[]) {
     /* ── Startup banner ─────────────────────────────────────────
      *
      * Printed once in cooked mode before repl_open_line paints the
-     * prompt. A 60-col bordered box: the top bar carries the demo
-     * title, the body lists the knobs that actually vary between runs
-     * (model, tool list, data_dir) and a Tips block with the keys /
-     * commands a first-time user needs. Everything else lives behind
-     * /help so the banner doesn't grow with every new command.
+     * prompt. A 72-col bordered box with a two-column body: a small
+     * ASCII-art "xkit" logo pinned to the left (slant font, 3 lines)
+     * and the session knobs + a one-line tips strip on the right.
+     * Everything else lives behind /help so the banner stays a single
+     * screenful even as commands accrue.
      *
      * Styling: ANSI bold for the title, faint for the border. Box
      * drawing uses Unicode (any modern terminal; collapses visually
@@ -323,50 +327,77 @@ int main(int argc, char *argv[]) {
      * Width discipline: inside the box we rely on the fact that every
      * body line is pure ASCII, so byte count == display width. That
      * lets printf's %-Ns pad to the right │ without manual counting.
+     * The layout is
+     *
+     *   │ <LOGO 17 cols><2 cols gap><RIGHT 49 cols> │
+     *
+     * so BOX_INNER = 17 + 2 + 49 = 68 and the full frame is 72 cols.
      * `model` and `data_dir` are user-supplied so we truncate them to
-     * fit the inner 56-col budget instead of blowing the frame. */
+     * fit the 49-col right column instead of blowing the frame. */
     enum {
-      BOX_INNER = 56
-    }; // visible cols between "│ " and " │"
-    char line[BOX_INNER + 1];
-    // top: "┌─ AI Agent Core Demo " is 22 cells; + 37 '─' + '┐' = 60
-    std::printf("\x1b[2m┌─ \x1b[22m\x1b[1mAI Agent Core Demo\x1b[22m"
-                "\x1b[2m ─────────────────────────────────────┐\x1b[22m\n");
+      LOGO_W    = 17,
+      GAP_W     = 2,
+      RIGHT_W   = 49,
+      BOX_INNER = LOGO_W + GAP_W + RIGHT_W, // 68
+    };
+    char right[RIGHT_W + 1];
+    // Top border is 72 cells: "┌─ " (3) + VERSION + " " (1) + N*"─" + "┐" (1).
+    // XKIT_VERSION is injected by CMake from XK_VERSION in the root
+    // CMakeLists.txt so the banner never drifts from the real build.
+    {
+      const char *ver    = XKIT_VERSION;
+      int         ver_w  = (int) std::strlen(ver);
+      int         dashes = 72 - 3 - ver_w - 1 - 1;
+      if (dashes < 0) dashes = 0;
+      std::printf("\x1b[2m┌─ \x1b[22m\x1b[1m%s\x1b[22m\x1b[2m ", ver);
+      for (int i = 0; i < dashes; i++) std::printf("─");
+      std::printf("┐\x1b[22m\n");
+    }
+    // empty top padding row
     std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
-    /* The banner shows the *default* (= initial) model resolved from
-     * the registry. When the user later runs /model <id> the
+
+    /* Logo rows paired with the knob lines. The logo is pure ASCII so
+     * byte count == display width; each row is exactly LOGO_W cells.
+     * The right column shows the *default* (= initial) model resolved
+     * from the registry. When the user later runs /model <id> the
      * above_printf in slash_cmd_model echoes the new selection — we
      * don't rewrite the banner itself because it's a one-shot startup
      * print, and scrolling a whole redraw just for one line would
      * fight the line editor. */
+    const char *logo0 = "    ___  __ _ __ ";
+    const char *logo1 = "   / _ \\/ /(_) /_";
+    const char *logo2 = "  /_//_/_//_/\\__/";
+
     {
       const xAgentModelSpec *dspec = xAgentModelRegistryGet(
         model_cfg.registry, model_cfg.default_id.c_str());
       const char *dmodel = dspec && dspec->model ? dspec->model : "?";
-      std::snprintf(line, sizeof(line), "model=%s (id=%s), tools=shell",
+      std::snprintf(right, sizeof(right), "model=%s (id=%s), tools=shell",
                     dmodel, model_cfg.default_id.c_str());
     }
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, line);
+    std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo0, GAP_W,
+                "", RIGHT_W, right);
 
-    std::snprintf(line, sizeof(line), "data_dir: %s", data_dir);
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, line);
+    std::snprintf(right, sizeof(right), "data_dir: %s", data_dir);
+    std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo1, GAP_W,
+                "", RIGHT_W, right);
+
+    std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo2, GAP_W,
+                "", RIGHT_W, "");
+
+    // blank separator before tips
     std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-                "- Enter       send message");
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-                "- /           browse slash commands");
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-                "- /help       show all commands");
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-                "- /cancel     interrupt a running AI call");
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-                "- Ctrl-C      cancel current run / exit when idle");
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-                "- Ctrl-D      exit on empty line");
+    // one-line tips strip (indent 2 cols to match logo inset)
+    std::printf(
+      "\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
+      "  Enter send   / commands   Ctrl-C cancel/exit   /help more");
+    // empty bottom padding row
     std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
-    // bottom: '└' + 58 '─' + '┘' = 60
-    std::printf("\x1b[2m└───────────────────────────────────────────────────"
-                "───────┘\x1b[22m\n\n");
+    // bottom: '└' + 70 '─' + '┘' = 72
+    std::printf(
+      "\x1b[2m└"
+      "──────────────────────────────────────────────────────────────────────"
+      "┘\x1b[22m\n\n");
 
     /* ── Line editor (xline) ──────────────────────────────────────
      *

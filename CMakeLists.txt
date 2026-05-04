@@ -70,6 +70,8 @@ add_subdirectory(modules/xagent)
 add_subdirectory(modules/xjs)
 add_subdirectory(modules/xline)
 
+add_subdirectory(apps)
+
 if(XK_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()

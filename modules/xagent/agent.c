@@ -292,7 +292,31 @@ static void gen_session_id_(char *buf, uint64_t seq) {
 /* ── xAgentCreate ────────────────────────────────────────────────── */
 
 xAgent xAgentCreate(const xAgentConf *conf) {
-  if (!conf || !conf->loop || !conf->provider) return NULL;
+  if (!conf || !conf->loop) return NULL;
+
+  /* Resolve the provider+model from either the legacy single-provider
+   * path or the new registry path. Exactly one must be used. */
+  xAgentProvider resolved_provider = NULL;
+  const char    *resolved_model    = NULL;
+
+  int legacy   = (conf->provider != NULL);
+  int registry = (conf->model_registry != NULL);
+  if (legacy == registry) {
+    /* Both set, or neither set — ambiguous. */
+    return NULL;
+  }
+
+  if (legacy) {
+    resolved_provider = conf->provider;
+    resolved_model    = conf->model; /* may be NULL */
+  } else {
+    if (!conf->default_model_id || !*conf->default_model_id) return NULL;
+    const xAgentModelSpec *spec =
+      xAgentModelRegistryGet(conf->model_registry, conf->default_model_id);
+    if (!spec) return NULL;
+    resolved_provider = spec->provider;
+    resolved_model    = spec->model; /* may be NULL */
+  }
 
   /* tools_count > 0 implies a non-NULL tools array. Catch this early so
    * session.c never has to guard against it. */
@@ -301,17 +325,18 @@ xAgent xAgentCreate(const xAgentConf *conf) {
   struct xAgent_ *a = (struct xAgent_ *)calloc(1, sizeof(*a));
   if (!a) return NULL;
 
-  a->loop          = conf->loop;
-  a->provider      = conf->provider;
-  a->model         = conf->model;
-  a->system_prompt = conf->system_prompt;
-  a->tools         = conf->tools;
-  a->tools_count   = conf->tools_count;
-  a->task_group    = conf->task_group;
-  a->max_turns     = conf->max_turns;
-  a->max_tokens    = conf->max_tokens;
+  a->loop           = conf->loop;
+  a->provider       = resolved_provider;
+  a->model          = resolved_model;
+  a->model_registry = conf->model_registry; /* NULL on legacy path */
+  a->system_prompt  = conf->system_prompt;
+  a->tools          = conf->tools;
+  a->tools_count    = conf->tools_count;
+  a->task_group     = conf->task_group;
+  a->max_turns      = conf->max_turns;
+  a->max_tokens     = conf->max_tokens;
   a->agent_id             = conf->agent_id ? conf->agent_id : "default";
-  a->data_dir             = conf->data_dir ? conf->data_dir : "/tmp/xai";
+  a->data_dir             = conf->data_dir ? conf->data_dir : "/tmp/xagent";
   a->enable_sidecar_query = conf->enable_sidecar_query;
   a->session_seq          = 0;
 

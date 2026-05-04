@@ -21,7 +21,7 @@
  * per user input.
  *
  * Usage:
- *   ./cli [-d, --data-dir <path>]                    # default: cwd
+ *   ./xkit [-d, --data-dir <path>]                   # default: cwd
  *
  * Model configuration lives in <data_dir>/models.json. The file is
  * required — startup fails fast with a helpful error if it's
@@ -171,14 +171,14 @@ int main(int argc, char *argv[]) {
    * into argv on success (zero-copy, same convention as optarg); we
    * copy into `cwd_buf` only on the fallback path. */
   const char *data_dir_arg = nullptr;
-  fset = xFlagSetCreate("cli", "xKit command-line tool");
+  fset = xFlagSetCreate("xkit", "xKit command-line tool");
   if (!fset) {
     std::fprintf(stderr, "failed to create flag set\n");
     rc = 1;
     goto out;
   }
   /* Wire --version / -V to the CMake-injected build version so
-   * `cli --version` stays in lockstep with the banner. xFlagParse
+   * `xkit --version` stays in lockstep with the banner. xFlagParse
    * prints and returns xErrno_Again (handled below). */
   xFlagSetVersion(fset, XKIT_VERSION);
   xFlagAddString(fset, "data-dir", 'd', "PATH",

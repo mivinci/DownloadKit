@@ -25,7 +25,7 @@
  *                                                    # trailing slash
  *   export LLM_API_KEY="sk-xxx"
  *   export LLM_MODEL="gpt-4o"                        # optional
- *   ./cli [-d <path>]                                # default: cwd
+ *   ./cli [-d, --data-dir <path>]                    # default: cwd
  *
  * The REPL uses xline for CJK-aware line editing, persistent history
  * (stored at <data_dir>/.ai_session_history), and Ctrl-R reverse
@@ -62,25 +62,45 @@
 #include <xagent/tool_shell.h>
 #include <xbase/backtrace.h>
 #include <xbase/event.h>
+#include <xbase/flag.h>
 #include <xhttp/client.h>
 #include <xline/line.h>
 
 int main(int argc, char *argv[]) {
   xPrintBacktraceOnCrash();
 
-  /* ── Parse command-line options ─────────────────────────────────── */
-  int         opt;
+  /* ── Parse command-line options ───────────────────────────────────
+   *
+   * Single knob for now: -d/--data-dir. Going through xbase/flag
+   * instead of getopt(3) gets us GNU long options, a typed storage
+   * pointer, an auto-generated --help with [default: ...] annotation,
+   * and forward-compat with the future xcli subcommand module — all
+   * without dragging in another dependency. `data_dir_arg` points
+   * into argv on success (zero-copy, same convention as optarg); we
+   * copy into `cwd_buf` only on the fallback path. */
   const char *data_dir_arg = nullptr;
-  while ((opt = getopt(argc, argv, "d:h")) != -1) {
-    switch (opt) {
-    case 'd':
-      data_dir_arg = optarg;
-      break;
-    case 'h':
-    default:
-      std::fprintf(stderr, "Usage: %s [-d <path>]\n", argv[0]);
-      return 1;
-    }
+  xFlagSet    fset         = xFlagSetCreate("cli", "xKit command-line tool");
+  if (!fset) {
+    std::fprintf(stderr, "failed to create flag set\n");
+    return 1;
+  }
+  xFlagAddString(fset, "data-dir", 'd', "PATH",
+                 "data directory (history, agent state)", &data_dir_arg,
+                 nullptr, xFlagAttr_None);
+
+  char  *flag_err = nullptr;
+  xErrno frc      = xFlagParse(fset, argc, argv, &flag_err);
+  if (frc == xErrno_Again) {
+    /* --help / --version handled; text already on stdout. */
+    xFlagSetDestroy(fset);
+    return 0;
+  }
+  if (frc != xErrno_Ok) {
+    std::fprintf(stderr, "%s\n", flag_err ? flag_err : "parse error");
+    std::free(flag_err);
+    xFlagPrintUsage(fset, stderr);
+    xFlagSetDestroy(fset);
+    return 1;
   }
 
   /* Default data_dir to the current working directory. */
@@ -93,6 +113,11 @@ int main(int argc, char *argv[]) {
       data_dir = ".";
     }
   }
+
+  /* data_dir_arg (when set) points into argv, which lives for the
+   * whole of main; the flag set can be torn down now that we've
+   * captured everything we need into locals. */
+  xFlagSetDestroy(fset);
 
   const char *api_url = std::getenv("LLM_API_URL");
   const char *api_key = std::getenv("LLM_API_KEY");

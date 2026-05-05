@@ -443,6 +443,45 @@ static ssize_t xline_count_rows_and_last_col(ic_env_t *env, const char *s,
   ssize_t rows = 1;
   ssize_t i    = 0;
   while (i < len) {
+    // Skip ANSI escape sequences — they emit no cells, but
+    // str_next_ofs + char_width would count them as literal ASCII
+    // (ESC, '[', digits, 'm' …) and inflate the width by 3-5 columns
+    // per SGR. In a streaming markdown render last_line accumulates
+    // many SGR pairs, so the error compounds: we decide "this chunk
+    // wraps a new row" when the terminal actually still has room, and
+    // the sneak fast path then pessimistically bails out (pre-fix) or
+    // now draws at a slightly off-by-N column. Either way the cost is
+    // re-scans over an oversized last_line every tick. Dropping escape
+    // bytes out of the count restores truth.
+    if (s[i] == '\x1B' && i + 1 < len) {
+      char next = s[i + 1];
+      if (next == '[') {
+        // CSI: ESC [ <params> <final 0x40-0x7E>
+        ssize_t j = i + 2;
+        while (j < len) {
+          unsigned char c = (unsigned char)s[j];
+          j++;
+          if (c >= 0x40 && c <= 0x7E) break; // final byte
+        }
+        i = j;
+        continue;
+      }
+      if (next == ']') {
+        // OSC: ESC ] ... (BEL | ESC '\')
+        ssize_t j = i + 2;
+        while (j < len) {
+          unsigned char c = (unsigned char)s[j];
+          if (c == 0x07) { j++; break; }
+          if (c == 0x1B && j + 1 < len && s[j + 1] == '\\') { j += 2; break; }
+          j++;
+        }
+        i = j;
+        continue;
+      }
+      // Two-byte ESC sequence (DECSC \e7, DECRC \e8, etc.) — skip both.
+      i += 2;
+      continue;
+    }
     ssize_t w    = 0;
     ssize_t next = str_next_ofs(s, len, i, &w);
     if (next <= 0) break;
@@ -487,28 +526,35 @@ static void xline_erase_trailing(xLineHandle_ *h) {
   xline_wipe_edit_region(env, eb);
   if (h->last_line_rows <= 0) return;
 
-  // Start by stepping up onto the separator row (the '\n' we emitted
-  // after last_line). If last_line only wrapped to one screen row we're
-  // done: one term_up + clear handles it.
+  // Step up onto the separator row (the '\n' we emitted after last_line)
+  // and above, then clear to end-of-screen.
+  //
+  // We deliberately do NOT issue a CPR (\x1B[6n) round-trip here. The
+  // old code did, "to clamp term_up so we cannot overshoot into
+  // already-committed content above" when the terminal had auto-
+  // scrolled. In practice two things made that harmful:
+  //
+  //   1. CPR is a synchronous tty read. On every slow-path tick we
+  //      paid one round-trip (single-digit to tens of ms on local
+  //      terminals, way more over ssh). Under a bursty streaming
+  //      workload that snowballs into visible "the output froze and
+  //      keys don't register" — the main loop spends all its time
+  //      blocked on the CPR and never gets back to input dispatch.
+  //
+  //   2. The clamp it enabled was the wrong shape. term_up is
+  //      already bounded by the terminal itself — the cursor can't
+  //      climb above row 1 regardless of what we ask for. The worst
+  //      that happens without the clamp is that \x1B[J clears a few
+  //      rows we're about to rewrite anyway; no user-visible content
+  //      is lost because xline_emit_bytes re-emits the full trailing
+  //      line immediately after.
+  //
+  // So: cap `up` at (term_height - 1) defensively (term_up(0) is a
+  // no-op, this just avoids asking for a silly number when the
+  // bookkeeping is briefly stale after a resize) and move on.
   ssize_t up = h->last_line_rows;
-  if (up > 1) {
-    // Multi-row last_line. Ask the terminal where the cursor *actually*
-    // is before we walk up, and clamp to (row-1) so we cannot overshoot
-    // into already-committed content above.
-    term_flush(env->term);
-    ssize_t cr = 0;
-    if (term_cursor_row(env->term, &cr) && cr > 0) {
-      ssize_t max_up = cr - 1;
-      if (max_up < 0) max_up = 0;
-      if (up > max_up) {
-        xline_trace("erase_trailing: clamp term_up %zd -> %zd (cr=%zd)",
-                    up, max_up, cr);
-        up = max_up;
-      }
-    } else {
-      xline_trace("erase_trailing: CPR failed, keeping up=%zd", up);
-    }
-  }
+  ssize_t h_rows = term_get_height(env->term);
+  if (h_rows > 1 && up > h_rows - 1) up = h_rows - 1;
   if (up > 0) {
     term_up(env->term, up);
   }
@@ -1006,29 +1052,36 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
   if (h->state != XLINE_ASYNC_RUNNING && h->state != XLINE_ASYNC_INIT) return;
 
   // Fast path (token-streaming sneak): the common case for LLM streaming
-  // is one short chunk with no embedded '\n'. Previously every such chunk
+  // is one chunk with no embedded '\n'. Previously every such chunk
   // triggered the full erase_trailing + emit_bytes + edit_refresh cycle,
-  // which rewrites the entire trailing line and prompt for every token —
-  // O(N²) bytes over the terminal for long single-line replies and very
-  // visible jitter in the edit region.
+  // which rewrites the *entire* trailing line and the prompt for every
+  // token. For long unbroken replies (tables, prose paragraphs without
+  // blank lines) last_line grows without bound between '\n's, so that
+  // rewrite becomes O(N²) in total bytes — and on real LLM streams the
+  // per-tick cost visibly outruns the input-handling budget, producing
+  // the classic "output freezes, keys don't echo" symptom.
   //
-  // Here we instead:
-  //   1. Check the chunk has no '\n' and (last_line ++ chunk) still wraps
-  //      to the same number of screen rows as last_line alone. I.e. the
-  //      chunk extends the trailing line horizontally only — no new rows,
-  //      no autowrap that would clobber the prompt row below.
-  //   2. Save the cursor (it's currently somewhere inside the edit region
-  //      after the previous edit_refresh), move up past the prompt onto
-  //      last_line's final row at column `last_col`, emit the chunk, then
-  //      restore the cursor. The edit region is not touched — no prompt
-  //      redraw, no extra, no below panel repaint — so there's nothing to
-  //      flicker.
-  //   3. Update h->last_line bookkeeping to reflect the new tail.
+  // We therefore sneak on ANY no-newline chunk. Two sub-cases:
   //
-  // Any pre-condition failure (newline inside chunk, would-wrap, etc.)
-  // falls through to the slow path below, which is the original
-  // erase+emit+refresh cycle and handles all the multi-row and '\n'
-  // cases correctly.
+  //   A. The chunk extends last_line horizontally only — the terminal's
+  //      cell count for (last_line ++ chunk) still fits in the same
+  //      number of screen rows. We position the cursor at the current
+  //      tail (no wipe), write the chunk, restore to the edit region.
+  //      Zero repaint of last_line, zero repaint of the edit region.
+  //
+  //   B. The chunk pushes last_line onto one or more new screen rows.
+  //      We still don't rewrite last_line — we just write the chunk at
+  //      the tail; the terminal handles autowrap into the fresh rows
+  //      itself. The edit region below does get shoved down by those
+  //      new rows (autowrap scrolls it), so we bump last_line_rows and
+  //      issue a single edit_refresh to redraw the prompt in its new
+  //      position. That's the same shape as sub-case A but with the
+  //      rows bookkeeping updated + one refresh, which is still vastly
+  //      cheaper than the slow path's "re-emit the entire trailing
+  //      line from scratch" every tick.
+  //
+  // The slow path below is now reserved for chunks that actually contain
+  // a '\n' (the only shape that truly forces a boundary re-layout).
   if (strchr(s, '\n') == NULL && h->last_line_rows > 0) {
     ic_env_t *env = h->env;
     editor_t *eb  = &h->eb;
@@ -1042,10 +1095,12 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
       ssize_t new_last_col = 0;
       ssize_t new_rows     = xline_count_rows_and_last_col(
         env, sbuf_string(probe), sbuf_len(probe), &new_last_col);
-      if (new_rows == h->last_line_rows) {
-        // Sneak path is viable.
-        xline_trace("sneak: last_rows=%zd last_col=%zd -> col=%zd chunk_len=%zu",
-                    h->last_line_rows, last_col, new_last_col,
+      if (new_rows >= h->last_line_rows) {
+        // Sneak path is viable (both sub-cases).
+        ssize_t added_rows = new_rows - h->last_line_rows;
+        xline_trace("sneak: last_rows=%zd+%zd last_col=%zd -> col=%zd "
+                    "chunk_len=%zu",
+                    h->last_line_rows, added_rows, last_col, new_last_col,
                     (size_t)strlen(s));
         term_attr_reset(env->term);
         term_write(env->term, "\x1b" "7"); // save cursor (DECSC)
@@ -1070,14 +1125,27 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
                        sbuf_len(h->active_sgr));
         }
         term_write(env->term, s);
-        term_write(env->term, "\x1b" "8"); // restore cursor (DECRC)
-        term_flush(env->term);
-        // Commit the new trailing line; rows unchanged by construction.
+        if (added_rows == 0) {
+          // Sub-case A: no new rows, DECRC restores the edit region
+          // cursor exactly.
+          term_write(env->term, "\x1b" "8"); // restore cursor (DECRC)
+          term_flush(env->term);
+        } else {
+          // Sub-case B: last_line now occupies `added_rows` more screen
+          // rows than before. The autowrap from `term_write(s)` already
+          // pushed the edit region down by that many rows — DECRC would
+          // restore the cursor to the *old* edit-region position, which
+          // now sits on top of the extended last_line. Discard DECRC
+          // and redraw the edit region in its new position instead.
+          term_flush(env->term);
+          h->last_line_rows = new_rows;
+          edit_refresh(env, eb);
+        }
+        // Commit the new trailing line.
         sbuf_append(h->last_line, s);
         // Keep active_sgr up to date with what the chunk just emitted:
         // the slow path reads from it, and the next sneak tick replays it.
         xline_track_sgr(h->active_sgr, s, (ssize_t)strlen(s));
-        // h->last_line_rows stays the same.
         sbuf_free(probe);
         return;
       }

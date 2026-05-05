@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
 #include <fstream>
 #include <string>
 
@@ -443,6 +444,80 @@ TEST(xAgentMemoryJsonl, AppendRejectsMissingIds) {
   EXPECT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
                                &m, 1),
             xErrno_InvalidArg);
+
+  xAgentMemoryDestroy(store);
+}
+
+/* Each freshly-written JSONL line carries a unix-ms timestamp in
+ * its "ts" field. We don't expose it through xAgentSessionMsg (yet),
+ * but future backends that want to sort by time can read it
+ * straight off disk, and legacy files without "ts" keep parsing
+ * fine. */
+TEST(xAgentMemoryJsonl, AppendStampsWallClockTs) {
+  const std::string root = TempRoot("ts_field_written");
+  xAgentMemoryJsonlConf c{};
+  c.root_dir = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&c);
+  ASSERT_NE(store, nullptr);
+
+  xAgentMemoryQuery q{};
+  q.agent_id   = "a";
+  q.session_id = "s";
+  xAgentSessionMsg m = MakeText(xAgentRole_User, "hi");
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
+                               &m, 1),
+            xErrno_Ok);
+
+  /* Slurp the file and assert the "ts" key is present with a
+   * plausible millisecond value (> 1e12 is "after year 2001"). */
+  std::string path = root + "/agents/a/sessions/s/memory.jsonl";
+  std::ifstream f(path);
+  ASSERT_TRUE(f.is_open());
+  std::string line;
+  std::getline(f, line);
+  ASSERT_NE(line.find("\"ts\":"), std::string::npos);
+
+  /* Quick-and-dirty parse: find "ts": and read the following
+   * digits into a long long. */
+  size_t pos = line.find("\"ts\":");
+  pos += std::strlen("\"ts\":");
+  long long v = 0;
+  while (pos < line.size() && std::isdigit((unsigned char)line[pos])) {
+    v = v * 10 + (line[pos] - '0');
+    pos++;
+  }
+  EXPECT_GT(v, 1000000000000LL); /* plausible ms-epoch lower bound */
+
+  xAgentMemoryDestroy(store);
+}
+
+/* Legacy files (pre-timestamp) still parse: write a line by hand
+ * without "ts" and make sure retrieve hands it back intact. */
+TEST(xAgentMemoryJsonl, ReadsLegacyLinesWithoutTs) {
+  const std::string root = TempRoot("legacy_no_ts");
+  xAgentMemoryJsonlConf c{};
+  c.root_dir = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&c);
+  ASSERT_NE(store, nullptr);
+
+  std::string dir = root + "/agents/a/sessions/s";
+  MkdirsP(dir);
+  {
+    std::ofstream f(dir + "/memory.jsonl");
+    /* Exactly the shape the pre-migration agent wrote. */
+    f << "{\"role\":\"user\",\"kind\":\"text\",\"text\":\"legacy\"}\n";
+  }
+
+  xAgentMemoryQuery q{};
+  q.agent_id   = "a";
+  q.session_id = "s";
+  xAgentMemoryHits hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
+  ASSERT_EQ(hits.n_entries, size_t{1});
+  EXPECT_EQ(hits.entries[0].role, xAgentRole_User);
+  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len),
+            std::string("legacy"));
+  xAgentMemoryReleaseHits(store, &hits);
 
   xAgentMemoryDestroy(store);
 }

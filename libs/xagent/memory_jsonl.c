@@ -37,7 +37,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
+#include <time.h>
 
 /* ── Backend state ─────────────────────────────────────────────────── */
 
@@ -138,9 +140,22 @@ static const char *kind_to_str_(xAgentSessionEntryKind k) {
   return "text";
 }
 
+/* Wall-clock milliseconds since the unix epoch. Written into every
+ * new JSONL entry as the "ts" field so future backends can sort /
+ * window by time without re-deriving the order from file position.
+ * Not used for current retrieval; older files lacking "ts" parse
+ * just fine (parse_line_ tolerates unknown keys and accepts either
+ * a plain number or any other scalar via parse_raw_value_into_arena_).
+ */
+static long long now_unix_ms_(void) {
+  struct timespec ts;
+  if (clock_gettime(CLOCK_REALTIME, &ts) != 0) return 0;
+  return (long long)ts.tv_sec * 1000LL + (long long)(ts.tv_nsec / 1000000);
+}
+
 static void write_msg_line_(FILE *fp, const xAgentSessionMsg *m) {
-  fprintf(fp, "{\"role\":\"%s\",\"kind\":\"%s\"", role_to_str_(m->role),
-          kind_to_str_(m->kind));
+  fprintf(fp, "{\"ts\":%lld,\"role\":\"%s\",\"kind\":\"%s\"", now_unix_ms_(),
+          role_to_str_(m->role), kind_to_str_(m->kind));
 
   if (m->kind == xAgentSessionEntryKind_Text ||
       m->kind == xAgentSessionEntryKind_Thinking) {

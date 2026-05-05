@@ -39,10 +39,12 @@
  *   callbacks.*  - on_text / on_thinking / on_tool / on_done / ...
  *   repl.*       - editor lifecycle, confirm gate, line dispatch,
  *                  submit helper, SIGINT watcher
- *   main.cpp     - this file: argv parsing, object wiring, banner,
- *                  event loop drive, shutdown
+ *   banner.*     - startup banner: logo table + bordered-box print
+ *   main.cpp     - this file: argv parsing, object wiring, banner
+ *                  invocation, event loop drive, shutdown
  */
 
+#include "banner.h"
 #include "callbacks.h"
 #include "config.h"
 #include "ctx.h"
@@ -56,7 +58,6 @@
 #include <signal.h>
 #include <string>
 #include <unistd.h>
-#include <vector>
 
 #include <xagent/agent.h>
 #include <xagent/model.h>
@@ -69,68 +70,6 @@
 #include <xbase/flag.h>
 #include <xhttp/client.h>
 #include <xline/line.h>
-
-/* ── Banner text-wrap helper ──────────────────────────────────────
- *
- * Soft-wrap a pure-ASCII paragraph to a column width for drawing
- * inside the startup banner's bordered box. Break priority:
- *   1. space   — natural word break, preferred
- *   2. '/'     — next-best break point (long POSIX paths have
- *                plenty of these, so a deeply-nested data_dir
- *                doesn't overflow); break kept *after* the slash
- *                so the reader still sees the separator on the
- *                upper line.
- *   3. hard cut at `width` — last-resort fallback when a single
- *                token (e.g. a path component with no slashes)
- *                is longer than the column.
- *
- * Input must be pure ASCII (byte count == display width); the
- * banner's width accounting relies on that and Unicode here would
- * throw off the %-*s padding downstream. Empty input produces one
- * empty line so the caller can still emit a blank row and keep
- * vertical rhythm. */
-static std::vector<std::string> banner_wrap(const std::string &text,
-                                            size_t             width) {
-  std::vector<std::string> out;
-  if (width == 0) {
-    out.push_back(text);
-    return out;
-  }
-  size_t i = 0, n = text.size();
-  while (i < n) {
-    /* Remaining text fits on one line — emit and done. */
-    if (n - i <= width) {
-      out.push_back(text.substr(i));
-      break;
-    }
-    /* Scan the next `width` bytes for the rightmost break point.
-     * Prefer space; if none, fall back to the rightmost '/'. */
-    size_t brk_space = std::string::npos;
-    size_t brk_slash = std::string::npos;
-    for (size_t j = 0; j < width; j++) {
-      char c = text[i + j];
-      if (c == ' ') brk_space = j;
-      else if (c == '/') brk_slash = j;
-    }
-    if (brk_space != std::string::npos) {
-      /* Break *at* the space: line ends before it, next line skips
-       * the space itself. */
-      out.push_back(text.substr(i, brk_space));
-      i += brk_space + 1;
-    } else if (brk_slash != std::string::npos) {
-      /* Break *after* the slash: keep the '/' on the upper line so
-       * the path separator is still visible to the reader. */
-      out.push_back(text.substr(i, brk_slash + 1));
-      i += brk_slash + 1;
-    } else {
-      /* Single token longer than the column — hard cut. */
-      out.push_back(text.substr(i, width));
-      i += width;
-    }
-  }
-  return out;
-}
-
 
 int main(int argc, char *argv[]) {
   xPrintBacktraceOnCrash();
@@ -354,12 +293,12 @@ int main(int argc, char *argv[]) {
     aconf.model_registry   = model_cfg.registry;
     aconf.default_model_id = model_cfg.default_id.c_str();
     aconf.system_prompt =
-      "You are a concise assistant running in moo's command-line "
-      "App. You have access to a shell tool that can execute "
-      "commands via /bin/sh -c and return stdout/stderr/exit code. "
-      "Use it when you need to run commands, check the system, or "
-      "compute things. You may chain multiple tool calls in a single "
-      "turn. Keep replies short.";
+      "You are MOO, a concise AI assistant that lives in the user's "
+      "terminal. You have access to a shell tool that runs commands "
+      "via /bin/sh -c and returns stdout, stderr, and the exit code; "
+      "use it whenever you need to run commands, inspect the system, "
+      "or compute something. You may chain multiple tool calls in a "
+      "single turn. Keep replies short.";
     aconf.tools                = tool_ptrs;
     aconf.tools_count          = TOTAL_TOOLS;
     aconf.max_turns            = 64;
@@ -398,152 +337,25 @@ int main(int argc, char *argv[]) {
     /* ── Startup banner ─────────────────────────────────────────
      *
      * Printed once in cooked mode before repl_open_line paints the
-     * prompt. A 72-col bordered box. The body has two shapes:
-     *
-     *   Happy path (model configured):
-     *     Two-column layout — a small ASCII-art "moo" logo pinned
-     *     to the left (slant font, 3 lines) alongside the session
-     *     knobs (model id, data_dir) on the right. A one-line tips
-     *     strip sits below.
-     *
-     *   Degraded path (no models.json / empty registry):
-     *     Same logo on the left, but the right column is empty.
-     *     Below the logo, a yellow warning paragraph explains how
-     *     to enable chat, soft-wrapped across as many lines as
-     *     needed — a deeply-nested data_dir thus expands the
-     *     banner gracefully instead of being truncated.
-     *
-     * Styling: ANSI bold for the title, faint for the border. Box
-     * drawing uses Unicode (any modern terminal; collapses visually
-     * on a dumb tty but still prints sensibly).
-     *
-     * Width discipline: inside the box we rely on the fact that every
-     * body line is pure ASCII, so byte count == display width. That
-     * lets printf's %-Ns pad to the right │ without manual counting.
-     * The layout is
-     *
-     *   │ <LOGO 17 cols><2 cols gap><RIGHT 49 cols> │
-     *
-     * so BOX_INNER = 17 + 2 + 49 = 68 and the full frame is 72 cols.
-     * `model` and `data_dir` are user-supplied so we truncate them to
-     * fit the 49-col right column instead of blowing the frame. */
-    enum {
-      LOGO_W    = 17,
-      GAP_W     = 2,
-      RIGHT_W   = 49,
-      BOX_INNER = LOGO_W + GAP_W + RIGHT_W, // 68
-    };
-    char right[RIGHT_W + 1];
-    // Leading blank line: the parent shell's prompt sits right above
-    // our first row, so without this gap the top border visually
-    // collides with `$ moo` (or whatever PS1 trailed on). One row
-    // of breathing room is enough and costs nothing.
-    std::printf("\n");
-    // Top border is 72 cells: "┌─ " (3) + "moo " (4) + VERSION + " " (1)
-    // + N*"─" + "┐" (1). The product name is hard-coded (not themed via
-    // MOO_NAME or similar) because there's exactly one product and a
-    // macro would just be indirection for indirection's sake.
-    // MOO_VERSION is injected by CMake from MOO_VERSION in the root
-    // CMakeLists.txt so the banner never drifts from the real build.
+     * prompt. The layout, logo table and width accounting all live
+     * in banner.cpp; we just feed it the knobs to show on the right
+     * column. `model_label` is synthesised here as "<name> (id=<id>)"
+     * so the printed line keeps the same shape as before: it tells
+     * you both what's actually hitting the wire and what slash-
+     * command id selects it. The label length is bounded by the
+     * registry; banner_print truncates to fit the right column. */
     {
-      const char *ver    = MOO_VERSION;
-      int         ver_w  = (int) std::strlen(ver);
-      int         dashes = 72 - 3 - 4 - ver_w - 1 - 1;
-      if (dashes < 0) dashes = 0;
-      std::printf("\x1b[2m┌─ \x1b[22m\x1b[1mmoo %s\x1b[22m\x1b[2m ", ver);
-      for (int i = 0; i < dashes; i++) std::printf("─");
-      std::printf("┐\x1b[22m\n");
-    }
-    // empty top padding row
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
-
-    /* Logo rows paired with the knob lines. The logo is pure ASCII so
-     * byte count == display width; each row is exactly LOGO_W cells.
-     * The right column shows the *default* (= initial) model resolved
-     * from the registry. When the user later runs /model <id> the
-     * above_printf in slash_cmd_model echoes the new selection — we
-     * don't rewrite the banner itself because it's a one-shot startup
-     * print, and scrolling a whole redraw just for one line would
-     * fight the line editor. */
-    const char *logo0 = "  __ _  ___  ___ ";
-    const char *logo1 = " /  ' \\/ _ \\/ _ \\";
-    const char *logo2 = "/_/_/_/\\___/\\___/";
-
-    /* Logo + right column. In degraded mode the right column is
-     * intentionally blank: model/data_dir carry no actionable info
-     * when there's no model to chat with, and the space is better
-     * spent on the wrap block below that tells the user what to do.
-     * In the happy path we show model id on row 0 and data_dir on
-     * row 1; row 2 is a spacer. */
-    if (no_models) {
-      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo0,
-                  GAP_W, "", RIGHT_W, "");
-      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo1,
-                  GAP_W, "", RIGHT_W, "");
-      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo2,
-                  GAP_W, "", RIGHT_W, "");
-    } else {
-      const xAgentModelSpec *dspec = xAgentModelRegistryGet(
-        model_cfg.registry, model_cfg.default_id.c_str());
-      const char *dmodel = dspec && dspec->model ? dspec->model : "?";
-      std::snprintf(right, sizeof(right), "model=%s (id=%s), tools=shell",
-                    dmodel, model_cfg.default_id.c_str());
-      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo0,
-                  GAP_W, "", RIGHT_W, right);
-
-      std::snprintf(right, sizeof(right), "data_dir: %s", data_dir);
-      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo1,
-                  GAP_W, "", RIGHT_W, right);
-
-      std::printf("\x1b[2m│\x1b[22m %s%*s%-*s \x1b[2m│\x1b[22m\n", logo2,
-                  GAP_W, "", RIGHT_W, "");
-    }
-
-    // blank separator before the degraded-mode hint / tips strip
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
-
-    /* Degraded-mode hint block.
-     *
-     * Full-width wrapped paragraph placed below the logo rather
-     * than compressed into the 49-col right column. A 2-col left
-     * indent (matching the tips strip and logo inset) anchors the
-     * block visually; the wrap width is therefore BOX_INNER - 2 so
-     * the indent sits *inside* the printed field and every line —
-     * first and continuations alike — aligns under the same
-     * column. Each line is printed with the yellow attribute so
-     * the block reads as a single advisory, with the "[!]" marker
-     * on the first line anchoring it visually. */
-    if (no_models) {
-      char hint_buf[4096];
-      std::snprintf(hint_buf, sizeof(hint_buf),
-                    "[!] no model is configured, edit %s/models.json "
-                    "to enable chat",
-                    data_dir);
-      const size_t indent = 2;
-      auto hint_lines = banner_wrap(hint_buf, BOX_INNER - indent);
-      char padded[BOX_INNER + 1];
-      for (const auto &ln : hint_lines) {
-        /* Prepend the shared indent by hand so %-*s pads the
-         * indent+text as one unit to BOX_INNER. */
-        std::snprintf(padded, sizeof(padded), "  %s", ln.c_str());
-        std::printf(
-          "\x1b[2m│\x1b[22m \x1b[33m%-*s\x1b[39m \x1b[2m│\x1b[22m\n",
-          BOX_INNER, padded);
+      char label[192];
+      label[0] = 0;
+      if (!no_models) {
+        const xAgentModelSpec *dspec = xAgentModelRegistryGet(
+          model_cfg.registry, model_cfg.default_id.c_str());
+        const char *dmodel = dspec && dspec->model ? dspec->model : "?";
+        std::snprintf(label, sizeof(label), "%s (id=%s)", dmodel,
+                      model_cfg.default_id.c_str());
       }
-      // spacer between hint block and tips strip
-      std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
+      banner_print(MOO_VERSION, label, "shell", data_dir, no_models ? 1 : 0);
     }
-    // one-line tips strip (indent 2 cols to match logo inset)
-    std::printf(
-      "\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-      "  Enter send   / commands   Ctrl-C cancel/exit   /help more");
-    // empty bottom padding row
-    std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
-    // bottom: '└' + 70 '─' + '┘' = 72
-    std::printf(
-      "\x1b[2m└"
-      "──────────────────────────────────────────────────────────────────────"
-      "┘\x1b[22m\n\n");
 
     /* ── Line editor (xline) ──────────────────────────────────────
      *

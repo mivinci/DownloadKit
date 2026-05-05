@@ -19,6 +19,7 @@ add_executable(moo
   slash.cpp
   callbacks.cpp
   repl.cpp
+  banner.cpp
 )
 # cJSON is a PRIVATE dep: config.cpp parses models.json with it.
 find_package(Cjson REQUIRED)

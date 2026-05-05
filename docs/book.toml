@@ -1,7 +1,7 @@
 [book]
 title = "moo Documentation"
 description = "Low-level C building blocks for event-driven, asynchronous programming"
-authors = ["Leo X."]
+authors = ["mivinci"]
 language = "en"
 src = "."
 

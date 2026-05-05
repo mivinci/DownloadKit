@@ -1,9 +1,9 @@
 {
   "name": "moo",
   "version": "1.0.0",
-  "description": "A collection of low-level C building blocks for event-driven, asynchronous programming.",
+  "description": "An AI agent, written in C.",
   "license": "MIT",
-  "author": "Leo X.",
+  "author": "mivinci",
   "type": "module",
   "main": "index.js",
   "repository": {
@@ -14,17 +14,6 @@
     "url": "https://github.com/mivinci/moo/issues"
   },
   "homepage": "https://le0.me/moo",
-  "keywords": [
-    "c",
-    "event-loop",
-    "async",
-    "http",
-    "http2",
-    "websocket",
-    "p2p",
-    "tls",
-    "networking"
-  ],
   "directories": {
     "doc": "docs",
     "example": "examples"

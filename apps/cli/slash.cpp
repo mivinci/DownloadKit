@@ -28,6 +28,7 @@
 
 #include "slash.h"
 
+#include "config.h"
 #include "ctx.h"
 #include "output.h"
 #include "repl.h"
@@ -428,6 +429,24 @@ static void slash_cmd_model(ReplCtx *ctx, const char *args) {
   /* Success — record the new selection so the listing's "*" marker
    * and future banner updates reflect it. */
   ctx->current_model_id = args;
+
+  /* Refresh the session's budget ceiling to match the newly-selected
+   * model's context_window. Without this the budget gate would keep
+   * enforcing whatever limit was installed for the previous model,
+   * which is wrong in both directions: switching up to a 128k model
+   * would leave 120k of window unused, and switching down to an 8k
+   * model would let the gate admit prompts the model immediately
+   * truncates server-side. A zero / missing context_window in the
+   * entry falls back to the session-wide default captured at
+   * startup, so the gate never slips into the built-in policy
+   * default (which is intentionally tiny). */
+  if (ctx->model_cfg) {
+    const CliModelEntry *e = cli_model_config_find(ctx->model_cfg, args);
+    size_t cw = (e && e->context_window > 0)
+                  ? e->context_window
+                  : ctx->default_context_window;
+    if (cw > 0) xAgentSessionSetContextWindow(ctx->sess, cw);
+  }
 
   const xAgentModelSpec *spec =
     xAgentModelRegistryGet(ctx->model_registry, args);

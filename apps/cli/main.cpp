@@ -209,6 +209,7 @@ int main(int argc, char *argv[]) {
     /* ── Tools ─────────────────────────────────────────────────── */
     ctx.loop           = loop;
     ctx.model_registry = model_cfg.registry;
+    ctx.model_cfg      = &model_cfg;
 
     shell_conf.callback_ud = &ctx;
     shell_conf.on_command  = [](const char *command, const char *cwd,
@@ -260,20 +261,36 @@ int main(int argc, char *argv[]) {
      * calibrator update bails out — factor would forever read 1.0
      * and samples 0, defeating the whole point of this demo.
      *
-     * 8192 was picked empirically: large enough that a single
-     * long-form answer (think: a derivation with multi-paragraph
+     * The 8192 fallback was picked empirically: large enough that a
+     * single long-form answer (think: a derivation with multi-paragraph
      * reasoning) plus the floor pinned by keep_recent_turns won't
      * trip the gate on turn #2, but small enough that a handful of
-     * sustained turns will eventually push the rolling history
-     * past the cap and exercise TruncateOldest. keep_recent_turns
+     * sustained turns will eventually push the rolling history past
+     * the cap and exercise TruncateOldest. Per-model
+     * "context_window" in models.json overrides it for models whose
+     * real window is meaningfully larger (e.g. 128k for kimi-k2) or
+     * smaller (e.g. 8k for a local llama.cpp server); /model
+     * switches re-apply the selected entry's value so the budget
+     * gate always matches the active backend. keep_recent_turns
      * =2 is the floor — the current user turn and the immediately
      * prior assistant turn are never discarded, so the model keeps
      * local context even when the trimmer fires. If you shrink
      * max_tokens below ~4096 expect xErrno_PromptTooLong (which the
      * REPL and on_error both surface with a hint line below), and
      * see session.c's keep_recent_turns floor logic for why. */
+    constexpr size_t kDefaultContextWindow = 8192;
+    size_t           session_max_tokens    = kDefaultContextWindow;
+    if (!no_models) {
+      const CliModelEntry *def =
+        cli_model_config_find(&model_cfg, model_cfg.default_id.c_str());
+      if (def && def->context_window > 0) {
+        session_max_tokens = def->context_window;
+      }
+    }
+    ctx.default_context_window = kDefaultContextWindow;
+
     sconf.budget.policy            = xAgentBudgetPolicy_Auto;
-    sconf.budget.max_tokens        = 8192;
+    sconf.budget.max_tokens        = session_max_tokens;
     sconf.budget.keep_recent_turns = 2;
     sconf.budget.on_budget_event   = on_budget_event;
     sconf.budget.budget_event_ud   = &ctx;
@@ -301,7 +318,12 @@ int main(int argc, char *argv[]) {
       "single turn. Keep replies short.";
     aconf.tools                = tool_ptrs;
     aconf.tools_count          = TOTAL_TOOLS;
-    aconf.max_turns            = 64;
+    /* Tool-loop cap: models.json's top-level "max_turns" wins; if
+     * the key is absent or non-positive (encoded as 0 by the loader)
+     * we fall back to the built-in 64, which is generous enough for
+     * most agentic tasks without letting a runaway loop burn through
+     * quota on its own. */
+    aconf.max_turns            = model_cfg.max_turns > 0 ? model_cfg.max_turns : 64;
     aconf.agent_id             = "test";
     aconf.data_dir             = data_dir;
     aconf.enable_sidecar_query = 1;

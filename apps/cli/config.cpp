@@ -84,6 +84,20 @@ std::string json_string(const cJSON *obj, const char *key) {
   return std::string(v->valuestring);
 }
 
+/* Pull a non-negative integer field, with a sentinel for "missing".
+ * Returns -1 when the key is absent, is not a number, or carries a
+ * negative value; the caller decides how to fall back. Any value
+ * that exceeds INT_MAX is clamped via the cJSON double path but
+ * still passes as "present" — the caller is expected to treat
+ * absurdly large numbers the same as a direct user mistake. */
+long json_nonneg_int(const cJSON *obj, const char *key) {
+  const cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
+  if (!v || !cJSON_IsNumber(v)) return -1;
+  double d = v->valuedouble;
+  if (d < 0) return -1;
+  return static_cast<long>(d);
+}
+
 /* Detect the "<...>" placeholders we ship in kModelsJsonTemplate.
  * A value that still looks like <foo-bar> means the user saved the
  * scaffold unchanged (or only partially filled it in). We treat
@@ -110,13 +124,15 @@ bool is_placeholder(const std::string &s) {
 constexpr const char *kModelsJsonTemplate =
   "{\n"
   "  \"default\": \"my-model\",\n"
+  "  \"max_turns\": 64,\n"
   "  \"models\": [\n"
   "    {\n"
   "      \"id\": \"my-model\",\n"
   "      \"kind\": \"openai\",\n"
   "      \"model\": \"<model-name>\",\n"
   "      \"api_key\": \"<your-api-key>\",\n"
-  "      \"base_url\": \"<provider-base-url>\"\n"
+  "      \"base_url\": \"<provider-base-url>\",\n"
+  "      \"context_window\": 8192\n"
   "    }\n"
   "  ]\n"
   "}\n";
@@ -237,6 +253,15 @@ int cli_model_config_load(const char     *data_dir,
   }
   std::string default_id = default_v->valuestring;
 
+  /* Optional top-level "max_turns": clamps the tool-loop per user
+   * input. Missing / non-numeric / negative means "let main.cpp use
+   * its built-in default" — we encode that as 0 here. */
+  int max_turns = 0;
+  {
+    long mt = json_nonneg_int(root, "max_turns");
+    if (mt > 0) max_turns = static_cast<int>(mt);
+  }
+
   cJSON *models_v = cJSON_GetObjectItemCaseSensitive(root, "models");
   if (!models_v || !cJSON_IsArray(models_v)) {
     return bail(path + ": missing or non-array \"models\" field");
@@ -297,11 +322,23 @@ int cli_model_config_load(const char     *data_dir,
     if (!pvd)
       return bail(path + ": failed to create provider for \"" + id + "\"");
 
+    /* Optional per-entry "context_window": overrides the session's
+     * budget.max_tokens whenever this model is active. Missing or
+     * non-positive means "use the global default set up in main.cpp",
+     * which we encode as 0 so the caller can distinguish explicit
+     * from absent. */
+    size_t context_window = 0;
+    {
+      long cw = json_nonneg_int(item, "context_window");
+      if (cw > 0) context_window = static_cast<size_t>(cw);
+    }
+
     CliModelEntry e;
-    e.id       = id;
-    e.kind     = kind;
-    e.model    = model;
-    e.provider = pvd;
+    e.id             = id;
+    e.kind           = kind;
+    e.model          = model;
+    e.context_window = context_window;
+    e.provider       = pvd;
     entries.push_back(std::move(e));
 
     /* Register in the registry — entry index equals registry index. */
@@ -356,7 +393,17 @@ int cli_model_config_load(const char     *data_dir,
   out->entries    = std::move(entries);
   out->registry   = registry;
   out->default_id = std::move(default_id);
+  out->max_turns  = max_turns;
   return 0;
+}
+
+const CliModelEntry *cli_model_config_find(const CliModelConfig *cfg,
+                                           const char           *id) {
+  if (!cfg || !id || !*id) return nullptr;
+  for (const auto &e : cfg->entries) {
+    if (e.id == id) return &e;
+  }
+  return nullptr;
 }
 
 void cli_model_config_destroy(CliModelConfig *cfg) {
@@ -379,4 +426,5 @@ void cli_model_config_destroy(CliModelConfig *cfg) {
   }
   cfg->entries.clear();
   cfg->default_id.clear();
+  cfg->max_turns = 0;
 }

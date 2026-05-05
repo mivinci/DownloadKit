@@ -67,15 +67,18 @@ mkdir -p ~/.moo
 cat > ~/.moo/models.json <<'JSON'
 {
   "default": "kimi",
+  "max_turns": 64,
   "models": [
     { "id": "kimi", "kind": "openai",
       "model": "kimi-k2.6",
       "api_key": "sk-...",
-      "base_url": "https://api.moonshot.cn/v1" },
+      "base_url": "https://api.moonshot.cn/v1",
+      "context_window": 131072 },
     { "id": "glm",  "kind": "openai",
       "model": "glm-4.5",
       "api_key": "sk-...",
-      "base_url": "https://open.bigmodel.cn/api/paas/v4" }
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "context_window": 131072 }
   ]
 }
 JSON

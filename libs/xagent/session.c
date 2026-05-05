@@ -1746,6 +1746,19 @@ xErrno xAgentSessionSetModel(xAgentSession sess, const char *model_id) {
   return xErrno_Ok;
 }
 
+void xAgentSessionSetContextWindow(xAgentSession sess, size_t max_tokens) {
+  /* Only touch budget.max_tokens. Policy, keep_recent_turns,
+   * callbacks, etc. stay exactly as the session was configured at
+   * create time — host apps that dial the window on a model switch
+   * shouldn't have to re-specify the rest of the budget conf. The
+   * write is consulted by session_budget_limit_() on the next
+   * xAgentSessionInput; any Query already in flight keeps running
+   * with the limit it was admitted under. */
+  if (!sess) return;
+  struct xAgentSession_ *s = (struct xAgentSession_ *)sess;
+  s->budget.max_tokens     = max_tokens;
+}
+
 void xAgentSessionDestroy(xAgentSession sess) {
   if (!sess) return;
   struct xAgentSession_ *s = (struct xAgentSession_ *)sess;

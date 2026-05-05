@@ -28,6 +28,8 @@
 #include <deque>
 #include <string>
 
+struct CliModelConfig; /* apps/cli/config.h */
+
 /* One queued tool-confirm request. See the "Tool-confirm gate" block
  * in repl.cpp for the full semantics. */
 struct PendingConfirm {
@@ -67,6 +69,20 @@ struct ReplCtx {
    * backend. */
   xAgentModelRegistry model_registry  = nullptr;
   std::string         current_model_id;
+
+  /* Borrowed pointer to the parsed models.json. Used by /model on
+   * a successful switch to pull the selected entry's context_window
+   * and push it into the session's budget gate so the token ceiling
+   * tracks the active model. Owned by main (CliModelConfig lives
+   * for the whole process); ReplCtx must never free it. */
+  const CliModelConfig *model_cfg = nullptr;
+
+  /* Session-wide default context window (in tokens) applied whenever
+   * the selected model entry carries no explicit "context_window".
+   * Mirrors sconf.budget.max_tokens at startup so /model switches to
+   * entries without a per-model override don't silently inherit the
+   * previous (possibly much larger) model's window. */
+  size_t default_context_window = 0;
 
   /* Tool-confirm gate ────────────────────────────────────────────────
    * When a needs_confirm tool (currently just shell) is about to run,

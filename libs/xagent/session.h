@@ -906,6 +906,28 @@ XCAPI(void) xAgentSessionSetProvider(xAgentSession sess,
 XCAPI(xErrno) xAgentSessionSetModel(xAgentSession sess, const char *model_id);
 
 /**
+ * @brief Update the session's context-window budget in tokens.
+ *
+ * Overwrites @ref xAgentBudgetConf::max_tokens on the session's
+ * budget state. The new limit is consulted on the NEXT
+ * xAgentSessionInput — any run already in flight keeps the limit it
+ * was admitted with. All other budget fields (policy,
+ * keep_recent_turns, on_budget_event, …) are left untouched.
+ *
+ * Intended for host apps that ship a per-model context-window
+ * figure (e.g. loaded from a models.json entry) and want to keep
+ * the session's budget gate in sync when the user switches models
+ * at runtime via xAgentSessionSetModel().
+ *
+ * @param sess        Session handle (NULL is a no-op).
+ * @param max_tokens  New context-window limit in tokens. Zero means
+ *                    "fall back to the built-in default"
+ *                    (xAgentBudgetConf documents the exact value).
+ */
+XCAPI(void) xAgentSessionSetContextWindow(xAgentSession sess,
+                                          size_t        max_tokens);
+
+/**
  * @brief Destroy the session and release its resources.
  *
  * Implicitly cancels any active run and drains pending callbacks.

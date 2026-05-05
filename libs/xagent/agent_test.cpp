@@ -25,6 +25,7 @@ extern "C" {
 #include <xagent/provider.h>
 #include <xagent/session.h>
 #include <xagent/tool.h>
+#include <xbase/array.h>
 #include <xbase/event.h>
 #include "agent_private.h"
 #include "provider_private.h"
@@ -448,4 +449,97 @@ TEST_F(AgentTest, CallerProvidedL1CbTakesPriorityOverMemory) {
   xAgentSessionDestroy(sess);
   xAgentDestroy(ag);
   xAgentMemoryDestroy(store);
+}
+
+/* Wire-up B (prime): when the agent is created with a memory store
+ * AND the caller reuses a stable session_id, a brand-new session
+ * starts with its history_arr already populated from the store. */
+TEST_F(AgentTest, MemoryPrimesHistoryOnCreateSession) {
+  const char *root = "/tmp/xagent_test_prime";
+  std::string rm   = std::string("rm -rf '") + root + "'";
+  (void)std::system(rm.c_str());
+
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = root;
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
+
+  /* Pre-seed the store directly — simpler than running a full
+   * session end-to-end. The prime path doesn't care where the
+   * entries came from. */
+  xAgentMemoryQuery wq{};
+  wq.agent_id   = "prime_agent";
+  wq.session_id = "resumed";
+  xAgentSessionMsg seed0{};
+  seed0.role     = xAgentRole_User;
+  seed0.kind     = xAgentSessionEntryKind_Text;
+  seed0.text     = "what is 2+2?";
+  seed0.text_len = std::strlen("what is 2+2?");
+  xAgentSessionMsg seed1{};
+  seed1.role     = xAgentRole_Assistant;
+  seed1.kind     = xAgentSessionEntryKind_Text;
+  seed1.text     = "four";
+  seed1.text_len = 4;
+  xAgentSessionMsg seeds[] = {seed0, seed1};
+  ASSERT_EQ(xAgentMemoryAppend(store, &wq, xAgentMemoryAppendReason_Explicit,
+                               seeds, 2),
+            xErrno_Ok);
+
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  conf.agent_id = "prime_agent";
+  conf.memory   = store;
+
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAgentSessionConf sc = {};
+  sc.session_id      = "resumed";
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  /* History should already be primed with the two seed entries. */
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
+  ASSERT_EQ(xArrayLen(s->history_arr), size_t{2});
+
+  auto *h0 = reinterpret_cast<struct xAgentSessionMsg_ *>(
+    xArrayAt(s->history_arr, 0));
+  auto *h1 = reinterpret_cast<struct xAgentSessionMsg_ *>(
+    xArrayAt(s->history_arr, 1));
+  EXPECT_EQ(h0->role, xAgentRole_User);
+  EXPECT_EQ(std::string(h0->text, h0->text_len), std::string("what is 2+2?"));
+  EXPECT_EQ(h1->role, xAgentRole_Assistant);
+  EXPECT_EQ(std::string(h1->text, h1->text_len), std::string("four"));
+
+  xAgentSessionDestroy(sess);
+  xAgentDestroy(ag);
+  xAgentMemoryDestroy(store);
+  (void)std::system(rm.c_str());
+}
+
+/* Without a memory store the session still starts with an empty
+ * history_arr, even when the (agent_id, session_id) combination
+ * was previously used with the legacy data_dir writer. Prime is a
+ * memory-store-only feature. */
+TEST_F(AgentTest, NoPrimeWithoutMemoryStore) {
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  conf.agent_id = "legacy";
+  conf.data_dir = "/tmp/xagent_test_legacy_no_prime";
+
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAgentSessionConf sc = {};
+  sc.session_id      = "any";
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
+  EXPECT_EQ(xArrayLen(s->history_arr), size_t{0});
+
+  xAgentSessionDestroy(sess);
+  xAgentDestroy(ag);
 }

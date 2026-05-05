@@ -503,6 +503,71 @@ xAgentSession xAgentCreateSession(xAgent agent, const xAgentSessionConf *conf) {
     free(l1_ctx);
   }
 
+  /* ── Memory prime: replay persisted history into this session ──
+   *
+   * When the agent has an explicit memory store, we pull whatever
+   * the store has for (agent_id, session_id) and push the entries
+   * onto the fresh session's history_arr so the NEXT xAgentSessionInput
+   * submits to the provider with the full prior context. This is
+   * what makes sessions feel "continued" rather than cold-started
+   * when a caller reuses a stable session_id across process runs.
+   *
+   * Caveat (B1): this commit does NOT yet de-duplicate against
+   * subsequent L1 preserves, so when the session is torn down the
+   * Finalizing batch will re-append these primed entries to the
+   * store. Retrieve-only-the-tail semantics in the built-in JSONL
+   * backend mean this is harmless for correctness — the newest
+   * view is always the authoritative one — but the on-disk file
+   * will grow. A follow-up commit will thread a persisted_prefix
+   * index through the session so preserves can skip the already-
+   * stored region. */
+  if (sess && a->memory && effective.session_id) {
+    struct xAgentSession_ *s = (struct xAgentSession_ *)sess;
+
+    xAgentMemoryQuery rq;
+    memset(&rq, 0, sizeof(rq));
+    rq.agent_id   = a->agent_id;
+    rq.session_id = effective.session_id;
+    /* No budget / recency hints — B1 primes the whole tail the
+     * backend is willing to hand back. The session's own budget
+     * gate will clip it later if the combined token count
+     * overflows. */
+
+    xAgentMemoryHits hits;
+    memset(&hits, 0, sizeof(hits));
+    if (xAgentMemoryRetrieve(a->memory, &rq, &hits) == xErrno_Ok &&
+        hits.n_entries > 0) {
+      for (size_t i = 0; i < hits.n_entries; i++) {
+        const xAgentSessionMsg *m = &hits.entries[i];
+        /* Dispatch on kind and copy through the session's normal
+         * append helpers so memory ownership and the release
+         * callback (ai_session_msg_free) stay uniform with the
+         * rest of the history. Errors are swallowed here — a
+         * failed prime must not prevent the caller from using the
+         * session, it just means the primed row is missing. */
+        switch (m->kind) {
+        case xAgentSessionEntryKind_Text:
+          ai_history_append_text(s, m->role, m->text, m->text_len);
+          break;
+        case xAgentSessionEntryKind_Thinking:
+          ai_history_append_thinking(s, m->text, m->text_len);
+          break;
+        case xAgentSessionEntryKind_ToolUse:
+          ai_history_append_tool_use(s, m->tool_use_id, m->tool_use_name,
+                                     m->tool_use_args);
+          break;
+        case xAgentSessionEntryKind_ToolResult:
+          ai_history_append_tool_result(s, m->tool_result_id,
+                                        m->tool_result_output,
+                                        m->tool_result_output_len,
+                                        m->tool_result_is_error);
+          break;
+        }
+      }
+    }
+    xAgentMemoryReleaseHits(a->memory, &hits);
+  }
+
   return sess;
 }
 

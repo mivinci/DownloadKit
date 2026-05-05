@@ -36,6 +36,17 @@
 #include <xbase/task.h>
 
 /**
+ * @brief Forward handle for the pluggable memory store.
+ *
+ * The full API lives in <xagent/memory.h>; we forward-declare only
+ * the handle here to keep agent.h from pulling memory.h (which
+ * itself depends on session.h, which depends on agent.h, creating
+ * a cycle). C11 allows this same typedef to appear here and in
+ * memory.h without conflict.
+ */
+XDEF_HANDLE(xAgentMemory);
+
+/**
  * @brief Opaque handle to a session instance.
  *
  * Forward-declared here for xAgentCreateSession(); the full
@@ -203,28 +214,24 @@ XDEF_STRUCT(xAgentConf) {
   const xAgentSessionConf *default_session_conf;
 
   /**
-   * @brief Unique identifier for this agent instance.
-   *
-   * Used as part of the L1 memory file path:
-   *   {data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
-   * Borrowed from the caller; must remain alive for the agent's
-   * lifetime. May be NULL — when NULL the agent does not
-   * auto-wire the L1 preserve callback into its sessions.
-   */
-  const char *agent_id;
-
-  /**
-   * @brief Root directory for persistent agent data.
+   * @brief Pluggable long-term memory store.
    *
    * Borrowed from the caller; must remain alive for the agent's
-   * lifetime. When non-NULL and @ref agent_id is non-NULL, the
-   * agent automatically wires an L1 preserve callback into every
-   * session it creates, appending JSONL entries under:
-   *   {data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
-   * May be NULL — when NULL the agent does not auto-wire the
-   * L1 preserve callback.
+   * lifetime and be destroyed AFTER xAgentDestroy() returns. When
+   * non-NULL the agent:
+   *
+   *   - Auto-wires an L1 preserve callback into every session it
+   *     creates so each session's history is appended to the store
+   *     via xAgentMemoryAppend().
+   *   - On xAgentCreateSession(), primes the new session's history
+   *     from the store so resumed sessions pick up where they left
+   *     off.
+   *
+   * NULL (the default) disables both — sessions run in-memory only
+   * and no cross-run persistence happens. Callers who want a
+   * file-backed store can use xAgentMemoryJsonlCreate().
    */
-  const char *data_dir;
+  xAgentMemory memory;
 
   /**
    * @brief Whether the agent may launch sidecar Queries when an
@@ -301,17 +308,6 @@ XCAPI(void) xAgentDestroy(xAgent agent);
  *               created).
  */
 XCAPI(xAgentSession) xAgentDefaultSession(xAgent agent);
-
-/**
- * @brief Return the agent's unique identifier.
- *
- * Returns the @ref xAgentConf::agent_id string that was provided
- * at creation time. NULL if the agent was created without one.
- *
- * @param agent  Agent handle.
- * @return       The agent id, or NULL.
- */
-XCAPI(const char *) xAgentId(xAgent agent);
 
 /**
  * @brief Create a session bound to the agent.

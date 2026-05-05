@@ -38,6 +38,7 @@
 #include <xbase/error.h>
 
 #include <stddef.h>
+#include <stdint.h>
 
 /**
  * @brief Kind of a turn entry.
@@ -96,6 +97,16 @@ struct xAgentSessionMsg_ {
   char  *tool_result_output;
   size_t tool_result_output_len;
   int    tool_result_is_error;
+
+  /* Wall-clock unix-ms timestamp recording when this entry was
+   * created (user typed it, assistant streamed it, tool finished).
+   * Zero means "unknown" — e.g. the slot was hand-rolled by a test
+   * or by a callback delivering legacy on-disk data that predates
+   * this field. Consumers that just want to display / sort by time
+   * should fall back to "0 → now" on read. memory_jsonl uses this
+   * value when writing the "ts" field and only falls back to a
+   * fresh wall-clock read when the field is zero. */
+  uint64_t created_at_ms;
 };
 
 /**

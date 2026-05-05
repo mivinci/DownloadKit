@@ -21,8 +21,11 @@
 
 extern "C" {
 #include <xagent/agent.h>
+#include <xagent/memory.h>
 #include <xagent/provider.h>
+#include <xagent/session.h>
 #include <xagent/tool.h>
+#include <xbase/array.h>
 #include <xbase/event.h>
 #include "agent_private.h"
 #include "provider_private.h"
@@ -30,6 +33,8 @@ extern "C" {
 }
 
 #include <cstdlib>
+#include <cstring>
+#include <string>
 
 /* ── Minimal no-op provider (agent never actually calls it) ────────── */
 
@@ -292,4 +297,304 @@ TEST_F(AgentTest, DefaultSessionInheritsAgentDefaults) {
   EXPECT_EQ(s->max_tokens, conf.max_tokens);
 
   xAgentDestroy(ag);
+}
+
+/* ── Memory wiring ───────────────────────────────────────────────── */
+
+/* When the agent is created with an explicit xAgentMemory store, the
+ * session it mints routes its L1 preserve hook through that store
+ * instead of writing JSONL files directly. We verify by firing the
+ * hook manually and then consulting the store. */
+TEST_F(AgentTest, MemoryStoreReceivesL1Preserve) {
+  /* JSONL backend pointed at a per-test temp root. */
+  std::string root = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR")
+                                                        : "/tmp") +
+                     "/xagent_memwire_" +
+                     std::to_string(::testing::UnitTest::GetInstance()
+                                      ->current_test_info()
+                                      ->name()
+                                      ? 0
+                                      : 0);
+  /* Flatten any stale state so each run is fresh. */
+  std::string rm = "rm -rf '" + root + "'";
+  (void)std::system(rm.c_str());
+
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
+
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  /* data_dir is irrelevant now that legacy auto-wire is gone; the
+   * memory store picks its own root. We still set it to NULL to
+   * make the intent explicit. */
+  conf.memory   = store;
+
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  /* A minimal session: no callbacks, no L1 hook of its own — the
+   * agent is expected to inject the memory-backed one for us. */
+  xAgentSessionConf sc = {};
+  sc.session_id      = "sess_a";
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
+  ASSERT_NE(s->on_l1_preserve, nullptr);
+  ASSERT_NE(s->l1_preserve_owner, nullptr);
+
+  /* Fire the hook with a Truncated batch, as if the budget policy
+   * had dropped two old entries. The callback should route the
+   * batch through xAgentMemoryAppend. */
+  xAgentSessionMsg msg0{};
+  msg0.role     = xAgentRole_User;
+  msg0.kind     = xAgentSessionEntryKind_Text;
+  msg0.text     = "first turn";
+  msg0.text_len = std::strlen("first turn");
+  xAgentSessionMsg msg1{};
+  msg1.role     = xAgentRole_Assistant;
+  msg1.kind     = xAgentSessionEntryKind_Text;
+  msg1.text     = "first reply";
+  msg1.text_len = std::strlen("first reply");
+  xAgentSessionMsg batch[] = {msg0, msg1};
+
+  s->on_l1_preserve(sess, batch, 2, xAgentL1PreserveReason_Truncated,
+                    s->l1_preserve_owner);
+
+  /* Retrieve from the store and assert the two entries round-tripped. */
+  xAgentMemoryQuery q{};
+  q.session_id = "sess_a";
+  xAgentMemoryHits hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
+  ASSERT_EQ(hits.n_entries, size_t{2});
+  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len),
+            std::string("first turn"));
+  EXPECT_EQ(std::string(hits.entries[1].text, hits.entries[1].text_len),
+            std::string("first reply"));
+  xAgentMemoryReleaseHits(store, &hits);
+
+  /* Destroying the session fires Finalizing with an empty batch —
+   * that path must also free the owner context without writing. */
+  xAgentSessionDestroy(sess);
+  xAgentDestroy(ag);
+  xAgentMemoryDestroy(store);
+  (void)std::system(rm.c_str());
+}
+
+/* Without a memory store the agent does no L1 wiring at all: no
+ * preserve callback is injected and no history is primed. This is
+ * the "pure in-memory session" contract callers rely on when they
+ * opt out of persistence. */
+TEST_F(AgentTest, WithoutMemoryStoreNoL1Wiring) {
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  /* conf.memory stays NULL */
+
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAgentSessionConf sc = {};
+  sc.session_id      = "sess_no_mem";
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
+  EXPECT_EQ(s->on_l1_preserve, nullptr);
+  EXPECT_EQ(s->l1_preserve_owner, nullptr);
+
+  xAgentSessionDestroy(sess);
+  xAgentDestroy(ag);
+}
+
+/* When the caller explicitly sets on_l1_preserve in the session conf,
+ * the agent MUST NOT clobber it — neither the memory route nor the
+ * JSONL fallback should be wired in. */
+static void never_called_cb_(xAgentSession, const xAgentSessionMsg *, size_t,
+                             xAgentL1PreserveReason, void *) {}
+
+TEST_F(AgentTest, CallerProvidedL1CbTakesPriorityOverMemory) {
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = "/tmp/xagent_test_overridden";
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
+
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  conf.memory   = store;
+
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  int owner_tag = 42;
+  xAgentSessionConf sc = {};
+  sc.session_id       = "s";
+  sc.on_l1_preserve   = never_called_cb_;
+  sc.l1_preserve_owner = &owner_tag;
+
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
+  EXPECT_EQ(s->on_l1_preserve, never_called_cb_);
+  EXPECT_EQ(s->l1_preserve_owner, &owner_tag);
+
+  xAgentSessionDestroy(sess);
+  xAgentDestroy(ag);
+  xAgentMemoryDestroy(store);
+}
+
+/* Wire-up B (prime): when the agent is created with a memory store
+ * AND the caller reuses a stable session_id, a brand-new session
+ * starts with its history_arr already populated from the store. */
+TEST_F(AgentTest, MemoryPrimesHistoryOnCreateSession) {
+  const char *root = "/tmp/xagent_test_prime";
+  std::string rm   = std::string("rm -rf '") + root + "'";
+  (void)std::system(rm.c_str());
+
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = root;
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
+
+  /* Pre-seed the store directly — simpler than running a full
+   * session end-to-end. The prime path doesn't care where the
+   * entries came from. */
+  xAgentMemoryQuery wq{};
+  wq.session_id = "resumed";
+  xAgentSessionMsg seed0{};
+  seed0.role     = xAgentRole_User;
+  seed0.kind     = xAgentSessionEntryKind_Text;
+  seed0.text     = "what is 2+2?";
+  seed0.text_len = std::strlen("what is 2+2?");
+  xAgentSessionMsg seed1{};
+  seed1.role     = xAgentRole_Assistant;
+  seed1.kind     = xAgentSessionEntryKind_Text;
+  seed1.text     = "four";
+  seed1.text_len = 4;
+  xAgentSessionMsg seeds[] = {seed0, seed1};
+  ASSERT_EQ(xAgentMemoryAppend(store, &wq, xAgentMemoryAppendReason_Explicit,
+                               seeds, 2),
+            xErrno_Ok);
+
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  conf.memory   = store;
+
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAgentSessionConf sc = {};
+  sc.session_id      = "resumed";
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  /* History should already be primed with the two seed entries. */
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
+  ASSERT_EQ(xArrayLen(s->history_arr), size_t{2});
+
+  auto *h0 = reinterpret_cast<struct xAgentSessionMsg_ *>(
+    xArrayAt(s->history_arr, 0));
+  auto *h1 = reinterpret_cast<struct xAgentSessionMsg_ *>(
+    xArrayAt(s->history_arr, 1));
+  EXPECT_EQ(h0->role, xAgentRole_User);
+  EXPECT_EQ(std::string(h0->text, h0->text_len), std::string("what is 2+2?"));
+  EXPECT_EQ(h1->role, xAgentRole_Assistant);
+  EXPECT_EQ(std::string(h1->text, h1->text_len), std::string("four"));
+
+  xAgentSessionDestroy(sess);
+  xAgentDestroy(ag);
+  xAgentMemoryDestroy(store);
+  (void)std::system(rm.c_str());
+}
+
+/* Without a memory store the session still starts with an empty
+ * history_arr — prime is a memory-store-only feature. */
+TEST_F(AgentTest, NoPrimeWithoutMemoryStore) {
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAgentSessionConf sc = {};
+  sc.session_id      = "any";
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
+  EXPECT_EQ(xArrayLen(s->history_arr), size_t{0});
+
+  xAgentSessionDestroy(sess);
+  xAgentDestroy(ag);
+}
+
+/* Wire-up B2 (prefix de-dup): Finalizing must skip rows that came
+ * out of the memory store so the on-disk file doesn't grow by the
+ * full primed tail on every resume. */
+TEST_F(AgentTest, PrimedPrefixIsSkippedOnFinalizing) {
+  const char *root = "/tmp/xagent_test_prefix_skip";
+  std::string rm   = std::string("rm -rf '") + root + "'";
+  (void)std::system(rm.c_str());
+
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = root;
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
+
+  /* Seed two rows into the store. */
+  xAgentMemoryQuery q{};
+  q.session_id = "resume";
+  xAgentSessionMsg s0{};
+  s0.role     = xAgentRole_User;
+  s0.kind     = xAgentSessionEntryKind_Text;
+  s0.text     = "seed0";
+  s0.text_len = 5;
+  xAgentSessionMsg s1{};
+  s1.role     = xAgentRole_Assistant;
+  s1.kind     = xAgentSessionEntryKind_Text;
+  s1.text     = "seed1";
+  s1.text_len = 5;
+  xAgentSessionMsg seeds[] = {s0, s1};
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
+                               seeds, 2),
+            xErrno_Ok);
+
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  conf.memory   = store;
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAgentSessionConf sc = {};
+  sc.session_id      = "resume";
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  auto *ss = reinterpret_cast<struct xAgentSession_ *>(sess);
+  ASSERT_EQ(xArrayLen(ss->history_arr), size_t{2});
+  EXPECT_EQ(ss->persisted_prefix, size_t{2});
+
+  /* Destroy the session. The agent's memory preserve callback
+   * will be fired with Finalizing — but, thanks to
+   * persisted_prefix == history_arr length, nothing new should be
+   * written to the store. We verify by retrieving and asserting
+   * the stored row count stayed at exactly 2. */
+  xAgentSessionDestroy(sess);
+
+  xAgentMemoryHits hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
+  EXPECT_EQ(hits.n_entries, size_t{2});
+  xAgentMemoryReleaseHits(store, &hits);
+
+  xAgentDestroy(ag);
+  xAgentMemoryDestroy(store);
+  (void)std::system(rm.c_str());
 }

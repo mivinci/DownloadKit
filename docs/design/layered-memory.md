@@ -137,9 +137,10 @@ typedef void (*xAgentSessionL1PreserveFunc)(
 NULL 回调 = 不做 L1 采集（默认行为，向后兼容）。
 
 Agent 层自动注入：`xAgentCreateSession` 在创建 session 时，如果 agent 配置了
-`agent_id` 和 `data_dir`，且调用方未自行提供 `on_l1_preserve`，则自动注入
-内置的 `agent_l1_preserve_cb_`——将每条消息以 JSONL 格式追加写入
-`{data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl`。
+`memory`（`xAgentMemory` 句柄），且调用方未自行提供 `on_l1_preserve`，则自动注入
+内置回调——将每条消息通过 `xAgentMemoryAppend` 交给存储后端。内置 JSONL 后端
+（`xAgentMemoryJsonlCreate`）会把每条消息以 JSONL 格式追加写入
+`{root_dir}/sessions/{session_id}/memory.jsonl`。
 
 ### L1 提取逻辑的实现路径
 
@@ -193,14 +194,14 @@ MVP-a 阶段的目标：**≥ 60% 的观察不需要 LLM call 就能决定入库
 | **MVP-a** | JSONL 文件 | 零依赖、易调试、易手工修 | 只能按时间索引，无语义检索 |
 | **MVP-b** | SQLite + sqlite-vec | 语义检索、灵活查询 | 加依赖、加构建体积 |
 
-MVP-a 的文件布局（与 L1 采集的 `agent_l1_preserve_cb_` 输出路径对齐）：
+MVP-a 的文件布局（内置 JSONL 后端 `xAgentMemoryJsonlCreate` 的落盘路径）：
 
 ```text
-{data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
+{root_dir}/sessions/{session_id}/memory.jsonl
 ```
 
-每条消息一个 JSONL 行，包含 `role`、`kind` 和对应的 payload 字段。
-L2 的 `xAgentObservation` 提取结果将写入同一 agent 目录下的
+每条消息一个 JSONL 行，包含 `role`、`kind`、`ts`（毫秒时间戳）和对应的 payload
+字段。L2 的 `xAgentObservation` 提取结果将写入同一 root 下的
 `observations.jsonl`。MVP-b 切 SQLite 时提供迁移脚本，老 JSONL 归档不删。
 
 ### 记忆注入到新 Session

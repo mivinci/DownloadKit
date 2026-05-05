@@ -49,6 +49,7 @@
 #include <xbase/base.h>
 #include <xbase/error.h>
 #include <xbase/array.h>
+#include <xbase/time.h>
 #include <xbuf/buf.h>
 
 #include <stdio.h>
@@ -129,9 +130,17 @@ static void query_msg_release(void *elem) {
 
 static const xArrayCallbacks kMsgCbs = { NULL, query_msg_release, NULL };
 
-/* Push a new zero-initialised slot onto a turn-entry array. */
+/* Push a new zero-initialised slot onto a turn-entry array. The
+ * returned slot has @c created_at_ms pre-filled with the current
+ * wall-clock time so downstream splice into session history
+ * preserves the production instant (streamed assistant chunk,
+ * completed tool call, etc.) rather than the later time at which
+ * the on_done handler copies the entries over. */
 static struct xAgentSessionMsg_ *msg_push(xArray *arrp) {
-  return (struct xAgentSessionMsg_ *)xArrayPush(arrp);
+  struct xAgentSessionMsg_ *slot =
+    (struct xAgentSessionMsg_ *)xArrayPush(arrp);
+  if (slot) slot->created_at_ms = xWallMs();
+  return slot;
 }
 
 /* Append a single-content text entry with role @p role. The text is

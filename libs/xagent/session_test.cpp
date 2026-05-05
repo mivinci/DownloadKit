@@ -23,6 +23,8 @@ extern "C" {
 #include <xagent/tool.h>
 #include <xbase/error.h>
 #include <xbase/event.h>
+
+#include <time.h> /* nanosleep for created_at_ms tests */
 }
 
 #include <cstdlib>
@@ -2993,4 +2995,93 @@ TEST_F(ConfirmGateFixture, StaleResolverIsNoOp) {
   xAgentToolConfirmResolve(cap.stashed, xAgentToolDecision_Allow, nullptr);
 
   EXPECT_EQ(guard_log_.size(), 0u); /* handler never ran */
+}
+
+/* ── created_at_ms ────────────────────────────────────────────────
+ *
+ * Every history entry is stamped with a wall-clock ms timestamp at
+ * the moment it was produced (user input, assistant stream chunk,
+ * tool completion). These tests pin the behaviour:
+ *
+ *   1. User input stamps, and stamps grow monotonically across
+ *      two back-to-back inputs.
+ *   2. Assistant produced-entries carry the production-time stamp
+ *      across the produced → history splice (a later-added
+ *      user message must therefore show a *later* stamp than the
+ *      earlier assistant chunk, even though history_push runs
+ *      after the produced array is built).
+ *
+ * Both lean on SessionTest's fake provider + synchronous event
+ * loop so we can inspect history_arr directly.
+ */
+TEST_F(SessionTest, UserInputStampsCreatedAt) {
+  Captured                cap;
+  xAgentSessionCallbacks cbs  = make_cbs(&cap);
+  xAgentSession           sess = make_session(cbs);
+
+  fake_->script_queue.push_back({
+      SText("hi"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("one")),
+            xErrno_Ok);
+
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+  ASSERT_GE(hist_len(s), 1u);
+  EXPECT_GT(hist_at(s, 0)->created_at_ms, 1000000000000ULL)
+      << "user entry should carry a wall-clock stamp";
+
+  xAgentSessionDestroy(sess);
+}
+
+TEST_F(SessionTest, ProducedEntriesKeepProductionTimeStamp) {
+  Captured                cap;
+  xAgentSessionCallbacks cbs  = make_cbs(&cap);
+  xAgentSession           sess = make_session(cbs);
+
+  /* Round 1: user "one" → assistant "hi" */
+  fake_->script_queue.push_back({
+      SText("hi"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("one")),
+            xErrno_Ok);
+
+  /* Tiny sleep so the wall-clock delta between turns is observable
+   * even on very fast machines. 2 ms is plenty for clock_gettime
+   * granularity without making the test feel slow. */
+  struct timespec pause = {0, 2 * 1000 * 1000};
+  nanosleep(&pause, nullptr);
+
+  /* Round 2: user "two" → assistant "bye" */
+  fake_->script_queue.push_back({
+      SText("bye"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("two")),
+            xErrno_Ok);
+
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+  /* Layout after two turns: user1, asst1, user2, asst2. */
+  ASSERT_GE(hist_len(s), 4u);
+
+  uint64_t t_u1 = hist_at(s, 0)->created_at_ms;
+  uint64_t t_a1 = hist_at(s, 1)->created_at_ms;
+  uint64_t t_u2 = hist_at(s, 2)->created_at_ms;
+  uint64_t t_a2 = hist_at(s, 3)->created_at_ms;
+
+  EXPECT_GT(t_u1, 0ULL);
+  EXPECT_GT(t_a1, 0ULL);
+  EXPECT_GT(t_u2, 0ULL);
+  EXPECT_GT(t_a2, 0ULL);
+
+  /* Chronological order must hold across the splice: the assistant
+   * chunk from round 1 was stamped at production time (inside the
+   * Query's produced_arr), not when session on_done later copied
+   * it into history, so it must precede round 2's user input. */
+  EXPECT_LE(t_u1, t_a1);
+  EXPECT_LT(t_a1, t_u2) << "produced splice dropped the production-time stamp";
+  EXPECT_LE(t_u2, t_a2);
+
+  xAgentSessionDestroy(sess);
 }

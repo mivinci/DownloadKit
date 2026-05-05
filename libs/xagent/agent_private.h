@@ -127,19 +127,14 @@ struct xAgent_ {
   struct xAgentSession_ *default_session;
 
   /**
-   * Unique identifier for this agent instance. Borrowed from
-   * xAgentConf::agent_id; may be NULL. Used as part of the
-   * L1 memory file path.
+   * Optional pluggable memory store supplied at Create time.
+   * Borrowed from xAgentConf::memory; may be NULL. When non-NULL
+   * the agent routes every session's on_l1_preserve callback
+   * through xAgentMemoryAppend() and primes newly-created
+   * sessions from it. NULL disables cross-run persistence
+   * entirely — sessions run in-memory only.
    */
-  const char *agent_id;
-
-  /**
-   * Root directory for persistent agent data. Borrowed from
-   * xAgentConf::data_dir; may be NULL. When both agent_id
-   * and data_dir are non-NULL, the agent auto-wires L1
-   * persistence into every session it creates.
-   */
-  const char *data_dir;
+  xAgentMemory memory;
 
   /**
    * Whether this agent may launch sidecar Queries. Copied from

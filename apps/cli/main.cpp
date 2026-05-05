@@ -60,6 +60,7 @@
 #include <unistd.h>
 
 #include <xagent/agent.h>
+#include <xagent/memory.h>
 #include <xagent/model.h>
 #include <xagent/provider.h>
 #include <xagent/session.h>
@@ -92,13 +93,14 @@ int main(int argc, char *argv[]) {
   /* Owned resources; each assigned to non-null on successful
    * acquire. Cleanup labels at the bottom release them in reverse
    * order. Keep this table and the label ladder in sync. */
-  xFlagSet      fset       = nullptr;
-  xEventLoop    loop       = nullptr;
-  xHttpClient   http       = nullptr;
-  xAgentTool    shell_tool = nullptr;
-  xAgent        agent      = nullptr;
-  bool          repl_open  = false;
-  bool          sig_armed  = false;
+  xFlagSet      fset        = nullptr;
+  xEventLoop    loop        = nullptr;
+  xHttpClient   http        = nullptr;
+  xAgentTool    shell_tool  = nullptr;
+  xAgentMemory  memory_store = nullptr;
+  xAgent        agent       = nullptr;
+  bool          repl_open   = false;
+  bool          sig_armed   = false;
 
   /* ── Parse command-line options ───────────────────────────────────
    *
@@ -324,8 +326,26 @@ int main(int argc, char *argv[]) {
      * most agentic tasks without letting a runaway loop burn through
      * quota on its own. */
     aconf.max_turns            = model_cfg.max_turns > 0 ? model_cfg.max_turns : 64;
-    aconf.agent_id             = "test";
-    aconf.data_dir             = data_dir;
+    /* ── Pluggable long-term memory ──────────────────────────────
+     *
+     * The built-in JSONL backend lays out one file per session
+     * under <data_dir>/sessions/<session_id>/memory.jsonl. The
+     * agent wires it into every session it mints (append on
+     * preserve, prime on create) so conversations resume across
+     * process runs when the caller reuses a stable session_id.
+     *
+     * Stays alive past xAgentDestroy so the teardown ladder can
+     * release it *after* the agent has torn its sessions down. */
+    xAgentMemoryJsonlConf mconf;
+    std::memset(&mconf, 0, sizeof(mconf));
+    mconf.root_dir = data_dir;
+    memory_store   = xAgentMemoryJsonlCreate(&mconf);
+    if (!memory_store) {
+      std::fprintf(stderr, "failed to create memory store\n");
+      rc = 1;
+      goto out_tool;
+    }
+    aconf.memory               = memory_store;
     aconf.enable_sidecar_query = 1;
     aconf.default_session_conf = &sconf;
 
@@ -461,6 +481,10 @@ out_agent:
   /* No xAgentSessionDestroy needed — the default session is owned
    * by the agent and destroyed automatically in xAgentDestroy. */
   if (agent) xAgentDestroy(agent);
+  /* Memory store outlives the agent (contract in xagent/memory.h);
+   * destroy it only after every session has been torn down, which
+   * xAgentDestroy guarantees above. */
+  if (memory_store) xAgentMemoryDestroy(memory_store);
 out_tool:
   if (shell_tool) xAgentToolDestroy(shell_tool);
 out_cfg:

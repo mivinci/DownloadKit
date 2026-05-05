@@ -66,6 +66,7 @@
 #include "budget_private.h"
 #include "tool_private.h"
 
+#include <xagent/memory.h>
 #include <xagent/message.h>
 #include <xagent/provider.h>
 #include <xagent/query.h>
@@ -75,6 +76,7 @@
 #include <xbase/error.h>
 #include <xbase/time.h>
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -125,9 +127,16 @@ static void session_msg_release(void *elem) {
 static const xArrayCallbacks kHistoryCbs = {NULL, session_msg_release, NULL};
 
 /* Push a new zero-initialised slot onto the history array.
- * Returns the slot pointer, or NULL on allocation failure. */
+ * Returns the slot pointer, or NULL on allocation failure. The
+ * returned slot has @c created_at_ms pre-filled with the current
+ * wall-clock time; callers that are copying an already-stamped
+ * record (produced → history splice) will overwrite the whole
+ * struct and therefore carry the earlier, more accurate stamp. */
 static struct xAgentSessionMsg_ *history_push(struct xAgentSession_ *s) {
-  return (struct xAgentSessionMsg_ *)xArrayPush(&s->history_arr);
+  struct xAgentSessionMsg_ *slot =
+    (struct xAgentSessionMsg_ *)xArrayPush(&s->history_arr);
+  if (slot) slot->created_at_ms = xWallMs();
+  return slot;
 }
 
 /* ── History append API (shared with query.c via session_private.h) ── */
@@ -314,6 +323,14 @@ static void session_trim_history_front_(struct xAgentSession_ *s,
                                         size_t                 keep_idx) {
   if (keep_idx == 0 || keep_idx >= xArrayLen(s->history_arr)) return;
   xArrayRemoveRange(s->history_arr, 0, keep_idx);
+  /* Keep persisted_prefix consistent: any primed rows in
+   * [0, keep_idx) just left history_arr, so the prefix shrinks
+   * by the same amount. Clamped so primed-but-outlived shrinks
+   * don't underflow. */
+  if (s->persisted_prefix >= keep_idx)
+    s->persisted_prefix -= keep_idx;
+  else
+    s->persisted_prefix = 0;
 }
 
 /* Resolve the effective token ceiling for this session. A zero
@@ -357,13 +374,24 @@ static xErrno session_try_truncate_(struct xAgentSession_ *s, size_t incoming,
      * before they are permanently lost. The callback receives a
      * read-only slice — it must deep-copy anything it wants to
      * retain. This fires BEFORE the actual trim so the entries
-     * are still valid in the history array. */
+     * are still valid in the history array.
+     *
+     * When the session was primed from memory, the first
+     * persisted_prefix entries are already in the store; skip
+     * them so we don't re-append existing rows. */
     if (s->on_l1_preserve) {
-      s->on_l1_preserve(
-        (xAgentSession)s, (const xAgentSessionMsg *)xArrayData(s->history_arr),
-        keep, xAgentL1PreserveReason_Truncated, s->l1_preserve_owner);
+      size_t skip = s->persisted_prefix < keep ? s->persisted_prefix : keep;
+      if (keep > skip) {
+        s->on_l1_preserve(
+          (xAgentSession)s,
+          (const xAgentSessionMsg *)xArrayData(s->history_arr) + skip,
+          keep - skip, xAgentL1PreserveReason_Truncated,
+          s->l1_preserve_owner);
+      }
     }
     session_trim_history_front_(s, keep);
+    /* session_trim_history_front_ updates s->persisted_prefix in
+     * lockstep so we don't need any extra bookkeeping here. */
     size_t current = ai_budget_estimate_tokens_calibrated(
       (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
       xArrayLen(s->history_arr), factor);
@@ -651,12 +679,13 @@ truncate_fallback:
 /* ── Building the Query input from Session state ────────────────────
  *
  * Every xAgentSessionInput run hands the Query a complete, self-
- * contained message array: (optional) System prompt + the rolling
- * history the Session already has, including the user message we
- * just appended. Each xAgentMessage borrows from session-owned storage
- * (history entries live until the run terminates or the Session is
- * torn down) — the Query still deep-copies, so once xAgentQueryRun
- * returns this transient array can go away.
+ * contained message array: (optional) System prompt + (optional)
+ * retrieved memory context + the rolling history the Session
+ * already has, including the user message we just appended. Each
+ * xAgentMessage borrows from session-owned storage (history entries
+ * live until the run terminates or the Session is torn down) — the
+ * Query still deep-copies, so once xAgentQueryRun returns this
+ * transient array can go away.
  */
 
 struct sess_input_view_ {
@@ -664,25 +693,135 @@ struct sess_input_view_ {
   xAgentContent *blocks;
   size_t         n_msgs;
   size_t         n_blocks;
+  /* Heap text buffer holding the stringified ephemeral memory
+   * block, referenced by one of the entries in @c blocks when
+   * memory hits were injected. NULL when no hits were injected
+   * or formatting failed. Freed in sess_input_view_free(). */
+  char *ephemeral_text;
 };
 
 static void sess_input_view_free(struct sess_input_view_ *v) {
   free(v->msgs);
   free(v->blocks);
+  free(v->ephemeral_text);
   memset(v, 0, sizeof(*v));
+}
+
+/* Render one xAgentSessionMsg pulled from the memory store into a
+ * single human-readable line that we can splice into a System
+ * context block. Returns the number of bytes written (excluding the
+ * trailing NUL) or 0 on a kind we don't know how to render. Output
+ * is truncated to @p cap bytes; caller sizes @p cap generously so
+ * this rarely trims.
+ */
+static size_t render_memory_entry_(const xAgentSessionMsg *m, char *buf,
+                                   size_t cap) {
+  const char *role_str = "?";
+  switch (m->role) {
+  case xAgentRole_System: role_str = "system"; break;
+  case xAgentRole_User: role_str = "user"; break;
+  case xAgentRole_Assistant: role_str = "assistant"; break;
+  case xAgentRole_Tool: role_str = "tool"; break;
+  }
+
+  int n = 0;
+  switch (m->kind) {
+  case xAgentSessionEntry_Text:
+  case xAgentSessionEntry_Thinking:
+    n = snprintf(buf, cap, "- %s: %.*s\n", role_str,
+                 (int)(m->text_len > (size_t)INT_MAX ? INT_MAX : m->text_len),
+                 m->text ? m->text : "");
+    break;
+  case xAgentSessionEntry_ToolUse:
+    n = snprintf(buf, cap, "- %s (call %s: %s)\n", role_str,
+                 m->tool_use_name ? m->tool_use_name : "?",
+                 m->tool_use_args ? m->tool_use_args : "");
+    break;
+  case xAgentSessionEntry_ToolResult:
+    n = snprintf(buf, cap, "- %s%s: %.*s\n", role_str,
+                 m->tool_result_is_error ? " [error]" : "",
+                 (int)(m->tool_result_output_len > (size_t)INT_MAX
+                         ? INT_MAX
+                         : m->tool_result_output_len),
+                 m->tool_result_output ? m->tool_result_output : "");
+    break;
+  default: return 0;
+  }
+  if (n < 0) return 0;
+  if ((size_t)n >= cap) return cap - 1;
+  return (size_t)n;
+}
+
+/* Format an xAgentMemoryHits set into a single newline-separated
+ * block of text. Caller owns the returned buffer (malloc'd). NULL
+ * on OOM or when @p hits is empty. */
+static char *format_memory_hits_(const xAgentMemoryHits *hits) {
+  if (!hits || hits->n_entries == 0) return NULL;
+
+  /* One pass to size the buffer, one to render. The header is
+   * fixed, each entry uses a single line rendered by
+   * render_memory_entry_. Upper bound: sum of all text lengths
+   * plus a generous per-entry overhead for role labels and
+   * formatting (64 bytes per entry is more than enough). */
+  size_t cap = 64; /* header */
+  for (size_t i = 0; i < hits->n_entries; i++) {
+    const xAgentSessionMsg *m = &hits->entries[i];
+    size_t approx = 64;
+    approx += m->text_len;
+    approx += m->tool_result_output_len;
+    if (m->tool_use_args) approx += strlen(m->tool_use_args);
+    if (m->tool_use_name) approx += strlen(m->tool_use_name);
+    cap += approx;
+  }
+
+  char *buf = (char *)malloc(cap);
+  if (!buf) return NULL;
+
+  size_t used = (size_t)snprintf(
+    buf, cap, "[retrieved memory: %zu entries]\n", hits->n_entries);
+  if (used >= cap) { /* shouldn't happen, but be safe */
+    free(buf);
+    return NULL;
+  }
+
+  for (size_t i = 0; i < hits->n_entries; i++) {
+    size_t w = render_memory_entry_(&hits->entries[i], buf + used, cap - used);
+    used += w;
+    if (used + 1 >= cap) break;
+  }
+  if (used == 0) {
+    free(buf);
+    return NULL;
+  }
+  return buf;
 }
 
 /* Build a message array from the current session state. Consecutive
  * Assistant entries are folded into one xAgentMessage (so thinking +
- * text + tool_use blocks travel together); other roles map 1:1. */
+ * text + tool_use blocks travel together); other roles map 1:1.
+ *
+ * When @p hits is non-NULL and has entries, a single extra System
+ * message is spliced in immediately after the session's system
+ * prompt (if any), carrying a rendered summary of the memory hits.
+ * The block is ephemeral: it never touches history_arr and lives
+ * only for this one run (freed in sess_input_view_free). */
 static xErrno sess_input_view_build(struct xAgentSession_   *s,
+                                    const xAgentMemoryHits  *hits,
                                     struct sess_input_view_ *out) {
   memset(out, 0, sizeof(*out));
   size_t extra_system = (s->system_prompt && s->system_prompt[0]) ? 1 : 0;
 
+  /* Lazily render the memory block. We do it up front (before
+   * Pass 1) so we know whether to budget a slot for it. */
+  char *mem_text = NULL;
+  if (hits && hits->n_entries > 0) {
+    mem_text = format_memory_hits_(hits);
+  }
+  size_t extra_mem = mem_text ? 1 : 0;
+
   /* Pass 1: count. */
-  size_t n_msgs   = extra_system;
-  size_t n_blocks = extra_system;
+  size_t n_msgs   = extra_system + extra_mem;
+  size_t n_blocks = extra_system + extra_mem;
   size_t hist_len = xArrayLen(s->history_arr);
   for (size_t i = 0; i < hist_len;) {
     struct xAgentSessionMsg_ *m =
@@ -707,11 +846,13 @@ static xErrno sess_input_view_build(struct xAgentSession_   *s,
   out->msgs   = (xAgentMessage *)calloc(n_msgs, sizeof(xAgentMessage));
   out->blocks = (xAgentContent *)calloc(n_blocks, sizeof(xAgentContent));
   if (!out->msgs || !out->blocks) {
+    free(mem_text);
     sess_input_view_free(out);
     return xErrno_NoMemory;
   }
-  out->n_msgs   = n_msgs;
-  out->n_blocks = n_blocks;
+  out->n_msgs         = n_msgs;
+  out->n_blocks       = n_blocks;
+  out->ephemeral_text = mem_text; /* transferred; freed in view_free */
 
   /* Pass 2: populate. */
   size_t mi = 0;
@@ -721,6 +862,23 @@ static xErrno sess_input_view_build(struct xAgentSession_   *s,
     out->blocks[bi].type        = xAgentContentType_Text;
     out->blocks[bi].u.text.text = s->system_prompt;
     out->blocks[bi].u.text.len  = strlen(s->system_prompt);
+    out->msgs[mi].role          = xAgentRole_System;
+    out->msgs[mi].contents      = &out->blocks[bi];
+    out->msgs[mi].n             = 1;
+    mi++;
+    bi++;
+  }
+
+  if (extra_mem) {
+    /* One-shot System message carrying the memory hits as plain
+     * text. It rides alongside any existing system prompt rather
+     * than being folded into it so the model can tell the two
+     * apart and so a future provider-level "context" channel can
+     * intercept this specific block without re-parsing the base
+     * prompt. */
+    out->blocks[bi].type        = xAgentContentType_Text;
+    out->blocks[bi].u.text.text = out->ephemeral_text;
+    out->blocks[bi].u.text.len  = strlen(out->ephemeral_text);
     out->msgs[mi].role          = xAgentRole_System;
     out->msgs[mi].contents      = &out->blocks[bi];
     out->msgs[mi].n             = 1;
@@ -1117,9 +1275,12 @@ static void session_sidecar_idle_timer_cb(void *arg) {
 
   /* Build the session's conversation history view so the sidecar
    * has context about the user's original request and the assistant's
-   * actions so far. */
+   * actions so far. Sidecar deliberately passes hits=NULL — it runs
+   * its own narrow analysis and does not want main-run memory
+   * context muddying its prompt. */
   struct sess_input_view_ hist_view;
-  xErrno                  vrc = sess_input_view_build(s, &hist_view);
+  xErrno                  vrc =
+    sess_input_view_build(s, /*hits=*/NULL, &hist_view);
   if (vrc != xErrno_Ok) {
     free(user_text);
     return;
@@ -1330,25 +1491,40 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       /* L1 preserve: deliver the about-to-be-replaced entries [0, keep_idx)
        * before they are swapped out by the summary. The consumer may want
        * the original full-fidelity entries even though a summary will take
-       * their place in the session's history. This fires BEFORE the trim. */
+       * their place in the session's history. This fires BEFORE the trim.
+       *
+       * Primed entries are already in the external store; skip
+       * them so compaction doesn't re-append existing rows. */
       if (s->on_l1_preserve && keep_idx > 0) {
-        s->on_l1_preserve((xAgentSession)s,
-                          (const xAgentSessionMsg *)xArrayData(s->history_arr),
-                          keep_idx, xAgentL1PreserveReason_Compacted,
-                          s->l1_preserve_owner);
+        size_t skip =
+          s->persisted_prefix < keep_idx ? s->persisted_prefix : keep_idx;
+        if (keep_idx > skip) {
+          s->on_l1_preserve(
+            (xAgentSession)s,
+            (const xAgentSessionMsg *)xArrayData(s->history_arr) + skip,
+            keep_idx - skip, xAgentL1PreserveReason_Compacted,
+            s->l1_preserve_owner);
+        }
       }
       /* Remove the old entries [0, keep_idx). */
       session_trim_history_front_(s, keep_idx);
+      /* Compaction replaces the prefix with a fresh summary entry
+       * that has NOT been persisted yet, so override the
+       * lockstep-maintained prefix to zero. (The summary is
+       * inserted right after this block; persisted_prefix=0 is
+       * correct for the new layout.) */
+      s->persisted_prefix = 0;
 
       /* Insert the summary entry at the beginning of history. We
        * build it as a temporary xAgentSessionMsg_ and splice it in
        * via xArrayInsert. */
       struct xAgentSessionMsg_ summary_entry;
       memset(&summary_entry, 0, sizeof(summary_entry));
-      summary_entry.role     = xAgentRole_System;
-      summary_entry.kind     = xAgentSessionEntry_Text;
-      summary_entry.text     = summary_text;
-      summary_entry.text_len = prefix_len + summary_bytes;
+      summary_entry.role          = xAgentRole_System;
+      summary_entry.kind          = xAgentSessionEntry_Text;
+      summary_entry.text          = summary_text;
+      summary_entry.text_len      = prefix_len + summary_bytes;
+      summary_entry.created_at_ms = xWallMs();
 
       /* xArrayInsert shifts existing elements up and copies the
        * new element into position 0. */
@@ -1602,12 +1778,46 @@ xAgentSession xAgentSessionCreate(xAgent agent, const xAgentSessionConf *conf) {
 xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
   if (!sess) return xErrno_InvalidArg;
   struct xAgentSession_ *s = (struct xAgentSession_ *)sess;
+  struct xAgent_        *a = (struct xAgent_ *)s->agent;
 
   /* Single-flight: one live Query per Session. If the previous run
    * is still in flight refuse with Busy. Also refuse if a compact
    * (SummarizeOldest) Query is in flight — the caller must wait
    * for the compact to finish before submitting new input. */
   if (s->query || s->compacting) return xErrno_Busy;
+
+  /* ── Per-turn memory retrieval ────────────────────────────────
+   *
+   * Ask the agent's memory store for context relevant to the
+   * incoming user message. The hits are ephemeral — they ride
+   * along in the Query's prompt for this one turn and are NOT
+   * written back into history_arr, so they won't re-trigger their
+   * own retrieval on the next turn and won't be double-persisted
+   * by the L1 preserve hook.
+   *
+   * This is the first real caller that fills recent_turn /
+   * budget_tokens in xAgentMemoryQuery. The built-in JSONL backend
+   * treats recent_turn != NULL as "per-turn retrieval" and returns
+   * an empty set (it has no index, and re-serving the tail would
+   * duplicate what Create-time prime already injected). A future
+   * vector / rerank backend is expected to do the real work here.
+   *
+   * Failure is opportunistic: if Retrieve errors out we silently
+   * skip injection and still serve the turn on plain history.
+   * This keeps the memory subsystem from ever blocking the user
+   * input path. */
+  xAgentMemoryHits hits;
+  memset(&hits, 0, sizeof(hits));
+  if (a->memory && s->session_id) {
+    xAgentMemoryQuery rq;
+    memset(&rq, 0, sizeof(rq));
+    rq.session_id    = s->session_id;
+    rq.recent_turn   = &msg;
+    /* budget_tokens / max_entries left at 0 — let the backend pick
+     * sensible defaults until the session-level budget knob gets
+     * properly plumbed through. */
+    (void)xAgentMemoryRetrieve(a->memory, &rq, &hits);
+  }
 
   /* Budget gate: consulted BEFORE any history mutation so the
    * Error policy can refuse without leaving partial state behind,
@@ -1616,20 +1826,28 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
    * Disabled policy (the default) short-circuits inside
    * session_enforce_budget_() with zero measurable overhead. */
   xErrno rc = session_enforce_budget_(s, msg);
-  if (rc != xErrno_Ok) return rc;
+  if (rc != xErrno_Ok) {
+    xAgentMemoryReleaseHits(a->memory, &hits);
+    return rc;
+  }
 
   /* Commit the user message to history first so the input view
    * below includes it. If the Query submit later fails we'll roll
    * this back. */
   size_t history_checkpoint = xArrayLen(s->history_arr);
   rc                        = history_append_user_msg(s, msg);
-  if (rc != xErrno_Ok) return rc;
+  if (rc != xErrno_Ok) {
+    xAgentMemoryReleaseHits(a->memory, &hits);
+    return rc;
+  }
 
   /* Build the complete message array the Query should run on
-   * (system prompt + rolling history including the new user turn). */
+   * (system prompt + ephemeral memory hits + rolling history
+   * including the new user turn). */
   struct sess_input_view_ view;
-  rc = sess_input_view_build(s, &view);
+  rc = sess_input_view_build(s, &hits, &view);
   if (rc != xErrno_Ok) {
+    xAgentMemoryReleaseHits(a->memory, &hits);
     /* Roll back the user append — nothing observable happened. */
     while (xArrayLen(s->history_arr) > history_checkpoint) {
       xArrayPop(s->history_arr);
@@ -1637,10 +1855,15 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
     return rc;
   }
 
+  /* view copied whatever it needed out of hits (the ephemeral_text
+   * block is now self-contained in view), so we can release the
+   * hits set before the Query run. This keeps the hits lifetime
+   * short and tight. */
+  xAgentMemoryReleaseHits(a->memory, &hits);
+
   /* Spawn a fresh Query with Session-level forwarding shims bound
    * to this Session. xAgentQueryCreate also sets s->query so a second
    * Input call during the same run hits the Busy branch above. */
-  struct xAgent_ *a  = (struct xAgent_ *)s->agent;
   xAgentQueryConf qc = {0};
   qc.cbs             = SESSION_FWD_CBS;
   qc.cbs.user_data   = s;
@@ -1786,18 +2009,29 @@ void xAgentSessionDestroy(xAgentSession sess) {
    * snapshot before the session is torn down. This ensures
    * sessions that never triggered a budget event still deliver
    * their complete conversation to L1. Fires before
-   * on_finalizing so the consumer sees the data first. */
+   * on_finalizing so the consumer sees the data first.
+   *
+   * When the session was primed from external memory, the leading
+   * persisted_prefix entries are already in the store; skip them
+   * here so we don't double-append on every resume. A session
+   * that hasn't received any new turns since prime will end up
+   * delivering an empty batch, which the callback must already
+   * handle gracefully (the agent's own memory callback does). */
   if (s->on_l1_preserve) {
     xAgentSessionL1PreserveFunc hook  = s->on_l1_preserve;
     void                       *owner = s->l1_preserve_owner;
     s->on_l1_preserve                 = NULL;
     s->l1_preserve_owner              = NULL;
     size_t hist_len                   = xArrayLen(s->history_arr);
+    size_t skip = s->persisted_prefix < hist_len ? s->persisted_prefix
+                                                 : hist_len;
+    const xAgentSessionMsg *base =
+      (const xAgentSessionMsg *)xArrayData(s->history_arr);
     /* Always invoke the hook on Finalizing so the owner can free
-     * its context even when the history is empty.  Pass the
-     * (possibly empty) array and its length; the callback is
-     * responsible for handling n_msgs == 0 gracefully. */
-    hook(sess, (const xAgentSessionMsg *)xArrayData(s->history_arr), hist_len,
+     * its context even when the emitted slice is empty.  Pass the
+     * post-prefix tail; the callback is responsible for handling
+     * n_msgs == 0 gracefully. */
+    hook(sess, base + skip, hist_len - skip,
          xAgentL1PreserveReason_Finalizing, owner);
   }
 

@@ -125,9 +125,16 @@ static void session_msg_release(void *elem) {
 static const xArrayCallbacks kHistoryCbs = {NULL, session_msg_release, NULL};
 
 /* Push a new zero-initialised slot onto the history array.
- * Returns the slot pointer, or NULL on allocation failure. */
+ * Returns the slot pointer, or NULL on allocation failure. The
+ * returned slot has @c created_at_ms pre-filled with the current
+ * wall-clock time; callers that are copying an already-stamped
+ * record (produced → history splice) will overwrite the whole
+ * struct and therefore carry the earlier, more accurate stamp. */
 static struct xAgentSessionMsg_ *history_push(struct xAgentSession_ *s) {
-  return (struct xAgentSessionMsg_ *)xArrayPush(&s->history_arr);
+  struct xAgentSessionMsg_ *slot =
+    (struct xAgentSessionMsg_ *)xArrayPush(&s->history_arr);
+  if (slot) slot->created_at_ms = ai_now_unix_ms_();
+  return slot;
 }
 
 /* ── History append API (shared with query.c via session_private.h) ── */
@@ -1378,10 +1385,11 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
        * via xArrayInsert. */
       struct xAgentSessionMsg_ summary_entry;
       memset(&summary_entry, 0, sizeof(summary_entry));
-      summary_entry.role     = xAgentRole_System;
-      summary_entry.kind     = xAgentSessionEntry_Text;
-      summary_entry.text     = summary_text;
-      summary_entry.text_len = prefix_len + summary_bytes;
+      summary_entry.role          = xAgentRole_System;
+      summary_entry.kind          = xAgentSessionEntry_Text;
+      summary_entry.text          = summary_text;
+      summary_entry.text_len      = prefix_len + summary_bytes;
+      summary_entry.created_at_ms = ai_now_unix_ms_();
 
       /* xArrayInsert shifts existing elements up and copies the
        * new element into position 0. */

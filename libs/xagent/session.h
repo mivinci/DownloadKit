@@ -350,6 +350,15 @@ XDEF_ENUM(xAgentSessionEntryKind){
  *   - ToolUse: @c tool_use_id, @c tool_use_name, @c tool_use_args
  *   - ToolResult: @c tool_result_id, @c tool_result_output,
  *     @c tool_result_output_len, @c tool_result_is_error
+ *
+ * @c created_at_ms is the wall-clock unix-millisecond timestamp
+ * recording when the entry was produced (user input, assistant
+ * stream, tool completion). Zero means "unknown" — typically that
+ * the entry came from a path that does not stamp, such as a
+ * handful of legacy tests or memory backends that do not
+ * round-trip the field. Consumers rendering a timeline should
+ * treat zero as "no timestamp available" rather than as the unix
+ * epoch.
  */
 XDEF_STRUCT(xAgentSessionMsg){
   xAgentRole               role;
@@ -369,6 +378,9 @@ XDEF_STRUCT(xAgentSessionMsg){
   const char *tool_result_output;
   size_t      tool_result_output_len;
   int         tool_result_is_error;
+
+  /* Wall-clock unix-ms when this entry was produced. 0 = unknown. */
+  long long   created_at_ms;
 };
 
 /**

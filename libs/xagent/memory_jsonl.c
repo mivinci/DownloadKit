@@ -137,12 +137,16 @@ static const char *kind_to_str_(xAgentSessionEntryKind k) {
   return "text";
 }
 
-/* Wall-clock milliseconds since the unix epoch. Written into every
- * new JSONL entry as the "ts" field so future backends can sort /
- * window by time without re-deriving the order from file position.
- * Not used for current retrieval; older files lacking "ts" parse
- * just fine (parse_line_ tolerates unknown keys and accepts either
- * a plain number or any other scalar via parse_raw_value_into_arena_).
+/* Wall-clock milliseconds since the unix epoch. Used only as a
+ * fallback when an incoming entry arrives with @c created_at_ms == 0
+ * (legacy / hand-crafted test inputs). The normal path is that
+ * session and query already stamp @c created_at_ms at the moment
+ * the entry is produced, which is a more truthful timestamp than
+ * "whenever memory_jsonl happened to flush".
+ *
+ * Memory backends are intentionally kept at arm's length from
+ * xagent-internal headers, so we keep a local copy of this helper
+ * rather than pulling in turn_private.h just for ai_now_unix_ms_.
  */
 static long long now_unix_ms_(void) {
   struct timespec ts;
@@ -150,8 +154,21 @@ static long long now_unix_ms_(void) {
   return (long long)ts.tv_sec * 1000LL + (long long)(ts.tv_nsec / 1000000);
 }
 
+/* Emit one JSONL line. The "ts" field records when the entry was
+ * produced (user input, assistant stream, tool completion) — we
+ * take it from @c created_at_ms if the caller already stamped it,
+ * and only fall back to the current wall-clock when the field is
+ * zero. Either way every persisted line ends up with a value so
+ * future backends can sort / window by time without re-deriving
+ * ordering from file position.
+ *
+ * Not used for current retrieval; older files lacking "ts" parse
+ * just fine (parse_line_ tolerates unknown keys and accepts either
+ * a plain number or any other scalar via parse_raw_value_into_arena_).
+ */
 static void write_msg_line_(FILE *fp, const xAgentSessionMsg *m) {
-  fprintf(fp, "{\"ts\":%lld,\"role\":\"%s\",\"kind\":\"%s\"", now_unix_ms_(),
+  long long ts = m->created_at_ms > 0 ? m->created_at_ms : now_unix_ms_();
+  fprintf(fp, "{\"ts\":%lld,\"role\":\"%s\",\"kind\":\"%s\"", ts,
           role_to_str_(m->role), kind_to_str_(m->kind));
 
   if (m->kind == xAgentSessionEntryKind_Text ||

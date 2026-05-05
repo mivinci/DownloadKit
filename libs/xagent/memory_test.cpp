@@ -429,13 +429,15 @@ TEST(xAgentMemoryJsonl, AppendRejectsMissingIds) {
   xAgentMemoryDestroy(store);
 }
 
-/* Each freshly-written JSONL line carries a unix-ms timestamp in
- * its "ts" field. We don't expose it through xAgentSessionMsg (yet),
- * but future backends that want to sort by time can read it
- * straight off disk, and legacy files without "ts" keep parsing
- * fine. */
-TEST(xAgentMemoryJsonl, AppendStampsWallClockTs) {
-  const std::string root = TempRoot("ts_field_written");
+/* Each freshly-written JSONL line carries the entry's creation
+ * timestamp in the "ts" field. The preferred source is the
+ * @c created_at_ms the caller stamped when producing the entry —
+ * only if that is zero does the backend fall back to the current
+ * wall-clock. Future backends that want to sort by time can read
+ * either shape off disk, and legacy files without "ts" keep
+ * parsing fine (see ReadsLegacyLinesWithoutTs below). */
+TEST(xAgentMemoryJsonl, AppendPersistsExplicitCreatedAtMs) {
+  const std::string root = TempRoot("ts_field_explicit");
   xAgentMemoryJsonlConf c{};
   c.root_dir = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
@@ -444,12 +446,45 @@ TEST(xAgentMemoryJsonl, AppendStampsWallClockTs) {
   xAgentMemoryQuery q{};
   q.session_id = "s";
   xAgentSessionMsg m = MakeText(xAgentRole_User, "hi");
+  /* A distinctive value that wall-clock can't realistically produce
+   * on the same machine at the same instant, so we can prove the
+   * backend used our stamp rather than a fresh read. */
+  m.created_at_ms = 1700000000001LL;
   ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
                                &m, 1),
             xErrno_Ok);
 
-  /* Slurp the file and assert the "ts" key is present with a
-   * plausible millisecond value (> 1e12 is "after year 2001"). */
+  std::string path = root + "/sessions/s/memory.jsonl";
+  std::ifstream f(path);
+  ASSERT_TRUE(f.is_open());
+  std::string line;
+  std::getline(f, line);
+  EXPECT_NE(line.find("\"ts\":1700000000001"), std::string::npos) << line;
+
+  xAgentMemoryDestroy(store);
+}
+
+/* When the caller hands in an entry with @c created_at_ms == 0
+ * (e.g. hand-crafted input from a test that doesn't set it), the
+ * backend falls back to the current wall-clock so every persisted
+ * line still ends up with a value. */
+TEST(xAgentMemoryJsonl, AppendFallsBackToWallClockWhenUnset) {
+  const std::string root = TempRoot("ts_field_fallback");
+  xAgentMemoryJsonlConf c{};
+  c.root_dir = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&c);
+  ASSERT_NE(store, nullptr);
+
+  xAgentMemoryQuery q{};
+  q.session_id = "s";
+  xAgentSessionMsg m = MakeText(xAgentRole_User, "hi");
+  /* MakeText already leaves created_at_ms == 0; assert it for
+   * the record in case MakeText ever changes. */
+  ASSERT_EQ(m.created_at_ms, 0LL);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
+                               &m, 1),
+            xErrno_Ok);
+
   std::string path = root + "/sessions/s/memory.jsonl";
   std::ifstream f(path);
   ASSERT_TRUE(f.is_open());
@@ -457,8 +492,6 @@ TEST(xAgentMemoryJsonl, AppendStampsWallClockTs) {
   std::getline(f, line);
   ASSERT_NE(line.find("\"ts\":"), std::string::npos);
 
-  /* Quick-and-dirty parse: find "ts": and read the following
-   * digits into a long long. */
   size_t pos = line.find("\"ts\":");
   pos += std::strlen("\"ts\":");
   long long v = 0;

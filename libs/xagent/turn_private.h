@@ -38,6 +38,29 @@
 #include <xbase/error.h>
 
 #include <stddef.h>
+#include <time.h>
+
+/**
+ * @brief Wall-clock unix-millisecond timestamp.
+ *
+ * Used by history / produced slot fillers to stamp @c created_at_ms
+ * at the moment an entry is produced, and by memory_jsonl as a
+ * fallback when an incoming entry arrives with @c created_at_ms == 0
+ * (e.g. hand-crafted test inputs). Inlined here so session.c,
+ * query.c and memory_jsonl.c agree on the definition without having
+ * to export a real symbol from one of them.
+ *
+ * Uses CLOCK_REALTIME — the goal is to persist a human-meaningful
+ * instant, not to measure elapsed time, so monotonic-clock semantics
+ * would be wrong here (machine reboots would reset the "creation"
+ * epoch). Returns 0 on clock failure, which callers treat as
+ * "unknown" identically to an unset field.
+ */
+static inline long long ai_now_unix_ms_(void) {
+  struct timespec ts;
+  if (clock_gettime(CLOCK_REALTIME, &ts) != 0) return 0;
+  return (long long)ts.tv_sec * 1000LL + (long long)(ts.tv_nsec / 1000000);
+}
 
 /**
  * @brief Kind of a turn entry.
@@ -96,6 +119,16 @@ struct xAgentSessionMsg_ {
   char  *tool_result_output;
   size_t tool_result_output_len;
   int    tool_result_is_error;
+
+  /* Wall-clock unix-ms timestamp recording when this entry was
+   * created (user typed it, assistant streamed it, tool finished).
+   * Zero means "unknown" — e.g. the slot was hand-rolled by a test
+   * or by a callback delivering legacy on-disk data that predates
+   * this field. Consumers that just want to display / sort by time
+   * should fall back to "0 → now" on read. memory_jsonl uses this
+   * value when writing the "ts" field and only falls back to a
+   * fresh wall-clock read when the field is zero. */
+  long long created_at_ms;
 };
 
 /**

@@ -1,9 +1,17 @@
+<!-- markdownlint-disable MD033 -->
+<!-- markdownlint-disable MD041 -->
 # moo
 
 Welcome to the moo documentation. **moo** is a small, self-contained **AI agent written in C** — plus the foundation libraries it rides on. It ships as a terminal app (`moo`) that talks to any OpenAI-compatible endpoint (Kimi, GLM, DeepSeek, OpenAI itself, …); an Anthropic-compatible provider is on the roadmap. Runs on **macOS** and **Linux**; Windows is on the roadmap but not a near-term priority.
 
 - Designed and reviewed by [@mivinci](https://github.com/mivinci)
 - Coded by CodeBuddy (VSCode plugin) with claude-opus-4.7 and GLM-5.1
+
+Here's what a session looks like:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mivinci/moo/main/docs/screenshot.png" alt="moo in action" width="760">
+</p>
 
 ## Architecture Overview
 

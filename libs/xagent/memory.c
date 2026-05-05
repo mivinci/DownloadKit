@@ -76,20 +76,18 @@ void xAgentMemoryReleaseHits(xAgentMemory store, xAgentMemoryHits *hits) {
 
 /* ── OpenSession / CloseSession ──────────────────────────────────── */
 
-xErrno xAgentMemoryOpenSession(xAgentMemory store, const char *agent_id,
-                               const char *session_id) {
+xErrno xAgentMemoryOpenSession(xAgentMemory store, const char *session_id) {
   if (!store) return xErrno_Ok;
   struct xAgentMemory_ *s = (struct xAgentMemory_ *)store;
   if (!s->vt || !s->vt->on_session_open) return xErrno_Ok;
-  return s->vt->on_session_open(store, agent_id, session_id);
+  return s->vt->on_session_open(store, session_id);
 }
 
-xErrno xAgentMemoryCloseSession(xAgentMemory store, const char *agent_id,
-                                const char *session_id) {
+xErrno xAgentMemoryCloseSession(xAgentMemory store, const char *session_id) {
   if (!store) return xErrno_Ok;
   struct xAgentMemory_ *s = (struct xAgentMemory_ *)store;
   if (!s->vt || !s->vt->on_session_close) return xErrno_Ok;
-  return s->vt->on_session_close(store, agent_id, session_id);
+  return s->vt->on_session_close(store, session_id);
 }
 
 /* ── Destroy ─────────────────────────────────────────────────────── */

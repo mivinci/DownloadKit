@@ -5,13 +5,12 @@
  *
  * memory_jsonl.c - Built-in file-backed xAgentMemory implementation
  *
- * Lays out one JSONL file per (agent_id, session_id) pair under:
- *   {root_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
+ * Lays out one JSONL file per session_id under:
+ *   {root_dir}/sessions/{session_id}/memory.jsonl
  *
- * Append is a straight fopen("a") + fprintf; the file format is the
- * same one agent.c has been writing via the L1 preserve hook, so an
- * existing directory tree is backwards compatible when the agent
- * eventually switches over to this backend.
+ * Append is a straight fopen("a") + fprintf; each line is one
+ * xAgentSessionMsg serialised into a minimal, self-describing JSON
+ * object (role / kind / payload + a wall-clock "ts" field).
  *
  * Retrieve reads the whole file into memory, splits on newlines,
  * keeps the last N lines that parse successfully, and materialises
@@ -87,18 +86,16 @@ static int mk_parent_dirs_(const char *path) {
 }
 
 /* Build the per-session JSONL path. Returns a malloc'd string the
- * caller must free, or NULL on OOM / missing ids. */
-static char *build_path_(const struct memory_jsonl_ *b, const char *agent_id,
+ * caller must free, or NULL on OOM / missing id. */
+static char *build_path_(const struct memory_jsonl_ *b,
                          const char *session_id) {
-  if (!b || !b->root_dir || !agent_id || !session_id) return NULL;
+  if (!b || !b->root_dir || !session_id) return NULL;
 
-  size_t n = strlen(b->root_dir) + strlen("/agents/") + strlen(agent_id) +
-             strlen("/sessions/") + strlen(session_id) +
+  size_t n = strlen(b->root_dir) + strlen("/sessions/") + strlen(session_id) +
              strlen("/memory.jsonl") + 1;
   char *p = (char *)malloc(n);
   if (!p) return NULL;
-  snprintf(p, n, "%s/agents/%s/sessions/%s/memory.jsonl", b->root_dir,
-           agent_id, session_id);
+  snprintf(p, n, "%s/sessions/%s/memory.jsonl", b->root_dir, session_id);
   return p;
 }
 
@@ -469,9 +466,9 @@ static xErrno jsonl_append_(xAgentMemory store, const xAgentMemoryQuery *query,
   (void)reason; /* Append shape is identical for every reason today */
   struct memory_jsonl_ *b = (struct memory_jsonl_ *)store;
 
-  if (!query->agent_id || !query->session_id) return xErrno_InvalidArg;
+  if (!query->session_id) return xErrno_InvalidArg;
 
-  char *path = build_path_(b, query->agent_id, query->session_id);
+  char *path = build_path_(b, query->session_id);
   if (!path) return xErrno_NoMemory;
 
   if (mk_parent_dirs_(path) != 0) {
@@ -533,14 +530,14 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
                               const xAgentMemoryQuery *query,
                               xAgentMemoryHits *out) {
   struct memory_jsonl_ *b = (struct memory_jsonl_ *)store;
-  if (!query->agent_id || !query->session_id) return xErrno_InvalidArg;
+  if (!query->session_id) return xErrno_InvalidArg;
 
   /* Resolve the per-call cap: caller hint wins; otherwise backend
    * default. */
   size_t cap = query->max_entries ? query->max_entries : b->default_max_entries;
   if (cap == 0) cap = XAGENT_MEMORY_JSONL_DEFAULT_MAX_ENTRIES;
 
-  char *path = build_path_(b, query->agent_id, query->session_id);
+  char *path = build_path_(b, query->session_id);
   if (!path) return xErrno_NoMemory;
 
   char  *content = NULL;

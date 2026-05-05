@@ -76,19 +76,11 @@ XDEF_STRUCT(xAgentMemoryQuery) {
    * @brief Session issuing the retrieve.
    *
    * Stores that key entries by session_id use this to scope the
-   * search; NULL means "not bound to any particular session" and
-   * stores should treat it as "all sessions owned by this agent".
+   * search; MUST be non-NULL for append-style backends (the built-
+   * in JSONL store rejects NULL with xErrno_InvalidArg). Borrowed;
+   * never NUL-free'd.
    */
   const char *session_id;
-
-  /**
-   * @brief Agent id the session belongs to, or NULL if the agent
-   *        was created without one.
-   *
-   * Together with @ref session_id this uniquely names the slot
-   * the backend should search. Borrowed; never NUL-free'd.
-   */
-  const char *agent_id;
 
   /**
    * @brief The user message that triggered this retrieve.
@@ -172,9 +164,9 @@ XDEF_STRUCT(xAgentMemoryVTable) {
    * @brief Persist a batch of history entries.
    *
    * @param store    Store handle.
-   * @param query    Scope (session_id / agent_id). Only the id
-   *                 fields are meaningful here; recent_turn and
-   *                 the budget fields are ignored.
+   * @param query    Scope (session_id). Only the id field is
+   *                 meaningful here; recent_turn and the budget
+   *                 fields are ignored.
    * @param reason   Why this batch is being persisted.
    * @param msgs     Read-only array of entries to persist.
    * @param n_msgs   Number of entries in @p msgs.
@@ -220,15 +212,13 @@ XDEF_STRUCT(xAgentMemoryVTable) {
    * index for the session. Called at most once per (session_id,
    * store) pair; safe to leave NULL.
    */
-  xErrno (*on_session_open)(xAgentMemory store, const char *agent_id,
-                            const char *session_id);
+  xErrno (*on_session_open)(xAgentMemory store, const char *session_id);
 
   /**
    * @brief Optional: mirror of @ref on_session_open fired at
    *        session teardown AFTER the final Append.
    */
-  xErrno (*on_session_close)(xAgentMemory store, const char *agent_id,
-                             const char *session_id);
+  xErrno (*on_session_close)(xAgentMemory store, const char *session_id);
 
   /**
    * @brief Destroy the backend instance.
@@ -276,13 +266,13 @@ XCAPI(void) xAgentMemoryReleaseHits(xAgentMemory store,
  *        against it. No-op when either the store or its vtable
  *        does not implement on_session_open.
  */
-XCAPI(xErrno) xAgentMemoryOpenSession(xAgentMemory store, const char *agent_id,
+XCAPI(xErrno) xAgentMemoryOpenSession(xAgentMemory store,
                                       const char *session_id);
 
 /**
  * @brief Notify the store that a session has just torn down.
  */
-XCAPI(xErrno) xAgentMemoryCloseSession(xAgentMemory store, const char *agent_id,
+XCAPI(xErrno) xAgentMemoryCloseSession(xAgentMemory store,
                                        const char *session_id);
 
 /**
@@ -300,17 +290,16 @@ XCAPI(void) xAgentMemoryDestroy(xAgentMemory store);
 /**
  * @brief Configuration for the built-in JSONL backend.
  *
- * The JSONL backend mirrors the existing auto-wired L1 preserve
- * writer in agent.c: each session gets its own append-only file at
- *   {root_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
+ * Each session gets its own append-only file at
+ *   {root_dir}/sessions/{session_id}/memory.jsonl
  * and retrieval reads the tail of that file, newest-first. It is
  * intentionally simple — no indexing, no summarisation, no vector
  * search — so callers can compose it with smarter layers on top.
  */
 XDEF_STRUCT(xAgentMemoryJsonlConf) {
   /**
-   * @brief Root directory under which per-agent / per-session
-   *        files are created.
+   * @brief Root directory under which per-session files are
+   *        created.
    *
    * Borrowed from the caller for the store's lifetime. The
    * backend calls mkdir -p as needed. When NULL the factory

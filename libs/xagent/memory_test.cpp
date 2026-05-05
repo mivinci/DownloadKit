@@ -91,7 +91,6 @@ static xAgentSessionMsg MakeText(xAgentRole role, const char *text) {
 
 TEST(xAgentMemory, NullStoreIsNoOp) {
   xAgentMemoryQuery q{};
-  q.agent_id   = "a";
   q.session_id = "s";
 
   EXPECT_EQ(xAgentMemoryAppend(nullptr, &q,
@@ -106,14 +105,13 @@ TEST(xAgentMemory, NullStoreIsNoOp) {
   /* Release on an already-zero hit set is safe. */
   xAgentMemoryReleaseHits(nullptr, &hits);
 
-  EXPECT_EQ(xAgentMemoryOpenSession(nullptr, "a", "s"), xErrno_Ok);
-  EXPECT_EQ(xAgentMemoryCloseSession(nullptr, "a", "s"), xErrno_Ok);
+  EXPECT_EQ(xAgentMemoryOpenSession(nullptr, "s"), xErrno_Ok);
+  EXPECT_EQ(xAgentMemoryCloseSession(nullptr, "s"), xErrno_Ok);
   xAgentMemoryDestroy(nullptr); /* must not crash */
 }
 
 TEST(xAgentMemory, NullOutHitsIsInvalidArg) {
   xAgentMemoryQuery q{};
-  q.agent_id   = "a";
   q.session_id = "s";
   EXPECT_EQ(xAgentMemoryRetrieve(nullptr, &q, nullptr), xErrno_InvalidArg);
 }
@@ -149,7 +147,6 @@ TEST(xAgentMemoryJsonl, AppendThenRetrieveText) {
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
-  q.agent_id   = "agent1";
   q.session_id = "sess1";
 
   xAgentSessionMsg msgs[] = {
@@ -161,8 +158,7 @@ TEST(xAgentMemoryJsonl, AppendThenRetrieveText) {
             xErrno_Ok);
 
   /* The file should now exist on disk. */
-  std::string path =
-    root + "/agents/agent1/sessions/sess1/memory.jsonl";
+  std::string path = root + "/sessions/sess1/memory.jsonl";
   ASSERT_TRUE(PathExists(path));
 
   xAgentMemoryHits hits{};
@@ -194,7 +190,6 @@ TEST(xAgentMemoryJsonl, EscapesSpecialCharactersRoundTrip) {
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
-  q.agent_id   = "a";
   q.session_id = "s";
 
   const char *tricky = "line1\nline2\twith\"quotes\"and\\backslashes";
@@ -221,7 +216,6 @@ TEST(xAgentMemoryJsonl, ToolUseAndToolResultRoundTrip) {
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
-  q.agent_id   = "a";
   q.session_id = "s";
 
   xAgentSessionMsg tool_use{};
@@ -275,7 +269,6 @@ TEST(xAgentMemoryJsonl, ToolResultIsErrorFlag) {
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
-  q.agent_id   = "a";
   q.session_id = "s";
 
   xAgentSessionMsg m{};
@@ -306,7 +299,6 @@ TEST(xAgentMemoryJsonl, MaxEntriesWindowKeepsTail) {
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
-  q.agent_id   = "a";
   q.session_id = "s";
 
   /* Append 10 entries with increasing body text. */
@@ -343,7 +335,6 @@ TEST(xAgentMemoryJsonl, RetrieveOnMissingFileIsEmpty) {
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
-  q.agent_id   = "never_appended";
   q.session_id = "never_appended";
 
   xAgentMemoryHits hits{};
@@ -363,7 +354,7 @@ TEST(xAgentMemoryJsonl, MalformedLinesAreSkipped) {
   ASSERT_NE(store, nullptr);
 
   /* Prepare a file with one good line sandwiched between garbage. */
-  std::string dir = root + "/agents/mixed/sessions/default";
+  std::string dir = root + "/sessions/default";
   MkdirsP(dir);
   std::string path = dir + "/memory.jsonl";
   {
@@ -374,7 +365,6 @@ TEST(xAgentMemoryJsonl, MalformedLinesAreSkipped) {
   }
 
   xAgentMemoryQuery q{};
-  q.agent_id   = "mixed";
   q.session_id = "default";
   xAgentMemoryHits hits{};
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
@@ -394,7 +384,6 @@ TEST(xAgentMemoryJsonl, SeparateSessionsDoNotBleed) {
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q1{};
-  q1.agent_id   = "a";
   q1.session_id = "s1";
   xAgentSessionMsg m1 = MakeText(xAgentRole_User, "in_s1");
   ASSERT_EQ(xAgentMemoryAppend(store, &q1, xAgentMemoryAppendReason_Explicit,
@@ -402,7 +391,6 @@ TEST(xAgentMemoryJsonl, SeparateSessionsDoNotBleed) {
             xErrno_Ok);
 
   xAgentMemoryQuery q2{};
-  q2.agent_id   = "a";
   q2.session_id = "s2";
   xAgentSessionMsg m2 = MakeText(xAgentRole_User, "in_s2");
   ASSERT_EQ(xAgentMemoryAppend(store, &q2, xAgentMemoryAppendReason_Explicit,
@@ -432,15 +420,8 @@ TEST(xAgentMemoryJsonl, AppendRejectsMissingIds) {
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
-  xAgentMemoryQuery q{};
-  q.session_id = "s"; /* agent_id missing */
+  xAgentMemoryQuery q{}; /* session_id missing */
   xAgentSessionMsg m = MakeText(xAgentRole_User, "x");
-  EXPECT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                               &m, 1),
-            xErrno_InvalidArg);
-
-  q.agent_id   = "a";
-  q.session_id = nullptr;
   EXPECT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
                                &m, 1),
             xErrno_InvalidArg);
@@ -461,7 +442,6 @@ TEST(xAgentMemoryJsonl, AppendStampsWallClockTs) {
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
-  q.agent_id   = "a";
   q.session_id = "s";
   xAgentSessionMsg m = MakeText(xAgentRole_User, "hi");
   ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
@@ -470,7 +450,7 @@ TEST(xAgentMemoryJsonl, AppendStampsWallClockTs) {
 
   /* Slurp the file and assert the "ts" key is present with a
    * plausible millisecond value (> 1e12 is "after year 2001"). */
-  std::string path = root + "/agents/a/sessions/s/memory.jsonl";
+  std::string path = root + "/sessions/s/memory.jsonl";
   std::ifstream f(path);
   ASSERT_TRUE(f.is_open());
   std::string line;
@@ -500,7 +480,7 @@ TEST(xAgentMemoryJsonl, ReadsLegacyLinesWithoutTs) {
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
-  std::string dir = root + "/agents/a/sessions/s";
+  std::string dir = root + "/sessions/s";
   MkdirsP(dir);
   {
     std::ofstream f(dir + "/memory.jsonl");
@@ -509,7 +489,6 @@ TEST(xAgentMemoryJsonl, ReadsLegacyLinesWithoutTs) {
   }
 
   xAgentMemoryQuery q{};
-  q.agent_id   = "a";
   q.session_id = "s";
   xAgentMemoryHits hits{};
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);

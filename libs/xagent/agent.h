@@ -214,46 +214,22 @@ XDEF_STRUCT(xAgentConf) {
   const xAgentSessionConf *default_session_conf;
 
   /**
-   * @brief Unique identifier for this agent instance.
-   *
-   * Used as part of the L1 memory file path:
-   *   {data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
-   * Borrowed from the caller; must remain alive for the agent's
-   * lifetime. May be NULL — when NULL the agent does not
-   * auto-wire the L1 preserve callback into its sessions.
-   */
-  const char *agent_id;
-
-  /**
-   * @brief Root directory for persistent agent data.
-   *
-   * Borrowed from the caller; must remain alive for the agent's
-   * lifetime. When non-NULL and @ref agent_id is non-NULL, the
-   * agent automatically wires an L1 preserve callback into every
-   * session it creates, appending JSONL entries under:
-   *   {data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
-   * May be NULL — when NULL the agent does not auto-wire the
-   * L1 preserve callback.
-   *
-   * Ignored when @ref memory is non-NULL: the explicit memory
-   * store takes priority and is responsible for choosing its own
-   * storage location.
-   */
-  const char *data_dir;
-
-  /**
-   * @brief Optional external memory store to use for L1 persistence.
+   * @brief Pluggable long-term memory store.
    *
    * Borrowed from the caller; must remain alive for the agent's
    * lifetime and be destroyed AFTER xAgentDestroy() returns. When
-   * non-NULL the agent wires the store into every session it
-   * creates via xAgentMemoryAppend, taking priority over the
-   * built-in @ref data_dir auto-wire (so callers don't need to
-   * clear @ref data_dir when opting into the new path).
+   * non-NULL the agent:
    *
-   * NULL (the default) keeps the legacy behaviour: when
-   * @ref data_dir and @ref agent_id are both set the agent writes
-   * its own JSONL files; otherwise no persistence happens.
+   *   - Auto-wires an L1 preserve callback into every session it
+   *     creates so each session's history is appended to the store
+   *     via xAgentMemoryAppend().
+   *   - On xAgentCreateSession(), primes the new session's history
+   *     from the store so resumed sessions pick up where they left
+   *     off.
+   *
+   * NULL (the default) disables both — sessions run in-memory only
+   * and no cross-run persistence happens. Callers who want a
+   * file-backed store can use xAgentMemoryJsonlCreate().
    */
   xAgentMemory memory;
 
@@ -332,17 +308,6 @@ XCAPI(void) xAgentDestroy(xAgent agent);
  *               created).
  */
 XCAPI(xAgentSession) xAgentDefaultSession(xAgent agent);
-
-/**
- * @brief Return the agent's unique identifier.
- *
- * Returns the @ref xAgentConf::agent_id string that was provided
- * at creation time. NULL if the agent was created without one.
- *
- * @param agent  Agent handle.
- * @return       The agent id, or NULL.
- */
-XCAPI(const char *) xAgentId(xAgent agent);
 
 /**
  * @brief Create a session bound to the agent.

@@ -327,9 +327,9 @@ TEST_F(AgentTest, MemoryStoreReceivesL1Preserve) {
   xAgentConf conf = {};
   conf.loop     = loop;
   conf.provider = pvd;
-  conf.agent_id = "integ_agent";
-  /* data_dir is irrelevant when memory is set — we leave it NULL to
-   * be sure the memory path is the one taking effect. */
+  /* data_dir is irrelevant now that legacy auto-wire is gone; the
+   * memory store picks its own root. We still set it to NULL to
+   * make the intent explicit. */
   conf.memory   = store;
 
   xAgent ag = xAgentCreate(&conf);
@@ -366,7 +366,6 @@ TEST_F(AgentTest, MemoryStoreReceivesL1Preserve) {
 
   /* Retrieve from the store and assert the two entries round-tripped. */
   xAgentMemoryQuery q{};
-  q.agent_id   = "integ_agent";
   q.session_id = "sess_a";
   xAgentMemoryHits hits{};
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
@@ -385,28 +384,27 @@ TEST_F(AgentTest, MemoryStoreReceivesL1Preserve) {
   (void)std::system(rm.c_str());
 }
 
-/* When no memory store is configured but data_dir IS, sessions still
- * get the legacy JSONL callback wired in. This is the backwards-
- * compat guard: existing callers must keep working. */
-TEST_F(AgentTest, WithoutMemoryStoreFallsBackToJsonlAutoWire) {
+/* Without a memory store the agent does no L1 wiring at all: no
+ * preserve callback is injected and no history is primed. This is
+ * the "pure in-memory session" contract callers rely on when they
+ * opt out of persistence. */
+TEST_F(AgentTest, WithoutMemoryStoreNoL1Wiring) {
   xAgentConf conf = {};
   conf.loop     = loop;
   conf.provider = pvd;
-  conf.agent_id = "legacy_agent";
-  conf.data_dir = "/tmp/xagent_test_legacy"; /* any path */
   /* conf.memory stays NULL */
 
   xAgent ag = xAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);
 
   xAgentSessionConf sc = {};
-  sc.session_id      = "sess_legacy";
+  sc.session_id      = "sess_no_mem";
   xAgentSession sess = xAgentCreateSession(ag, &sc);
   ASSERT_NE(sess, nullptr);
 
   auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
-  EXPECT_NE(s->on_l1_preserve, nullptr);
-  EXPECT_NE(s->l1_preserve_owner, nullptr);
+  EXPECT_EQ(s->on_l1_preserve, nullptr);
+  EXPECT_EQ(s->l1_preserve_owner, nullptr);
 
   xAgentSessionDestroy(sess);
   xAgentDestroy(ag);
@@ -427,7 +425,6 @@ TEST_F(AgentTest, CallerProvidedL1CbTakesPriorityOverMemory) {
   xAgentConf conf = {};
   conf.loop     = loop;
   conf.provider = pvd;
-  conf.agent_id = "a";
   conf.memory   = store;
 
   xAgent ag = xAgentCreate(&conf);
@@ -468,7 +465,6 @@ TEST_F(AgentTest, MemoryPrimesHistoryOnCreateSession) {
    * session end-to-end. The prime path doesn't care where the
    * entries came from. */
   xAgentMemoryQuery wq{};
-  wq.agent_id   = "prime_agent";
   wq.session_id = "resumed";
   xAgentSessionMsg seed0{};
   seed0.role     = xAgentRole_User;
@@ -488,7 +484,6 @@ TEST_F(AgentTest, MemoryPrimesHistoryOnCreateSession) {
   xAgentConf conf = {};
   conf.loop     = loop;
   conf.provider = pvd;
-  conf.agent_id = "prime_agent";
   conf.memory   = store;
 
   xAgent ag = xAgentCreate(&conf);
@@ -519,15 +514,11 @@ TEST_F(AgentTest, MemoryPrimesHistoryOnCreateSession) {
 }
 
 /* Without a memory store the session still starts with an empty
- * history_arr, even when the (agent_id, session_id) combination
- * was previously used with the legacy data_dir writer. Prime is a
- * memory-store-only feature. */
+ * history_arr — prime is a memory-store-only feature. */
 TEST_F(AgentTest, NoPrimeWithoutMemoryStore) {
   xAgentConf conf = {};
   conf.loop     = loop;
   conf.provider = pvd;
-  conf.agent_id = "legacy";
-  conf.data_dir = "/tmp/xagent_test_legacy_no_prime";
 
   xAgent ag = xAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);
@@ -559,7 +550,6 @@ TEST_F(AgentTest, PrimedPrefixIsSkippedOnFinalizing) {
 
   /* Seed two rows into the store. */
   xAgentMemoryQuery q{};
-  q.agent_id   = "a";
   q.session_id = "resume";
   xAgentSessionMsg s0{};
   s0.role     = xAgentRole_User;
@@ -579,7 +569,6 @@ TEST_F(AgentTest, PrimedPrefixIsSkippedOnFinalizing) {
   xAgentConf conf = {};
   conf.loop     = loop;
   conf.provider = pvd;
-  conf.agent_id = "a";
   conf.memory   = store;
   xAgent ag = xAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);

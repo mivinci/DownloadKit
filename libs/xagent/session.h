@@ -759,8 +759,10 @@ XDEF_STRUCT(xAgentSessionConf) {
   /**
    * @brief Unique identifier for this session instance.
    *
-   * Used as part of the L1 memory file path:
-   *   {data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
+   * Used by the agent's pluggable memory store (see
+   * xAgentConf::memory) to key per-session state. The built-in
+   * JSONL backend, for example, lays out one file per id under
+   *   {root_dir}/sessions/{session_id}/memory.jsonl
    * Borrowed from the caller; must remain alive for the session's
    * lifetime. When NULL the agent may auto-generate one during
    * xAgentCreateSession(). Readable via xAgentSessionId().

@@ -24,6 +24,7 @@
 #include <xagent/tool.h>
 #include <xbase/event.h>
 #include <xline/line.h>
+#include <xtui/md.h>
 
 #include <deque>
 #include <string>
@@ -51,7 +52,16 @@ struct ReplCtx {
   bool          in_thinking      = false; /* currently streaming thinking? */
   size_t        reply_bytes      = 0;
   int           total_tokens     = 0;   /* cumulative across all rounds */
-  size_t        budget_limit     = 0;   /* from last GatePassed event */
+  /* Streaming markdown -> ANSI translator. Embedded by value -
+   * the renderer is a tiny plain-data struct (~32 bytes, fixed
+   * 4-byte pending buffer) so we keep it inline. xMdReset() is
+   * called between runs so state doesn't bleed across turns. */
+  xMd           md_renderer       = {};
+  /* Opt-out for non-TTY / dumb terminals. When false, on_text
+   * bypasses md_renderer and writes chunks raw. Decided once at
+   * startup from isatty(stdout) && $TERM != "dumb" and never
+   * flipped - keeping this cheap and predictable. */
+  bool          md_enabled      = false;  size_t        budget_limit     = 0;   /* from last GatePassed event */
   size_t        budget_remaining = 0;   /* from last GatePassed event */
   double        budget_factor    = 1.0; /* EWMA calibrator factor */
   size_t        budget_samples   = 0;   /* calibrator observation count */

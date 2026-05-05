@@ -23,7 +23,7 @@ add_executable(moo
 )
 # cJSON is a PRIVATE dep: config.cpp parses models.json with it.
 find_package(Cjson REQUIRED)
-target_link_libraries(moo PRIVATE xagent xhttp xbase xline Cjson::Cjson)
+target_link_libraries(moo PRIVATE xagent xhttp xbase xline xtui Cjson::Cjson)
 target_include_directories(moo PRIVATE
   ${CMAKE_SOURCE_DIR}/libs
   ${CMAKE_CURRENT_SOURCE_DIR}

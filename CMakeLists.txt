@@ -70,6 +70,7 @@ add_subdirectory(libs/xfer)
 add_subdirectory(libs/xagent)
 add_subdirectory(libs/xjs)
 add_subdirectory(libs/xline)
+add_subdirectory(libs/xtui)
 
 if(MOO_BUILD_APPS)
   add_subdirectory(apps)

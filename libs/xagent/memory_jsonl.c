@@ -30,15 +30,15 @@
 
 #include "memory_private.h"
 
+#include <xbase/time.h> /* xWallMs */
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <sys/types.h>
-#include <time.h>
 
 /* ── Backend state ─────────────────────────────────────────────────── */
 
@@ -137,23 +137,6 @@ static const char *kind_to_str_(xAgentSessionEntryKind k) {
   return "text";
 }
 
-/* Wall-clock milliseconds since the unix epoch. Used only as a
- * fallback when an incoming entry arrives with @c created_at_ms == 0
- * (legacy / hand-crafted test inputs). The normal path is that
- * session and query already stamp @c created_at_ms at the moment
- * the entry is produced, which is a more truthful timestamp than
- * "whenever memory_jsonl happened to flush".
- *
- * Memory backends are intentionally kept at arm's length from
- * xagent-internal headers, so we keep a local copy of this helper
- * rather than pulling in turn_private.h just for ai_now_unix_ms_.
- */
-static long long now_unix_ms_(void) {
-  struct timespec ts;
-  if (clock_gettime(CLOCK_REALTIME, &ts) != 0) return 0;
-  return (long long)ts.tv_sec * 1000LL + (long long)(ts.tv_nsec / 1000000);
-}
-
 /* Emit one JSONL line. The "ts" field records when the entry was
  * produced (user input, assistant stream, tool completion) — we
  * take it from @c created_at_ms if the caller already stamped it,
@@ -167,9 +150,9 @@ static long long now_unix_ms_(void) {
  * a plain number or any other scalar via parse_raw_value_into_arena_).
  */
 static void write_msg_line_(FILE *fp, const xAgentSessionMsg *m) {
-  long long ts = m->created_at_ms > 0 ? m->created_at_ms : now_unix_ms_();
-  fprintf(fp, "{\"ts\":%lld,\"role\":\"%s\",\"kind\":\"%s\"", ts,
-          role_to_str_(m->role), kind_to_str_(m->kind));
+  uint64_t ts = m->created_at_ms != 0 ? m->created_at_ms : xWallMs();
+  fprintf(fp, "{\"ts\":%llu,\"role\":\"%s\",\"kind\":\"%s\"",
+          (unsigned long long)ts, role_to_str_(m->role), kind_to_str_(m->kind));
 
   if (m->kind == xAgentSessionEntryKind_Text ||
       m->kind == xAgentSessionEntryKind_Thinking) {

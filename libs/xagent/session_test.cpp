@@ -3028,7 +3028,7 @@ TEST_F(SessionTest, UserInputStampsCreatedAt) {
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
   ASSERT_GE(hist_len(s), 1u);
-  EXPECT_GT(hist_at(s, 0)->created_at_ms, 1000000000000LL)
+  EXPECT_GT(hist_at(s, 0)->created_at_ms, 1000000000000ULL)
       << "user entry should carry a wall-clock stamp";
 
   xAgentSessionDestroy(sess);
@@ -3065,15 +3065,15 @@ TEST_F(SessionTest, ProducedEntriesKeepProductionTimeStamp) {
   /* Layout after two turns: user1, asst1, user2, asst2. */
   ASSERT_GE(hist_len(s), 4u);
 
-  long long t_u1 = hist_at(s, 0)->created_at_ms;
-  long long t_a1 = hist_at(s, 1)->created_at_ms;
-  long long t_u2 = hist_at(s, 2)->created_at_ms;
-  long long t_a2 = hist_at(s, 3)->created_at_ms;
+  uint64_t t_u1 = hist_at(s, 0)->created_at_ms;
+  uint64_t t_a1 = hist_at(s, 1)->created_at_ms;
+  uint64_t t_u2 = hist_at(s, 2)->created_at_ms;
+  uint64_t t_a2 = hist_at(s, 3)->created_at_ms;
 
-  EXPECT_GT(t_u1, 0LL);
-  EXPECT_GT(t_a1, 0LL);
-  EXPECT_GT(t_u2, 0LL);
-  EXPECT_GT(t_a2, 0LL);
+  EXPECT_GT(t_u1, 0ULL);
+  EXPECT_GT(t_a1, 0ULL);
+  EXPECT_GT(t_u2, 0ULL);
+  EXPECT_GT(t_a2, 0ULL);
 
   /* Chronological order must hold across the splice: the assistant
    * chunk from round 1 was stamped at production time (inside the

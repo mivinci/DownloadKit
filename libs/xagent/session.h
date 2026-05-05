@@ -380,7 +380,7 @@ XDEF_STRUCT(xAgentSessionMsg){
   int         tool_result_is_error;
 
   /* Wall-clock unix-ms when this entry was produced. 0 = unknown. */
-  long long   created_at_ms;
+  uint64_t    created_at_ms;
 };
 
 /**

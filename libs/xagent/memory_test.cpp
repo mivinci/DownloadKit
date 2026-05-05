@@ -449,7 +449,7 @@ TEST(xAgentMemoryJsonl, AppendPersistsExplicitCreatedAtMs) {
   /* A distinctive value that wall-clock can't realistically produce
    * on the same machine at the same instant, so we can prove the
    * backend used our stamp rather than a fresh read. */
-  m.created_at_ms = 1700000000001LL;
+  m.created_at_ms = 1700000000001ULL;
   ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
                                &m, 1),
             xErrno_Ok);
@@ -480,7 +480,7 @@ TEST(xAgentMemoryJsonl, AppendFallsBackToWallClockWhenUnset) {
   xAgentSessionMsg m = MakeText(xAgentRole_User, "hi");
   /* MakeText already leaves created_at_ms == 0; assert it for
    * the record in case MakeText ever changes. */
-  ASSERT_EQ(m.created_at_ms, 0LL);
+  ASSERT_EQ(m.created_at_ms, 0ULL);
   ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
                                &m, 1),
             xErrno_Ok);

@@ -49,6 +49,7 @@
 #include <xbase/base.h>
 #include <xbase/error.h>
 #include <xbase/array.h>
+#include <xbase/time.h>
 #include <xbuf/buf.h>
 
 #include <stdio.h>
@@ -138,7 +139,7 @@ static const xArrayCallbacks kMsgCbs = { NULL, query_msg_release, NULL };
 static struct xAgentSessionMsg_ *msg_push(xArray *arrp) {
   struct xAgentSessionMsg_ *slot =
     (struct xAgentSessionMsg_ *)xArrayPush(arrp);
-  if (slot) slot->created_at_ms = ai_now_unix_ms_();
+  if (slot) slot->created_at_ms = xWallMs();
   return slot;
 }
 

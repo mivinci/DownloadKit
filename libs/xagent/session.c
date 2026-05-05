@@ -133,7 +133,7 @@ static const xArrayCallbacks kHistoryCbs = {NULL, session_msg_release, NULL};
 static struct xAgentSessionMsg_ *history_push(struct xAgentSession_ *s) {
   struct xAgentSessionMsg_ *slot =
     (struct xAgentSessionMsg_ *)xArrayPush(&s->history_arr);
-  if (slot) slot->created_at_ms = ai_now_unix_ms_();
+  if (slot) slot->created_at_ms = xWallMs();
   return slot;
 }
 
@@ -1389,7 +1389,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       summary_entry.kind          = xAgentSessionEntry_Text;
       summary_entry.text          = summary_text;
       summary_entry.text_len      = prefix_len + summary_bytes;
-      summary_entry.created_at_ms = ai_now_unix_ms_();
+      summary_entry.created_at_ms = xWallMs();
 
       /* xArrayInsert shifts existing elements up and copies the
        * new element into position 0. */

@@ -48,7 +48,7 @@ Pair[2] succeeded at T=120 ms but nomination happened at T=370 ms — a **250 ms
 
 ### Comparison with libwebrtc (Chromium)
 
-| Aspect | xKit (current) | libwebrtc (Chromium) |
+| Aspect | moo (current) | libwebrtc (Chromium) |
 | --- | --- | --- |
 | **When to nominate** | After all pairs dispatched | First success → immediately usable |
 | **Nomination model** | One-shot, immutable | Dynamic, can switch to better pair later |
@@ -134,7 +134,7 @@ P2 — The current strategy works correctly but adds unnecessary latency (100–
 
 ### Affected Code
 
-- `modules/xp2p/ice_agent.c` — `try_nominate()`, `check_pacing_cb()`, `on_check_response()`
+- `libs/xp2p/ice_agent.c` — `try_nominate()`, `check_pacing_cb()`, `on_check_response()`
 
 ### References
 

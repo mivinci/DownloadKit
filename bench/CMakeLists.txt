@@ -1,4 +1,4 @@
-# bench/CMakeLists.txt - xKit End-to-End Benchmark Suite
+# bench/CMakeLists.txt - moo End-to-End Benchmark Suite
 
 # ── TCP echo server & client (always available since xnet is always built) ──
 

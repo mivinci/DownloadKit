@@ -1,7 +1,7 @@
 [book]
-title = "xKit Documentation"
+title = "moo Documentation"
 description = "Low-level C building blocks for event-driven, asynchronous programming"
-authors = ["Leo X."]
+authors = ["mivinci"]
 language = "en"
 src = "."
 
@@ -9,8 +9,8 @@ src = "."
 build-dir = "../book"
 
 [output.html]
-git-repository-url = "https://github.com/mivinci/xKit"
-edit-url-template = "https://github.com/mivinci/xKit/edit/main/docs/{path}"
+git-repository-url = "https://github.com/mivinci/moo"
+edit-url-template = "https://github.com/mivinci/moo/edit/main/docs/{path}"
 additional-css = ["theme/custom.css"]
 additional-js = ["mermaid.min.js", "mermaid-init.js"]
 

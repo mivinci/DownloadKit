@@ -48,7 +48,7 @@
 
 - 云端模型（Claude/GPT）在"单次问答能力"上没人追得上，这条路打不过
 - 但**持续陪伴**需要：长期一致的记忆、熟悉的情绪基调、低延迟响应、隐私本地化——这**四个点云端都做不好**
-- `xagent` 跑在 xKit 之上，本身就是轻量 / 嵌入式 / 本地优先的定位，正好吃这条赛道
+- `xagent` 跑在 moo 之上，本身就是轻量 / 嵌入式 / 本地优先的定位，正好吃这条赛道
 - 竞品：Character.AI（情绪在线但无持久记忆）、Replika（记忆有但肤浅）、OpenAI Memory（fact only，无 mood）——都没打穿
 
 ### 1.3 一个简单的判别准则
@@ -490,9 +490,9 @@ XCAPI(xErrno) xAgentSchedulerArmProactive(
 
 ---
 
-## 附录 A：与 xKit 现有设计的一致性检查
+## 附录 A：与 moo 现有设计的一致性检查
 
-| xKit 惯例 | 本方案是否符合 |
+| moo 惯例 | 本方案是否符合 |
 | --- | --- |
 | 纯 C99、`XDEF_HANDLE` 不透明句柄 | ✅ `xAgentMemory` / `xAgentMoodTracker` / `xAgentScheduler` 都走 handle |
 | 事件循环为一等入参 | ✅ scheduler 用 `xEventLoopTimerAfter`，memory 异步写 |

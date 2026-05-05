@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
@@ -9,8 +9,8 @@
  * See the file-header comment in output.cpp for the rationale.
  */
 
-#ifndef XKIT_APPS_CLI_OUTPUT_H
-#define XKIT_APPS_CLI_OUTPUT_H
+#ifndef MOO_APPS_CLI_OUTPUT_H
+#define MOO_APPS_CLI_OUTPUT_H
 
 #include "ctx.h"
 
@@ -32,4 +32,4 @@ void above_chunk(xLineHandle h, const char *s, size_t len);
  * call when no thinking block is open (no-op). */
 void end_thinking(ReplCtx *ctx);
 
-#endif /* XKIT_APPS_CLI_OUTPUT_H */
+#endif /* MOO_APPS_CLI_OUTPUT_H */

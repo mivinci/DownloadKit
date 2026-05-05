@@ -61,13 +61,21 @@ jobs:
 
       # ── Cache ─────────────────────────────────────────────────────────────
 
+      # Cache key is prefixed with a version tag. Bump it whenever
+      # something outside CMakeLists.txt invalidates old build dirs —
+      # most notably the repo rename xKit → moo, which changed the
+      # checkout path on the runner from /Users/runner/work/xKit/xKit
+      # to /Users/runner/work/moo/moo. CMakeCache.txt records absolute
+      # paths, so any cache produced before the rename makes cmake
+      # bail out with "source does not match". The v2 tag below
+      # retires all pre-rename entries.
       - name: Cache build directory
         uses: actions/cache@v4
         with:
           path: build
-          key: build-${{ matrix.os }}-${{ matrix.tls_backend }}-${{ hashFiles('**/CMakeLists.txt') }}
+          key: build-v2-${{ matrix.os }}-${{ matrix.tls_backend }}-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: |
-            build-${{ matrix.os }}-${{ matrix.tls_backend }}-
+            build-v2-${{ matrix.os }}-${{ matrix.tls_backend }}-
 
       # ── Run test script ───────────────────────────────────────────────────
 

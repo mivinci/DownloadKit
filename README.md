@@ -1,75 +1,211 @@
 <!-- markdownlint-disable MD033 -->
 <!-- markdownlint-disable MD041 -->
 <p align="center">
-  <img src="docs/logo.png" alt="xKit" height="160">
+  <img src="docs/logo.png" alt="moo" height="160">
+</p>
+
+<p align="center">
+  <b>An AI agent, written in C.</b>
 </p>
 
 <div align="center">
-  <a href="https://le0.me/xKit">Docs</a>
-  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
-  <a href="diary">Diary</a>
+  <a href="https://le0.me/moo">Docs</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
   <a href="STYLE.md">Style</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="LICENSE">License</a>
   <br />
   <br />
 </div>
 
-A collection of low-level C building blocks for event-driven, asynchronous programming on **macOS** and **Linux** (Windows is on the roadmap but not a near-term priority).
+**moo** is a small, self-contained AI agent runtime written in C — plus the
+foundation libraries it rides on. It ships as a terminal app you can `brew
+install`-style build and run against any OpenAI-compatible endpoint (Kimi,
+GLM, DeepSeek, OpenAI itself, …), with a streaming REPL, tool calls, token
+budgeting, sidecar queries, and a layered memory design. An
+Anthropic-compatible backend is on the roadmap — the provider layer is a
+vtable, adding one is a contained change.
 
-- Designed and reviewed by Leo X.
-- Coded by Codebuddy VSCode plugin with claude-4.6-opus
+- Designed and reviewed by [@mivinci](https://github.com/mivinci)
+- Coded by CodeBuddy (VSCode plugin) with claude-opus-4.7 and GLM-5.1
 
-## Modules
+> **Status.** Active development. macOS and Linux are first-class; Windows is
+> on the roadmap but not a near-term priority.
 
-| Module | Description |
-| ------ | ----------- |
-| **[xbase](https://le0.me/xKit/modules/xbase)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
-| **[xbuf](https://le0.me/xKit/modules/xbuf)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
-| **[xnet](https://le0.me/xKit/modules/xnet)** | Networking primitives — URL parser, async DNS resolver, shared TLS configuration types |
-| **[xhttp](https://le0.me/xKit/modules/xhttp)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing, WebSocket server & client (RFC 6455) |
-| **[xlog](https://le0.me/xKit/modules/xlog)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
-| **[xjs](https://le0.me/xKit/modules/xjs)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped C API, ES modules, native class wrappers |
-| **[xcrypto](https://le0.me/xKit/modules/xcrypto)** | Cryptographic primitives — SHA-1, SHA-256 (OpenSSL / mbedTLS / builtin), MD5, CRC-32, generic HMAC with HMAC-SHA1, HMAC-SHA256, HMAC-MD5 |
-| **[xp2p](https://le0.me/xKit/modules/xp2p)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
-| **[xfer](https://le0.me/xKit/modules/xfer)** | P2P file transfer — zero-config send/receive over WebRTC DataChannel with signaling, chunking, SHA-1 verification, and resume support |
+## Highlights
 
-📖 See the **[full documentation](https://le0.me/xKit)** for detailed design, architecture diagrams, API references, and usage examples.
+- **Agent core in C** — `xAgent` + `xAgentSession` + `xAgentQuery` +
+  `xAgentBudget` wired together into a non-blocking, single-loop runtime.
+  No GC, no green threads, no hidden allocations on the hot path.
+- **Streaming-first** — SSE is decoded incrementally; every token reaches
+  `on_text` the moment it leaves the wire.
+- **Tool calls with confirmation** — ships with a `shell` tool out of the
+  box; the REPL prompts for confirmation before anything is executed, and
+  a **sidecar query** watches long-running commands and can talk to them
+  (stdin injection) if they stall.
+- **Token budget that self-calibrates** — `xAgentBudget` estimates prompt
+  size before each round, trims old turns under `TruncateOldest`, and
+  learns a correction factor from the provider's real usage reports.
+- **Multi-model registry** — one `models.json` declares every backend;
+  `/model <id>` flips the active backend mid-conversation without tearing
+  the agent down. Today every entry is `"kind": "openai"` (covers any
+  OpenAI-compatible API); `"kind": "anthropic"` is planned.
+- **Layered memory (in design)** — conversation · session · agent tiers,
+  with JSONL persistence wired into each session. See
+  [docs/design/layered-memory.md](docs/design/layered-memory.md).
+
+## Quick Start
+
+```bash
+# 1. Configure + build the app (apps/ is off by default)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+      -DMOO_BUILD_APPS=ON -DMOO_BUILD_TESTS=OFF -DMOO_BUILD_BENCHMARKS=OFF
+cmake --build build --parallel
+
+# 2. Point it at a data directory and drop a models.json in there
+mkdir -p ~/.moo
+cat > ~/.moo/models.json <<'JSON'
+{
+  "default": "kimi",
+  "max_turns": 64,
+  "models": [
+    { "id": "kimi", "kind": "openai",
+      "model": "kimi-k2.6",
+      "api_key": "sk-...",
+      "base_url": "https://api.moonshot.cn/v1",
+      "context_window": 131072 },
+    { "id": "glm",  "kind": "openai",
+      "model": "glm-4.5",
+      "api_key": "sk-...",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "context_window": 131072 }
+  ]
+}
+JSON
+
+# 3. Talk to it
+./build/apps/cli/moo --data-dir ~/.moo
+```
+
+Inside the REPL, slash commands are available:
+
+| Command | What it does |
+| ------- | ------------ |
+| `/help` | Show all commands |
+| `/model` / `/model <id>` | Show or switch the active model |
+| `/tokens` | Cumulative token usage for the session |
+| `/cancel` | Interrupt the active AI run |
+| `/history` | Dump input history |
+| `/clear` | Clear the terminal |
+| `/bypass` | Auto-approve tool calls for the current turn |
+| `/version` | Build version |
+| `/exit` | Quit |
+
+Tab completes slash commands. `Ctrl-R` is a reverse-search over history.
+`Ctrl-C` cancels an in-flight run without killing the REPL.
+
+## Architecture
+
+```plain
+                     ┌─────────────────────────┐
+                     │   apps/cli  (the `moo`  │
+                     │         REPL)           │
+                     └────────────┬────────────┘
+                                  │
+                     ┌────────────▼────────────┐
+                     │   xagent — the agent    │ ← the core
+                     │  agent / session /      │
+                     │  query / tool / budget  │
+                     │  provider(openai)       │
+                     └────────────┬────────────┘
+                                  │
+  ┌─────────┬─────────┬───────────┴────────┬─────────┬─────────┐
+  │ xbase   │ xbuf    │ xnet / xhttp       │ xline   │ xlog    │
+  │ loop,   │ linear, │ DNS, TCP, TLS,     │ CJK-    │ async   │
+  │ timer,  │ ring,   │ HTTP/1.1, HTTP/2,  │ aware   │ MPSC    │
+  │ task,   │ chain   │ SSE, WebSocket     │ line    │ logger  │
+  │ atomic… │ bufs    │                    │ editor  │         │
+  └─────────┴─────────┴────────────────────┴─────────┴─────────┘
+
+   plus xcrypto (hashes/HMAC), xjs (QuickJS-ng), xp2p / xfer
+   (WebRTC + DataChannel file transfer) — supporting infra.
+```
+
+### The agent (`libs/xagent`)
+
+| Module | Role |
+| ------ | ---- |
+| `agent.{h,c}` | Long-lived persona: provider/model, system prompt, tool set, limits. Mints sessions. |
+| `session.{h,c}` | Stateful conversation. Owns history, runs the tool-call loop, emits `on_text` / `on_thinking` / `on_tool` / `on_done`. |
+| `query.{h,c}` | One round-trip to the model, including streaming decode and sidecar supervision. |
+| `message.{h,c}` | Chat-message value type with tool-call envelopes. |
+| `model.{h,c}` | Model **registry** — map `{id → provider + wire-model + limits}`; powers runtime model switching. |
+| `provider.{h,c}` · `provider_openai.c` | Backend vtable + OpenAI-compatible implementation (chat/completions, SSE). Anthropic-compatible provider planned. |
+| `tool.{h,c}` · `tool_shell.{h,c}` | Tool definition ABI + a built-in shell tool with confirmation hooks. |
+| `budget.{h,c}` | Prompt-size estimator, rolling trimmer, auto-calibrator. |
+
+See [`libs/xagent/agent.h`](libs/xagent/agent.h) for the entry point, and
+[`docs/design/`](docs/design) for the design notes
+(context budget, layered memory, three-layer conversation model).
+
+### The foundation libraries
+
+Everything in `libs/` below `xagent` is shared, reusable, and independently
+testable — you can link any of them into your own C project without
+pulling in the agent.
+
+| Library | What you get |
+| ------- | ------------ |
+| **[xbase](https://le0.me/moo/libs/xbase)** | Event loop, timers, tasks, async sockets, lock-free structures |
+| **[xbuf](https://le0.me/moo/libs/xbuf)** | Linear, ring, and block-chain I/O buffers |
+| **[xnet](https://le0.me/moo/libs/xnet)** | URL parser, async DNS, TCP, shared TLS config |
+| **[xhttp](https://le0.me/moo/libs/xhttp)** | libcurl multi-socket client with SSE; HTTP/1.1 + HTTP/2 server; WebSocket |
+| **[xline](https://le0.me/moo/libs/xline)** | CJK-aware line editor with persistent history and reverse search |
+| **[xlog](https://le0.me/moo/libs/xlog)** | Async MPSC logger with rotation |
+| **[xjs](https://le0.me/moo/libs/xjs)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped API |
+| **[xcrypto](https://le0.me/moo/libs/xcrypto)** | SHA-1 / SHA-256 / MD5 / CRC-32 / HMAC |
+| **[xp2p](https://le0.me/moo/libs/xp2p)** | ICE · STUN/TURN · SDP · DTLS · SCTP · DataChannel |
+| **[xfer](https://le0.me/moo/libs/xfer)** | Zero-config P2P file transfer over WebRTC DataChannel |
 
 ## Prerequisites
 
 | Dependency | Required | Notes |
-| ------------ | ---------- | ------- |
+| ---------- | -------- | ----- |
 | CMake ≥ 3.14 | ✅ | Build system |
 | C99 compiler | ✅ | GCC or Clang |
-| OpenSSL | ✅ pick one | TLS backend for **xhttp** and **xp2p** DTLS — `libssl-dev` (apt) / `openssl` (brew) |
-| MbedTLS | ✅ pick one | TLS backend for **xhttp** and **xp2p** DTLS — `libmbedtls-dev` (apt) / `mbedtls` (brew) |
-| libunwind | Optional | Better backtraces on Linux — `libunwind-dev` (apt) |
+| OpenSSL **or** MbedTLS | ✅ (pick one) | TLS backend for `xhttp` and `xp2p` DTLS |
+| libunwind | optional | Better backtraces on Linux |
 
-The following dependencies are **automatically fetched and built from source** via CMake FetchContent if not found on the system. You can still install them manually for faster builds:
-
-| Dependency | Description | Manual install |
-| ---------- | ----------- | -------------- |
-| libcurl | HTTP client for **xhttp** | `libcurl4-openssl-dev` (apt) / `curl` (brew) |
-| llhttp | HTTP/1.1 parsing for **xhttp** server | `libllhttp-dev` (apt) / `llhttp` (brew) |
-| nghttp2 | HTTP/2 support for **xhttp** server | `libnghttp2-dev` (apt) / `nghttp2` (brew) |
-| cJSON | JSON parsing for **xfer** signaling | `libcjson-dev` (apt) / `cjson` (brew) |
-| usrsctp | User-space SCTP for **xp2p** DataChannel | `libusrsctp-dev` (apt) / `usrsctp` (brew) |
-| libuv | Event loop for benchmarks | `libuv1-dev` (apt) / `libuv` (brew) |
-| GoogleTest | Unit testing (when `XK_BUILD_TESTS=ON`) | `libgtest-dev` (apt) / `googletest` (brew) |
-| Google Benchmark | Benchmarking (when `XK_BUILD_BENCHMARKS=ON`) | `libbenchmark-dev` (apt) / `google-benchmark` (brew) |
+Transitive deps (libcurl, llhttp, nghttp2, cJSON, usrsctp, QuickJS-ng,
+libuv for benches, GoogleTest, Google Benchmark) are fetched via CMake
+`FetchContent` when not found on the system — no manual setup required
+for a first build.
 
 ## Build
 
 ```bash
+# Everything, Debug, with tests
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --parallel
+
+# App only, Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+      -DMOO_BUILD_APPS=ON -DMOO_BUILD_TESTS=OFF -DMOO_BUILD_BENCHMARKS=OFF
 cmake --build build --parallel
 ```
 
-To skip tests:
+Useful options:
 
-```bash
-cmake -S . -B build -DXK_BUILD_TESTS=OFF
-```
+| Option | Default | Purpose |
+| ------ | ------- | ------- |
+| `MOO_BUILD_APPS` | `OFF` | Build `apps/` (the `moo` CLI lives here) |
+| `MOO_BUILD_TESTS` | `ON` | Build unit tests |
+| `MOO_BUILD_BENCHMARKS` | `ON` | Build micro- and end-to-end benchmarks |
+| `MOO_BUILD_EXAMPLES` | `OFF` | Build example programs |
+| `MOO_BUILD_STATIC` | `OFF` | Build libraries as static archives |
+| `MOO_TLS_BACKEND` | `openssl` | TLS backend: `openssl` or `mbedtls` |
+| `MOO_ENABLE_ASAN` | `OFF` | AddressSanitizer |
+| `MOO_DEBUG_LEVEL` | `0` | Debug-log verbosity (0–3) |
 
 ## Test
 
@@ -79,78 +215,36 @@ cmake -S . -B build -DXK_BUILD_TESTS=OFF
 ctest --test-dir build --output-on-failure --parallel 4
 ```
 
-### TLS backend selection
-
-Both **xhttp** and **xp2p** share the same TLS backend setting. Use `XK_TLS_BACKEND` to choose at configure time:
-
-| Backend | Value | Extra dependency |
-| ------- | ----- | ---------------- |
-| OpenSSL | `openssl` | `libssl-dev` (apt) / `openssl` (brew) |
-| MbedTLS | `mbedtls` | `libmbedtls-dev` (apt) / `mbedtls` (brew) |
-
-**OpenSSL** (default when available):
+To test both TLS backends in one session, configure two build dirs and
+run ctest in each:
 
 ```bash
-cmake -S . -B build-openssl -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=openssl
-cmake --build build-openssl --parallel
-ctest --test-dir build-openssl --output-on-failure --parallel 4
+cmake -S . -B build-openssl -DMOO_TLS_BACKEND=openssl && \
+  cmake --build build-openssl --parallel && \
+  ctest --test-dir build-openssl --output-on-failure --parallel 4
+
+cmake -S . -B build-mbedtls -DMOO_TLS_BACKEND=mbedtls && \
+  cmake --build build-mbedtls --parallel && \
+  ctest --test-dir build-mbedtls --output-on-failure --parallel 4
 ```
-
-**MbedTLS**:
-
-```bash
-cmake -S . -B build-mbedtls -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=mbedtls
-cmake --build build-mbedtls --parallel
-ctest --test-dir build-mbedtls --output-on-failure --parallel 4
-```
-
-> **Tip:** To test both backends in one go, simply run the above commands sequentially with separate build directories.
-
-### xp2p DTLS configuration
-
-The **xp2p** module includes DTLS + SCTP + DataChannel for WebRTC browser interop (always enabled). It reuses the same `XK_TLS_BACKEND` setting as **xhttp**:
-
-```bash
-# OpenSSL backend (default)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=openssl
-
-# mbedTLS backend
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=mbedtls
-```
-
-### HTTPS integration tests
-
-The `xhttp/https_test.cpp` suite tests the client and server TLS integration end-to-end. It generates self-signed certificates at test time (requires `openssl` CLI) and covers:
-
-- HTTPS GET / POST / Do with `skip_verify`
-- Custom CA path verification
-- Self-signed certificate rejection (verify enabled)
-- Wrong CA path failure
-- Mutual TLS (mTLS) with client certificates
-- mTLS failure when client cert is missing
-- Concurrent HTTPS requests
-- Request timeout over HTTPS
-- TLS config reset between requests
-- Destroy client with in-flight HTTPS request
-
-These tests run automatically with `ctest` when `XK_TLS_BACKEND=openssl` is set.
 
 ### Linux via container (macOS host)
 
-Requires macOS 26+ with [Apple Containerization](https://developer.apple.com/documentation/containerization):
+Requires macOS 26+ with
+[Apple Containerization](https://developer.apple.com/documentation/containerization):
 
 ```bash
 brew install container
 container system start
 ./scripts/test-linux.sh            # default: gcc:14, Debug, -j2
-./scripts/test-linux.sh -j4 -m 4G  # custom parallelism and memory
+./scripts/test-linux.sh -j4 -m 4G  # custom parallelism / memory
 ```
 
 ## Benchmark
 
-All benchmarks run on Apple M3 Pro (12 cores, 36 GB), macOS 26.4, Clang 17, Release (`-O2`).
-
-### Highlights
+Numbers below are from the foundation libs — they're what makes the agent
+loop feel free. All on Apple M3 Pro (12 cores, 36 GB), macOS 26.4, Clang 17,
+Release (`-O2`).
 
 | Category | Highlight |
 | -------- | --------- |
@@ -161,20 +255,25 @@ All benchmarks run on Apple M3 Pro (12 cores, 36 GB), macOS 26.4, Clang 17, Rele
 | HTTP/2 Server | **576 K req/s** single-threaded h2c, +15–405% faster than Go `net/http` + `x/net/http2` |
 | HTTPS Server | **512 K req/s** HTTPS/2, TLS-bound parity on HTTPS/1.1, +209–278% on HTTPS/2 |
 
-### Run Benchmarks
-
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DXK_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 ./scripts/run_micro_bench.sh
 ```
 
-### Full Results
-
-- **Micro-benchmarks** — detailed tables are in each module's documentation:
-  [mpsc.h](https://le0.me/xKit/modules/xbase/mpsc.html#benchmark) · [event.h](https://le0.me/xKit/modules/xbase/event.html#benchmark) · [timer.h](https://le0.me/xKit/modules/xbase/timer.html#benchmark) · [heap.h](https://le0.me/xKit/modules/xbase/heap.html#benchmark) · [memory.h](https://le0.me/xKit/modules/xbase/memory.html#benchmark) · [buf.h](https://le0.me/xKit/modules/xbuf/buf.html#benchmark) · [ring.h](https://le0.me/xKit/modules/xbuf/ring.html#benchmark) · [io.h](https://le0.me/xKit/modules/xbuf/io.html#benchmark)
-- **End-to-end** — [HTTP/1.1 Server Benchmark](https://le0.me/xKit/bench/http_server.html) · [HTTP/2 Server Benchmark](https://le0.me/xKit/bench/http2_server.html) · [HTTPS Server Benchmark](https://le0.me/xKit/bench/https_server.html) (xKit vs Go)
+Detailed tables live in each module's docs
+([mpsc](https://le0.me/moo/libs/xbase/mpsc.html#benchmark) ·
+[event](https://le0.me/moo/libs/xbase/event.html#benchmark) ·
+[timer](https://le0.me/moo/libs/xbase/timer.html#benchmark) ·
+[memory](https://le0.me/moo/libs/xbase/memory.html#benchmark) ·
+[buf](https://le0.me/moo/libs/xbuf/buf.html#benchmark) ·
+[ring](https://le0.me/moo/libs/xbuf/ring.html#benchmark) ·
+[io](https://le0.me/moo/libs/xbuf/io.html#benchmark))
+and the end-to-end write-ups at
+[HTTP/1.1](https://le0.me/moo/bench/http_server.html) ·
+[HTTP/2](https://le0.me/moo/bench/http2_server.html) ·
+[HTTPS](https://le0.me/moo/bench/https_server.html).
 
 ## License
 
-[MIT](LICENSE) © 2025-present Leo X. and xKit contributors
+[MIT](LICENSE) © 2025-present [@mivinci](https://github.com/mivinci) and moo contributors

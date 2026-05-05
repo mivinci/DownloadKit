@@ -1,4 +1,4 @@
-module xkit-bench
+module moo-bench
 
 go 1.26.2
 

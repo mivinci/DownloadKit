@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
@@ -11,8 +11,8 @@
  * etc).
  */
 
-#ifndef XKIT_APPS_CLI_REPL_H
-#define XKIT_APPS_CLI_REPL_H
+#ifndef MOO_APPS_CLI_REPL_H
+#define MOO_APPS_CLI_REPL_H
 
 #include "ctx.h"
 
@@ -48,4 +48,4 @@ void on_tool_confirm(xAgentSession sess, const char *tool_name,
  * in-band ^C arrives through xLineStep as XLINE_STEP_INTERRUPT. */
 void repl_on_sigint(int signo, void *arg);
 
-#endif /* XKIT_APPS_CLI_REPL_H */
+#endif /* MOO_APPS_CLI_REPL_H */

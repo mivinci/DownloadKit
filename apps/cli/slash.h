@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
@@ -10,8 +10,8 @@
  * rationale and the per-handler commentary.
  */
 
-#ifndef XKIT_APPS_CLI_SLASH_H
-#define XKIT_APPS_CLI_SLASH_H
+#ifndef MOO_APPS_CLI_SLASH_H
+#define MOO_APPS_CLI_SLASH_H
 
 #include "ctx.h"
 
@@ -28,4 +28,4 @@ void slash_install_completer(ReplCtx *ctx);
  * print a hint); caller should then skip the model-submit path. */
 bool slash_dispatch(ReplCtx *ctx, const char *line);
 
-#endif /* XKIT_APPS_CLI_SLASH_H */
+#endif /* MOO_APPS_CLI_SLASH_H */

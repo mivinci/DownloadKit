@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
@@ -14,7 +14,7 @@
  *   POST /echo          → 200 echoing the request body
  *
  * This server supports cleartext HTTP/2 (h2c) via Prior Knowledge,
- * matching xKit's h2c support for fair comparison.
+ * matching moo's h2c support for fair comparison.
  *
  * Benchmark with h2load:
  *   h2load -n 100000 -c 100 -t 4 http://127.0.0.1:8081/ping

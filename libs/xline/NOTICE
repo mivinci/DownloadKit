@@ -1,0 +1,26 @@
+xline
+=====
+
+moo's line-editing module. Forked from isocline v1.1.0 by Daan Leijen
+[https://github.com/daanx/isocline], licensed under the MIT License.
+The upstream LICENSE file is preserved verbatim as `LICENSE.isocline`,
+and every original source file retains its MIT copyright header.
+
+Why a fork
+----------
+
+Upstream isocline is tiny, portable, pure-C, and permissively
+licensed — an ideal starting point. We vendor it rather than consume
+it as an external dependency so that we can:
+
+  1. Integrate directly with moo's event loop (xLoop) — upstream
+     only exposes a blocking `ic_readline()`; we need
+     begin/step/end driven by our poller.
+  2. Drop the `mem_t` / `alloc_t` indirection and use the standard
+     allocator directly.
+  3. Rename the public API (`ic_*`, `IC_*`) to moo's conventions
+     (`xLine*`, `XLINE_*`).
+
+Internal names (`ic_private`, `ic_env_t`, `ic_get_env`, …) are
+intentionally kept upstream-style to minimise drift when
+cherry-picking fixes from isocline.

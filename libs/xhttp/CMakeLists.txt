@@ -1,0 +1,117 @@
+file(GLOB_RECURSE XHTTP_HEADERS "*.h")
+file(GLOB_RECURSE XHTTP_SOURCES "*.c")
+list(FILTER XHTTP_HEADERS EXCLUDE REGEX "_test")
+# Exclude transport (now provided by xnet), WS crypto backend, and WS deflate
+# sources from default GLOB; crypto/deflate are added conditionally below.
+list(FILTER XHTTP_SOURCES EXCLUDE REGEX "transport_")
+list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_crypto_")
+list(FILTER XHTTP_SOURCES EXCLUDE REGEX "ws_deflate")
+add_library(xhttp ${MOO_LIB_TYPE} ${XHTTP_SOURCES} ${XHTTP_HEADERS})
+
+target_compile_definitions(xhttp PUBLIC MOO_HAS_CURL)
+target_link_libraries(xhttp PUBLIC xbase xbuf xnet PRIVATE Libcurl::Libcurl)
+
+message(STATUS "xhttp: libcurl integration enabled")
+
+find_package(Llhttp REQUIRED)
+set_target_properties(Llhttp::Llhttp PROPERTIES IMPORTED_NO_SYSTEM TRUE)
+target_compile_definitions(xhttp PUBLIC MOO_HAS_LLHTTP)
+target_link_libraries(xhttp PRIVATE Llhttp::Llhttp)
+
+message(STATUS "xhttp: llhttp integration enabled")
+
+find_package(Nghttp2 REQUIRED)
+set_target_properties(Nghttp2::Nghttp2 PROPERTIES IMPORTED_NO_SYSTEM TRUE)
+target_compile_definitions(xhttp PUBLIC MOO_HAS_NGHTTP2)
+target_link_libraries(xhttp PRIVATE Nghttp2::Nghttp2)
+
+message(STATUS "xhttp: nghttp2 integration enabled")
+
+# ── permessage-deflate (zlib) ──────────────────────────────────────────
+option(MOO_WS_DEFLATE "Enable WebSocket permessage-deflate" ON)
+if(MOO_WS_DEFLATE)
+  find_package(ZLIB QUIET)
+  if(ZLIB_FOUND)
+    target_compile_definitions(xhttp PUBLIC XHTTP_WS_DEFLATE)
+    target_sources(xhttp PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/ws_deflate.c)
+    target_link_libraries(xhttp PRIVATE ZLIB::ZLIB)
+    message(STATUS "xhttp: permessage-deflate enabled (zlib)")
+  else()
+    message(STATUS "xhttp: zlib not found, permessage-deflate disabled")
+  endif()
+else()
+  message(STATUS "xhttp: permessage-deflate disabled by user")
+endif()
+
+# ── TLS backend detection ──────────────────────────────────────────────
+set(MOO_TLS_BACKEND "auto" CACHE STRING "TLS backend: auto, openssl, mbedtls, none")
+
+if(MOO_TLS_BACKEND STREQUAL "none")
+  message(STATUS "xhttp: TLS support disabled by user")
+  target_sources(xhttp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_builtin.c)
+  message(STATUS "xhttp: WS crypto = builtin (TLS disabled)")
+elseif(MOO_TLS_BACKEND STREQUAL "openssl")
+  find_package(OpenSSL REQUIRED)
+  target_compile_definitions(xhttp PUBLIC MOO_HAS_OPENSSL)
+  target_sources(xhttp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_openssl.c)
+  target_link_libraries(xhttp PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+  message(STATUS "xhttp: TLS backend = OpenSSL (forced)")
+elseif(MOO_TLS_BACKEND STREQUAL "mbedtls")
+  find_package(MbedTLS REQUIRED)
+  set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
+  target_compile_definitions(xhttp PUBLIC MOO_HAS_MBEDTLS)
+  target_sources(xhttp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_mbedtls.c)
+  target_include_directories(xhttp BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
+  target_link_libraries(xhttp PRIVATE MbedTLS::MbedTLS)
+  message(STATUS "xhttp: TLS backend = mbedTLS (forced)")
+elseif(MOO_TLS_BACKEND STREQUAL "auto")
+  find_package(OpenSSL QUIET)
+  if(OpenSSL_FOUND)
+    target_compile_definitions(xhttp PUBLIC MOO_HAS_OPENSSL)
+    target_sources(xhttp PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_openssl.c)
+    target_link_libraries(xhttp PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    message(STATUS "xhttp: TLS backend = OpenSSL (auto-detected)")
+  else()
+    find_package(MbedTLS QUIET)
+    if(MbedTLS_FOUND)
+      set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
+      target_compile_definitions(xhttp PUBLIC MOO_HAS_MBEDTLS)
+      target_sources(xhttp PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_mbedtls.c)
+      target_include_directories(xhttp BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
+      target_link_libraries(xhttp PRIVATE MbedTLS::MbedTLS)
+      message(STATUS "xhttp: TLS backend = mbedTLS (auto-detected)")
+    else()
+      message(STATUS "xhttp: No TLS library found, TLS support disabled")
+      target_sources(xhttp PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_builtin.c)
+      message(STATUS "xhttp: WS crypto = builtin (no TLS library)")
+    endif()
+  endif()
+else()
+  message(WARNING "xhttp: Unknown MOO_TLS_BACKEND '${MOO_TLS_BACKEND}', TLS support disabled")
+  target_sources(xhttp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ws_crypto_builtin.c)
+  message(STATUS "xhttp: WS crypto = builtin (unknown TLS backend)")
+endif()
+
+if(MOO_BUILD_TESTS)
+  file(GLOB_RECURSE XHTTP_TEST_SOURCES "*_test.cpp")
+  if(XHTTP_TEST_SOURCES)
+    add_executable(xhttp_test ${XHTTP_TEST_SOURCES})
+    target_link_libraries(xhttp_test PRIVATE xhttp Nghttp2::Nghttp2 GTest::gtest_main)
+    # Link TLS library for integration tests (client-side TLS)
+    if(TARGET OpenSSL::SSL)
+      target_link_libraries(xhttp_test PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    elseif(TARGET MbedTLS::MbedTLS)
+      target_include_directories(xhttp_test BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
+      target_link_libraries(xhttp_test PRIVATE MbedTLS::MbedTLS)
+    endif()
+    add_test(NAME xhttp_test COMMAND xhttp_test)
+  endif()
+endif()

@@ -1,38 +1,27 @@
 {
-  "name": "xkit",
+  "name": "moo",
   "version": "1.0.0",
-  "description": "A collection of low-level C building blocks for event-driven, asynchronous programming.",
+  "description": "An AI agent, written in C.",
   "license": "MIT",
-  "author": "Leo X.",
+  "author": "mivinci",
   "type": "module",
   "main": "index.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mivinci/xkit.git"
+    "url": "https://github.com/mivinci/moo.git"
   },
   "bugs": {
-    "url": "https://github.com/mivinci/xkit/issues"
+    "url": "https://github.com/mivinci/moo/issues"
   },
-  "homepage": "https://le0.me/xKit",
-  "keywords": [
-    "c",
-    "event-loop",
-    "async",
-    "http",
-    "http2",
-    "websocket",
-    "p2p",
-    "tls",
-    "networking"
-  ],
+  "homepage": "https://le0.me/moo",
   "directories": {
     "doc": "docs",
     "example": "examples"
   },
   "scripts": {
-    "build": "cmake -B build -DXK_BUILD_APPS=ON -DXK_BUILD_EXAMPLES=ON -DXK_DEBUG_LEVEL=1 && cmake --build build",
-    "build-openssl": "cmake -B build-openssl -DXK_BUILD_APPS=ON -DXK_BUILD_EXAMPLES=ON -DXK_TLS_BACKEND=openssl && cmake --build build-openssl",
-    "build-mbedtls": "cmake -B build-mbedtls -DXK_BUILD_APPS=ON -DXK_BUILD_EXAMPLES=ON -DXK_TLS_BACKEND=mbedtls && cmake --build build-mbedtls",
+    "build": "cmake -B build -DMOO_BUILD_APPS=ON -DMOO_BUILD_EXAMPLES=ON -DMOO_DEBUG_LEVEL=1 && cmake --build build",
+    "build-openssl": "cmake -B build-openssl -DMOO_BUILD_APPS=ON -DMOO_BUILD_EXAMPLES=ON -DMOO_TLS_BACKEND=openssl && cmake --build build-openssl",
+    "build-mbedtls": "cmake -B build-mbedtls -DMOO_BUILD_APPS=ON -DMOO_BUILD_EXAMPLES=ON -DMOO_TLS_BACKEND=mbedtls && cmake --build build-mbedtls",
     "test": "ctest --test-dir build --output-on-failure",
     "bench": "ctest --test-dir build -L bench --output-on-failure",
     "build-docs": "mdbook build docs",

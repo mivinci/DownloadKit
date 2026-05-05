@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
@@ -14,15 +14,23 @@
  *
  * {
  *   "default": "kimi",
+ *   "max_turns": 64,
  *   "models": [
  *     {"id": "kimi",   "kind": "openai",
  *      "model": "kimi-k2.6",
- *      "api_key": "sk-...", "base_url": "https://api.moonshot.cn/v1"},
+ *      "api_key": "sk-...", "base_url": "https://api.moonshot.cn/v1",
+ *      "context_window": 131072},
  *     {"id": "glm",    "kind": "openai",
  *      "model": "glm-4.5",
  *      "api_key": "sk-...", "base_url": "https://open.bigmodel.cn/api/paas/v4"}
  *   ]
  * }
+ *
+ * The top-level "max_turns" caps the tool-loop length per user input
+ * (default: 64). Per-model "context_window" sets the token budget the
+ * session enforces on the rolling history (default: 8192); on
+ * /model switches the CLI refreshes the session's budget so large and
+ * small models don't share the same window. Both fields are optional.
  *
  * Everything is loaded once up front; the returned CliModelConfig
  * bundles both the raw provider handles (for later destruction) and
@@ -30,8 +38,8 @@
  * for the teardown order.
  */
 
-#ifndef XKIT_APPS_CLI_CONFIG_H
-#define XKIT_APPS_CLI_CONFIG_H
+#ifndef MOO_APPS_CLI_CONFIG_H
+#define MOO_APPS_CLI_CONFIG_H
 
 #include <string>
 #include <vector>
@@ -44,11 +52,14 @@
 /* One resolved entry: the concrete provider plus the metadata the
  * CLI wants to surface to the user. `model` is the wire name sent
  * to the provider — it's what /model prints and what the
- * banner shows for the current session. */
+ * banner shows for the current session. `context_window` mirrors
+ * the per-model token ceiling the session's budget gate should
+ * enforce; zero means "use the global default" (see config.cpp). */
 struct CliModelEntry {
   std::string    id;        /* registry key, unique                        */
   std::string    kind;      /* "openai" today; future: "anthropic" etc.    */
   std::string    model;     /* wire name sent to the provider              */
+  size_t         context_window = 0; /* tokens; 0 = fall back to default   */
   xAgentProvider provider;  /* owned; destroyed in cli_model_config_destroy*/
 };
 
@@ -56,12 +67,25 @@ struct CliModelEntry {
  * entry's provider; the vector below owns them, so the registry
  * must be destroyed BEFORE the vector clears. cli_model_config_destroy
  * does this in the right order.
+ *
+ * `max_turns` is the top-level agent tool-loop cap lifted from
+ * models.json; zero means "the file didn't specify one" and main.cpp
+ * falls back to its built-in default.
  */
 struct CliModelConfig {
   std::vector<CliModelEntry> entries;
   xAgentModelRegistry        registry    = nullptr; /* owned */
   std::string                default_id;
+  int                        max_turns   = 0; /* 0 = use built-in default */
 };
+
+/* Look up a model entry by id. Returns nullptr when the id is not
+ * registered. Linear scan over @p cfg->entries — fine at the
+ * handful-of-models scale we expect in practice. Exposed so
+ * /model-switch code in the CLI can pull the switched-to entry's
+ * context_window without reparsing the JSON. */
+const CliModelEntry *cli_model_config_find(const CliModelConfig *cfg,
+                                           const char           *id);
 
 /* Load `<data_dir>/models.json` and build a CliModelConfig.
  *
@@ -102,4 +126,4 @@ int cli_model_config_load(const char     *data_dir,
  */
 void cli_model_config_destroy(CliModelConfig *cfg);
 
-#endif /* XKIT_APPS_CLI_CONFIG_H */
+#endif /* MOO_APPS_CLI_CONFIG_H */

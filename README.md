@@ -104,6 +104,12 @@ Inside the REPL, slash commands are available:
 Tab completes slash commands. `Ctrl-R` is a reverse-search over history.
 `Ctrl-C` cancels an in-flight run without killing the REPL.
 
+Here's what a session looks like:
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="moo in action" width="760">
+</p>
+
 ## Architecture
 
 ```plain

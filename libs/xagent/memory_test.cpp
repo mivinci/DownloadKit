@@ -327,6 +327,55 @@ TEST(xAgentMemoryJsonl, MaxEntriesWindowKeepsTail) {
   xAgentMemoryDestroy(store);
 }
 
+TEST(xAgentMemoryJsonl, PerTurnRetrievalShortCircuits) {
+  /* JSONL has no semantic index, so when Session asks for a
+   * per-turn retrieve (recent_turn != NULL) it MUST return an
+   * empty set. The tail would otherwise duplicate what the
+   * Create-time prime path already injected into history and
+   * silently double-bill tokens on every user input. */
+  const std::string root = TempRoot("per_turn_shortcircuit");
+  xAgentMemoryJsonlConf c{};
+  c.root_dir         = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&c);
+  ASSERT_NE(store, nullptr);
+
+  xAgentMemoryQuery q{};
+  q.session_id = "s";
+
+  /* Seed the store with something we'd normally get back. */
+  xAgentSessionMsg seed = MakeText(xAgentRole_User, "past-turn");
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
+                               &seed, 1),
+            xErrno_Ok);
+
+  /* Sanity: prime-style retrieve (recent_turn == NULL) still
+   * returns the seeded entry. */
+  xAgentMemoryHits prime_hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &prime_hits), xErrno_Ok);
+  EXPECT_EQ(prime_hits.n_entries, size_t{1});
+  xAgentMemoryReleaseHits(store, &prime_hits);
+
+  /* Per-turn retrieve (recent_turn != NULL) must be an empty
+   * no-op for this backend. */
+  xAgentContent cb{};
+  cb.type          = xAgentContentType_Text;
+  cb.u.text.text   = "new user turn";
+  cb.u.text.len    = std::strlen("new user turn");
+  xAgentMessage recent{};
+  recent.role     = xAgentRole_User;
+  recent.contents = &cb;
+  recent.n        = 1;
+
+  q.recent_turn = &recent;
+  xAgentMemoryHits turn_hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &turn_hits), xErrno_Ok);
+  EXPECT_EQ(turn_hits.n_entries, size_t{0});
+  EXPECT_EQ(turn_hits.cookie, nullptr);
+  xAgentMemoryReleaseHits(store, &turn_hits);
+
+  xAgentMemoryDestroy(store);
+}
+
 TEST(xAgentMemoryJsonl, RetrieveOnMissingFileIsEmpty) {
   const std::string root = TempRoot("missing_file");
   xAgentMemoryJsonlConf c{};

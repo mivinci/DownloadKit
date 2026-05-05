@@ -532,6 +532,30 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
   struct memory_jsonl_ *b = (struct memory_jsonl_ *)store;
   if (!query->session_id) return xErrno_InvalidArg;
 
+  /* Per-turn retrieval short-circuit.
+   *
+   * xAgentMemoryQuery uses recent_turn as the "this is a per-turn
+   * retrieval triggered by the given user message" signal. Smarter
+   * backends (vector search, reranking, remote memory service) are
+   * expected to compute similarity against recent_turn and return a
+   * context-relevant slice.
+   *
+   * The built-in JSONL backend has no index and no embedding — the
+   * only thing it can do is return the tail, which the session layer
+   * already has via the Create-time prime path. Returning the same
+   * tail again on every input would (a) double-inject it into every
+   * prompt and (b) bill the caller twice for the same tokens. So we
+   * treat per-turn calls as a no-op here and leave it to a future
+   * backend that actually knows what to do with recent_turn.
+   *
+   * The Create-time prime path always calls with recent_turn == NULL,
+   * so it's unaffected.
+   */
+  if (query->recent_turn) {
+    /* Leave *out as the caller zeroed it: 0 entries, NULL cookie. */
+    return xErrno_Ok;
+  }
+
   /* Resolve the per-call cap: caller hint wins; otherwise backend
    * default. */
   size_t cap = query->max_entries ? query->max_entries : b->default_max_entries;

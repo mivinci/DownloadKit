@@ -38,16 +38,22 @@
  *                             doesn't matter here, we never enter
  *                             faint inside the markdown stream.)
  *   italic : \e[3m / \e[23m
- *   code   : \e[7m / \e[27m  (reverse-video, theme-agnostic; colour
- *                             codes 36/96 conflict with common
- *                             faint `[thinking]` / `[tool]` chrome.)
+ *   code   : \e[4m / \e[24m  (underline; theme-agnostic and - unlike
+ *                             reverse-video - never triggers the
+ *                             terminal's "paint background to EOL"
+ *                             behaviour when the close-SGR races
+ *                             with a trailing newline across the
+ *                             xline above-region streaming path.)
  *
- * Why not colour inline code? Most CLI chat tools use a
- * background-colour approach but that requires terminal support
- * detection. Reverse-video ships a clear visual distinction on
- * every terminal we care about (macOS Terminal, iTerm2, Alacritty,
- * Kitty, tmux, vt100) with zero capability probing. We can upgrade
- * to 256-colour backgrounds in P1.
+ * Why underline for inline code? We tried reverse-video and 256-
+ * colour backgrounds earlier; both look fine when the whole line
+ * is flushed at once, but when the sink is called chunk-by-chunk
+ * (one SGR open, one text run, one SGR close, one '\n') the
+ * terminal can end up painting the reverse-video background all
+ * the way to the right margin before the close-SGR lands, and on
+ * macOS Terminal in particular that occasionally wedges the input
+ * line. Underline has none of that: it decorates glyph cells only,
+ * so a late \e[24m is a visual no-op, not a full-row repaint.
  */
 
 #include <xtui/md.h>
@@ -122,10 +128,10 @@ static void toggle_italic(xMd *md) {
 
 static void toggle_code(xMd *md) {
   if (md->code) {
-    raw_n(md, "\x1b[27m", 5);
+    raw_n(md, "\x1b[24m", 5);
     md->code = 0;
   } else {
-    raw_n(md, "\x1b[7m", 4);
+    raw_n(md, "\x1b[4m", 4);
     md->code = 1;
   }
 }

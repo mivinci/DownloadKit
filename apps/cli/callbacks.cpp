@@ -35,7 +35,15 @@ void on_text(xAgentSession sess, const char *chunk, size_t len, void *ud) {
      * blocking version used. */
     ctx->saw_first_delta = true;
   }
-  above_chunk(ctx->line, chunk, len);
+  /* Route through md renderer when a real TTY is attached; else
+   * pass bytes through raw so logs / pipes stay clean. The
+   * renderer sink is above_chunk, so both paths ultimately emit
+   * via xline's above channel. */
+  if (ctx->md_enabled) {
+    xMdFeed(&ctx->md_renderer, chunk, len);
+  } else {
+    above_chunk(ctx->line, chunk, len);
+  }
   ctx->reply_bytes += len;
 }
 
@@ -121,6 +129,13 @@ void on_done(xAgentSession sess, xAgentDoneReason reason,
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
+  /* Drain the markdown renderer before [done] chrome so any
+   * still-pending delimiter bytes or open SGR spans are flushed
+   * ahead of the faint block. Without this, an assistant reply
+   * ending mid-bold would bleed bold into the [done] line. */
+  if (ctx->md_enabled) {
+    xMdFlush(&ctx->md_renderer);
+  }
   /* [done] is chrome — render the whole block faint so it recedes
    * and the model's answer above stays visually primary. Build the
    * full status line in a local buffer and emit it as one Above
@@ -208,6 +223,11 @@ void on_error(xAgentSession sess, xErrno err, const char *msg, void *ud) {
    * bold red (`\x1b[1;31m`) instead of faint so the user notices the
    * run failed at a glance. */
   end_thinking(ctx);
+  /* Drop any markdown state: we're about to emit bold-red chrome
+   * and don't want half-parsed bold/italic/code bleeding into it. */
+  if (ctx->md_enabled) {
+    xMdReset(&ctx->md_renderer);
+  }
   above_printf(ctx->line, "\x1b[1;31m[error] errno=%d msg=%s\x1b[0m", (int)err,
                msg ? msg : "(none)");
   /* Surface the budget gate explicitly. PromptTooLong is the one

@@ -213,6 +213,29 @@ int main(int argc, char *argv[]) {
     ctx.model_registry = model_cfg.registry;
     ctx.model_cfg      = &model_cfg;
 
+    /* Streaming markdown → ANSI. Enabled only when stdout is a
+     * real TTY and $TERM isn't "dumb" — piping to a file, CI
+     * logging, or $TERM=dumb all want the raw bytes so downstream
+     * tooling (grep, tee, text editors) sees the original
+     * markdown. The renderer itself is cheap (~32 bytes + a small
+     * pending string) so we always allocate it; the flag just
+     * gates whether on_text routes chunks through it.
+     *
+     * Sink: above_chunk via a trampoline in callbacks.cpp, so the
+     * prompt row stays intact exactly like the unrendered path. */
+    {
+      const char *term = std::getenv("TERM");
+      ctx.md_enabled   = ::isatty(STDOUT_FILENO) != 0 &&
+                       !(term && std::strcmp(term, "dumb") == 0);
+    }
+    xMdInit(
+      &ctx.md_renderer,
+      [](const char *data, size_t len, void *arg) {
+        auto *c = static_cast<ReplCtx *>(arg);
+        above_chunk(c->line, data, len);
+      },
+      &ctx);
+
     shell_conf.callback_ud = &ctx;
     shell_conf.on_command  = [](const char *command, const char *cwd,
                                void       *ud) {
@@ -488,6 +511,9 @@ out_agent:
 out_tool:
   if (shell_tool) xAgentToolDestroy(shell_tool);
 out_cfg:
+  /* Markdown renderer is embedded by value in ReplCtx - no heap
+   * teardown needed. The xMd struct is plain data, so going out of
+   * scope with the enclosing ReplCtx is sufficient. */
   /* cli_model_config_destroy releases providers AND the registry in
    * the right order. Must run after xAgentDestroy so no session
    * still holds a provider reference. */

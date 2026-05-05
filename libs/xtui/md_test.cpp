@@ -77,7 +77,7 @@ TEST(MdTest, UnderscoreInSnakeCase) {
 }
 
 TEST(MdTest, InlineCode) {
-  EXPECT_EQ(Render("`ls`"), "\x1b[7mls\x1b[27m");
+  EXPECT_EQ(Render("`ls`"), "\x1b[4mls\x1b[24m");
 }
 
 /* ========== Bullet-list defusing ========== */

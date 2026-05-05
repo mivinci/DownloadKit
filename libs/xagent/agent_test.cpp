@@ -21,7 +21,9 @@
 
 extern "C" {
 #include <xagent/agent.h>
+#include <xagent/memory.h>
 #include <xagent/provider.h>
+#include <xagent/session.h>
 #include <xagent/tool.h>
 #include <xbase/event.h>
 #include "agent_private.h"
@@ -30,6 +32,8 @@ extern "C" {
 }
 
 #include <cstdlib>
+#include <cstring>
+#include <string>
 
 /* ── Minimal no-op provider (agent never actually calls it) ────────── */
 
@@ -292,4 +296,156 @@ TEST_F(AgentTest, DefaultSessionInheritsAgentDefaults) {
   EXPECT_EQ(s->max_tokens, conf.max_tokens);
 
   xAgentDestroy(ag);
+}
+
+/* ── Memory wiring ───────────────────────────────────────────────── */
+
+/* When the agent is created with an explicit xAgentMemory store, the
+ * session it mints routes its L1 preserve hook through that store
+ * instead of writing JSONL files directly. We verify by firing the
+ * hook manually and then consulting the store. */
+TEST_F(AgentTest, MemoryStoreReceivesL1Preserve) {
+  /* JSONL backend pointed at a per-test temp root. */
+  std::string root = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR")
+                                                        : "/tmp") +
+                     "/xagent_memwire_" +
+                     std::to_string(::testing::UnitTest::GetInstance()
+                                      ->current_test_info()
+                                      ->name()
+                                      ? 0
+                                      : 0);
+  /* Flatten any stale state so each run is fresh. */
+  std::string rm = "rm -rf '" + root + "'";
+  (void)std::system(rm.c_str());
+
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
+
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  conf.agent_id = "integ_agent";
+  /* data_dir is irrelevant when memory is set — we leave it NULL to
+   * be sure the memory path is the one taking effect. */
+  conf.memory   = store;
+
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  /* A minimal session: no callbacks, no L1 hook of its own — the
+   * agent is expected to inject the memory-backed one for us. */
+  xAgentSessionConf sc = {};
+  sc.session_id      = "sess_a";
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
+  ASSERT_NE(s->on_l1_preserve, nullptr);
+  ASSERT_NE(s->l1_preserve_owner, nullptr);
+
+  /* Fire the hook with a Truncated batch, as if the budget policy
+   * had dropped two old entries. The callback should route the
+   * batch through xAgentMemoryAppend. */
+  xAgentSessionMsg msg0{};
+  msg0.role     = xAgentRole_User;
+  msg0.kind     = xAgentSessionEntryKind_Text;
+  msg0.text     = "first turn";
+  msg0.text_len = std::strlen("first turn");
+  xAgentSessionMsg msg1{};
+  msg1.role     = xAgentRole_Assistant;
+  msg1.kind     = xAgentSessionEntryKind_Text;
+  msg1.text     = "first reply";
+  msg1.text_len = std::strlen("first reply");
+  xAgentSessionMsg batch[] = {msg0, msg1};
+
+  s->on_l1_preserve(sess, batch, 2, xAgentL1PreserveReason_Truncated,
+                    s->l1_preserve_owner);
+
+  /* Retrieve from the store and assert the two entries round-tripped. */
+  xAgentMemoryQuery q{};
+  q.agent_id   = "integ_agent";
+  q.session_id = "sess_a";
+  xAgentMemoryHits hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
+  ASSERT_EQ(hits.n_entries, size_t{2});
+  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len),
+            std::string("first turn"));
+  EXPECT_EQ(std::string(hits.entries[1].text, hits.entries[1].text_len),
+            std::string("first reply"));
+  xAgentMemoryReleaseHits(store, &hits);
+
+  /* Destroying the session fires Finalizing with an empty batch —
+   * that path must also free the owner context without writing. */
+  xAgentSessionDestroy(sess);
+  xAgentDestroy(ag);
+  xAgentMemoryDestroy(store);
+  (void)std::system(rm.c_str());
+}
+
+/* When no memory store is configured but data_dir IS, sessions still
+ * get the legacy JSONL callback wired in. This is the backwards-
+ * compat guard: existing callers must keep working. */
+TEST_F(AgentTest, WithoutMemoryStoreFallsBackToJsonlAutoWire) {
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  conf.agent_id = "legacy_agent";
+  conf.data_dir = "/tmp/xagent_test_legacy"; /* any path */
+  /* conf.memory stays NULL */
+
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAgentSessionConf sc = {};
+  sc.session_id      = "sess_legacy";
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
+  EXPECT_NE(s->on_l1_preserve, nullptr);
+  EXPECT_NE(s->l1_preserve_owner, nullptr);
+
+  xAgentSessionDestroy(sess);
+  xAgentDestroy(ag);
+}
+
+/* When the caller explicitly sets on_l1_preserve in the session conf,
+ * the agent MUST NOT clobber it — neither the memory route nor the
+ * JSONL fallback should be wired in. */
+static void never_called_cb_(xAgentSession, const xAgentSessionMsg *, size_t,
+                             xAgentL1PreserveReason, void *) {}
+
+TEST_F(AgentTest, CallerProvidedL1CbTakesPriorityOverMemory) {
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = "/tmp/xagent_test_overridden";
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
+
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  conf.agent_id = "a";
+  conf.memory   = store;
+
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  int owner_tag = 42;
+  xAgentSessionConf sc = {};
+  sc.session_id       = "s";
+  sc.on_l1_preserve   = never_called_cb_;
+  sc.l1_preserve_owner = &owner_tag;
+
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
+  EXPECT_EQ(s->on_l1_preserve, never_called_cb_);
+  EXPECT_EQ(s->l1_preserve_owner, &owner_tag);
+
+  xAgentSessionDestroy(sess);
+  xAgentDestroy(ag);
+  xAgentMemoryDestroy(store);
 }

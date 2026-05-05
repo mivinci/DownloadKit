@@ -36,6 +36,17 @@
 #include <xbase/task.h>
 
 /**
+ * @brief Forward handle for the pluggable memory store.
+ *
+ * The full API lives in <xagent/memory.h>; we forward-declare only
+ * the handle here to keep agent.h from pulling memory.h (which
+ * itself depends on session.h, which depends on agent.h, creating
+ * a cycle). C11 allows this same typedef to appear here and in
+ * memory.h without conflict.
+ */
+XDEF_HANDLE(xAgentMemory);
+
+/**
  * @brief Opaque handle to a session instance.
  *
  * Forward-declared here for xAgentCreateSession(); the full
@@ -223,8 +234,28 @@ XDEF_STRUCT(xAgentConf) {
    *   {data_dir}/agents/{agent_id}/sessions/{session_id}/memory.jsonl
    * May be NULL — when NULL the agent does not auto-wire the
    * L1 preserve callback.
+   *
+   * Ignored when @ref memory is non-NULL: the explicit memory
+   * store takes priority and is responsible for choosing its own
+   * storage location.
    */
   const char *data_dir;
+
+  /**
+   * @brief Optional external memory store to use for L1 persistence.
+   *
+   * Borrowed from the caller; must remain alive for the agent's
+   * lifetime and be destroyed AFTER xAgentDestroy() returns. When
+   * non-NULL the agent wires the store into every session it
+   * creates via xAgentMemoryAppend, taking priority over the
+   * built-in @ref data_dir auto-wire (so callers don't need to
+   * clear @ref data_dir when opting into the new path).
+   *
+   * NULL (the default) keeps the legacy behaviour: when
+   * @ref data_dir and @ref agent_id are both set the agent writes
+   * its own JSONL files; otherwise no persistence happens.
+   */
+  xAgentMemory memory;
 
   /**
    * @brief Whether the agent may launch sidecar Queries when an

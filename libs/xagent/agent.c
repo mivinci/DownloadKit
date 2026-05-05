@@ -27,6 +27,8 @@
 #include <sys/stat.h>
 #include <time.h>
 
+#include <xagent/memory.h>
+
 /* ── L1 memory persistence ───────────────────────────────────────────
  *
  * When the agent has both agent_id and data_dir configured, it
@@ -264,6 +266,51 @@ static void agent_l1_preserve_cb_(xAgentSession sess, const xAgentSessionMsg *ms
   }
 }
 
+/* ── xAgentMemory-backed preserve callback ───────────────────────────
+ *
+ * When the agent is created with an explicit xAgentMemory store,
+ * we bypass the built-in JSONL writer entirely and route every
+ * preserve batch through xAgentMemoryAppend. The reason enum on
+ * xAgentL1PreserveReason maps 1:1 to xAgentMemoryAppendReason's
+ * first three values (Truncated=0, Compacted=1, Finalizing=2).
+ */
+static void agent_memory_preserve_cb_(xAgentSession sess,
+                                      const xAgentSessionMsg *msgs,
+                                      size_t n_msgs,
+                                      xAgentL1PreserveReason reason,
+                                      void *owner) {
+  (void)sess;
+  if (!owner) return;
+
+  struct agent_l1_ctx_ *ctx = (struct agent_l1_ctx_ *)owner;
+  struct xAgent_       *a   = ctx->agent;
+
+  /* As with the JSONL path, on Finalizing we free the ctx even
+   * when the batch is empty so we don't leak the session_id copy. */
+  if (!msgs || n_msgs == 0) {
+    if (reason == xAgentL1PreserveReason_Finalizing) {
+      free(ctx->session_id);
+      free(ctx);
+    }
+    return;
+  }
+
+  if (a->memory && ctx->session_id) {
+    xAgentMemoryQuery q;
+    memset(&q, 0, sizeof(q));
+    q.agent_id   = a->agent_id;
+    q.session_id = ctx->session_id;
+    /* Direct mapping of L1 reason → memory append reason. */
+    xAgentMemoryAppend(a->memory, &q, (xAgentMemoryAppendReason)reason, msgs,
+                       n_msgs);
+  }
+
+  if (reason == xAgentL1PreserveReason_Finalizing) {
+    free(ctx->session_id);
+    free(ctx);
+  }
+}
+
 /* ── Simple random session ID generator ──────────────────────────────
  *
  * Generates a short random string like "s_1a3b5c7d". Uses
@@ -337,6 +384,7 @@ xAgent xAgentCreate(const xAgentConf *conf) {
   a->max_tokens     = conf->max_tokens;
   a->agent_id             = conf->agent_id ? conf->agent_id : "default";
   a->data_dir             = conf->data_dir ? conf->data_dir : "/tmp/xagent";
+  a->memory               = conf->memory;
   a->enable_sidecar_query = conf->enable_sidecar_query;
   a->session_seq          = 0;
 
@@ -410,27 +458,40 @@ xAgentSession xAgentCreateSession(xAgent agent, const xAgentSessionConf *conf) {
    * and the agent has agent_id configured (meaning L1 persistence
    * is active). */
   char generated_id[12] = {0};
-  if (!effective.session_id && a->agent_id && a->data_dir) {
+  if (!effective.session_id && a->agent_id &&
+      (a->memory || a->data_dir)) {
     a->session_seq++;
     gen_session_id_(generated_id, a->session_seq);
     effective.session_id = generated_id;
   }
 
-  /* If the agent has both agent_id and data_dir configured and
-   * the caller hasn't already wired an L1 preserve callback,
-   * inject our own. */
+  /* Decide which preserve backend to wire:
+   *   - If the caller already set on_l1_preserve, honour it.
+   *   - Else if the agent was given an explicit xAgentMemory
+   *     store, route through xAgentMemoryAppend.
+   *   - Else fall back to the built-in JSONL writer when
+   *     agent_id + data_dir are both configured.
+   *   - Else leave on_l1_preserve unset (no persistence). */
   struct agent_l1_ctx_ *l1_ctx = NULL;
-  if (a->agent_id && a->data_dir && !effective.on_l1_preserve) {
-    l1_ctx = (struct agent_l1_ctx_ *)calloc(1, sizeof(*l1_ctx));
-    if (l1_ctx) {
-      l1_ctx->agent = a;
-      l1_ctx->session_id =
-        effective.session_id ? strdup(effective.session_id) : NULL;
-      effective.on_l1_preserve    = agent_l1_preserve_cb_;
-      effective.l1_preserve_owner = l1_ctx;
+  if (!effective.on_l1_preserve && a->agent_id) {
+    xAgentSessionL1PreserveFunc chosen = NULL;
+    if (a->memory) {
+      chosen = agent_memory_preserve_cb_;
+    } else if (a->data_dir) {
+      chosen = agent_l1_preserve_cb_;
     }
-    /* If calloc fails we simply skip L1 wiring — the session
-     * works fine without persistence. */
+    if (chosen) {
+      l1_ctx = (struct agent_l1_ctx_ *)calloc(1, sizeof(*l1_ctx));
+      if (l1_ctx) {
+        l1_ctx->agent = a;
+        l1_ctx->session_id =
+          effective.session_id ? strdup(effective.session_id) : NULL;
+        effective.on_l1_preserve    = chosen;
+        effective.l1_preserve_owner = l1_ctx;
+      }
+      /* If calloc fails we simply skip L1 wiring — the session
+       * works fine without persistence. */
+    }
   }
 
   /* Create the session normally via xAgentSessionCreate. */

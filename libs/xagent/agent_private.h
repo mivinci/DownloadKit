@@ -138,8 +138,19 @@ struct xAgent_ {
    * xAgentConf::data_dir; may be NULL. When both agent_id
    * and data_dir are non-NULL, the agent auto-wires L1
    * persistence into every session it creates.
+   *
+   * Ignored when @ref memory is non-NULL.
    */
   const char *data_dir;
+
+  /**
+   * Optional external memory store supplied at Create time.
+   * Borrowed from xAgentConf::memory; may be NULL. When non-NULL
+   * the agent routes every session's on_l1_preserve callback
+   * through xAgentMemoryAppend() instead of writing JSONL files
+   * directly, and takes priority over @ref data_dir.
+   */
+  xAgentMemory memory;
 
   /**
    * Whether this agent may launch sidecar Queries. Copied from

@@ -133,6 +133,20 @@ struct xAgentSession_ {
    * NULL. Used as part of the L1 memory file path. */
   const char *session_id;
 
+  /* Number of leading history_arr entries that have already been
+   * persisted by an external xAgentMemory store (typically because
+   * the session was primed from that store at create time via
+   * xAgentCreateSession). L1 preserve callbacks deliberately skip
+   * this prefix so they don't re-append rows the store already
+   * owns, avoiding on-disk duplication when a session resumes
+   * from prior memory. Increased by the agent's prime path;
+   * decreased as Truncated/Compacted events evict primed entries
+   * from the front; reset to zero after a Compacted event (the
+   * new summary entry is fresh and not yet persisted). Zero for
+   * sessions that were never primed, which is the fast path every
+   * existing caller hits. */
+  size_t persisted_prefix;
+
   /* ── Rolling history (session-owned, flat entries) ────────────── */
   xArray history_arr;
 

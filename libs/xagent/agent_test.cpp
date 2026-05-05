@@ -543,3 +543,69 @@ TEST_F(AgentTest, NoPrimeWithoutMemoryStore) {
   xAgentSessionDestroy(sess);
   xAgentDestroy(ag);
 }
+
+/* Wire-up B2 (prefix de-dup): Finalizing must skip rows that came
+ * out of the memory store so the on-disk file doesn't grow by the
+ * full primed tail on every resume. */
+TEST_F(AgentTest, PrimedPrefixIsSkippedOnFinalizing) {
+  const char *root = "/tmp/xagent_test_prefix_skip";
+  std::string rm   = std::string("rm -rf '") + root + "'";
+  (void)std::system(rm.c_str());
+
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = root;
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
+
+  /* Seed two rows into the store. */
+  xAgentMemoryQuery q{};
+  q.agent_id   = "a";
+  q.session_id = "resume";
+  xAgentSessionMsg s0{};
+  s0.role     = xAgentRole_User;
+  s0.kind     = xAgentSessionEntryKind_Text;
+  s0.text     = "seed0";
+  s0.text_len = 5;
+  xAgentSessionMsg s1{};
+  s1.role     = xAgentRole_Assistant;
+  s1.kind     = xAgentSessionEntryKind_Text;
+  s1.text     = "seed1";
+  s1.text_len = 5;
+  xAgentSessionMsg seeds[] = {s0, s1};
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
+                               seeds, 2),
+            xErrno_Ok);
+
+  xAgentConf conf = {};
+  conf.loop     = loop;
+  conf.provider = pvd;
+  conf.agent_id = "a";
+  conf.memory   = store;
+  xAgent ag = xAgentCreate(&conf);
+  ASSERT_NE(ag, nullptr);
+
+  xAgentSessionConf sc = {};
+  sc.session_id      = "resume";
+  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  auto *ss = reinterpret_cast<struct xAgentSession_ *>(sess);
+  ASSERT_EQ(xArrayLen(ss->history_arr), size_t{2});
+  EXPECT_EQ(ss->persisted_prefix, size_t{2});
+
+  /* Destroy the session. The agent's memory preserve callback
+   * will be fired with Finalizing — but, thanks to
+   * persisted_prefix == history_arr length, nothing new should be
+   * written to the store. We verify by retrieving and asserting
+   * the stored row count stayed at exactly 2. */
+  xAgentSessionDestroy(sess);
+
+  xAgentMemoryHits hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
+  EXPECT_EQ(hits.n_entries, size_t{2});
+  xAgentMemoryReleaseHits(store, &hits);
+
+  xAgentDestroy(ag);
+  xAgentMemoryDestroy(store);
+  (void)std::system(rm.c_str());
+}

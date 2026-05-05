@@ -537,33 +537,43 @@ xAgentSession xAgentCreateSession(xAgent agent, const xAgentSessionConf *conf) {
     memset(&hits, 0, sizeof(hits));
     if (xAgentMemoryRetrieve(a->memory, &rq, &hits) == xErrno_Ok &&
         hits.n_entries > 0) {
+      size_t primed = 0;
       for (size_t i = 0; i < hits.n_entries; i++) {
         const xAgentSessionMsg *m = &hits.entries[i];
+        xErrno prc = xErrno_Ok;
         /* Dispatch on kind and copy through the session's normal
          * append helpers so memory ownership and the release
          * callback (ai_session_msg_free) stay uniform with the
-         * rest of the history. Errors are swallowed here — a
-         * failed prime must not prevent the caller from using the
-         * session, it just means the primed row is missing. */
+         * rest of the history. Errors short-circuit the loop so
+         * we stop counting primed rows at the first failure —
+         * otherwise a partial prime would leave persisted_prefix
+         * ahead of what's actually in history_arr. */
         switch (m->kind) {
         case xAgentSessionEntryKind_Text:
-          ai_history_append_text(s, m->role, m->text, m->text_len);
+          prc = ai_history_append_text(s, m->role, m->text, m->text_len);
           break;
         case xAgentSessionEntryKind_Thinking:
-          ai_history_append_thinking(s, m->text, m->text_len);
+          prc = ai_history_append_thinking(s, m->text, m->text_len);
           break;
         case xAgentSessionEntryKind_ToolUse:
-          ai_history_append_tool_use(s, m->tool_use_id, m->tool_use_name,
-                                     m->tool_use_args);
+          prc = ai_history_append_tool_use(s, m->tool_use_id,
+                                           m->tool_use_name,
+                                           m->tool_use_args);
           break;
         case xAgentSessionEntryKind_ToolResult:
-          ai_history_append_tool_result(s, m->tool_result_id,
-                                        m->tool_result_output,
-                                        m->tool_result_output_len,
-                                        m->tool_result_is_error);
+          prc = ai_history_append_tool_result(s, m->tool_result_id,
+                                              m->tool_result_output,
+                                              m->tool_result_output_len,
+                                              m->tool_result_is_error);
           break;
         }
+        if (prc != xErrno_Ok) break;
+        primed++;
       }
+      /* Tell the session these leading entries are already in the
+       * external store, so on-destroy / on-trim preserves won't
+       * re-append them and inflate the on-disk file. */
+      s->persisted_prefix = primed;
     }
     xAgentMemoryReleaseHits(a->memory, &hits);
   }

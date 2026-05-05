@@ -27,7 +27,7 @@ set -euo pipefail
 
 # ── Defaults ────────────────────────────────────────────────────────────
 BASE_IMAGE="${BASE_IMAGE:-gcc:14}"
-TEST_IMAGE="xkit-test:latest"
+TEST_IMAGE="moo-test:latest"
 BUILD_TYPE="${BUILD_TYPE:-Debug}"
 TLS_BACKEND="openssl"
 BASE_REF="origin/main"
@@ -180,7 +180,7 @@ detect_changed_modules() {
 
     local -A changed_mods=([__none__]=1)
     for f in $changed_files; do
-        if [[ "$f" =~ ^modules/([^/]+)/ ]]; then
+        if [[ "$f" =~ ^libs/([^/]+)/ ]]; then
             local mod="${BASH_REMATCH[1]}"
             for m in "${ALL_MODULES[@]}"; do
                 if [[ "$mod" == "$m" ]]; then
@@ -242,9 +242,9 @@ if [[ "$CI_MODE" -eq 1 ]]; then
 
     step "Configuring build (TLS=$TLS_BACKEND, type=$BUILD_TYPE, CI mode)"
 
-    CMAKE_EXTRA_ARGS="-DXK_TLS_BACKEND=$TLS_BACKEND"
+    CMAKE_EXTRA_ARGS="-DMOO_TLS_BACKEND=$TLS_BACKEND"
     if [[ $ASAN -eq 1 ]]; then
-        CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DXK_ENABLE_ASAN=ON"
+        CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DMOO_ENABLE_ASAN=ON"
     fi
 
     GITHUB_MIRROR="${GITHUB_MIRROR}" cmake -S . -B "$BUILD_DIR" \
@@ -339,15 +339,15 @@ container run --rm -m "$MEMORY" \
     "$TEST_IMAGE" \
     bash -c "
         set -euo pipefail && \
-        export XKIT_SKIP_NETWORK_TESTS=1 && \
+        export MOO_SKIP_NETWORK_TESTS=1 && \
         container-setup.sh && \
         BUILD_DIR=$BUILD_DIR && \
         if [ ! -d \$BUILD_DIR ]; then \
             mkdir -p \$BUILD_DIR && cd \$BUILD_DIR && \
             cmake .. \
               -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-              -DXK_TLS_BACKEND=$TLS_BACKEND \
-              -DXK_ENABLE_ASAN=OFF \
+              -DMOO_TLS_BACKEND=$TLS_BACKEND \
+              -DMOO_ENABLE_ASAN=OFF \
               -DFETCHCONTENT_BASE_DIR=/fetchcontent-cache; \
         else \
             cd \$BUILD_DIR; \

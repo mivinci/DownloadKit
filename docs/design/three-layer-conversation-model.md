@@ -545,9 +545,9 @@ sequenceDiagram
 
 ---
 
-## 附：在 xKit 中的落地
+## 附：在 moo 中的落地
 
-xKit 的 `xagent` 模块大体就是按这个切法做的：
+moo 的 `xagent` 模块大体就是按这个切法做的：
 
 - `xAgent` 承担 Agent 层——身份、长期记忆（计划中）、能力目录（tool 注册表）。
 - `xAgentSession` 承担 Session 层——message history、streaming 回调、cancel 作用域。

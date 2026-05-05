@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
@@ -267,7 +267,7 @@ int main() {
   {
     auto t         = std::make_unique<OwnedTurn>();
     t->role        = xAgentRole_System;
-    t->text        = "You are a concise assistant running on xKit's xagent "
+    t->text        = "You are a concise assistant running on moo's xagent "
                      "provider-level demo. Answer briefly.";
     t->content     = std::make_unique<xAgentContent>();
     *t->content    = xAgentContentText(t->text.c_str());

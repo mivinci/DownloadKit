@@ -1,11 +1,11 @@
 <!-- markdownlint-disable MD033 -->
 <!-- markdownlint-disable MD041 -->
 <p align="center">
-  <img src="docs/logo.png" alt="xKit" height="160">
+  <img src="docs/logo.png" alt="moo" height="160">
 </p>
 
 <div align="center">
-  <a href="https://le0.me/xKit">Docs</a>
+  <a href="https://le0.me/moo">Docs</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
   <a href="diary">Diary</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
@@ -19,21 +19,21 @@ A collection of low-level C building blocks for event-driven, asynchronous progr
 - Designed and reviewed by Leo X.
 - Coded by Codebuddy VSCode plugin with claude-4.6-opus
 
-## Modules
+## Libraries
 
-| Module | Description |
-| ------ | ----------- |
-| **[xbase](https://le0.me/xKit/modules/xbase)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
-| **[xbuf](https://le0.me/xKit/modules/xbuf)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
-| **[xnet](https://le0.me/xKit/modules/xnet)** | Networking primitives — URL parser, async DNS resolver, shared TLS configuration types |
-| **[xhttp](https://le0.me/xKit/modules/xhttp)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing, WebSocket server & client (RFC 6455) |
-| **[xlog](https://le0.me/xKit/modules/xlog)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
-| **[xjs](https://le0.me/xKit/modules/xjs)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped C API, ES modules, native class wrappers |
-| **[xcrypto](https://le0.me/xKit/modules/xcrypto)** | Cryptographic primitives — SHA-1, SHA-256 (OpenSSL / mbedTLS / builtin), MD5, CRC-32, generic HMAC with HMAC-SHA1, HMAC-SHA256, HMAC-MD5 |
-| **[xp2p](https://le0.me/xKit/modules/xp2p)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
-| **[xfer](https://le0.me/xKit/modules/xfer)** | P2P file transfer — zero-config send/receive over WebRTC DataChannel with signaling, chunking, SHA-1 verification, and resume support |
+| Library | Description |
+| ------- | ----------- |
+| **[xbase](https://le0.me/moo/libs/xbase)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
+| **[xbuf](https://le0.me/moo/libs/xbuf)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
+| **[xnet](https://le0.me/moo/libs/xnet)** | Networking primitives — URL parser, async DNS resolver, shared TLS configuration types |
+| **[xhttp](https://le0.me/moo/libs/xhttp)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 (llhttp) & HTTP/2 (nghttp2) async server with TLS (OpenSSL / MbedTLS) and parameterized routing, WebSocket server & client (RFC 6455) |
+| **[xlog](https://le0.me/moo/libs/xlog)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
+| **[xjs](https://le0.me/moo/libs/xjs)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped C API, ES modules, native class wrappers |
+| **[xcrypto](https://le0.me/moo/libs/xcrypto)** | Cryptographic primitives — SHA-1, SHA-256 (OpenSSL / mbedTLS / builtin), MD5, CRC-32, generic HMAC with HMAC-SHA1, HMAC-SHA256, HMAC-MD5 |
+| **[xp2p](https://le0.me/moo/libs/xp2p)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
+| **[xfer](https://le0.me/moo/libs/xfer)** | P2P file transfer — zero-config send/receive over WebRTC DataChannel with signaling, chunking, SHA-1 verification, and resume support |
 
-📖 See the **[full documentation](https://le0.me/xKit)** for detailed design, architecture diagrams, API references, and usage examples.
+📖 See the **[full documentation](https://le0.me/moo)** for detailed design, architecture diagrams, API references, and usage examples.
 
 ## Prerequisites
 
@@ -55,8 +55,8 @@ The following dependencies are **automatically fetched and built from source** v
 | cJSON | JSON parsing for **xfer** signaling | `libcjson-dev` (apt) / `cjson` (brew) |
 | usrsctp | User-space SCTP for **xp2p** DataChannel | `libusrsctp-dev` (apt) / `usrsctp` (brew) |
 | libuv | Event loop for benchmarks | `libuv1-dev` (apt) / `libuv` (brew) |
-| GoogleTest | Unit testing (when `XK_BUILD_TESTS=ON`) | `libgtest-dev` (apt) / `googletest` (brew) |
-| Google Benchmark | Benchmarking (when `XK_BUILD_BENCHMARKS=ON`) | `libbenchmark-dev` (apt) / `google-benchmark` (brew) |
+| GoogleTest | Unit testing (when `MOO_BUILD_TESTS=ON`) | `libgtest-dev` (apt) / `googletest` (brew) |
+| Google Benchmark | Benchmarking (when `MOO_BUILD_BENCHMARKS=ON`) | `libbenchmark-dev` (apt) / `google-benchmark` (brew) |
 
 ## Build
 
@@ -68,7 +68,7 @@ cmake --build build --parallel
 To skip tests:
 
 ```bash
-cmake -S . -B build -DXK_BUILD_TESTS=OFF
+cmake -S . -B build -DMOO_BUILD_TESTS=OFF
 ```
 
 ## Test
@@ -81,7 +81,7 @@ ctest --test-dir build --output-on-failure --parallel 4
 
 ### TLS backend selection
 
-Both **xhttp** and **xp2p** share the same TLS backend setting. Use `XK_TLS_BACKEND` to choose at configure time:
+Both **xhttp** and **xp2p** share the same TLS backend setting. Use `MOO_TLS_BACKEND` to choose at configure time:
 
 | Backend | Value | Extra dependency |
 | ------- | ----- | ---------------- |
@@ -91,7 +91,7 @@ Both **xhttp** and **xp2p** share the same TLS backend setting. Use `XK_TLS_BACK
 **OpenSSL** (default when available):
 
 ```bash
-cmake -S . -B build-openssl -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=openssl
+cmake -S . -B build-openssl -DCMAKE_BUILD_TYPE=Debug -DMOO_TLS_BACKEND=openssl
 cmake --build build-openssl --parallel
 ctest --test-dir build-openssl --output-on-failure --parallel 4
 ```
@@ -99,7 +99,7 @@ ctest --test-dir build-openssl --output-on-failure --parallel 4
 **MbedTLS**:
 
 ```bash
-cmake -S . -B build-mbedtls -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=mbedtls
+cmake -S . -B build-mbedtls -DCMAKE_BUILD_TYPE=Debug -DMOO_TLS_BACKEND=mbedtls
 cmake --build build-mbedtls --parallel
 ctest --test-dir build-mbedtls --output-on-failure --parallel 4
 ```
@@ -108,14 +108,14 @@ ctest --test-dir build-mbedtls --output-on-failure --parallel 4
 
 ### xp2p DTLS configuration
 
-The **xp2p** module includes DTLS + SCTP + DataChannel for WebRTC browser interop (always enabled). It reuses the same `XK_TLS_BACKEND` setting as **xhttp**:
+The **xp2p** module includes DTLS + SCTP + DataChannel for WebRTC browser interop (always enabled). It reuses the same `MOO_TLS_BACKEND` setting as **xhttp**:
 
 ```bash
 # OpenSSL backend (default)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=openssl
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DMOO_TLS_BACKEND=openssl
 
 # mbedTLS backend
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DXK_TLS_BACKEND=mbedtls
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DMOO_TLS_BACKEND=mbedtls
 ```
 
 ### HTTPS integration tests
@@ -133,7 +133,7 @@ The `xhttp/https_test.cpp` suite tests the client and server TLS integration end
 - TLS config reset between requests
 - Destroy client with in-flight HTTPS request
 
-These tests run automatically with `ctest` when `XK_TLS_BACKEND=openssl` is set.
+These tests run automatically with `ctest` when `MOO_TLS_BACKEND=openssl` is set.
 
 ### Linux via container (macOS host)
 
@@ -164,7 +164,7 @@ All benchmarks run on Apple M3 Pro (12 cores, 36 GB), macOS 26.4, Clang 17, Rele
 ### Run Benchmarks
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DXK_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 ./scripts/run_micro_bench.sh
 ```
@@ -172,9 +172,9 @@ cmake --build build --parallel
 ### Full Results
 
 - **Micro-benchmarks** — detailed tables are in each module's documentation:
-  [mpsc.h](https://le0.me/xKit/modules/xbase/mpsc.html#benchmark) · [event.h](https://le0.me/xKit/modules/xbase/event.html#benchmark) · [timer.h](https://le0.me/xKit/modules/xbase/timer.html#benchmark) · [heap.h](https://le0.me/xKit/modules/xbase/heap.html#benchmark) · [memory.h](https://le0.me/xKit/modules/xbase/memory.html#benchmark) · [buf.h](https://le0.me/xKit/modules/xbuf/buf.html#benchmark) · [ring.h](https://le0.me/xKit/modules/xbuf/ring.html#benchmark) · [io.h](https://le0.me/xKit/modules/xbuf/io.html#benchmark)
-- **End-to-end** — [HTTP/1.1 Server Benchmark](https://le0.me/xKit/bench/http_server.html) · [HTTP/2 Server Benchmark](https://le0.me/xKit/bench/http2_server.html) · [HTTPS Server Benchmark](https://le0.me/xKit/bench/https_server.html) (xKit vs Go)
+  [mpsc.h](https://le0.me/moo/libs/xbase/mpsc.html#benchmark) · [event.h](https://le0.me/moo/libs/xbase/event.html#benchmark) · [timer.h](https://le0.me/moo/libs/xbase/timer.html#benchmark) · [heap.h](https://le0.me/moo/libs/xbase/heap.html#benchmark) · [memory.h](https://le0.me/moo/libs/xbase/memory.html#benchmark) · [buf.h](https://le0.me/moo/libs/xbuf/buf.html#benchmark) · [ring.h](https://le0.me/moo/libs/xbuf/ring.html#benchmark) · [io.h](https://le0.me/moo/libs/xbuf/io.html#benchmark)
+- **End-to-end** — [HTTP/1.1 Server Benchmark](https://le0.me/moo/bench/http_server.html) · [HTTP/2 Server Benchmark](https://le0.me/moo/bench/http2_server.html) · [HTTPS Server Benchmark](https://le0.me/moo/bench/https_server.html) (moo vs Go)
 
 ## License
 
-[MIT](LICENSE) © 2025-present Leo X. and xKit contributors
+[MIT](LICENSE) © 2025-present Leo X. and moo contributors

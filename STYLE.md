@@ -1,6 +1,6 @@
-# xKit Coding Style Guide
+# moo Coding Style Guide
 
-本文档总结了 xKit 项目的编码规范和命名风格，方便新人快速上手。
+本文档总结了 moo 项目的编码规范和命名风格，方便新人快速上手。
 
 项目使用 `.clang-format` 进行自动格式化（基于 LLVM 风格），以下规范侧重于
 clang-format **无法覆盖**的约定。
@@ -23,7 +23,7 @@ clang-format **无法覆盖**的约定。
 ### 2.1 目录结构
 
 ```plain
-modules/
+libs/
   xbase/        # 核心原语 — 事件循环、定时器、任务、异步 socket、内存、无锁数据结构
   xbuf/         # 缓冲区原语 — 线性、环形、链式 I/O 缓冲区
   xnet/         # 网络原语 — URL 解析、异步 DNS、TCP、TLS 传输层
@@ -64,7 +64,7 @@ docs/           # 文档站点源文件
 
 ```c
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
@@ -93,10 +93,10 @@ docs/           # 文档站点源文件
 | 维度 | `apps/` | `examples/` |
 | ------ | ------ | ------ |
 | 定位 | 正式产物（`cli`、未来的 `server` 等） | 最小用法样例、API 诊断 |
-| 默认构建 | 仅当 `XK_BUILD_APPS=ON` 时构建（默认 `OFF`） | 仅当 `XK_BUILD_EXAMPLES=ON` 时构建 |
+| 默认构建 | 仅当 `MOO_BUILD_APPS=ON` 时构建（默认 `OFF`） | 仅当 `MOO_BUILD_EXAMPLES=ON` 时构建 |
 | 规模 | 可跨多个 TU，按职责拆分子文件 | 单文件为主 |
 | 语言 | C / C++ 均可（选最合适的） | 跟随所演示模块的语言 |
-| 依赖 | 可依赖任意 `modules/*` 公共库 | 同左 |
+| 依赖 | 可依赖任意 `libs/*` 公共库 | 同左 |
 
 **目录布局：**
 
@@ -109,12 +109,12 @@ apps/
     <module>.{h,cpp}  # 按职责拆分的子模块（repl、slash、callbacks…）
 ```
 
-**头文件后缀**：单个 app 内部的头文件统一用 `.h`（与 `modules/` 一致），
+**头文件后缀**：单个 app 内部的头文件统一用 `.h`（与 `libs/` 一致），
 不使用 `.hpp`，即便整个 app 是 C++ 实现。Include guard 的命名为
-`XKIT_APPS_<APP>_<FILE>_H`（例如 `XKIT_APPS_CLI_REPL_H`）。
+`MOO_APPS_<APP>_<FILE>_H`（例如 `MOO_APPS_CLI_REPL_H`）。
 
 **命名**：产物名（`add_executable(<name> …)`）与目录同名，用小写短名。
-跨 app 共享的库（如果将来出现）放到 `apps/<name>/` 下并以 `xkit_` 前缀
+跨 app 共享的库（如果将来出现）放到 `apps/<name>/` 下并以 `moo_` 前缀
 与模块库区分；目前仓里只有 `cli` 一个 app，未触发这条规则。
 
 ---
@@ -135,8 +135,8 @@ apps/
 | 内部/static 函数 | snake_case | `submit_timer`, `sources_add`, `loop_drain_wake` |
 | 局部变量 | snake_case | `delay_ms`, `abs_ms`, `wake_rfd` |
 | 结构体字段 | snake_case | `status_code`, `body_len`, `heap_idx` |
-| 编译定义 | `XK_` + UPPER_CASE | `XK_HAS_KQUEUE`, `XK_HAS_EPOLL` |
-| CMake 选项 | `XK_` + UPPER_CASE | `XK_BUILD_TESTS` |
+| 编译定义 | `MOO_` + UPPER_CASE | `MOO_HAS_KQUEUE`, `MOO_HAS_EPOLL` |
+| CMake 选项 | `MOO_` + UPPER_CASE | `MOO_BUILD_TESTS` |
 
 ### 3.2 命名原则
 
@@ -395,14 +395,14 @@ codebuddy/xcurl
 版本号遵循 [Semantic Versioning 2.0](https://semver.org/)，直接在根 `CMakeLists.txt` 的 `project()` 中声明：
 
 ```cmake
-project(xKit VERSION 0.0.1 LANGUAGES C CXX)
+project(moo VERSION 0.0.1 LANGUAGES C CXX)
 
 # Pre-release channel (alpha / beta / rc / "")
-set(XK_VERSION_CHANNEL "alpha")
-set(XK_VERSION_BUILDNO 1)
+set(MOO_VERSION_CHANNEL "alpha")
+set(MOO_VERSION_BUILDNO 1)
 ```
 
-CMake 会自动设置 `PROJECT_VERSION`、`PROJECT_VERSION_MAJOR`、`PROJECT_VERSION_MINOR`、`PROJECT_VERSION_PATCH` 等变量。预发布通道和构建号通过额外的 `set()` 变量管理，最终拼接为完整版本字符串 `XK_VERSION`。
+CMake 会自动设置 `PROJECT_VERSION`、`PROJECT_VERSION_MAJOR`、`PROJECT_VERSION_MINOR`、`PROJECT_VERSION_PATCH` 等变量。预发布通道和构建号通过额外的 `set()` 变量管理，最终拼接为完整版本字符串 `MOO_VERSION`。
 
 ### 11.1 格式
 
@@ -436,20 +436,20 @@ MAJOR.MINOR.PATCH[-CHANNEL.BUILDNO]
 所有编译选项通过 `option` 注册：
 
 ```cmake
-option(XK_BUILD_TESTS "Build xKit tests" ON)
-option(XK_BUILD_BENCHMARKS "Build xKit benchmarks" ON)
-option(XK_BUILD_EXAMPLES "Build xKit example programs" OFF)
-option(XK_ENABLE_ASAN "Enable AddressSanitizer" OFF)
-option(XK_DEBUG_LEVEL "Debug logging level (0-3)" 0)
+option(MOO_BUILD_TESTS "Build moo tests" ON)
+option(MOO_BUILD_BENCHMARKS "Build moo benchmarks" ON)
+option(MOO_BUILD_EXAMPLES "Build moo example programs" OFF)
+option(MOO_ENABLE_ASAN "Enable AddressSanitizer" OFF)
+option(MOO_DEBUG_LEVEL "Debug logging level (0-3)" 0)
 ```
 
 ### 12.2 平台检测
 
-使用 CMake 的 `check_include_file` 进行平台特性检测，编译定义统一为 `XK_HAS_<FEATURE>`：
+使用 CMake 的 `check_include_file` 进行平台特性检测，编译定义统一为 `MOO_HAS_<FEATURE>`：
 
 ```cmake
-check_include_file(sys/event.h HAS_SYS_EVENT_H)   # → XK_HAS_KQUEUE
-check_include_file(sys/epoll.h HAS_SYS_EPOLL_H)   # → XK_HAS_EPOLL
+check_include_file(sys/event.h HAS_SYS_EVENT_H)   # → MOO_HAS_KQUEUE
+check_include_file(sys/epoll.h HAS_SYS_EPOLL_H)   # → MOO_HAS_EPOLL
 ```
 
 ### 12.3 模块 CMakeLists
@@ -458,7 +458,7 @@ check_include_file(sys/epoll.h HAS_SYS_EPOLL_H)   # → XK_HAS_EPOLL
 
 - 收集源文件（`file(GLOB_RECURSE ...)`）
 - 构建共享库（`add_library(... SHARED ...)`）
-- 条件编译测试（`if(XK_BUILD_TESTS) ... endif()`）
+- 条件编译测试（`if(MOO_BUILD_TESTS) ... endif()`）
 
 ---
 

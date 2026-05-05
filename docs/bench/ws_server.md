@@ -1,6 +1,6 @@
 # WebSocket Server Benchmark
 
-End-to-end WebSocket echo server benchmark comparing **xKit** (single-threaded event-loop) against three popular Go WebSocket libraries:
+End-to-end WebSocket echo server benchmark comparing **moo** (single-threaded event-loop) against three popular Go WebSocket libraries:
 
 - **gorilla/websocket** — The most widely used Go WebSocket library
 - **nhooyr/websocket** (coder/websocket) — Modern API with context support
@@ -21,12 +21,12 @@ End-to-end WebSocket echo server benchmark comparing **xKit** (single-threaded e
 
 All servers implement the same behavior: accept WebSocket connections and echo every received message back to the sender.
 
-### xKit (`bench/ws_bench_server.cpp`)
+### moo (`bench/ws_bench_server.cpp`)
 
 Single-threaded event-loop WebSocket server built on `xbase/event.h` + `xhttp/ws.h`. Uses `xWsServe()` for a one-line WebSocket-only server. All frame parsing, masking, ping/pong, and close handshake are handled automatically.
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DXK_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 ./build/bench/ws_bench_server 9090
 ```
@@ -77,25 +77,25 @@ Key parameters:
 
 Tests raw message throughput with minimal 64-byte payloads. Varies connection count to measure scalability.
 
-| Connections | xKit Msg/s | gorilla Msg/s | nhooyr Msg/s | gobwas Msg/s |
+| Connections | moo Msg/s | gorilla Msg/s | nhooyr Msg/s | gobwas Msg/s |
 | ---: | ---: | ---: | ---: | ---: |
 | 50 | **219,850** | 173,133 | 107,570 | 138,360 |
 | 100 | **219,813** | 180,373 | 125,386 | 140,522 |
 | 200 | **218,997** | 184,335 | 140,378 | 141,859 |
 | 500 | **218,078** | 184,820 | 155,729 | 141,970 |
 
-**xKit vs best Go library (gorilla):**
+**moo vs best Go library (gorilla):**
 
-| Connections | xKit | gorilla | Δ |
+| Connections | moo | gorilla | Δ |
 | ---: | ---: | ---: | --- |
-| 50 | 219,850 | 173,133 | xKit **+27%** |
-| 100 | 219,813 | 180,373 | xKit **+22%** |
-| 200 | 218,997 | 184,335 | xKit **+19%** |
-| 500 | 218,078 | 184,820 | xKit **+18%** |
+| 50 | 219,850 | 173,133 | moo **+27%** |
+| 100 | 219,813 | 180,373 | moo **+22%** |
+| 200 | 218,997 | 184,335 | moo **+19%** |
+| 500 | 218,078 | 184,820 | moo **+18%** |
 
 **Latency (64B, varying connections):**
 
-| Connections | xKit | gorilla | nhooyr | gobwas |
+| Connections | moo | gorilla | nhooyr | gobwas |
 | ---: | ---: | ---: | ---: | ---: |
 | 50 | **227 μs** | 289 μs | 465 μs | 361 μs |
 | 100 | **455 μs** | 554 μs | 797 μs | 711 μs |
@@ -104,17 +104,17 @@ Tests raw message throughput with minimal 64-byte payloads. Varies connection co
 
 **Analysis:**
 
-- xKit sustains **~219K msg/s** across all connection counts — virtually no throughput degradation from 50 to 500 connections. The single-threaded event loop handles all connections without context-switching overhead.
+- moo sustains **~219K msg/s** across all connection counts — virtually no throughput degradation from 50 to 500 connections. The single-threaded event loop handles all connections without context-switching overhead.
 - **gorilla/websocket** is the fastest Go library at ~173–185K msg/s, benefiting from its mature, optimized implementation.
 - **gobwas/ws** — despite being marketed as "zero-allocation" — is slower than gorilla in this echo benchmark (~138–142K). Its advantage is in memory efficiency for massive connection counts, not raw throughput.
 - **nhooyr/websocket** is the slowest at ~108–156K msg/s. The streaming `Reader`/`Writer` API adds overhead compared to gorilla's simpler `ReadMessage`/`WriteMessage`.
-- xKit's latency advantage is most pronounced at low connection counts (227 μs vs 289 μs at 50 connections) and narrows at high counts as all servers become scheduling-bound.
+- moo's latency advantage is most pronounced at low connection counts (227 μs vs 289 μs at 50 connections) and narrows at high counts as all servers become scheduling-bound.
 
 ### Echo — Varying Message Size (100 connections)
 
 Tests message throughput and transfer rate with different payload sizes. Fixed at 100 connections.
 
-| Message Size | xKit Msg/s | gorilla Msg/s | nhooyr Msg/s | gobwas Msg/s |
+| Message Size | moo Msg/s | gorilla Msg/s | nhooyr Msg/s | gobwas Msg/s |
 | ---: | ---: | ---: | ---: | ---: |
 | 64 B | **219,813** | 180,373 | 125,386 | 140,522 |
 | 256 B | **216,760** | 179,909 | 122,661 | 140,677 |
@@ -123,7 +123,7 @@ Tests message throughput and transfer rate with different payload sizes. Fixed a
 
 **Transfer Rate (send + recv):**
 
-| Message Size | xKit | gorilla | nhooyr | gobwas |
+| Message Size | moo | gorilla | nhooyr | gobwas |
 | ---: | ---: | ---: | ---: | ---: |
 | 64 B | **26.84 MB/s** | 22.02 MB/s | 15.31 MB/s | 17.15 MB/s |
 | 256 B | **105.84 MB/s** | 87.85 MB/s | 59.89 MB/s | 68.69 MB/s |
@@ -132,7 +132,7 @@ Tests message throughput and transfer rate with different payload sizes. Fixed a
 
 **Latency (100 connections, varying message size):**
 
-| Message Size | xKit | gorilla | nhooyr | gobwas |
+| Message Size | moo | gorilla | nhooyr | gobwas |
 | ---: | ---: | ---: | ---: | ---: |
 | 64 B | **455 μs** | 554 μs | 797 μs | 711 μs |
 | 256 B | **461 μs** | 556 μs | 815 μs | 711 μs |
@@ -141,10 +141,10 @@ Tests message throughput and transfer rate with different payload sizes. Fixed a
 
 **Analysis:**
 
-- xKit achieves **1.02 GB/s** transfer rate at 4KB messages — the only server to break the 1 GB/s barrier.
-- At 4KB, the ranking shifts: xKit > gorilla > nhooyr > gobwas. gobwas drops to last place because its `ReadClientData` / `WriteServerMessage` API allocates a new byte slice per message, negating its "zero-allocation upgrade" advantage.
-- xKit's advantage over gorilla narrows from +22% (64B) to +7% (4KB) as both servers become I/O bound at larger payloads.
-- All servers show graceful throughput degradation as message size grows, with xKit maintaining the lowest latency across all sizes.
+- moo achieves **1.02 GB/s** transfer rate at 4KB messages — the only server to break the 1 GB/s barrier.
+- At 4KB, the ranking shifts: moo > gorilla > nhooyr > gobwas. gobwas drops to last place because its `ReadClientData` / `WriteServerMessage` API allocates a new byte slice per message, negating its "zero-allocation upgrade" advantage.
+- moo's advantage over gorilla narrows from +22% (64B) to +7% (4KB) as both servers become I/O bound at larger payloads.
+- All servers show graceful throughput degradation as message size grows, with moo maintaining the lowest latency across all sizes.
 
 ## Go Library Comparison (WS)
 
@@ -164,30 +164,30 @@ The same echo benchmark repeated over TLS (wss://) to measure the impact of encr
 
 ### WSS Server Implementations
 
-- **xKit** (`bench/wss_bench_server.cpp`) — Uses `xHttpServerCreate()` + `xWsUpgrade()` + `xHttpServerListenTls()`. ALPN set to `http/1.1` only (WebSocket requires HTTP/1.1 upgrade). Single-threaded event loop handles both TLS and WebSocket I/O.
+- **moo** (`bench/wss_bench_server.cpp`) — Uses `xHttpServerCreate()` + `xWsUpgrade()` + `xHttpServerListenTls()`. ALPN set to `http/1.1` only (WebSocket requires HTTP/1.1 upgrade). Single-threaded event loop handles both TLS and WebSocket I/O.
 - **Go servers** (`bench/wss_bench_server_{gorilla,nhooyr,gobwas}.go`) — Same logic as WS versions but with `ListenAndServeTLS` (gorilla/nhooyr) or `tls.Listen` (gobwas). Go's `crypto/tls` runs TLS per-goroutine, parallelizing encryption across connections.
 
 ### WSS Echo 64B — Varying Connection Count
 
-| Connections | xKit Msg/s | gorilla Msg/s | nhooyr Msg/s | gobwas Msg/s |
+| Connections | moo Msg/s | gorilla Msg/s | nhooyr Msg/s | gobwas Msg/s |
 | ---: | ---: | ---: | ---: | ---: |
 | 50 | **186,513** | 173,125 | 107,589 | 138,317 |
 | 100 | **186,068** | 180,426 | 133,218 | 142,187 |
 | 200 | 184,066 | **185,792** | 148,475 | 144,361 |
 | 500 | 167,019 | **184,532** | 156,695 | 143,220 |
 
-**xKit vs gorilla (WSS):**
+**moo vs gorilla (WSS):**
 
-| Connections | xKit | gorilla | Δ |
+| Connections | moo | gorilla | Δ |
 | ---: | ---: | ---: | --- |
-| 50 | 186,513 | 173,125 | xKit **+8%** |
-| 100 | 186,068 | 180,426 | xKit **+3%** |
+| 50 | 186,513 | 173,125 | moo **+8%** |
+| 100 | 186,068 | 180,426 | moo **+3%** |
 | 200 | 184,066 | 185,792 | gorilla **+1%** |
 | 500 | 167,019 | 184,532 | gorilla **+10%** |
 
 **Latency (WSS 64B, varying connections):**
 
-| Connections | xKit | gorilla | nhooyr | gobwas |
+| Connections | moo | gorilla | nhooyr | gobwas |
 | ---: | ---: | ---: | ---: | ---: |
 | 50 | **268 μs** | 289 μs | 465 μs | 361 μs |
 | 100 | **537 μs** | 554 μs | 750 μs | 703 μs |
@@ -196,14 +196,14 @@ The same echo benchmark repeated over TLS (wss://) to measure the impact of encr
 
 **Analysis:**
 
-- At low connection counts (50–100), xKit still leads by 3–8% over gorilla. The single-threaded event loop's efficiency offsets the TLS overhead.
-- At 200+ connections, **gorilla overtakes xKit**. Go's per-goroutine `crypto/tls` parallelizes encryption across all CPU cores, while xKit's single-threaded OpenSSL must serialize all TLS operations on one core.
-- The TLS overhead reduces xKit's throughput by ~15% compared to plain WS (186K vs 220K at 100 conns). Go libraries show minimal TLS impact because Go's TLS is already goroutine-parallel.
-- xKit's throughput degrades more steeply at 500 connections (167K, −10% from 50 conns) compared to plain WS (218K, −1%). This confirms TLS as the bottleneck for the single-threaded model.
+- At low connection counts (50–100), moo still leads by 3–8% over gorilla. The single-threaded event loop's efficiency offsets the TLS overhead.
+- At 200+ connections, **gorilla overtakes moo**. Go's per-goroutine `crypto/tls` parallelizes encryption across all CPU cores, while moo's single-threaded OpenSSL must serialize all TLS operations on one core.
+- The TLS overhead reduces moo's throughput by ~15% compared to plain WS (186K vs 220K at 100 conns). Go libraries show minimal TLS impact because Go's TLS is already goroutine-parallel.
+- moo's throughput degrades more steeply at 500 connections (167K, −10% from 50 conns) compared to plain WS (218K, −1%). This confirms TLS as the bottleneck for the single-threaded model.
 
 ### WSS Echo — Varying Message Size (100 connections)
 
-| Message Size | xKit Msg/s | gorilla Msg/s | nhooyr Msg/s | gobwas Msg/s |
+| Message Size | moo Msg/s | gorilla Msg/s | nhooyr Msg/s | gobwas Msg/s |
 | ---: | ---: | ---: | ---: | ---: |
 | 64 B | **165,952** | 180,923 | 128,983 | 141,951 |
 | 256 B | 174,475 | **178,725** | 131,257 | 141,520 |
@@ -212,7 +212,7 @@ The same echo benchmark repeated over TLS (wss://) to measure the impact of encr
 
 **Transfer Rate (WSS, send + recv):**
 
-| Message Size | xKit | gorilla | nhooyr | gobwas |
+| Message Size | moo | gorilla | nhooyr | gobwas |
 | ---: | ---: | ---: | ---: | ---: |
 | 64 B | 20.26 MB/s | **22.09 MB/s** | 15.75 MB/s | 17.33 MB/s |
 | 256 B | 85.19 MB/s | **87.27 MB/s** | 64.09 MB/s | 69.10 MB/s |
@@ -222,8 +222,8 @@ The same echo benchmark repeated over TLS (wss://) to measure the impact of encr
 **Analysis:**
 
 - At 64B, gorilla leads slightly (181K vs 166K). Go's per-goroutine `crypto/tls` parallelizes encryption across all CPU cores, giving it an advantage even at small payloads.
-- At 256B+, **gorilla maintains its lead** because Go parallelizes TLS encryption across goroutines while xKit serializes it on one thread.
-- At 4KB, xKit achieves 92,686 msg/s — competitive with nhooyr (105K) and gobwas (108K), though gorilla leads at 138K. The single-threaded TLS model is the main bottleneck, but xKit remains within the same order of magnitude as the Go libraries.
+- At 256B+, **gorilla maintains its lead** because Go parallelizes TLS encryption across goroutines while moo serializes it on one thread.
+- At 4KB, moo achieves 92,686 msg/s — competitive with nhooyr (105K) and gobwas (108K), though gorilla leads at 138K. The single-threaded TLS model is the main bottleneck, but moo remains within the same order of magnitude as the Go libraries.
 - Future work could add a TLS write thread pool or io_uring-based async TLS to close the gap at larger payloads.
 
 ### WS vs WSS Performance Impact
@@ -232,14 +232,14 @@ How much does TLS reduce throughput? (100 connections, 64B)
 
 | Server | WS Msg/s | WSS Msg/s | TLS Overhead |
 | --- | ---: | ---: | --- |
-| xKit | 219,813 | 165,952 | −25% |
+| moo | 219,813 | 165,952 | −25% |
 | gorilla | 180,373 | 180,923 | ~0% |
 | nhooyr | 125,386 | 128,983 | +3% ¹ |
 | gobwas | 140,522 | 141,951 | +1% ¹ |
 
 ¹ Slight WSS improvement over WS is within measurement noise and likely due to system load variance between test runs.
 
-**Key Insight:** Go's `crypto/tls` adds virtually zero overhead in this benchmark because TLS operations run in parallel across goroutines. xKit pays a 25% penalty because all TLS encryption/decryption happens on the single event loop thread.
+**Key Insight:** Go's `crypto/tls` adds virtually zero overhead in this benchmark because TLS operations run in parallel across goroutines. moo pays a 25% penalty because all TLS encryption/decryption happens on the single event loop thread.
 
 ## Summary
 
@@ -248,20 +248,20 @@ How much does TLS reduce throughput? (100 connections, 64B)
                     =========================================
 
   WS — 64B echo (100 conns):
-    xKit:     219,813 msg/s   455 μs
-    gorilla:  180,373 msg/s   554 μs   (xKit +22%)
-    gobwas:   140,522 msg/s   711 μs   (xKit +56%)
-    nhooyr:   125,386 msg/s   797 μs   (xKit +75%)
+    moo:     219,813 msg/s   455 μs
+    gorilla:  180,373 msg/s   554 μs   (moo +22%)
+    gobwas:   140,522 msg/s   711 μs   (moo +56%)
+    nhooyr:   125,386 msg/s   797 μs   (moo +75%)
 
   WS — 4KB echo (100 conns):
-    xKit:     133,553 msg/s   749 μs   1.02 GB/s
-    gorilla:  125,313 msg/s   798 μs   979 MB/s   (xKit +7%)
-    nhooyr:   100,829 msg/s   992 μs   788 MB/s   (xKit +32%)
-    gobwas:    92,203 msg/s   1.08 ms  720 MB/s   (xKit +45%)
+    moo:     133,553 msg/s   749 μs   1.02 GB/s
+    gorilla:  125,313 msg/s   798 μs   979 MB/s   (moo +7%)
+    nhooyr:   100,829 msg/s   992 μs   788 MB/s   (moo +32%)
+    gobwas:    92,203 msg/s   1.08 ms  720 MB/s   (moo +45%)
 
   WSS — 64B echo (100 conns):
     gorilla:  180,923 msg/s   553 μs
-    xKit:     165,952 msg/s   603 μs   (gorilla +9%)
+    moo:     165,952 msg/s   603 μs   (gorilla +9%)
     gobwas:   141,951 msg/s   704 μs
     nhooyr:   128,983 msg/s   775 μs
 
@@ -269,27 +269,27 @@ How much does TLS reduce throughput? (100 connections, 64B)
     gorilla:  137,560 msg/s   728 μs   1.05 GB/s
     gobwas:   107,550 msg/s   930 μs   840 MB/s
     nhooyr:   105,289 msg/s   950 μs   823 MB/s
-    xKit:      92,686 msg/s   1.08 ms  724 MB/s   (gorilla +48%)
+    moo:      92,686 msg/s   1.08 ms  724 MB/s   (gorilla +48%)
 
-  Peak WS throughput:   xKit 219,850 msg/s  (64B, 50 connections)
-  Peak WS transfer:     xKit 1.02 GB/s      (4KB, 100 connections)
-  Peak WSS throughput:  xKit 186,513 msg/s  (64B, 50 connections)
+  Peak WS throughput:   moo 219,850 msg/s  (64B, 50 connections)
+  Peak WS transfer:     moo 1.02 GB/s      (4KB, 100 connections)
+  Peak WSS throughput:  moo 186,513 msg/s  (64B, 50 connections)
   Peak WSS transfer:    gorilla 1.05 GB/s   (4KB, 100 connections)
 ```
 
 **Key Takeaways:**
 
-1. **xKit is 18–27% faster than gorilla on plain WS** (small messages), and 3–8% faster on WSS at low connection counts. The single-threaded event loop avoids goroutine scheduling overhead.
-2. **TLS changes the picture at scale.** At 200+ connections or 1KB+ messages over WSS, gorilla overtakes xKit because Go parallelizes TLS across goroutines while xKit serializes it on one thread.
-3. **xKit's WS throughput is remarkably stable** across connection counts (219K at 50 conns vs 218K at 500 conns — less than 1% variation). WSS shows more degradation (186K → 167K) due to single-threaded TLS.
+1. **moo is 18–27% faster than gorilla on plain WS** (small messages), and 3–8% faster on WSS at low connection counts. The single-threaded event loop avoids goroutine scheduling overhead.
+2. **TLS changes the picture at scale.** At 200+ connections or 1KB+ messages over WSS, gorilla overtakes moo because Go parallelizes TLS across goroutines while moo serializes it on one thread.
+3. **moo's WS throughput is remarkably stable** across connection counts (219K at 50 conns vs 218K at 500 conns — less than 1% variation). WSS shows more degradation (186K → 167K) due to single-threaded TLS.
 4. **gorilla/websocket is the fastest Go library** for both WS and WSS echo workloads.
-5. **Single-threaded TLS is the main bottleneck for large payloads.** At WSS 4KB, xKit (93K msg/s) trails gorilla (138K msg/s) by ~48%. Future work could add a TLS write thread pool or io_uring-based async TLS to close the gap.
+5. **Single-threaded TLS is the main bottleneck for large payloads.** At WSS 4KB, moo (93K msg/s) trails gorilla (138K msg/s) by ~48%. Future work could add a TLS write thread pool or io_uring-based async TLS to close the gap.
 
 ## Reproducing
 
 ```bash
-# Build xKit servers
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DXK_BUILD_BENCHMARKS=ON
+# Build moo servers
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 
 # Build Go servers and client

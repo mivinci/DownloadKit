@@ -36,16 +36,16 @@ target_link_libraries(nat_probe PRIVATE xp2p xbase)
 
 add_executable(ai_openai ai_openai.cpp)
 target_link_libraries(ai_openai PRIVATE xagent xhttp xbase)
-# Demo reaches into modules/xagent/provider_private.h for the internal
+# Demo reaches into libs/xagent/provider_private.h for the internal
 # dispatcher because session.c has not landed yet. Once session lands,
 # this include path should be removed and the demo rewritten against
 # xAgentCreate + xAgentSessionCreate.
 target_include_directories(ai_openai PRIVATE
-  ${CMAKE_SOURCE_DIR}/modules)
+  ${CMAKE_SOURCE_DIR}/libs)
 
 # The canonical end-to-end xagent REPL that used to live here has
 # graduated to apps/cli/. Build it via the top-level project — it's
-# no longer gated behind XK_BUILD_EXAMPLES.
+# no longer gated behind MOO_BUILD_EXAMPLES.
 
 # ES-module demo:
 # ES-module demo: show how to expose host-native functionality as
@@ -55,7 +55,7 @@ target_include_directories(ai_openai PRIVATE
 add_executable(xjs_native_module xjs_native_module.c)
 target_link_libraries(xjs_native_module PRIVATE xjs)
 target_include_directories(xjs_native_module PRIVATE
-  ${CMAKE_SOURCE_DIR}/modules)
+  ${CMAKE_SOURCE_DIR}/libs)
 
 # Minimal skeleton for "AI TUI" style apps: multiplex xline's async
 # line editor with an xbase event loop, with a periodic timer
@@ -64,4 +64,4 @@ target_include_directories(xjs_native_module PRIVATE
 add_executable(xline_async xline_async.c)
 target_link_libraries(xline_async PRIVATE xline xbase)
 target_include_directories(xline_async PRIVATE
-  ${CMAKE_SOURCE_DIR}/modules)
+  ${CMAKE_SOURCE_DIR}/libs)

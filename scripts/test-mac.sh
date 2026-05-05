@@ -172,8 +172,8 @@ detect_changed_modules() {
     # Map changed files to modules
     local -A changed_mods=([__none__]=1)
     for f in $changed_files; do
-        if [[ "$f" == modules/*/* ]]; then
-            local mod="${f#modules/}"
+        if [[ "$f" == libs/*/* ]]; then
+            local mod="${f#libs/}"
             mod="${mod%%/*}"
             # Only count if it's a known module
             for m in "${ALL_MODULES[@]}"; do
@@ -243,10 +243,10 @@ info "Test targets: ${TEST_TARGETS[*]}"
 # ── CMake configure ────────────────────────────────────────────────────
 step "Configuring build (TLS=$TLS_BACKEND, type=$BUILD_TYPE)"
 
-CMAKE_EXTRA_ARGS=(-DXK_TLS_BACKEND=$TLS_BACKEND)
+CMAKE_EXTRA_ARGS=(-DMOO_TLS_BACKEND=$TLS_BACKEND)
 
 if [[ $ASAN -eq 1 ]]; then
-    CMAKE_EXTRA_ARGS+=(-DXK_ENABLE_ASAN=ON)
+    CMAKE_EXTRA_ARGS+=(-DMOO_ENABLE_ASAN=ON)
 fi
 
 # Homebrew OpenSSL / mbedTLS are keg-only

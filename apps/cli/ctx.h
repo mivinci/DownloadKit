@@ -1,9 +1,9 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * ctx.h - Shared REPL context for the xKit cli.
+ * ctx.h - Shared REPL context for the moo cli.
  *
  * The cli is split across several translation units (output, slash,
  * callbacks, repl, main) that all need to reach into the same REPL
@@ -16,8 +16,8 @@
  * next to whichever TU owns the behaviour.
  */
 
-#ifndef XKIT_APPS_CLI_CTX_H
-#define XKIT_APPS_CLI_CTX_H
+#ifndef MOO_APPS_CLI_CTX_H
+#define MOO_APPS_CLI_CTX_H
 
 #include <xagent/model.h>
 #include <xagent/session.h>
@@ -90,4 +90,4 @@ struct ReplCtx {
   bool bypass_confirm = false;
 };
 
-#endif /* XKIT_APPS_CLI_CTX_H */
+#endif /* MOO_APPS_CLI_CTX_H */

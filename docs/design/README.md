@@ -6,7 +6,7 @@ decisions, and design rationale that outlive any individual implementation.
 
 Each document here states a problem shape, proposes a structure, and compares
 the structure against the common alternative of _not_ doing it. They are
-intended to be readable on their own, without prior knowledge of xKit internals.
+intended to be readable on their own, without prior knowledge of moo internals.
 
 ## Index
 

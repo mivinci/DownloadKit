@@ -2,7 +2,7 @@
 
 > 一套在 **不改 Provider、不改 Query、不侵入业务代码** 的前提下，给 `xAgentSession` 加上 "prompt 太长怎么办" 能力的结构化方案。
 >
-> 本文面向已经熟悉 xKit 三层会话模型（[Agent / Session / Query](three-layer-conversation-model.md)）的读者，描述 Session 层的预算闸门是怎么拆出来的、每一块负责什么、以及我们在 `apps/cli` 里跑到的真实数字是怎么解释的。
+> 本文面向已经熟悉 moo 三层会话模型（[Agent / Session / Query](three-layer-conversation-model.md)）的读者，描述 Session 层的预算闸门是怎么拆出来的、每一块负责什么、以及我们在 `apps/cli` 里跑到的真实数字是怎么解释的。
 
 ---
 
@@ -438,7 +438,7 @@ REPL 里撞到这个错会看到两种前缀：
 
 把这套东西搬到别的系统时，下面几个问题值得一个个回答一遍：
 
-1. **裁剪边界够不够自洽**？不变量 3（tool_use/tool_result 不可拆）对于所有能放进 history 的 entry kind 都成立吗？xKit 里成立，因为 User 消息只承载 Text；别的系统里 User 如果也能带 ToolResult，这条就需要重新论证。
+1. **裁剪边界够不够自洽**？不变量 3（tool_use/tool_result 不可拆）对于所有能放进 history 的 entry kind 都成立吗？moo 里成立，因为 User 消息只承载 Text；别的系统里 User 如果也能带 ToolResult，这条就需要重新论证。
 2. **校准器的 `first_round_prompt_tokens` 归因是否足够鲁棒**？当前实现只取首轮的
    `prompt_tokens`，因为 gate 只在首轮之前执行——这是唯一可与 gate 估算干净归因的
    数据点。如果哪天 gate 也需要在后续轮之前执行（比如 background tool 概念），
@@ -465,10 +465,10 @@ REPL 里撞到这个错会看到两种前缀：
 
 ## 相关代码
 
-- 公共 API：`modules/xagent/session.h`（`xAgentBudgetPolicy`、`xAgentBudgetConf`、`xAgentSessionConf::budget`）
-- 策略闸门：`modules/xagent/session.c :: session_enforce_budget_`
-- 三件套：`modules/xagent/budget.c` + `modules/xagent/budget_private.h`
-- 测试：`modules/xagent/budget_test.cpp`、`modules/xagent/session_test.cpp :: BudgetCalibrator / BudgetEnforcement`
+- 公共 API：`libs/xagent/session.h`（`xAgentBudgetPolicy`、`xAgentBudgetConf`、`xAgentSessionConf::budget`）
+- 策略闸门：`libs/xagent/session.c :: session_enforce_budget_`
+- 三件套：`libs/xagent/budget.c` + `libs/xagent/budget_private.h`
+- 测试：`libs/xagent/budget_test.cpp`、`libs/xagent/session_test.cpp :: BudgetCalibrator / BudgetEnforcement`
 - 活体 demo：`apps/cli`
 
 ---
@@ -507,7 +507,7 @@ REPL 里撞到这个错会看到两种前缀：
 
 ### 本项目自己做的工程取舍（不是 novelty，是局部决定）
 
-下面这些没有对应的公开文献，是从 xKit 的具体代码形态推出来的：
+下面这些没有对应的公开文献，是从 moo 的具体代码形态推出来的：
 
 1. **校准器改用 `first_round_prompt_tokens` 归因**（见
    [三件套 II / Opt-out 规则](#三件套-ii校准器)）。旧实现因

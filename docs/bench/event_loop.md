@@ -1,6 +1,6 @@
 # Event Loop — Benchmark Report
 
-Micro-benchmark comparison of xKit's `xEventLoop` against libuv 1.52.1 across three dimensions: **cross-thread wake latency**, **timer scheduling**, and **offload round-trip** (submit work → done callback on loop thread).
+Micro-benchmark comparison of moo's `xEventLoop` against libuv 1.52.1 across three dimensions: **cross-thread wake latency**, **timer scheduling**, and **offload round-trip** (submit work → done callback on loop thread).
 
 ## Test Environment
 
@@ -12,12 +12,12 @@ Micro-benchmark comparison of xKit's `xEventLoop` against libuv 1.52.1 across th
 | Compiler | Apple Clang 17.0.0 |
 | Build | Release (`-O2`) |
 | Framework | Google Benchmark |
-| Event Backend | kqueue (xKit), kqueue (libuv) |
+| Event Backend | kqueue (moo), kqueue (libuv) |
 | Workers | 4 threads (for offload benchmarks) |
 
 ## Results
 
-### Core Operations (xKit only)
+### Core Operations (moo only)
 
 | Benchmark | Time (ns) | CPU (ns) | Iterations |
 | --- | ---: | ---: | ---: |
@@ -29,17 +29,17 @@ Micro-benchmark comparison of xKit's `xEventLoop` against libuv 1.52.1 across th
 - **Wake latency** is ~413ns per wake+wait cycle via `EVFILT_USER`, down from ~879ns with the old pipe mechanism — a **2.1× improvement**.
 - **Add/Del cycle** (register + unregister a pipe fd) takes ~1.1µs — low overhead for dynamic fd management.
 
-### Wake Latency — xKit vs libuv
+### Wake Latency — moo vs libuv
 
-| | xKit | libuv | Ratio |
+| | moo | libuv | Ratio |
 | --- | ---: | ---: | ---: |
-| Time | 413 ns | 417 ns | **xKit 1.01× faster** |
+| Time | 413 ns | 417 ns | **moo 1.01× faster** |
 
-xKit now uses `EVFILT_USER` on kqueue (macOS) and `eventfd` on epoll (Linux) for wake notification, replacing the previous pipe-based mechanism. Combined with an atomic `wake_pending` flag for coalescing, this eliminates all pipe overhead. The result is effectively **tied with libuv** (413ns vs 417ns), closing the previous 2.1× gap entirely.
+moo now uses `EVFILT_USER` on kqueue (macOS) and `eventfd` on epoll (Linux) for wake notification, replacing the previous pipe-based mechanism. Combined with an atomic `wake_pending` flag for coalescing, this eliminates all pipe overhead. The result is effectively **tied with libuv** (413ns vs 417ns), closing the previous 2.1× gap entirely.
 
 ### Timer Scheduling
 
-#### xKit — Timer
+#### moo — Timer
 
 | Benchmark | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: |
@@ -59,24 +59,24 @@ xKit now uses `EVFILT_USER` on kqueue (macOS) and `eventfd` on epoll (Linux) for
 
 #### Comparison — Timer (CPU time)
 
-| Batch Size | xKit (CPU ns) | libuv (CPU ns) | Ratio |
+| Batch Size | moo (CPU ns) | libuv (CPU ns) | Ratio |
 | ---: | ---: | ---: | ---: |
-| 1 | 461 | 1,517 | **xKit 3.29× faster** |
-| 10 | 750 | 1,787 | **xKit 2.38× faster** |
-| 100 | 3,714 | 5,311 | **xKit 1.43× faster** |
-| 1,000 | 43,545 | 68,659 | **xKit 1.58× faster** |
+| 1 | 461 | 1,517 | **moo 3.29× faster** |
+| 10 | 750 | 1,787 | **moo 2.38× faster** |
+| 100 | 3,714 | 5,311 | **moo 1.43× faster** |
+| 1,000 | 43,545 | 68,659 | **moo 1.58× faster** |
 
 **Analysis:**
 
-- **Single timer** — xKit wins at ~461ns vs libuv's ~1.5µs (**3.3× faster**). xKit's timer path is simpler: heap push + `xEventWait` pops and fires in one call. libuv's `uv_timer_start` + `uv_run(UV_RUN_ONCE)` has more overhead per invocation.
-- **Batch timers** — xKit now **wins across all batch sizes**, a dramatic reversal from the previous results where libuv was 4–5× faster. The key optimizations that closed the gap:
+- **Single timer** — moo wins at ~461ns vs libuv's ~1.5µs (**3.3× faster**). moo's timer path is simpler: heap push + `xEventWait` pops and fires in one call. libuv's `uv_timer_start` + `uv_run(UV_RUN_ONCE)` has more overhead per invocation.
+- **Batch timers** — moo now **wins across all batch sizes**, a dramatic reversal from the previous results where libuv was 4–5× faster. The key optimizations that closed the gap:
   1. **Batch pop with single lock**: Timer dispatch now acquires `timer_mu` once, pops all expired timers into a local list, releases the lock, then fires them — eliminating N lock/unlock cycles.
   2. **Timer struct freelist**: Timer structs are recycled via a lock-free freelist, eliminating `malloc`/`free` per timer operation.
-  3. **Throughput**: At batch size 1000, xKit achieves 22.96M items/s vs libuv's 14.56M items/s — **1.58× faster**.
+  3. **Throughput**: At batch size 1000, moo achieves 22.96M items/s vs libuv's 14.56M items/s — **1.58× faster**.
 
 ### Offload Round-Trip (Submit → Done Callback)
 
-#### xKit — Offload
+#### moo — Offload
 
 | Benchmark | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: |
@@ -96,7 +96,7 @@ xKit now uses `EVFILT_USER` on kqueue (macOS) and `eventfd` on epoll (Linux) for
 
 #### Comparison — Offload (CPU time)
 
-| Batch Size | xKit (CPU ns) | libuv (CPU ns) | Ratio |
+| Batch Size | moo (CPU ns) | libuv (CPU ns) | Ratio |
 | ---: | ---: | ---: | ---: |
 | 1 | 3,785 | 3,449 | libuv 1.10× faster |
 | 10 | 12,243 | 10,239 | libuv 1.20× faster |
@@ -107,16 +107,16 @@ xKit now uses `EVFILT_USER` on kqueue (macOS) and `eventfd` on epoll (Linux) for
 
 - **Single offload** — Nearly tied (~1.10× gap, narrowed from 1.16×). Both are dominated by the same bottleneck: waking a sleeping worker thread via kernel syscall.
 - **Batch offload** — libuv remains ~2× faster at scale. The gap has narrowed slightly at smaller batch sizes (1.20× at 10, down from 1.45×) thanks to wake coalescing and work item pooling. The remaining gap is primarily due to:
-  1. **Completion notification**: libuv workers post to an async handle and the loop drains all completions in one `uv__work_done()` call. xKit uses an MPSC queue with atomic wake coalescing.
-  2. **Allocation model**: libuv's `uv_work_t` is caller-allocated (stack or embedded). xKit uses a lock-free freelist pool, which is faster than malloc but still has CAS overhead.
+  1. **Completion notification**: libuv workers post to an async handle and the loop drains all completions in one `uv__work_done()` call. moo uses an MPSC queue with atomic wake coalescing.
+  2. **Allocation model**: libuv's `uv_work_t` is caller-allocated (stack or embedded). moo uses a lock-free freelist pool, which is faster than malloc but still has CAS overhead.
 
 ## Summary
 
 | Dimension | Before Optimization | After Optimization | vs libuv |
 | --- | --- | --- | --- |
-| Wake Latency | 879 ns (libuv 2.1× faster) | **413 ns** | **Tied** (xKit 1.01× faster) |
-| Timer (single) | 974 ns (xKit 1.6× faster) | **461 ns** | **xKit 3.3× faster** |
-| Timer (batch ×1000) | 318,805 ns (libuv 4.3× faster) | **43,545 ns** | **xKit 1.6× faster** |
+| Wake Latency | 879 ns (libuv 2.1× faster) | **413 ns** | **Tied** (moo 1.01× faster) |
+| Timer (single) | 974 ns (moo 1.6× faster) | **461 ns** | **moo 3.3× faster** |
+| Timer (batch ×1000) | 318,805 ns (libuv 4.3× faster) | **43,545 ns** | **moo 1.6× faster** |
 | Offload (single) | 4,110 ns (libuv 1.2× faster) | **3,785 ns** | libuv 1.1× faster (tied) |
 | Offload (batch ×1000) | 507,346 ns (libuv 1.95× faster) | **456,426 ns** | libuv 2.1× faster |
 

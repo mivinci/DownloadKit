@@ -96,7 +96,7 @@ else()
   # quickjs-ng unconditionally declares qjs_exe / qjsc / api-test /
   # lre-test targets.  Using EXCLUDE_FROM_ALL on the subdirectory means
   # those executables are only built if something explicitly depends on
-  # them — which nothing in xkit does, so they stay out of our build.
+  # them — which nothing in moo does, so they stay out of our build.
   #
   # FetchContent_MakeAvailable doesn't let us pass EXCLUDE_FROM_ALL until
   # CMake 3.28, so we keep the classic Populate + add_subdirectory dance.

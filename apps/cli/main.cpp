@@ -1,9 +1,9 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * main.cpp - xKit command-line entry.
+ * main.cpp - moo command-line entry.
  *
  * Streaming REPL driven by the full xagent stack
  * (xAgent + xAgentSession + xAgentTool + xAgentProvider).
@@ -21,7 +21,7 @@
  * per user input.
  *
  * Usage:
- *   ./xkit [-d, --data-dir <path>]                   # default: cwd
+ *   ./moo [-d, --data-dir <path>]                   # default: cwd
  *
  * Model configuration lives in <data_dir>/models.json. The file is
  * required — startup fails fast with a helpful error if it's
@@ -171,16 +171,16 @@ int main(int argc, char *argv[]) {
    * into argv on success (zero-copy, same convention as optarg); we
    * copy into `cwd_buf` only on the fallback path. */
   const char *data_dir_arg = nullptr;
-  fset = xFlagSetCreate("xkit", "xKit command-line tool");
+  fset = xFlagSetCreate("moo", "moo command-line tool");
   if (!fset) {
     std::fprintf(stderr, "failed to create flag set\n");
     rc = 1;
     goto out;
   }
   /* Wire --version / -V to the CMake-injected build version so
-   * `xkit --version` stays in lockstep with the banner. xFlagParse
+   * `moo --version` stays in lockstep with the banner. xFlagParse
    * prints and returns xErrno_Again (handled below). */
-  xFlagSetVersion(fset, XKIT_VERSION);
+  xFlagSetVersion(fset, MOO_VERSION);
   xFlagAddString(fset, "data-dir", 'd', "PATH",
                  "data directory (history, agent state)", &data_dir_arg,
                  nullptr, xFlagAttr_None);
@@ -354,8 +354,8 @@ int main(int argc, char *argv[]) {
     aconf.model_registry   = model_cfg.registry;
     aconf.default_model_id = model_cfg.default_id.c_str();
     aconf.system_prompt =
-      "You are a concise assistant running in xKit's command-line "
-      "chat. You have access to a shell tool that can execute "
+      "You are a concise assistant running in moo's command-line "
+      "App. You have access to a shell tool that can execute "
       "commands via /bin/sh -c and return stdout/stderr/exit code. "
       "Use it when you need to run commands, check the system, or "
       "compute things. You may chain multiple tool calls in a single "
@@ -401,7 +401,7 @@ int main(int argc, char *argv[]) {
      * prompt. A 72-col bordered box. The body has two shapes:
      *
      *   Happy path (model configured):
-     *     Two-column layout — a small ASCII-art "xkit" logo pinned
+     *     Two-column layout — a small ASCII-art "moo" logo pinned
      *     to the left (slant font, 3 lines) alongside the session
      *     knobs (model id, data_dir) on the right. A one-line tips
      *     strip sits below.
@@ -436,21 +436,21 @@ int main(int argc, char *argv[]) {
     char right[RIGHT_W + 1];
     // Leading blank line: the parent shell's prompt sits right above
     // our first row, so without this gap the top border visually
-    // collides with `$ xkit` (or whatever PS1 trailed on). One row
+    // collides with `$ moo` (or whatever PS1 trailed on). One row
     // of breathing room is enough and costs nothing.
     std::printf("\n");
-    // Top border is 72 cells: "┌─ " (3) + "xKit " (5) + VERSION + " " (1)
+    // Top border is 72 cells: "┌─ " (3) + "moo " (4) + VERSION + " " (1)
     // + N*"─" + "┐" (1). The product name is hard-coded (not themed via
-    // XKIT_NAME or similar) because there's exactly one product and a
+    // MOO_NAME or similar) because there's exactly one product and a
     // macro would just be indirection for indirection's sake.
-    // XKIT_VERSION is injected by CMake from XK_VERSION in the root
+    // MOO_VERSION is injected by CMake from MOO_VERSION in the root
     // CMakeLists.txt so the banner never drifts from the real build.
     {
-      const char *ver    = XKIT_VERSION;
+      const char *ver    = MOO_VERSION;
       int         ver_w  = (int) std::strlen(ver);
-      int         dashes = 72 - 3 - 5 - ver_w - 1 - 1;
+      int         dashes = 72 - 3 - 4 - ver_w - 1 - 1;
       if (dashes < 0) dashes = 0;
-      std::printf("\x1b[2m┌─ \x1b[22m\x1b[1mxKit %s\x1b[22m\x1b[2m ", ver);
+      std::printf("\x1b[2m┌─ \x1b[22m\x1b[1mmoo %s\x1b[22m\x1b[2m ", ver);
       for (int i = 0; i < dashes; i++) std::printf("─");
       std::printf("┐\x1b[22m\n");
     }
@@ -465,9 +465,9 @@ int main(int argc, char *argv[]) {
      * don't rewrite the banner itself because it's a one-shot startup
      * print, and scrolling a whole redraw just for one line would
      * fight the line editor. */
-    const char *logo0 = "    ___  __ _ __ ";
-    const char *logo1 = "   / _ \\/ /(_) /_";
-    const char *logo2 = "  /_//_/_//_/\\__/";
+    const char *logo0 = "  __ _  ___  ___ ";
+    const char *logo1 = " /  ' \\/ _ \\/ _ \\";
+    const char *logo2 = "/_/_/_/\\___/\\___/";
 
     /* Logo + right column. In degraded mode the right column is
      * intentionally blank: model/data_dir carry no actionable info

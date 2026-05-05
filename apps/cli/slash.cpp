@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
@@ -85,7 +85,7 @@ static const SlashCmd g_slash_cmds[] = {
   {"/history", "print input history", slash_cmd_history, nullptr},
   {"/tokens", "show cumulative token usage", slash_cmd_tokens, nullptr},
   {"/cancel", "interrupt the active AI run", slash_cmd_cancel, nullptr},
-  {"/version", "show the xKit build version", slash_cmd_version, nullptr},
+  {"/version", "show the moo build version", slash_cmd_version, nullptr},
   {"/model", "show / switch the active model (e.g. /model kimi)",
    slash_cmd_model, slash_argc_model},
   {"/bypass",
@@ -273,7 +273,7 @@ static void slash_cmd_history(ReplCtx *ctx, const char *args) {
   /* Enumerate the in-memory history via xLineHistoryGet. We used to
    * read the persisted .ai_session_history file directly, but that
    * file stores non-ASCII bytes using isocline's internal \xHH
-   * escape format (see history_write_entry in modules/xline/
+   * escape format (see history_write_entry in libs/xline/
    * history.c) — CJK and emoji came out as a wall of "\xE7\x9C\x8B"
    * literals. The in-memory buffer is already decoded, which is
    * exactly what the user wants to see. As a bonus this also picks
@@ -328,12 +328,12 @@ static void slash_cmd_tokens(ReplCtx *ctx, const char *args) {
   xLineSetBelowPanel(ctx->line, nullptr, body.c_str());
 }
 
-/* /version — dump the CMake-injected XKIT_VERSION so users can ask
+/* /version — dump the CMake-injected MOO_VERSION so users can ask
  * the REPL "what am I running" without reading the banner. Uses the
  * same BelowPanel channel as /tokens for consistency. */
 static void slash_cmd_version(ReplCtx *ctx, const char *args) {
   (void)args;
-  xLineSetBelowPanel(ctx->line, nullptr, "xKit " XKIT_VERSION);
+  xLineSetBelowPanel(ctx->line, nullptr, "moo " MOO_VERSION);
 }
 
 /* Render the registry as a "id -> wire model" listing. Used by

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run_micro_bench.sh - Run xKit micro-benchmarks
+# run_micro_bench.sh - Run moo micro-benchmarks
 #
 # Usage:
 #   ./scripts/run_micro_bench.sh [filter]
@@ -10,7 +10,7 @@
 #   ./scripts/run_micro_bench.sh "BM_Heap.*"   # Run with gbenchmark filter
 #
 # Prerequisites:
-#   cmake -B build -DXK_BUILD_BENCHMARKS=ON && cmake --build build
+#   cmake -B build -DMOO_BUILD_BENCHMARKS=ON && cmake --build build
 
 set -euo pipefail
 
@@ -89,7 +89,7 @@ for bench in "${BENCH_NAMES[@]}"; do
 done
 
 if [ "$found" -eq 0 ]; then
-  warn "No benchmarks found. Build with: cmake -B build -DXK_BUILD_BENCHMARKS=ON && cmake --build build"
+  warn "No benchmarks found. Build with: cmake -B build -DMOO_BUILD_BENCHMARKS=ON && cmake --build build"
   exit 1
 fi
 

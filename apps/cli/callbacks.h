@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
@@ -11,8 +11,8 @@
  * plumbing details.
  */
 
-#ifndef XKIT_APPS_CLI_CALLBACKS_H
-#define XKIT_APPS_CLI_CALLBACKS_H
+#ifndef MOO_APPS_CLI_CALLBACKS_H
+#define MOO_APPS_CLI_CALLBACKS_H
 
 #include <cstddef>
 
@@ -32,4 +32,4 @@ void on_error(xAgentSession sess, xErrno err, const char *msg, void *ud);
 void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
                      const void *info, void *ud);
 
-#endif /* XKIT_APPS_CLI_CALLBACKS_H */
+#endif /* MOO_APPS_CLI_CALLBACKS_H */

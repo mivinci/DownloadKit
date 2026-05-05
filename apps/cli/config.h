@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 The xKit Authors. All rights reserved.
+ * Copyright 2025 The moo Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
@@ -30,8 +30,8 @@
  * for the teardown order.
  */
 
-#ifndef XKIT_APPS_CLI_CONFIG_H
-#define XKIT_APPS_CLI_CONFIG_H
+#ifndef MOO_APPS_CLI_CONFIG_H
+#define MOO_APPS_CLI_CONFIG_H
 
 #include <string>
 #include <vector>
@@ -102,4 +102,4 @@ int cli_model_config_load(const char     *data_dir,
  */
 void cli_model_config_destroy(CliModelConfig *cfg);
 
-#endif /* XKIT_APPS_CLI_CONFIG_H */
+#endif /* MOO_APPS_CLI_CONFIG_H */

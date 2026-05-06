@@ -2633,9 +2633,16 @@ void cb_l1_preserve(xAgentSession sess, const xAgentSessionMsg *msgs,
   call.reason     = reason;
   call.n_msgs     = n_msgs;
   for (size_t i = 0; i < n_msgs; i++) {
-    call.texts.push_back(msgs[i].text ? std::string(msgs[i].text,
-                                                     msgs[i].text_len)
-                                      : std::string());
+    /* Read text/text_len only for Text/Thinking entries — ToolUse and
+     * ToolResult store their payload in different fields. */
+    if (msgs[i].kind == xAgentSessionEntry_Text ||
+        msgs[i].kind == xAgentSessionEntry_Thinking) {
+      call.texts.push_back(msgs[i].text ? std::string(msgs[i].text,
+                                                       msgs[i].text_len)
+                                        : std::string());
+    } else {
+      call.texts.push_back(std::string());
+    }
     call.roles.push_back(msgs[i].role);
     call.kinds.push_back(msgs[i].kind);
   }
@@ -2645,14 +2652,8 @@ void cb_l1_preserve(xAgentSession sess, const xAgentSessionMsg *msgs,
 }  // namespace
 
 /* L1 preserve fires with Finalizing reason when the session is
- * destroyed, delivering the full remaining history.
- *
- * DISABLED: cb_l1_preserve uses an uninitialized length when
- * constructing std::string from the session message, which triggers
- * ASAN's allocation-size-too-big on Linux.  The underlying bug is in
- * the L1-preserve callback path (not the trimming code) and needs a
- * separate fix. */
-TEST_F(SessionTest, DISABLED_L1PreserveFinalizingOnDestroy) {
+ * destroyed, delivering the full remaining history. */
+TEST_F(SessionTest, L1PreserveFinalizingOnDestroy) {
   L1PreserveCap l1;
   Captured cap;
 
@@ -2710,10 +2711,8 @@ TEST_F(SessionTest, L1PreserveNullCallbackIsNoop) {
 
 /* L1 preserve fires with Truncated reason when TruncateOldest policy
  * drops history entries. The callback receives the about-to-be-dropped
- * entries, not the surviving ones.
- *
- * DISABLED: same cb_l1_preserve ASAN bug as FinalizingOnDestroy. */
-TEST_F(SessionTest, DISABLED_L1PreserveTruncatedOnBudgetTrim) {
+ * entries, not the surviving ones. */
+TEST_F(SessionTest, L1PreserveTruncatedOnBudgetTrim) {
   L1PreserveCap l1;
   Captured cap;
 
@@ -2781,10 +2780,8 @@ TEST_F(SessionTest, DISABLED_L1PreserveTruncatedOnBudgetTrim) {
 
 /* L1 preserve fires with Compacted reason when SummarizeOldest
  * replaces old history entries with a summary. The callback delivers
- * the original entries before they are replaced.
- *
- * DISABLED: same cb_l1_preserve ASAN bug as FinalizingOnDestroy. */
-TEST_F(SessionTest, DISABLED_L1PreserveCompactedOnSummarize) {
+ * the original entries before they are replaced. */
+TEST_F(SessionTest, L1PreserveCompactedOnSummarize) {
   L1PreserveCap l1;
   Captured cap;
 
@@ -2833,10 +2830,8 @@ TEST_F(SessionTest, DISABLED_L1PreserveCompactedOnSummarize) {
 }
 
 /* L1 preserve Finalizing fires before on_finalizing, and both see the
- * same (still-intact) history.
- *
- * DISABLED: same cb_l1_preserve ASAN bug as FinalizingOnDestroy. */
-TEST_F(SessionTest, DISABLED_L1PreserveFinalizingFiresBeforeOnFinalizing) {
+ * same (still-intact) history. */
+TEST_F(SessionTest, L1PreserveFinalizingFiresBeforeOnFinalizing) {
   L1PreserveCap l1;
   FinalizingCap fin_cap;
 
@@ -2874,10 +2869,8 @@ TEST_F(SessionTest, DISABLED_L1PreserveFinalizingFiresBeforeOnFinalizing) {
 
 /* L1 preserve Finalizing fires even when history is empty so the
  * owner gets a chance to release resources (e.g. heap-allocated
- * context created by xAgentCreateSession).
- *
- * DISABLED: same cb_l1_preserve ASAN bug as FinalizingOnDestroy. */
-TEST_F(SessionTest, DISABLED_L1PreserveFinalizingSkipsEmptyHistory) {
+ * context created by xAgentCreateSession). */
+TEST_F(SessionTest, L1PreserveFinalizingSkipsEmptyHistory) {
   L1PreserveCap l1;
 
   xAgentSessionConf sc       = {};

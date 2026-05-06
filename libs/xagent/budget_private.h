@@ -220,7 +220,45 @@ size_t ai_budget_earliest_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
 double ai_budget_tool_ratio(const struct xAgentSessionMsg_ *msgs, size_t n);
 
 /**
- * @brief Threshold above which the Auto policy prefers TruncateOldest
+ * @brief Compute the tail-truncation boundary that preserves the
+ *        prompt-cache prefix.
+ *
+ * For TruncateTail (cache-friendly truncation): instead of removing
+ * the oldest entries (which changes the prompt prefix and invalidates
+ * provider-side prompt caching), we remove entries from the tail end
+ * of history. This keeps the prefix stable so the provider's cache
+ * stays hot.
+ *
+ * Returned value @c idx has this meaning: entries in @c msgs[0..idx)
+ * must be retained (prefix — never touched, preserves cache), and
+ * entries in @c msgs[idx..n) may be dropped. A return value of @c n
+ * means "nothing may be dropped" (the entire history is prefix).
+ *
+ * The function guarantees:
+ *   1. At least @p keep_prefix_turns complete User turns are kept
+ *      in the @c msgs[0..idx) window (the prefix that survives).
+ *      "User turn" = one User entry + every Assistant/Tool entry
+ *      that follows before the next User entry.
+ *   2. The returned index always lands on a User-role boundary or
+ *      equals @p n. This guarantees tool_use/tool_result pairs are
+ *      never split.
+ *   3. If the slice contains fewer than @p keep_prefix_turns User
+ *      entries, returns @p n (keep everything).
+ *   4. @p keep_prefix_turns == 0 is legal: only the first User
+ *      turn's starting index must survive. If no User entries exist,
+ *      returns @p n unconditionally.
+ *
+ * @param msgs                Entry array.
+ * @param n                   Number of entries at @p msgs.
+ * @param keep_prefix_turns   Minimum number of User turns to keep as
+ *                            prefix (counted from the head / oldest).
+ * @return Index beyond which entries may be dropped. In @c [0, n].
+ */
+size_t ai_budget_tail_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
+                           size_t keep_prefix_turns);
+
+/**
+ * @brief Threshold above which the Auto policy prefers TruncateTail
  *        over SummarizeOldest.
  *
  * When tool entries dominate the token budget (≥ 40 %), summarising

@@ -460,8 +460,8 @@ typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession              sess,
  *      surviving tool_use always has its matching tool_result and
  *      vice versa;
  *   4. at least the last @ref xAgentBudgetConf::keep_recent_turns
- *      user turns (with their assistant replies and tool chatter)
- *      are kept.
+ *      user turns from the HEAD (oldest) are kept as a cache-stable
+ *      prefix.
  *
  * Zero (@ref xAgentBudgetPolicy_Disabled) means "do nothing", which
  * matches existing sessions byte-for-byte and is the default for
@@ -476,7 +476,9 @@ typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession              sess,
 XDEF_ENUM(xAgentBudgetPolicy){
   xAgentBudgetPolicy_Disabled        = 0, /**< No budget check runs      */
   xAgentBudgetPolicy_Error           = 1, /**< Fail with PromptTooLong   */
-  xAgentBudgetPolicy_TruncateOldest  = 2, /**< Drop oldest non-pinned    */
+  xAgentBudgetPolicy_TruncateOldest  = 2, /**< Drop tail entries (cache-
+                                              friendly: preserves prompt
+                                              prefix for caching)       */
   xAgentBudgetPolicy_Callback        = 3, /**< Reserved: caller-supplied */
   xAgentBudgetPolicy_SummarizeOldest = 4, /**< Compress old history     */
   xAgentBudgetPolicy_Auto             = 5, /**< Auto: dynamic policy picker */
@@ -648,17 +650,25 @@ XDEF_STRUCT(xAgentBudgetConf) {
   size_t max_tokens;
 
   /**
-   * @brief Minimum number of recent user turns to keep intact,
-   *        regardless of how much token pressure the trimmer is
-   *        under.
+   * @brief Minimum number of prefix User turns to keep intact when
+   *        TruncateTail fires, ensuring the prompt prefix remains
+   *        stable for provider-side prompt caching.
    *
-   * A "user turn" here means one xAgentRole_User message plus every
+   * A "User turn" here means one xAgentRole_User message plus every
    * assistant / tool entry that followed before the next user
-   * message. Zero means "no minimum" — use with care, since a
-   * pathological budget could otherwise leave the model with only
-   * the current input and no conversational context. The session
-   * may clamp very high values downward if honouring them would
-   *     itself violate @ref max_tokens.
+   * message. When the budget is exceeded, entries beyond this
+   * prefix boundary (newer turns closer to the tail) are truncated
+   * first, preserving the oldest turns as a cache-stable prefix.
+   *
+   * Zero means "keep only the first User turn group as prefix". The
+   * session may clamp very high values downward if honouring them
+   * would itself violate @ref max_tokens.
+   *
+   * Note: this field was previously named "keep_recent_turns" and
+   * its semantics were inverted — it used to protect the NEWEST
+   * turns from head-truncation. The name is retained for ABI
+   * compatibility but the direction has changed: the protected
+   * region is now the OLDEST (prefix) turns, not the newest.
    */
   size_t keep_recent_turns;
 

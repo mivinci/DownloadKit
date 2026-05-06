@@ -138,6 +138,81 @@ size_t ai_budget_earliest_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
 }
 
 /* ─────────────────────────────────────────────────────────────────
+ * ai_budget_tail_keep
+ *
+ * Cache-friendly truncation boundary: instead of removing the oldest
+ * entries (which changes the prompt prefix and invalidates prompt
+ * caching), we compute how far from the HEAD we must keep to satisfy
+ * the keep_prefix_turns floor. Everything beyond that boundary may
+ * be dropped from the tail.
+ *
+ * High-level shape:
+ *
+ *   1. Count total User-role entries in the slice (call it @c U).
+ *   2. If U == 0, nothing anchors a boundary → return n (keep all).
+ *   3. If U <= keep_prefix_turns, we need to keep everything to
+ *      honour the floor → return n.
+ *   4. Otherwise find the END of the keep_prefix_turns-th User turn
+ *      group. The index just past that group is the boundary;
+ *      entries beyond it (newer turns) may be dropped.
+ *
+ * "End of the keep_prefix_turns-th User turn group" means the index
+ * of the (keep_prefix_turns)-th User entry plus all its trailing
+ * Assistant/Tool entries. Concretely: we find the
+ * (keep_prefix_turns)-th User entry, then find the NEXT User entry
+ * after it; the boundary is the next User entry's index (or n if
+ * there is no next User entry).
+ *
+ * Correctness for tool_use/tool_result pairing: the boundary always
+ * lands on a User-role entry (or n), so no tool pair is split.
+ * ──────────────────────────────────────────────────────────────── */
+size_t ai_budget_tail_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
+                           size_t keep_prefix_turns) {
+  if (!msgs || n == 0) return n;
+
+  /* Count user turns in one pass. */
+  size_t user_count = 0;
+  for (size_t i = 0; i < n; ++i) {
+    if (msgs[i].role == xAgentRole_User) ++user_count;
+  }
+
+  if (user_count == 0) return n;
+
+  /* Not enough history to honour the floor: keep everything. */
+  if (user_count <= keep_prefix_turns) return n;
+
+  /* Special-case keep_prefix_turns == 0: keep only the first user
+   * turn group. The boundary is the start of the 2nd User entry. */
+  if (keep_prefix_turns == 0) {
+    /* Find the first User entry, then the second User entry. */
+    size_t first = ai_budget_find_nth_user_turn(msgs, n, 0);
+    if (first == XAGENT_BUDGET_NO_SUCH_TURN) return n;
+    /* Scan forward from first+1 to find the next User entry. */
+    for (size_t i = first + 1; i < n; ++i) {
+      if (msgs[i].role == xAgentRole_User) return i;
+    }
+    /* No second User entry — the first turn group extends to end. */
+    return n;
+  }
+
+  /* Find the (keep_prefix_turns)-th User entry (0-indexed). This is
+   * the last User entry we must keep. Everything after its turn group
+   * may be dropped. */
+  size_t last_keep = ai_budget_find_nth_user_turn(msgs, n,
+                                                   keep_prefix_turns - 1);
+  if (last_keep == XAGENT_BUDGET_NO_SUCH_TURN) return n;
+
+  /* Find the next User entry after last_keep — that's the boundary. */
+  for (size_t i = last_keep + 1; i < n; ++i) {
+    if (msgs[i].role == xAgentRole_User) return i;
+  }
+
+  /* No more User entries after last_keep: the turn group extends to
+   * the end of history — nothing can be dropped. */
+  return n;
+}
+
+/* ─────────────────────────────────────────────────────────────────
  * ai_budget_tool_ratio
  *
  * Weighted ratio: how much of the estimated token cost comes from

@@ -292,3 +292,96 @@ TEST(XaiBudgetEarliestKeep, BoundaryIsAlwaysAUserRoleIndex) {
     }
   }
 }
+
+/* ── ai_budget_tail_keep ─────────────────────────────────────────── */
+
+TEST(XaiBudgetTailKeep, EmptyHistory) {
+  EXPECT_EQ(ai_budget_tail_keep(nullptr, 0, 0), 0u);
+  EXPECT_EQ(ai_budget_tail_keep(nullptr, 0, 5), 0u);
+}
+
+TEST(XaiBudgetTailKeep, NoUserTurnsKeepsAll) {
+  /* No User entries → nothing anchors a boundary → keep everything. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_Assistant, "orphan"),
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 1, 0), 1u);
+  EXPECT_EQ(ai_budget_tail_keep(seq, 1, 3), 1u);
+}
+
+TEST(XaiBudgetTailKeep, KeepZeroKeepsOnlyFirstUserTurnGroup) {
+  /* keep_prefix_turns == 0: keep only the first User turn group.
+   * The boundary is the start of the 2nd User entry. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "q1"),      /* 0 */
+    MakeText(xAgentRole_Assistant, "a1"), /* 1 */
+    MakeText(xAgentRole_User, "q2"),      /* 2 ← boundary */
+    MakeText(xAgentRole_Assistant, "a2"), /* 3 */
+    MakeText(xAgentRole_User, "q3"),      /* 4 */
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 5, 0), 2u);
+}
+
+TEST(XaiBudgetTailKeep, FloorExceedsHistoryKeepsAll) {
+  /* 2 user turns total, caller demands a floor of 5 → keep all. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "q1"),
+    MakeText(xAgentRole_Assistant, "a1"),
+    MakeText(xAgentRole_User, "q2"),
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 3, 5), 3u);
+}
+
+TEST(XaiBudgetTailKeep, FloorEqualsTotalKeepsAll) {
+  /* Exactly at the floor: keep everything. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "q1"),
+    MakeText(xAgentRole_User, "q2"),
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 2, 2), 2u);
+}
+
+TEST(XaiBudgetTailKeep, KeepsFirstTwoTurnsWithToolChatter) {
+  /* Five user turns. keep_prefix_turns = 2 → keep the first 2 User
+   * turn groups. The boundary is the start of the 3rd User entry. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "u1"),      /* 0 */
+    MakeText(xAgentRole_Assistant, "a1"), /* 1 */
+    MakeText(xAgentRole_User, "u2"),      /* 2 */
+    MakeToolUse("i2", "calc", "{}"),   /* 3 */
+    MakeToolResult("i2", "4", 0),      /* 4 */
+    MakeText(xAgentRole_Assistant, "a2"), /* 5 */
+    MakeText(xAgentRole_User, "u3"),      /* 6 ← boundary */
+    MakeText(xAgentRole_Assistant, "a3"), /* 7 */
+    MakeText(xAgentRole_User, "u4"),      /* 8 */
+    MakeText(xAgentRole_Assistant, "a4"), /* 9 */
+    MakeText(xAgentRole_User, "u5"),      /* 10 */
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 11, 2), 6u);
+}
+
+TEST(XaiBudgetTailKeep, BoundaryLandsOnUserRole) {
+  /* The boundary index must always be a User-role entry (or n). */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "u1"),      MakeToolUse("a", "t", "{}"),
+    MakeToolResult("a", "r", 0),       MakeText(xAgentRole_User, "u2"),
+    MakeText(xAgentRole_Assistant, "a2"), MakeText(xAgentRole_User, "u3"),
+  };
+  const size_t n = sizeof(seq) / sizeof(seq[0]);
+
+  /* keep_prefix_turns = 1 → keep first turn group (u1 + tool chatter).
+   * Boundary = start of 2nd User entry (u2 at index 3). */
+  size_t idx = ai_budget_tail_keep(seq, n, 1);
+  EXPECT_EQ(idx, 3u);
+  EXPECT_EQ(seq[idx].role, xAgentRole_User);
+}
+
+TEST(XaiBudgetTailKeep, SingleUserTurnKeepsAll) {
+  /* Only one User entry → no room to trim. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "q1"),
+    MakeText(xAgentRole_Assistant, "a1"),
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 2, 1), 2u);
+  EXPECT_EQ(ai_budget_tail_keep(seq, 2, 0), 2u); /* only 1 group */
+}

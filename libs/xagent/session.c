@@ -24,13 +24,15 @@
  *     creating a Query, xAgentSessionInput runs the incoming msg +
  *     current history through the budget estimator (budget.c) and
  *     dispatches on xAgentBudgetConf::policy. Error refuses with
- *     xErrno_PromptTooLong; TruncateOldest drops history entries
- *     at the earliest-keep boundary and, if that still does not
- *     fit, refuses. Disabled (the default) is a single-branch
- *     short-circuit and leaves behaviour byte-identical to
- *     pre-budget releases. Callback / SummarizeOldest policies
- *     are accepted by the parser but behave like Error until
- *     c4+ wires the real implementations.
+ *     xErrno_PromptTooLong; TruncateTail (formerly TruncateOldest)
+ *     drops history entries from the tail end (cache-friendly
+ *     direction that preserves the prompt prefix for provider-side
+ *     prompt caching), and, if that still does not fit, refuses.
+ *     Disabled (the default) is a single-branch short-circuit and
+ *     leaves behaviour byte-identical to pre-budget releases.
+ *     Callback / SummarizeOldest policies are accepted by the
+ *     parser but behave like Error until c4+ wires the real
+ *     implementations.
  *   - Incremental token bookkeeping: instead of re-estimating the
  *     full history every turn and correcting with an EWMA
  *     calibrator, we use provider-reported prompt_tokens as the
@@ -291,7 +293,7 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  * Gate xAgentSessionInput runs on the structured xAgentBudgetConf policy.
  * The pipeline runs BEFORE the user message is committed to
  * history, so the Error policy can refuse the turn without leaving
- * history polluted, and the TruncateOldest policy can shape history
+ * history polluted, and the TruncateTail policy can shape history
  * first and then let the normal append path execute on an already-
  * conforming base.
  *
@@ -303,8 +305,9 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  *     ├─ budget.policy == Error      → estimate; if over, return
  *     │                                xErrno_PromptTooLong
  *     ├─ budget.policy == Truncate   → estimate; if over, trim
- *     │                                history front to the
- *     │                                earliest-keep boundary. If
+ *     │                                history from the TAIL end
+ *     │                                (cache-friendly: preserves
+ *     │                                the prompt prefix). If
  *     │                                still over afterwards fall
  *     │                                through to Error (refuse).
  *     └─ Callback / SummarizeOldest  → reserved; treated like Error
@@ -314,6 +317,21 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  * per-entry envelope constant — and is intentionally conservative
  * so a slightly-overestimate still errs on the side of "refuse /
  * trim a bit more" rather than busting the real provider window.
+ *
+ * TruncateTail vs TruncateOldest:
+ *   TruncateTail removes entries from the tail (newest) end of
+ *   history, keeping the prefix (oldest entries) intact. This
+ *   preserves provider-side prompt caching: the cached prefix
+ *   bytes are unchanged, so the provider re-uses its cached
+ *   KV instead of re-processing the full prompt. The trade-off
+ *   is that we lose more recent context instead of older context.
+ *   For long-running agent conversations where the system prompt
+ *   + early context is the most valuable (and most expensive to
+ *   re-process), this trade-off is correct.
+ *
+ *   keep_recent_turns now means "keep at least N User turns from
+ *   the HEAD as prefix" — the turns that anchor the prompt prefix
+ *   for caching. Everything beyond that boundary may be truncated.
  */
 
 /* Estimate the token footprint of an incoming xAgentMessage as if it
@@ -334,12 +352,17 @@ static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
          XAGENT_BUDGET_PER_MSG_TOKENS;
 }
 
-/* Drop history entries @c [0, keep_idx) in place. Releases each
- * slot's owned strings via ai_session_msg_free() and shifts the
- * survivors down with memmove. The capacity is left untouched —
- * we expect the freed slots to be refilled by the very next
- * xAgentSessionInput run, and shrinking the backing array would just
- * churn realloc. */
+/* Drop history entries @c [0, keep_idx) in place (head-trim).
+ * Releases each slot's owned strings via ai_session_msg_free() and
+ * shifts the survivors down with memmove. The capacity is left
+ * untouched — we expect the freed slots to be refilled by the very
+ * next xAgentSessionInput run, and shrinking the backing array would
+ * just churn realloc.
+ *
+ * NOTE: Head-trimming is kept for SummarizeOldest compact completion
+ * (which replaces old entries with a summary at the front) but is no
+ * longer used by the TruncateTail policy. See
+ * session_trim_history_tail_() for the cache-friendly alternative. */
 static void session_trim_history_front_(struct xAgentSession_ *s,
                                         size_t                 keep_idx) {
   if (keep_idx == 0 || keep_idx >= xArrayLen(s->history_arr)) return;
@@ -352,6 +375,23 @@ static void session_trim_history_front_(struct xAgentSession_ *s,
     s->persisted_prefix -= keep_idx;
   else
     s->persisted_prefix = 0;
+}
+
+/* Drop history entries @c [drop_from, n) in place (tail-trim).
+ * Releases each slot's owned strings via ai_session_msg_free().
+ * Entries @c [0, drop_from) survive untouched — this is the
+ * cache-friendly truncation direction that preserves the prompt
+ * prefix for provider-side prompt caching.
+ *
+ * persisted_prefix is NOT decremented: the prefix entries survive
+ * intact, so the prefix count is unchanged. This is the key
+ * difference from head-trimming, where prefix entries are the ones
+ * being removed. */
+static void session_trim_history_tail_(struct xAgentSession_ *s,
+                                       size_t                 drop_from) {
+  size_t n = xArrayLen(s->history_arr);
+  if (drop_from >= n) return;
+  xArrayRemoveRange(s->history_arr, drop_from, n - drop_from);
 }
 
 /* Resolve the effective token ceiling for this session. A zero
@@ -423,34 +463,55 @@ static size_t session_estimate_current_(struct xAgentSession_ *s) {
 
 static xErrno session_try_truncate_(struct xAgentSession_ *s, size_t incoming,
                                     size_t limit) {
-  size_t keep = ai_budget_earliest_keep(
+  /* ── TruncateTail: cache-friendly truncation ──────────────────
+   *
+   * Instead of removing the oldest entries (which changes the prompt
+   * prefix and invalidates provider-side prompt caching), we remove
+   * entries from the tail end of history. This keeps the prefix
+   * stable so the provider's cache stays hot.
+   *
+   * keep_recent_turns now means "keep at least this many User turns
+   * from the HEAD (oldest) as prefix" — the turns that anchor the
+   * prompt prefix for caching. Everything beyond the
+   * keep_prefix_turns boundary (the newer turns) is eligible for
+   * truncation.
+   *
+   * Steps:
+   *   1. Compute the tail-keep boundary: how far from the head we
+   *      must keep to honour keep_recent_turns.
+   *   2. If the boundary covers all history, we have no room to
+   *      trim — fall through to PromptTooLong.
+   *   3. Deliver L1 preserve for the about-to-be-dropped tail.
+   *   4. Trim the tail.
+   *   5. Re-estimate; if it fits, we're done. Otherwise refuse.
+   */
+  size_t tail_keep = ai_budget_tail_keep(
     (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
     xArrayLen(s->history_arr), s->budget.keep_recent_turns);
-  if (keep > 0) {
-    /* L1 preserve: deliver the about-to-be-dropped entries [0, keep)
-     * before they are permanently lost. The callback receives a
-     * read-only slice — it must deep-copy anything it wants to
-     * retain. This fires BEFORE the actual trim so the entries
-     * are still valid in the history array.
+
+  if (tail_keep < xArrayLen(s->history_arr)) {
+    /* L1 preserve: deliver the about-to-be-dropped entries
+     * [tail_keep, N) before they are permanently lost. The callback
+     * receives a read-only slice — it must deep-copy anything it
+     * wants to retain. This fires BEFORE the actual trim.
      *
-     * When the session was primed from memory, the first
-     * persisted_prefix entries are already in the store; skip
-     * them so we don't re-append existing rows. */
+     * Tail entries are always post-prefix, so we never skip
+     * persisted_prefix entries here (unlike head-trimming where the
+     * prefix entries are the ones being removed). */
     if (s->on_l1_preserve) {
-      size_t skip = s->persisted_prefix < keep ? s->persisted_prefix : keep;
-      if (keep > skip) {
-        s->on_l1_preserve(
-          (xAgentSession)s,
-          (const xAgentSessionMsg *)xArrayData(s->history_arr) + skip,
-          keep - skip, xAgentL1PreserveReason_Truncated,
-          s->l1_preserve_owner);
-      }
+      size_t n_tail = xArrayLen(s->history_arr) - tail_keep;
+      s->on_l1_preserve(
+        (xAgentSession)s,
+        (const xAgentSessionMsg *)xArrayData(s->history_arr) + tail_keep,
+        n_tail, xAgentL1PreserveReason_Truncated,
+        s->l1_preserve_owner);
     }
-    session_trim_history_front_(s, keep);
+    size_t entries_removed = xArrayLen(s->history_arr) - tail_keep;
+    session_trim_history_tail_(s, tail_keep);
     /* Invalidate the known prompt tokens — history changed in a way
      * we can't precisely quantify. Next provider report will
-     * re-establish the baseline. Also reset delta_entries since
-     * the history was trimmed from the front. */
+     * re-establish the baseline. persisted_prefix is unchanged
+     * because the prefix entries survive intact. */
     s->known_prompt_tokens = -1;
     s->delta_entries       = 0;
     size_t current = session_estimate_current_(s);
@@ -458,7 +519,7 @@ static xErrno session_try_truncate_(struct xAgentSession_ *s, size_t incoming,
       s->last_gate_total = current + incoming;
       if (s->on_budget_event) {
         struct xAgentBudgetTruncateInfo ti;
-        ti.entries_removed = keep;
+        ti.entries_removed = entries_removed;
         s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_Truncated, &ti,
                            s->budget_event_ud);
       }
@@ -501,11 +562,11 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
   switch (s->budget.policy) {
   case xAgentBudgetPolicy_TruncateOldest: {
-    /* Ask the policy primitive for the earliest point we are
-     * allowed to keep from while still honouring
-     * keep_recent_turns. If that is 0 (floor exceeds what we
-     * have, or no user turns to anchor on) we have nowhere to
-     * trim — fall through to the refusal branch below. */
+    /* TruncateTail (cache-friendly): remove entries from the tail
+     * end of history, keeping the prompt prefix intact for
+     * provider-side prompt caching. If the prefix floor
+     * (keep_recent_turns) covers all of history, we have nowhere
+     * to trim — fall through to the refusal branch. */
     return session_try_truncate_(s, incoming, limit);
   }
 
@@ -522,7 +583,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      *      SummarizeOldest is a poor choice — LLMs cannot
      *      meaningfully compress structured JSON, and a bad
      *      summary may drop critical IDs or parameters.
-     *      TruncateOldest is safer and faster in that regime.
+     *      TruncateTail is safer and faster in that regime.
      *
      *   2. When the conversation is predominantly text (ratio
      *      below threshold), SummarizeOldest has a good chance
@@ -530,14 +591,14 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      *
      *   3. If SummarizeOldest is chosen but fails (OOM, provider
      *      error, empty summary), sess_fwd_on_done automatically
-     *      degrades to TruncateOldest — no special handling here.
+     *      degrades to TruncateTail — no special handling here.
      */
     double ratio = ai_budget_tool_ratio(
       (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
       xArrayLen(s->history_arr));
 
     if (ratio >= XAGENT_BUDGET_AUTO_TOOL_RATIO_THRESHOLD) {
-      /* Tool-heavy history → truncate is safer. */
+      /* Tool-heavy history → truncate tail is safer. */
       return session_try_truncate_(s, incoming, limit);
     }
     /* Text-heavy history → try summarise (with truncate fallback
@@ -729,7 +790,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
 truncate_fallback:
   /* Degradation path: if SummarizeOldest fails (OOM, Query submit
-   * error), fall back to TruncateOldest. This is the same logic as
+   * error), fall back to TruncateTail. This is the same logic as
    * the TruncateOldest case above but extracted as a goto target
    * for the SummarizeOldest branch to jump to on failure. */
   return session_try_truncate_(s, incoming, limit);

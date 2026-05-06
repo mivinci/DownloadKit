@@ -1891,17 +1891,17 @@ TEST_F(SessionTest, BudgetErrorPolicyAllowsUnderBudgetInput) {
   xAgentSessionDestroy(sess);
 }
 
-/* TruncateOldest: populate several user turns so the next input
- * would put us over max_tokens, then verify the session drops the
- * oldest prefix (at a user-turn boundary) and proceeds. The
- * captured msgs on the second submit MUST NOT contain the dropped
- * turn anywhere. */
+/* TruncateTail (cache-friendly): populate several user turns so the
+ * next input would put us over max_tokens, then verify the session
+ * drops the tail entries (preserving the prefix for prompt caching)
+ * and proceeds. The captured msgs on the second submit MUST NOT
+ * contain the dropped turns. */
 TEST_F(SessionTest, BudgetTruncateOldestDropsOldestUserTurns) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_TruncateOldest;
   budget.max_tokens        = 80;       /* ~320 payload bytes total     */
-  budget.keep_recent_turns = 1;        /* always keep the last turn    */
+  budget.keep_recent_turns = 1;        /* keep at least 1 prefix turn */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -1922,8 +1922,7 @@ TEST_F(SessionTest, BudgetTruncateOldestDropsOldestUserTurns) {
   /* 4th input: this alone (~28 tokens) plus the 6 accumulated
    * history entries (3 user + 3 assistant, ≥ 48 payload + 48
    * envelope = 60 tokens) breaches the 80 ceiling. The session
-   * must trim the oldest prefix but keep at least 1 recent user
-   * turn around the new input. */
+   * must trim tail entries to fit, preserving the prefix. */
   fake_->script_queue.push_back({
       SText("final"),
       SDone(xAgentProviderStop_EndTurn),
@@ -1934,10 +1933,8 @@ TEST_F(SessionTest, BudgetTruncateOldestDropsOldestUserTurns) {
   EXPECT_EQ(cap.done_reason, xAgentDoneReason_Completed);
 
   /* On the 4th submit, captured_msgs reflects what the provider
-   * saw. The new user message must be there; the very first user
-   * message (unique "big" string) may be gone — count how many
-   * big-user messages survived, and it should be strictly less
-   * than 3 because at least one was trimmed. */
+   * saw. The new user message must be there; at least one of the
+   * "big" user messages must have been trimmed to fit the budget. */
   ASSERT_GE(fake_->captured_msgs_per_submit.size(), 4u);
   const auto &last_submit = fake_->captured_msgs_per_submit.back();
 
@@ -1951,16 +1948,15 @@ TEST_F(SessionTest, BudgetTruncateOldestDropsOldestUserTurns) {
   }
   EXPECT_TRUE(saw_marker) << "the new user turn must always be preserved";
   EXPECT_LT(big_user_msgs, 3)
-      << "at least one oldest user turn must have been trimmed";
+      << "at least one user turn must have been trimmed";
 
   xAgentSessionDestroy(sess);
 }
 
-/* TruncateOldest with keep_recent_turns too high to honour the
- * budget at all (floor exceeds history's capacity under the
- * ceiling): the session refuses with PromptTooLong rather than
- * silently violating the keep-recent-turns floor. This is the
- * "safety over compliance" path advertised in budget_private.h. */
+/* TruncateTail with keep_recent_turns (now: prefix turns) too high
+ * to honour the budget at all: the session refuses with
+ * PromptTooLong rather than silently violating the keep-prefix-turns
+ * floor. This is the "safety over compliance" path. */
 TEST_F(SessionTest, BudgetTruncateOldestRefusesWhenFloorUnreachable) {
   Captured cap;
   xAgentBudgetConf budget{};

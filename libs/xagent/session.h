@@ -569,30 +569,23 @@ XDEF_STRUCT(xAgentBudgetGateInfo) {
    *  built-in default). */
   size_t limit;
 
-  /** Estimated token count of history + the incoming message that
-   *  just cleared the gate (calibrated by the EWMA factor). */
+  /** Token count used for the gate decision. This is either:
+   *   - The provider-reported prompt_tokens from the last completed
+   *     run (known_prompt_tokens) + estimated delta for new entries,
+   *     when a provider report is available; or
+   *   - The coarse estimate (bytes/4 + envelope) of the full
+   *     history + incoming message when no provider report exists
+   *     yet (cold start or post-trim invalidation). */
   size_t estimated;
 
   /** Remaining budget: limit - estimated. */
   size_t remaining;
 
-  /** The EWMA-smoothed calibration factor applied to the rough
-   *  (bytes/4) token estimate. Starts at 1.0 and drifts toward
-   *  (actual_prompt_tokens / estimated_prompt_tokens) as the
-   *  session observes provider-reported usage. */
-  double calibrator_factor;
-
-  /** Saturating count of accepted calibration observations.
-   *  Multi-round tool runs and rounds without a usage block
-   *  don't contribute. */
-  size_t calibrator_samples;
-
   /** The provider-reported prompt_tokens from the FIRST round of
-   *  the PREVIOUS run, or -1 if not available. This maps directly
-   *  to the gate's pre-submit estimate because the gate only runs
-   *  before the first round. Useful for displaying "estimated vs
-   *  actual" without the inflation that later tool-loop rounds
-   *  would introduce. */
+   *  the PREVIOUS run, or -1 if not available. This is the precise
+   *  baseline used for incremental bookkeeping. Useful for callers
+   *  to display "actual tokens used" without the inflation that
+   *  later tool-loop rounds would introduce. */
   int last_first_round_prompt_tokens;
 };
 
@@ -628,10 +621,11 @@ typedef void (*xAgentBudgetEventFunc)(xAgentSession      sess,
  * need not change a single line.
  *
  * The budget is expressed in **approximate tokens**, not bytes.
- * The session's internal estimator is deliberately coarse
- * (bytes/4 baseline, ex-post calibrated against provider-reported
- * xAgentUsage once a run reports one) and is never exposed here —
- * callers who care about precision should over-provision by ~10%.
+ * The session uses incremental bookkeeping: provider-reported
+ * prompt_tokens serve as the precise baseline, and only the delta
+ * (new entries since the last provider report) is estimated with
+ * the coarse bytes/4 heuristic. This gives much higher accuracy
+ * than re-estimating the full history every turn.
  */
 XDEF_STRUCT(xAgentBudgetConf) {
   /**
@@ -667,6 +661,21 @@ XDEF_STRUCT(xAgentBudgetConf) {
    *     itself violate @ref max_tokens.
    */
   size_t keep_recent_turns;
+
+  /**
+   * @brief Maximum number of bytes for a single tool_result output
+   *        before it is truncated in-place.
+   *
+   * When a tool_result entry exceeds this threshold, its output is
+   * truncated and a "[truncated: showing N/M bytes]" marker is
+   * appended. This prevents a single large tool output (e.g. shell
+   * command producing kilobytes of output) from consuming the entire
+   * context budget and forcing a full-turn truncation.
+   *
+   * Zero means "use the built-in default" (8 KiB). Set to
+   * SIZE_MAX to disable truncation entirely.
+   */
+  size_t max_tool_result_bytes;
 
   /**
    * @brief Optional callback for budget-policy lifecycle events.

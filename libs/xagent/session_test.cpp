@@ -2038,29 +2038,22 @@ TEST_F(SessionTest, BudgetTruncatePolicyUnderBudgetIsNoop) {
   xAgentSessionDestroy(sess);
 }
 
-/* ── Token-estimate calibration (c4) ────────────────────────────────
+/* ── Incremental token bookkeeping ────────────────────────────────
  *
- * These tests cover the post-run calibrator loop:
+ * These tests cover the incremental bookkeeping that replaced the
+ * old EWMA calibrator:
  *
- *   - A fresh session starts at factor = 1.0, samples = 0.
- *   - A clean single-round run with a positive prompt_tokens in
- *     the usage block produces exactly one observation; the
- *     factor moves by ALPHA of the way toward (actual / estimate).
+ *   - A fresh session starts with known_prompt_tokens = -1 (unknown).
+ *   - After a run with positive prompt_tokens, known_prompt_tokens
+ *     is updated and delta_entries is reset to 0.
  *   - Runs without a usage block, or with -1 prompt_tokens, do
- *     NOT update the calibrator.
- *   - Runs under a Disabled policy never touch the calibrator —
- *     the gate short-circuits before recording last_prompt_estimate,
- *     so sess_fwd_on_done sees zero and bails out.
- *   - The calibrated factor flows back into the next gate: a
- *     factor pushed well above 1.0 causes a previously-accepted
- *     payload size to be refused with PromptTooLong.
- *
- * All tests here poke directly at xAgentSession_::budget_calibrator
- * rather than going through a public accessor because c4 does not
- * introduce one — the calibrator is session-internal diagnostics,
- * not caller-facing API. */
+ *     NOT update known_prompt_tokens.
+ *   - After a truncate/compact, known_prompt_tokens is invalidated
+ *     back to -1 (history changed imprecisely).
+ *   - The next gate uses known_prompt_tokens + delta estimate for
+ *     more accurate budget decisions. */
 
-TEST_F(SessionTest, BudgetCalibratorInitialStateIsIdentity) {
+TEST_F(SessionTest, BudgetBookkeepingInitialStateIsUnknown) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
@@ -2069,14 +2062,13 @@ TEST_F(SessionTest, BudgetCalibratorInitialStateIsIdentity) {
   ASSERT_NE(sess, nullptr);
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
-  EXPECT_EQ(s->budget_calibrator.samples, 0u);
-  EXPECT_EQ(s->last_prompt_estimate, 0u);
+  EXPECT_EQ(s->known_prompt_tokens, -1);
+  EXPECT_EQ(s->delta_entries, 0u);
 
   xAgentSessionDestroy(sess);
 }
 
-TEST_F(SessionTest, BudgetCalibratorUpdatesOnCleanSingleRound) {
+TEST_F(SessionTest, BudgetBookkeepingUpdatesOnProviderReport) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
@@ -2084,10 +2076,7 @@ TEST_F(SessionTest, BudgetCalibratorUpdatesOnCleanSingleRound) {
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
-  /* Provider reports a prompt_tokens that is substantially larger
-   * than our static estimate. The static estimate for "hello" is
-   * ~9 tokens (5 bytes / 4 + 8 envelope). Report 900 to force a
-   * big observed ratio and an unambiguous factor move. */
+  /* Provider reports prompt_tokens = 900. */
   fake_->script_queue.push_back({
       SText("ok"),
       SDoneWithUsage(xAgentProviderStop_EndTurn, /*prompt=*/900,
@@ -2098,24 +2087,17 @@ TEST_F(SessionTest, BudgetCalibratorUpdatesOnCleanSingleRound) {
   EXPECT_EQ(cap.done_fired, 1);
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  /* One observation recorded. */
-  EXPECT_EQ(s->budget_calibrator.samples, 1u);
-  /* Factor moved above 1.0 (observed >> 1) but did not exceed the
-   * upper clamp from a single observation (1 + ALPHA * (observed - 1)
-   * is far below 2.0 even for a 100x observed ratio because ALPHA
-   * is 0.25; a single step adds at most 0.25 * (MAX - 1) before
-   * clamping, i.e. 1.25 on the first step regardless of observed). */
-  EXPECT_GT(s->budget_calibrator.factor, 1.0);
-  EXPECT_LE(s->budget_calibrator.factor,
-            XAGENT_BUDGET_CALIBRATION_MAX_FACTOR);
-  /* last_prompt_estimate must be cleared after the run so a stale
-   * value can't leak into the next gate. */
-  EXPECT_EQ(s->last_prompt_estimate, 0u);
+  /* known_prompt_tokens should now be the provider-reported value. */
+  EXPECT_EQ(s->known_prompt_tokens, 900);
+  /* delta_entries counts the produced entries (assistant reply)
+   * that were merged into history after the provider report.
+   * These have not been counted by the provider yet. */
+  EXPECT_GT(s->delta_entries, 0u);
 
   xAgentSessionDestroy(sess);
 }
 
-TEST_F(SessionTest, BudgetCalibratorIgnoresMissingUsage) {
+TEST_F(SessionTest, BudgetBookkeepingIgnoresMissingUsage) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
@@ -2124,7 +2106,7 @@ TEST_F(SessionTest, BudgetCalibratorIgnoresMissingUsage) {
   ASSERT_NE(sess, nullptr);
 
   /* Plain SDone without SDoneWithUsage → provider reports NULL
-   * usage → calibrator must not budge. */
+   * usage → known_prompt_tokens must stay at -1. */
   fake_->script_queue.push_back({
       SText("ok"),
       SDone(xAgentProviderStop_EndTurn),
@@ -2133,13 +2115,12 @@ TEST_F(SessionTest, BudgetCalibratorIgnoresMissingUsage) {
   EXPECT_EQ(cap.done_fired, 1);
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
-  EXPECT_EQ(s->budget_calibrator.samples, 0u);
+  EXPECT_EQ(s->known_prompt_tokens, -1);
 
   xAgentSessionDestroy(sess);
 }
 
-TEST_F(SessionTest, BudgetCalibratorIgnoresUnknownPromptTokens) {
+TEST_F(SessionTest, BudgetBookkeepingIgnoresUnknownPromptTokens) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
@@ -2147,8 +2128,7 @@ TEST_F(SessionTest, BudgetCalibratorIgnoresUnknownPromptTokens) {
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
-  /* Usage present but prompt_tokens = -1 (the "unknown" sentinel).
-   * Calibrator opt-out applies. */
+  /* Usage present but prompt_tokens = -1 (the "unknown" sentinel). */
   fake_->script_queue.push_back({
       SText("ok"),
       SDoneWithUsage(xAgentProviderStop_EndTurn, /*prompt=*/-1,
@@ -2158,85 +2138,49 @@ TEST_F(SessionTest, BudgetCalibratorIgnoresUnknownPromptTokens) {
   EXPECT_EQ(cap.done_fired, 1);
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
-  EXPECT_EQ(s->budget_calibrator.samples, 0u);
+  EXPECT_EQ(s->known_prompt_tokens, -1);
 
   xAgentSessionDestroy(sess);
 }
 
-TEST_F(SessionTest, BudgetCalibratorDoesNotRunUnderDisabledPolicy) {
-  /* Disabled skips the gate entirely → last_prompt_estimate stays
-   * zero → on_done's calibrator update bails out. This is
-   * deliberate: callers who haven't opted into budget enforcement
-   * also haven't opted into the cost of calibration, and running
-   * it anyway would be silent work + a surprise resource if they
-   * later flip to an enforcing policy (they'd expect a fresh
-   * identity calibrator). */
-  Captured cap;
-  xAgentBudgetConf budget{};               /* Disabled (zero default) */
-  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
-  ASSERT_NE(sess, nullptr);
-
-  fake_->script_queue.push_back({
-      SText("ok"),
-      SDoneWithUsage(xAgentProviderStop_EndTurn, /*prompt=*/900,
-                     /*completion=*/10),
-  });
-  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("hello")), xErrno_Ok);
-  EXPECT_EQ(cap.done_fired, 1);
-
-  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
-  EXPECT_EQ(s->budget_calibrator.samples, 0u);
-
-  xAgentSessionDestroy(sess);
-}
-
-TEST_F(SessionTest, BudgetCalibratorFeedsBackIntoNextGate) {
-  /* The end-to-end story: a miscalibrated session (our estimate is
-   * too low, the provider's true prompt_tokens is higher) learns
-   * from the first round and enforces more aggressively on the
-   * next round.
+TEST_F(SessionTest, BudgetBookkeepingFeedsBackIntoNextGate) {
+  /* The end-to-end story: after the first run reports a large
+   * prompt_tokens, the second gate uses that precise value as the
+   * baseline. This means a previously-accepted payload size can be
+   * refused if the known baseline + new delta exceeds the limit.
    *
    * Setup:
-   *   - max_tokens = 100
-   *   - A payload that our static estimator sees as ~80 tokens.
-   *     At factor = 1.0 this passes the gate comfortably.
-   *   - Provider reports prompt_tokens = 400 (5x our estimate),
-   *     the worst kind of systematic underestimate.
-   *   - After one observation, the calibrator is pushed high
-   *     enough that the SAME payload is estimated above the
-   *     100-token ceiling and the next Input is refused. */
+   *   - max_tokens = 500
+   *   - First turn: provider reports prompt_tokens = 400.
+   *   - Second turn: known_prompt_tokens = 400, plus the new
+   *     user message estimate, exceeds 500 → refused. */
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
-  budget.max_tokens = 100;
+  budget.max_tokens = 500;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
-  /* 280 bytes → 70 payload tokens + 8 envelope = 78 raw. Well
-   * under 100 at factor = 1.0. Provider reports 400 (observed =
-   * ~5.1 against our 78; ALPHA step pushes factor toward
-   * min(MAX_FACTOR, 1 + 0.25 * ~4.1) = MAX_FACTOR = 2.0 after
-   * clamp). */
-  std::string payload(280, 'q');
+  /* First turn: any payload. Provider reports prompt_tokens = 400. */
   fake_->script_queue.push_back({
       SText("ok"),
       SDoneWithUsage(xAgentProviderStop_EndTurn, /*prompt=*/400,
                      /*completion=*/12),
   });
-  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(payload.c_str())),
+  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("hello")),
             xErrno_Ok);
   ASSERT_EQ(cap.done_fired, 1);
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  ASSERT_GT(s->budget_calibrator.factor, 1.0);
+  ASSERT_EQ(s->known_prompt_tokens, 400);
 
-  /* Second turn: history now holds (user + assistant). Estimate
-   * at factor = 2.0 is doubled across the board — the same-sized
-   * new payload plus the grown history will trip the 100-token
-   * ceiling and the gate must refuse. */
-  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(payload.c_str())),
+  /* Second turn: known_prompt_tokens = 400 + delta for produced
+   * entries + incoming message. Even a small message will push
+   * the total above 500 because the baseline is already 400
+   * and there are produced entries from the first turn. Use a
+   * large payload to make the refusal unambiguous. */
+  std::string big(400, 'q');
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(big.c_str())),
             xErrno_PromptTooLong);
 
   xAgentSessionDestroy(sess);

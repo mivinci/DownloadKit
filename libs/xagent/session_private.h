@@ -73,29 +73,45 @@ struct xAgentSession_ {
   xAgentBudgetEventFunc on_budget_event;
   void                 *budget_event_ud;
 
-  /* Online calibration state for the token estimator. Initialised
-   * to identity (factor = 1.0) by xAgentSessionCreate; updated from
-   * sess_fwd_on_done whenever a run's first round returns a usage
-   * block with a known prompt_tokens (the gate only runs before the
-   * first round, so first_round_prompt_tokens is the only value
-   * that cleanly maps to the gate estimate). Consulted by the budget
-   * gate on the next xAgentSessionInput so a session running against
-   * a model whose true token count drifts from the coarse bytes/4
-   * heuristic self-corrects within a handful of turns. See
-   * ai_budget_calibrator_update() for the exact opt-in rules. */
-  xAgentBudgetCalibrator budget_calibrator;
+  /* ── Incremental token bookkeeping ───────────────────────────────
+   *
+   * Instead of estimating the full history token count every turn
+   * and correcting with an EWMA calibrator, we use provider-reported
+   * prompt_tokens as the known baseline and only estimate the delta
+   * (new entries added since the last provider report).
+   *
+   *   - known_prompt_tokens: the provider-reported prompt_tokens
+   *     from the most recent completed run's first round, or -1 if
+   *     no run has completed yet (cold start). This is the precise
+   *     token count of everything the provider saw when it processed
+   *     the first round — system prompt + memory hits + rolling
+   *     history + the user message.
+   *
+   *   - delta_entries: the number of history entries that have been
+   *     appended SINCE the last provider report. Used with the
+   *     coarse estimator to compute the delta token count:
+   *
+   *       current ≈ known_prompt_tokens + estimate(last delta_entries)
+   *
+   *     This is much more accurate than re-estimating the entire
+   *     history because the delta is small (typically 1-5 entries)
+   *     and the per-entry error is tiny in aggregate.
+   *
+   * After a truncate/compact, known_prompt_tokens is invalidated
+   * (the history changed in a way we can't precisely quantify) and
+   * reset to -1. The next provider report will re-establish it.
+   *
+   * After a successful GatePassed, we record what the gate computed
+   * as the pre-submit estimate in last_gate_total so the on_done
+   * handler can compare it with the first-round provider report. */
+  int    known_prompt_tokens;      /* -1 = unknown / cold start          */
+  size_t delta_entries;            /* entries added since last report     */
+  size_t last_gate_total;          /* gate's pre-submit total (or 0)     */
 
-  /* The calibrated pre-submit estimate of the last turn that
-   * cleared the budget gate, or 0 when no run is in flight /
-   * never-calibrated. Paired with first_round_prompt_tokens from
-   * sess_fwd_on_done to produce one calibration observation per
-   * run (including multi-round tool loops). */
-  size_t last_prompt_estimate;
-
-  /* The first-round prompt_tokens from the most recently completed
-   * run, or -1 if the provider never reported usage. Exposed via
-   * xAgentBudgetGateInfo so the caller can compare estimated vs actual
-   * without the inflation that later tool-loop rounds introduce. */
+  /* The provider-reported prompt_tokens from the first round of
+   * the most recently completed run, or -1 if unavailable.
+   * Exposed via xAgentBudgetGateInfo so callers can compare
+   * estimated vs actual. */
   int last_first_round_prompt_tokens;
 
   /* ── Compact-in-progress state (SummarizeOldest policy) ──────

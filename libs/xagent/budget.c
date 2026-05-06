@@ -138,67 +138,6 @@ size_t ai_budget_earliest_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
 }
 
 /* ─────────────────────────────────────────────────────────────────
- * ai_budget_estimate_tokens_calibrated
- *
- * Thin adapter over the raw estimator: compute once, multiply,
- * round to nearest. Callers that need the uncalibrated answer go
- * through ai_budget_estimate_tokens() directly; we do not publish
- * a "pass 1.0 to this" convenience because the clarity of the
- * function name at the call site is worth more than saving a
- * branch.
- *
- * Rounding: +0.5 before truncation. For the clamp range this is
- * well-behaved — raw * 2.0 on a size_t that fits in a history of
- * reasonable size cannot overflow IEEE-754 double precision.
- * ──────────────────────────────────────────────────────────────── */
-size_t ai_budget_estimate_tokens_calibrated(const struct xAgentSessionMsg_ *msgs,
-                                            size_t n, double factor) {
-  size_t raw = ai_budget_estimate_tokens(msgs, n);
-  if (raw == 0) return 0;
-  double adjusted = (double)raw * factor + 0.5;
-  /* Safety net: a pathologically negative factor would go to 0
-   * after truncation. We document the input range in the header
-   * but still want a defined answer if a caller violates it. */
-  if (adjusted < 0.0) return 0;
-  return (size_t)adjusted;
-}
-
-/* ─────────────────────────────────────────────────────────────────
- * ai_budget_calibrator_init / _update
- *
- * Tiny stateful pair — the only piece of non-pure code in this
- * translation unit. Kept here rather than in session.c so the full
- * arithmetic (EWMA step + clamp + opt-out rules) is co-located
- * with its tests in budget_test.cpp and with the constants it
- * references from budget_private.h.
- * ──────────────────────────────────────────────────────────────── */
-void ai_budget_calibrator_init(xAgentBudgetCalibrator *c) {
-  if (!c) return;
-  c->factor  = 1.0;
-  c->samples = 0;
-}
-
-void ai_budget_calibrator_update(xAgentBudgetCalibrator *c, size_t estimated,
-                                 int actual) {
-  if (!c) return;
-  if (estimated == 0) return; /* would divide by zero */
-  if (actual <= 0)    return; /* provider signalled "unknown" */
-
-  double observed = (double)actual / (double)estimated;
-  double next     = (1.0 - XAGENT_BUDGET_CALIBRATION_ALPHA) * c->factor +
-                    XAGENT_BUDGET_CALIBRATION_ALPHA * observed;
-
-  if (next < XAGENT_BUDGET_CALIBRATION_MIN_FACTOR) {
-    next = XAGENT_BUDGET_CALIBRATION_MIN_FACTOR;
-  } else if (next > XAGENT_BUDGET_CALIBRATION_MAX_FACTOR) {
-    next = XAGENT_BUDGET_CALIBRATION_MAX_FACTOR;
-  }
-  c->factor = next;
-
-  if (c->samples != (size_t)-1) c->samples++;
-}
-
-/* ─────────────────────────────────────────────────────────────────
  * ai_budget_tool_ratio
  *
  * Weighted ratio: how much of the estimated token cost comes from

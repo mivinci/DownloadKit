@@ -415,9 +415,11 @@ static void session_trim_history_tail_(struct xAgentSession_ *s,
  * Returns the number of tool_result entries that were trimmed.
  */
 static size_t session_trim_consumed_tool_results_(
-  struct xAgentSession_ *s, size_t target_tokens) {
+  struct xAgentSession_ *s, size_t target_tokens,
+  size_t *out_bytes_freed) {
   size_t n          = xArrayLen(s->history_arr);
   size_t trimmed    = 0;
+  size_t bytes_freed = 0;
   int    has_assistant_after = 0;
   size_t saved_estimate = 0;
 
@@ -461,6 +463,7 @@ static size_t session_trim_consumed_tool_results_(
       size_t new_tokens = (marker_len / XAGENT_BUDGET_BYTES_PER_TOKEN) +
                           XAGENT_BUDGET_PER_MSG_TOKENS;
       saved_estimate += (old_tokens - new_tokens);
+      bytes_freed += (old_bytes - marker_len);
       trimmed++;
 
       /* Check if we've freed enough. We use a rough check: if the
@@ -476,6 +479,7 @@ static size_t session_trim_consumed_tool_results_(
     s->delta_entries       = 0;
   }
 
+  if (out_bytes_freed) *out_bytes_freed = bytes_freed;
   return trimmed;
 }
 
@@ -662,7 +666,9 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     if (current >= threshold_tokens) {
       /* How many tokens we need to free to get under the limit. */
       size_t gap = (current + incoming) - limit;
-      size_t trimmed = session_trim_consumed_tool_results_(s, gap);
+      size_t bytes_freed = 0;
+      size_t trimmed = session_trim_consumed_tool_results_(s, gap,
+        &bytes_freed);
 
       if (trimmed > 0) {
         /* Re-estimate after trimming. */
@@ -670,12 +676,11 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
         if (current + incoming <= limit) {
           s->last_gate_total = current + incoming;
           if (s->on_budget_event) {
-            /* Report as Truncated event with the count of entries
-             * whose output was trimmed (not removed). */
-            struct xAgentBudgetTruncateInfo ti;
-            ti.entries_removed = trimmed;
+            struct xAgentBudgetToolResultsTrimmedInfo ti;
+            ti.entries_trimmed = trimmed;
+            ti.bytes_freed     = bytes_freed;
             s->on_budget_event((xAgentSession)s,
-              xAgentBudgetEvent_Truncated, &ti,
+              xAgentBudgetEvent_ToolResultsTrimmed, &ti,
               s->budget_event_ud);
           }
           return xErrno_Ok;

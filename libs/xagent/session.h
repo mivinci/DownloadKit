@@ -532,6 +532,14 @@ XDEF_ENUM(xAgentBudgetEvent){
    *  entries removed. */
   xAgentBudgetEvent_Truncated   = 2,
 
+  /** ToolResultsTrimmed: consumed tool_result outputs were shrunk
+   *  in-place (retroactive trimming) to free token budget without
+   *  dropping entire turns. @p info carries a
+   *  xAgentBudgetToolResultsTrimmedInfo with the count of entries
+   *  trimmed and approximate bytes freed. Fires before TruncateTail
+   *  in the budget enforcement pipeline. */
+  xAgentBudgetEvent_ToolResultsTrimmed = 4,
+
   /** GatePassed: the budget gate allowed the incoming message
    *  through — history + incoming fit within the limit. @p info
    *  carries a xAgentBudgetGateInfo with the token breakdown so
@@ -577,6 +585,18 @@ XDEF_STRUCT(xAgentBudgetTruncateInfo) {
 };
 
 /**
+ * @brief Extra detail passed with xAgentBudgetEvent_ToolResultsTrimmed.
+ */
+XDEF_STRUCT(xAgentBudgetToolResultsTrimmedInfo) {
+  /** Number of tool_result entries whose output was shrunk in-place. */
+  size_t entries_trimmed;
+
+  /** Approximate bytes freed by trimming (sum of original output sizes
+   *  minus the trimmed marker sizes). */
+  size_t bytes_freed;
+};
+
+/**
  * @brief Extra detail passed with xAgentBudgetEvent_GatePassed.
  */
 XDEF_STRUCT(xAgentBudgetGateInfo) {
@@ -608,10 +628,11 @@ XDEF_STRUCT(xAgentBudgetGateInfo) {
  * @brief Callback invoked when a budget-policy lifecycle event fires.
  *
  * @p info is event-specific; its concrete type depends on @p event:
- *   - Compacting  → xAgentBudgetCompactInfo
- *   - CompactDone → xAgentBudgetCompactDoneInfo
- *   - Truncated   → xAgentBudgetTruncateInfo
- *   - GatePassed  → xAgentBudgetGateInfo
+ *   - Compacting          → xAgentBudgetCompactInfo
+ *   - CompactDone         → xAgentBudgetCompactDoneInfo
+ *   - Truncated           → xAgentBudgetTruncateInfo
+ *   - ToolResultsTrimmed  → xAgentBudgetToolResultsTrimmedInfo
+ *   - GatePassed          → xAgentBudgetGateInfo
  *
  * @p info may be NULL if the implementation cannot provide detail
  * (e.g. OOM while building the struct). The caller must check.

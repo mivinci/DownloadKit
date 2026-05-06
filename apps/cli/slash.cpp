@@ -317,10 +317,9 @@ static void slash_cmd_tokens(ReplCtx *ctx, const char *args) {
                     ctx->last_actual_prompt);
     }
     std::snprintf(buf, sizeof(buf),
-                  "\nbudget: remaining=%zu/%zu calibrator=%.3fx samples=%zu "
-                  "estimated=%zu%s",
-                  ctx->budget_remaining, ctx->budget_limit, ctx->budget_factor,
-                  ctx->budget_samples, ctx->budget_estimated, extra);
+                  "\nbudget: remaining=%zu/%zu estimated=%zu%s",
+                  ctx->budget_remaining, ctx->budget_limit,
+                  ctx->budget_estimated, extra);
     body.append(buf);
   } else {
     body.append(

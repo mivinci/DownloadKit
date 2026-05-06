@@ -63,9 +63,7 @@ struct ReplCtx {
    * flipped - keeping this cheap and predictable. */
   bool          md_enabled      = false;  size_t        budget_limit     = 0;   /* from last GatePassed event */
   size_t        budget_remaining = 0;   /* from last GatePassed event */
-  double        budget_factor    = 1.0; /* EWMA calibrator factor */
-  size_t        budget_samples   = 0;   /* calibrator observation count */
-  size_t        budget_estimated = 0;   /* calibrated pre-submit estimate */
+  size_t        budget_estimated = 0;   /* pre-submit estimate (tokens) */
   int last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
   uint64_t    input_ms   = 0;  /* monotonic timestamp (ms) at user input */
   bool        should_exit = false;   /* set by /exit handler */

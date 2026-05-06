@@ -138,7 +138,7 @@ struct xAgentSession_ {
   void                       *finalizing_owner; /* passed back verbatim    */
 
   /* L1 memory-preservation callback. Fired when the session is about
-   * to discard history entries (TruncateOldest / SummarizeOldest
+   * to discard history entries (TruncateTail / SummarizeOldest
    * compact), and once at teardown with the full remaining history.
    * Copied from xAgentSessionConf at create time. NULL = no L1 hook. */
   xAgentSessionL1PreserveFunc on_l1_preserve;

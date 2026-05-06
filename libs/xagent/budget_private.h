@@ -204,7 +204,7 @@ size_t ai_budget_earliest_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
  * slice comes from ToolUse or ToolResult entries, and 0.0 means none
  * of them do (pure text / thinking conversation). Used by the Auto
  * budget policy to decide whether SummarizeOldest (good for text) or
- * TruncateOldest (safer for structured tool data) is the better
+ * TruncateTail (safer for structured tool data) is the better
  * strategy.
  *
  * The ratio is weighted by estimated token cost (payload + envelope),

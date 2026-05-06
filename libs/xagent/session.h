@@ -391,14 +391,19 @@ XDEF_STRUCT(xAgentSessionMsg){
  * full delivery (session teardown).
  */
 XDEF_ENUM(xAgentL1PreserveReason){
-  /** TruncateOldest or SummarizeOldest degradation: entries
-   *  [0, n) are about to be silently dropped. */
+  /** TruncateTail: tail-end entries [n, end) are about to be
+   *  silently dropped, preserving the prefix for prompt caching.
+   *  The @p n parameter in the callback indicates the first entry
+   *  being dropped; entries [0, n) survive as the cache-stable
+   *  prefix. */
   xAgentL1PreserveReason_Truncated = 0,
 
   /** SummarizeOldest compact: entries [0, n) are about to be
-   *  replaced by a summary. The consumer may want to keep the
-   *  original entries for full-fidelity L1 storage even though
-   *  a summary will replace them in the session's history. */
+   *  replaced by a summary (this is a head-trimming operation,
+   *  so the [0, n) range remains correct). The consumer may want
+   *  to keep the original entries for full-fidelity L1 storage
+   *  even though a summary will replace them in the session's
+   *  history. */
   xAgentL1PreserveReason_Compacted = 1,
 
   /** Session teardown: the full remaining history is being
@@ -411,7 +416,7 @@ XDEF_ENUM(xAgentL1PreserveReason){
 /**
  * @brief L1 memory-preservation callback, fired when the session
  *        is about to discard history entries (due to a budget
- *        policy like TruncateOldest or SummarizeOldest compact).
+ *        policy like TruncateTail or SummarizeOldest compact).
  *
  * The callback receives a read-only slice of the entries that are
  * about to be removed from the session's rolling history. The
@@ -459,9 +464,9 @@ typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession              sess,
  *   3. tool_use / tool_result pairs are trimmed atomically — a
  *      surviving tool_use always has its matching tool_result and
  *      vice versa;
- *   4. at least the last @ref xAgentBudgetConf::keep_recent_turns
- *      user turns from the HEAD (oldest) are kept as a cache-stable
- *      prefix.
+ *   4. at least @ref xAgentBudgetConf::keep_recent_turns User turns
+ *      from the front (oldest) are kept intact as a cache-stable
+ *      prefix; newer tail entries are truncated first.
  *
  * Zero (@ref xAgentBudgetPolicy_Disabled) means "do nothing", which
  * matches existing sessions byte-for-byte and is the default for
@@ -469,7 +474,7 @@ typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession              sess,
  *
  * @see docs/todo/xai_architecture.md and libs/xai/TODO.md §6
  *      for the rollout plan; alpha ships with Disabled / Error /
- *      TruncateOldest only. Callback and SummarizeOldest slots are
+ *      TruncateTail only. Callback and SummarizeOldest slots are
  *      wired into the enum early so that adding them later is not
  *      an ABI break.
  */
@@ -493,7 +498,7 @@ XDEF_ENUM(xAgentBudgetPolicy){
  *   - distinguish xErrno_Busy caused by an in-flight compact from
  *     Busy caused by a normal user Query still running;
  *   - learn when a compact finishes so it can retry the input;
- *   - learn when TruncateOldest silently drops history so it can
+ *   - learn when TruncateTail silently drops history so it can
  *     update UI or log the event.
  *
  * All events are informational — ignoring them does not change the
@@ -514,9 +519,10 @@ XDEF_ENUM(xAgentBudgetEvent){
    *  is now idle and the caller can retry xAgentSessionInput. */
   xAgentBudgetEvent_CompactDone = 1,
 
-  /** TruncateOldest: history entries were silently dropped to fit
-   *  the budget. @p info carries a xAgentBudgetTruncateInfo with the
-   *  count of entries removed. */
+  /** TruncateTail: tail-end history entries were silently dropped to
+   *  fit the budget, preserving the prefix for prompt caching.
+   *  @p info carries a xAgentBudgetTruncateInfo with the count of
+   *  entries removed. */
   xAgentBudgetEvent_Truncated   = 2,
 
   /** GatePassed: the budget gate allowed the incoming message
@@ -542,7 +548,7 @@ XDEF_STRUCT(xAgentBudgetCompactInfo) {
  */
 XDEF_STRUCT(xAgentBudgetCompactDoneInfo) {
   /** Non-zero if the compact produced a usable summary; zero if
-   *  it degraded to TruncateOldest instead (empty summary, OOM,
+   *  it degraded to TruncateTail instead (empty summary, OOM,
    *  or provider error). When zero the caller should assume old
    *  history was truncated, not summarised. */
   int summary_ok;
@@ -776,7 +782,7 @@ XDEF_STRUCT(xAgentSessionConf) {
    *        @ref l1_preserve_owner.
    *
    * Fires when the session is about to discard history entries
-   * (TruncateOldest / SummarizeOldest compact), and once at
+   * (TruncateTail / SummarizeOldest compact), and once at
    * teardown with the full remaining history. The Agent layer
    * uses this to capture the complete conversation before any
    * information is lost. Leave NULL if not used.

@@ -407,7 +407,7 @@ static size_t session_budget_limit_(const struct xAgentSession_ *s) {
 /* Decide whether this incoming user message, combined with the
  * current history, fits in the configured budget — and if not,
  * act according to @c budget.policy. May mutate @c s->history
- * (TruncateOldest path).
+ * (TruncateTail path).
  *
  * Returns xErrno_Ok to mean "proceed: it's safe to append and run
  * a Query"; any other value short-circuits xAgentSessionInput.
@@ -425,9 +425,9 @@ static size_t session_budget_limit_(const struct xAgentSession_ *s) {
  * known_prompt_tokens < 0 (cold start or post-trim invalidation)
  * we fall back to estimating the full history with the coarse
  * bytes/4 heuristic. */
-/* ── Truncate oldest history and check budget ──────────────────
+/* ── Truncate tail-end history and check budget ────────────────
  *
- * Shared by the TruncateOldest case and the truncate_fallback
+ * Shared by the TruncateTail case and the truncate_fallback
  * degradation path (SummarizeOldest failure). Returns xErrno_Ok
  * if trimming freed enough space, xErrno_PromptTooLong otherwise.
  * Fires xAgentBudgetEvent_Truncated on success.
@@ -617,8 +617,8 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * up budget space while preserving key facts.
      *
      * Steps:
-     *   1. Find the earliest-keep boundary (same primitive as
-     *      TruncateOldest).
+   *   1. Find the earliest-keep boundary (same primitive as
+   *      TruncateTail uses for its prefix floor).
      *   2. Bail if keep == 0 (nothing to summarise / floor
      *      exceeds history).
      *   3. If already compacting, return Busy.
@@ -765,10 +765,10 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
     if (rc != xErrno_Ok) {
       /* Compact query failed to start — clean up and degrade to
-       * TruncateOldest. */
+       * TruncateTail. */
       s->compacting = 0;
       xAgentQueryDestroy(q);
-      /* Fall through to TruncateOldest as degradation path. */
+      /* Fall through to TruncateTail as degradation path. */
       goto truncate_fallback;
     }
 
@@ -791,7 +791,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 truncate_fallback:
   /* Degradation path: if SummarizeOldest fails (OOM, Query submit
    * error), fall back to TruncateTail. This is the same logic as
-   * the TruncateOldest case above but extracted as a goto target
+   * the TruncateTail case above but extracted as a goto target
    * for the SummarizeOldest branch to jump to on failure. */
   return session_try_truncate_(s, incoming, limit);
 }
@@ -1560,7 +1560,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
    *   2. Replace the old history entries [0, compact_keep_idx)
    *      with one System summary entry.
    *   3. Re-check the budget — if still over, degrade to
-   *      TruncateOldest.
+   *      TruncateTail.
    *   4. If budget is OK, the caller's original xAgentSessionInput
    *      will be retried on the next call (we do NOT auto-retry
    *      here because the caller needs to know the compact
@@ -1602,7 +1602,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
     /* Compact succeeded (we got a non-empty summary) — replace
      * the old history entries with one System summary entry.
      * Compact failed (empty summary / OOM) — fall through to
-     * TruncateOldest degradation. */
+     * TruncateTail degradation. */
     size_t keep_idx   = s->compact_keep_idx;
     int    compact_ok = (summary_text != NULL && summary_bytes > 0);
 
@@ -1664,7 +1664,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
 
     if (!compact_ok) {
       /* Degradation: truncate the same range we tried to
-       * summarise. This matches the TruncateOldest behaviour. */
+       * summarise (head-trim, same as SummarizeOldest's own
+       * boundary calculation). */
       free(summary_text);
       if (keep_idx > 0 && keep_idx < xArrayLen(s->history_arr)) {
         session_trim_history_front_(s, keep_idx);
@@ -1941,7 +1942,7 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
 
   /* Budget gate: consulted BEFORE any history mutation so the
    * Error policy can refuse without leaving partial state behind,
-   * and the TruncateOldest policy can shape history first so the
+   * and the TruncateTail policy can shape history first so the
    * subsequent append lands on an already-conforming base. A
    * Disabled policy (the default) short-circuits inside
    * session_enforce_budget_() with zero measurable overhead. */

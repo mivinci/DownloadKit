@@ -394,6 +394,91 @@ static void session_trim_history_tail_(struct xAgentSession_ *s,
   xArrayRemoveRange(s->history_arr, drop_from, n - drop_from);
 }
 
+/* ── Retroactive tool_result trimming ───────────────────────────
+ *
+ * When context usage exceeds a configured threshold, this function
+ * scans history from tail to head and truncates "consumed" tool_result
+ * outputs. A tool_result is "consumed" when the model has already
+ * seen it and generated a subsequent response — i.e. there exists
+ * an Assistant-role entry after it in history.
+ *
+ * The output is replaced with a short marker like
+ *   "[result trimmed: was 12345 bytes]"
+ * freeing token budget while keeping the tool_use/tool_result pair
+ * structurally intact (the model still knows it called the tool and
+ * got a result — it just doesn't see the full output anymore).
+ *
+ * This is lighter-weight than TruncateTail: no entire turns are
+ * removed, the conversation flow is preserved, and the prompt prefix
+ * stays untouched for caching.
+ *
+ * Returns the number of tool_result entries that were trimmed.
+ */
+static size_t session_trim_consumed_tool_results_(
+  struct xAgentSession_ *s, size_t target_tokens) {
+  size_t n          = xArrayLen(s->history_arr);
+  size_t trimmed    = 0;
+  int    has_assistant_after = 0;
+  size_t saved_estimate = 0;
+
+  /* Walk from tail to head. A tool_result is "consumed" when we've
+   * already seen an Assistant entry closer to the tail — meaning the
+   * model already processed it and generated a follow-up. */
+  for (size_t i = n; i > 0; i--) {
+    struct xAgentSessionMsg_ *e = &((struct xAgentSessionMsg_ *)
+      xArrayData(s->history_arr))[i - 1];
+
+    if (e->role == xAgentRole_Assistant) {
+      has_assistant_after = 1;
+      continue;
+    }
+
+    if (e->kind == xAgentSessionEntry_ToolResult && has_assistant_after &&
+        e->tool_result_output_len > 0) {
+      /* This tool_result has been consumed. Replace its output with
+       * a short marker. We don't need to re-check the budget on every
+       * trim — we estimate the savings and stop when we've freed
+       * enough. */
+      size_t old_bytes  = e->tool_result_output_len;
+      size_t old_tokens = (old_bytes / XAGENT_BUDGET_BYTES_PER_TOKEN) +
+                          XAGENT_BUDGET_PER_MSG_TOKENS;
+
+      static const char kTrimSuffix[] =
+        "[result trimmed: was %zu bytes]";
+      char   marker[96];
+      size_t marker_len = (size_t)snprintf(
+        marker, sizeof(marker), kTrimSuffix, old_bytes);
+
+      char *buf = (char *)malloc(marker_len + 1);
+      if (!buf) continue; /* skip on alloc failure */
+      memcpy(buf, marker, marker_len);
+      buf[marker_len] = '\0';
+
+      free(e->tool_result_output);
+      e->tool_result_output     = buf;
+      e->tool_result_output_len = marker_len;
+
+      size_t new_tokens = (marker_len / XAGENT_BUDGET_BYTES_PER_TOKEN) +
+                          XAGENT_BUDGET_PER_MSG_TOKENS;
+      saved_estimate += (old_tokens - new_tokens);
+      trimmed++;
+
+      /* Check if we've freed enough. We use a rough check: if the
+       * estimated savings exceed the gap between current usage and
+       * target, we can stop. */
+      if (saved_estimate >= target_tokens) break;
+    }
+  }
+
+  if (trimmed > 0) {
+    /* Invalidate known_prompt_tokens — history content changed. */
+    s->known_prompt_tokens = -1;
+    s->delta_entries       = 0;
+  }
+
+  return trimmed;
+}
+
 /* Resolve the effective token ceiling for this session. A zero
  * @c max_tokens in the budget conf means "use the built-in
  * default"; callers that want a tighter or looser cap MUST set an
@@ -558,6 +643,47 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     }
 
     return xErrno_Ok;
+  }
+
+  /* ── Retroactive tool_result trimming ────────────────────────
+   *
+   * Before falling into the heavy-weight TruncateTail / compact
+   * paths, try a lighter approach: shrink consumed tool_result
+   * outputs in-place. This frees token budget without removing
+   * entire turns, preserving conversation flow and cache prefix.
+   *
+   * Only fires when trim_tool_results_threshold is configured AND
+   * current usage exceeds the threshold. */
+  if (s->budget.trim_tool_results_threshold > 0) {
+    /* threshold is stored as percentage × 100 (e.g. 7000 = 70%). */
+    size_t threshold_tokens = limit *
+      (size_t)s->budget.trim_tool_results_threshold / 10000u;
+
+    if (current >= threshold_tokens) {
+      /* How many tokens we need to free to get under the limit. */
+      size_t gap = (current + incoming) - limit;
+      size_t trimmed = session_trim_consumed_tool_results_(s, gap);
+
+      if (trimmed > 0) {
+        /* Re-estimate after trimming. */
+        current = session_estimate_current_(s);
+        if (current + incoming <= limit) {
+          s->last_gate_total = current + incoming;
+          if (s->on_budget_event) {
+            /* Report as Truncated event with the count of entries
+             * whose output was trimmed (not removed). */
+            struct xAgentBudgetTruncateInfo ti;
+            ti.entries_removed = trimmed;
+            s->on_budget_event((xAgentSession)s,
+              xAgentBudgetEvent_Truncated, &ti,
+              s->budget_event_ud);
+          }
+          return xErrno_Ok;
+        }
+        /* Trimmed some but not enough — fall through to the
+         * policy-specific handling below. */
+      }
+    }
   }
 
   switch (s->budget.policy) {

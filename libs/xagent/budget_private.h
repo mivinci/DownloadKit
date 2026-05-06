@@ -113,6 +113,14 @@ extern "C" {
 #define XAGENT_BUDGET_DEFAULT_MAX_TOOL_RESULT_BYTES 8192u
 
 /**
+ * @brief Default @c trim_tool_results_threshold: 0 = disabled.
+ *
+ * When non-zero, the value is stored as percentage × 100
+ * (e.g. 7000 = 70%). See @ref xAgentBudgetConf::trim_tool_results_threshold.
+ */
+#define XAGENT_BUDGET_DEFAULT_TRIM_TOOL_RESULTS_THRESHOLD 0
+
+/**
  * @brief Estimate the approximate token count for a flat slice of
  *        turn entries.
  *

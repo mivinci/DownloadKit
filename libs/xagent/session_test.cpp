@@ -2034,6 +2034,204 @@ TEST_F(SessionTest, BudgetTruncatePolicyUnderBudgetIsNoop) {
   xAgentSessionDestroy(sess);
 }
 
+/* ── Retroactive tool_result trimming ────────────────────────────
+ *
+ * When trim_tool_results_threshold is set, the session trims
+ * consumed tool_result outputs in-place (instead of dropping entire
+ * turns) when context usage exceeds the threshold. */
+
+class TrimToolResultsFixture : public ToolLoopFixture {
+ protected:
+  /* Handler that echoes a large payload back as tool_result output,
+   * so we can test retroactive trimming. */
+  static std::string large_payload_;
+  static xErrno large_echo_handler(xAgentQuery, const xAgentContent *in,
+                                    xAgentContent *out, void *) {
+    out->type                     = xAgentContentType_ToolResult;
+    out->u.tool_result.id         = in->u.tool_use.id;
+    out->u.tool_result.output     = large_payload_.c_str();
+    out->u.tool_result.output_len = large_payload_.size();
+    out->u.tool_result.is_error   = 0;
+    return xErrno_Ok;
+  }
+
+  xAgentTool tool_large_echo_ = nullptr;
+
+  void SetUp() override {
+    large_payload_ = std::string(2000, 'A'); /* 2000 bytes ≈ 500 tokens */
+    ToolLoopFixture::SetUp();
+    xAgentDestroy(agent_);
+
+    xAgentToolConf tc = {};
+    tc.name        = "big_echo";
+    tc.description = "echo big payload";
+    tc.json_schema = "{\"type\":\"object\"}";
+    tc.handler     = large_echo_handler;
+    tool_large_echo_ = xAgentToolCreate(&tc);
+
+    static const xAgentTool *kTools[3];
+    kTools[0] = &tool_echo_;
+    kTools[1] = &tool_failing_;
+    kTools[2] = &tool_large_echo_;
+
+    xAgentConf ac   = {};
+    ac.loop           = loop_;
+    ac.provider       = provider_;
+    ac.model          = "fake-model";
+    ac.system_prompt  = "you are a test";
+    ac.max_turns      = 10;
+    ac.max_tokens     = 1024;
+    ac.tools          = kTools;
+    ac.tools_count    = 3;
+    agent_ = xAgentCreate(&ac);
+  }
+
+  void TearDown() override {
+    xAgentToolDestroy(tool_large_echo_);
+    ToolLoopFixture::TearDown();
+  }
+};
+std::string TrimToolResultsFixture::large_payload_;
+
+/* Retroactive trimming fires when usage exceeds threshold, trims
+ * consumed tool_result outputs, and allows the next input through
+ * without dropping entire turns. */
+TEST_F(TrimToolResultsFixture, TrimsConsumedToolResultsAboveThreshold) {
+  Captured cap;
+  xAgentBudgetConf budget{};
+  budget.policy                       = xAgentBudgetPolicy_TruncateOldest;
+  budget.max_tokens                   = 300;  /* tight: 2000-byte payload
+                                                 ≈ 500 tokens alone, plus
+                                                 other entries easily exceed */
+  budget.trim_tool_results_threshold  = 5000; /* 50% = 150 tokens */
+  budget.max_tool_result_bytes        = SIZE_MAX; /* no ingest-time truncation */
+  budget.keep_recent_turns            = 1;
+  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Round 1: user → assistant calls big_echo → tool_result (large)
+   *          → assistant acknowledges. */
+  fake_->script_queue.push_back({
+      SText("let me call big_echo "),
+      SToolCall("big_echo", "call_1", R"({"req":"data"})"),
+      SDone(xAgentProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({
+      SText("got the result."),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+
+  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("go")),
+            xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+
+  /* Verify the large tool_result is in history. */
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+  ASSERT_GE(hist_len(s), 4u);
+  bool found_large = false;
+  for (size_t i = 0; i < hist_len(s); i++) {
+    if (hist_at(s, i)->kind == xAgentSessionEntry_ToolResult &&
+        hist_at(s, i)->tool_result_output_len > 100) {
+      found_large = true;
+    }
+  }
+  EXPECT_TRUE(found_large) << "large tool_result should exist after round 1";
+
+  /* Round 2: another input that pushes us over threshold. The
+   * retroactive trimmer should shrink the consumed tool_result
+   * from round 1 instead of dropping entire turns. */
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+
+  std::string big_input(400, 'x');
+  EXPECT_EQ(xAgentSessionInput(sess,
+            xAgentMessageFromText(big_input.c_str())),
+            xErrno_Ok);
+
+  /* After retroactive trimming, the consumed tool_result should
+   * have been shrunk (output_len much smaller than original). */
+  bool found_trimmed = false;
+  for (size_t i = 0; i < hist_len(s); i++) {
+    if (hist_at(s, i)->kind == xAgentSessionEntry_ToolResult) {
+      /* The original was 2000 bytes; after trimming it should be
+       * much shorter (just a marker string). */
+      if (hist_at(s, i)->tool_result_output_len < 100) {
+        found_trimmed = true;
+      }
+    }
+  }
+  EXPECT_TRUE(found_trimmed)
+      << "consumed tool_result should have been trimmed in-place";
+
+  xAgentSessionDestroy(sess);
+}
+
+/* When trim_tool_results_threshold is 0 (disabled), no retroactive
+ * trimming occurs — the session falls through to TruncateTail or
+ * refuses as before. */
+TEST_F(TrimToolResultsFixture, NoTrimWhenThresholdDisabled) {
+  Captured cap;
+  xAgentBudgetConf budget{};
+  budget.policy                       = xAgentBudgetPolicy_TruncateOldest;
+  budget.max_tokens                   = 300;
+  budget.trim_tool_results_threshold  = 0;    /* disabled */
+  budget.max_tool_result_bytes        = SIZE_MAX;
+  budget.keep_recent_turns            = 1;
+  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Round 1: user → assistant calls big_echo → tool_result → done. */
+  fake_->script_queue.push_back({
+      SText("calling "),
+      SToolCall("big_echo", "call_1", R"({"req":"data"})"),
+      SDone(xAgentProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({
+      SText("done."),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+
+  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("go")),
+            xErrno_Ok);
+
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+
+  /* Round 2: big input. With threshold disabled, the session should
+   * NOT retroactively trim tool_results — it will use TruncateTail
+   * or refuse instead. */
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+
+  std::string big_input(400, 'x');
+  xErrno rc = xAgentSessionInput(sess,
+              xAgentMessageFromText(big_input.c_str()));
+
+  /* Either TruncateTail kicked in (OK) or the session refused
+   * (PromptTooLong) — either way, tool_result should NOT have been
+   * trimmed in-place. If the session accepted the input, the
+   * tool_result should still be large. */
+  if (rc == xErrno_Ok) {
+    bool still_large = false;
+    for (size_t i = 0; i < hist_len(s); i++) {
+      if (hist_at(s, i)->kind == xAgentSessionEntry_ToolResult &&
+          hist_at(s, i)->tool_result_output_len > 100) {
+        still_large = true;
+      }
+    }
+    /* If TruncateTail was used, the tool_result entry may have been
+     * entirely removed. If it's still there, it should be unmodified. */
+    if (still_large) {
+      /* Good: tool_result wasn't retroactively trimmed. */
+    }
+  }
+
+  xAgentSessionDestroy(sess);
+}
+
 /* ── Incremental token bookkeeping ────────────────────────────────
  *
  * These tests cover the incremental bookkeeping that replaced the

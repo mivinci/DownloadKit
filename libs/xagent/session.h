@@ -694,6 +694,36 @@ XDEF_STRUCT(xAgentBudgetConf) {
   size_t max_tool_result_bytes;
 
   /**
+   * @brief Context-usage fraction that triggers retroactive trimming
+   *        of "consumed" tool_result entries (0.0–1.0, stored as
+   *        percentage × 100 to avoid floating point in the struct).
+   *
+   * When the estimated context usage exceeds
+   *   max_tokens × trim_tool_results_threshold / 10000,
+   * the session scans history from tail to head and truncates
+   * tool_result outputs that have already been "consumed" by the
+   * model (i.e. there is a subsequent Assistant entry after the
+   * tool_result). The output is reduced to a short summary marker
+   * like "[result trimmed: was N bytes]".
+   *
+   * This is a lighter-weight alternative to TruncateTail: it frees
+   * token budget by shrinking large tool outputs without removing
+   * entire turns or breaking the conversation flow. The prompt prefix
+   * stays intact, so provider-side prompt caching remains effective.
+   *
+   * Values:
+   *   - 0 (default): disabled — no retroactive trimming.
+   *   - 7000: trim when usage ≥ 70% of max_tokens.
+   *   - 10000: trim only when usage ≥ 100% (effectively off unless
+   *     over budget).
+   *
+   * Retroactive trimming runs BEFORE TruncateTail in the budget
+   * enforcement pipeline. If trimming alone frees enough space,
+   * TruncateTail is not invoked.
+   */
+  unsigned trim_tool_results_threshold;
+
+  /**
    * @brief Optional callback for budget-policy lifecycle events.
    *
    * Fires when the budget gate takes observable action (compacting

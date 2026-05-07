@@ -2584,6 +2584,77 @@ TEST_F(SessionTest, BudgetSummarizeOldestDegradesOnEmptySummary) {
   xAgentSessionDestroy(sess);
 }
 
+/* When a "thinking" model (e.g. DeepSeek-R1) produces only a
+ * Thinking entry and no Text entry, the compact should fall back
+ * to the Thinking content as the summary rather than degrading
+ * to TruncateOldest. This is common when the model's reasoning
+ * phase exhausts the output token budget before producing visible
+ * text. */
+TEST_F(SessionTest, BudgetSummarizeOldestFallsBackToThinkingWhenNoText) {
+  Captured cap;
+  xAgentBudgetConf budget{};
+  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.max_tokens        = 200;
+  budget.keep_recent_turns = 1;
+  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Prime 3 rounds to fill history. */
+  const std::string big(80, 'a');
+  for (int i = 0; i < 3; i++) {
+    fake_->script_queue.push_back({
+        SText("reply"),
+        SDone(xAgentProviderStop_EndTurn),
+    });
+    ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(big.c_str())),
+              xErrno_Ok);
+    ASSERT_EQ(cap.done_fired, i + 1);
+  }
+
+  /* The compact Query returns only Thinking, no Text.
+   * The fallback should use the Thinking content as the summary. */
+  fake_->script_queue.push_back({
+      SThinking("The user asked about testing several times."),
+      SDone(xAgentProviderStop_EndTurn),     /* no SText */
+  });
+
+  const std::string overflow_msg(400, 'b');
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(overflow_msg.c_str())),
+            xErrno_Busy);
+
+  /* The compact should have succeeded (using Thinking as fallback),
+   * producing a [summary] entry. */
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+  auto *msgs = (const xAgentSessionMsg_ *)xArrayData(s->history_arr);
+  size_t hlen = hist_len(s);
+
+  int summary_count = 0;
+  for (size_t i = 0; i < hlen; i++) {
+    if (msgs[i].role == xAgentRole_System && msgs[i].text &&
+        std::string(msgs[i].text, msgs[i].text_len).find("[summary]") !=
+            std::string::npos) {
+      summary_count++;
+      /* The summary should contain the thinking text. */
+      EXPECT_NE(std::string(msgs[i].text, msgs[i].text_len).find("testing"),
+                std::string::npos)
+          << "summary should contain thinking content";
+    }
+  }
+  EXPECT_EQ(summary_count, 1)
+      << "should have one [summary] entry from thinking fallback";
+
+  /* Re-submit should work (history was compacted). */
+  fake_->script_queue.push_back({
+      SText("final"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(overflow_msg.c_str())),
+            xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 4);
+
+  xAgentSessionDestroy(sess);
+}
+
 /* SummarizeOldest with keep_recent_turns too high (no user turn
  * boundary to compress) must refuse with PromptTooLong, same as
  * TruncateOldest. */

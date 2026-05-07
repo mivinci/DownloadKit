@@ -296,7 +296,8 @@ xAgentSession xAgentCreateSession(xAgent agent, const xAgentSessionConf *conf) {
          * ahead of what's actually in history_arr. */
         switch (m->kind) {
         case xAgentSessionEntryKind_Text:
-          prc = ai_history_append_text(s, m->role, m->text, m->text_len);
+          prc = ai_history_append_text(s, m->role, m->text, m->text_len,
+                                       m->is_summary);
           break;
         case xAgentSessionEntryKind_Thinking:
           prc = ai_history_append_thinking(s, m->text, m->text_len);

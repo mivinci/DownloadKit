@@ -141,11 +141,13 @@ static struct xAgentSessionMsg_ *history_push(struct xAgentSession_ *s) {
 /* ── History append API (shared with query.c via session_private.h) ── */
 
 xErrno ai_history_append_text(struct xAgentSession_ *s, xAgentRole role,
-                              const char *text, size_t len) {
+                              const char *text, size_t len,
+                              int is_summary) {
   struct xAgentSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
   slot->role = role;
   slot->kind = xAgentSessionEntry_Text;
+  slot->is_summary = is_summary;
   if (len > 0) {
     slot->text = dup_bytes(text, len);
     if (!slot->text) {
@@ -261,7 +263,7 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
     }
   }
   if (total == 0) {
-    return ai_history_append_text(s, msg.role, NULL, 0);
+    return ai_history_append_text(s, msg.role, NULL, 0, 0);
   }
 
   char *buf = (char *)malloc(total + 1);
@@ -1754,14 +1756,6 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       }
       /* Remove the old entries [0, keep_idx). */
       session_trim_history_front_(s, keep_idx);
-      /* After compact, the new summary entry replaces entries that
-       * were already L1-preserved. Mark persisted_prefix = 1 so
-       * the summary entry is treated as "already handled" by the
-       * L2 store — its content is derived from the original entries
-       * which are already persisted. This prevents the summary from
-       * being re-persisted on a later truncate/destroy, which would
-       * duplicate the original entries already in L2. */
-      s->persisted_prefix = 1;
 
       /* Insert the summary entry at the beginning of history. We
        * build it as a temporary xAgentSessionMsg_ and splice it in
@@ -1786,6 +1780,24 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
          * be freed by session_msg_release on removal). Clear the
          * local pointer so we don't double-free below. */
         summary_text = NULL;
+
+        /* L1-preserve the new summary entry so it is written to
+         * the external store (JSONL). We must persist it NOW
+         * because the original entries it replaces are already
+         * gone from the history array — if we skip this, the
+         * summary will never reach disk and the next prime will
+         * find a gap in the conversation. After persisting, mark
+         * persisted_prefix = 1 so the summary is not re-appended
+         * on a later Finalizing/Truncated flush. */
+        if (s->on_l1_preserve) {
+          const xAgentSessionMsg *sum_ptr =
+            (const xAgentSessionMsg *)xArrayData(s->history_arr);
+          s->on_l1_preserve(
+            (xAgentSession)s, sum_ptr, 1,
+            xAgentL1PreserveReason_Compacted,
+            s->l1_preserve_owner);
+        }
+        s->persisted_prefix = 1;
       }
     }
 

@@ -150,3 +150,132 @@ TEST(MdTest, BackslashEscapesAsterisk) {
   /* "\*" must emit a literal '*', not open italic. */
   EXPECT_EQ(Render("\\*hi\\*"), "*hi*");
 }
+
+/* ========== UTF-8 cross-chunk ========== */
+
+TEST(MdTest, Utf8ThreeByteAcrossChunks) {
+  /* 你 = U+4F60 = 0xE4 0xBD 0xA0 in UTF-8.
+   * Feed leading byte in one chunk, continuation bytes in the next.
+   * Without UTF-8 pending, the 0xE4 would be emitted as a lone byte
+   * (rendered as '?' or '�') before the rest arrives. */
+  std::string out;
+  xMd         r;
+  xMdInit(&r, CollectSink, &out);
+
+  /* Chunk 1: just the leading byte. */
+  const char c1[] = {(char)0xE4};
+  xMdFeed(&r, c1, 1);
+  EXPECT_EQ(out, "") << "leading byte must be buffered, not emitted";
+
+  /* Chunk 2: continuation bytes. */
+  const char c2[] = {(char)0xBD, (char)0xA0};
+  xMdFeed(&r, c2, 2);
+  EXPECT_EQ(out, "\xE4\xBD\xA0") << "full character emitted once complete";
+
+  xMdFlush(&r);
+}
+
+TEST(MdTest, Utf8ThreeByteSplitAfterSecond) {
+  /* 你 split after second byte: [0xE4, 0xBD] then [0xA0]. */
+  std::string out;
+  xMd         r;
+  xMdInit(&r, CollectSink, &out);
+
+  const char c1[] = {(char)0xE4, (char)0xBD};
+  xMdFeed(&r, c1, 2);
+  EXPECT_EQ(out, "") << "partial sequence must be buffered";
+
+  const char c2[] = {(char)0xA0};
+  xMdFeed(&r, c2, 1);
+  EXPECT_EQ(out, "\xE4\xBD\xA0") << "full character emitted once complete";
+
+  xMdFlush(&r);
+}
+
+TEST(MdTest, Utf8MixedContentAcrossChunks) {
+  /* "hi你" split as "hi" + "你" (0xE4 0xBD 0xA0). */
+  std::string out;
+  xMd         r;
+  xMdInit(&r, CollectSink, &out);
+
+  xMdFeed(&r, "hi", 2);
+  EXPECT_EQ(out, "hi");
+
+  const char c2[] = {(char)0xE4, (char)0xBD, (char)0xA0};
+  xMdFeed(&r, c2, 3);
+  EXPECT_EQ(out, "hi\xE4\xBD\xA0");
+
+  xMdFlush(&r);
+}
+
+TEST(MdTest, Utf8AcrossChunksByteByByte) {
+  /* 你 byte-by-byte: same as RenderByteByByte but for a Chinese char. */
+  std::string chi = "\xE4\xBD\xA0";  /* 你 */
+  EXPECT_EQ(Render(chi), chi) << "whole-chunk baseline";
+
+  std::string out;
+  xMd         r;
+  xMdInit(&r, CollectSink, &out);
+  for (char c : chi) xMdFeed(&r, &c, 1);
+  xMdFlush(&r);
+  EXPECT_EQ(out, chi) << "byte-by-byte must reconstruct the same character";
+}
+
+TEST(MdTest, Utf8FourByteAcrossChunks) {
+  /* 𝄞 (U+1D11E, Musical Symbol G Clef) = F0 9D 84 9E.
+   * Split as [F0 9D] then [84 9E]. */
+  std::string out;
+  xMd         r;
+  xMdInit(&r, CollectSink, &out);
+
+  const char c1[] = {(char)0xF0, (char)0x9D};
+  xMdFeed(&r, c1, 2);
+  EXPECT_EQ(out, "");
+
+  const char c2[] = {(char)0x84, (char)0x9E};
+  xMdFeed(&r, c2, 2);
+  EXPECT_EQ(out, "\xF0\x9D\x84\x9E");
+
+  xMdFlush(&r);
+}
+
+TEST(MdTest, Utf8PendingDrainedOnFlush) {
+  /* A lone leading byte at end-of-stream should be emitted on Flush
+   * (it's an incomplete but valid-ish sequence; the caller's stream
+   * ended so we can't wait for more bytes). */
+  std::string out;
+  xMd         r;
+  xMdInit(&r, CollectSink, &out);
+
+  const char c1[] = {(char)0xE4};
+  xMdFeed(&r, c1, 1);
+  EXPECT_EQ(out, "");
+
+  xMdFlush(&r);
+  /* Flush should emit the stashed byte as-is (incomplete UTF-8). */
+  EXPECT_EQ(out.size(), (size_t)1);
+  EXPECT_EQ(out[0], (char)0xE4);
+}
+
+TEST(MdTest, Utf8ResetClearsPending) {
+  /* xMdReset must discard any pending UTF-8 bytes. */
+  std::string out;
+  xMd         r;
+  xMdInit(&r, CollectSink, &out);
+
+  const char c1[] = {(char)0xE4};
+  xMdFeed(&r, c1, 1);
+  EXPECT_EQ(out, "");
+
+  xMdReset(&r);
+
+  /* After reset, feeding a continuation byte should NOT reconstruct
+   * the character — the pending leading byte was discarded. */
+  const char c2[] = {(char)0xBD, (char)0xA0};
+  xMdFeed(&r, c2, 2);
+  /* These are orphan continuation bytes; they fall through the
+   * default path and get emitted individually. */
+  EXPECT_EQ(out.size(), (size_t)2);
+
+  xMdFlush(&r);
+}

@@ -62,8 +62,10 @@ typedef void (*xMdSinkFunc)(const char *data, size_t len, void *arg);
  * through xMd* functions.
  *
  * Pending buffer holds at most 3 bytes at P0 (the longest prefix we
- * ever stash is "```", "***", or "###"). Fixed inline array beats a
- * heap allocation for a 3-byte scratchpad.
+ * ever stash is "```", "***", or "###"). The UTF-8 pending buffer
+ * also holds at most 3 bytes (the max continuation tail of a 4-byte
+ * sequence minus the leading byte). Fixed inline arrays beat a heap
+ * allocation for these tiny scratchpads.
  */
 XDEF_STRUCT(xMd) {
   xMdSinkFunc sink;
@@ -85,6 +87,15 @@ XDEF_STRUCT(xMd) {
   /* Pending delimiter candidate bytes. */
   char   pending[4];
   size_t pending_n;
+
+  /* UTF-8 continuation bytes that arrived at the end of a chunk
+   * without their leading byte. Buffered until the next xMdFeed
+   * call delivers the rest of the character. A UTF-8 sequence is
+   * at most 4 bytes so 3 is the max we'd stash (1 leading + up to
+   * 3 continuation, but if the leading byte arrived we emit the
+   * whole character; only the continuation-only tail gets held). */
+  char   utf8_pending[3];
+  size_t utf8_pending_n;
 
   /* Most recently emitted byte - used to disambiguate `_` from
    * snake_case. Seeded '\n' so a leading `_` opens emphasis

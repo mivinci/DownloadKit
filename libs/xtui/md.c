@@ -477,7 +477,47 @@ void xMdFeed(xMd *md, const char *data, size_t len) {
       emit_literal(md, c);
       continue;
     default:
-      emit_literal(md, c);
+      /* ── Bulk literal emission ──────────────────────────────────
+       *
+       * Non-delimiter bytes (ASCII printable, UTF-8 continuations,
+       * high-byte prose) all flow through here. We scan forward to
+       * find the longest contiguous run of such bytes and emit
+       * them in a single raw_n() call instead of looping byte by
+       * byte. This matters because each raw_n() triggers the sink,
+       * which in the CLI drives above_chunk → xLinePrintAboveChunk
+       * → term_flush — a write() to the tty. When a 3-byte UTF-8
+       * character is emitted as three separate write()s, the
+       * terminal receives an incomplete leading byte and renders a
+       * question mark or replacement character. Batching the whole
+       * run (including all bytes of the same UTF-8 character) into
+       * one sink call ensures the terminal sees the complete
+       * sequence atomically.
+       *
+       * A "literal run" is the longest span starting at i where
+       * every byte is NOT one of the special delimiter/structure
+       * bytes checked in the switch above ( \ * _ ` # \n ). UTF-8
+       * continuation bytes (0x80–0xBF) are always literal; leading
+       * bytes (0xC0–0xFD) are literal too (they're not markdown
+       * delimiters). ASCII control chars other than \n that land
+       * here are also emitted literally (they're rare in real
+       * streams and treating them as literal matches the previous
+       * behaviour). */
+      {
+        size_t start = i;
+        size_t end   = i + 1; /* at least byte cur[i] is literal */
+        while (end < cur_len) {
+          char nc = cur[end];
+          /* Stop at any byte that needs special handling. */
+          if (nc == '\\' || nc == '*' || nc == '_' || nc == '`' ||
+              nc == '#' || nc == '\n') {
+            break;
+          }
+          end++;
+        }
+        raw_n(md, cur + start, end - start);
+        md->bol = 0;
+        i = end - 1; /* for-loop will ++i, so advance to end-1 */
+      }
       continue;
     }
   }

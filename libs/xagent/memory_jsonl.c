@@ -161,6 +161,8 @@ static void write_msg_line_(FILE *fp, const xAgentSessionMsg *m) {
       write_json_str_(fp, m->text, m->text_len);
       fputc('"', fp);
     }
+    if (m->is_summary)
+      fputs(",\"is_summary\":true", fp);
   } else if (m->kind == xAgentSessionEntryKind_ToolUse) {
     if (m->tool_use_id)
       fprintf(fp, ",\"tool_use_id\":\"%s\"", m->tool_use_id);
@@ -434,8 +436,10 @@ static int parse_line_(const char *line, size_t line_len, char *arena,
       /* Bool / null. */
       if (match_lit_(&p, end, "true")) {
         if (strcmp(key, "is_error") == 0) out->tool_result_is_error = 1;
+        else if (strcmp(key, "is_summary") == 0) out->is_summary = 1;
       } else if (match_lit_(&p, end, "false")) {
         if (strcmp(key, "is_error") == 0) out->tool_result_is_error = 0;
+        else if (strcmp(key, "is_summary") == 0) out->is_summary = 0;
       } else if (match_lit_(&p, end, "null")) {
         /* ignore */
       } else {
@@ -660,6 +664,34 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
     free(entries);
     free(arena);
     return xErrno_Ok;
+  }
+
+  /* Smart prime: scan backwards for the last is_summary entry.
+   * When a compact has produced a summary, the original entries
+   * before it are redundant — the summary already contains their
+   * information. Returning only the summary + entries after it
+   * saves tokens on prime and prevents stale pre-summary entries
+   * from polluting the context window. If no summary is found the
+   * full window is returned unchanged (backward-compatible). */
+  {
+    ssize_t summary_idx = -1;
+    for (ssize_t k = (ssize_t)n_out - 1; k >= 0; k--) {
+      if (entries[k].is_summary) {
+        summary_idx = k;
+        break;
+      }
+    }
+    if (summary_idx > 0) {
+      /* Shift entries down so the summary becomes entries[0].
+       * The arena pointers are still valid — they point into the
+       * same arena regardless of array position. We don't reclaim
+       * the arena bytes for dropped entries, but the waste is
+       * bounded by the pre-summary portion of the tail window. */
+      size_t drop = (size_t)summary_idx;
+      size_t keep = n_out - drop;
+      memmove(entries, entries + drop, keep * sizeof(*entries));
+      n_out = keep;
+    }
   }
 
   struct jsonl_hit_cookie_ *cookie =

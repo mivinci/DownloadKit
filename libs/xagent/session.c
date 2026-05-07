@@ -821,12 +821,20 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     /* Internal compact/summary Queries deliberately bypass any
      * per-session provider/model override and run on the agent's
      * defaults — we want consistent summarisation regardless of
-     * what backend the user picked for the conversation. */
+     * what backend the user picked for the conversation.
+     *
+     * Compact Queries are text-only: no tools (we want the model
+     * to summarise, not call tools) and max_turns=1 (no tool-loop
+     * rounds). max_tokens is capped at a reasonable summary
+     * budget so that "thinking" models don't burn the entire
+     * output quota on internal reasoning and leave nothing for
+     * the actual summary text. */
     qc.provider        = a->provider;
-    qc.tools           = (const xAgentTool **)a->tools;
-    qc.tools_count     = a->tools_count;
+    qc.tools           = NULL;
+    qc.tools_count     = 0;
     qc.model           = a->model;
-    qc.max_tokens      = s->max_tokens;
+    qc.max_tokens      = 1024;  /* concise summary; prevents thinking burn */
+    qc.max_turns       = 1;     /* single round: no tool loop */
     qc.session         = (xAgentSession)s;
 
     xAgentQuery q = xAgentQueryCreate(&qc);
@@ -1673,12 +1681,29 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
    * (they received xErrno_Busy from xAgentSessionInput). */
   if (s->compacting) {
     /* Extract summary text: concatenate all text entries from
-     * produced. */
+     * produced. "Thinking" models (DeepSeek-R1, Claude with
+     * extended thinking) may emit a Thinking entry but no Text
+     * entry when the output token budget is exhausted by the
+     * reasoning phase.  Fall back to the Thinking content in
+     * that case so the compact still produces a usable summary
+     * rather than degrading to truncate every time. */
     size_t summary_bytes = 0;
+    int    text_found    = 0;
     for (size_t i = 0; i < n_produced; i++) {
       if (produced[i].kind == xAgentSessionEntry_Text && produced[i].text) {
         summary_bytes += produced[i].text_len;
+        text_found = 1;
       }
+    }
+    /* Fallback: no Text entries but Thinking entries exist. */
+    enum xAgentSessionEntryKind_ summary_kind = xAgentSessionEntry_Text;
+    if (!text_found) {
+      for (size_t i = 0; i < n_produced; i++) {
+        if (produced[i].kind == xAgentSessionEntry_Thinking && produced[i].text) {
+          summary_bytes += produced[i].text_len;
+        }
+      }
+      if (summary_bytes > 0) summary_kind = xAgentSessionEntry_Thinking;
     }
 
     /* Build the summary string with a "[summary]" prefix so
@@ -1693,7 +1718,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
         memcpy(summary_text, kSummaryPrefix, prefix_len);
         size_t off = prefix_len;
         for (size_t i = 0; i < n_produced; i++) {
-          if (produced[i].kind == xAgentSessionEntry_Text && produced[i].text) {
+          if (produced[i].kind == summary_kind && produced[i].text) {
             memcpy(summary_text + off, produced[i].text, produced[i].text_len);
             off += produced[i].text_len;
           }

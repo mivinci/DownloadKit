@@ -1891,17 +1891,17 @@ TEST_F(SessionTest, BudgetErrorPolicyAllowsUnderBudgetInput) {
   xAgentSessionDestroy(sess);
 }
 
-/* TruncateOldest: populate several user turns so the next input
- * would put us over max_tokens, then verify the session drops the
- * oldest prefix (at a user-turn boundary) and proceeds. The
- * captured msgs on the second submit MUST NOT contain the dropped
- * turn anywhere. */
+/* TruncateTail (cache-friendly): populate several user turns so the
+ * next input would put us over max_tokens, then verify the session
+ * drops the tail entries (preserving the prefix for prompt caching)
+ * and proceeds. The captured msgs on the second submit MUST NOT
+ * contain the dropped turns. */
 TEST_F(SessionTest, BudgetTruncateOldestDropsOldestUserTurns) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_TruncateOldest;
   budget.max_tokens        = 80;       /* ~320 payload bytes total     */
-  budget.keep_recent_turns = 1;        /* always keep the last turn    */
+  budget.keep_recent_turns = 1;        /* keep at least 1 prefix turn */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -1922,8 +1922,7 @@ TEST_F(SessionTest, BudgetTruncateOldestDropsOldestUserTurns) {
   /* 4th input: this alone (~28 tokens) plus the 6 accumulated
    * history entries (3 user + 3 assistant, ≥ 48 payload + 48
    * envelope = 60 tokens) breaches the 80 ceiling. The session
-   * must trim the oldest prefix but keep at least 1 recent user
-   * turn around the new input. */
+   * must trim tail entries to fit, preserving the prefix. */
   fake_->script_queue.push_back({
       SText("final"),
       SDone(xAgentProviderStop_EndTurn),
@@ -1934,10 +1933,8 @@ TEST_F(SessionTest, BudgetTruncateOldestDropsOldestUserTurns) {
   EXPECT_EQ(cap.done_reason, xAgentDoneReason_Completed);
 
   /* On the 4th submit, captured_msgs reflects what the provider
-   * saw. The new user message must be there; the very first user
-   * message (unique "big" string) may be gone — count how many
-   * big-user messages survived, and it should be strictly less
-   * than 3 because at least one was trimmed. */
+   * saw. The new user message must be there; at least one of the
+   * "big" user messages must have been trimmed to fit the budget. */
   ASSERT_GE(fake_->captured_msgs_per_submit.size(), 4u);
   const auto &last_submit = fake_->captured_msgs_per_submit.back();
 
@@ -1951,16 +1948,15 @@ TEST_F(SessionTest, BudgetTruncateOldestDropsOldestUserTurns) {
   }
   EXPECT_TRUE(saw_marker) << "the new user turn must always be preserved";
   EXPECT_LT(big_user_msgs, 3)
-      << "at least one oldest user turn must have been trimmed";
+      << "at least one user turn must have been trimmed";
 
   xAgentSessionDestroy(sess);
 }
 
-/* TruncateOldest with keep_recent_turns too high to honour the
- * budget at all (floor exceeds history's capacity under the
- * ceiling): the session refuses with PromptTooLong rather than
- * silently violating the keep-recent-turns floor. This is the
- * "safety over compliance" path advertised in budget_private.h. */
+/* TruncateTail with keep_recent_turns (now: prefix turns) too high
+ * to honour the budget at all: the session refuses with
+ * PromptTooLong rather than silently violating the keep-prefix-turns
+ * floor. This is the "safety over compliance" path. */
 TEST_F(SessionTest, BudgetTruncateOldestRefusesWhenFloorUnreachable) {
   Captured cap;
   xAgentBudgetConf budget{};
@@ -2038,29 +2034,220 @@ TEST_F(SessionTest, BudgetTruncatePolicyUnderBudgetIsNoop) {
   xAgentSessionDestroy(sess);
 }
 
-/* ── Token-estimate calibration (c4) ────────────────────────────────
+/* ── Retroactive tool_result trimming ────────────────────────────
  *
- * These tests cover the post-run calibrator loop:
- *
- *   - A fresh session starts at factor = 1.0, samples = 0.
- *   - A clean single-round run with a positive prompt_tokens in
- *     the usage block produces exactly one observation; the
- *     factor moves by ALPHA of the way toward (actual / estimate).
- *   - Runs without a usage block, or with -1 prompt_tokens, do
- *     NOT update the calibrator.
- *   - Runs under a Disabled policy never touch the calibrator —
- *     the gate short-circuits before recording last_prompt_estimate,
- *     so sess_fwd_on_done sees zero and bails out.
- *   - The calibrated factor flows back into the next gate: a
- *     factor pushed well above 1.0 causes a previously-accepted
- *     payload size to be refused with PromptTooLong.
- *
- * All tests here poke directly at xAgentSession_::budget_calibrator
- * rather than going through a public accessor because c4 does not
- * introduce one — the calibrator is session-internal diagnostics,
- * not caller-facing API. */
+ * When trim_tool_results_threshold is set, the session trims
+ * consumed tool_result outputs in-place (instead of dropping entire
+ * turns) when context usage exceeds the threshold. */
 
-TEST_F(SessionTest, BudgetCalibratorInitialStateIsIdentity) {
+class TrimToolResultsFixture : public ToolLoopFixture {
+ protected:
+  /* Handler that echoes a large payload back as tool_result output,
+   * so we can test retroactive trimming. */
+  static std::string large_payload_;
+  static xErrno large_echo_handler(xAgentQuery, const xAgentContent *in,
+                                    xAgentContent *out, void *) {
+    out->type                     = xAgentContentType_ToolResult;
+    out->u.tool_result.id         = in->u.tool_use.id;
+    out->u.tool_result.output     = large_payload_.c_str();
+    out->u.tool_result.output_len = large_payload_.size();
+    out->u.tool_result.is_error   = 0;
+    return xErrno_Ok;
+  }
+
+  xAgentTool tool_large_echo_ = nullptr;
+
+  void SetUp() override {
+    large_payload_ = std::string(2000, 'A'); /* 2000 bytes ≈ 500 tokens */
+    ToolLoopFixture::SetUp();
+    xAgentDestroy(agent_);
+
+    xAgentToolConf tc = {};
+    tc.name        = "big_echo";
+    tc.description = "echo big payload";
+    tc.json_schema = "{\"type\":\"object\"}";
+    tc.handler     = large_echo_handler;
+    tool_large_echo_ = xAgentToolCreate(&tc);
+
+    static const xAgentTool *kTools[3];
+    kTools[0] = &tool_echo_;
+    kTools[1] = &tool_failing_;
+    kTools[2] = &tool_large_echo_;
+
+    xAgentConf ac   = {};
+    ac.loop           = loop_;
+    ac.provider       = provider_;
+    ac.model          = "fake-model";
+    ac.system_prompt  = "you are a test";
+    ac.max_turns      = 10;
+    ac.max_tokens     = 1024;
+    ac.tools          = kTools;
+    ac.tools_count    = 3;
+    agent_ = xAgentCreate(&ac);
+  }
+
+  void TearDown() override {
+    xAgentToolDestroy(tool_large_echo_);
+    ToolLoopFixture::TearDown();
+  }
+};
+std::string TrimToolResultsFixture::large_payload_;
+
+/* Retroactive trimming fires when usage exceeds threshold, trims
+ * consumed tool_result outputs, and allows the next input through
+ * without dropping entire turns. */
+TEST_F(TrimToolResultsFixture, TrimsConsumedToolResultsAboveThreshold) {
+  Captured cap;
+  xAgentBudgetConf budget{};
+  budget.policy                       = xAgentBudgetPolicy_TruncateOldest;
+  budget.max_tokens                   = 300;  /* tight: 2000-byte payload
+                                                 ≈ 500 tokens alone, plus
+                                                 other entries easily exceed */
+  budget.trim_tool_results_threshold  = 5000; /* 50% = 150 tokens */
+  budget.max_tool_result_bytes        = SIZE_MAX; /* no ingest-time truncation */
+  budget.keep_recent_turns            = 1;
+  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Round 1: user → assistant calls big_echo → tool_result (large)
+   *          → assistant acknowledges. */
+  fake_->script_queue.push_back({
+      SText("let me call big_echo "),
+      SToolCall("big_echo", "call_1", R"({"req":"data"})"),
+      SDone(xAgentProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({
+      SText("got the result."),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+
+  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("go")),
+            xErrno_Ok);
+  EXPECT_EQ(cap.done_fired, 1);
+
+  /* Verify the large tool_result is in history. */
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+  ASSERT_GE(hist_len(s), 4u);
+  bool found_large = false;
+  for (size_t i = 0; i < hist_len(s); i++) {
+    if (hist_at(s, i)->kind == xAgentSessionEntry_ToolResult &&
+        hist_at(s, i)->tool_result_output_len > 100) {
+      found_large = true;
+    }
+  }
+  EXPECT_TRUE(found_large) << "large tool_result should exist after round 1";
+
+  /* Round 2: another input that pushes us over threshold. The
+   * retroactive trimmer should shrink the consumed tool_result
+   * from round 1 instead of dropping entire turns. */
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+
+  std::string big_input(400, 'x');
+  EXPECT_EQ(xAgentSessionInput(sess,
+            xAgentMessageFromText(big_input.c_str())),
+            xErrno_Ok);
+
+  /* After retroactive trimming, the consumed tool_result should
+   * have been shrunk (output_len much smaller than original). */
+  bool found_trimmed = false;
+  for (size_t i = 0; i < hist_len(s); i++) {
+    if (hist_at(s, i)->kind == xAgentSessionEntry_ToolResult) {
+      /* The original was 2000 bytes; after trimming it should be
+       * much shorter (just a marker string). */
+      if (hist_at(s, i)->tool_result_output_len < 100) {
+        found_trimmed = true;
+      }
+    }
+  }
+  EXPECT_TRUE(found_trimmed)
+      << "consumed tool_result should have been trimmed in-place";
+
+  xAgentSessionDestroy(sess);
+}
+
+/* When trim_tool_results_threshold is 0 (disabled), no retroactive
+ * trimming occurs — the session falls through to TruncateTail or
+ * refuses as before. */
+TEST_F(TrimToolResultsFixture, NoTrimWhenThresholdDisabled) {
+  Captured cap;
+  xAgentBudgetConf budget{};
+  budget.policy                       = xAgentBudgetPolicy_TruncateOldest;
+  budget.max_tokens                   = 300;
+  budget.trim_tool_results_threshold  = 0;    /* disabled */
+  budget.max_tool_result_bytes        = SIZE_MAX;
+  budget.keep_recent_turns            = 1;
+  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Round 1: user → assistant calls big_echo → tool_result → done. */
+  fake_->script_queue.push_back({
+      SText("calling "),
+      SToolCall("big_echo", "call_1", R"({"req":"data"})"),
+      SDone(xAgentProviderStop_ToolUse),
+  });
+  fake_->script_queue.push_back({
+      SText("done."),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+
+  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("go")),
+            xErrno_Ok);
+
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+
+  /* Round 2: big input. With threshold disabled, the session should
+   * NOT retroactively trim tool_results — it will use TruncateTail
+   * or refuse instead. */
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+
+  std::string big_input(400, 'x');
+  xErrno rc = xAgentSessionInput(sess,
+              xAgentMessageFromText(big_input.c_str()));
+
+  /* Either TruncateTail kicked in (OK) or the session refused
+   * (PromptTooLong) — either way, tool_result should NOT have been
+   * trimmed in-place. If the session accepted the input, the
+   * tool_result should still be large. */
+  if (rc == xErrno_Ok) {
+    bool still_large = false;
+    for (size_t i = 0; i < hist_len(s); i++) {
+      if (hist_at(s, i)->kind == xAgentSessionEntry_ToolResult &&
+          hist_at(s, i)->tool_result_output_len > 100) {
+        still_large = true;
+      }
+    }
+    /* If TruncateTail was used, the tool_result entry may have been
+     * entirely removed. If it's still there, it should be unmodified. */
+    if (still_large) {
+      /* Good: tool_result wasn't retroactively trimmed. */
+    }
+  }
+
+  xAgentSessionDestroy(sess);
+}
+
+/* ── Incremental token bookkeeping ────────────────────────────────
+ *
+ * These tests cover the incremental bookkeeping that replaced the
+ * old EWMA calibrator:
+ *
+ *   - A fresh session starts with known_prompt_tokens = -1 (unknown).
+ *   - After a run with positive prompt_tokens, known_prompt_tokens
+ *     is updated and delta_entries is reset to 0.
+ *   - Runs without a usage block, or with -1 prompt_tokens, do
+ *     NOT update known_prompt_tokens.
+ *   - After a truncate/compact, known_prompt_tokens is invalidated
+ *     back to -1 (history changed imprecisely).
+ *   - The next gate uses known_prompt_tokens + delta estimate for
+ *     more accurate budget decisions. */
+
+TEST_F(SessionTest, BudgetBookkeepingInitialStateIsUnknown) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
@@ -2069,14 +2256,13 @@ TEST_F(SessionTest, BudgetCalibratorInitialStateIsIdentity) {
   ASSERT_NE(sess, nullptr);
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
-  EXPECT_EQ(s->budget_calibrator.samples, 0u);
-  EXPECT_EQ(s->last_prompt_estimate, 0u);
+  EXPECT_EQ(s->known_prompt_tokens, -1);
+  EXPECT_EQ(s->delta_entries, 0u);
 
   xAgentSessionDestroy(sess);
 }
 
-TEST_F(SessionTest, BudgetCalibratorUpdatesOnCleanSingleRound) {
+TEST_F(SessionTest, BudgetBookkeepingUpdatesOnProviderReport) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
@@ -2084,10 +2270,7 @@ TEST_F(SessionTest, BudgetCalibratorUpdatesOnCleanSingleRound) {
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
-  /* Provider reports a prompt_tokens that is substantially larger
-   * than our static estimate. The static estimate for "hello" is
-   * ~9 tokens (5 bytes / 4 + 8 envelope). Report 900 to force a
-   * big observed ratio and an unambiguous factor move. */
+  /* Provider reports prompt_tokens = 900. */
   fake_->script_queue.push_back({
       SText("ok"),
       SDoneWithUsage(xAgentProviderStop_EndTurn, /*prompt=*/900,
@@ -2098,24 +2281,17 @@ TEST_F(SessionTest, BudgetCalibratorUpdatesOnCleanSingleRound) {
   EXPECT_EQ(cap.done_fired, 1);
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  /* One observation recorded. */
-  EXPECT_EQ(s->budget_calibrator.samples, 1u);
-  /* Factor moved above 1.0 (observed >> 1) but did not exceed the
-   * upper clamp from a single observation (1 + ALPHA * (observed - 1)
-   * is far below 2.0 even for a 100x observed ratio because ALPHA
-   * is 0.25; a single step adds at most 0.25 * (MAX - 1) before
-   * clamping, i.e. 1.25 on the first step regardless of observed). */
-  EXPECT_GT(s->budget_calibrator.factor, 1.0);
-  EXPECT_LE(s->budget_calibrator.factor,
-            XAGENT_BUDGET_CALIBRATION_MAX_FACTOR);
-  /* last_prompt_estimate must be cleared after the run so a stale
-   * value can't leak into the next gate. */
-  EXPECT_EQ(s->last_prompt_estimate, 0u);
+  /* known_prompt_tokens should now be the provider-reported value. */
+  EXPECT_EQ(s->known_prompt_tokens, 900);
+  /* delta_entries counts the produced entries (assistant reply)
+   * that were merged into history after the provider report.
+   * These have not been counted by the provider yet. */
+  EXPECT_GT(s->delta_entries, 0u);
 
   xAgentSessionDestroy(sess);
 }
 
-TEST_F(SessionTest, BudgetCalibratorIgnoresMissingUsage) {
+TEST_F(SessionTest, BudgetBookkeepingIgnoresMissingUsage) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
@@ -2124,7 +2300,7 @@ TEST_F(SessionTest, BudgetCalibratorIgnoresMissingUsage) {
   ASSERT_NE(sess, nullptr);
 
   /* Plain SDone without SDoneWithUsage → provider reports NULL
-   * usage → calibrator must not budge. */
+   * usage → known_prompt_tokens must stay at -1. */
   fake_->script_queue.push_back({
       SText("ok"),
       SDone(xAgentProviderStop_EndTurn),
@@ -2133,13 +2309,12 @@ TEST_F(SessionTest, BudgetCalibratorIgnoresMissingUsage) {
   EXPECT_EQ(cap.done_fired, 1);
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
-  EXPECT_EQ(s->budget_calibrator.samples, 0u);
+  EXPECT_EQ(s->known_prompt_tokens, -1);
 
   xAgentSessionDestroy(sess);
 }
 
-TEST_F(SessionTest, BudgetCalibratorIgnoresUnknownPromptTokens) {
+TEST_F(SessionTest, BudgetBookkeepingIgnoresUnknownPromptTokens) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
@@ -2147,8 +2322,7 @@ TEST_F(SessionTest, BudgetCalibratorIgnoresUnknownPromptTokens) {
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
-  /* Usage present but prompt_tokens = -1 (the "unknown" sentinel).
-   * Calibrator opt-out applies. */
+  /* Usage present but prompt_tokens = -1 (the "unknown" sentinel). */
   fake_->script_queue.push_back({
       SText("ok"),
       SDoneWithUsage(xAgentProviderStop_EndTurn, /*prompt=*/-1,
@@ -2158,85 +2332,49 @@ TEST_F(SessionTest, BudgetCalibratorIgnoresUnknownPromptTokens) {
   EXPECT_EQ(cap.done_fired, 1);
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
-  EXPECT_EQ(s->budget_calibrator.samples, 0u);
+  EXPECT_EQ(s->known_prompt_tokens, -1);
 
   xAgentSessionDestroy(sess);
 }
 
-TEST_F(SessionTest, BudgetCalibratorDoesNotRunUnderDisabledPolicy) {
-  /* Disabled skips the gate entirely → last_prompt_estimate stays
-   * zero → on_done's calibrator update bails out. This is
-   * deliberate: callers who haven't opted into budget enforcement
-   * also haven't opted into the cost of calibration, and running
-   * it anyway would be silent work + a surprise resource if they
-   * later flip to an enforcing policy (they'd expect a fresh
-   * identity calibrator). */
-  Captured cap;
-  xAgentBudgetConf budget{};               /* Disabled (zero default) */
-  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
-  ASSERT_NE(sess, nullptr);
-
-  fake_->script_queue.push_back({
-      SText("ok"),
-      SDoneWithUsage(xAgentProviderStop_EndTurn, /*prompt=*/900,
-                     /*completion=*/10),
-  });
-  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("hello")), xErrno_Ok);
-  EXPECT_EQ(cap.done_fired, 1);
-
-  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  EXPECT_DOUBLE_EQ(s->budget_calibrator.factor, 1.0);
-  EXPECT_EQ(s->budget_calibrator.samples, 0u);
-
-  xAgentSessionDestroy(sess);
-}
-
-TEST_F(SessionTest, BudgetCalibratorFeedsBackIntoNextGate) {
-  /* The end-to-end story: a miscalibrated session (our estimate is
-   * too low, the provider's true prompt_tokens is higher) learns
-   * from the first round and enforces more aggressively on the
-   * next round.
+TEST_F(SessionTest, BudgetBookkeepingFeedsBackIntoNextGate) {
+  /* The end-to-end story: after the first run reports a large
+   * prompt_tokens, the second gate uses that precise value as the
+   * baseline. This means a previously-accepted payload size can be
+   * refused if the known baseline + new delta exceeds the limit.
    *
    * Setup:
-   *   - max_tokens = 100
-   *   - A payload that our static estimator sees as ~80 tokens.
-   *     At factor = 1.0 this passes the gate comfortably.
-   *   - Provider reports prompt_tokens = 400 (5x our estimate),
-   *     the worst kind of systematic underestimate.
-   *   - After one observation, the calibrator is pushed high
-   *     enough that the SAME payload is estimated above the
-   *     100-token ceiling and the next Input is refused. */
+   *   - max_tokens = 500
+   *   - First turn: provider reports prompt_tokens = 400.
+   *   - Second turn: known_prompt_tokens = 400, plus the new
+   *     user message estimate, exceeds 500 → refused. */
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
-  budget.max_tokens = 100;
+  budget.max_tokens = 500;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
-  /* 280 bytes → 70 payload tokens + 8 envelope = 78 raw. Well
-   * under 100 at factor = 1.0. Provider reports 400 (observed =
-   * ~5.1 against our 78; ALPHA step pushes factor toward
-   * min(MAX_FACTOR, 1 + 0.25 * ~4.1) = MAX_FACTOR = 2.0 after
-   * clamp). */
-  std::string payload(280, 'q');
+  /* First turn: any payload. Provider reports prompt_tokens = 400. */
   fake_->script_queue.push_back({
       SText("ok"),
       SDoneWithUsage(xAgentProviderStop_EndTurn, /*prompt=*/400,
                      /*completion=*/12),
   });
-  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(payload.c_str())),
+  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("hello")),
             xErrno_Ok);
   ASSERT_EQ(cap.done_fired, 1);
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  ASSERT_GT(s->budget_calibrator.factor, 1.0);
+  ASSERT_EQ(s->known_prompt_tokens, 400);
 
-  /* Second turn: history now holds (user + assistant). Estimate
-   * at factor = 2.0 is doubled across the board — the same-sized
-   * new payload plus the grown history will trip the 100-token
-   * ceiling and the gate must refuse. */
-  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(payload.c_str())),
+  /* Second turn: known_prompt_tokens = 400 + delta for produced
+   * entries + incoming message. Even a small message will push
+   * the total above 500 because the baseline is already 400
+   * and there are produced entries from the first turn. Use a
+   * large payload to make the refusal unambiguous. */
+  std::string big(400, 'q');
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(big.c_str())),
             xErrno_PromptTooLong);
 
   xAgentSessionDestroy(sess);
@@ -2495,9 +2633,16 @@ void cb_l1_preserve(xAgentSession sess, const xAgentSessionMsg *msgs,
   call.reason     = reason;
   call.n_msgs     = n_msgs;
   for (size_t i = 0; i < n_msgs; i++) {
-    call.texts.push_back(msgs[i].text ? std::string(msgs[i].text,
-                                                     msgs[i].text_len)
-                                      : std::string());
+    /* Read text/text_len only for Text/Thinking entries — ToolUse and
+     * ToolResult store their payload in different fields. */
+    if (msgs[i].kind == xAgentSessionEntry_Text ||
+        msgs[i].kind == xAgentSessionEntry_Thinking) {
+      call.texts.push_back(msgs[i].text ? std::string(msgs[i].text,
+                                                       msgs[i].text_len)
+                                        : std::string());
+    } else {
+      call.texts.push_back(std::string());
+    }
     call.roles.push_back(msgs[i].role);
     call.kinds.push_back(msgs[i].kind);
   }

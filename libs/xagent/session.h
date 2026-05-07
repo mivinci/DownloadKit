@@ -381,6 +381,13 @@ XDEF_STRUCT(xAgentSessionMsg){
 
   /* Wall-clock unix-ms when this entry was produced. 0 = unknown. */
   uint64_t    created_at_ms;
+
+  /* Non-zero when this entry is a summary produced by the
+   * SummarizeOldest budget policy. This field exists so the
+   * public struct's layout matches the internal xAgentSessionMsg_
+   * layout — without it, casting an internal array to a public
+   * array would misalign every element after the first. */
+  int         is_summary;
 };
 
 /**
@@ -391,14 +398,19 @@ XDEF_STRUCT(xAgentSessionMsg){
  * full delivery (session teardown).
  */
 XDEF_ENUM(xAgentL1PreserveReason){
-  /** TruncateOldest or SummarizeOldest degradation: entries
-   *  [0, n) are about to be silently dropped. */
+  /** TruncateTail: tail-end entries [n, end) are about to be
+   *  silently dropped, preserving the prefix for prompt caching.
+   *  The @p n parameter in the callback indicates the first entry
+   *  being dropped; entries [0, n) survive as the cache-stable
+   *  prefix. */
   xAgentL1PreserveReason_Truncated = 0,
 
   /** SummarizeOldest compact: entries [0, n) are about to be
-   *  replaced by a summary. The consumer may want to keep the
-   *  original entries for full-fidelity L1 storage even though
-   *  a summary will replace them in the session's history. */
+   *  replaced by a summary (this is a head-trimming operation,
+   *  so the [0, n) range remains correct). The consumer may want
+   *  to keep the original entries for full-fidelity L1 storage
+   *  even though a summary will replace them in the session's
+   *  history. */
   xAgentL1PreserveReason_Compacted = 1,
 
   /** Session teardown: the full remaining history is being
@@ -411,7 +423,7 @@ XDEF_ENUM(xAgentL1PreserveReason){
 /**
  * @brief L1 memory-preservation callback, fired when the session
  *        is about to discard history entries (due to a budget
- *        policy like TruncateOldest or SummarizeOldest compact).
+ *        policy like TruncateTail or SummarizeOldest compact).
  *
  * The callback receives a read-only slice of the entries that are
  * about to be removed from the session's rolling history. The
@@ -459,27 +471,33 @@ typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession              sess,
  *   3. tool_use / tool_result pairs are trimmed atomically — a
  *      surviving tool_use always has its matching tool_result and
  *      vice versa;
- *   4. at least the last @ref xAgentBudgetConf::keep_recent_turns
- *      user turns (with their assistant replies and tool chatter)
- *      are kept.
+ *   4. at least @ref xAgentBudgetConf::keep_recent_turns User turns
+ *      from the front (oldest) are kept intact as a cache-stable
+ *      prefix; newer tail entries are truncated first.
  *
  * Zero (@ref xAgentBudgetPolicy_Disabled) means "do nothing", which
  * matches existing sessions byte-for-byte and is the default for
  * calloc'd configs.
  *
- * @see docs/todo/xai_architecture.md and libs/xai/TODO.md §6
- *      for the rollout plan; alpha ships with Disabled / Error /
- *      TruncateOldest only. Callback and SummarizeOldest slots are
- *      wired into the enum early so that adding them later is not
- *      an ABI break.
+ * The recommended default is @ref xAgentBudgetPolicy_SummarizeOldest,
+ * which applies the full pipeline: retroactive tool_result trimming
+ * → SummarizeOldest (compress old history) → degrade to TruncateTail
+ * on failure. @ref xAgentBudgetPolicy_TruncateOldest is a lighter
+ * alternative that skips summarisation (no extra LLM call) but loses
+ * more information.
  */
 XDEF_ENUM(xAgentBudgetPolicy){
   xAgentBudgetPolicy_Disabled        = 0, /**< No budget check runs      */
   xAgentBudgetPolicy_Error           = 1, /**< Fail with PromptTooLong   */
-  xAgentBudgetPolicy_TruncateOldest  = 2, /**< Drop oldest non-pinned    */
+  xAgentBudgetPolicy_TruncateOldest  = 2, /**< Trim tool_results, then
+                                              drop tail entries. No
+                                              summarisation (lightweight,
+                                              but loses information)    */
   xAgentBudgetPolicy_Callback        = 3, /**< Reserved: caller-supplied */
-  xAgentBudgetPolicy_SummarizeOldest = 4, /**< Compress old history     */
-  xAgentBudgetPolicy_Auto             = 5, /**< Auto: dynamic policy picker */
+  xAgentBudgetPolicy_SummarizeOldest = 4, /**< Recommended: trim tool_results,
+                                              then summarise old history.
+                                              Degrades to TruncateOldest
+                                              if summary fails          */
 };
 
 /**
@@ -491,7 +509,7 @@ XDEF_ENUM(xAgentBudgetPolicy){
  *   - distinguish xErrno_Busy caused by an in-flight compact from
  *     Busy caused by a normal user Query still running;
  *   - learn when a compact finishes so it can retry the input;
- *   - learn when TruncateOldest silently drops history so it can
+ *   - learn when TruncateTail silently drops history so it can
  *     update UI or log the event.
  *
  * All events are informational — ignoring them does not change the
@@ -512,10 +530,19 @@ XDEF_ENUM(xAgentBudgetEvent){
    *  is now idle and the caller can retry xAgentSessionInput. */
   xAgentBudgetEvent_CompactDone = 1,
 
-  /** TruncateOldest: history entries were silently dropped to fit
-   *  the budget. @p info carries a xAgentBudgetTruncateInfo with the
-   *  count of entries removed. */
+  /** TruncateTail: tail-end history entries were silently dropped to
+   *  fit the budget, preserving the prefix for prompt caching.
+   *  @p info carries a xAgentBudgetTruncateInfo with the count of
+   *  entries removed. */
   xAgentBudgetEvent_Truncated   = 2,
+
+  /** ToolResultsTrimmed: consumed tool_result outputs were shrunk
+   *  in-place (retroactive trimming) to free token budget without
+   *  dropping entire turns. @p info carries a
+   *  xAgentBudgetToolResultsTrimmedInfo with the count of entries
+   *  trimmed and approximate bytes freed. Fires before TruncateTail
+   *  in the budget enforcement pipeline. */
+  xAgentBudgetEvent_ToolResultsTrimmed = 4,
 
   /** GatePassed: the budget gate allowed the incoming message
    *  through — history + incoming fit within the limit. @p info
@@ -540,7 +567,7 @@ XDEF_STRUCT(xAgentBudgetCompactInfo) {
  */
 XDEF_STRUCT(xAgentBudgetCompactDoneInfo) {
   /** Non-zero if the compact produced a usable summary; zero if
-   *  it degraded to TruncateOldest instead (empty summary, OOM,
+   *  it degraded to TruncateTail instead (empty summary, OOM,
    *  or provider error). When zero the caller should assume old
    *  history was truncated, not summarised. */
   int summary_ok;
@@ -562,6 +589,18 @@ XDEF_STRUCT(xAgentBudgetTruncateInfo) {
 };
 
 /**
+ * @brief Extra detail passed with xAgentBudgetEvent_ToolResultsTrimmed.
+ */
+XDEF_STRUCT(xAgentBudgetToolResultsTrimmedInfo) {
+  /** Number of tool_result entries whose output was shrunk in-place. */
+  size_t entries_trimmed;
+
+  /** Approximate bytes freed by trimming (sum of original output sizes
+   *  minus the trimmed marker sizes). */
+  size_t bytes_freed;
+};
+
+/**
  * @brief Extra detail passed with xAgentBudgetEvent_GatePassed.
  */
 XDEF_STRUCT(xAgentBudgetGateInfo) {
@@ -569,30 +608,23 @@ XDEF_STRUCT(xAgentBudgetGateInfo) {
    *  built-in default). */
   size_t limit;
 
-  /** Estimated token count of history + the incoming message that
-   *  just cleared the gate (calibrated by the EWMA factor). */
+  /** Token count used for the gate decision. This is either:
+   *   - The provider-reported prompt_tokens from the last completed
+   *     run (known_prompt_tokens) + estimated delta for new entries,
+   *     when a provider report is available; or
+   *   - The coarse estimate (bytes/4 + envelope) of the full
+   *     history + incoming message when no provider report exists
+   *     yet (cold start or post-trim invalidation). */
   size_t estimated;
 
   /** Remaining budget: limit - estimated. */
   size_t remaining;
 
-  /** The EWMA-smoothed calibration factor applied to the rough
-   *  (bytes/4) token estimate. Starts at 1.0 and drifts toward
-   *  (actual_prompt_tokens / estimated_prompt_tokens) as the
-   *  session observes provider-reported usage. */
-  double calibrator_factor;
-
-  /** Saturating count of accepted calibration observations.
-   *  Multi-round tool runs and rounds without a usage block
-   *  don't contribute. */
-  size_t calibrator_samples;
-
   /** The provider-reported prompt_tokens from the FIRST round of
-   *  the PREVIOUS run, or -1 if not available. This maps directly
-   *  to the gate's pre-submit estimate because the gate only runs
-   *  before the first round. Useful for displaying "estimated vs
-   *  actual" without the inflation that later tool-loop rounds
-   *  would introduce. */
+   *  the PREVIOUS run, or -1 if not available. This is the precise
+   *  baseline used for incremental bookkeeping. Useful for callers
+   *  to display "actual tokens used" without the inflation that
+   *  later tool-loop rounds would introduce. */
   int last_first_round_prompt_tokens;
 };
 
@@ -600,10 +632,11 @@ XDEF_STRUCT(xAgentBudgetGateInfo) {
  * @brief Callback invoked when a budget-policy lifecycle event fires.
  *
  * @p info is event-specific; its concrete type depends on @p event:
- *   - Compacting  → xAgentBudgetCompactInfo
- *   - CompactDone → xAgentBudgetCompactDoneInfo
- *   - Truncated   → xAgentBudgetTruncateInfo
- *   - GatePassed  → xAgentBudgetGateInfo
+ *   - Compacting          → xAgentBudgetCompactInfo
+ *   - CompactDone         → xAgentBudgetCompactDoneInfo
+ *   - Truncated           → xAgentBudgetTruncateInfo
+ *   - ToolResultsTrimmed  → xAgentBudgetToolResultsTrimmedInfo
+ *   - GatePassed          → xAgentBudgetGateInfo
  *
  * @p info may be NULL if the implementation cannot provide detail
  * (e.g. OOM while building the struct). The caller must check.
@@ -628,10 +661,11 @@ typedef void (*xAgentBudgetEventFunc)(xAgentSession      sess,
  * need not change a single line.
  *
  * The budget is expressed in **approximate tokens**, not bytes.
- * The session's internal estimator is deliberately coarse
- * (bytes/4 baseline, ex-post calibrated against provider-reported
- * xAgentUsage once a run reports one) and is never exposed here —
- * callers who care about precision should over-provision by ~10%.
+ * The session uses incremental bookkeeping: provider-reported
+ * prompt_tokens serve as the precise baseline, and only the delta
+ * (new entries since the last provider report) is estimated with
+ * the coarse bytes/4 heuristic. This gives much higher accuracy
+ * than re-estimating the full history every turn.
  */
 XDEF_STRUCT(xAgentBudgetConf) {
   /**
@@ -654,19 +688,72 @@ XDEF_STRUCT(xAgentBudgetConf) {
   size_t max_tokens;
 
   /**
-   * @brief Minimum number of recent user turns to keep intact,
-   *        regardless of how much token pressure the trimmer is
-   *        under.
+   * @brief Minimum number of prefix User turns to keep intact when
+   *        TruncateTail fires, ensuring the prompt prefix remains
+   *        stable for provider-side prompt caching.
    *
-   * A "user turn" here means one xAgentRole_User message plus every
+   * A "User turn" here means one xAgentRole_User message plus every
    * assistant / tool entry that followed before the next user
-   * message. Zero means "no minimum" — use with care, since a
-   * pathological budget could otherwise leave the model with only
-   * the current input and no conversational context. The session
-   * may clamp very high values downward if honouring them would
-   *     itself violate @ref max_tokens.
+   * message. When the budget is exceeded, entries beyond this
+   * prefix boundary (newer turns closer to the tail) are truncated
+   * first, preserving the oldest turns as a cache-stable prefix.
+   *
+   * Zero means "keep only the first User turn group as prefix". The
+   * session may clamp very high values downward if honouring them
+   * would itself violate @ref max_tokens.
+   *
+   * Note: this field was previously named "keep_recent_turns" and
+   * its semantics were inverted — it used to protect the NEWEST
+   * turns from head-truncation. The name is retained for ABI
+   * compatibility but the direction has changed: the protected
+   * region is now the OLDEST (prefix) turns, not the newest.
    */
   size_t keep_recent_turns;
+
+  /**
+   * @brief Maximum number of bytes for a single tool_result output
+   *        before it is truncated in-place.
+   *
+   * When a tool_result entry exceeds this threshold, its output is
+   * truncated and a "[truncated: showing N/M bytes]" marker is
+   * appended. This prevents a single large tool output (e.g. shell
+   * command producing kilobytes of output) from consuming the entire
+   * context budget and forcing a full-turn truncation.
+   *
+   * Zero means "use the built-in default" (8 KiB). Set to
+   * SIZE_MAX to disable truncation entirely.
+   */
+  size_t max_tool_result_bytes;
+
+  /**
+   * @brief Context-usage fraction that triggers retroactive trimming
+   *        of "consumed" tool_result entries (0.0–1.0, stored as
+   *        percentage × 100 to avoid floating point in the struct).
+   *
+   * When the estimated context usage exceeds
+   *   max_tokens × trim_tool_results_threshold / 10000,
+   * the session scans history from tail to head and truncates
+   * tool_result outputs that have already been "consumed" by the
+   * model (i.e. there is a subsequent Assistant entry after the
+   * tool_result). The output is reduced to a short summary marker
+   * like "[result trimmed: was N bytes]".
+   *
+   * This is a lighter-weight alternative to TruncateTail: it frees
+   * token budget by shrinking large tool outputs without removing
+   * entire turns or breaking the conversation flow. The prompt prefix
+   * stays intact, so provider-side prompt caching remains effective.
+   *
+   * Values:
+   *   - 0 (default): disabled — no retroactive trimming.
+   *   - 7000: trim when usage ≥ 70% of max_tokens.
+   *   - 10000: trim only when usage ≥ 100% (effectively off unless
+   *     over budget).
+   *
+   * Retroactive trimming runs BEFORE TruncateTail in the budget
+   * enforcement pipeline. If trimming alone frees enough space,
+   * TruncateTail is not invoked.
+   */
+  unsigned trim_tool_results_threshold;
 
   /**
    * @brief Optional callback for budget-policy lifecycle events.
@@ -757,7 +844,7 @@ XDEF_STRUCT(xAgentSessionConf) {
    *        @ref l1_preserve_owner.
    *
    * Fires when the session is about to discard history entries
-   * (TruncateOldest / SummarizeOldest compact), and once at
+   * (TruncateTail / SummarizeOldest compact), and once at
    * teardown with the full remaining history. The Agent layer
    * uses this to capture the complete conversation before any
    * information is lost. Leave NULL if not used.

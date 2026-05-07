@@ -50,6 +50,7 @@
 .env
 build
 build-*
+build_*
 cmake-build-*
 book
 tmp

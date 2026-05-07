@@ -181,18 +181,13 @@ void on_done(xAgentSession sess, xAgentDoneReason reason,
    * of every round (before the Query is submitted). Displaying
    * remaining/limit gives the user a real-time view of how much
    * context headroom is left before the budget gate would trigger
-   * TruncateOldest or SummarizeOldest. A remaining of 0 means
-   * the very next input is likely to hit the cap.
-   * calibrator_factor is the EWMA-smoothed multiplier that
-   * bytes/4 gets scaled by; it starts at 1.0 and drifts toward
-   * (actual_prompt_tokens / estimated_prompt_tokens). samples
-   * is the count of accepted observations. est is the calibrated
+   * TruncateTail or SummarizeOldest. A remaining of 0 means
+   * the very next input is likely to hit the cap. est is the
    * pre-submit estimate for this round. */
   if (ctx->budget_limit > 0) {
     off += std::snprintf(line_buf + off, sizeof(line_buf) - off,
-                         " budget=%zu/%zu %.3fx samples=%zu est=%zu",
+                         " budget=%zu/%zu est=%zu",
                          ctx->budget_remaining, ctx->budget_limit,
-                         ctx->budget_factor, ctx->budget_samples,
                          ctx->budget_estimated);
     if (ctx->last_actual_prompt >= 0) {
       off += std::snprintf(line_buf + off, sizeof(line_buf) - off, " actual=%d",
@@ -301,13 +296,19 @@ void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
                  ti ? ti->entries_removed : (size_t)0);
     break;
   }
+  case xAgentBudgetEvent_ToolResultsTrimmed: {
+    auto *ti = static_cast<const xAgentBudgetToolResultsTrimmedInfo *>(info);
+    above_printf(ctx->line,
+                 "\x1b[2m[budget] trimmed %zu tool results (~%zu bytes)\x1b[0m",
+                 ti ? ti->entries_trimmed : (size_t)0,
+                 ti ? ti->bytes_freed : (size_t)0);
+    break;
+  }
   case xAgentBudgetEvent_GatePassed: {
     auto *gi = static_cast<const xAgentBudgetGateInfo *>(info);
     if (gi) {
       ctx->budget_limit       = gi->limit;
       ctx->budget_remaining   = gi->remaining;
-      ctx->budget_factor      = gi->calibrator_factor;
-      ctx->budget_samples     = gi->calibrator_samples;
       ctx->budget_estimated   = gi->estimated;
       ctx->last_actual_prompt = gi->last_first_round_prompt_tokens;
       above_printf(ctx->line,

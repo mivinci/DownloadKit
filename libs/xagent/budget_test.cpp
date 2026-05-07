@@ -8,9 +8,6 @@
  * These functions are pure: no allocations, no state, no IO. Tests
  * construct small xAgentSessionMsg_ fixtures on the stack, feed them
  * through the helpers, and assert on the numeric return values.
- * Nothing in budget.c has been wired into the session lifecycle
- * yet — c3 does that — so these tests are the only coverage for
- * c2 and MUST exercise every branch.
  */
 
 #include <gtest/gtest.h>
@@ -296,148 +293,95 @@ TEST(XaiBudgetEarliestKeep, BoundaryIsAlwaysAUserRoleIndex) {
   }
 }
 
-/* ── Calibrated estimator & calibrator state machine (c4) ──────── */
+/* ── ai_budget_tail_keep ─────────────────────────────────────────── */
 
-TEST(XaiBudgetCalibratedEstimate, FactorOneIsIdentity) {
-  /* factor = 1.0 must be a bit-identical passthrough to the raw
-   * estimator; this anchors the backward-compatibility promise for
-   * freshly created sessions (which ship with factor = 1.0). */
+TEST(XaiBudgetTailKeep, EmptyHistory) {
+  EXPECT_EQ(ai_budget_tail_keep(nullptr, 0, 0), 0u);
+  EXPECT_EQ(ai_budget_tail_keep(nullptr, 0, 5), 0u);
+}
+
+TEST(XaiBudgetTailKeep, NoUserTurnsKeepsAll) {
+  /* No User entries → nothing anchors a boundary → keep everything. */
   xAgentSessionMsg_ seq[] = {
-    MakeText(xAgentRole_User, "hello world"),
-    MakeText(xAgentRole_Assistant, "hi there"),
+    MakeText(xAgentRole_Assistant, "orphan"),
   };
-  size_t raw = ai_budget_estimate_tokens(seq, 2);
-  size_t cal = ai_budget_estimate_tokens_calibrated(seq, 2, 1.0);
-  EXPECT_EQ(raw, cal);
+  EXPECT_EQ(ai_budget_tail_keep(seq, 1, 0), 1u);
+  EXPECT_EQ(ai_budget_tail_keep(seq, 1, 3), 1u);
 }
 
-TEST(XaiBudgetCalibratedEstimate, EmptyInputIsAlwaysZero) {
-  /* Both the raw and calibrated estimators must short-circuit on
-   * empty input regardless of factor. A nonzero factor would
-   * otherwise amplify a nonexistent envelope tax. */
-  EXPECT_EQ(ai_budget_estimate_tokens_calibrated(nullptr, 0, 1.0), 0u);
-  EXPECT_EQ(ai_budget_estimate_tokens_calibrated(nullptr, 0, 2.0), 0u);
-  xAgentSessionMsg_ dummy{};
-  EXPECT_EQ(ai_budget_estimate_tokens_calibrated(&dummy, 0, 0.5), 0u);
+TEST(XaiBudgetTailKeep, KeepZeroKeepsOnlyFirstUserTurnGroup) {
+  /* keep_prefix_turns == 0: keep only the first User turn group.
+   * The boundary is the start of the 2nd User entry. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "q1"),      /* 0 */
+    MakeText(xAgentRole_Assistant, "a1"), /* 1 */
+    MakeText(xAgentRole_User, "q2"),      /* 2 ← boundary */
+    MakeText(xAgentRole_Assistant, "a2"), /* 3 */
+    MakeText(xAgentRole_User, "q3"),      /* 4 */
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 5, 0), 2u);
 }
 
-TEST(XaiBudgetCalibratedEstimate, FactorScalesAndRounds) {
-  /* Pick a payload whose raw estimate is large enough that 1.5x
-   * and 0.5x produce distinct integer answers:
-   *   400 bytes → 400/4 = 100 payload tokens
-   *              + 1 * XAGENT_BUDGET_PER_MSG_TOKENS (8) = 108 raw.
-   *   108 * 1.5 = 162.0 → 162.
-   *   108 * 0.5 =  54.0 →  54. */
-  std::string big(400, 'x');
-  xAgentSessionMsg_ seq[] = {MakeText(xAgentRole_User, big.c_str())};
-  size_t raw = ai_budget_estimate_tokens(seq, 1);
-  ASSERT_EQ(raw, 108u);
-  EXPECT_EQ(ai_budget_estimate_tokens_calibrated(seq, 1, 1.5), 162u);
-  EXPECT_EQ(ai_budget_estimate_tokens_calibrated(seq, 1, 0.5),  54u);
+TEST(XaiBudgetTailKeep, FloorExceedsHistoryKeepsAll) {
+  /* 2 user turns total, caller demands a floor of 5 → keep all. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "q1"),
+    MakeText(xAgentRole_Assistant, "a1"),
+    MakeText(xAgentRole_User, "q2"),
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 3, 5), 3u);
 }
 
-TEST(XaiBudgetCalibrator, InitStartsAtIdentity) {
-  xAgentBudgetCalibrator c{};
-  ai_budget_calibrator_init(&c);
-  EXPECT_DOUBLE_EQ(c.factor, 1.0);
-  EXPECT_EQ(c.samples, 0u);
+TEST(XaiBudgetTailKeep, FloorEqualsTotalKeepsAll) {
+  /* Exactly at the floor: keep everything. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "q1"),
+    MakeText(xAgentRole_User, "q2"),
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 2, 2), 2u);
 }
 
-TEST(XaiBudgetCalibrator, NullIsTolerated) {
-  /* Defensive: init(NULL) and update(NULL, ...) must not crash.
-   * Keeps callers honest without forcing guards at every site. */
-  ai_budget_calibrator_init(nullptr);
-  ai_budget_calibrator_update(nullptr, 100, 90);
-  SUCCEED();
+TEST(XaiBudgetTailKeep, KeepsFirstTwoTurnsWithToolChatter) {
+  /* Five user turns. keep_prefix_turns = 2 → keep the first 2 User
+   * turn groups. The boundary is the start of the 3rd User entry. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "u1"),      /* 0 */
+    MakeText(xAgentRole_Assistant, "a1"), /* 1 */
+    MakeText(xAgentRole_User, "u2"),      /* 2 */
+    MakeToolUse("i2", "calc", "{}"),   /* 3 */
+    MakeToolResult("i2", "4", 0),      /* 4 */
+    MakeText(xAgentRole_Assistant, "a2"), /* 5 */
+    MakeText(xAgentRole_User, "u3"),      /* 6 ← boundary */
+    MakeText(xAgentRole_Assistant, "a3"), /* 7 */
+    MakeText(xAgentRole_User, "u4"),      /* 8 */
+    MakeText(xAgentRole_Assistant, "a4"), /* 9 */
+    MakeText(xAgentRole_User, "u5"),      /* 10 */
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 11, 2), 6u);
 }
 
-TEST(XaiBudgetCalibrator, ZeroEstimatedIsIgnored) {
-  /* Dividing by zero would poison the factor. Verify the guard
-   * keeps state untouched and does NOT count this as a sample. */
-  xAgentBudgetCalibrator c{};
-  ai_budget_calibrator_init(&c);
-  ai_budget_calibrator_update(&c, 0, 100);
-  EXPECT_DOUBLE_EQ(c.factor, 1.0);
-  EXPECT_EQ(c.samples, 0u);
+TEST(XaiBudgetTailKeep, BoundaryLandsOnUserRole) {
+  /* The boundary index must always be a User-role entry (or n). */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "u1"),      MakeToolUse("a", "t", "{}"),
+    MakeToolResult("a", "r", 0),       MakeText(xAgentRole_User, "u2"),
+    MakeText(xAgentRole_Assistant, "a2"), MakeText(xAgentRole_User, "u3"),
+  };
+  const size_t n = sizeof(seq) / sizeof(seq[0]);
+
+  /* keep_prefix_turns = 1 → keep first turn group (u1 + tool chatter).
+   * Boundary = start of 2nd User entry (u2 at index 3). */
+  size_t idx = ai_budget_tail_keep(seq, n, 1);
+  EXPECT_EQ(idx, 3u);
+  EXPECT_EQ(seq[idx].role, xAgentRole_User);
 }
 
-TEST(XaiBudgetCalibrator, UnknownActualIsIgnored) {
-  /* xAgentUsage uses -1 as the "unknown" sentinel. The calibrator
-   * must reject any non-positive actual value without touching
-   * state. Tests -1, 0 and a large negative to be thorough. */
-  xAgentBudgetCalibrator c{};
-  ai_budget_calibrator_init(&c);
-  for (int bad : {-1, 0, -9999}) {
-    ai_budget_calibrator_update(&c, 100, bad);
-    EXPECT_DOUBLE_EQ(c.factor, 1.0) << "bad=" << bad;
-    EXPECT_EQ(c.samples, 0u) << "bad=" << bad;
-  }
-}
-
-TEST(XaiBudgetCalibrator, SingleObservationMovesFactorByAlpha) {
-  /* One observation with observed = 2.0 should move the factor
-   * exactly ALPHA of the way there:
-   *   next = (1 - ALPHA) * 1.0 + ALPHA * 2.0 = 1 + ALPHA.
-   * With ALPHA = 0.25 the expected factor is 1.25, still inside
-   * the clamp range so no clamp engages. */
-  xAgentBudgetCalibrator c{};
-  ai_budget_calibrator_init(&c);
-  ai_budget_calibrator_update(&c, 100, 200); /* observed = 2.0 */
-  EXPECT_NEAR(c.factor, 1.0 + XAGENT_BUDGET_CALIBRATION_ALPHA, 1e-9);
-  EXPECT_EQ(c.samples, 1u);
-}
-
-TEST(XaiBudgetCalibrator, RepeatedObservationsConverge) {
-  /* Feed a constant observed = 1.5 many times. The factor should
-   * converge monotonically toward 1.5 (still inside the clamp).
-   * After N steps: factor_N = 1.5 - (1 - ALPHA)^N * (1.5 - 1.0).
-   * After 10 steps with ALPHA = 0.25 that is ~1.4437; after 20
-   * it is ~1.4968. We assert the endpoint is within 0.01 of 1.5. */
-  xAgentBudgetCalibrator c{};
-  ai_budget_calibrator_init(&c);
-  for (int i = 0; i < 30; i++) {
-    ai_budget_calibrator_update(&c, 100, 150);
-  }
-  EXPECT_NEAR(c.factor, 1.5, 0.01);
-  EXPECT_EQ(c.samples, 30u);
-}
-
-TEST(XaiBudgetCalibrator, ClampsAtUpperBound) {
-  /* Hammer the calibrator with massive observed ratios (10x) and
-   * verify it never exceeds MAX_FACTOR. Chooses a value that
-   * would converge to 10.0 without the clamp; with it the factor
-   * saturates at the configured ceiling. */
-  xAgentBudgetCalibrator c{};
-  ai_budget_calibrator_init(&c);
-  for (int i = 0; i < 50; i++) {
-    ai_budget_calibrator_update(&c, 100, 1000);
-  }
-  EXPECT_DOUBLE_EQ(c.factor, XAGENT_BUDGET_CALIBRATION_MAX_FACTOR);
-}
-
-TEST(XaiBudgetCalibrator, ClampsAtLowerBound) {
-  /* Symmetric: observed = 0.1 would drive the factor toward 0.1
-   * without the clamp. Verify it bottoms out at MIN_FACTOR. */
-  xAgentBudgetCalibrator c{};
-  ai_budget_calibrator_init(&c);
-  for (int i = 0; i < 50; i++) {
-    ai_budget_calibrator_update(&c, 100, 10);
-  }
-  EXPECT_DOUBLE_EQ(c.factor, XAGENT_BUDGET_CALIBRATION_MIN_FACTOR);
-}
-
-TEST(XaiBudgetCalibrator, ReinitResetsState) {
-  /* Safety: re-running init on a populated calibrator must fully
-   * reset both factor and sample count. Tests the "discards prior
-   * state" clause in the header doc. */
-  xAgentBudgetCalibrator c{};
-  ai_budget_calibrator_init(&c);
-  ai_budget_calibrator_update(&c, 100, 200);
-  ai_budget_calibrator_update(&c, 100, 200);
-  EXPECT_GT(c.factor, 1.0);
-  EXPECT_GT(c.samples, 0u);
-
-  ai_budget_calibrator_init(&c);
-  EXPECT_DOUBLE_EQ(c.factor, 1.0);
-  EXPECT_EQ(c.samples, 0u);
+TEST(XaiBudgetTailKeep, SingleUserTurnKeepsAll) {
+  /* Only one User entry → no room to trim. */
+  xAgentSessionMsg_ seq[] = {
+    MakeText(xAgentRole_User, "q1"),
+    MakeText(xAgentRole_Assistant, "a1"),
+  };
+  EXPECT_EQ(ai_budget_tail_keep(seq, 2, 1), 2u);
+  EXPECT_EQ(ai_budget_tail_keep(seq, 2, 0), 2u); /* only 1 group */
 }

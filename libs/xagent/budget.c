@@ -138,64 +138,78 @@ size_t ai_budget_earliest_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
 }
 
 /* ─────────────────────────────────────────────────────────────────
- * ai_budget_estimate_tokens_calibrated
+ * ai_budget_tail_keep
  *
- * Thin adapter over the raw estimator: compute once, multiply,
- * round to nearest. Callers that need the uncalibrated answer go
- * through ai_budget_estimate_tokens() directly; we do not publish
- * a "pass 1.0 to this" convenience because the clarity of the
- * function name at the call site is worth more than saving a
- * branch.
+ * Cache-friendly truncation boundary: instead of removing the oldest
+ * entries (which changes the prompt prefix and invalidates prompt
+ * caching), we compute how far from the HEAD we must keep to satisfy
+ * the keep_prefix_turns floor. Everything beyond that boundary may
+ * be dropped from the tail.
  *
- * Rounding: +0.5 before truncation. For the clamp range this is
- * well-behaved — raw * 2.0 on a size_t that fits in a history of
- * reasonable size cannot overflow IEEE-754 double precision.
+ * High-level shape:
+ *
+ *   1. Count total User-role entries in the slice (call it @c U).
+ *   2. If U == 0, nothing anchors a boundary → return n (keep all).
+ *   3. If U <= keep_prefix_turns, we need to keep everything to
+ *      honour the floor → return n.
+ *   4. Otherwise find the END of the keep_prefix_turns-th User turn
+ *      group. The index just past that group is the boundary;
+ *      entries beyond it (newer turns) may be dropped.
+ *
+ * "End of the keep_prefix_turns-th User turn group" means the index
+ * of the (keep_prefix_turns)-th User entry plus all its trailing
+ * Assistant/Tool entries. Concretely: we find the
+ * (keep_prefix_turns)-th User entry, then find the NEXT User entry
+ * after it; the boundary is the next User entry's index (or n if
+ * there is no next User entry).
+ *
+ * Correctness for tool_use/tool_result pairing: the boundary always
+ * lands on a User-role entry (or n), so no tool pair is split.
  * ──────────────────────────────────────────────────────────────── */
-size_t ai_budget_estimate_tokens_calibrated(const struct xAgentSessionMsg_ *msgs,
-                                            size_t n, double factor) {
-  size_t raw = ai_budget_estimate_tokens(msgs, n);
-  if (raw == 0) return 0;
-  double adjusted = (double)raw * factor + 0.5;
-  /* Safety net: a pathologically negative factor would go to 0
-   * after truncation. We document the input range in the header
-   * but still want a defined answer if a caller violates it. */
-  if (adjusted < 0.0) return 0;
-  return (size_t)adjusted;
-}
+size_t ai_budget_tail_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
+                           size_t keep_prefix_turns) {
+  if (!msgs || n == 0) return n;
 
-/* ─────────────────────────────────────────────────────────────────
- * ai_budget_calibrator_init / _update
- *
- * Tiny stateful pair — the only piece of non-pure code in this
- * translation unit. Kept here rather than in session.c so the full
- * arithmetic (EWMA step + clamp + opt-out rules) is co-located
- * with its tests in budget_test.cpp and with the constants it
- * references from budget_private.h.
- * ──────────────────────────────────────────────────────────────── */
-void ai_budget_calibrator_init(xAgentBudgetCalibrator *c) {
-  if (!c) return;
-  c->factor  = 1.0;
-  c->samples = 0;
-}
-
-void ai_budget_calibrator_update(xAgentBudgetCalibrator *c, size_t estimated,
-                                 int actual) {
-  if (!c) return;
-  if (estimated == 0) return; /* would divide by zero */
-  if (actual <= 0)    return; /* provider signalled "unknown" */
-
-  double observed = (double)actual / (double)estimated;
-  double next     = (1.0 - XAGENT_BUDGET_CALIBRATION_ALPHA) * c->factor +
-                    XAGENT_BUDGET_CALIBRATION_ALPHA * observed;
-
-  if (next < XAGENT_BUDGET_CALIBRATION_MIN_FACTOR) {
-    next = XAGENT_BUDGET_CALIBRATION_MIN_FACTOR;
-  } else if (next > XAGENT_BUDGET_CALIBRATION_MAX_FACTOR) {
-    next = XAGENT_BUDGET_CALIBRATION_MAX_FACTOR;
+  /* Count user turns in one pass. */
+  size_t user_count = 0;
+  for (size_t i = 0; i < n; ++i) {
+    if (msgs[i].role == xAgentRole_User) ++user_count;
   }
-  c->factor = next;
 
-  if (c->samples != (size_t)-1) c->samples++;
+  if (user_count == 0) return n;
+
+  /* Not enough history to honour the floor: keep everything. */
+  if (user_count <= keep_prefix_turns) return n;
+
+  /* Special-case keep_prefix_turns == 0: keep only the first user
+   * turn group. The boundary is the start of the 2nd User entry. */
+  if (keep_prefix_turns == 0) {
+    /* Find the first User entry, then the second User entry. */
+    size_t first = ai_budget_find_nth_user_turn(msgs, n, 0);
+    if (first == XAGENT_BUDGET_NO_SUCH_TURN) return n;
+    /* Scan forward from first+1 to find the next User entry. */
+    for (size_t i = first + 1; i < n; ++i) {
+      if (msgs[i].role == xAgentRole_User) return i;
+    }
+    /* No second User entry — the first turn group extends to end. */
+    return n;
+  }
+
+  /* Find the (keep_prefix_turns)-th User entry (0-indexed). This is
+   * the last User entry we must keep. Everything after its turn group
+   * may be dropped. */
+  size_t last_keep = ai_budget_find_nth_user_turn(msgs, n,
+                                                   keep_prefix_turns - 1);
+  if (last_keep == XAGENT_BUDGET_NO_SUCH_TURN) return n;
+
+  /* Find the next User entry after last_keep — that's the boundary. */
+  for (size_t i = last_keep + 1; i < n; ++i) {
+    if (msgs[i].role == xAgentRole_User) return i;
+  }
+
+  /* No more User entries after last_keep: the turn group extends to
+   * the end of history — nothing can be dropped. */
+  return n;
 }
 
 /* ─────────────────────────────────────────────────────────────────

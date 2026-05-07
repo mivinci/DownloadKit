@@ -24,22 +24,21 @@
  *     creating a Query, xAgentSessionInput runs the incoming msg +
  *     current history through the budget estimator (budget.c) and
  *     dispatches on xAgentBudgetConf::policy. Error refuses with
- *     xErrno_PromptTooLong; TruncateOldest drops history entries
- *     at the earliest-keep boundary and, if that still does not
- *     fit, refuses. Disabled (the default) is a single-branch
- *     short-circuit and leaves behaviour byte-identical to
- *     pre-budget releases. Callback / SummarizeOldest policies
- *     are accepted by the parser but behave like Error until
- *     c4+ wires the real implementations.
- *   - Token-estimate calibration: each Session carries a tiny
- *     EWMA calibrator (budget_calibrator, budget_private.h) that
- *     corrects the static bytes/4 + envelope estimator against
- *     provider-reported xAgentUsage.prompt_tokens. The gate consults
- *     the calibrated estimate; the on_done forwarder folds in one
- *     observation per clean (single-round, text-only) run. Runs
- *     with tool rounds are intentionally skipped because Query
- *     usage is accumulated across rounds and cannot be mapped
- *     back to a single-submit prompt size.
+ *     xErrno_PromptTooLong; TruncateTail (formerly TruncateOldest)
+ *     drops history entries from the tail end (cache-friendly
+ *     direction that preserves the prompt prefix for provider-side
+ *     prompt caching), and, if that still does not fit, refuses.
+ *     Disabled (the default) is a single-branch short-circuit and
+ *     leaves behaviour byte-identical to pre-budget releases.
+ *     Callback / SummarizeOldest policies are accepted by the
+ *     parser but behave like Error until c4+ wires the real
+ *     implementations.
+ *   - Incremental token bookkeeping: instead of re-estimating the
+ *     full history every turn and correcting with an EWMA
+ *     calibrator, we use provider-reported prompt_tokens as the
+ *     precise baseline and only estimate the delta (new entries
+ *     since the last provider report). This gives much higher
+ *     accuracy with simpler code.
  *
  * The provider / tool loop itself lives in query.c; the Session
  * installs a static set of forwarding callbacks that re-dispatch
@@ -203,7 +202,31 @@ xErrno ai_history_append_tool_result(struct xAgentSession_ *s, const char *id,
   slot->role           = xAgentRole_Tool;
   slot->kind           = xAgentSessionEntry_ToolResult;
   slot->tool_result_id = dup_cstr(id ? id : "");
-  if (output_len > 0) {
+
+  /* Determine the effective truncation threshold. If
+   * max_tool_result_bytes is 0 (the zero-init default), use the
+   * built-in default. SIZE_MAX means "no truncation". */
+  size_t max_bytes = s->budget.max_tool_result_bytes;
+  if (max_bytes == 0) max_bytes = XAGENT_BUDGET_DEFAULT_MAX_TOOL_RESULT_BYTES;
+
+  if (output_len > 0 && max_bytes < SIZE_MAX && output_len > max_bytes) {
+    /* Truncate the output and append a marker. */
+    static const char kTruncSuffix[] = "\n[truncated: showing %zu/%zu bytes]";
+    char   marker[128];
+    size_t marker_len = (size_t)snprintf(
+      marker, sizeof(marker), kTruncSuffix, max_bytes, output_len);
+    size_t total = max_bytes + marker_len;
+    char  *buf   = (char *)malloc(total + 1);
+    if (!buf) {
+      xArrayPop(s->history_arr);
+      return xErrno_NoMemory;
+    }
+    memcpy(buf, output, max_bytes);
+    memcpy(buf + max_bytes, marker, marker_len);
+    buf[total] = '\0';
+    slot->tool_result_output     = buf;
+    slot->tool_result_output_len = total;
+  } else if (output_len > 0) {
     slot->tool_result_output     = dup_bytes(output, output_len);
     slot->tool_result_output_len = output_len;
   } else if (output) {
@@ -270,7 +293,7 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  * Gate xAgentSessionInput runs on the structured xAgentBudgetConf policy.
  * The pipeline runs BEFORE the user message is committed to
  * history, so the Error policy can refuse the turn without leaving
- * history polluted, and the TruncateOldest policy can shape history
+ * history polluted, and the TruncateTail policy can shape history
  * first and then let the normal append path execute on an already-
  * conforming base.
  *
@@ -282,8 +305,9 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  *     ├─ budget.policy == Error      → estimate; if over, return
  *     │                                xErrno_PromptTooLong
  *     ├─ budget.policy == Truncate   → estimate; if over, trim
- *     │                                history front to the
- *     │                                earliest-keep boundary. If
+ *     │                                history from the TAIL end
+ *     │                                (cache-friendly: preserves
+ *     │                                the prompt prefix). If
  *     │                                still over afterwards fall
  *     │                                through to Error (refuse).
  *     └─ Callback / SummarizeOldest  → reserved; treated like Error
@@ -293,6 +317,21 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  * per-entry envelope constant — and is intentionally conservative
  * so a slightly-overestimate still errs on the side of "refuse /
  * trim a bit more" rather than busting the real provider window.
+ *
+ * TruncateTail vs TruncateOldest:
+ *   TruncateTail removes entries from the tail (newest) end of
+ *   history, keeping the prefix (oldest entries) intact. This
+ *   preserves provider-side prompt caching: the cached prefix
+ *   bytes are unchanged, so the provider re-uses its cached
+ *   KV instead of re-processing the full prompt. The trade-off
+ *   is that we lose more recent context instead of older context.
+ *   For long-running agent conversations where the system prompt
+ *   + early context is the most valuable (and most expensive to
+ *   re-process), this trade-off is correct.
+ *
+ *   keep_recent_turns now means "keep at least N User turns from
+ *   the HEAD as prefix" — the turns that anchor the prompt prefix
+ *   for caching. Everything beyond that boundary may be truncated.
  */
 
 /* Estimate the token footprint of an incoming xAgentMessage as if it
@@ -313,12 +352,17 @@ static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
          XAGENT_BUDGET_PER_MSG_TOKENS;
 }
 
-/* Drop history entries @c [0, keep_idx) in place. Releases each
- * slot's owned strings via ai_session_msg_free() and shifts the
- * survivors down with memmove. The capacity is left untouched —
- * we expect the freed slots to be refilled by the very next
- * xAgentSessionInput run, and shrinking the backing array would just
- * churn realloc. */
+/* Drop history entries @c [0, keep_idx) in place (head-trim).
+ * Releases each slot's owned strings via ai_session_msg_free() and
+ * shifts the survivors down with memmove. The capacity is left
+ * untouched — we expect the freed slots to be refilled by the very
+ * next xAgentSessionInput run, and shrinking the backing array would
+ * just churn realloc.
+ *
+ * NOTE: Head-trimming is kept for SummarizeOldest compact completion
+ * (which replaces old entries with a summary at the front) but is no
+ * longer used by the TruncateTail policy. See
+ * session_trim_history_tail_() for the cache-friendly alternative. */
 static void session_trim_history_front_(struct xAgentSession_ *s,
                                         size_t                 keep_idx) {
   if (keep_idx == 0 || keep_idx >= xArrayLen(s->history_arr)) return;
@@ -331,6 +375,112 @@ static void session_trim_history_front_(struct xAgentSession_ *s,
     s->persisted_prefix -= keep_idx;
   else
     s->persisted_prefix = 0;
+}
+
+/* Drop history entries @c [drop_from, n) in place (tail-trim).
+ * Releases each slot's owned strings via ai_session_msg_free().
+ * Entries @c [0, drop_from) survive untouched — this is the
+ * cache-friendly truncation direction that preserves the prompt
+ * prefix for provider-side prompt caching.
+ *
+ * persisted_prefix is NOT decremented: the prefix entries survive
+ * intact, so the prefix count is unchanged. This is the key
+ * difference from head-trimming, where prefix entries are the ones
+ * being removed. */
+static void session_trim_history_tail_(struct xAgentSession_ *s,
+                                       size_t                 drop_from) {
+  size_t n = xArrayLen(s->history_arr);
+  if (drop_from >= n) return;
+  xArrayRemoveRange(s->history_arr, drop_from, n - drop_from);
+}
+
+/* ── Retroactive tool_result trimming ───────────────────────────
+ *
+ * When context usage exceeds a configured threshold, this function
+ * scans history from tail to head and truncates "consumed" tool_result
+ * outputs. A tool_result is "consumed" when the model has already
+ * seen it and generated a subsequent response — i.e. there exists
+ * an Assistant-role entry after it in history.
+ *
+ * The output is replaced with a short marker like
+ *   "[result trimmed: was 12345 bytes]"
+ * freeing token budget while keeping the tool_use/tool_result pair
+ * structurally intact (the model still knows it called the tool and
+ * got a result — it just doesn't see the full output anymore).
+ *
+ * This is lighter-weight than TruncateTail: no entire turns are
+ * removed, the conversation flow is preserved, and the prompt prefix
+ * stays untouched for caching.
+ *
+ * Returns the number of tool_result entries that were trimmed.
+ */
+static size_t session_trim_consumed_tool_results_(
+  struct xAgentSession_ *s, size_t target_tokens,
+  size_t *out_bytes_freed) {
+  size_t n          = xArrayLen(s->history_arr);
+  size_t trimmed    = 0;
+  size_t bytes_freed = 0;
+  int    has_assistant_after = 0;
+  size_t saved_estimate = 0;
+
+  /* Walk from tail to head. A tool_result is "consumed" when we've
+   * already seen an Assistant entry closer to the tail — meaning the
+   * model already processed it and generated a follow-up. */
+  for (size_t i = n; i > 0; i--) {
+    struct xAgentSessionMsg_ *e = &((struct xAgentSessionMsg_ *)
+      xArrayData(s->history_arr))[i - 1];
+
+    if (e->role == xAgentRole_Assistant) {
+      has_assistant_after = 1;
+      continue;
+    }
+
+    if (e->kind == xAgentSessionEntry_ToolResult && has_assistant_after &&
+        e->tool_result_output_len > 0) {
+      /* This tool_result has been consumed. Replace its output with
+       * a short marker. We don't need to re-check the budget on every
+       * trim — we estimate the savings and stop when we've freed
+       * enough. */
+      size_t old_bytes  = e->tool_result_output_len;
+      size_t old_tokens = (old_bytes / XAGENT_BUDGET_BYTES_PER_TOKEN) +
+                          XAGENT_BUDGET_PER_MSG_TOKENS;
+
+      static const char kTrimSuffix[] =
+        "[result trimmed: was %zu bytes]";
+      char   marker[96];
+      size_t marker_len = (size_t)snprintf(
+        marker, sizeof(marker), kTrimSuffix, old_bytes);
+
+      char *buf = (char *)malloc(marker_len + 1);
+      if (!buf) continue; /* skip on alloc failure */
+      memcpy(buf, marker, marker_len);
+      buf[marker_len] = '\0';
+
+      free(e->tool_result_output);
+      e->tool_result_output     = buf;
+      e->tool_result_output_len = marker_len;
+
+      size_t new_tokens = (marker_len / XAGENT_BUDGET_BYTES_PER_TOKEN) +
+                          XAGENT_BUDGET_PER_MSG_TOKENS;
+      saved_estimate += (old_tokens - new_tokens);
+      bytes_freed += (old_bytes - marker_len);
+      trimmed++;
+
+      /* Check if we've freed enough. We use a rough check: if the
+       * estimated savings exceed the gap between current usage and
+       * target, we can stop. */
+      if (saved_estimate >= target_tokens) break;
+    }
+  }
+
+  if (trimmed > 0) {
+    /* Invalidate known_prompt_tokens — history content changed. */
+    s->known_prompt_tokens = -1;
+    s->delta_entries       = 0;
+  }
+
+  if (out_bytes_freed) *out_bytes_freed = bytes_freed;
+  return trimmed;
 }
 
 /* Resolve the effective token ceiling for this session. A zero
@@ -346,7 +496,7 @@ static size_t session_budget_limit_(const struct xAgentSession_ *s) {
 /* Decide whether this incoming user message, combined with the
  * current history, fits in the configured budget — and if not,
  * act according to @c budget.policy. May mutate @c s->history
- * (TruncateOldest path).
+ * (TruncateTail path).
  *
  * Returns xErrno_Ok to mean "proceed: it's safe to append and run
  * a Query"; any other value short-circuits xAgentSessionInput.
@@ -356,50 +506,109 @@ static size_t session_budget_limit_(const struct xAgentSession_ *s) {
  * anyway (invariant 1), so excluding it from the budget math keeps
  * the "can I trim enough to fit?" question honest: including it
  * would make an over-large system prompt look like regular history
- * pressure and yield no-op trims. */
-/* ── Truncate oldest history and check budget ──────────────────
+ * pressure and yield no-op trims.
  *
- * Shared by the TruncateOldest case and the truncate_fallback
+ * Incremental bookkeeping: when known_prompt_tokens >= 0 we use
+ * the provider-reported value as the precise baseline and only
+ * estimate the delta (new entries since last report). When
+ * known_prompt_tokens < 0 (cold start or post-trim invalidation)
+ * we fall back to estimating the full history with the coarse
+ * bytes/4 heuristic. */
+/* ── Truncate tail-end history and check budget ────────────────
+ *
+ * Shared by the TruncateTail case and the truncate_fallback
  * degradation path (SummarizeOldest failure). Returns xErrno_Ok
  * if trimming freed enough space, xErrno_PromptTooLong otherwise.
  * Fires xAgentBudgetEvent_Truncated on success.
  */
+
+/* Compute the current estimated token count using incremental
+ * bookkeeping when available, or the coarse full-history estimate
+ * as fallback. */
+static size_t session_estimate_current_(struct xAgentSession_ *s) {
+  if (s->known_prompt_tokens >= 0 && s->delta_entries > 0) {
+    /* Incremental: precise baseline + coarse delta estimate. */
+    size_t hist_len = xArrayLen(s->history_arr);
+    size_t delta_start = hist_len > s->delta_entries
+                           ? hist_len - s->delta_entries
+                           : 0;
+    size_t delta_est = ai_budget_estimate_tokens(
+      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr) +
+        delta_start,
+      s->delta_entries);
+    return (size_t)s->known_prompt_tokens + delta_est;
+  }
+  if (s->known_prompt_tokens >= 0 && s->delta_entries == 0) {
+    /* No new entries since last provider report — the known value
+     * is still precise. */
+    return (size_t)s->known_prompt_tokens;
+  }
+  /* Cold start or post-trim invalidation: fall back to full
+   * coarse estimate. */
+  return ai_budget_estimate_tokens(
+    (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
+    xArrayLen(s->history_arr));
+}
+
 static xErrno session_try_truncate_(struct xAgentSession_ *s, size_t incoming,
-                                    double factor, size_t limit) {
-  size_t keep = ai_budget_earliest_keep(
+                                    size_t limit) {
+  /* ── TruncateTail: cache-friendly truncation ──────────────────
+   *
+   * Instead of removing the oldest entries (which changes the prompt
+   * prefix and invalidates provider-side prompt caching), we remove
+   * entries from the tail end of history. This keeps the prefix
+   * stable so the provider's cache stays hot.
+   *
+   * keep_recent_turns now means "keep at least this many User turns
+   * from the HEAD (oldest) as prefix" — the turns that anchor the
+   * prompt prefix for caching. Everything beyond the
+   * keep_prefix_turns boundary (the newer turns) is eligible for
+   * truncation.
+   *
+   * Steps:
+   *   1. Compute the tail-keep boundary: how far from the head we
+   *      must keep to honour keep_recent_turns.
+   *   2. If the boundary covers all history, we have no room to
+   *      trim — fall through to PromptTooLong.
+   *   3. Deliver L1 preserve for the about-to-be-dropped tail.
+   *   4. Trim the tail.
+   *   5. Re-estimate; if it fits, we're done. Otherwise refuse.
+   */
+  size_t tail_keep = ai_budget_tail_keep(
     (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
     xArrayLen(s->history_arr), s->budget.keep_recent_turns);
-  if (keep > 0) {
-    /* L1 preserve: deliver the about-to-be-dropped entries [0, keep)
-     * before they are permanently lost. The callback receives a
-     * read-only slice — it must deep-copy anything it wants to
-     * retain. This fires BEFORE the actual trim so the entries
-     * are still valid in the history array.
+
+  if (tail_keep < xArrayLen(s->history_arr)) {
+    /* L1 preserve: deliver the about-to-be-dropped entries
+     * [tail_keep, N) before they are permanently lost. The callback
+     * receives a read-only slice — it must deep-copy anything it
+     * wants to retain. This fires BEFORE the actual trim.
      *
-     * When the session was primed from memory, the first
-     * persisted_prefix entries are already in the store; skip
-     * them so we don't re-append existing rows. */
+     * Tail entries are always post-prefix, so we never skip
+     * persisted_prefix entries here (unlike head-trimming where the
+     * prefix entries are the ones being removed). */
     if (s->on_l1_preserve) {
-      size_t skip = s->persisted_prefix < keep ? s->persisted_prefix : keep;
-      if (keep > skip) {
-        s->on_l1_preserve(
-          (xAgentSession)s,
-          (const xAgentSessionMsg *)xArrayData(s->history_arr) + skip,
-          keep - skip, xAgentL1PreserveReason_Truncated,
-          s->l1_preserve_owner);
-      }
+      size_t n_tail = xArrayLen(s->history_arr) - tail_keep;
+      s->on_l1_preserve(
+        (xAgentSession)s,
+        (const xAgentSessionMsg *)xArrayData(s->history_arr) + tail_keep,
+        n_tail, xAgentL1PreserveReason_Truncated,
+        s->l1_preserve_owner);
     }
-    session_trim_history_front_(s, keep);
-    /* session_trim_history_front_ updates s->persisted_prefix in
-     * lockstep so we don't need any extra bookkeeping here. */
-    size_t current = ai_budget_estimate_tokens_calibrated(
-      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
-      xArrayLen(s->history_arr), factor);
+    size_t entries_removed = xArrayLen(s->history_arr) - tail_keep;
+    session_trim_history_tail_(s, tail_keep);
+    /* Invalidate the known prompt tokens — history changed in a way
+     * we can't precisely quantify. Next provider report will
+     * re-establish the baseline. persisted_prefix is unchanged
+     * because the prefix entries survive intact. */
+    s->known_prompt_tokens = -1;
+    s->delta_entries       = 0;
+    size_t current = session_estimate_current_(s);
     if (current + incoming <= limit) {
-      s->last_prompt_estimate = current + incoming;
+      s->last_gate_total = current + incoming;
       if (s->on_budget_event) {
         struct xAgentBudgetTruncateInfo ti;
-        ti.entries_removed = keep;
+        ti.entries_removed = entries_removed;
         s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_Truncated, &ti,
                            s->budget_event_ud);
       }
@@ -415,18 +624,15 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
   size_t limit    = session_budget_limit_(s);
   size_t incoming = estimate_incoming_user_tokens_(msg);
-  double factor   = s->budget_calibrator.factor;
-  size_t current  = ai_budget_estimate_tokens_calibrated(
-    (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
-    xArrayLen(s->history_arr), factor);
+  size_t current  = session_estimate_current_(s);
 
   if (current + incoming <= limit) {
     /* Remember what the gate saw so sess_fwd_on_done can compare
      * it to the provider-reported prompt_tokens and update the
-     * calibrator. Note we store the COMBINED number (history +
+     * bookkeeping. Note we store the COMBINED number (history +
      * incoming), which is what the provider will actually count —
      * not just the history side. */
-    s->last_prompt_estimate = current + incoming;
+    s->last_gate_total = current + incoming;
 
     /* Notify the caller that the gate passed, including the
      * token breakdown so they can display remaining capacity. */
@@ -435,8 +641,6 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
       gi.limit                          = limit;
       gi.estimated                      = current + incoming;
       gi.remaining                      = limit - gi.estimated;
-      gi.calibrator_factor              = s->budget_calibrator.factor;
-      gi.calibrator_samples             = s->budget_calibrator.samples;
       gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
       s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi,
                          s->budget_event_ud);
@@ -445,54 +649,67 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     return xErrno_Ok;
   }
 
+  /* ── Retroactive tool_result trimming ────────────────────────
+   *
+   * Before falling into the heavy-weight TruncateTail / compact
+   * paths, try a lighter approach: shrink consumed tool_result
+   * outputs in-place. This frees token budget without removing
+   * entire turns, preserving conversation flow and cache prefix.
+   *
+   * Only fires when trim_tool_results_threshold is configured AND
+   * current usage exceeds the threshold. */
+  if (s->budget.trim_tool_results_threshold > 0) {
+    /* threshold is stored as percentage × 100 (e.g. 7000 = 70%). */
+    size_t threshold_tokens = limit *
+      (size_t)s->budget.trim_tool_results_threshold / 10000u;
+
+    if (current >= threshold_tokens) {
+      /* How many tokens we need to free to get under the limit. */
+      size_t gap = (current + incoming) - limit;
+      size_t bytes_freed = 0;
+      size_t trimmed = session_trim_consumed_tool_results_(s, gap,
+        &bytes_freed);
+
+      if (trimmed > 0) {
+        /* Re-estimate after trimming. */
+        current = session_estimate_current_(s);
+        if (current + incoming <= limit) {
+          s->last_gate_total = current + incoming;
+          if (s->on_budget_event) {
+            struct xAgentBudgetToolResultsTrimmedInfo ti;
+            ti.entries_trimmed = trimmed;
+            ti.bytes_freed     = bytes_freed;
+            s->on_budget_event((xAgentSession)s,
+              xAgentBudgetEvent_ToolResultsTrimmed, &ti,
+              s->budget_event_ud);
+          }
+          return xErrno_Ok;
+        }
+        /* Trimmed some but not enough — fall through to the
+         * policy-specific handling below. */
+      }
+    }
+  }
+
   switch (s->budget.policy) {
   case xAgentBudgetPolicy_TruncateOldest: {
-    /* Ask the policy primitive for the earliest point we are
-     * allowed to keep from while still honouring
-     * keep_recent_turns. If that is 0 (floor exceeds what we
-     * have, or no user turns to anchor on) we have nowhere to
-     * trim — fall through to the refusal branch below. */
-    return session_try_truncate_(s, incoming, factor, limit);
+    /* ── TruncateOldest (lightweight): trim → truncate ──────────
+     *
+     * A lighter alternative to SummarizeOldest that avoids the
+     * extra LLM call. After retroactive tool_result trimming
+     * (above), we simply drop tail-end entries to make room.
+     * This is synchronous and costs zero tokens, but loses more
+     * information than summarising.
+     *
+     * If the prefix floor (keep_recent_turns) covers all of
+     * history, we have nowhere to trim — refuse. */
+    return session_try_truncate_(s, incoming, limit);
   }
 
   case xAgentBudgetPolicy_Error:
     return xErrno_PromptTooLong;
 
-  case xAgentBudgetPolicy_Auto: {
-    /* ── Auto: dynamically pick the best strategy ───────────────
-     *
-     * Decision heuristic based on the current history content:
-     *
-     *   1. Compute the tool-entry token ratio. When tool entries
-     *      (ToolUse + ToolResult) dominate (≥ threshold),
-     *      SummarizeOldest is a poor choice — LLMs cannot
-     *      meaningfully compress structured JSON, and a bad
-     *      summary may drop critical IDs or parameters.
-     *      TruncateOldest is safer and faster in that regime.
-     *
-     *   2. When the conversation is predominantly text (ratio
-     *      below threshold), SummarizeOldest has a good chance
-     *      of preserving the gist, so we prefer it.
-     *
-     *   3. If SummarizeOldest is chosen but fails (OOM, provider
-     *      error, empty summary), sess_fwd_on_done automatically
-     *      degrades to TruncateOldest — no special handling here.
-     */
-    double ratio = ai_budget_tool_ratio(
-      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
-      xArrayLen(s->history_arr));
-
-    if (ratio >= XAGENT_BUDGET_AUTO_TOOL_RATIO_THRESHOLD) {
-      /* Tool-heavy history → truncate is safer. */
-      return session_try_truncate_(s, incoming, factor, limit);
-    }
-    /* Text-heavy history → try summarise (with truncate fallback
-     * on failure). Fall through to SummarizeOldest logic. */
-    goto auto_summarize;
-  }
-
   case xAgentBudgetPolicy_SummarizeOldest: {
-  auto_summarize:;
     /* ── SummarizeOldest: compress old history into a summary ──
      *
      * The idea: instead of truncating history outright (losing
@@ -502,8 +719,8 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * up budget space while preserving key facts.
      *
      * Steps:
-     *   1. Find the earliest-keep boundary (same primitive as
-     *      TruncateOldest).
+   *   1. Find the earliest-keep boundary (same primitive as
+   *      TruncateTail uses for its prefix floor).
      *   2. Bail if keep == 0 (nothing to summarise / floor
      *      exceeds history).
      *   3. If already compacting, return Busy.
@@ -557,11 +774,14 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
     /* Concatenate the old messages (entries [0, keep)) into one
      * user message string. We build a single text blob that the
-     * model can summarise. */
+     * model can summarise. Skip entries with is_summary set to
+     * avoid re-summarising an already compressed summary (the
+     * "摘要叠罗汉" problem). */
     size_t old_bytes = 0;
     for (size_t i = 0; i < keep; i++) {
       struct xAgentSessionMsg_ *m =
         (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
+      if (m->is_summary) continue; /* skip existing summaries */
       if (m->text && m->text_len > 0) old_bytes += m->text_len;
       /* Rough separator between messages. */
       old_bytes += 2; /* "\n\n" */
@@ -574,6 +794,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
       for (size_t i = 0; i < keep; i++) {
         struct xAgentSessionMsg_ *m =
           (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
+        if (m->is_summary) continue; /* skip existing summaries */
         if (m->text && m->text_len > 0) {
           memcpy(old_text + off, m->text, m->text_len);
           off += m->text_len;
@@ -646,10 +867,10 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
     if (rc != xErrno_Ok) {
       /* Compact query failed to start — clean up and degrade to
-       * TruncateOldest. */
+       * TruncateTail. */
       s->compacting = 0;
       xAgentQueryDestroy(q);
-      /* Fall through to TruncateOldest as degradation path. */
+      /* Fall through to TruncateTail as degradation path. */
       goto truncate_fallback;
     }
 
@@ -671,10 +892,10 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
 truncate_fallback:
   /* Degradation path: if SummarizeOldest fails (OOM, Query submit
-   * error), fall back to TruncateOldest. This is the same logic as
-   * the TruncateOldest case above but extracted as a goto target
+   * error), fall back to TruncateTail. This is the same logic as
+   * the TruncateTail case above but extracted as a goto target
    * for the SummarizeOldest branch to jump to on failure. */
-  return session_try_truncate_(s, incoming, factor, limit);
+  return session_try_truncate_(s, incoming, limit);
 }
 /* ── Building the Query input from Session state ────────────────────
  *
@@ -1441,7 +1662,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
    *   2. Replace the old history entries [0, compact_keep_idx)
    *      with one System summary entry.
    *   3. Re-check the budget — if still over, degrade to
-   *      TruncateOldest.
+   *      TruncateTail.
    *   4. If budget is OK, the caller's original xAgentSessionInput
    *      will be retried on the next call (we do NOT auto-retry
    *      here because the caller needs to know the compact
@@ -1483,7 +1704,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
     /* Compact succeeded (we got a non-empty summary) — replace
      * the old history entries with one System summary entry.
      * Compact failed (empty summary / OOM) — fall through to
-     * TruncateOldest degradation. */
+     * TruncateTail degradation. */
     size_t keep_idx   = s->compact_keep_idx;
     int    compact_ok = (summary_text != NULL && summary_bytes > 0);
 
@@ -1508,12 +1729,14 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       }
       /* Remove the old entries [0, keep_idx). */
       session_trim_history_front_(s, keep_idx);
-      /* Compaction replaces the prefix with a fresh summary entry
-       * that has NOT been persisted yet, so override the
-       * lockstep-maintained prefix to zero. (The summary is
-       * inserted right after this block; persisted_prefix=0 is
-       * correct for the new layout.) */
-      s->persisted_prefix = 0;
+      /* After compact, the new summary entry replaces entries that
+       * were already L1-preserved. Mark persisted_prefix = 1 so
+       * the summary entry is treated as "already handled" by the
+       * L2 store — its content is derived from the original entries
+       * which are already persisted. This prevents the summary from
+       * being re-persisted on a later truncate/destroy, which would
+       * duplicate the original entries already in L2. */
+      s->persisted_prefix = 1;
 
       /* Insert the summary entry at the beginning of history. We
        * build it as a temporary xAgentSessionMsg_ and splice it in
@@ -1525,6 +1748,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       summary_entry.text          = summary_text;
       summary_entry.text_len      = prefix_len + summary_bytes;
       summary_entry.created_at_ms = xWallMs();
+      summary_entry.is_summary    = 1;
 
       /* xArrayInsert shifts existing elements up and copies the
        * new element into position 0. */
@@ -1542,7 +1766,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
 
     if (!compact_ok) {
       /* Degradation: truncate the same range we tried to
-       * summarise. This matches the TruncateOldest behaviour. */
+       * summarise (head-trim, same as SummarizeOldest's own
+       * boundary calculation). */
       free(summary_text);
       if (keep_idx > 0 && keep_idx < xArrayLen(s->history_arr)) {
         session_trim_history_front_(s, keep_idx);
@@ -1552,6 +1777,12 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
     /* Reset compacting state. */
     s->compacting       = 0;
     s->compact_keep_idx = 0;
+
+    /* Invalidate incremental bookkeeping — history changed in a way
+     * we can't precisely quantify. Next provider report will
+     * re-establish the baseline. */
+    s->known_prompt_tokens = -1;
+    s->delta_entries       = 0;
 
     /* Free produced entries that the compact Query generated
      * (they're NOT merged into history — only the summary is). */
@@ -1583,10 +1814,9 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       cdi.summary_ok = compact_ok;
       cdi.summary_tokens =
         compact_ok
-          ? ai_budget_estimate_tokens_calibrated(
+          ? ai_budget_estimate_tokens(
               (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
-              1, /* just the summary entry */
-              s->budget_calibrator.factor)
+              1 /* just the summary entry */)
           : 0;
       cdi.entries_affected = keep_idx;
       s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_CompactDone, &cdi,
@@ -1617,44 +1847,28 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
   /* Private Query handle — needed for first_round_prompt_tokens. */
   struct xAgentQuery_ *q_priv = (struct xAgentQuery_ *)q;
 
-  /* ── Calibrator update ──────────────────────────────────────────
+  /* ── Incremental token bookkeeping ──────────────────────────────
    *
-   * We compare the gate's pre-submit estimate (last_prompt_estimate)
-   * against the FIRST round's provider-reported prompt_tokens. This
-   * works for both single-round and multi-round tool-loop runs:
+   * After a successful run we update the known prompt token baseline
+   * using the provider-reported prompt_tokens from the FIRST round.
+   * This value maps cleanly to the gate's pre-submit estimate in ALL
+   * cases — single-round text conversations AND multi-round tool
+   * loops alike.
    *
-   *   - The gate runs once per xAgentSessionInput, BEFORE the Query is
-   *     submitted. Its estimate reflects the token count the provider
-   *     will see on the FIRST round.
-   *   - Subsequent tool-loop rounds add tool_results to the prompt,
-   *     inflating later rounds' prompt_tokens beyond what the gate
-   *     estimated. Using those later values would systematically
-   *     inflate the factor.
-   *   - The first round's prompt_tokens maps cleanly to the gate
-   *     estimate in ALL cases — single-round text conversations AND
-   *     multi-round tool loops alike. This eliminates the old
-   *     "single_round" opt-out that left the calibrator permanently
-   *     stuck at 1.0x / 0 samples for any session that used tools.
-   *
-   * Other opt-outs handled inside ai_budget_calibrator_update():
-   *   - usage == NULL or first_round_prompt_tokens < 0 (unknown)
-   *   - last_prompt_estimate == 0 (gate was Disabled or not run) */
-  if (usage && q_priv->first_round_prompt_tokens >= 0 &&
-      s->last_prompt_estimate > 0) {
-    ai_budget_calibrator_update(&s->budget_calibrator, s->last_prompt_estimate,
-                                q_priv->first_round_prompt_tokens);
+   * After this update, known_prompt_tokens is precise and
+   * delta_entries is reset to 0. The next gate check will use
+   * known_prompt_tokens as the baseline and only estimate the delta
+   * of new entries added between now and the next Input. */
+  if (usage && q_priv->first_round_prompt_tokens > 0) {
+    s->known_prompt_tokens = q_priv->first_round_prompt_tokens;
+    s->delta_entries       = 0;
   }
   /* Stash the first-round prompt_tokens for the next GatePassed
    * event — callers can display "estimated vs actual" without
-   * the inflation that later tool-loop rounds would introduce.
-   * We save this even when calibrator didn't update (e.g. gate
-   * was Disabled) so the caller always sees the actual value
-   * when available. */
+   * the inflation that later tool-loop rounds would introduce. */
   s->last_first_round_prompt_tokens = q_priv->first_round_prompt_tokens;
-  /* Reset for the next run either way — a stale estimate crossing
-   * query boundaries would be a foot-gun if some future code path
-   * fires on_done without having gone through the gate. */
-  s->last_prompt_estimate = 0;
+  /* Reset last_gate_total for the next run. */
+  s->last_gate_total = 0;
 
   /* Append every produced entry into history. Because the produced
    * array is now owned by xArray (which will release every element
@@ -1672,6 +1886,12 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
     memset(src, 0, sizeof(*src));
   }
   /* No free(produced) — the xArray owns the buffer. */
+
+  /* Track the produced entries for incremental token bookkeeping.
+   * Note: known_prompt_tokens was already updated above from the
+   * first-round report, so these produced entries will be counted
+   * as delta on the next gate check. */
+  s->delta_entries += n_produced;
 
   if (s->cbs.on_done) {
     s->cbs.on_done((xAgentSession)s, reason, usage, s->cbs.user_data);
@@ -1728,12 +1948,15 @@ xAgentSession xAgentSessionCreate(xAgent agent, const xAgentSessionConf *conf) {
   s->on_budget_event = conf->budget.on_budget_event;
   s->budget_event_ud = conf->budget.budget_event_ud;
 
-  /* Token-estimate calibrator boots at identity (factor = 1.0);
-   * it accumulates observations from sess_fwd_on_done on clean
-   * single-round runs. last_prompt_estimate is zero until the
-   * first gate run records one. */
-  ai_budget_calibrator_init(&s->budget_calibrator);
-  s->last_prompt_estimate           = 0;
+  /* Incremental token bookkeeping: known_prompt_tokens starts at
+   * -1 (unknown / cold start). After the first successful run the
+   * provider reports actual prompt_tokens which becomes the precise
+   * baseline. delta_entries tracks how many history entries have
+   * been added since the last provider report; only this small
+   * delta needs coarse estimation. */
+  s->known_prompt_tokens           = -1;
+  s->delta_entries                 = 0;
+  s->last_gate_total               = 0;
   s->last_first_round_prompt_tokens = -1;
 
   /* Session-lifetime properties: stamped here, never mutated. Zero
@@ -1821,7 +2044,7 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
 
   /* Budget gate: consulted BEFORE any history mutation so the
    * Error policy can refuse without leaving partial state behind,
-   * and the TruncateOldest policy can shape history first so the
+   * and the TruncateTail policy can shape history first so the
    * subsequent append lands on an already-conforming base. A
    * Disabled policy (the default) short-circuits inside
    * session_enforce_budget_() with zero measurable overhead. */
@@ -1840,6 +2063,8 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
     xAgentMemoryReleaseHits(a->memory, &hits);
     return rc;
   }
+  /* Track the new entry for incremental token bookkeeping. */
+  s->delta_entries += (xArrayLen(s->history_arr) - history_checkpoint);
 
   /* Build the complete message array the Query should run on
    * (system prompt + ephemeral memory hits + rolling history

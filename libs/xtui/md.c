@@ -149,8 +149,77 @@ void xMdInit(xMd *md, xMdSinkFunc sink, void *arg) {
 void xMdFeed(xMd *md, const char *data, size_t len) {
   if (!data || len == 0) return;
 
-  for (size_t i = 0; i < len; ++i) {
-    char c = data[i];
+  /* ── Stitch UTF-8 pending tail from previous chunk ────────────
+   *
+   * If the last chunk ended mid-UTF-8 (e.g. 0xE4 arrived but its
+   * two continuation bytes 0xBD 0xA0 are in this chunk), we
+   * prepend the stashed bytes so the for-loop sees a complete
+   * character.  We use a small on-stack buffer: up to 3 pending
+   * bytes + the current chunk. */
+  char  stitch[3 + len];  /* VLA, len is caller-controlled */
+  const char *cur;
+  size_t cur_len;
+
+  if (md->utf8_pending_n > 0) {
+    memcpy(stitch, md->utf8_pending, md->utf8_pending_n);
+    memcpy(stitch + md->utf8_pending_n, data, len);
+    cur     = stitch;
+    cur_len = md->utf8_pending_n + len;
+    md->utf8_pending_n = 0;
+  } else {
+    cur     = data;
+    cur_len = len;
+  }
+
+  /* ── UTF-8 boundary check (before processing) ──────────────────
+   *
+   * If the chunk ends in the middle of a UTF-8 multi-byte
+   * sequence, we must NOT feed the incomplete character to the
+   * state machine — the leading byte would fall into the `default`
+   * branch and be emitted as a lone byte (showing ? or � on the
+   * terminal).  Instead, we trim the incomplete tail and stash it
+   * in utf8_pending for the next call.
+   *
+   * We walk backwards from the end looking for the leading byte
+   * of the last UTF-8 sequence.  If the sequence is incomplete
+   * (fewer bytes available than the leading byte declares), the
+   * partial bytes are moved to utf8_pending.
+   *
+   * UTF-8 encoding:
+   *   0xxxxxxx                               - 1 byte  (ASCII)
+   *   110xxxxx 10xxxxxx                      - 2 bytes
+   *   1110xxxx 10xxxxxx 10xxxxxx             - 3 bytes
+   *   11110xxx 10xxxxxx 10xxxxxx 10xxxxxx    - 4 bytes
+   */
+  if (cur_len > 0) {
+    const unsigned char *base = (const unsigned char *)cur;
+    const unsigned char *tail = base + cur_len;
+    const unsigned char *p = tail - 1;
+
+    /* Find the last non-continuation byte. */
+    while (p > base && (*p & 0xC0) == 0x80)
+      --p;
+
+    unsigned char lead = *p;
+    size_t seq_len = 1;  /* default: ASCII or orphan continuation */
+
+    if      (lead >= 0xF0) seq_len = 4;
+    else if (lead >= 0xE0) seq_len = 3;
+    else if (lead >= 0xC0) seq_len = 2;
+
+    size_t avail = (size_t)(tail - p);
+    if (seq_len > 1 && avail < seq_len) {
+      /* Incomplete sequence — stash the partial bytes and trim
+       * the input so the for-loop never sees them. */
+      size_t stash = avail;
+      memcpy(md->utf8_pending, p, stash);
+      md->utf8_pending_n = stash;
+      cur_len -= stash;
+    }
+  }
+
+  for (size_t i = 0; i < cur_len; ++i) {
+    char c = cur[i];
 
     /* ── Fence mode: raw pass-through until closing ``` at bol ──
      *
@@ -408,13 +477,62 @@ void xMdFeed(xMd *md, const char *data, size_t len) {
       emit_literal(md, c);
       continue;
     default:
-      emit_literal(md, c);
+      /* ── Bulk literal emission ──────────────────────────────────
+       *
+       * Non-delimiter bytes (ASCII printable, UTF-8 continuations,
+       * high-byte prose) all flow through here. We scan forward to
+       * find the longest contiguous run of such bytes and emit
+       * them in a single raw_n() call instead of looping byte by
+       * byte. This matters because each raw_n() triggers the sink,
+       * which in the CLI drives above_chunk → xLinePrintAboveChunk
+       * → term_flush — a write() to the tty. When a 3-byte UTF-8
+       * character is emitted as three separate write()s, the
+       * terminal receives an incomplete leading byte and renders a
+       * question mark or replacement character. Batching the whole
+       * run (including all bytes of the same UTF-8 character) into
+       * one sink call ensures the terminal sees the complete
+       * sequence atomically.
+       *
+       * A "literal run" is the longest span starting at i where
+       * every byte is NOT one of the special delimiter/structure
+       * bytes checked in the switch above ( \ * _ ` # \n ). UTF-8
+       * continuation bytes (0x80–0xBF) are always literal; leading
+       * bytes (0xC0–0xFD) are literal too (they're not markdown
+       * delimiters). ASCII control chars other than \n that land
+       * here are also emitted literally (they're rare in real
+       * streams and treating them as literal matches the previous
+       * behaviour). */
+      {
+        size_t start = i;
+        size_t end   = i + 1; /* at least byte cur[i] is literal */
+        while (end < cur_len) {
+          char nc = cur[end];
+          /* Stop at any byte that needs special handling. */
+          if (nc == '\\' || nc == '*' || nc == '_' || nc == '`' ||
+              nc == '#' || nc == '\n') {
+            break;
+          }
+          end++;
+        }
+        raw_n(md, cur + start, end - start);
+        md->bol = 0;
+        i = end - 1; /* for-loop will ++i, so advance to end-1 */
+      }
       continue;
     }
   }
 }
 
 void xMdFlush(xMd *md) {
+  /* Drain any UTF-8 bytes that were held across chunk boundaries
+   * but never completed (the stream ended mid-character). We emit
+   * them as-is — they're incomplete UTF-8 but the alternative
+   * (silently discarding) is worse. */
+  if (md->utf8_pending_n > 0) {
+    raw_n(md, md->utf8_pending, md->utf8_pending_n);
+    md->utf8_pending_n = 0;
+  }
+
   /* Pending resolution at end-of-stream. The buffer can hold the
    * "ambiguous" state of a multi-byte delimiter (e.g. "**"): at
    * the time we parked it we didn't know whether the next byte
@@ -468,6 +586,7 @@ void xMdFlush(xMd *md) {
    * sink faithfully. */
   md->fence = 0;
   md->bol   = 1;
+  md->utf8_pending_n = 0;
 }
 
 void xMdReset(xMd *md) {
@@ -477,4 +596,5 @@ void xMdReset(xMd *md) {
   }
   md->bold = md->italic = md->code = md->heading = md->fence = 0;
   md->bol  = 1;
+  md->utf8_pending_n = 0;
 }

@@ -265,21 +265,6 @@ double ai_budget_tool_ratio(const struct xAgentSessionMsg_ *msgs, size_t n);
 size_t ai_budget_tail_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
                            size_t keep_prefix_turns);
 
-/**
- * @brief Threshold above which the Auto policy prefers TruncateTail
- *        over SummarizeOldest.
- *
- * When tool entries dominate the token budget (≥ 40 %), summarising
- * is counter-productive: the LLM cannot meaningfully compress
- * structured JSON tool arguments / results, and a bad summary may
- * drop critical IDs or parameters. Truncating is safer and faster
- * in that regime.
- *
- * Below this threshold, the conversation is predominantly text and
- * SummarizeOldest has a good chance of preserving the gist.
- */
-#define XAGENT_BUDGET_AUTO_TOOL_RATIO_THRESHOLD 0.4
-
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

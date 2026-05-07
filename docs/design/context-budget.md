@@ -355,7 +355,7 @@ xErrno session_enforce_budget_(s, msg) {
 demo 把闸门配成：
 
 ```cpp
-sconf.budget.policy            = xAgentBudgetPolicy_Auto;
+sconf.budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
 sconf.budget.max_tokens        = 8192;          // 故意留余量
 sconf.budget.keep_recent_turns = 2;             // 至少保留最近两轮
 ```

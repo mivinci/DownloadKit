@@ -479,21 +479,25 @@ typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession              sess,
  * matches existing sessions byte-for-byte and is the default for
  * calloc'd configs.
  *
- * @see docs/todo/xai_architecture.md and libs/xai/TODO.md §6
- *      for the rollout plan; alpha ships with Disabled / Error /
- *      TruncateTail only. Callback and SummarizeOldest slots are
- *      wired into the enum early so that adding them later is not
- *      an ABI break.
+ * The recommended default is @ref xAgentBudgetPolicy_SummarizeOldest,
+ * which applies the full pipeline: retroactive tool_result trimming
+ * → SummarizeOldest (compress old history) → degrade to TruncateTail
+ * on failure. @ref xAgentBudgetPolicy_TruncateOldest is a lighter
+ * alternative that skips summarisation (no extra LLM call) but loses
+ * more information.
  */
 XDEF_ENUM(xAgentBudgetPolicy){
   xAgentBudgetPolicy_Disabled        = 0, /**< No budget check runs      */
   xAgentBudgetPolicy_Error           = 1, /**< Fail with PromptTooLong   */
-  xAgentBudgetPolicy_TruncateOldest  = 2, /**< Drop tail entries (cache-
-                                              friendly: preserves prompt
-                                              prefix for caching)       */
+  xAgentBudgetPolicy_TruncateOldest  = 2, /**< Trim tool_results, then
+                                              drop tail entries. No
+                                              summarisation (lightweight,
+                                              but loses information)    */
   xAgentBudgetPolicy_Callback        = 3, /**< Reserved: caller-supplied */
-  xAgentBudgetPolicy_SummarizeOldest = 4, /**< Compress old history     */
-  xAgentBudgetPolicy_Auto             = 5, /**< Auto: dynamic policy picker */
+  xAgentBudgetPolicy_SummarizeOldest = 4, /**< Recommended: trim tool_results,
+                                              then summarise old history.
+                                              Degrades to TruncateOldest
+                                              if summary fails          */
 };
 
 /**

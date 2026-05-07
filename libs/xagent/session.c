@@ -693,52 +693,23 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
   switch (s->budget.policy) {
   case xAgentBudgetPolicy_TruncateOldest: {
-    /* TruncateTail (cache-friendly): remove entries from the tail
-     * end of history, keeping the prompt prefix intact for
-     * provider-side prompt caching. If the prefix floor
-     * (keep_recent_turns) covers all of history, we have nowhere
-     * to trim — fall through to the refusal branch. */
+    /* ── TruncateOldest (lightweight): trim → truncate ──────────
+     *
+     * A lighter alternative to SummarizeOldest that avoids the
+     * extra LLM call. After retroactive tool_result trimming
+     * (above), we simply drop tail-end entries to make room.
+     * This is synchronous and costs zero tokens, but loses more
+     * information than summarising.
+     *
+     * If the prefix floor (keep_recent_turns) covers all of
+     * history, we have nowhere to trim — refuse. */
     return session_try_truncate_(s, incoming, limit);
   }
 
   case xAgentBudgetPolicy_Error:
     return xErrno_PromptTooLong;
 
-  case xAgentBudgetPolicy_Auto: {
-    /* ── Auto: dynamically pick the best strategy ───────────────
-     *
-     * Decision heuristic based on the current history content:
-     *
-     *   1. Compute the tool-entry token ratio. When tool entries
-     *      (ToolUse + ToolResult) dominate (≥ threshold),
-     *      SummarizeOldest is a poor choice — LLMs cannot
-     *      meaningfully compress structured JSON, and a bad
-     *      summary may drop critical IDs or parameters.
-     *      TruncateTail is safer and faster in that regime.
-     *
-     *   2. When the conversation is predominantly text (ratio
-     *      below threshold), SummarizeOldest has a good chance
-     *      of preserving the gist, so we prefer it.
-     *
-     *   3. If SummarizeOldest is chosen but fails (OOM, provider
-     *      error, empty summary), sess_fwd_on_done automatically
-     *      degrades to TruncateTail — no special handling here.
-     */
-    double ratio = ai_budget_tool_ratio(
-      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
-      xArrayLen(s->history_arr));
-
-    if (ratio >= XAGENT_BUDGET_AUTO_TOOL_RATIO_THRESHOLD) {
-      /* Tool-heavy history → truncate tail is safer. */
-      return session_try_truncate_(s, incoming, limit);
-    }
-    /* Text-heavy history → try summarise (with truncate fallback
-     * on failure). Fall through to SummarizeOldest logic. */
-    goto auto_summarize;
-  }
-
   case xAgentBudgetPolicy_SummarizeOldest: {
-  auto_summarize:;
     /* ── SummarizeOldest: compress old history into a summary ──
      *
      * The idea: instead of truncating history outright (losing

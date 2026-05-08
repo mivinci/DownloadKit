@@ -48,8 +48,8 @@ vtable, adding one is a contained change.
   learns a correction factor from the provider's real usage reports.
 - **Multi-model registry** — one `models.json` declares every backend;
   `/model <id>` flips the active backend mid-conversation without tearing
-  the agent down. Today every entry is `"kind": "openai"` (covers any
-  OpenAI-compatible API); `"kind": "anthropic"` is planned.
+  the agent down. Today every entry is `"provider": "openai"` (covers any
+  OpenAI-compatible API); `"provider": "anthropic"` is planned.
 - **Layered memory (in design)** — conversation · session · agent tiers,
   with JSONL persistence wired into each session. See
   [docs/design/layered-memory.md](docs/design/layered-memory.md).
@@ -68,17 +68,22 @@ cat > ~/.moo/models.json <<'JSON'
 {
   "default": "kimi",
   "max_turns": 64,
+  "budget": {
+    "context_window": 8192,
+    "keep_head_turns": 1,
+    "keep_recent_turns": 2
+  },
   "models": [
-    { "id": "kimi", "kind": "openai",
+    { "id": "kimi", "provider": "openai",
       "model": "kimi-k2.6",
       "api_key": "sk-...",
       "base_url": "https://api.moonshot.cn/v1",
-      "context_window": 131072 },
-    { "id": "glm",  "kind": "openai",
+      "budget": { "context_window": 131072 } },
+    { "id": "glm",  "provider": "openai",
       "model": "glm-4.5",
       "api_key": "sk-...",
       "base_url": "https://open.bigmodel.cn/api/paas/v4",
-      "context_window": 131072 }
+      "budget": { "context_window": 131072 } }
   ]
 }
 JSON

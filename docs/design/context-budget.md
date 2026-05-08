@@ -270,8 +270,42 @@ b.trim_tool_results_threshold = 7000;     // 70% 触发 retroactive trim
 b.on_budget_event             = my_event_cb;
 ```
 
-CLI 默认就是这套。运行时改窗口用 `xAgentSessionSetContextWindow(sess, n)`
-（其它字段不动）。
+运行时改窗口用 `xAgentSessionSetContextWindow(sess, n)`，整组阈值用
+`xAgentSessionSetBudget(sess, &b)`（policy 和回调不动）。
+
+### models.json 中的配置（CLI 视角）
+
+CLI 把配置面分成 **顶层** 和 **per-model** 两层，per-model 同字段
+覆盖顶层。`policy` 不暴露——CLI 永远跑 `SummarizeOldest`。
+
+```json
+{
+  "default": "kimi",
+  "budget": {
+    "context_window": 8192,
+    "keep_head_turns": 1,
+    "keep_recent_turns": 2,
+    "trim_tool_results_threshold": 7000,
+    "max_tool_result_bytes": 8192
+  },
+  "models": [
+    { "id": "kimi", "provider": "openai", "model": "...",
+      "api_key": "...", "base_url": "...",
+      "budget": { "context_window": 131072 } }
+  ]
+}
+```
+
+**合并顺序（cascade，per-field）：**
+
+1. xagent 内置默认（C 层硬编码）
+2. ↓ 顶层 `budget` 覆盖（仅显式写出的字段）
+3. ↓ 当前模型的 `budget` 覆盖（仅显式写出的字段）
+
+切模型时按目标模型重新 cascade 一次，整组阈值通过
+`xAgentSessionSetBudget` 一次写回 session；`policy` 和
+`on_budget_event` 保持 session 创建时的值。实现位于
+`apps/cli/config.cpp::cli_model_config_resolve_budget()`。
 
 ---
 

@@ -79,18 +79,21 @@ struct ReplCtx {
   std::string         current_model_id;
 
   /* Borrowed pointer to the parsed models.json. Used by /model on
-   * a successful switch to pull the selected entry's context_window
-   * and push it into the session's budget gate so the token ceiling
-   * tracks the active model. Owned by main (CliModelConfig lives
+   * a successful switch to pull the selected entry's budget block
+   * and push it into the session's budget gate so the thresholds
+   * track the active model. Owned by main (CliModelConfig lives
    * for the whole process); ReplCtx must never free it. */
   const CliModelConfig *model_cfg = nullptr;
 
-  /* Session-wide default context window (in tokens) applied whenever
-   * the selected model entry carries no explicit "context_window".
-   * Mirrors sconf.budget.context_window at startup so /model switches to
-   * entries without a per-model override don't silently inherit the
-   * previous (possibly much larger) model's window. */
-  size_t default_context_window = 0;
+  /* Session-wide default budget thresholds: what the session was
+   * configured with at create time, AFTER cascading
+   * built-in-defaults <- top-level "budget" <- (chosen model's
+   * "budget"). Mirrors sconf.budget at startup so /model switches
+   * back to entries without per-model overrides don't silently
+   * inherit the previous (possibly much larger) model's window or
+   * trim threshold. Threshold fields only — policy and the event
+   * callbacks are owned by main and replayed separately. */
+  xAgentBudgetConf default_budget{};
 
   /* Tool-confirm gate ────────────────────────────────────────────────
    * When a needs_confirm tool (currently just shell) is about to run,

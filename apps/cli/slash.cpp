@@ -429,22 +429,28 @@ static void slash_cmd_model(ReplCtx *ctx, const char *args) {
    * and future banner updates reflect it. */
   ctx->current_model_id = args;
 
-  /* Refresh the session's budget ceiling to match the newly-selected
-   * model's context_window. Without this the budget gate would keep
-   * enforcing whatever limit was installed for the previous model,
-   * which is wrong in both directions: switching up to a 128k model
-   * would leave 120k of window unused, and switching down to an 8k
-   * model would let the gate admit prompts the model immediately
-   * truncates server-side. A zero / missing context_window in the
-   * entry falls back to the session-wide default captured at
-   * startup, so the gate never slips into the built-in policy
-   * default (which is intentionally tiny). */
+  /* Refresh the session's budget thresholds to match the newly-
+   * selected model. cli_model_config_resolve_budget cascades
+   * built-in defaults <- top-level "budget" <- the selected
+   * entry's "budget", so any field this entry doesn't override
+   * cleanly falls back through the layers. We then splice the
+   * startup defaults back in for fields the cascade left at zero
+   * — without this, switching to an entry that didn't set
+   * keep_recent_turns would silently let it drop to zero and
+   * remove the floor that protects the most recent turn. The
+   * resulting conf is pushed into the session as a single bulk
+   * update via xAgentSessionSetBudget; policy and the event
+   * callback pair are NOT touched (the session keeps the values
+   * main.cpp installed at create time). */
   if (ctx->model_cfg) {
-    const CliModelEntry *e = cli_model_config_find(ctx->model_cfg, args);
-    size_t cw = (e && e->context_window > 0)
-                  ? e->context_window
-                  : ctx->default_context_window;
-    if (cw > 0) xAgentSessionSetContextWindow(ctx->sess, cw);
+    xAgentBudgetConf b = cli_model_config_resolve_budget(ctx->model_cfg, args);
+    if (b.context_window == 0)        b.context_window        = ctx->default_budget.context_window;
+    if (b.keep_recent_turns == 0)     b.keep_recent_turns     = ctx->default_budget.keep_recent_turns;
+    if (b.keep_head_turns == 0)       b.keep_head_turns       = ctx->default_budget.keep_head_turns;
+    if (b.max_tool_result_bytes == 0) b.max_tool_result_bytes = ctx->default_budget.max_tool_result_bytes;
+    if (b.trim_tool_results_threshold == 0)
+      b.trim_tool_results_threshold = ctx->default_budget.trim_tool_results_threshold;
+    xAgentSessionSetBudget(ctx->sess, &b);
   }
 
   const xAgentModelSpec *spec =

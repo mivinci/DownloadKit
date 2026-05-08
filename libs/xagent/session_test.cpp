@@ -2789,6 +2789,245 @@ TEST_F(SessionTest, L1PreserveCompactedOnSummarize) {
   xAgentSessionDestroy(sess);
 }
 
+/* ── Middle-band SummarizeOldest (keep_head_turns > 0) ──────────────
+ *
+ * The pipeline keeps the first keep_head_turns user-turn groups
+ * verbatim, summarises the middle band, and keeps the last
+ * keep_recent_turns user-turn groups verbatim. The summary is
+ * spliced in at head_idx so the head prefix stays cache-friendly
+ * for the provider on the next round.
+ *
+ * Fixture across these tests:
+ *   3 successful prime rounds → history layout
+ *      idx: 0    1    2    3    4    5
+ *      role:U0   A0   U1   A1   U2   A2
+ *
+ *   keep_head_turns   = 1  → head_idx   = tail_keep(...,1) = 2
+ *   keep_recent_turns = 1  → recent_idx = earliest_keep(...,1) = 4
+ *
+ *   Middle band [2,4) = U1, A1 — replaced by a single [summary].
+ *
+ *   Post-compact layout (5 entries):
+ *      idx: 0    1    2          3    4
+ *      role:U0   A0   System(s)  U2   A2
+ *      text:"u0" "a0" "[summary…]" "u2" "a2"
+ */
+TEST_F(SessionTest, BudgetSummarizeOldestPreservesHeadAndRecent) {
+  Captured cap;
+  xAgentBudgetConf budget{};
+  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.context_window    = 200;
+  budget.keep_head_turns   = 1;
+  budget.keep_recent_turns = 1;
+  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  /* Distinct, sized user payloads so we can later assert exact
+   * head/tail survival. ~80 bytes each → ~30 tokens with envelope.
+   * 3 rounds → ≈120 tokens, fits under 200. */
+  const std::string u0 = std::string(80, '0');
+  const std::string u1 = std::string(80, '1');
+  const std::string u2 = std::string(80, '2');
+  const std::string a_reply = "ack";
+
+  for (const std::string *u : {&u0, &u1, &u2}) {
+    fake_->script_queue.push_back({
+        SText(a_reply.c_str()),
+        SDone(xAgentProviderStop_EndTurn),
+    });
+    ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(u->c_str())),
+              xErrno_Ok);
+  }
+  ASSERT_EQ(cap.done_fired, 3);
+
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+  ASSERT_EQ(hist_len(s), 6u);
+
+  /* Trigger overflow → compact. Provider scripts the summary text
+   * for the synchronous compact Query. */
+  fake_->script_queue.push_back({
+      SText("[summary] middle compressed"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+  const std::string overflow_msg(400, 'X'); /* well above ceiling   */
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(overflow_msg.c_str())),
+            xErrno_Busy);
+
+  /* Compact finished synchronously. Verify the new layout. */
+  size_t hlen = hist_len(s);
+  ASSERT_EQ(hlen, 5u) << "head(2) + summary(1) + recent(2) = 5";
+
+  auto *msgs = (const xAgentSessionMsg_ *)xArrayData(s->history_arr);
+  ASSERT_NE(msgs, nullptr);
+
+  /* Head preserved verbatim. */
+  EXPECT_EQ(msgs[0].role, xAgentRole_User);
+  EXPECT_EQ(std::string(msgs[0].text, msgs[0].text_len), u0)
+      << "head user turn must survive byte-identical";
+  EXPECT_EQ(msgs[1].role, xAgentRole_Assistant);
+  EXPECT_EQ(std::string(msgs[1].text, msgs[1].text_len), a_reply);
+
+  /* Summary spliced at head_idx. */
+  EXPECT_EQ(msgs[2].role, xAgentRole_System);
+  ASSERT_NE(msgs[2].text, nullptr);
+  EXPECT_NE(std::string(msgs[2].text, msgs[2].text_len).find("[summary]"),
+            std::string::npos);
+
+  /* Recent tail preserved verbatim. */
+  EXPECT_EQ(msgs[3].role, xAgentRole_User);
+  EXPECT_EQ(std::string(msgs[3].text, msgs[3].text_len), u2)
+      << "recent user turn must survive byte-identical";
+  EXPECT_EQ(msgs[4].role, xAgentRole_Assistant);
+  EXPECT_EQ(std::string(msgs[4].text, msgs[4].text_len), a_reply);
+
+  /* Middle band must NOT survive in any form. */
+  for (size_t i = 0; i < hlen; ++i) {
+    if (msgs[i].text == nullptr) continue;
+    EXPECT_EQ(std::string(msgs[i].text, msgs[i].text_len).find(u1),
+              std::string::npos)
+        << "middle user turn u1 must be gone (idx=" << i << ")";
+  }
+
+  /* Caller's pending message was never accepted — they must retry. */
+  EXPECT_EQ(cap.done_fired, 3);
+
+  xAgentSessionDestroy(sess);
+}
+
+/* L1 preserve under middle-band compaction must deliver ONLY the
+ * dropped middle band. Head and recent tail stay in history and
+ * must not be in the preserve callback (otherwise the L1 store would
+ * double-count entries that are still live). */
+TEST_F(SessionTest, L1PreserveCompactedDeliversMiddleBandOnly) {
+  L1PreserveCap l1;
+  Captured cap;
+
+  xAgentBudgetConf budget{};
+  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.context_window    = 200;
+  budget.keep_head_turns   = 1;
+  budget.keep_recent_turns = 1;
+
+  xAgentSessionConf sc   = {};
+  sc.cbs                 = make_cbs(&cap);
+  sc.budget              = budget;
+  sc.on_l1_preserve      = cb_l1_preserve;
+  sc.l1_preserve_owner   = &l1;
+
+  xAgentSession sess = xAgentSessionCreate(agent_, &sc);
+  ASSERT_NE(sess, nullptr);
+
+  const std::string u0 = std::string(80, '0');
+  const std::string u1 = std::string(80, '1');
+  const std::string u2 = std::string(80, '2');
+
+  for (const std::string *u : {&u0, &u1, &u2}) {
+    fake_->script_queue.push_back({
+        SText("ack"),
+        SDone(xAgentProviderStop_EndTurn),
+    });
+    ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(u->c_str())),
+              xErrno_Ok);
+  }
+
+  fake_->script_queue.push_back({
+      SText("[summary] middle compressed"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(
+                                     std::string(400, 'X').c_str())),
+            xErrno_Busy);
+
+  /* Find the Compacted call and assert exactly the middle band. */
+  const L1PreserveCap::Call *compacted = nullptr;
+  for (const auto &c : l1.calls) {
+    if (c.reason == xAgentL1PreserveReason_Compacted) {
+      compacted = &c;
+      break;
+    }
+  }
+  ASSERT_NE(compacted, nullptr) << "Compacted callback must fire";
+
+  /* Middle band [2,4) is exactly U1 + A1 = 2 entries. */
+  ASSERT_EQ(compacted->n_msgs, 2u)
+      << "L1 preserve must deliver exactly the dropped middle band";
+  EXPECT_EQ(compacted->roles[0], xAgentRole_User);
+  EXPECT_EQ(compacted->texts[0], u1) << "middle entry 0 must be u1";
+  EXPECT_EQ(compacted->roles[1], xAgentRole_Assistant);
+
+  /* Negative assertion: head (u0) and tail (u2) must NOT be in the
+   * preserve batch — they are still live in history. */
+  for (const auto &t : compacted->texts) {
+    EXPECT_EQ(t.find(u0), std::string::npos)
+        << "head turn must not appear in Compacted callback";
+    EXPECT_EQ(t.find(u2), std::string::npos)
+        << "recent turn must not appear in Compacted callback";
+  }
+
+  xAgentSessionDestroy(sess);
+}
+
+/* keep_head_turns == 0 must remain semantically identical to the
+ * legacy "front-replacement" behaviour: head_idx degenerates to 0,
+ * the entire prefix up to recent_idx is replaced by the summary,
+ * and the surviving tail is preserved. Regression anchor for the
+ * "no behaviour change for existing callers" promise. */
+TEST_F(SessionTest, BudgetSummarizeOldestKeepHeadZeroDegradesToFrontReplace) {
+  Captured cap;
+  xAgentBudgetConf budget{};
+  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.context_window    = 200;
+  budget.keep_head_turns   = 0;        /* legacy behaviour */
+  budget.keep_recent_turns = 1;
+  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  const std::string u0 = std::string(80, '0');
+  const std::string u1 = std::string(80, '1');
+  const std::string u2 = std::string(80, '2');
+
+  for (const std::string *u : {&u0, &u1, &u2}) {
+    fake_->script_queue.push_back({
+        SText("ack"),
+        SDone(xAgentProviderStop_EndTurn),
+    });
+    ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(u->c_str())),
+              xErrno_Ok);
+  }
+
+  fake_->script_queue.push_back({
+      SText("[summary] front replaced"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(
+                                     std::string(400, 'X').c_str())),
+            xErrno_Busy);
+
+  /* Layout: [summary, U2, A2] — head_idx = 0 means the entire
+   * prefix [0, 4) = U0, A0, U1, A1 was replaced. */
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+  ASSERT_EQ(hist_len(s), 3u);
+
+  auto *msgs = (const xAgentSessionMsg_ *)xArrayData(s->history_arr);
+  ASSERT_NE(msgs, nullptr);
+  EXPECT_EQ(msgs[0].role, xAgentRole_System);
+  EXPECT_NE(std::string(msgs[0].text, msgs[0].text_len).find("[summary]"),
+            std::string::npos);
+  EXPECT_EQ(msgs[1].role, xAgentRole_User);
+  EXPECT_EQ(std::string(msgs[1].text, msgs[1].text_len), u2);
+  EXPECT_EQ(msgs[2].role, xAgentRole_Assistant);
+
+  /* Neither u0 nor u1 may survive. */
+  for (size_t i = 0; i < hist_len(s); ++i) {
+    if (msgs[i].text == nullptr) continue;
+    std::string t(msgs[i].text, msgs[i].text_len);
+    EXPECT_EQ(t.find(u0), std::string::npos);
+    EXPECT_EQ(t.find(u1), std::string::npos);
+  }
+
+  xAgentSessionDestroy(sess);
+}
+
 /* L1 preserve Finalizing fires before on_finalizing, and both see the
  * same (still-intact) history. */
 TEST_F(SessionTest, L1PreserveFinalizingFiresBeforeOnFinalizing) {

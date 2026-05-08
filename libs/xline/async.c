@@ -153,6 +153,7 @@ XDEF_STRUCT(xLineHandle_) {
   // "taken" line.
   stringbuf_t        *last_line;
   ssize_t             last_line_rows;
+  ssize_t             last_line_col;  // cached column at tail of last_line
 
   // Active SGR stack for the above region.
   //
@@ -503,6 +504,73 @@ static ssize_t xline_count_rows_and_last_col(ic_env_t *env, const char *s,
   return rows;
 }
 
+// Variant of xline_count_rows_and_last_col that starts from an arbitrary
+// initial column instead of 0.  Used by the sneak fast path in
+// xLinePrintAboveChunk to compute row/column deltas from the *chunk alone*
+// (O(chunk_len)) using the cached last_line_col as the starting column,
+// avoiding the O(last_line_len) re-scan of the entire trailing line.
+//
+// Returns the number of *additional* screen rows consumed (i.e. 0 when the
+// chunk fits on the same row as the initial column), and writes the final
+// column to *out_col.
+static ssize_t xline_count_rows_from_col(ic_env_t *env, const char *s,
+                                          ssize_t len, ssize_t termw,
+                                          ssize_t init_col,
+                                          ssize_t *out_col) {
+  if (out_col != NULL) *out_col = init_col;
+  if (len <= 0) return 0;
+  if (termw <= 0) termw = 80;
+  ssize_t col  = init_col;
+  ssize_t rows = 0;  // additional rows beyond the one init_col sits on
+  ssize_t i    = 0;
+  while (i < len) {
+    if (s[i] == '\x1B' && i + 1 < len) {
+      char next = s[i + 1];
+      if (next == '[') {
+        ssize_t j = i + 2;
+        while (j < len) {
+          unsigned char c = (unsigned char)s[j];
+          j++;
+          if (c >= 0x40 && c <= 0x7E) break;
+        }
+        i = j;
+        continue;
+      }
+      if (next == ']') {
+        ssize_t j = i + 2;
+        while (j < len) {
+          unsigned char c = (unsigned char)s[j];
+          if (c == 0x07) { j++; break; }
+          if (c == 0x1B && j + 1 < len && s[j + 1] == '\\') { j += 2; break; }
+          j++;
+        }
+        i = j;
+        continue;
+      }
+      i += 2;
+      continue;
+    }
+    ssize_t w    = 0;
+    ssize_t next = str_next_ofs(s, len, i, &w);
+    if (next <= 0) break;
+    if (s[i] == '\n') {
+      rows++;
+      col = 0;
+      i += next;
+      continue;
+    }
+    if (w > 0 && col + w > termw) {
+      rows++;
+      col = w;
+    } else {
+      col += w;
+    }
+    i += next;
+  }
+  if (out_col != NULL) *out_col = col;
+  return rows;
+}
+
 // Rewind the cursor to the start of the above region's trailing line and
 // clear from there to the end of the screen. After this call the terminal
 // write head is positioned exactly where the next above-region byte should
@@ -645,6 +713,12 @@ static void xline_emit_bytes(xLineHandle_ *h, const char *data, ssize_t len) {
   }
   h->last_line_rows =
     xline_count_rows(env, sbuf_string(h->last_line), sbuf_len(h->last_line));
+  h->last_line_col = 0;
+  if (h->last_line_rows > 0) {
+    (void)xline_count_rows_and_last_col(env, sbuf_string(h->last_line),
+                                        sbuf_len(h->last_line),
+                                        &h->last_line_col);
+  }
 
   // Separator '\n' so edit_refresh can safely draw the prompt at column 0
   // of a fresh row. We'll undo this separator on the next flush.
@@ -699,6 +773,7 @@ ic_public xLineHandle xLineBegin(const char *prompt_text) {
 
   h->last_line      = sbuf_new();
   h->last_line_rows = 0;
+  h->last_line_col  = 0;
   h->active_sgr     = sbuf_new();
   h->below_title    = sbuf_new();
   h->below_body     = sbuf_new();
@@ -738,6 +813,7 @@ ic_public void xLineEnd(xLineHandle handle) {
     sbuf_free(h->last_line);
     h->last_line      = NULL;
     h->last_line_rows = 0;
+    h->last_line_col  = 0;
   }
   if (h->active_sgr != NULL) {
     sbuf_free(h->active_sgr);
@@ -1085,71 +1161,78 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
   if (strchr(s, '\n') == NULL && h->last_line_rows > 0) {
     ic_env_t *env = h->env;
     editor_t *eb  = &h->eb;
-    ssize_t last_col = 0;
-    (void)xline_count_rows_and_last_col(env, sbuf_string(h->last_line),
-                                        sbuf_len(h->last_line), &last_col);
-    stringbuf_t *probe = sbuf_new();
-    if (probe != NULL) {
-      sbuf_append(probe, sbuf_string(h->last_line));
-      sbuf_append(probe, s);
-      ssize_t new_last_col = 0;
-      ssize_t new_rows     = xline_count_rows_and_last_col(
-        env, sbuf_string(probe), sbuf_len(probe), &new_last_col);
-      if (new_rows >= h->last_line_rows) {
-        // Sneak path is viable (both sub-cases).
-        ssize_t added_rows = new_rows - h->last_line_rows;
-        xline_trace("sneak: last_rows=%zd+%zd last_col=%zd -> col=%zd "
-                    "chunk_len=%zu",
-                    h->last_line_rows, added_rows, last_col, new_last_col,
-                    (size_t)strlen(s));
-        term_attr_reset(env->term);
-        term_write(env->term, "\x1b" "7"); // save cursor (DECSC)
-        // Climb from current edit-region cursor to the final row of
-        // last_line. cur_row is 0-based inside the edit region; one
-        // extra row up accounts for the '\n' separator between the
-        // above region and the prompt.
-        term_up(env->term, (ssize_t)eb->cur_row + 1);
-        term_write(env->term, "\r");
-        term_right(env->term, last_col);
-        // Re-establish the active SGR stack before writing the chunk, so
-        // styling set by an earlier above_chunk survives the term_attr_reset
-        // above — even if the defining escape has since scrolled out of
-        // last_line (e.g. \x1b[2m on row 0, then a '\n' followed by more
-        // thinking text on row 1+). active_sgr is kept in sync by
-        // xline_emit_bytes (slow path) and xline_track_sgr below (fast
-        // path). Zero-width, so cursor position set up by term_up/
-        // term_right stays valid; DECSC above saved the default attrs, so
-        // DECRC below still restores the edit region to a clean state.
-        if (h->active_sgr != NULL && sbuf_len(h->active_sgr) > 0) {
-          term_write_n(env->term, sbuf_string(h->active_sgr),
-                       sbuf_len(h->active_sgr));
-        }
-        term_write(env->term, s);
-        if (added_rows == 0) {
-          // Sub-case A: no new rows, DECRC restores the edit region
-          // cursor exactly.
-          term_write(env->term, "\x1b" "8"); // restore cursor (DECRC)
-          term_flush(env->term);
-        } else {
-          // Sub-case B: last_line now occupies `added_rows` more screen
-          // rows than before. The autowrap from `term_write(s)` already
-          // pushed the edit region down by that many rows — DECRC would
-          // restore the cursor to the *old* edit-region position, which
-          // now sits on top of the extended last_line. Discard DECRC
-          // and redraw the edit region in its new position instead.
-          term_flush(env->term);
-          h->last_line_rows = new_rows;
-          edit_refresh(env, eb);
-        }
-        // Commit the new trailing line.
-        sbuf_append(h->last_line, s);
-        // Keep active_sgr up to date with what the chunk just emitted:
-        // the slow path reads from it, and the next sneak tick replays it.
-        xline_track_sgr(h->active_sgr, s, (ssize_t)strlen(s));
-        sbuf_free(probe);
-        return;
+    // Use the cached column from the previous successful sneak/emit
+    // instead of re-scanning the entire last_line (which is O(N) per
+    // chunk and makes long runs O(N²) total).
+    ssize_t last_col = h->last_line_col;
+
+    // Compute new rows/col from the chunk *alone*, starting at the
+    // cached last_col as the initial column offset.  This turns the
+    // per-chunk work from O(last_line_len) into O(chunk_len).
+    ssize_t chunk_col = last_col;
+    ssize_t chunk_rows = 0;
+    {
+      ssize_t termw = term_get_width(env->term);
+      if (termw <= 0) termw = 80;
+      chunk_rows = xline_count_rows_from_col(env, s, (ssize_t)strlen(s),
+                                             termw, chunk_col, &chunk_col);
+    }
+    ssize_t new_rows     = h->last_line_rows + chunk_rows;
+    ssize_t new_last_col = chunk_col;
+
+    if (new_rows >= h->last_line_rows) {
+      // Sneak path is viable (both sub-cases).
+      ssize_t added_rows = new_rows - h->last_line_rows;
+      xline_trace("sneak: last_rows=%zd+%zd last_col=%zd -> col=%zd "
+                  "chunk_len=%zu",
+                  h->last_line_rows, added_rows, last_col, new_last_col,
+                  (size_t)strlen(s));
+      term_attr_reset(env->term);
+      term_write(env->term, "\x1b" "7"); // save cursor (DECSC)
+      // Climb from current edit-region cursor to the final row of
+      // last_line. cur_row is 0-based inside the edit region; one
+      // extra row up accounts for the '\n' separator between the
+      // above region and the prompt.
+      term_up(env->term, (ssize_t)eb->cur_row + 1);
+      term_write(env->term, "\r");
+      term_right(env->term, last_col);
+      // Re-establish the active SGR stack before writing the chunk, so
+      // styling set by an earlier above_chunk survives the term_attr_reset
+      // above — even if the defining escape has since scrolled out of
+      // last_line (e.g. \x1b[2m on row 0, then a '\n' followed by more
+      // thinking text on row 1+). active_sgr is kept in sync by
+      // xline_emit_bytes (slow path) and xline_track_sgr below (fast
+      // path). Zero-width, so cursor position set up by term_up/
+      // term_right stays valid; DECSC above saved the default attrs, so
+      // DECRC below still restores the edit region to a clean state.
+      if (h->active_sgr != NULL && sbuf_len(h->active_sgr) > 0) {
+        term_write_n(env->term, sbuf_string(h->active_sgr),
+                     sbuf_len(h->active_sgr));
       }
-      sbuf_free(probe);
+      term_write(env->term, s);
+      if (added_rows == 0) {
+        // Sub-case A: no new rows, DECRC restores the edit region
+        // cursor exactly.
+        term_write(env->term, "\x1b" "8"); // restore cursor (DECRC)
+        term_flush(env->term);
+      } else {
+        // Sub-case B: last_line now occupies `added_rows` more screen
+        // rows than before. The autowrap from `term_write(s)` already
+        // pushed the edit region down by that many rows — DECRC would
+        // restore the cursor to the *old* edit-region position, which
+        // now sits on top of the extended last_line. Discard DECRC
+        // and redraw the edit region in its new position instead.
+        term_flush(env->term);
+        h->last_line_rows = new_rows;
+        edit_refresh(env, eb);
+      }
+      // Commit the new trailing line.
+      sbuf_append(h->last_line, s);
+      h->last_line_col = new_last_col;
+      // Keep active_sgr up to date with what the chunk just emitted:
+      // the slow path reads from it, and the next sneak tick replays it.
+      xline_track_sgr(h->active_sgr, s, (ssize_t)strlen(s));
+      return;
     }
   }
 

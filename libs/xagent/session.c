@@ -893,49 +893,140 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
                          s->budget_event_ud);
     }
 
-    /* Build the full conversation view via the standard path so the
-     * compact Query sees the same prefix as a normal conversation
-     * turn. This maximises prompt cache hits: the provider receives
-     * the identical sequence of system prompt + history messages,
-     * and only the final user message (the summary instruction) is
-     * new. No memory hits — compact is a housekeeping operation, not
-     * a user turn that needs retrieved context. */
-    struct sess_input_view_ view;
-    xErrno vrc = sess_input_view_build(s, /*hits=*/NULL, &view);
-    if (vrc != xErrno_Ok) goto truncate_fallback;
-
-    /* Append a summary instruction as the last user message.
-     * The model sees: [system] + [history...] + [summarise request].
-     * Since the history prefix is byte-identical to a normal turn,
-     * provider-side prompt caching kicks in and only the new tail
-     * is charged fresh tokens. */
+    /* Build a structured message array from only the old entries
+     * [0..keep), preserving role information so the provider sees
+     * the same prefix structure as a normal conversation turn.
+     * This is cache-friendly (the old-history prefix matches what
+     * the provider already has cached) while keeping the request
+     * small enough to fit within the provider's context window
+     * (we only send the entries being summarised, not the full
+     * history which already exceeds the budget). */
     char summary_instr[256];
     snprintf(summary_instr, sizeof(summary_instr),
              XAGENT_SUMMARY_SYSTEM_PROMPT, keep);
 
-    /* Allocate combined array: history view + 1 extra user message. */
-    size_t n_total_msgs = view.n_msgs + 1;
+    /* Count messages and content blocks in [0..keep), same fold
+     * logic as sess_input_view_build. */
+    size_t extra_system = (s->system_prompt && s->system_prompt[0]) ? 1 : 0;
+    size_t n_msgs   = extra_system;
+    size_t n_blocks = extra_system;
+    for (size_t i = 0; i < keep;) {
+      struct xAgentSessionMsg_ *m =
+        (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
+      if (m->role == xAgentRole_Assistant) {
+        size_t j = i;
+        while (j < keep &&
+               ((struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, j))->role ==
+                 xAgentRole_Assistant)
+          j++;
+        n_msgs += 1;
+        n_blocks += (j - i);
+        i = j;
+      } else {
+        n_msgs += 1;
+        n_blocks += 1;
+        i += 1;
+      }
+    }
+    /* +1 for the summary instruction user message. */
+    n_msgs += 1;
+    n_blocks += 1;
+
     xAgentMessage *msgs =
-      (xAgentMessage *)calloc(n_total_msgs, sizeof(xAgentMessage));
-    xAgentContent *extra_blocks =
-      (xAgentContent *)calloc(1, sizeof(xAgentContent));
-    if (!msgs || !extra_blocks) {
+      (xAgentMessage *)calloc(n_msgs, sizeof(xAgentMessage));
+    xAgentContent *blocks =
+      (xAgentContent *)calloc(n_blocks, sizeof(xAgentContent));
+    if (!msgs || !blocks) {
       free(msgs);
-      free(extra_blocks);
-      sess_input_view_free(&view);
+      free(blocks);
       goto truncate_fallback;
     }
 
-    /* Copy the history view messages verbatim. */
-    memcpy(msgs, view.msgs, view.n_msgs * sizeof(xAgentMessage));
+    size_t mi = 0, bi = 0;
+
+    /* Optional system prompt. */
+    if (extra_system) {
+      blocks[bi].type        = xAgentContentType_Text;
+      blocks[bi].u.text.text = s->system_prompt;
+      blocks[bi].u.text.len  = strlen(s->system_prompt);
+      msgs[mi].role          = xAgentRole_System;
+      msgs[mi].contents      = &blocks[bi];
+      msgs[mi].n             = 1;
+      mi++;
+      bi++;
+    }
+
+    /* History entries [0..keep) — same fold logic as
+     * sess_input_view_build. */
+    for (size_t i = 0; i < keep;) {
+      struct xAgentSessionMsg_ *m =
+        (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
+      if (m->role == xAgentRole_Assistant) {
+        size_t block_start = bi;
+        size_t j           = i;
+        while (j < keep) {
+          struct xAgentSessionMsg_ *mm =
+            (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, j);
+          if (mm->role != xAgentRole_Assistant) break;
+          xAgentContent *b = &blocks[bi++];
+          if (mm->kind == xAgentSessionEntry_Text) {
+            b->type        = xAgentContentType_Text;
+            b->u.text.text = mm->text ? mm->text : "";
+            b->u.text.len  = mm->text_len;
+          } else if (mm->kind == xAgentSessionEntry_Thinking) {
+            b->type            = xAgentContentType_Thinking;
+            b->u.thinking.text = mm->text ? mm->text : "";
+            b->u.thinking.len  = mm->text_len;
+          } else if (mm->kind == xAgentSessionEntry_ToolUse) {
+            b->type              = xAgentContentType_ToolUse;
+            b->u.tool_use.id     = mm->tool_use_id ? mm->tool_use_id : "";
+            b->u.tool_use.name   = mm->tool_use_name ? mm->tool_use_name : "";
+            b->u.tool_use.args_json = mm->tool_use_args ? mm->tool_use_args : "";
+          } else if (mm->kind == xAgentSessionEntry_ToolResult) {
+            b->type                     = xAgentContentType_ToolResult;
+            b->u.tool_result.id         = mm->tool_use_id ? mm->tool_use_id : "";
+            b->u.tool_result.output     = mm->tool_result_output
+                                            ? mm->tool_result_output : "";
+            b->u.tool_result.output_len = mm->tool_result_output_len;
+            b->u.tool_result.is_error   = mm->tool_result_is_error;
+          }
+          j++;
+        }
+        msgs[mi].role     = xAgentRole_Assistant;
+        msgs[mi].contents = &blocks[block_start];
+        msgs[mi].n        = bi - block_start;
+        mi++;
+        i = j;
+      } else {
+        xAgentContent *b = &blocks[bi++];
+        if (m->kind == xAgentSessionEntry_ToolResult) {
+          b->type                     = xAgentContentType_ToolResult;
+          b->u.tool_result.id         = m->tool_use_id ? m->tool_use_id : "";
+          b->u.tool_result.output     = m->tool_result_output
+                                          ? m->tool_result_output : "";
+          b->u.tool_result.output_len = m->tool_result_output_len;
+          b->u.tool_result.is_error   = m->tool_result_is_error;
+          msgs[mi].role               = xAgentRole_Tool;
+        } else {
+          b->type        = xAgentContentType_Text;
+          b->u.text.text = m->text ? m->text : "";
+          b->u.text.len  = m->text_len;
+          msgs[mi].role  = m->role;
+        }
+        msgs[mi].contents = b;
+        msgs[mi].n        = 1;
+        mi++;
+        i++;
+      }
+    }
 
     /* Append the summary instruction user message. */
-    extra_blocks[0].type        = xAgentContentType_Text;
-    extra_blocks[0].u.text.text = summary_instr;
-    extra_blocks[0].u.text.len  = strlen(summary_instr);
-    msgs[view.n_msgs].role      = xAgentRole_User;
-    msgs[view.n_msgs].contents  = extra_blocks;
-    msgs[view.n_msgs].n         = 1;
+    blocks[bi].type        = xAgentContentType_Text;
+    blocks[bi].u.text.text = summary_instr;
+    blocks[bi].u.text.len  = strlen(summary_instr);
+    msgs[mi].role          = xAgentRole_User;
+    msgs[mi].contents      = &blocks[bi];
+    msgs[mi].n             = 1;
 
     /* Create an internal Query for the summary task.
      * - The Query's only callback is on_done so we can harvest
@@ -969,8 +1060,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     xAgentQuery q = xAgentQueryCreate(&qc);
     if (!q) {
       free(msgs);
-      free(extra_blocks);
-      sess_input_view_free(&view);
+      free(blocks);
       return xErrno_NoMemory;
     }
 
@@ -978,12 +1068,11 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * inputs during the compact. */
     s->compacting = 1;
 
-    xErrno rc = xAgentQueryRun(q, msgs, n_total_msgs);
+    xErrno rc = xAgentQueryRun(q, msgs, mi);
     /* xAgentQueryRun deep-copies everything, so we can release
-     * the combined array and the history view immediately. */
+     * the combined array immediately. */
     free(msgs);
-    free(extra_blocks);
-    sess_input_view_free(&view);
+    free(blocks);
 
     if (rc != xErrno_Ok) {
       /* Compact query failed to start — clean up and degrade to

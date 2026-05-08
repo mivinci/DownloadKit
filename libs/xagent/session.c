@@ -2227,6 +2227,24 @@ void xAgentSessionSetContextWindow(xAgentSession sess, size_t context_window) {
   s->budget.context_window = context_window;
 }
 
+void xAgentSessionSetBudget(xAgentSession           sess,
+                            const xAgentBudgetConf *conf) {
+  /* Bulk variant of SetContextWindow. We deliberately copy ONLY the
+   * threshold knobs and leave s->budget.policy plus the
+   * on_budget_event / budget_event_ud pair untouched — those are
+   * infrastructure the host wired up at create time and would not
+   * expect a "switch model" call to silently rewire. Anything in
+   * flight keeps running under its admitted limits; the new values
+   * take effect at the next session_budget_limit_() check. */
+  if (!sess || !conf) return;
+  struct xAgentSession_ *s = (struct xAgentSession_ *)sess;
+  s->budget.context_window             = conf->context_window;
+  s->budget.keep_head_turns            = conf->keep_head_turns;
+  s->budget.keep_recent_turns          = conf->keep_recent_turns;
+  s->budget.max_tool_result_bytes      = conf->max_tool_result_bytes;
+  s->budget.trim_tool_results_threshold = conf->trim_tool_results_threshold;
+}
+
 void xAgentSessionDestroy(xAgentSession sess) {
   if (!sess) return;
   struct xAgentSession_ *s = (struct xAgentSession_ *)sess;

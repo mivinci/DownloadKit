@@ -1051,6 +1051,38 @@ XCAPI(void) xAgentSessionSetContextWindow(xAgentSession sess,
                                           size_t        context_window);
 
 /**
+ * @brief Replace the session's budget thresholds in bulk.
+ *
+ * Like xAgentSessionSetContextWindow but for every threshold field
+ * on @ref xAgentBudgetConf at once: @c context_window,
+ * @c keep_head_turns, @c keep_recent_turns,
+ * @c max_tool_result_bytes and @c trim_tool_results_threshold.
+ * The @c policy stays whatever was configured at session-create
+ * time, and the @c on_budget_event / @c budget_event_ud callback
+ * pair is left untouched — host apps that dial budget knobs on a
+ * runtime model switch should NOT have to re-plumb their event
+ * sink.
+ *
+ * Zero in any threshold field carries the same "fall back to the
+ * built-in default" semantics it has on initial setup; pass the
+ * fully-populated conf you want to take effect on the next
+ * xAgentSessionInput. Any Query already in flight keeps running
+ * with the limits it was admitted under.
+ *
+ * Intended for host apps that load per-model budget overrides
+ * from disk (e.g. a per-entry budget block in models.json) and
+ * want every threshold — not just the window — to follow the
+ * active backend.
+ *
+ * @param sess  Session handle (NULL is a no-op).
+ * @param conf  Budget conf to apply (NULL is a no-op). Only the
+ *              threshold fields are read; @c policy and the
+ *              callback fields are ignored.
+ */
+XCAPI(void) xAgentSessionSetBudget(xAgentSession            sess,
+                                   const xAgentBudgetConf  *conf);
+
+/**
  * @brief Destroy the session and release its resources.
  *
  * Implicitly cancels any active run and drains pending callbacks.

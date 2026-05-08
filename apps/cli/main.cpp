@@ -291,7 +291,7 @@ int main(int argc, char *argv[]) {
      * reasoning) plus the floor pinned by keep_recent_turns won't
      * trip the gate on turn #2, but small enough that a handful of
      * sustained turns will eventually push the rolling history past
-     * the cap and exercise TruncateOldest. Per-model
+     * the cap and exercise SummarizeOldest. Per-model
      * "context_window" in models.json overrides it for models whose
      * real window is meaningfully larger (e.g. 128k for kimi-k2) or
      * smaller (e.g. 8k for a local llama.cpp server); /model

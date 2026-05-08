@@ -245,11 +245,11 @@ void on_error(xAgentSession sess, xErrno err, const char *msg, void *ud) {
 /* ── Budget-event callback ────────────────────────────────────────────
  *
  * Registered via sconf.budget.on_budget_event so the REPL user can
- * observe the SummarizeOldest / TruncateOldest lifecycle in real time.
- * All three events are informational; ignoring them doesn't change
- * session behaviour, but surfacing them makes the budget demo much
- * easier to follow — the user sees why a subsequent xAgentSessionInput
- * returned Busy (Compacting) and knows when to retry (CompactDone). */
+ * observe the SummarizeOldest lifecycle in real time. Events are
+ * informational; ignoring them doesn't change session behaviour, but
+ * surfacing them makes the budget demo much easier to follow — the
+ * user sees why a subsequent xAgentSessionInput returned Busy
+ * (Compacting) and knows when to retry (CompactDone). */
 void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
                      const void *info, void *ud) {
   (void)sess;
@@ -271,22 +271,31 @@ void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
                    "\x1b[2m[budget] compact done — summary %zu tokens, "
                    "%zu entries affected\x1b[0m",
                    cdi->summary_tokens, cdi->entries_affected);
+      /* Compact succeeded — session is idle again, retry the stashed
+       * user message. */
+      if (ctx->pending_retry && ctx->pending_text) {
+        char *text         = ctx->pending_text;
+        ctx->pending_text  = nullptr;
+        ctx->pending_retry = false;
+        (void)repl_submit_text(ctx, text);
+        std::free(text);
+      }
     } else {
-      above_printf(ctx->line,
-                   "\x1b[2m[budget] compact degraded to truncate — %zu "
-                   "entries affected\x1b[0m",
-                   cdi ? cdi->entries_affected : (size_t)0);
-    }
-    /* Compact finished — the session is idle now, so auto-retry the
-     * pending user message. Unlike the blocking version, we never
-     * stop the event loop: the editor stays live the whole time
-     * and the retry just re-enters the input path. */
-    if (ctx->pending_retry && ctx->pending_text) {
-      char *text         = ctx->pending_text;
-      ctx->pending_text  = nullptr;
+      /* Compact failed (empty summary / OOM / provider error). The
+       * session left history untouched — re-submitting the same text
+       * would just hit the gate again and loop forever. Drop the
+       * pending text and surface a clear error so the user can
+       * decide: /clear, shorten input, or adjust context_window. */
+      above_printf(
+          ctx->line,
+          "\x1b[1;31m[error] compact failed — history unchanged. Your "
+          "last message was not sent. Try /clear or a shorter prompt."
+          "\x1b[0m");
+      if (ctx->pending_text) {
+        std::free(ctx->pending_text);
+        ctx->pending_text = nullptr;
+      }
       ctx->pending_retry = false;
-      (void)repl_submit_text(ctx, text);
-      std::free(text);
     }
     break;
   }

@@ -481,23 +481,23 @@ typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession              sess,
  *
  * The recommended default is @ref xAgentBudgetPolicy_SummarizeOldest,
  * which applies the full pipeline: retroactive tool_result trimming
- * → SummarizeOldest (compress old history) → degrade to TruncateTail
- * on failure. @ref xAgentBudgetPolicy_TruncateOldest is a lighter
- * alternative that skips summarisation (no extra LLM call) but loses
- * more information.
+ * → SummarizeOldest (compress old history). If the summarise step
+ * fails (empty output / OOM / provider error), the session reports
+ * the failure via @ref xAgentBudgetEvent_CompactDone with
+ * @c summary_ok=false and leaves the history untouched — the caller
+ * decides whether to retry, relax the budget, or surface an error.
  */
 XDEF_ENUM(xAgentBudgetPolicy){
   xAgentBudgetPolicy_Disabled        = 0, /**< No budget check runs      */
   xAgentBudgetPolicy_Error           = 1, /**< Fail with PromptTooLong   */
-  xAgentBudgetPolicy_TruncateOldest  = 2, /**< Trim tool_results, then
-                                              drop tail entries. No
-                                              summarisation (lightweight,
-                                              but loses information)    */
+  /* value 2 was xAgentBudgetPolicy_TruncateOldest; removed. Setting
+   * policy to 2 now falls through to the default refuse path. */
   xAgentBudgetPolicy_Callback        = 3, /**< Reserved: caller-supplied */
   xAgentBudgetPolicy_SummarizeOldest = 4, /**< Recommended: trim tool_results,
                                               then summarise old history.
-                                              Degrades to TruncateOldest
-                                              if summary fails          */
+                                              On failure the session
+                                              reports the error and
+                                              leaves history intact.    */
 };
 
 /**
@@ -567,16 +567,19 @@ XDEF_STRUCT(xAgentBudgetCompactInfo) {
  */
 XDEF_STRUCT(xAgentBudgetCompactDoneInfo) {
   /** Non-zero if the compact produced a usable summary; zero if
-   *  it degraded to TruncateTail instead (empty summary, OOM,
-   *  or provider error). When zero the caller should assume old
-   *  history was truncated, not summarised. */
+   *  the summarise step failed (empty output, OOM, or provider
+   *  error). When zero the session leaves history untouched and
+   *  the caller should decide whether to retry, relax the budget,
+   *  or surface an error to the end user. */
   int summary_ok;
 
   /** Token count of the new summary entry (0 if summary_ok == 0
    *  or the estimator was not run on the result). */
   size_t summary_tokens;
 
-  /** Number of original entries that were replaced or removed. */
+  /** Number of original entries that were replaced (summary_ok != 0)
+   *  or that the compact attempted to cover (summary_ok == 0). When
+   *  summary_ok == 0, history is unchanged regardless of this value. */
   size_t entries_affected;
 };
 

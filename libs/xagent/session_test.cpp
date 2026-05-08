@@ -1891,84 +1891,29 @@ TEST_F(SessionTest, BudgetErrorPolicyAllowsUnderBudgetInput) {
   xAgentSessionDestroy(sess);
 }
 
-/* TruncateTail (cache-friendly): populate several user turns so the
- * next input would put us over max_tokens, then verify the session
- * drops the tail entries (preserving the prefix for prompt caching)
- * and proceeds. The captured msgs on the second submit MUST NOT
- * contain the dropped turns. */
-TEST_F(SessionTest, BudgetTruncateOldestDropsOldestUserTurns) {
+/* TruncateOldest policy was removed; its dedicated tests
+ * (BudgetTruncateOldestDropsOldestUserTurns,
+ *  L1PreserveTruncatedOnBudgetTrim) were deleted along with it. The
+ * new compact pipeline lands in a follow-up commit and will grow
+ * its own coverage. */
+
+/* keep_recent_turns (now: prefix turns) too high to honour the
+ * budget at all: the session refuses with PromptTooLong rather
+ * than silently violating the keep-prefix-turns floor. This is
+ * the "safety over compliance" path. Applies to SummarizeOldest
+ * just as it did to the removed TruncateOldest. */
+TEST_F(SessionTest, BudgetRefusesWhenFloorUnreachable) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_TruncateOldest;
-  budget.max_tokens        = 80;       /* ~320 payload bytes total     */
-  budget.keep_recent_turns = 1;        /* keep at least 1 prefix turn */
-  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
-  ASSERT_NE(sess, nullptr);
-
-  /* Prime 3 rounds. Each user msg is ~80 bytes → ~28 tokens with
-   * envelope. Three rounds put history over 80 tokens, forcing a
-   * trim before the 4th input can run. */
-  const std::string big(80, 'a');
-  for (int i = 0; i < 3; i++) {
-    fake_->script_queue.push_back({
-        SText("reply"),
-        SDone(xAgentProviderStop_EndTurn),
-    });
-    ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(big.c_str())),
-              xErrno_Ok);
-    ASSERT_EQ(cap.done_fired, i + 1);
-  }
-
-  /* 4th input: this alone (~28 tokens) plus the 6 accumulated
-   * history entries (3 user + 3 assistant, ≥ 48 payload + 48
-   * envelope = 60 tokens) breaches the 80 ceiling. The session
-   * must trim tail entries to fit, preserving the prefix. */
-  fake_->script_queue.push_back({
-      SText("final"),
-      SDone(xAgentProviderStop_EndTurn),
-  });
-  const std::string marker = "MARKER-" + std::string(40, 'z');
-  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(marker.c_str())),
-            xErrno_Ok);
-  EXPECT_EQ(cap.done_reason, xAgentDoneReason_Completed);
-
-  /* On the 4th submit, captured_msgs reflects what the provider
-   * saw. The new user message must be there; at least one of the
-   * "big" user messages must have been trimmed to fit the budget. */
-  ASSERT_GE(fake_->captured_msgs_per_submit.size(), 4u);
-  const auto &last_submit = fake_->captured_msgs_per_submit.back();
-
-  int big_user_msgs = 0;
-  bool saw_marker   = false;
-  for (const auto &m : last_submit) {
-    if (m.role == xAgentRole_User) {
-      if (m.text == big) big_user_msgs++;
-      if (m.text.find("MARKER-") != std::string::npos) saw_marker = true;
-    }
-  }
-  EXPECT_TRUE(saw_marker) << "the new user turn must always be preserved";
-  EXPECT_LT(big_user_msgs, 3)
-      << "at least one user turn must have been trimmed";
-
-  xAgentSessionDestroy(sess);
-}
-
-/* TruncateTail with keep_recent_turns (now: prefix turns) too high
- * to honour the budget at all: the session refuses with
- * PromptTooLong rather than silently violating the keep-prefix-turns
- * floor. This is the "safety over compliance" path. */
-TEST_F(SessionTest, BudgetTruncateOldestRefusesWhenFloorUnreachable) {
-  Captured cap;
-  xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_TruncateOldest;
+  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
   budget.max_tokens        = 30;       /* very tight                   */
   budget.keep_recent_turns = 5;        /* absurdly high floor          */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
   /* History is empty → find_nth_user_turn returns NO_SUCH_TURN →
-   * earliest_keep returns 0 → trimmer cannot reduce pressure. A
-   * sufficiently large incoming message thus has nowhere to go. */
+   * earliest_keep returns 0 → nothing to summarise. A sufficiently
+   * large incoming message thus has nowhere to go. */
   std::string big(400, 'x'); /* ~108 tokens, well above 30 */
   EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(big.c_str())),
             xErrno_PromptTooLong);
@@ -2011,10 +1956,10 @@ TEST_F(SessionTest, BudgetReservedPoliciesRefuseWhenOver) {
  * cleanly. Smoke test that the budget gate does not gratuitously
  * reject when the estimate is below the ceiling, regardless of
  * which enforcing policy is selected. */
-TEST_F(SessionTest, BudgetTruncatePolicyUnderBudgetIsNoop) {
+TEST_F(SessionTest, BudgetPolicyUnderBudgetIsNoop) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy     = xAgentBudgetPolicy_TruncateOldest;
+  budget.policy     = xAgentBudgetPolicy_SummarizeOldest;
   budget.max_tokens = 500;             /* roomy                        */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -2099,7 +2044,7 @@ std::string TrimToolResultsFixture::large_payload_;
 TEST_F(TrimToolResultsFixture, TrimsConsumedToolResultsAboveThreshold) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy                       = xAgentBudgetPolicy_TruncateOldest;
+  budget.policy                       = xAgentBudgetPolicy_SummarizeOldest;
   budget.max_tokens                   = 300;  /* tight: 2000-byte payload
                                                  ≈ 500 tokens alone, plus
                                                  other entries easily exceed */
@@ -2169,12 +2114,14 @@ TEST_F(TrimToolResultsFixture, TrimsConsumedToolResultsAboveThreshold) {
 }
 
 /* When trim_tool_results_threshold is 0 (disabled), no retroactive
- * trimming occurs — the session falls through to TruncateTail or
- * refuses as before. */
+ * trimming occurs. Under SummarizeOldest that means the compact
+ * pipeline either launches a summarise Query (Busy) or refuses
+ * outright (PromptTooLong / Busy). Either way, the tool_result
+ * MUST NOT be trimmed in-place since the threshold is off. */
 TEST_F(TrimToolResultsFixture, NoTrimWhenThresholdDisabled) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy                       = xAgentBudgetPolicy_TruncateOldest;
+  budget.policy                       = xAgentBudgetPolicy_SummarizeOldest;
   budget.max_tokens                   = 300;
   budget.trim_tool_results_threshold  = 0;    /* disabled */
   budget.max_tool_result_bytes        = SIZE_MAX;
@@ -2198,9 +2145,14 @@ TEST_F(TrimToolResultsFixture, NoTrimWhenThresholdDisabled) {
 
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
 
-  /* Round 2: big input. With threshold disabled, the session should
-   * NOT retroactively trim tool_results — it will use TruncateTail
-   * or refuse instead. */
+  /* Script a compact Query response in case the session decides to
+   * summarise (the retroactive trim is disabled so it cannot shrink
+   * in place). The summary content is not asserted on — we only
+   * care that the tool_result was NOT trimmed in-place. */
+  fake_->script_queue.push_back({
+      SText("summary: prior rounds completed."),
+      SDone(xAgentProviderStop_EndTurn),
+  });
   fake_->script_queue.push_back({
       SText("ok"),
       SDone(xAgentProviderStop_EndTurn),
@@ -2210,22 +2162,24 @@ TEST_F(TrimToolResultsFixture, NoTrimWhenThresholdDisabled) {
   xErrno rc = xAgentSessionInput(sess,
               xAgentMessageFromText(big_input.c_str()));
 
-  /* Either TruncateTail kicked in (OK) or the session refused
-   * (PromptTooLong) — either way, tool_result should NOT have been
-   * trimmed in-place. If the session accepted the input, the
-   * tool_result should still be large. */
-  if (rc == xErrno_Ok) {
-    bool still_large = false;
-    for (size_t i = 0; i < hist_len(s); i++) {
-      if (hist_at(s, i)->kind == xAgentSessionEntry_ToolResult &&
-          hist_at(s, i)->tool_result_output_len > 100) {
-        still_large = true;
-      }
-    }
-    /* If TruncateTail was used, the tool_result entry may have been
-     * entirely removed. If it's still there, it should be unmodified. */
-    if (still_large) {
-      /* Good: tool_result wasn't retroactively trimmed. */
+  /* With trim disabled, the tool_result MUST NOT have been trimmed
+   * in-place. The entry may have been removed entirely (summary
+   * replacement) or survived untouched — either is acceptable.
+   * Whichever way the pipeline went, we only need to show that an
+   * in-place tool_result shrink did NOT happen.
+   *
+   * rc is allowed to be Ok (summary succeeded), Busy (summary in
+   * flight) or PromptTooLong (no summary scripted / floor). */
+  (void)rc;
+  for (size_t i = 0; i < hist_len(s); i++) {
+    if (hist_at(s, i)->kind == xAgentSessionEntry_ToolResult) {
+      size_t out_len = hist_at(s, i)->tool_result_output_len;
+      /* An in-place trim would leave the entry with a short marker
+       * payload (< ~80 bytes). A surviving original is > 1000 bytes.
+       * Reject only the in-place-trim middle ground. */
+      EXPECT_FALSE(out_len >= 1u && out_len < 200u)
+          << "tool_result should not have been trimmed in-place "
+             "when threshold is disabled (len=" << out_len << ")";
     }
   }
 
@@ -2521,10 +2475,11 @@ TEST_F(SessionTest, BudgetSummarizeOldestUnderBudgetIsNoop) {
   xAgentSessionDestroy(sess);
 }
 
-/* SummarizeOldest degrades to TruncateOldest when the compact Query
- * produces no text (empty output). The old entries are simply
- * removed, no summary is inserted. */
-TEST_F(SessionTest, BudgetSummarizeOldestDegradesOnEmptySummary) {
+/* When the compact Query produces no text (empty output), the
+ * summarize attempt is reported as failed (summary_ok=false) and
+ * history is left untouched. There is NO degradation to truncation.
+ * The caller (e.g. CLI) is responsible for deciding retry/abort. */
+TEST_F(SessionTest, BudgetSummarizeOldestReportsErrorOnEmptySummary) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
@@ -2545,8 +2500,11 @@ TEST_F(SessionTest, BudgetSummarizeOldestDegradesOnEmptySummary) {
     ASSERT_EQ(cap.done_fired, i + 1);
   }
 
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+  size_t hlen_before = hist_len(s);
+
   /* The compact Query returns no text (model responds with empty).
-   * This should trigger the TruncateOldest degradation path. */
+   * This should surface as a failure — history stays untouched. */
   fake_->script_queue.push_back({
       SDone(xAgentProviderStop_EndTurn),     /* no SText — empty output */
   });
@@ -2555,14 +2513,14 @@ TEST_F(SessionTest, BudgetSummarizeOldestDegradesOnEmptySummary) {
   EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(overflow_msg.c_str())),
             xErrno_Busy);
 
-  /* After degradation, the old entries should have been removed
-   * (truncated) but no [summary] entry should exist. */
-  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+  /* History must be unchanged: no [summary] entry, same length. */
   auto *msgs = (const xAgentSessionMsg_ *)xArrayData(s->history_arr);
-  size_t hlen = hist_len(s);
+  size_t hlen_after = hist_len(s);
+  EXPECT_EQ(hlen_after, hlen_before)
+      << "history length unchanged on compact failure";
 
   int summary_count = 0;
-  for (size_t i = 0; i < hlen; i++) {
+  for (size_t i = 0; i < hlen_after; i++) {
     if (msgs[i].role == xAgentRole_System && msgs[i].text &&
         std::string(msgs[i].text, msgs[i].text_len).find("[summary]") !=
             std::string::npos) {
@@ -2570,16 +2528,12 @@ TEST_F(SessionTest, BudgetSummarizeOldestDegradesOnEmptySummary) {
     }
   }
   EXPECT_EQ(summary_count, 0)
-      << "no summary entry after empty-output degradation";
+      << "no summary entry inserted on compact failure";
 
-  /* Re-submit should now work (history was truncated). */
-  fake_->script_queue.push_back({
-      SText("final"),
-      SDone(xAgentProviderStop_EndTurn),
-  });
-  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(overflow_msg.c_str())),
-            xErrno_Ok);
-  EXPECT_EQ(cap.done_fired, 4);
+  /* No on_error fired from the compact itself — the failure is
+   * signalled via the (optional) CompactDone budget event with
+   * summary_ok=false. This test does not subscribe to budget events
+   * directly; the absence of history mutation above is the contract. */
 
   xAgentSessionDestroy(sess);
 }
@@ -2780,74 +2734,9 @@ TEST_F(SessionTest, L1PreserveNullCallbackIsNoop) {
   xAgentSessionDestroy(sess);
 }
 
-/* L1 preserve fires with Truncated reason when TruncateOldest policy
- * drops history entries. The callback receives the about-to-be-dropped
- * entries, not the surviving ones. */
-TEST_F(SessionTest, L1PreserveTruncatedOnBudgetTrim) {
-  L1PreserveCap l1;
-  Captured cap;
-
-  xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_TruncateOldest;
-  budget.max_tokens        = 80;
-  budget.keep_recent_turns = 1;
-
-  xAgentSessionConf sc       = {};
-  sc.cbs                   = make_cbs(&cap);
-  sc.budget                = budget;
-  sc.on_l1_preserve        = cb_l1_preserve;
-  sc.l1_preserve_owner     = &l1;
-
-  xAgentSession sess = xAgentSessionCreate(agent_, &sc);
-  ASSERT_NE(sess, nullptr);
-
-  /* Prime 3 rounds to build up history. Trim may fire during these
-   * rounds too if the budget ceiling is already breached. */
-  const std::string big(80, 'a');
-  for (int i = 0; i < 3; i++) {
-    fake_->script_queue.push_back({
-        SText("reply"),
-        SDone(xAgentProviderStop_EndTurn),
-    });
-    ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(big.c_str())),
-              xErrno_Ok);
-    ASSERT_EQ(cap.done_fired, i + 1);
-  }
-
-  /* 4th input: guaranteed to trigger a trim if one hasn't fired yet. */
-  fake_->script_queue.push_back({
-      SText("final"),
-      SDone(xAgentProviderStop_EndTurn),
-  });
-  const std::string marker = "MARKER";
-  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(marker.c_str())),
-            xErrno_Ok);
-
-  /* At least one Truncated L1 callback must have fired by now. */
-  bool saw_truncated = false;
-  for (const auto &c : l1.calls) {
-    if (c.reason == xAgentL1PreserveReason_Truncated) {
-      saw_truncated = true;
-      EXPECT_GT(c.n_msgs, 0u) << "truncated callback must deliver entries";
-      for (size_t i = 0; i < c.n_msgs; i++) {
-        EXPECT_NE(c.kinds[i], (xAgentSessionEntryKind)-1);
-      }
-    }
-  }
-  EXPECT_TRUE(saw_truncated) << "L1 preserve should fire on TruncateOldest";
-
-  /* Destroy triggers Finalizing with the remaining history. */
-  xAgentSessionDestroy(sess);
-
-  bool saw_finalizing = false;
-  for (const auto &c : l1.calls) {
-    if (c.reason == xAgentL1PreserveReason_Finalizing) {
-      saw_finalizing = true;
-      EXPECT_GT(c.n_msgs, 0u) << "final history must be non-empty";
-    }
-  }
-  EXPECT_TRUE(saw_finalizing) << "L1 preserve should fire Finalizing on destroy";
-}
+/* L1PreserveTruncatedOnBudgetTrim was removed together with the
+ * TruncateOldest policy. The remaining L1 preserve coverage
+ * (Compacted / Finalizing) exercises the surviving code paths. */
 
 /* L1 preserve fires with Compacted reason when SummarizeOldest
  * replaces old history entries with a summary. The callback delivers

@@ -620,294 +620,7 @@ static xErrno session_try_truncate_(struct xAgentSession_ *s, size_t incoming,
   return xErrno_PromptTooLong;
 }
 
-static xErrno session_enforce_budget_(struct xAgentSession_ *s,
-                                      xAgentMessage          msg) {
-  if (s->budget.policy == xAgentBudgetPolicy_Disabled) return xErrno_Ok;
-
-  size_t limit    = session_budget_limit_(s);
-  size_t incoming = estimate_incoming_user_tokens_(msg);
-  size_t current  = session_estimate_current_(s);
-
-  if (current + incoming <= limit) {
-    /* Remember what the gate saw so sess_fwd_on_done can compare
-     * it to the provider-reported prompt_tokens and update the
-     * bookkeeping. Note we store the COMBINED number (history +
-     * incoming), which is what the provider will actually count —
-     * not just the history side. */
-    s->last_gate_total = current + incoming;
-
-    /* Notify the caller that the gate passed, including the
-     * token breakdown so they can display remaining capacity. */
-    if (s->on_budget_event) {
-      struct xAgentBudgetGateInfo gi;
-      gi.limit                          = limit;
-      gi.estimated                      = current + incoming;
-      gi.remaining                      = limit - gi.estimated;
-      gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
-      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi,
-                         s->budget_event_ud);
-    }
-
-    return xErrno_Ok;
-  }
-
-  /* ── Retroactive tool_result trimming ────────────────────────
-   *
-   * Before falling into the heavy-weight TruncateTail / compact
-   * paths, try a lighter approach: shrink consumed tool_result
-   * outputs in-place. This frees token budget without removing
-   * entire turns, preserving conversation flow and cache prefix.
-   *
-   * Only fires when trim_tool_results_threshold is configured AND
-   * current usage exceeds the threshold. */
-  if (s->budget.trim_tool_results_threshold > 0) {
-    /* threshold is stored as percentage × 100 (e.g. 7000 = 70%). */
-    size_t threshold_tokens = limit *
-      (size_t)s->budget.trim_tool_results_threshold / 10000u;
-
-    if (current >= threshold_tokens) {
-      /* How many tokens we need to free to get under the limit. */
-      size_t gap = (current + incoming) - limit;
-      size_t bytes_freed = 0;
-      size_t trimmed = session_trim_consumed_tool_results_(s, gap,
-        &bytes_freed);
-
-      if (trimmed > 0) {
-        /* Re-estimate after trimming. */
-        current = session_estimate_current_(s);
-        if (current + incoming <= limit) {
-          s->last_gate_total = current + incoming;
-          if (s->on_budget_event) {
-            struct xAgentBudgetToolResultsTrimmedInfo ti;
-            ti.entries_trimmed = trimmed;
-            ti.bytes_freed     = bytes_freed;
-            s->on_budget_event((xAgentSession)s,
-              xAgentBudgetEvent_ToolResultsTrimmed, &ti,
-              s->budget_event_ud);
-          }
-          return xErrno_Ok;
-        }
-        /* Trimmed some but not enough — fall through to the
-         * policy-specific handling below. */
-      }
-    }
-  }
-
-  switch (s->budget.policy) {
-  case xAgentBudgetPolicy_TruncateOldest: {
-    /* ── TruncateOldest (lightweight): trim → truncate ──────────
-     *
-     * A lighter alternative to SummarizeOldest that avoids the
-     * extra LLM call. After retroactive tool_result trimming
-     * (above), we simply drop tail-end entries to make room.
-     * This is synchronous and costs zero tokens, but loses more
-     * information than summarising.
-     *
-     * If the prefix floor (keep_recent_turns) covers all of
-     * history, we have nowhere to trim — refuse. */
-    return session_try_truncate_(s, incoming, limit);
-  }
-
-  case xAgentBudgetPolicy_Error:
-    return xErrno_PromptTooLong;
-
-  case xAgentBudgetPolicy_SummarizeOldest: {
-    /* ── SummarizeOldest: compress old history into a summary ──
-     *
-     * The idea: instead of truncating history outright (losing
-     * information), we launch a short internal Query that asks
-     * the model to summarise the oldest portion of the
-     * conversation. The summary replaces those entries, freeing
-     * up budget space while preserving key facts.
-     *
-     * Steps:
-   *   1. Find the earliest-keep boundary (same primitive as
-   *      TruncateTail uses for its prefix floor).
-     *   2. Bail if keep == 0 (nothing to summarise / floor
-     *      exceeds history).
-     *   3. If already compacting, return Busy.
-     *   4. Build a summary system prompt + concatenate old
-     *      messages as user content.
-     *   5. Create an internal Query (budget enforcement is
-     *      implicitly disabled because the compact Query is
-     *      driven by session_enforce_budget_ which gates on
-     *      s->compacting).
-     *   6. Run it.
-     *   7. Return Busy — the caller waits for compact to
-     *      finish; sess_fwd_on_done handles the rest.
-     *
-     * The compact completes asynchronously (the internal Query
-     * runs on the same event loop). On completion,
-     * sess_fwd_on_done detects the compacting state and
-     * replaces the old history entries with the summary.
-     */
-    size_t keep = ai_budget_earliest_keep(
-      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
-      xArrayLen(s->history_arr), s->budget.keep_recent_turns);
-
-    /* Nothing to summarise or floor exceeds history. */
-    if (keep == 0) return xErrno_PromptTooLong;
-
-    /* Re-entrance guard: only one compact at a time. */
-    if (s->compacting) return xErrno_Busy;
-
-    /* Record the earliest index to keep after the compact
-     * completes. Everything before this index will be replaced
-     * by the summary. */
-    s->compact_keep_idx = keep;
-
-    /* ── Notify caller: compact is starting ───────────────
-     * Fire the Compacting event BEFORE marking compacting=1 so
-     * the caller can distinguish "Busy because compacting" from
-     * "Busy because a normal Query is in flight". The info
-     * struct tells them how many old entries are being compacted.
-     * ────────────────────────────────────────────────────── */
-    if (s->on_budget_event) {
-      struct xAgentBudgetCompactInfo ci;
-      ci.entries_compacted = keep;
-      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_Compacting, &ci,
-                         s->budget_event_ud);
-    }
-
-    /* Build the summary system prompt with the message count. */
-    char summary_sys[256];
-    snprintf(summary_sys, sizeof(summary_sys), XAGENT_SUMMARY_SYSTEM_PROMPT,
-             keep);
-
-    /* Concatenate the old messages (entries [0, keep)) into one
-     * user message string. We build a single text blob that the
-     * model can summarise. Skip entries with is_summary set to
-     * avoid re-summarising an already compressed summary (the
-     * "摘要叠罗汉" problem). */
-    size_t old_bytes = 0;
-    for (size_t i = 0; i < keep; i++) {
-      struct xAgentSessionMsg_ *m =
-        (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
-      if (m->is_summary) continue; /* skip existing summaries */
-      if (m->text && m->text_len > 0) old_bytes += m->text_len;
-      /* Rough separator between messages. */
-      old_bytes += 2; /* "\n\n" */
-    }
-    char *old_text = NULL;
-    if (old_bytes > 0) {
-      old_text = (char *)calloc(old_bytes + 1, 1);
-      if (!old_text) return xErrno_NoMemory;
-      size_t off = 0;
-      for (size_t i = 0; i < keep; i++) {
-        struct xAgentSessionMsg_ *m =
-          (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
-        if (m->is_summary) continue; /* skip existing summaries */
-        if (m->text && m->text_len > 0) {
-          memcpy(old_text + off, m->text, m->text_len);
-          off += m->text_len;
-        }
-        if (i + 1 < keep) {
-          memcpy(old_text + off, "\n\n", 2);
-          off += 2;
-        }
-      }
-    }
-
-    /* Create an internal Query for the summary task.
-     * - The Query's only callback is on_done so we can harvest
-     *   the summary text.
-     * - We pass the summary system prompt + old text as the
-     *   messages.
-     * - Budget enforcement is implicitly disabled: the compact
-     *   Query is created by session_enforce_budget_ which gates
-     *   on s->compacting, so no recursive budget check occurs. */
-    struct xAgent_ *a  = (struct xAgent_ *)s->agent;
-    xAgentQueryConf qc = {0};
-    qc.cbs.on_done     = sess_fwd_on_done;
-    qc.cbs.user_data   = s;
-    /* Internal compact/summary Queries deliberately bypass any
-     * per-session provider/model override and run on the agent's
-     * defaults — we want consistent summarisation regardless of
-     * what backend the user picked for the conversation.
-     *
-     * Compact Queries are text-only: no tools (we want the model
-     * to summarise, not call tools) and max_turns=1 (no tool-loop
-     * rounds). max_tokens is capped at a reasonable summary
-     * budget so that "thinking" models don't burn the entire
-     * output quota on internal reasoning and leave nothing for
-     * the actual summary text. */
-    qc.provider        = a->provider;
-    qc.tools           = NULL;
-    qc.tools_count     = 0;
-    qc.model           = a->model;
-    qc.max_tokens      = 1024;  /* concise summary; prevents thinking burn */
-    qc.max_turns       = 1;     /* single round: no tool loop */
-    qc.session         = (xAgentSession)s;
-
-    xAgentQuery q = xAgentQueryCreate(&qc);
-    if (!q) {
-      free(old_text);
-      return xErrno_NoMemory;
-    }
-
-    /* Build the message array for the summary Query:
-     *   1. System message with the summary prompt.
-     *   2. User message with the concatenated old text. */
-    xAgentMessage msgs[2];
-    xAgentContent sys_blocks[1];
-    xAgentContent usr_blocks[1];
-
-    /* System message. */
-    sys_blocks[0].type        = xAgentContentType_Text;
-    sys_blocks[0].u.text.text = summary_sys;
-    sys_blocks[0].u.text.len  = strlen(summary_sys);
-    msgs[0].role              = xAgentRole_System;
-    msgs[0].contents          = sys_blocks;
-    msgs[0].n                 = 1;
-
-    /* User message with old conversation text. */
-    usr_blocks[0].type        = xAgentContentType_Text;
-    usr_blocks[0].u.text.text = old_text ? old_text : "";
-    usr_blocks[0].u.text.len  = old_text ? strlen(old_text) : 0;
-    msgs[1].role              = xAgentRole_User;
-    msgs[1].contents          = usr_blocks;
-    msgs[1].n                 = 1;
-
-    /* Mark compacting before Run so the Session rejects new
-     * inputs during the compact. */
-    s->compacting = 1;
-
-    xErrno rc = xAgentQueryRun(q, msgs, 2);
-    free(old_text);
-
-    if (rc != xErrno_Ok) {
-      /* Compact query failed to start — clean up and degrade to
-       * TruncateTail. */
-      s->compacting = 0;
-      xAgentQueryDestroy(q);
-      /* Fall through to TruncateTail as degradation path. */
-      goto truncate_fallback;
-    }
-
-    /* Compact query is now in flight. Return Busy so the caller
-     * knows to wait. sess_fwd_on_done will handle the compact
-     * completion. */
-    return xErrno_Busy;
-  }
-
-  case xAgentBudgetPolicy_Callback:
-  case xAgentBudgetPolicy_Disabled:
-  default:
-    /* Reserved policies are not implemented yet. Refuse by
-     * default so a caller who asked for one does not silently
-     * get Disabled behaviour — that could mask bugs for years.
-     * c4+ replaces these arms with real wiring. */
-    return xErrno_PromptTooLong;
-  }
-
-truncate_fallback:
-  /* Degradation path: if SummarizeOldest fails (OOM, Query submit
-   * error), fall back to TruncateTail. This is the same logic as
-   * the TruncateTail case above but extracted as a goto target
-   * for the SummarizeOldest branch to jump to on failure. */
-  return session_try_truncate_(s, incoming, limit);
-}
-/* ── Building the Query input from Session state ────────────────────
+/* ── Building the Query input from Session state ──────────────────── *
  *
  * Every xAgentSessionInput run hands the Query a complete, self-
  * contained message array: (optional) System prompt + (optional)
@@ -916,8 +629,7 @@ truncate_fallback:
  * xAgentMessage borrows from session-owned storage (history entries
  * live until the run terminates or the Session is torn down) — the
  * Query still deep-copies, so once xAgentQueryRun returns this
- * transient array can go away.
- */
+ * transient array can go away. */
 
 struct sess_input_view_ {
   xAgentMessage *msgs;
@@ -1025,6 +737,285 @@ static char *format_memory_hits_(const xAgentMemoryHits *hits) {
     return NULL;
   }
   return buf;
+}
+
+/* Forward declaration — defined after session_enforce_budget_. */
+static xErrno sess_input_view_build(struct xAgentSession_   *s,
+                                     const xAgentMemoryHits  *hits,
+                                     struct sess_input_view_ *out);
+
+static xErrno session_enforce_budget_(struct xAgentSession_ *s,
+                                      xAgentMessage          msg) {
+  if (s->budget.policy == xAgentBudgetPolicy_Disabled) return xErrno_Ok;
+
+  size_t limit    = session_budget_limit_(s);
+  size_t incoming = estimate_incoming_user_tokens_(msg);
+  size_t current  = session_estimate_current_(s);
+
+  if (current + incoming <= limit) {
+    /* Remember what the gate saw so sess_fwd_on_done can compare
+     * it to the provider-reported prompt_tokens and update the
+     * bookkeeping. Note we store the COMBINED number (history +
+     * incoming), which is what the provider will actually count —
+     * not just the history side. */
+    s->last_gate_total = current + incoming;
+
+    /* Notify the caller that the gate passed, including the
+     * token breakdown so they can display remaining capacity. */
+    if (s->on_budget_event) {
+      struct xAgentBudgetGateInfo gi;
+      gi.limit                          = limit;
+      gi.estimated                      = current + incoming;
+      gi.remaining                      = limit - gi.estimated;
+      gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
+      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi,
+                         s->budget_event_ud);
+    }
+
+    return xErrno_Ok;
+  }
+
+  /* ── Retroactive tool_result trimming ────────────────────────
+   *
+   * Before falling into the heavy-weight TruncateTail / compact
+   * paths, try a lighter approach: shrink consumed tool_result
+   * outputs in-place. This frees token budget without removing
+   * entire turns, preserving conversation flow and cache prefix.
+   *
+   * Only fires when trim_tool_results_threshold is configured AND
+   * current usage exceeds the threshold. */
+  if (s->budget.trim_tool_results_threshold > 0) {
+    /* threshold is stored as percentage × 100 (e.g. 7000 = 70%). */
+    size_t threshold_tokens = limit *
+      (size_t)s->budget.trim_tool_results_threshold / 10000u;
+
+    if (current >= threshold_tokens) {
+      /* How many tokens we need to free to get under the limit. */
+      size_t gap = (current + incoming) - limit;
+      size_t bytes_freed = 0;
+      size_t trimmed = session_trim_consumed_tool_results_(s, gap,
+        &bytes_freed);
+
+      if (trimmed > 0) {
+        /* Re-estimate after trimming. */
+        current = session_estimate_current_(s);
+        if (current + incoming <= limit) {
+          s->last_gate_total = current + incoming;
+          if (s->on_budget_event) {
+            struct xAgentBudgetToolResultsTrimmedInfo ti;
+            ti.entries_trimmed = trimmed;
+            ti.bytes_freed     = bytes_freed;
+            s->on_budget_event((xAgentSession)s,
+              xAgentBudgetEvent_ToolResultsTrimmed, &ti,
+              s->budget_event_ud);
+          }
+          return xErrno_Ok;
+        }
+        /* Trimmed some but not enough — fall through to the
+         * policy-specific handling below. */
+      }
+    }
+  }
+
+  switch (s->budget.policy) {
+  case xAgentBudgetPolicy_TruncateOldest: {
+    /* ── TruncateOldest (lightweight): trim → truncate ──────────
+     *
+     * A lighter alternative to SummarizeOldest that avoids the
+     * extra LLM call. After retroactive tool_result trimming
+     * (above), we simply drop tail-end entries to make room.
+     * This is synchronous and costs zero tokens, but loses more
+     * information than summarising.
+     *
+     * If the prefix floor (keep_recent_turns) covers all of
+     * history, we have nowhere to trim — refuse. */
+    return session_try_truncate_(s, incoming, limit);
+  }
+
+  case xAgentBudgetPolicy_Error:
+    return xErrno_PromptTooLong;
+
+  case xAgentBudgetPolicy_SummarizeOldest: {
+    /* ── SummarizeOldest: compress old history into a summary ──
+     *
+     * The idea: instead of truncating history outright (losing
+     * information), we launch a short internal Query that asks
+     * the model to summarise the oldest portion of the
+     * conversation. The summary replaces those entries, freeing
+     * up budget space while preserving key facts.
+     *
+     * Steps:
+   *   1. Find the earliest-keep boundary (same primitive as
+   *      TruncateTail uses for its prefix floor).
+     *   2. Bail if keep == 0 (nothing to summarise / floor
+     *      exceeds history).
+     *   3. If already compacting, return Busy.
+     *   4. Build the full session view (system prompt + history)
+     *      and append a summary instruction as the final user message.
+     *   5. Create an internal Query (budget enforcement is
+     *      implicitly disabled because the compact Query is
+     *      driven by session_enforce_budget_ which gates on
+     *      s->compacting).
+     *   6. Run it.
+     *   7. Return Busy — the caller waits for compact to
+     *      finish; sess_fwd_on_done handles the rest.
+     *
+     * The compact completes asynchronously (the internal Query
+     * runs on the same event loop). On completion,
+     * sess_fwd_on_done detects the compacting state and
+     * replaces the old history entries with the summary.
+     */
+    size_t keep = ai_budget_earliest_keep(
+      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
+      xArrayLen(s->history_arr), s->budget.keep_recent_turns);
+
+    /* Nothing to summarise or floor exceeds history. */
+    if (keep == 0) return xErrno_PromptTooLong;
+
+    /* Re-entrance guard: only one compact at a time. */
+    if (s->compacting) return xErrno_Busy;
+
+    /* Record the earliest index to keep after the compact
+     * completes. Everything before this index will be replaced
+     * by the summary. */
+    s->compact_keep_idx = keep;
+
+    /* ── Notify caller: compact is starting ───────────────
+     * Fire the Compacting event BEFORE marking compacting=1 so
+     * the caller can distinguish "Busy because compacting" from
+     * "Busy because a normal Query is in flight". The info
+     * struct tells them how many old entries are being compacted.
+     * ────────────────────────────────────────────────────── */
+    if (s->on_budget_event) {
+      struct xAgentBudgetCompactInfo ci;
+      ci.entries_compacted = keep;
+      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_Compacting, &ci,
+                         s->budget_event_ud);
+    }
+
+    /* Build the full conversation view via the standard path so the
+     * compact Query sees the same prefix as a normal conversation
+     * turn. This maximises prompt cache hits: the provider receives
+     * the identical sequence of system prompt + history messages,
+     * and only the final user message (the summary instruction) is
+     * new. No memory hits — compact is a housekeeping operation, not
+     * a user turn that needs retrieved context. */
+    struct sess_input_view_ view;
+    xErrno vrc = sess_input_view_build(s, /*hits=*/NULL, &view);
+    if (vrc != xErrno_Ok) goto truncate_fallback;
+
+    /* Append a summary instruction as the last user message.
+     * The model sees: [system] + [history...] + [summarise request].
+     * Since the history prefix is byte-identical to a normal turn,
+     * provider-side prompt caching kicks in and only the new tail
+     * is charged fresh tokens. */
+    char summary_instr[256];
+    snprintf(summary_instr, sizeof(summary_instr),
+             XAGENT_SUMMARY_SYSTEM_PROMPT, keep);
+
+    /* Allocate combined array: history view + 1 extra user message. */
+    size_t n_total_msgs = view.n_msgs + 1;
+    xAgentMessage *msgs =
+      (xAgentMessage *)calloc(n_total_msgs, sizeof(xAgentMessage));
+    xAgentContent *extra_blocks =
+      (xAgentContent *)calloc(1, sizeof(xAgentContent));
+    if (!msgs || !extra_blocks) {
+      free(msgs);
+      free(extra_blocks);
+      sess_input_view_free(&view);
+      goto truncate_fallback;
+    }
+
+    /* Copy the history view messages verbatim. */
+    memcpy(msgs, view.msgs, view.n_msgs * sizeof(xAgentMessage));
+
+    /* Append the summary instruction user message. */
+    extra_blocks[0].type        = xAgentContentType_Text;
+    extra_blocks[0].u.text.text = summary_instr;
+    extra_blocks[0].u.text.len  = strlen(summary_instr);
+    msgs[view.n_msgs].role      = xAgentRole_User;
+    msgs[view.n_msgs].contents  = extra_blocks;
+    msgs[view.n_msgs].n         = 1;
+
+    /* Create an internal Query for the summary task.
+     * - The Query's only callback is on_done so we can harvest
+     *   the summary text.
+     * - Budget enforcement is implicitly disabled: the compact
+     *   Query is created by session_enforce_budget_ which gates
+     *   on s->compacting, so no recursive budget check occurs. */
+    struct xAgent_ *a  = (struct xAgent_ *)s->agent;
+    xAgentQueryConf qc = {0};
+    qc.cbs.on_done     = sess_fwd_on_done;
+    qc.cbs.user_data   = s;
+    /* Internal compact/summary Queries deliberately bypass any
+     * per-session provider/model override and run on the agent's
+     * defaults — we want consistent summarisation regardless of
+     * what backend the user picked for the conversation.
+     *
+     * Compact Queries are text-only: no tools (we want the model
+     * to summarise, not call tools) and max_turns=1 (no tool-loop
+     * rounds). max_tokens is capped at a reasonable summary
+     * budget so that "thinking" models don't burn the entire
+     * output quota on internal reasoning and leave nothing for
+     * the actual summary text. */
+    qc.provider        = a->provider;
+    qc.tools           = NULL;
+    qc.tools_count     = 0;
+    qc.model           = a->model;
+    qc.max_tokens      = 1024;  /* concise summary; prevents thinking burn */
+    qc.max_turns       = 1;     /* single round: no tool loop */
+    qc.session         = (xAgentSession)s;
+
+    xAgentQuery q = xAgentQueryCreate(&qc);
+    if (!q) {
+      free(msgs);
+      free(extra_blocks);
+      sess_input_view_free(&view);
+      return xErrno_NoMemory;
+    }
+
+    /* Mark compacting before Run so the Session rejects new
+     * inputs during the compact. */
+    s->compacting = 1;
+
+    xErrno rc = xAgentQueryRun(q, msgs, n_total_msgs);
+    /* xAgentQueryRun deep-copies everything, so we can release
+     * the combined array and the history view immediately. */
+    free(msgs);
+    free(extra_blocks);
+    sess_input_view_free(&view);
+
+    if (rc != xErrno_Ok) {
+      /* Compact query failed to start — clean up and degrade to
+       * TruncateTail. */
+      s->compacting = 0;
+      xAgentQueryDestroy(q);
+      /* Fall through to TruncateTail as degradation path. */
+      goto truncate_fallback;
+    }
+
+    /* Compact query is now in flight. Return Busy so the caller
+     * knows to wait. sess_fwd_on_done will handle the compact
+     * completion. */
+    return xErrno_Busy;
+  }
+
+  case xAgentBudgetPolicy_Callback:
+  case xAgentBudgetPolicy_Disabled:
+  default:
+    /* Reserved policies are not implemented yet. Refuse by
+     * default so a caller who asked for one does not silently
+     * get Disabled behaviour — that could mask bugs for years.
+     * c4+ replaces these arms with real wiring. */
+    return xErrno_PromptTooLong;
+  }
+
+truncate_fallback:
+  /* Degradation path: if SummarizeOldest fails (OOM, Query submit
+   * error), fall back to TruncateTail. This is the same logic as
+   * the TruncateTail case above but extracted as a goto target
+   * for the SummarizeOldest branch to jump to on failure. */
+  return session_try_truncate_(s, incoming, limit);
 }
 
 /* Build a message array from the current session state. Consecutive

@@ -1,528 +1,351 @@
-# 上下文预算：xAgentSession 的 prompt-size 守门员
+# 上下文预算：xAgentSession 的中段摘要 pipeline
 
-> 一套在 **不改 Provider、不改 Query、不侵入业务代码** 的前提下，给 `xAgentSession` 加上 "prompt 太长怎么办" 能力的结构化方案。
+> 一套在不改 Provider、不改 Query、不侵入业务代码的前提下，给 `xAgentSession`
+> 加上「prompt 太长怎么办」能力的方案。
 >
-> 本文面向已经熟悉 moo 三层会话模型（[Agent / Session / Query](three-layer-conversation-model.md)）的读者，描述 Session 层的预算闸门是怎么拆出来的、每一块负责什么、以及我们在 `apps/cli` 里跑到的真实数字是怎么解释的。
+> 本文面向已经熟悉 moo 三层会话模型（[Agent / Session / Query](three-layer-conversation-model.md)）
+> 的读者，描述当前 Session 层 budget pipeline 的形状、四件套各自负责什么、
+> 以及为什么我们最终选了「中段摘要 + cache-friendly Query」这条路。
 
 ---
 
 ## TL;DR
 
-每次 `xAgentSessionInput` 调用都会经过一个三步流水线：
+每次 `xAgentSessionInput` 都会经过下面这条流水线：
 
 ```text
-  incoming user msg + rolling history
-              │
-              ▼
-   ① estimate  —— bytes/4 + envelope
-              │
-              ▼
-   ② calibrate —— EWMA factor × estimate
-              │
-              ▼
-   ③ policy gate (Disabled | Error | TruncateOldest | SummarizeOldest | Auto | …)
-              │
-    ┌─────────┼─────────┬──────────────┐
-    ▼         ▼         ▼              ▼
-  proceed   trim &    compact &     refuse with
-            retry     retry         xErrno_PromptTooLong
+  incoming user msg
+        │
+        ▼
+  ① Gate check ────────── fits in context_window?  ── yes ─► proceed
+        │ no
+        ▼
+  ② Retroactive trim ──── shrink consumed tool_results in-place
+        │ still over?
+        ▼
+  ③ SummarizeOldest ───── splice [head .. recent) → [summary]
+        │ failed (provider error / empty)
+        ▼
+  ④ degrade TruncateTail  drop tail entries to fit
 ```
 
-核心拆分：
+一句话：**先省（trim tool_results），再压（summarise middle），实在不行再砍尾（truncate）**。
+所有路径都保留 head 前缀和 recent 尾巴 —— 前者为 provider prompt cache 续命，
+后者保住当前对话状态。
 
-| 模块 | 文件 | 职责 | 是否有状态 |
+四件套的代码切分：
+
+| 件 | 文件 | 职责 | 状态 |
 | --- | --- | --- | --- |
-| 估算器 | `budget.c :: ai_budget_estimate_tokens` | "这段 history 大概多少 token" | 无状态，纯函数 |
-| 校准器 | `budget.c :: ai_budget_calibrator_*` | 用 provider 返回的 `prompt_tokens` 持续修正估算器的系统性偏差 | 每 Session 一份 EWMA 状态 |
-| 裁剪器 | `budget.c :: ai_budget_earliest_keep` | 在保证 `keep_recent_turns` 的前提下，给出最早允许保留的下标 | 无状态，纯函数 |
-| 工具占比 | `budget.c :: ai_budget_tool_ratio` | 计算 history 中 ToolUse/ToolResult 的 token 占比 | 无状态，纯函数 |
-| Auto 决策 | `session.c :: session_enforce_budget_` (Auto case) | 用工具占比选择 TruncateOldest 或 SummarizeOldest | 复用 Session 的 history |
-| 闸门 | `session.c :: session_enforce_budget_` | 把前三者缝起来，按 `xAgentBudgetPolicy` 决定放行 / 裁剪 / 拒绝 | 复用 Session 的 history + calibrator |
+| 估算器 | `budget.c :: ai_budget_estimate_tokens` | history 大概多少 token | 无状态 |
+| 增量记账 | `session.c :: known_prompt_tokens + delta_entries` | 用 provider 上次报的 prompt_tokens 做精确基线，只对新增 entry 估增量 | Session 级 |
+| 双向锚点 | `budget.c :: ai_budget_tail_keep` / `ai_budget_earliest_keep` | 给出「头保 K 轮 / 尾保 K 轮」的下标 | 无状态 |
+| 闸门 | `session.c :: session_enforce_budget_` | 把上面缝起来，按 `xAgentBudgetPolicy` 决定放行 / 修剪 / 压缩 / 拒绝 | 复用 Session history |
 
-整套机制默认 (`xAgentBudgetPolicy_Disabled`) 是字节级别的 no-op——老 Session 不需要改一行代码。只有当用户显式把 `sconf.budget.policy` 设为非 Disabled 时，闸门才开始工作。
-
----
-
-## 为什么要在 Session 层做这件事
-
-这个问题可以放在三层中的任一层：
-
-- **Provider 层** 做最简单：`POST /v1/chat/completions` 返回 400 就重试更短的。但这要求 Session 把历史丢给 Provider 再让它决定，失败了还得退回来——**history ownership 会跨层分裂**。
-- **Query 层** 也能做，但 Query 只活一次请求，没有办法对 "这次 trim 掉的东西是以后都不再提交" 做出承诺——**裁完了还得回写 Session，又是一次跨层耦合**。
-- **Session 层** 是唯一同时满足三个条件的层：① 拥有 rolling history，② 活得比单次 Query 长，③ 能在 Query 发起之前做决定。
-
-所以闸门放 Session 是**被拓扑逼出来的选择**，不是偏好。
+默认 (`xAgentBudgetPolicy_Disabled`) 是字节级 no-op。
+推荐配置是 `xAgentBudgetPolicy_SummarizeOldest`。
 
 ---
 
-## 三件套 I：估算器
+## 为什么放在 Session 层
 
-**目标**：给定任意 `xAgentSessionMsg_` 数组，在不调用远端的前提下，对 "这堆东西序列化后发给 provider 大概多少 token" 给一个合理近似。
-
-公式：
-
-```c
-tokens ≈ (Σ payload_bytes) / XAGENT_BUDGET_BYTES_PER_TOKEN
-       + n_entries * XAGENT_BUDGET_PER_MSG_TOKENS
-```
-
-两个常量都在 `budget_private.h`：
-
-- `XAGENT_BUDGET_BYTES_PER_TOKEN = 4`——英文 "一个 token 大约 4 字节" 的经典启发式。CJK 下会高估（真实 1.5~2 bytes/token），紧凑 JSON 下会略低估。
-- `XAGENT_BUDGET_PER_MSG_TOKENS = 8`——每条消息的角色标记 + JSON 框架 overhead。真实 provider 大多在 3~7 token 之间，给 8 是故意偏保守。
-
-按 entry kind 统计 payload：
-
-| kind | payload |
-| --- | --- |
-| `Text` / `Thinking` | `text_len` |
-| `ToolUse` | `strlen(name) + strlen(args)` |
-| `ToolResult` | `tool_result_output_len` |
-
-> **为什么故意粗**：这一层想要的是 "便宜、可复现、永不过设计"。精确 tokenizer 会把 Session 和具体模型绑死（Claude 的 BPE 和 GPT-4o 的不一样），而且每次模型变了都要跟着升级。粗估 + 在线校准（下一节）是更稳的组合。
+闸门要同时满足三个条件：① 拥有完整 rolling history；② 活得比单次 Query 长；
+③ 在 Query 发起之前能做决定。三层里只有 Session 同时满足，所以这是被拓扑
+逼出来的选择，不是偏好。Provider 层做要让 history ownership 跨层分裂，
+Query 层做活得不够久没法承诺「这次裁掉的内容下次也不再提交」。
 
 ---
 
-## 三件套 II：校准器
+## 阶段 ①：Gate check（增量记账）
 
-粗估必然有系统性偏差。不同 provider、不同语言、不同内容风格，bytes/4 都会偏一个固定比例。校准器的作用：**拿 provider 真实返回的 `xAgentUsage.prompt_tokens` 反过来修正本地估算**。
+**目标**：判断 `serialized(system + history + incoming) <= context_window`，
+做错代价最大的就是这一步 —— 估高了浪费窗口，估低了直接被 provider 401。
 
-### 状态
+### 不做精确 tokenizer
 
-每个 Session 带一个小状态：
+精确 BPE 把 Session 和具体模型绑死（Claude / GPT-4o / Qwen 各家不同），
+模型一换就要跟着升级。我们走「粗估 + 精确基线」组合：
 
-```c
-typedef struct xAgentBudgetCalibrator_ {
-  double factor;  /* EWMA-smoothed multiplier, 初始 1.0 */
-  size_t samples; /* 已接受的观测数，饱和到 SIZE_MAX */
-} xAgentBudgetCalibrator;
-```
+- 粗估公式（`budget.c`）：`tokens ≈ Σ(payload_bytes)/4 + n_entries × per_msg_envelope`。
+  常量都在 `budget_private.h`，源自 OpenAI cookbook 和 Anthropic 公开建议。
+  CJK 会高估、紧凑 JSON 会略低估，但 ±20% 量级，对窗口决策足够用。
+- 精确基线：每次 Query 结束后，记下 provider 报告的**首轮** `prompt_tokens`
+  到 `known_prompt_tokens`，以及该报告对应的 history 长度 `known_prefix_len`。
+  下次 gate 决策时只对 `[known_prefix_len .. now)` 这段新增 entry 做粗估，
+  加上 `known_prompt_tokens` 即得当前估算。
 
-### 更新规则
+### 为什么用首轮 prompt_tokens
 
-每次 Query 结束、在 `sess_fwd_on_done` 里：
+`Query.usage.prompt_tokens` 跨多轮工具循环是**累加**报上来的（见
+`query.c :: usage_accumulate`）—— 多轮工具对话可以膨胀好几倍，
+和单次 submit 的 prompt 大小完全不对应。`xAgentQuery_::first_round_prompt_tokens`
+只记首轮值，正好对应 gate 当时下决定时看到的那份 history，归因清晰。
 
-```c
-observed = (double) actual_prompt_tokens / estimated_prompt_tokens;
-next = (1 - α) * factor + α * observed;           // α = 0.25
-factor = clamp(next, MIN_FACTOR, MAX_FACTOR);     // [0.5, 2.0]
-samples++;
-```
+### 为什么不留 EWMA 校准器
 
-常量（`budget_private.h`）：
-
-- `XAGENT_BUDGET_CALIBRATION_ALPHA = 0.25`——一次观测把 factor 往新值方向拉 1/4。**5~10 轮收敛**、单个离群样本不会主导下一次决策。
-- `XAGENT_BUDGET_CALIBRATION_MIN_FACTOR = 0.5`、`MAX_FACTOR = 2.0`——硬夹紧。防止 provider 偶尔返回一个莫名其妙的 usage 块把 factor 打飞。
-
-### Opt-out 规则
-
-两种情况**跳过更新**，避免污染 factor：
-
-1. `usage == NULL` 或 `first_round_prompt_tokens < 0`（provider 没给 / 给的是未知哨兵 -1）。
-2. `last_prompt_estimate == 0`（gate 没走——Disabled 模式 / 这次 input 没进闸门）。
-
-**为什么不再需要 `ToolUse` 检测？**
-
-旧实现中 `Query.usage.prompt_tokens` 是跨 round **累加**的（见 `query.c:usage_accumulate`），多轮工具对话时该值会膨胀数倍，无法对应到单次 submit 的 prompt 大小，因此用"产出里有没有 ToolUse"来 opt-out。
-
-新实现改为：`prompt_tokens` 取跨轮 **max**（每轮 provider 报的是完整输入量而非增量，
-所以 max 就是总输入量），同时在 `xAgentQuery_` 中新增 `first_round_prompt_tokens` 字段，
-只记录首轮的 `prompt_tokens`。校准器改用 `first_round_prompt_tokens` 与
-`last_prompt_estimate` 配对——gate 只在首轮之前执行，所以首轮的 provider 报告才是
-唯一可与 gate 估算归因的数据点。这样一来，多轮工具对话也能产生有效的校准信号，
-不再需要 opt-out。
-
-### 为什么把 factor 暴露到 calibrator 而不是直接改估算器
-
-两个原因：
-
-1. 估算器仍然是 **纯函数**。想写测试、想在 fixture 上跑，直接调 `ai_budget_estimate_tokens` 就行，不需要构造 Session。
-2. `ai_budget_estimate_tokens_calibrated(msgs, n, factor)` 是一个薄壳 adapter——把 "乘 factor 四舍五入" 的逻辑留在一个地方，方便测试复现。
+旧实现有一个 EWMA 校准器，把 `actual / estimated` 平滑成 `factor` 反过来
+缩放估算。新实现直接用 `known_prompt_tokens` 锚住基线，估算只发生在
+「上次 provider 报告之后新加的几条 entry」上，这点小窗口里粗估的系统性偏差
+小得可以忽略，校准器收益边际接近零，留着只是多一条状态、多一种 corner case
+要测，所以删了。
 
 ---
 
-## 三件套 III：裁剪器
+## 阶段 ②：Retroactive tool_results trim
 
-**目标**：给定 history 和 `keep_recent_turns`，返回一个下标 `idx`，含义是 `msgs[0..idx)` **可以扔**，`msgs[idx..n)` **必须留**。
+**目标**：在 history 还没溢出但已经接近窗口时，先做最便宜的瘦身 ——
+把已经被消费过的 `tool_result` 输出原地砍掉，留个 marker。
 
-裁剪器只做 "允许裁到哪" 这件事，**不做 "要不要裁" 的决策**——那是闸门的事。
+### 为什么这一步先做
 
-### 四条不变量（来自 `xAgentBudgetPolicy` 的 doc）
+工具输出最容易膨胀（一次 `cat large.log`、一次 `curl -i` 就上万 token），
+但模型对它们的依赖通常**只持续到下一条 assistant 消息**：assistant 已经
+基于这次工具结果做了推理决策（要么继续调用工具、要么回复用户），
+原始输出再保留对未来推理几乎无增量价值。
 
-所有策略共同遵守：
+把 `[tool_result] 一万行 stdout` 替换成 `[result trimmed: was 12345 bytes]`
+能瞬间释放大块 budget，而且**不动 history 结构** —— `tool_use ↔ tool_result`
+原子对依然完整、prefix 依然有效、prompt cache 依然命中。
 
-1. **System prompt 绝不裁**——它是 borrowed、固定大小的 sidecar，裁它也没法修复问题。闸门里 system_prompt 根本不参与 budget 计算（见 `session_enforce_budget_` 的注释）。
-2. **当前正在提交的 user turn 绝不裁**——不然用户在问什么就没了。
-3. **`tool_use` / `tool_result` 原子对**——裁只能在 "两对之间" 切，不能切在中间。
-4. **至少保留 `keep_recent_turns` 个完整 user turn**——一个 "user turn" 是 1 个 `User` 消息 + 它后续所有 `Assistant` / `Tool` 消息（直到下一个 `User`）。
+### 触发条件
 
-### 关键洞察：只在 User-role 边界切
+`trim_tool_results_threshold`（万分比，默认 0 = 关）。设到 7000 就是
+「估算 ≥ 70% 窗口时启动 retroactive trim」。
 
-`ai_budget_earliest_keep` 的实现只返回两种值：① 0（不能裁），② 某个 `User`-role entry 的下标。
+只裁「已被消费」的 tool_result —— 即它后面已经有至少一条 Assistant entry。
+当前正在等待回复的那次 tool_result 不动（模型没看过结果，砍了等于毁掉这次工具调用）。
 
-这一条自动蕴含不变量 3——`history_append_user_msg` 只会追加 Text 类 User entry，User entry 前面不会有 "orphaned" tool_result。所以 **只要切在 User 边界**，tool_use / tool_result 对就永远不会被拆散。
+### 事件
 
-### 算法
+成功瘦身后 fire `xAgentBudgetEvent_ToolResultsTrimmed`，info 里给出 entries
+数量和释放的字节数。失败 / 没触发都不发事件。
+
+---
+
+## 阶段 ③：SummarizeOldest（中段摘要）
+
+如果 trim 后还是过线，进入压缩阶段。这是这次重设计的核心。
+
+### 关键决策：摘中段，保两端
+
+旧实现是「保最近 N 轮 + 把前面全部摘要掉」。问题：head 段的任务目标 /
+原始用户意图 / 关键约束被摘没了，模型会逐渐「忘了最初要干什么」，
+长对话里非常明显。
+
+新实现：
 
 ```text
-  U = history 中 User-role 的总数
-  if U == 0:                       return 0   // 没锚点
-  if keep_recent_turns == 0:       return index of last User entry
-  if U <= keep_recent_turns:       return 0   // 不够保留
-  k = U - keep_recent_turns
-  return index of the k-th User entry (0-indexed)
+  history = [ U0  A0  U1  A1  U2  A2  U3  A3  U4  A4 ]
+              └────head────┘ └─────middle─────┘ └─tail─┘
+              keep_head_turns=2                 keep_recent_turns=2
+                                ▲
+                                head_idx                  recent_idx
+                                = 4                       = 8
+
+  压缩后:
+  history = [ U0  A0  U1  A1  [summary]  U4  A4 ]
 ```
 
-例子：`U=5, keep_recent_turns=2` → 从第 3 个 user turn 开始保留（也就是第 3、4、5 个 user turn + 它们的 assistant/tool chatter），前面 2 个 user turn 连带其 assistant 回复全丢。
+- **head**：原始任务目标 / 用户意图 / 关键约束。前 `keep_head_turns` 个
+  user turn 字节级保留。
+- **middle**：可压缩段。被 splice 成单条 `[summary]` System entry。
+- **tail**：当前工作上下文 / 最新工具状态。后 `keep_recent_turns` 个
+  user turn 字节级保留。
+
+「user turn」= 1 个 `User` 消息 + 它后面所有 `Assistant` / `Tool` 消息（直到下一个 `User`）。
+切割只发生在 `User` 边界 —— 这一条几何约束自动保证 `tool_use ↔ tool_result`
+原子对永远不会被拆散，不需要运行时检查。
+
+### Compact Query 的构造（cache-friendly）
+
+发给 provider 摘要的那次 Query：
+
+```text
+  messages = history[0 .. recent_idx)            // head + middle，原样
+  + ephemeral instruction:
+    "Summarise the conversation above in a single concise paragraph.
+     Preserve concrete identifiers, decisions, and user intent. ..."
+```
+
+要点：
+
+1. **不**重新组织上下文、**不**抽取片段拼成新 prompt。整个 head + middle
+   原样发出去 —— provider 看到的 prefix 和上一次主对话**完全一致**，
+   prompt cache 100% 命中，摘要这次请求几乎不增加成本。
+2. instruction 用英文写。原因是几乎所有公开 LLM 在英文 instruction
+   following 上都比 CJK 强一截，摘要这种「跨语言压缩」任务用英文给指令、
+   让模型自适应原文语言输出最稳。
+3. **不**指明摘要范围。让模型对它看到的全部上下文做整体压缩。
+   就算 head 段也被复述一遍也没关系 —— 反正摘要结果只替换 middle 段，
+   head 在 history 里仍然字节级保留，模型实际看到的是「head 原文 +
+   summary（包含 head 复述）+ tail」，是冗余但绝对安全。
+
+### Splice 时机
+
+Compact Query 异步 round-trip。整个过程：
+
+```text
+  T0  user input → gate fail → fire Compacting → return Busy
+                   pin head_idx, recent_idx 到 session 私有态
+                   发起 compact Query
+  T1  compact 完成 → sess_fwd_on_done compact_ok 分支
+                     ├─ xArrayRemoveRange(history, head_idx, recent_idx - head_idx)
+                     ├─ xArrayInsert(history, head_idx, summary_entry)
+                     ├─ persisted_prefix 三种分支就地调整
+                     ├─ L1 preserve fire 仅 [head_idx, recent_idx) middle 段
+                     └─ fire CompactDone(summary_ok=true)
+  T2  caller 看到 CompactDone 事件，重发 user input
+```
+
+Caller 看到的入口语义是 `xErrno_Busy` —— 和「上一个 Query 还在跑」同样的
+忙码。事件回调 (`on_budget_event`) 是区分「Busy because compacting」vs
+「Busy because user query in flight」的唯一渠道。
+
+### persisted_prefix 处理
+
+L1 store 里已经持久化过的前缀长度（`persisted_prefix`），跨 splice 后要重新对齐：
+
+| 原 `persisted_prefix` 位置 | 调整 |
+| --- | --- |
+| `< head_idx` | 不变（前缀完全在保留 head 内）|
+| `[head_idx, recent_idx)` | 钉到 `head_idx + 1`（穿过被摘 middle，跟到 summary 之后）|
+| `>= recent_idx` | 减去 `(recent_idx - head_idx) - 1`（middle 段被压成 1 条，整体往前挪）|
+
+### 失败不降级
+
+旧实现 compact 失败会自动降级到 truncate。新实现**不降级**：
+fire `CompactDone(summary_ok=false)`，history 完全不动，errno 直接交给 caller。
+
+理由：摘要失败的失败模式（OOM / provider 抽风 / 空输出）通常**不会自愈**，
+默默降级 truncate 会让 caller 错过修问题的窗口（可能就是 API key 失效之类的
+基础故障）。直接报错让上层决定是否重试 / 切换 provider / 拓宽窗口 / 换提示词，
+比偷偷做事可靠。
+
+### `keep_head_turns == 0` 退化
+
+`keep_head_turns = 0` 时 `head_idx = 0`，middle 退化为整个 prefix，
+等价旧的「front-replace」语义。老 caller 不改一行代码、行为完全不变。
 
 ---
 
-## 第四件：Auto 决策器
+## 阶段 ④：TruncateTail（最后兜底）
 
-**目标**：给定 history，决定 TruncateOldest 和 SummarizeOldest 哪个更合适——然后复用对应策略的代码路径。
+兜底用，不推荐做主策略。砍 history 尾部最新的 entry 直到 fit。
 
-### 核心观察
+为什么砍尾不砍头：保 head 前缀以保 prompt cache 命中。被砍掉的 tail entry
+会通过 L1 preserve 回调 (`xAgentL1PreserveReason_Truncated`) 喂给 L1 store，
+不会真丢数据 —— 只是从短期工作记忆里挪走。
 
-LLM 对纯文本 history 做摘要的能力很强——一段 2000 token 的闲聊经常能压到 500 token 以下，而且关键信息保留得不错。但对 **结构化工具数据**（JSON arguments、tool_result output），摘要几乎一定会丢东西：
-
-- `tool_use` 的 `arguments` 里有 `id: 12345` 这种字段——摘要把它换成 "查询了某个 ID" → 后续模型拿不到 `12345`，**无法继续推理**。
-- `tool_result` 里可能是大段 JSON——摘要把它变成 "返回了成功" → 模型丢失了结构化的返回数据。
-
-所以：**工具占比高时截断，文本占比高时摘要**。
-
-### `ai_budget_tool_ratio`
-
-纯函数，返回 `[0.0, 1.0]`：
-
-```c
-double ai_budget_tool_ratio(const xAgentSessionMsg_ *msgs, size_t n);
-```
-
-计算方式：对每个 entry 按和估算器相同的 per-kind 字节公式加权（不是按条目数量），求 `tool_bytes / total_bytes`。这样一条 2 KiB 的 `tool_result` 会比三条 10 字节的 `Text` entry 更有话语权——和闸门看到的 token 压力一致。
-
-### 阈值
-
-`XAGENT_BUDGET_AUTO_TOOL_RATIO_THRESHOLD = 0.4`
-
-含义：当 history 中 ≥ 40% 的 token 压力来自工具条目时，选择 TruncateOldest；否则选择 SummarizeOldest。
-
-0.4 而不是 0.5 的原因：**摘要失败的代价远高于截断失败**。截断只是丢掉旧信息——用户还能继续对话；摘要失败（丢关键 ID / 误解参数语义）则会让后续推理产出错误结果，且调用方很难发现。所以我们 **偏向截断**：宁可多截一点纯文本，也不要冒着丢结构化数据的风险去摘要。
-
-### 降级保障
-
-Auto 选了 SummarizeOldest 之后，如果 compact 失败（OOM、provider error、空摘要），`sess_fwd_on_done` 里的降级逻辑会自动退到 TruncateOldest——不需要 Auto 决策器做额外处理。
+事件 `xAgentBudgetEvent_Truncated` 报告砍了多少条。
 
 ---
 
-## 闸门：把四件套缝起来
+## L1 preserve 回调
 
-`session_enforce_budget_` 在 `xAgentSessionInput` 里、**在 history 落盘之前** 跑。位置选在这里有讲究：
+唯一的「写 L1 持久化层」通道。在三种 budget 事件触发时调用：
 
-- Error 策略可以拒绝而 **不留脏 history**。
-- TruncateOldest 策略可以先塑形 history、再让后面的 append 跑在已经合规的底子上。
-- Disabled 策略第一行就 `return xErrno_Ok`——**零可测量开销**，老 Session 的行为和以前完全一致。
-
-流程伪代码：
-
-```c
-xErrno session_enforce_budget_(s, msg) {
-  if (policy == Disabled) return Ok;
-
-  limit    = budget.max_tokens ?: DEFAULT_MAX_TOKENS;   // 128000
-  incoming = estimate_incoming_user_tokens_(msg);
-  current  = estimate_tokens_calibrated(history, factor);
-
-  if (current + incoming <= limit) {
-    last_prompt_estimate = current + incoming;          // 记住给校准器用
-    return Ok;
-  }
-
-  switch (policy) {
-  case TruncateOldest:
-    keep = ai_budget_earliest_keep(history, n, keep_recent_turns);
-    if (keep > 0) {
-      trim_history_front_(s, keep);
-      current = estimate_tokens_calibrated(history, factor);
-      if (current + incoming <= limit) {
-        last_prompt_estimate = current + incoming;
-        return Ok;
-      }
-    }
-    return PromptTooLong;   // 裁到极限还不行 → 拒绝
-
-  case SummarizeOldest:
-    keep = ai_budget_earliest_keep(history, n, keep_recent_turns);
-    // compact Query 压缩 msgs[0..keep)，成功后 re-enter gate
-    // compact 失败 → 自动降级 TruncateOldest
-    return Busy;            // 异步 compact 已发起，当前 input 暂挂
-
-  case Auto:
-    ratio = ai_budget_tool_ratio(history, n);
-    if (ratio >= THRESHOLD)       // 工具占比高 → 截断更安全
-      → same as TruncateOldest
-    else                           // 文本占比高 → 摘要更划算
-      → same as SummarizeOldest
-
-  case Error:
-    return PromptTooLong;
-
-  case Callback:            // c4+ 之前当作 Error
-  default:
-    return PromptTooLong;
-  }
-}
-```
-
-### 为什么 system_prompt 不进预算计算
-
-它是 borrowed 的、fixed-size 的，裁剪器压根碰不到它（不变量 1）。如果把它计进预算，一个过大的 system_prompt 会被当成 "常态 history 压力"，让闸门无限尝试裁 history 却永远不够——不如把这道数学做诚实：**"我能不能裁到够"** 这个问题只和可裁的部分有关。
-
-### `last_prompt_estimate` 的生命周期
-
-- 闸门通过时写入 **`current + incoming`**（也就是 provider 实际会算的那份总量）。
-- `sess_fwd_on_done` 读取、喂给校准器、**立刻清零**。
-
-清零很重要：万一未来有代码路径跳过了闸门但还是走到了 `on_done`（比如 Disabled 模式下某个实验性的 retry），陈旧的 `last_prompt_estimate` 绝对不能漏进校准器。
-
----
-
-## 策略矩阵
-
-| 策略 | 当前状态 | 行为 |
+| Reason | 触发点 | 喂进去什么 |
 | --- | --- | --- |
-| `Disabled` | ✅ 实装 | 默认值，闸门整段 short-circuit |
-| `Error` | ✅ 实装 | 超过 `max_tokens` 就返回 `xErrno_PromptTooLong`，不改 history |
-| `TruncateOldest` | ✅ 实装 | 按 User 边界前向裁剪，裁到 `keep_recent_turns` 还不够就拒绝 |
-| `Callback` | ⏳ 预留 | enum 已就位、行为暂同 Error；c4+ 接入调用方自定义 compaction |
-| `SummarizeOldest` | ✅ 实装 | 发起 compact Query 压缩旧 history；compact 失败自动降级 TruncateOldest |
-| `Auto` | ✅ 实装 | 按工具占比动态选 TruncateOldest 或 SummarizeOldest |
+| `Compacted` | SummarizeOldest 成功 splice 后 | 被替换的 middle 段 `[head_idx, recent_idx)` |
+| `Truncated` | TruncateTail 砍尾后 | 被砍掉的尾部 entry |
+| `Finalizing` | Session destroy 前 | 整个 history（让 L1 收尾）|
 
-> **为什么预留枚举要退化到 Error 而不是 Disabled**：调用方明确说 "我要 Callback"，然后我们默默给他 Disabled——这会掩盖 bug 好几年。退化到 Error 会让 "你想要的我还没做" 立刻被看见。
-
----
-
-## 完整信息流（一次 Input 的命运）
-
-```text
-  xAgentSessionInput(sess, msg)
-         │
-         ▼
-  ┌──────────────────────────────────────────┐
-  │ 1. single-flight 检查（s->query != NULL?）│
-  └──────────────────────────────────────────┘
-         │ ok
-         ▼
-  ┌──────────────────────────────────────────┐
-  │ 2. session_enforce_budget_               │
-  │    ├─ estimate (calibrated)              │
-  │    ├─ fit? → last_prompt_estimate 记录   │
-  │    └─ miss → 按 policy 分派              │
-  │              ├─ Truncate → 裁 → 再估     │
-  │              ├─ Summarize → compact      │
-  │              │   └─ fail → 降级 Truncate │
-  │              ├─ Auto → tool_ratio 分流   │
-  │              │   ├─ ratio≥0.4 → Truncate │
-  │              │   └─ ratio<0.4 → Summarize│
-  │              └─ fallthrough → 拒绝       │
-  └──────────────────────────────────────────┘
-         │ ok
-         ▼
-  ┌──────────────────────────────────────────┐
-  │ 3. history_append_user_msg（commit）     │
-  └──────────────────────────────────────────┘
-         │ ok
-         ▼
-  ┌──────────────────────────────────────────┐
-  │ 4. build view + xAgentQueryCreate/Run       │
-  └──────────────────────────────────────────┘
-         │
-         ▼ (async provider round-trip)
-         │
-  ┌──────────────────────────────────────────┐
-  │ 5. sess_fwd_on_done                      │
-  │    ├─ take produced list                 │
-  │    ├─ calibrator_update(est,             │
-  │    │     first_round_prompt_tokens)      │
-  │    ├─ last_prompt_estimate = 0           │
-  │    └─ merge produced into history        │
-  └──────────────────────────────────────────┘
-```
+**关键不变量**：L1 preserve 回调中喂进去的 entry，**必须**是 history 里
+即将消失的那部分 —— 不能多、不能少。多了 L1 会重复存（同一条 entry 既在
+history 又在 L1），少了 L1 会漏掉。这条不变量由
+`L1PreserveCompactedDeliversMiddleBandOnly` 测试守住。
 
 ---
 
-## 在 `apps/cli` 里看活的
+## 配置速查
 
-demo 把闸门配成：
-
-```cpp
-sconf.budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
-sconf.budget.max_tokens        = 8192;          // 故意留余量
-sconf.budget.keep_recent_turns = 2;             // 至少保留最近两轮
+```c
+xAgentBudgetConf b = {};
+b.policy                      = xAgentBudgetPolicy_SummarizeOldest;
+b.context_window              = 128000;   // 模型窗口
+b.keep_head_turns             = 2;        // 保任务目标
+b.keep_recent_turns           = 4;        // 保最近上下文
+b.max_tool_result_bytes       = 8192;     // 单条 tool_result 上限
+b.trim_tool_results_threshold = 7000;     // 70% 触发 retroactive trim
+b.on_budget_event             = my_event_cb;
 ```
 
-每次 `on_done` 的最后一行会打印 calibrator 快照：
-
-```text
-[done] reason=completed reply_bytes=638 tokens=793/1925 total=2718 budget=1.103x samples=1 est=0
-```
-
-| 字段 | 含义 |
-| --- | --- |
-| `reason` | `xAgentDoneReason` 名字 |
-| `reply_bytes` | 本轮 assistant 向 `on_text` 吐出的字节数（累计） |
-| `tokens=P/C total=T` | `xAgentUsage` 里的 `prompt / completion / total_tokens`（跨 round 累加） |
-| `budget=<factor>x` | 校准器当前的 EWMA factor，1.0 是出厂值 |
-| `samples=<n>` | 校准器已接受的观测数 |
-| `est=<n>` | **本轮** gate 记下的 `last_prompt_estimate`（打印前尚未被 `on_done` 清零？—— 已清零，所以稳定显示 0） |
-
-> `est=0` 是 **特性**：打印发生在 `sess_fwd_on_done` 走完 calibrator 更新、**已经把 `last_prompt_estimate` 清零之后**。如果你想看清零前的值，得往 `ai_budget_calibrator_update` 前面挪打印点。
-
-### 观察 A：校准器在真实收敛
-
-在一次跑多轮对话的样本里：
-
-```text
-[done] ... budget=1.103x samples=1 ...
-[done] ... budget=0.918x samples=6 ...
-[done] ... budget=1.125x samples=5 ...
-```
-
-真实 factor 稳稳待在 `[0.9, 1.2]` 区间——和 `budget_private.h` 里估算的 "英文/中文混合工作负载的真实比值在 0.7~1.3" 完全吻合。没有跑飞到 clamp 边界，说明 α=0.25 的保守步长没让单个样本主导 factor。
-
-### 观察 B：`keep_recent_turns` 是真正的 "生死阈值"
-
-用户把 `keep_recent_turns` 从 `2` 降到 `1` 以后，**同一个** `max_tokens=2048` 的配置能继续跑下去。原因直接落在 `ai_budget_earliest_keep` 的算法里：
-
-- `keep=2` 时 "最近一轮 user + 上一轮 assistant" **永远不能被裁**。如果恰好上一轮 assistant 吐了一段长文，光这两条就可能 > 2048 → 裁剪器返回 0 → 闸门 fallthrough 到 `PromptTooLong`，**再怎么裁也救不回来**。
-- `keep=1` 时只保留**当前 user 消息**。所有历史（包括那段长 assistant 回复）都可以丢。只要 *单条 user 消息本身* 没超 2048，闸门就总能裁到合规。
-
-这是设计的本意：`keep_recent_turns` 实际上决定了 **"裁到最狠能留多少"**，而不只是 "最少要留多少"。二者看起来同义，但对 gate 的终止行为影响完全不同。
-
-### 观察 C：多轮工具对话也能产生校准信号
-
-demo 的工具（`get_time` / `calculator` / `random_int` / `wordcount`）都会触发多 round。旧实现中，带工具调用的 run 会因为 `single_round` 检查而跳过校准——factor 永远停在 1.0。
-
-新实现改用 `first_round_prompt_tokens` 校准：gate 只在首轮之前执行，首轮的 provider 报告是唯一可与 gate 估算归因的数据点。因此：
-
-- 纯文字问答（"写首诗" / "解释一下 XXX"）→ `samples` **会** 增加。
-- 带工具调用（"现在几点" → 触发 `get_time`）→ `samples` **也会** 增加。
-
-factor 不再会因为多轮工具对话而漂到 `MAX_FACTOR=2.0` 并卡死，因为我们用的是首轮数据而非累积膨胀的总量。
-
-### 观察 D：`PromptTooLong` 的两条路径
-
-REPL 里撞到这个错会看到两种前缀：
-
-```text
-[error] errno=19 msg=...                    ← 异步路径：走过 gate 但 provider 回 400
-        hit budget cap — raise ...
-```
-
-或
-
-```text
-[error] input rejected (errno=19)           ← 同步路径：gate 本地就拒了
-        hit budget cap — raise ...
-```
-
-同一个 errno，两种触发点：
-
-- **同步路径**：`xAgentSessionInput` 返回 `xErrno_PromptTooLong`——gate 本地判死。`on_error` 永远不会 fire，所以 demo 在 `xAgentSessionInput` 返回值处再打一遍同样的 hint。
-- **异步路径**：gate 放行了（calibrator 偶尔偏乐观），但 provider 真的嫌太长——`on_error` fire。
-
-两条路径都给用户 **同一句建议**：raise `max_tokens` 或 lower `keep_recent_turns`。
+CLI 默认就是这套。运行时改窗口用 `xAgentSessionSetContextWindow(sess, n)`
+（其它字段不动）。
 
 ---
 
-## 设计检查清单
+## 不变量清单
 
-把这套东西搬到别的系统时，下面几个问题值得一个个回答一遍：
+任何策略都必须遵守：
 
-1. **裁剪边界够不够自洽**？不变量 3（tool_use/tool_result 不可拆）对于所有能放进 history 的 entry kind 都成立吗？moo 里成立，因为 User 消息只承载 Text；别的系统里 User 如果也能带 ToolResult，这条就需要重新论证。
-2. **校准器的 `first_round_prompt_tokens` 归因是否足够鲁棒**？当前实现只取首轮的
-   `prompt_tokens`，因为 gate 只在首轮之前执行——这是唯一可与 gate 估算干净归因的
-   数据点。如果哪天 gate 也需要在后续轮之前执行（比如 background tool 概念），
-   则需要为每轮分别保存 estimate/actual 对。
-3. **`keep_recent_turns` 会不会和 `max_tokens` 天然冲突**？会。极端情况下
-   `keep_recent_turns=10` + `max_tokens=1024` 永远不合规。我们选择 **拒绝**
-   而不是静默违反 floor——因为 "用户明确要求保留最近 10 轮" 的承诺比
-   "尽量让它跑" 更强。
-4. **Disabled 策略的开销到底是多少**？一条 `if` + 一次返回。对于所有 zero-init
-   `xAgentSessionConf` 的调用方，行为与实现 c2 之前完全 byte-identical。
-   这是上线这套机制的硬前提。
-5. **Auto 的 tool_ratio 阈值是否对目标工作负载合理**？0.4 是在 "工具调用密集" 场景下
-   推出来的（典型：AI agent 反复调 API）。如果目标工作负载是 "长文写作 + 偶尔查字典"，
-   工具占比天然 < 10%，Auto 会稳定选 SummarizeOldest——此时可以直接用
-   SummarizeOldest 省掉 ratio 计算开销。反之，纯 API 编排场景工具占比常年 > 80%，
-   Auto 退化为 TruncateOldest——直接用 TruncateOldest 更省。
-   **Auto 的价值在于混合场景**。
-6. **SummarizeOldest 的 compact Query 自身会不会再触发预算闸门**？不会——compact 走的是
-   `xAgentSessionCompact` 内部的一次性 Query，不经过 `xAgentSessionInput`，因此不进闸门。
-   但 compact Query 的输出（摘要条目）会替换旧 history，如果摘要太长导致仍然超限，
-   `sess_fwd_on_done` 的降级逻辑会转到 TruncateOldest。
+1. **System prompt 不裁** —— borrowed sidecar，裁了也救不了。
+2. **当前正在提交的 user turn 不裁** —— 不然用户在问什么就没了。
+3. **`tool_use ↔ tool_result` 原子对** —— 切只在 User 边界切。
+4. **至少保留 `keep_recent_turns` 个完整 user turn**。
+5. **至少保留 `keep_head_turns` 个完整 user turn**（SummarizeOldest 专属）。
+6. **L1 preserve 喂进去的 = history 里即将消失的**，一一对应。
 
 ---
 
-## 相关代码
+## Prior art / 工程取舍
 
-- 公共 API：`libs/xagent/session.h`（`xAgentBudgetPolicy`、`xAgentBudgetConf`、`xAgentSessionConf::budget`）
-- 策略闸门：`libs/xagent/session.c :: session_enforce_budget_`
-- 三件套：`libs/xagent/budget.c` + `libs/xagent/budget_private.h`
-- 测试：`libs/xagent/budget_test.cpp`、`libs/xagent/session_test.cpp :: BudgetCalibrator / BudgetEnforcement`
-- 活体 demo：`apps/cli`
+### 直接借鉴
 
----
+- **Per-message envelope (`per_msg_envelope`)**：来自 OpenAI cookbook 的
+  「Counting tokens for chat completions」（`tokens_per_message=3`、
+  `tokens_per_name=1`）。我们合成了一个粗常数，不区分 role / name。
+- **Drop-oldest / windowed memory**：`keep_recent_turns` 等价 LangChain
+  `ConversationBufferWindowMemory(k=...)` 的 `k`、OpenAI Assistants API
+  `truncation_strategy: "auto"`。
+- **SummarizeOldest 思想**：LangChain `ConversationSummaryBufferMemory`
+  是经典参考。我们的实装走 Session 内部 compact Query 的路子。
+- **`tool_use ↔ tool_result` 配对**：Anthropic tool use 文档明确要求
+  「every `tool_use` block must be followed by a `tool_result`」。
+  OpenAI function calling 同约束。
+- **Cache-friendly prefix 复用**：Anthropic prompt caching 文档明确说
+  cache hit 要求 prefix 字节级一致。我们 compact Query 直接把主对话
+  prefix 整段发出去就是冲着 100% 命中去的。
 
-## 参考与原创性声明
+### 本项目自己的工程决定
 
-这套机制**整体是业界成熟做法的组装**，不是新算法。下面把每一块的来路摊开，便于后来者对照着换组件。
+下面这些没有公开文献对应，是从 moo 的代码形态推出来的：
 
-### 直接借鉴的通用做法
-
-- **"~4 bytes per token" 估算**：出自 OpenAI 官方
-  [Tokenizer 说明](https://platform.openai.com/tokenizer)
-  （"a helpful rule of thumb is that one token generally corresponds to
-  ~4 characters of text for common English text"）。我们用的是同一条启发式。
-- **`per-message overhead` 常量**：公式形态直接参考 OpenAI Cookbook 的
-  [`num_tokens_from_messages`](https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb)
-  （`tokens_per_message=3`、`tokens_per_name=1` 那一段）。我们合成了一个粗粒度常量 `8`，
-  没有拆 role / name。- **EWMA / 指数平滑**：Holt 1957、Brown 1956 的经典统计方法。把 EWMA 用作
-  "在线修正粗估" 的工程模式在 TCP RTT 估算（RFC 6298 §2、Jacobson 1988）里完全
-  同形——我们只是把 "RTT observed / RTT estimated" 换成了
-  "prompt_tokens actual / prompt_tokens estimated"。
-- **Drop-oldest / windowed memory**：
-  - LangChain 的
-    [`ConversationBufferWindowMemory(k=...)`](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.buffer_window.ConversationBufferWindowMemory.html)
-    ——我们的 `keep_recent_turns` 就是它的 `k`。
-  - LlamaIndex 的 [`ChatMemoryBuffer`](https://docs.llamaindex.ai/en/stable/api_reference/memory/chat_memory_buffer/)。
-  - OpenAI Assistants API 的 [`truncation_strategy: "auto"`](https://platform.openai.com/docs/api-reference/runs/createRun)——同一思想的官方实现。
-- **`SummarizeOldest` 策略**：LangChain 的
-  [`ConversationSummaryBufferMemory`](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.summary_buffer.ConversationSummaryBufferMemory.html)
-  是成熟参考。我们的实装是在 Session 内部发一次 compact Query，让模型把旧 history
-  压缩成一条 Text 摘要条目。
-- **"tool_use / tool_result 必须成对"**：Anthropic 在
-  [tool use 文档](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview)
-  里明确过——"every `tool_use` block must be followed by a `tool_result`"。
-  OpenAI function calling 也有对应约束。
-
-### 本项目自己做的工程取舍（不是 novelty，是局部决定）
-
-下面这些没有对应的公开文献，是从 moo 的具体代码形态推出来的：
-
-1. **校准器改用 `first_round_prompt_tokens` 归因**（见
-   [三件套 II / Opt-out 规则](#三件套-ii校准器)）。旧实现因
-   `query.c :: usage_accumulate` 的跨 round 累加语义而需要 `single_round`
-   opt-out；新实现改为 `prompt_tokens` 取 max + 首轮归因，多轮工具对话也能产生
-   有效校准信号。大多数 memory / truncation 库不做在线 estimator 校准，所以也
-   不需要处理这个 corner case。换一套 provider / Query 模型，归因逻辑要重新推。
-2. **三件套的职责切分**：estimator 纯函数、calibrator 有状态、trimmer 只回答 "能裁到哪"、policy gate 决定 "要不要裁 / 拒还是通过"。这条拆法是我们自己的，不等价于任何现成库的架构。
-3. **Gate 位置 = history 落盘之前**，换来 "Error 策略不留脏 history" 这条
-   对调用方的承诺。
-4. **裁剪器只在 User 边界切**，用这一条几何约束把 "不拆 tool_use/tool_result 对" 从一条运行时检查变成结构性保证。思想来自 Anthropic 的原子对要求，实现路径是我们自己的。
-5. **Auto 策略的 tool_ratio 阈值取 0.4 而非 0.5**——摘要失败的代价（丢关键 ID / 误解参数语义 → 静默错误推理）远高于截断失败（丢旧信息 → 用户还能继续对话），所以偏向截断是理性选择。阈值不是从任何论文推出来的，是我们对 LLM 摘要结构化数据能力的经验判断。
+1. **删校准器 + 增量记账**：用 provider 首轮 `prompt_tokens` 锚精确基线，
+   只估增量。校准器收益边际接近零、状态机复杂度反而高，删除净收益。
+2. **中段摘要而非 front-replace**：保 head 是为了「记住任务目标」，
+   保 tail 是为了「记住当前进度」，摘 middle 是「丢冗余推理」。
+   这条切分是从长对话失效模式里反推出来的，不等价于任何现成 memory 库。
+3. **Cache-friendly compact Query**：head + middle 整段原样发出去做摘要，
+   而不是抽取 / 重组。多花一些 input token，换 prompt cache 100% 命中。
+4. **删 Auto / 删 TruncateOldest / 删降级**：把策略空间从「Disabled / Error
+   / TruncateOldest / SummarizeOldest / Auto」收敛到「Disabled / Error /
+   SummarizeOldest（推荐） / TruncateTail（兜底）」。少即是多 —— 旧 Auto 阈值
+   `tool_ratio = 0.4` 是经验值，且降级 truncate 会掩盖摘要失败的真因。
+5. **Splice = `xArrayRemoveRange + xArrayInsert`，不动 head 不动 tail**：
+   把「保 prefix」从约定变成数据结构层面的保证。
+6. **L1 preserve 是唯一写通道**：所有持久化必须经过 budget event 触发，
+   不在其它路径偷偷写 —— 这条保证 L1 数据来源单一、可审计。
 
 ### 建议继续阅读
 
-- Anthropic, ["Long context tips"](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/long-context-tips) —— context 管理的 official guidance。
-- OpenAI, ["Managing tokens"](https://platform.openai.com/docs/guides/text-generation/managing-tokens)。
-- 如果打算接 `SummarizeOldest`：Wang et al., ["Recursively Summarizing Books with Human Feedback"](https://arxiv.org/abs/2109.10862) —— 分块总结的早期工作。
+- Anthropic, [Long context tips](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/long-context-tips)
+- Anthropic, [Prompt caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching)
+- OpenAI, [Managing tokens](https://platform.openai.com/docs/guides/text-generation/managing-tokens)
+- Wang et al., [Recursively Summarizing Books with Human Feedback](https://arxiv.org/abs/2109.10862) —— 分块总结的早期工作。
+
+---
+
+## 相关测试
+
+`libs/xagent/session_test.cpp`:
+
+- `BudgetSummarizeOldestPreservesHeadAndRecent` —— middle splice 字节级正确性。
+- `L1PreserveCompactedDeliversMiddleBandOnly` —— L1 通道不变量。
+- `BudgetSummarizeOldestKeepHeadZeroDegradesToFrontReplace` —— `keep_head_turns=0`
+  退化兼容。
+- `BudgetSummarizeOldestCompactsHistory` —— end-to-end compact pipeline。
+
+未覆盖（已知）：`persisted_prefix` 的「跨 middle」「>= recent_idx」两个分支
+还没单独测试 —— 当前测试都从空 L1 store 起步、`persisted_prefix = 0`，
+只走「< head_idx」分支。等 prime / resume 路径暴露 bug 再补。

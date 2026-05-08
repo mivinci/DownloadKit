@@ -496,7 +496,7 @@ xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
                  (int)err);
     if (err == xErrno_PromptTooLong) {
       above_printf(ctx->line, "\x1b[1;31m        hit budget cap — raise "
-                              "sconf.budget.max_tokens or lower "
+                              "sconf.budget.context_window or lower "
                               "keep_recent_turns\x1b[0m");
     }
     return err;

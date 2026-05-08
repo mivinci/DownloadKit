@@ -1814,7 +1814,7 @@ xAgentSession make_session_with_budget(xAgent agent,
 TEST_F(SessionTest, BudgetDisabledAcceptsOversizedInput) {
   Captured cap;
   xAgentBudgetConf budget{};              /* policy = Disabled (zero) */
-  budget.max_tokens        = 1;        /* deliberately absurd      */
+  budget.context_window        = 1;        /* deliberately absurd      */
   budget.keep_recent_turns = 0;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -1843,7 +1843,7 @@ TEST_F(SessionTest, BudgetErrorPolicyRefusesOversizedInput) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_Error;
-  budget.max_tokens        = 20;       /* 20 tokens ≈ 80 payload bytes */
+  budget.context_window        = 20;       /* 20 tokens ≈ 80 payload bytes */
   budget.keep_recent_turns = 0;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -1876,7 +1876,7 @@ TEST_F(SessionTest, BudgetErrorPolicyAllowsUnderBudgetInput) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
-  budget.max_tokens = 200;             /* generous */
+  budget.context_window = 200;             /* generous */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -1906,7 +1906,7 @@ TEST_F(SessionTest, BudgetRefusesWhenFloorUnreachable) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
-  budget.max_tokens        = 30;       /* very tight                   */
+  budget.context_window        = 30;       /* very tight                   */
   budget.keep_recent_turns = 5;        /* absurdly high floor          */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -1938,7 +1938,7 @@ TEST_F(SessionTest, BudgetReservedPoliciesRefuseWhenOver) {
     Captured cap;
     xAgentBudgetConf budget{};
     budget.policy     = p;
-    budget.max_tokens = 10;
+    budget.context_window = 10;
     xAgentSession sess =
         make_session_with_budget(agent_, make_cbs(&cap), budget);
     ASSERT_NE(sess, nullptr);
@@ -1960,7 +1960,7 @@ TEST_F(SessionTest, BudgetPolicyUnderBudgetIsNoop) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_SummarizeOldest;
-  budget.max_tokens = 500;             /* roomy                        */
+  budget.context_window = 500;             /* roomy                        */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -2045,7 +2045,7 @@ TEST_F(TrimToolResultsFixture, TrimsConsumedToolResultsAboveThreshold) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy                       = xAgentBudgetPolicy_SummarizeOldest;
-  budget.max_tokens                   = 300;  /* tight: 2000-byte payload
+  budget.context_window                   = 300;  /* tight: 2000-byte payload
                                                  ≈ 500 tokens alone, plus
                                                  other entries easily exceed */
   budget.trim_tool_results_threshold  = 5000; /* 50% = 150 tokens */
@@ -2122,7 +2122,7 @@ TEST_F(TrimToolResultsFixture, NoTrimWhenThresholdDisabled) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy                       = xAgentBudgetPolicy_SummarizeOldest;
-  budget.max_tokens                   = 300;
+  budget.context_window                   = 300;
   budget.trim_tool_results_threshold  = 0;    /* disabled */
   budget.max_tool_result_bytes        = SIZE_MAX;
   budget.keep_recent_turns            = 1;
@@ -2205,7 +2205,7 @@ TEST_F(SessionTest, BudgetBookkeepingInitialStateIsUnknown) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
-  budget.max_tokens = 1000;
+  budget.context_window = 1000;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -2220,7 +2220,7 @@ TEST_F(SessionTest, BudgetBookkeepingUpdatesOnProviderReport) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
-  budget.max_tokens = 1000;
+  budget.context_window = 1000;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -2249,7 +2249,7 @@ TEST_F(SessionTest, BudgetBookkeepingIgnoresMissingUsage) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
-  budget.max_tokens = 1000;
+  budget.context_window = 1000;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -2272,7 +2272,7 @@ TEST_F(SessionTest, BudgetBookkeepingIgnoresUnknownPromptTokens) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
-  budget.max_tokens = 1000;
+  budget.context_window = 1000;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -2305,7 +2305,7 @@ TEST_F(SessionTest, BudgetBookkeepingFeedsBackIntoNextGate) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_Error;
-  budget.max_tokens = 500;
+  budget.context_window = 500;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -2362,7 +2362,7 @@ TEST_F(SessionTest, BudgetSummarizeOldestCompactsHistory) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
-  budget.max_tokens        = 200;      /* enough for 3 primer rounds  */
+  budget.context_window        = 200;      /* enough for 3 primer rounds  */
   budget.keep_recent_turns = 1;        /* always keep the last turn    */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -2446,7 +2446,7 @@ TEST_F(SessionTest, BudgetSummarizeOldestUnderBudgetIsNoop) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy     = xAgentBudgetPolicy_SummarizeOldest;
-  budget.max_tokens = 500;             /* generous */
+  budget.context_window = 500;             /* generous */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -2483,7 +2483,7 @@ TEST_F(SessionTest, BudgetSummarizeOldestReportsErrorOnEmptySummary) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
-  budget.max_tokens        = 200;
+  budget.context_window        = 200;
   budget.keep_recent_turns = 1;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -2548,7 +2548,7 @@ TEST_F(SessionTest, BudgetSummarizeOldestFallsBackToThinkingWhenNoText) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
-  budget.max_tokens        = 200;
+  budget.context_window        = 200;
   budget.keep_recent_turns = 1;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -2616,7 +2616,7 @@ TEST_F(SessionTest, BudgetSummarizeOldestRefusesWhenFloorUnreachable) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
-  budget.max_tokens        = 30;       /* very tight                   */
+  budget.context_window        = 30;       /* very tight                   */
   budget.keep_recent_turns = 5;        /* absurdly high floor          */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -2747,7 +2747,7 @@ TEST_F(SessionTest, L1PreserveCompactedOnSummarize) {
 
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
-  budget.max_tokens        = 80;
+  budget.context_window        = 80;
   budget.keep_recent_turns = 1;
 
   xAgentSessionConf sc       = {};

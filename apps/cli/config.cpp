@@ -323,7 +323,7 @@ int cli_model_config_load(const char     *data_dir,
       return bail(path + ": failed to create provider for \"" + id + "\"");
 
     /* Optional per-entry "context_window": overrides the session's
-     * budget.max_tokens whenever this model is active. Missing or
+     * budget.context_window whenever this model is active. Missing or
      * non-positive means "use the global default set up in main.cpp",
      * which we encode as 0 so the caller can distinguish explicit
      * from absent. */

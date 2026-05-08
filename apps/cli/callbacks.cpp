@@ -229,14 +229,14 @@ void on_error(xAgentSession sess, xErrno err, const char *msg, void *ud) {
    * errno most likely to surprise a demo user ("I didn't do
    * anything weird, why did my innocuous follow-up get rejected?")
    * — it means either the rolling history plus the incoming
-   * message overflowed sconf.budget.max_tokens with no room to
+   * message overflowed sconf.budget.context_window with no room to
    * trim below keep_recent_turns, or the incoming message alone
    * is bigger than the cap. The fix is almost always "raise the
    * cap" for a calibrator demo; production callers would
    * typically switch to SummarizeOldest or a Callback policy. */
   if (err == xErrno_PromptTooLong) {
     above_printf(ctx->line, "\x1b[1;31m        hit budget cap — raise "
-                            "sconf.budget.max_tokens or lower "
+                            "sconf.budget.context_window or lower "
                             "keep_recent_turns\x1b[0m");
   }
   ctx->busy = false;

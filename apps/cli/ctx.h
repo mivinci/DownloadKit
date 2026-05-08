@@ -87,7 +87,7 @@ struct ReplCtx {
 
   /* Session-wide default context window (in tokens) applied whenever
    * the selected model entry carries no explicit "context_window".
-   * Mirrors sconf.budget.max_tokens at startup so /model switches to
+   * Mirrors sconf.budget.context_window at startup so /model switches to
    * entries without a per-model override don't silently inherit the
    * previous (possibly much larger) model's window. */
   size_t default_context_window = 0;

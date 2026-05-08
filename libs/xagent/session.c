@@ -355,31 +355,14 @@ static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
          XAGENT_BUDGET_PER_MSG_TOKENS;
 }
 
-/* Drop history entries @c [0, keep_idx) in place (head-trim).
- * Releases each slot's owned strings via ai_session_msg_free() and
- * shifts the survivors down with memmove. The capacity is left
- * untouched — we expect the freed slots to be refilled by the very
- * next xAgentSessionInput run, and shrinking the backing array would
- * just churn realloc.
- *
- * NOTE: Head-trimming is used by SummarizeOldest compact completion
- * (which replaces old entries with a summary at the front). There is
- * no policy today that trims from the tail — the previous TruncateTail
- * helper was removed along with TruncateOldest. Tail trimming can be
- * reintroduced when the new compact pipeline needs it. */
-static void session_trim_history_front_(struct xAgentSession_ *s,
-                                        size_t                 keep_idx) {
-  if (keep_idx == 0 || keep_idx >= xArrayLen(s->history_arr)) return;
-  xArrayRemoveRange(s->history_arr, 0, keep_idx);
-  /* Keep persisted_prefix consistent: any primed rows in
-   * [0, keep_idx) just left history_arr, so the prefix shrinks
-   * by the same amount. Clamped so primed-but-outlived shrinks
-   * don't underflow. */
-  if (s->persisted_prefix >= keep_idx)
-    s->persisted_prefix -= keep_idx;
-  else
-    s->persisted_prefix = 0;
-}
+/* Historically the session had a session_trim_history_front_() helper
+ * that wiped history[0..keep_idx) in place. It was removed when the
+ * SummarizeOldest pipeline moved to middle-band compaction: instead
+ * of replacing the front prefix with a summary, the new pipeline
+ * preserves the head verbatim and splices the summary into the middle
+ * via xArrayRemoveRange + xArrayInsert directly in sess_fwd_on_done.
+ * persisted_prefix adjustment is inlined at the call site (see the
+ * "compact_ok" branch of sess_fwd_on_done). */
 
 /* ── Retroactive tool_result trimming ───────────────────────────
  *
@@ -476,8 +459,8 @@ static size_t session_trim_consumed_tool_results_(
  * explicit value. Kept inline-ish so each policy branch does not
  * repeat the fallback. */
 static size_t session_budget_limit_(const struct xAgentSession_ *s) {
-  return s->budget.max_tokens > 0 ? s->budget.max_tokens
-                                  : XAGENT_BUDGET_DEFAULT_MAX_TOKENS;
+  return s->budget.context_window > 0 ? s->budget.context_window
+                                      : XAGENT_BUDGET_DEFAULT_MAX_TOKENS;
 }
 
 /* Decide whether this incoming user message, combined with the
@@ -732,71 +715,89 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     return xErrno_PromptTooLong;
 
   case xAgentBudgetPolicy_SummarizeOldest: {
-    /* ── SummarizeOldest: compress old history into a summary ──
+    /* ── SummarizeOldest: compress middle history into a summary ──
      *
-     * The idea: instead of truncating history outright (losing
-     * information), we launch a short internal Query that asks
-     * the model to summarise the oldest portion of the
-     * conversation. The summary replaces those entries, freeing
-     * up budget space while preserving key facts.
+     * The idea: instead of truncating history outright (losing the
+     * original task framing or the most recent working context), we
+     * launch a short internal Query that summarises the MIDDLE band
+     * of the conversation, and preserve the head (first @c
+     * keep_head_turns user turns) and tail (last @c keep_recent_turns
+     * user turns) verbatim.
+     *
+     *   [ head (keep_head_turns) | middle (summarised) | recent (keep_recent_turns) ]
+     *     ^^^^^ anchors task     ^^^^^ replaced by     ^^^^^ current working
+     *           goal & prefix          one [summary]         context
+     *           cache
      *
      * Steps:
-   *   1. Find the earliest-keep boundary (same primitive as
-   *      TruncateTail uses for its prefix floor).
-     *   2. Bail if keep == 0 (nothing to summarise / floor
-     *      exceeds history).
+     *   1. Compute head_idx = tail_keep(keep_head_turns) and
+     *      recent_idx = earliest_keep(keep_recent_turns).
+     *   2. Bail if head_idx >= recent_idx (no middle to summarise
+     *      or floor exceeds available history).
      *   3. If already compacting, return Busy.
-     *   4. Build the full session view (system prompt + history)
-     *      and append a summary instruction as the final user message.
-     *   5. Create an internal Query (budget enforcement is
-     *      implicitly disabled because the compact Query is
-     *      driven by session_enforce_budget_ which gates on
-     *      s->compacting).
-     *   6. Run it.
-     *   7. Return Busy — the caller waits for compact to
-     *      finish; sess_fwd_on_done handles the rest.
+     *   4. Build a compact Query input from history[0..recent_idx)
+     *      (head + middle) plus a tail summarisation instruction.
+     *      We send head+middle so the model has the context needed
+     *      to produce a coherent summary; the summary replaces the
+     *      middle only, leaving head intact for cache-prefix stability.
+     *   5. Run the Query; return Busy — sess_fwd_on_done replaces
+     *      history[head_idx..recent_idx) with the summary entry.
      *
-     * The compact completes asynchronously (the internal Query
-     * runs on the same event loop). On completion,
-     * sess_fwd_on_done detects the compacting state and
-     * replaces the old history entries with the summary.
+     * When @c keep_head_turns == 0 the head band is empty and the
+     * pipeline collapses to the classic "summarise the oldest
+     * [0..recent_idx) band" shape — callers who don't opt into
+     * head preservation get the original behaviour unchanged.
      */
-    size_t keep = ai_budget_earliest_keep(
-      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
-      xArrayLen(s->history_arr), s->budget.keep_recent_turns);
+    size_t hlen = xArrayLen(s->history_arr);
+    const struct xAgentSessionMsg_ *msgs_view =
+      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr);
 
-    /* Nothing to summarise or floor exceeds history. */
-    if (keep == 0) return xErrno_PromptTooLong;
+    size_t head_idx = s->budget.keep_head_turns > 0
+      ? ai_budget_tail_keep(msgs_view, hlen, s->budget.keep_head_turns)
+      : 0;
+    size_t recent_idx = ai_budget_earliest_keep(msgs_view, hlen,
+                                                s->budget.keep_recent_turns);
+
+    /* tail_keep returns n when not enough history — clamp to hlen
+     * so the middle-size arithmetic below doesn't underflow. */
+    if (head_idx > hlen) head_idx = hlen;
+
+    /* No middle to summarise: either the two preserved bands meet
+     * (head_idx >= recent_idx) or the recent floor swallows everything
+     * (recent_idx == 0). Refuse rather than silently truncating — the
+     * caller opted into SummarizeOldest precisely to avoid data loss. */
+    if (recent_idx == 0 || head_idx >= recent_idx) {
+      return xErrno_PromptTooLong;
+    }
 
     /* Re-entrance guard: only one compact at a time. */
     if (s->compacting) return xErrno_Busy;
 
-    /* Record the earliest index to keep after the compact
-     * completes. Everything before this index will be replaced
-     * by the summary. */
-    s->compact_keep_idx = keep;
+    /* Record both band boundaries for sess_fwd_on_done to splice
+     * the summary back into the right place. */
+    s->compact_head_idx = head_idx;
+    s->compact_keep_idx = recent_idx;
 
     /* ── Notify caller: compact is starting ───────────────
-     * Fire the Compacting event BEFORE marking compacting=1 so
-     * the caller can distinguish "Busy because compacting" from
-     * "Busy because a normal Query is in flight". The info
-     * struct tells them how many old entries are being compacted.
-     * ────────────────────────────────────────────────────── */
+     * entries_compacted is the middle-band size (what actually
+     * gets replaced) so the UI can say "compacting N entries"
+     * honestly. */
     if (s->on_budget_event) {
       struct xAgentBudgetCompactInfo ci;
-      ci.entries_compacted = keep;
+      ci.entries_compacted = recent_idx - head_idx;
       s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_Compacting, &ci,
                          s->budget_event_ud);
     }
 
-    /* Build a structured message array from only the old entries
-     * [0..keep), preserving role information so the provider sees
-     * the same prefix structure as a normal conversation turn.
-     * This is cache-friendly (the old-history prefix matches what
-     * the provider already has cached) while keeping the request
-     * small enough to fit within the provider's context window
-     * (we only send the entries being summarised, not the full
-     * history which already exceeds the budget). */
+    /* Build a structured message array from history[0..recent_idx)
+     * — head + middle — preserving role information so the provider
+     * sees the same prefix structure as a normal conversation turn.
+     * This is cache-friendly (the head prefix matches what the
+     * provider already has cached) while keeping the request small
+     * enough to fit within the provider's context window (we skip
+     * the recent tail since including it would just confuse the
+     * summariser about what to compress). */
+    const size_t keep = recent_idx; /* alias kept for block-builder below */
     char summary_instr[256];
     snprintf(summary_instr, sizeof(summary_instr),
              XAGENT_SUMMARY_SYSTEM_PROMPT, keep);
@@ -1700,38 +1701,55 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       }
     }
 
-    /* Compact succeeded (we got a non-empty summary) — replace
-     * the old history entries with one System summary entry.
-     * Compact failed (empty summary / OOM) — fall through to
-     * TruncateTail degradation. */
-    size_t keep_idx   = s->compact_keep_idx;
+    /* Compact succeeded (we got a non-empty summary) — splice the
+     * summary into history at head_idx, replacing the middle band
+     * history[head_idx..recent_idx). Compact failed (empty / OOM) —
+     * leave history untouched. */
+    size_t head_idx   = s->compact_head_idx;
+    size_t recent_idx = s->compact_keep_idx;
     int    compact_ok = (summary_text != NULL && summary_bytes > 0);
 
     if (compact_ok) {
-      /* L1 preserve: deliver the about-to-be-replaced entries [0, keep_idx)
-       * before they are swapped out by the summary. The consumer may want
-       * the original full-fidelity entries even though a summary will take
-       * their place in the session's history. This fires BEFORE the trim.
+      /* L1 preserve: deliver the about-to-be-replaced MIDDLE entries
+       * [head_idx, recent_idx) before they are swapped out by the
+       * summary. Entries already in the external store (persisted
+       * prefix) are skipped so compaction doesn't re-append them.
        *
-       * Primed entries are already in the external store; skip
-       * them so compaction doesn't re-append existing rows. */
-      if (s->on_l1_preserve && keep_idx > 0) {
-        size_t skip =
-          s->persisted_prefix < keep_idx ? s->persisted_prefix : keep_idx;
-        if (keep_idx > skip) {
+       * The persisted_prefix is counted from the START of history,
+       * so "already persisted within the middle band" is
+       * [head_idx, min(persisted_prefix, recent_idx)).
+       */
+      if (s->on_l1_preserve && recent_idx > head_idx) {
+        size_t skip_start = head_idx;
+        if (s->persisted_prefix > head_idx) {
+          skip_start =
+            s->persisted_prefix < recent_idx ? s->persisted_prefix : recent_idx;
+        }
+        if (recent_idx > skip_start) {
           s->on_l1_preserve(
             (xAgentSession)s,
-            (const xAgentSessionMsg *)xArrayData(s->history_arr) + skip,
-            keep_idx - skip, xAgentL1PreserveReason_Compacted,
+            (const xAgentSessionMsg *)xArrayData(s->history_arr) + skip_start,
+            recent_idx - skip_start, xAgentL1PreserveReason_Compacted,
             s->l1_preserve_owner);
         }
       }
-      /* Remove the old entries [0, keep_idx). */
-      session_trim_history_front_(s, keep_idx);
 
-      /* Insert the summary entry at the beginning of history. We
-       * build it as a temporary xAgentSessionMsg_ and splice it in
-       * via xArrayInsert. */
+      /* Remove the middle band [head_idx, recent_idx). */
+      if (recent_idx > head_idx) {
+        xArrayRemoveRange(s->history_arr, head_idx, recent_idx - head_idx);
+        /* Keep persisted_prefix consistent. Rows in
+         * [head_idx, recent_idx) just left history_arr, so the
+         * persisted prefix shrinks by the overlap. Clamped to head_idx
+         * so the prefix never grows past the surviving head. */
+        if (s->persisted_prefix > recent_idx) {
+          s->persisted_prefix -= (recent_idx - head_idx);
+        } else if (s->persisted_prefix > head_idx) {
+          s->persisted_prefix = head_idx;
+        }
+      }
+
+      /* Build the summary entry and insert it at head_idx (right
+       * after the preserved head prefix). */
       struct xAgentSessionMsg_ summary_entry;
       memset(&summary_entry, 0, sizeof(summary_entry));
       summary_entry.role          = xAgentRole_System;
@@ -1741,9 +1759,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       summary_entry.created_at_ms = xWallMs();
       summary_entry.is_summary    = 1;
 
-      /* xArrayInsert shifts existing elements up and copies the
-       * new element into position 0. */
-      if (xArrayInsert(&s->history_arr, 0, &summary_entry) != xErrno_Ok) {
+      if (xArrayInsert(&s->history_arr, head_idx, &summary_entry) != xErrno_Ok) {
         /* OOM on insert — free the summary text and degrade. */
         free(summary_text);
         compact_ok = 0;
@@ -1754,22 +1770,23 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
         summary_text = NULL;
 
         /* L1-preserve the new summary entry so it is written to
-         * the external store (JSONL). We must persist it NOW
-         * because the original entries it replaces are already
-         * gone from the history array — if we skip this, the
-         * summary will never reach disk and the next prime will
-         * find a gap in the conversation. After persisting, mark
-         * persisted_prefix = 1 so the summary is not re-appended
-         * on a later Finalizing/Truncated flush. */
+         * the external store (JSONL). Persist NOW because the
+         * original middle entries it replaces are already gone — if
+         * we skip this, the summary will never reach disk and the
+         * next prime will find a gap. */
         if (s->on_l1_preserve) {
           const xAgentSessionMsg *sum_ptr =
-            (const xAgentSessionMsg *)xArrayData(s->history_arr);
+            (const xAgentSessionMsg *)xArrayData(s->history_arr) + head_idx;
           s->on_l1_preserve(
             (xAgentSession)s, sum_ptr, 1,
             xAgentL1PreserveReason_Compacted,
             s->l1_preserve_owner);
         }
-        s->persisted_prefix = 1;
+        /* The summary is now a persisted head entry. Ensure
+         * persisted_prefix covers it so future flushes don't
+         * re-append it. */
+        if (s->persisted_prefix < head_idx + 1)
+          s->persisted_prefix = head_idx + 1;
       }
     }
 
@@ -1786,6 +1803,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
 
     /* Reset compacting state. */
     s->compacting       = 0;
+    s->compact_head_idx = 0;
     s->compact_keep_idx = 0;
 
     /* Invalidate incremental bookkeeping when history actually
@@ -1827,10 +1845,11 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       cdi.summary_tokens =
         compact_ok
           ? ai_budget_estimate_tokens(
-              (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
+              (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr)
+                + head_idx,
               1 /* just the summary entry */)
           : 0;
-      cdi.entries_affected = keep_idx;
+      cdi.entries_affected = recent_idx > head_idx ? recent_idx - head_idx : 0;
       s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_CompactDone, &cdi,
                          s->budget_event_ud);
     }
@@ -2195,8 +2214,8 @@ xErrno xAgentSessionSetModel(xAgentSession sess, const char *model_id) {
   return xErrno_Ok;
 }
 
-void xAgentSessionSetContextWindow(xAgentSession sess, size_t max_tokens) {
-  /* Only touch budget.max_tokens. Policy, keep_recent_turns,
+void xAgentSessionSetContextWindow(xAgentSession sess, size_t context_window) {
+  /* Only touch budget.context_window. Policy, keep_recent_turns,
    * callbacks, etc. stay exactly as the session was configured at
    * create time — host apps that dial the window on a model switch
    * shouldn't have to re-specify the rest of the budget conf. The
@@ -2205,7 +2224,7 @@ void xAgentSessionSetContextWindow(xAgentSession sess, size_t max_tokens) {
    * with the limit it was admitted under. */
   if (!sess) return;
   struct xAgentSession_ *s = (struct xAgentSession_ *)sess;
-  s->budget.max_tokens     = max_tokens;
+  s->budget.context_window = context_window;
 }
 
 void xAgentSessionDestroy(xAgentSession sess) {

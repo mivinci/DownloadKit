@@ -315,7 +315,7 @@ int main(int argc, char *argv[]) {
     ctx.default_context_window = kDefaultContextWindow;
 
     sconf.budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
-    sconf.budget.max_tokens        = session_max_tokens;
+    sconf.budget.context_window    = session_max_tokens;
     sconf.budget.keep_recent_turns = 2;
     sconf.budget.on_budget_event   = on_budget_event;
     sconf.budget.budget_event_ud   = &ctx;

@@ -607,7 +607,7 @@ XDEF_STRUCT(xAgentBudgetToolResultsTrimmedInfo) {
  * @brief Extra detail passed with xAgentBudgetEvent_GatePassed.
  */
 XDEF_STRUCT(xAgentBudgetGateInfo) {
-  /** The effective token ceiling (from budget.max_tokens or the
+  /** The effective token ceiling (from budget.context_window or the
    *  built-in default). */
   size_t limit;
 
@@ -673,7 +673,7 @@ typedef void (*xAgentBudgetEventFunc)(xAgentSession      sess,
 XDEF_STRUCT(xAgentBudgetConf) {
   /**
    * @brief Which policy the session applies when the estimated
-   *        prompt size is about to exceed @ref max_tokens.
+   *        prompt size is about to exceed @ref context_window.
    *
    * @ref xAgentBudgetPolicy_Disabled (the zero default) disables the
    * check entirely; the other fields are then ignored.
@@ -681,35 +681,54 @@ XDEF_STRUCT(xAgentBudgetConf) {
   xAgentBudgetPolicy policy;
 
   /**
-   * @brief Estimated-token ceiling for the serialized prompt.
+   * @brief Model context window in tokens.
+   *
+   * The session treats this as the hard ceiling for the serialized
+   * prompt (system + history + incoming user message). When the
+   * estimated size is about to exceed it, the enforcement policy
+   * (@ref policy) kicks in.
    *
    * Zero means "let the session fall back to its built-in default
    * for the active model" — the concrete default is
    * implementation-defined and may change across releases. Callers
    * with a hard downstream limit should set this explicitly.
+   *
+   * Naming note: this field was previously called @c max_tokens,
+   * which collided with the per-round completion cap of the same
+   * name on @ref xAgentSessionConf. Renamed to @c context_window
+   * to reflect what it actually models.
    */
-  size_t max_tokens;
+  size_t context_window;
 
   /**
-   * @brief Minimum number of prefix User turns to keep intact when
-   *        TruncateTail fires, ensuring the prompt prefix remains
-   *        stable for provider-side prompt caching.
+   * @brief Minimum number of User turns to preserve at the HEAD of
+   *        history (the oldest turns that anchor the prompt prefix
+   *        for caching and the task-goal framing).
    *
    * A "User turn" here means one xAgentRole_User message plus every
    * assistant / tool entry that followed before the next user
-   * message. When the budget is exceeded, entries beyond this
-   * prefix boundary (newer turns closer to the tail) are truncated
-   * first, preserving the oldest turns as a cache-stable prefix.
+   * message. Under SummarizeOldest, these turns are NEVER summarised
+   * away — they remain verbatim so the model keeps the original
+   * instructions / task scope.
    *
-   * Zero means "keep only the first User turn group as prefix". The
-   * session may clamp very high values downward if honouring them
-   * would itself violate @ref max_tokens.
+   * Zero means "no head reservation" (the first summarise boundary
+   * starts at index 0). Defaults to 2 when left as zero by callers
+   * that only set @c context_window.
+   */
+  size_t keep_head_turns;
+
+  /**
+   * @brief Minimum number of User turns to preserve at the TAIL of
+   *        history (the most recent turns that carry the current
+   *        working context).
    *
-   * Note: this field was previously named "keep_recent_turns" and
-   * its semantics were inverted — it used to protect the NEWEST
-   * turns from head-truncation. The name is retained for ABI
-   * compatibility but the direction has changed: the protected
-   * region is now the OLDEST (prefix) turns, not the newest.
+   * Under SummarizeOldest, these tail turns are NEVER summarised
+   * away — they remain verbatim so the model keeps local context
+   * and can react coherently to the next input.
+   *
+   * Zero means "keep only the most recent User turn". The session
+   * may clamp very high values downward if honouring them would
+   * itself violate @ref context_window.
    */
   size_t keep_recent_turns;
 
@@ -734,7 +753,7 @@ XDEF_STRUCT(xAgentBudgetConf) {
    *        percentage × 100 to avoid floating point in the struct).
    *
    * When the estimated context usage exceeds
-   *   max_tokens × trim_tool_results_threshold / 10000,
+   *   context_window × trim_tool_results_threshold / 10000,
    * the session scans history from tail to head and truncates
    * tool_result outputs that have already been "consumed" by the
    * model (i.e. there is a subsequent Assistant entry after the
@@ -748,7 +767,7 @@ XDEF_STRUCT(xAgentBudgetConf) {
    *
    * Values:
    *   - 0 (default): disabled — no retroactive trimming.
-   *   - 7000: trim when usage ≥ 70% of max_tokens.
+   *   - 7000: trim when usage ≥ 70% of context_window.
    *   - 10000: trim only when usage ≥ 100% (effectively off unless
    *     over budget).
    *
@@ -1012,7 +1031,7 @@ XCAPI(xErrno) xAgentSessionSetModel(xAgentSession sess, const char *model_id);
 /**
  * @brief Update the session's context-window budget in tokens.
  *
- * Overwrites @ref xAgentBudgetConf::max_tokens on the session's
+ * Overwrites @ref xAgentBudgetConf::context_window on the session's
  * budget state. The new limit is consulted on the NEXT
  * xAgentSessionInput — any run already in flight keeps the limit it
  * was admitted with. All other budget fields (policy,
@@ -1023,13 +1042,13 @@ XCAPI(xErrno) xAgentSessionSetModel(xAgentSession sess, const char *model_id);
  * the session's budget gate in sync when the user switches models
  * at runtime via xAgentSessionSetModel().
  *
- * @param sess        Session handle (NULL is a no-op).
- * @param max_tokens  New context-window limit in tokens. Zero means
- *                    "fall back to the built-in default"
- *                    (xAgentBudgetConf documents the exact value).
+ * @param sess            Session handle (NULL is a no-op).
+ * @param context_window  New context-window limit in tokens. Zero
+ *                        means "fall back to the built-in default"
+ *                        (xAgentBudgetConf documents the exact value).
  */
 XCAPI(void) xAgentSessionSetContextWindow(xAgentSession sess,
-                                          size_t        max_tokens);
+                                          size_t        context_window);
 
 /**
  * @brief Destroy the session and release its resources.

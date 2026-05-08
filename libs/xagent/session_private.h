@@ -120,17 +120,22 @@ struct xAgentSession_ {
    * launches an internal summary Query that compresses old history
    * into one System entry. During this compaction:
    *   - compacting == 1 signals "compact query in flight";
-   *   - compact_keep_idx records the earliest history index that
-   *     survives the compact (entries before it will be replaced by
-   *     the summary);
+   *   - compact_head_idx records the end of the HEAD prefix that is
+   *     preserved verbatim (history[0..compact_head_idx) survives);
+   *   - compact_keep_idx records the start of the RECENT tail that
+   *     is preserved verbatim (history[compact_keep_idx..n) survives);
+   *   - the MIDDLE segment [compact_head_idx..compact_keep_idx) will
+   *     be replaced by one System summary entry on success, and left
+   *     untouched on failure;
    *   - budget enforcement is implicitly disabled because the
    *     compact Query is driven by session_enforce_budget_ which
    *     gates on s->compacting, preventing recursive budget checks.
    *
-   * All three are zero when no compact is in progress.
+   * All are zero when no compact is in progress.
    */
-  int    compacting;       /* 1 = compact query in flight           */
-  size_t compact_keep_idx; /* earliest index to keep after compact  */
+  int    compacting;       /* 1 = compact query in flight              */
+  size_t compact_head_idx; /* end of preserved HEAD prefix (exclusive) */
+  size_t compact_keep_idx; /* start of preserved RECENT tail           */
 
   /* ── Session-lifetime properties (stamped at create, immutable) ── */
   xAgentInputOrigin           origin;           /* default User on zero    */

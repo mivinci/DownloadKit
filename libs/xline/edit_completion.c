@@ -60,10 +60,10 @@ static void editor_append_completion(ic_env_t *env, editor_t *eb, ssize_t idx,
   if (display == NULL) return;
   if (numbered) {
     sbuf_appendf(
-      eb->extra, "[ic-info]%s%zd [/]",
+      eb->extra, "[ic-info]%s%2zd [/]",
       (selected ? (tty_is_utf8(env->tty) ? "\xE2\x86\x92" : "*") : " "),
       1 + idx);
-    width -= 3;
+    width -= 4;
   }
 
   if (width > 0) {
@@ -135,7 +135,8 @@ static void edit_completion_menu(ic_env_t *env, editor_t *eb,
   ssize_t count_displayed = count;
   assert(count > 1);
   ssize_t selected = (env->complete_nopreview ? 0 : -1); // select first or none
-  ssize_t percolumn = count;
+  ssize_t percolumn     = count;
+  ssize_t scroll_offset = 0; // first completion index visible in the grid
 
   // While rendering a menu frame we own eb->extra: suspend the host's
   // refresh_prepare hook (used by xline below-panel) so it doesn't
@@ -152,39 +153,54 @@ again:
   sbuf_clear(eb->extra);
   ssize_t twidth = term_get_width(env->term) - 1;
   ssize_t colwidth;
-  if (count > 3 && ((colwidth = 3 + edit_completions_max_width(env, 9)) * 3 +
+  if (count > 3 && ((colwidth = 4 + edit_completions_max_width(env, count < 9 ? count : 9)) * 3 +
                     2 * 2) < twidth) {
     // display as a 3 column block
-    count_displayed = (count > 9 ? 9 : count);
+    ssize_t grid_size = (count > 9 ? 9 : count);
+    // clamp scroll_offset so the grid always fills up to grid_size items
+    if (scroll_offset + grid_size > count) scroll_offset = count - grid_size;
+    if (scroll_offset < 0) scroll_offset = 0;
+    count_displayed = grid_size;
     percolumn       = 3;
     for (ssize_t rw = 0; rw < percolumn; rw++) {
       if (rw > 0) sbuf_append(eb->extra, "\n");
-      editor_append_completion3(env, eb, colwidth, rw, percolumn + rw,
-                                (2 * percolumn) + rw, selected);
+      editor_append_completion3(env, eb, colwidth,
+                                scroll_offset + rw,
+                                scroll_offset + percolumn + rw,
+                                scroll_offset + (2 * percolumn) + rw,
+                                selected);
     }
   } else if (count > 4 &&
-             ((colwidth = 3 + edit_completions_max_width(env, 8)) * 2 + 2) <
+             ((colwidth = 4 + edit_completions_max_width(env, count < 8 ? count : 8)) * 2 + 2) <
                twidth) {
     // display as a 2 column block if some entries are too wide for three
     // columns
-    count_displayed = (count > 8 ? 8 : count);
+    ssize_t grid_size = (count > 8 ? 8 : count);
+    if (scroll_offset + grid_size > count) scroll_offset = count - grid_size;
+    if (scroll_offset < 0) scroll_offset = 0;
+    count_displayed = grid_size;
     percolumn       = (count_displayed <= 6 ? 3 : 4);
     for (ssize_t rw = 0; rw < percolumn; rw++) {
       if (rw > 0) sbuf_append(eb->extra, "\n");
-      editor_append_completion2(env, eb, colwidth, rw, percolumn + rw,
+      editor_append_completion2(env, eb, colwidth,
+                                scroll_offset + rw,
+                                scroll_offset + percolumn + rw,
                                 selected);
     }
   } else {
     // display as a list
-    count_displayed = (count > 9 ? 9 : count);
+    ssize_t grid_size = (count > 9 ? 9 : count);
+    if (scroll_offset + grid_size > count) scroll_offset = count - grid_size;
+    if (scroll_offset < 0) scroll_offset = 0;
+    count_displayed = grid_size;
     percolumn       = count_displayed;
     for (ssize_t i = 0; i < count_displayed; i++) {
       if (i > 0) sbuf_append(eb->extra, "\n");
-      editor_append_completion(env, eb, i, -1, true /* numbered */,
-                               selected == i);
+      editor_append_completion(env, eb, scroll_offset + i, -1, true /* numbered */,
+                               selected == (scroll_offset + i));
     }
   }
-  if (count > count_displayed) {
+  if (scroll_offset + count_displayed < count) {
     // Note: ctrl-j (KEY_LINEFEED) is accepted here as a fallback on dumb
     // ttys where page-down doesn't decode (see the KEY_PAGEDOWN handler
     // below), but we deliberately don't advertise it: ctrl-j == LF and
@@ -201,7 +217,7 @@ again:
     }
   }
   if (!env->complete_nopreview && selected >= 0 &&
-      selected <= count_displayed) {
+      selected >= scroll_offset && selected < scroll_offset + count_displayed) {
     edit_complete(env, eb, selected);
     editor_undo_restore(eb, false);
   } else {
@@ -220,9 +236,9 @@ again:
   env->refresh_prepare_arg = saved_refresh_prepare_arg;
   sbuf_clear(eb->extra);
 
-  // direct selection?
+  // direct selection? (numbers refer to visible items 1-9)
   if (c >= '1' && c <= '9') {
-    ssize_t i = (c - '1');
+    ssize_t i = scroll_offset + (c - '1');
     if (i < count) {
       selected = i;
       c        = KEY_ENTER;
@@ -232,71 +248,116 @@ again:
   // Grid navigation helpers. Items are laid out column-major:
   //   index = col * percolumn + row
   // so percolumn == rows per column; columns are ceil(count_displayed/percolumn).
+  // cur_row / cur_col are positions *within the visible grid* (relative to scroll_offset).
   ssize_t ncols = (count_displayed + percolumn - 1) / percolumn;
   if (ncols < 1) ncols = 1;
-  ssize_t cur_row = (selected < 0 ? 0 : selected % percolumn);
-  ssize_t cur_col = (selected < 0 ? 0 : selected / percolumn);
+  ssize_t rel = (selected < 0 ? 0 : selected - scroll_offset);
+  ssize_t cur_row = (rel < 0 ? 0 : rel % percolumn);
+  ssize_t cur_col = (rel < 0 ? 0 : rel / percolumn);
 
   // process commands
   if (c == KEY_TAB) {
     // Tab cycles through all entries in display order (row-major),
     // matches typical shell behaviour.
-    selected++;
-    if (selected >= count_displayed) selected = 0;
+    if (selected < 0) {
+      selected = scroll_offset;
+    } else {
+      selected++;
+      if (selected >= count) selected = 0;
+      // ensure the selected item is visible
+      if (selected < scroll_offset || selected >= scroll_offset + count_displayed) {
+        scroll_offset = selected - (selected % percolumn);
+        if (scroll_offset + count_displayed > count) scroll_offset = count - count_displayed;
+        if (scroll_offset < 0) scroll_offset = 0;
+      }
+    }
     goto again;
   } else if (c == KEY_SHIFT_TAB) {
-    selected--;
-    if (selected < 0) selected = count_displayed - 1;
+    if (selected < 0) {
+      selected = scroll_offset + count_displayed - 1;
+    } else {
+      selected--;
+      if (selected < 0) selected = count - 1;
+      if (selected < scroll_offset || selected >= scroll_offset + count_displayed) {
+        scroll_offset = selected - (selected % percolumn);
+        if (scroll_offset + count_displayed > count) scroll_offset = count - count_displayed;
+        if (scroll_offset < 0) scroll_offset = 0;
+      }
+    }
     goto again;
   } else if (c == KEY_DOWN) {
-    // move down within the current column
+    // move down within the current column; scroll the view if at the bottom
     if (selected < 0) {
-      selected = 0;
+      selected = scroll_offset;
     } else {
       ssize_t nr = cur_row + 1;
       if (nr >= percolumn || cur_col * percolumn + nr >= count_displayed) {
-        nr = 0;
+        // at the bottom of the visible grid
+        if (scroll_offset + count_displayed < count) {
+          // scroll down one row and keep the cursor at the bottom
+          scroll_offset++;
+          selected = scroll_offset + cur_col * percolumn + cur_row;
+        } else {
+          // wrap to the top: go to the first item in this column
+          if (scroll_offset > 0) {
+            scroll_offset = 0;
+          }
+          selected = scroll_offset + cur_col * percolumn;
+        }
+      } else {
+        selected = scroll_offset + cur_col * percolumn + nr;
       }
-      selected = cur_col * percolumn + nr;
     }
     goto again;
   } else if (c == KEY_UP) {
     if (selected < 0) {
-      selected = 0;
+      selected = scroll_offset;
     } else {
       ssize_t nr = cur_row - 1;
       if (nr < 0) {
-        // jump to the last valid row in this column
-        ssize_t last_in_col = count_displayed - cur_col * percolumn - 1;
-        if (last_in_col > percolumn - 1) last_in_col = percolumn - 1;
-        nr = last_in_col;
+        // at the top of the visible grid
+        if (scroll_offset > 0) {
+          // scroll up one row and keep the cursor at the top
+          scroll_offset--;
+          selected = scroll_offset + cur_col * percolumn + 0;
+        } else {
+          // wrap to the bottom: go to the last item in this column
+          ssize_t last_in_col = count - cur_col * percolumn - 1;
+          if (last_in_col > percolumn - 1) last_in_col = percolumn - 1;
+          nr = last_in_col;
+          // adjust scroll_offset so the last items are visible
+          scroll_offset = (count - count_displayed);
+          if (scroll_offset < 0) scroll_offset = 0;
+          selected = scroll_offset + cur_col * percolumn + nr;
+        }
+      } else {
+        selected = scroll_offset + cur_col * percolumn + nr;
       }
-      selected = cur_col * percolumn + nr;
     }
     goto again;
   } else if (c == KEY_RIGHT && ncols > 1) {
     // move to the same row in the next column; wrap around
     if (selected < 0) {
-      selected = 0;
+      selected = scroll_offset;
     } else {
       ssize_t nc = cur_col + 1;
-      if (nc >= ncols || nc * percolumn + cur_row >= count_displayed) {
+      if (nc >= ncols || scroll_offset + nc * percolumn + cur_row >= count) {
         nc = 0;
       }
-      selected = nc * percolumn + cur_row;
+      selected = scroll_offset + nc * percolumn + cur_row;
     }
     goto again;
   } else if (c == KEY_LEFT && ncols > 1) {
     if (selected < 0) {
-      selected = 0;
+      selected = scroll_offset;
     } else {
       ssize_t nc = cur_col - 1;
       if (nc < 0) {
         // wrap to the rightmost column that has this row filled
         nc = ncols - 1;
-        while (nc > 0 && nc * percolumn + cur_row >= count_displayed) nc--;
+        while (nc > 0 && scroll_offset + nc * percolumn + cur_row >= count) nc--;
       }
-      selected = nc * percolumn + cur_row;
+      selected = scroll_offset + nc * percolumn + cur_row;
     }
     goto again;
   } else if (c == KEY_F1) {

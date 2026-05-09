@@ -141,10 +141,10 @@ TEST(XaiBudgetEstimate, EmptyTextStillPaysEnvelope) {
   EXPECT_EQ(ai_budget_estimate_tokens(&m, 1), XAGENT_BUDGET_PER_MSG_TOKENS);
 }
 
-/* ── ai_budget_find_nth_user_turn ───────────────────────────────────── */
+/* ── ai_budget_find_user_turn ───────────────────────────────────── */
 
 TEST(XaiBudgetFindNth, EmptyReturnsSentinel) {
-  EXPECT_EQ(ai_budget_find_nth_user_turn(nullptr, 0, 0),
+  EXPECT_EQ(ai_budget_find_user_turn(nullptr, 0, 0),
             XAGENT_BUDGET_NO_SUCH_TURN);
 }
 
@@ -153,7 +153,7 @@ TEST(XaiBudgetFindNth, NoUserEntries) {
     MakeText(xAgentRole_Assistant, "reply"),
     MakeThinking("thinking"),
   };
-  EXPECT_EQ(ai_budget_find_nth_user_turn(seq, 2, 0), XAGENT_BUDGET_NO_SUCH_TURN);
+  EXPECT_EQ(ai_budget_find_user_turn(seq, 2, 0), XAGENT_BUDGET_NO_SUCH_TURN);
 }
 
 TEST(XaiBudgetFindNth, FirstUserEntry) {
@@ -162,16 +162,16 @@ TEST(XaiBudgetFindNth, FirstUserEntry) {
     MakeText(xAgentRole_Assistant, "a1"), /* idx 1 */
     MakeText(xAgentRole_User, "q2"),      /* idx 2 */
   };
-  EXPECT_EQ(ai_budget_find_nth_user_turn(seq, 3, 0), 0u);
-  EXPECT_EQ(ai_budget_find_nth_user_turn(seq, 3, 1), 2u);
+  EXPECT_EQ(ai_budget_find_user_turn(seq, 3, 0), 0u);
+  EXPECT_EQ(ai_budget_find_user_turn(seq, 3, 1), 2u);
 }
 
 TEST(XaiBudgetFindNth, OutOfRangeReturnsSentinel) {
   xAgentSessionMsg_ seq[] = {
     MakeText(xAgentRole_User, "only"),
   };
-  EXPECT_EQ(ai_budget_find_nth_user_turn(seq, 1, 1), XAGENT_BUDGET_NO_SUCH_TURN);
-  EXPECT_EQ(ai_budget_find_nth_user_turn(seq, 1, 42), XAGENT_BUDGET_NO_SUCH_TURN);
+  EXPECT_EQ(ai_budget_find_user_turn(seq, 1, 1), XAGENT_BUDGET_NO_SUCH_TURN);
+  EXPECT_EQ(ai_budget_find_user_turn(seq, 1, 42), XAGENT_BUDGET_NO_SUCH_TURN);
 }
 
 TEST(XaiBudgetFindNth, SkipsAssistantAndTool) {
@@ -183,29 +183,29 @@ TEST(XaiBudgetFindNth, SkipsAssistantAndTool) {
     MakeText(xAgentRole_Assistant, "bye"),
     MakeText(xAgentRole_User, "real-second"), /* idx 5 */
   };
-  EXPECT_EQ(ai_budget_find_nth_user_turn(seq, 6, 0), 3u);
-  EXPECT_EQ(ai_budget_find_nth_user_turn(seq, 6, 1), 5u);
+  EXPECT_EQ(ai_budget_find_user_turn(seq, 6, 0), 3u);
+  EXPECT_EQ(ai_budget_find_user_turn(seq, 6, 1), 5u);
 }
 
-/* ── ai_budget_earliest_keep ────────────────────────────────────────── */
+/* ── ai_budget_recent_band_start ────────────────────────────────────────── */
 
-TEST(XaiBudgetEarliestKeep, EmptyHistory) {
-  EXPECT_EQ(ai_budget_earliest_keep(nullptr, 0, 0), 0u);
-  EXPECT_EQ(ai_budget_earliest_keep(nullptr, 0, 5), 0u);
+TEST(XaiBudgetRecentBandStart, EmptyHistory) {
+  EXPECT_EQ(ai_budget_recent_band_start(nullptr, 0, 0), 0u);
+  EXPECT_EQ(ai_budget_recent_band_start(nullptr, 0, 5), 0u);
 }
 
-TEST(XaiBudgetEarliestKeep, NoUserTurnsKeepEverything) {
+TEST(XaiBudgetRecentBandStart, NoUserTurnsKeepEverything) {
   /* Degenerate fixture (history built outside the normal
    * append path) — contract says: nothing to anchor a boundary,
    * play it safe and return 0. */
   xAgentSessionMsg_ seq[] = {
     MakeText(xAgentRole_Assistant, "orphan"),
   };
-  EXPECT_EQ(ai_budget_earliest_keep(seq, 1, 0), 0u);
-  EXPECT_EQ(ai_budget_earliest_keep(seq, 1, 3), 0u);
+  EXPECT_EQ(ai_budget_recent_band_start(seq, 1, 0), 0u);
+  EXPECT_EQ(ai_budget_recent_band_start(seq, 1, 3), 0u);
 }
 
-TEST(XaiBudgetEarliestKeep, KeepZeroKeepsOnlyLastUserTurn) {
+TEST(XaiBudgetRecentBandStart, KeepZeroKeepsOnlyLastUserTurn) {
   /* keep_recent_turns == 0 collapses to "start keeping at the last
    * User-role entry". Everything before that index is droppable. */
   xAgentSessionMsg_ seq[] = {
@@ -215,10 +215,10 @@ TEST(XaiBudgetEarliestKeep, KeepZeroKeepsOnlyLastUserTurn) {
     MakeText(xAgentRole_Assistant, "a2"), /* 3 */
     MakeText(xAgentRole_User, "q3"),      /* 4 ← earliest keep */
   };
-  EXPECT_EQ(ai_budget_earliest_keep(seq, 5, 0), 4u);
+  EXPECT_EQ(ai_budget_recent_band_start(seq, 5, 0), 4u);
 }
 
-TEST(XaiBudgetEarliestKeep, FloorExceedsHistoryKeepsEverything) {
+TEST(XaiBudgetRecentBandStart, FloorExceedsHistoryKeepsEverything) {
   /* 2 user turns total, caller demands a floor of 5 → we return 0.
    * We would rather keep too much than drop below the floor. */
   xAgentSessionMsg_ seq[] = {
@@ -226,20 +226,20 @@ TEST(XaiBudgetEarliestKeep, FloorExceedsHistoryKeepsEverything) {
     MakeText(xAgentRole_Assistant, "a1"),
     MakeText(xAgentRole_User, "q2"),
   };
-  EXPECT_EQ(ai_budget_earliest_keep(seq, 3, 5), 0u);
+  EXPECT_EQ(ai_budget_recent_band_start(seq, 3, 5), 0u);
 }
 
-TEST(XaiBudgetEarliestKeep, FloorEqualsTotalKeepsEverything) {
+TEST(XaiBudgetRecentBandStart, FloorEqualsTotalKeepsEverything) {
   /* Exactly at the floor: still return 0, because dropping even
    * one turn would put us strictly below. */
   xAgentSessionMsg_ seq[] = {
     MakeText(xAgentRole_User, "q1"),
     MakeText(xAgentRole_User, "q2"),
   };
-  EXPECT_EQ(ai_budget_earliest_keep(seq, 2, 2), 0u);
+  EXPECT_EQ(ai_budget_recent_band_start(seq, 2, 2), 0u);
 }
 
-TEST(XaiBudgetEarliestKeep, KeepsLastTwoTurnsWithToolChatter) {
+TEST(XaiBudgetRecentBandStart, KeepsLastTwoTurnsWithToolChatter) {
   /* Five user turns interleaved with assistant / tool entries.
    * keep_recent_turns = 2 → start keeping at the 4th user turn
    * (user_count - keep_recent_turns = 5 - 2 = 3 → the k=3-th User
@@ -257,10 +257,10 @@ TEST(XaiBudgetEarliestKeep, KeepsLastTwoTurnsWithToolChatter) {
     MakeText(xAgentRole_Assistant, "a4"), /* 9 */
     MakeText(xAgentRole_User, "u5"),      /* 10 */
   };
-  EXPECT_EQ(ai_budget_earliest_keep(seq, 11, 2), 8u);
+  EXPECT_EQ(ai_budget_recent_band_start(seq, 11, 2), 8u);
 }
 
-TEST(XaiBudgetEarliestKeep, BoundaryIsAlwaysAUserRoleIndex) {
+TEST(XaiBudgetRecentBandStart, BoundaryIsAlwaysAUserRoleIndex) {
   /* Regression barrier for the core invariant: wherever the function
    * points, that slot must carry a User role (or be 0 = sentinel
    * "keep everything"). This test iterates a variety of shapes and
@@ -283,7 +283,7 @@ TEST(XaiBudgetEarliestKeep, BoundaryIsAlwaysAUserRoleIndex) {
     {3, 0}, /* floor == total → keep all */
   };
   for (const auto &c : cases) {
-    size_t idx = ai_budget_earliest_keep(seq, n, c.keep_recent);
+    size_t idx = ai_budget_recent_band_start(seq, n, c.keep_recent);
     EXPECT_EQ(idx, c.expect_idx) << "keep_recent=" << c.keep_recent;
     if (idx != 0) {
       EXPECT_EQ(seq[idx].role, xAgentRole_User)
@@ -293,55 +293,54 @@ TEST(XaiBudgetEarliestKeep, BoundaryIsAlwaysAUserRoleIndex) {
   }
 }
 
-/* ── ai_budget_tail_keep ─────────────────────────────────────────── */
+/* ── ai_budget_head_band_end ─────────────────────────────────────────── */
 
-TEST(XaiBudgetTailKeep, EmptyHistory) {
-  EXPECT_EQ(ai_budget_tail_keep(nullptr, 0, 0), 0u);
-  EXPECT_EQ(ai_budget_tail_keep(nullptr, 0, 5), 0u);
+TEST(XaiBudgetHeadBandEnd, EmptyHistory) {
+  EXPECT_EQ(ai_budget_head_band_end(nullptr, 0, 0), 0u);
+  EXPECT_EQ(ai_budget_head_band_end(nullptr, 0, 5), 0u);
 }
 
-TEST(XaiBudgetTailKeep, NoUserTurnsKeepsAll) {
+TEST(XaiBudgetHeadBandEnd, NoUserTurnsKeepsAll) {
   /* No User entries → nothing anchors a boundary → keep everything. */
   xAgentSessionMsg_ seq[] = {
     MakeText(xAgentRole_Assistant, "orphan"),
   };
-  EXPECT_EQ(ai_budget_tail_keep(seq, 1, 0), 1u);
-  EXPECT_EQ(ai_budget_tail_keep(seq, 1, 3), 1u);
+  EXPECT_EQ(ai_budget_head_band_end(seq, 1, 3), 1u);
 }
 
-TEST(XaiBudgetTailKeep, KeepZeroKeepsOnlyFirstUserTurnGroup) {
-  /* keep_prefix_turns == 0: keep only the first User turn group.
-   * The boundary is the start of the 2nd User entry. */
+TEST(XaiBudgetHeadBandEnd, KeepZeroMeansNoPrefix) {
+  /* keep_prefix_turns == 0: no mandatory prefix → head band is empty.
+   * Return 0: everything can be dropped from the tail side. */
   xAgentSessionMsg_ seq[] = {
     MakeText(xAgentRole_User, "q1"),      /* 0 */
     MakeText(xAgentRole_Assistant, "a1"), /* 1 */
-    MakeText(xAgentRole_User, "q2"),      /* 2 ← boundary */
+    MakeText(xAgentRole_User, "q2"),      /* 2 */
     MakeText(xAgentRole_Assistant, "a2"), /* 3 */
     MakeText(xAgentRole_User, "q3"),      /* 4 */
   };
-  EXPECT_EQ(ai_budget_tail_keep(seq, 5, 0), 2u);
+  EXPECT_EQ(ai_budget_head_band_end(seq, 5, 0), 0u);
 }
 
-TEST(XaiBudgetTailKeep, FloorExceedsHistoryKeepsAll) {
+TEST(XaiBudgetHeadBandEnd, FloorExceedsHistoryKeepsAll) {
   /* 2 user turns total, caller demands a floor of 5 → keep all. */
   xAgentSessionMsg_ seq[] = {
     MakeText(xAgentRole_User, "q1"),
     MakeText(xAgentRole_Assistant, "a1"),
     MakeText(xAgentRole_User, "q2"),
   };
-  EXPECT_EQ(ai_budget_tail_keep(seq, 3, 5), 3u);
+  EXPECT_EQ(ai_budget_head_band_end(seq, 3, 5), 3u);
 }
 
-TEST(XaiBudgetTailKeep, FloorEqualsTotalKeepsAll) {
+TEST(XaiBudgetHeadBandEnd, FloorEqualsTotalKeepsAll) {
   /* Exactly at the floor: keep everything. */
   xAgentSessionMsg_ seq[] = {
     MakeText(xAgentRole_User, "q1"),
     MakeText(xAgentRole_User, "q2"),
   };
-  EXPECT_EQ(ai_budget_tail_keep(seq, 2, 2), 2u);
+  EXPECT_EQ(ai_budget_head_band_end(seq, 2, 2), 2u);
 }
 
-TEST(XaiBudgetTailKeep, KeepsFirstTwoTurnsWithToolChatter) {
+TEST(XaiBudgetHeadBandEnd, KeepsFirstTwoTurnsWithToolChatter) {
   /* Five user turns. keep_prefix_turns = 2 → keep the first 2 User
    * turn groups. The boundary is the start of the 3rd User entry. */
   xAgentSessionMsg_ seq[] = {
@@ -357,10 +356,10 @@ TEST(XaiBudgetTailKeep, KeepsFirstTwoTurnsWithToolChatter) {
     MakeText(xAgentRole_Assistant, "a4"), /* 9 */
     MakeText(xAgentRole_User, "u5"),      /* 10 */
   };
-  EXPECT_EQ(ai_budget_tail_keep(seq, 11, 2), 6u);
+  EXPECT_EQ(ai_budget_head_band_end(seq, 11, 2), 6u);
 }
 
-TEST(XaiBudgetTailKeep, BoundaryLandsOnUserRole) {
+TEST(XaiBudgetHeadBandEnd, BoundaryLandsOnUserRole) {
   /* The boundary index must always be a User-role entry (or n). */
   xAgentSessionMsg_ seq[] = {
     MakeText(xAgentRole_User, "u1"),      MakeToolUse("a", "t", "{}"),
@@ -371,17 +370,17 @@ TEST(XaiBudgetTailKeep, BoundaryLandsOnUserRole) {
 
   /* keep_prefix_turns = 1 → keep first turn group (u1 + tool chatter).
    * Boundary = start of 2nd User entry (u2 at index 3). */
-  size_t idx = ai_budget_tail_keep(seq, n, 1);
+  size_t idx = ai_budget_head_band_end(seq, n, 1);
   EXPECT_EQ(idx, 3u);
   EXPECT_EQ(seq[idx].role, xAgentRole_User);
 }
 
-TEST(XaiBudgetTailKeep, SingleUserTurnKeepsAll) {
+TEST(XaiBudgetHeadBandEnd, SingleUserTurnKeepsAll) {
   /* Only one User entry → no room to trim. */
   xAgentSessionMsg_ seq[] = {
     MakeText(xAgentRole_User, "q1"),
     MakeText(xAgentRole_Assistant, "a1"),
   };
-  EXPECT_EQ(ai_budget_tail_keep(seq, 2, 1), 2u);
-  EXPECT_EQ(ai_budget_tail_keep(seq, 2, 0), 2u); /* only 1 group */
+  EXPECT_EQ(ai_budget_head_band_end(seq, 2, 1), 2u);
+  EXPECT_EQ(ai_budget_head_band_end(seq, 2, 0), 0u); /* no prefix required */
 }

@@ -36,6 +36,7 @@
 #define XAGENT_SESSION_H
 
 #include <stddef.h>
+#include <sys/types.h>
 #include <xagent/agent.h>
 #include <xagent/message.h>
 #include <xagent/query.h>
@@ -67,8 +68,9 @@ XDEF_HANDLE(xAgentSession);
  * human-driven conversations.
  */
 XDEF_ENUM(xAgentInputOrigin){
-  xAgentInputOrigin_User              = 0, /**< Real user speaking (default)    */
-  xAgentInputOrigin_SystemSynthesized = 1, /**< Agent-composed wake-up / nudge  */
+  xAgentInputOrigin_User = 0, /**< Real user speaking (default)    */
+  xAgentInputOrigin_SystemSynthesized =
+    1, /**< Agent-composed wake-up / nudge  */
 };
 
 /**
@@ -128,7 +130,8 @@ XDEF_STRUCT(xAgentSessionCallbacks) {
    * @param len    Length of @p chunk in bytes.
    * @param ud     The user_data pointer from this struct.
    */
-  void (*on_thinking)(xAgentSession sess, const char *chunk, size_t len, void *ud);
+  void (*on_thinking)(xAgentSession sess, const char *chunk, size_t len,
+                      void *ud);
 
   /**
    * @brief Fired exactly once when the current run terminates.
@@ -157,8 +160,8 @@ XDEF_STRUCT(xAgentSessionCallbacks) {
    *                to keep.
    * @param ud      The user_data pointer from this struct.
    */
-  void (*on_done)(xAgentSession sess, xAgentDoneReason reason, const xAgentUsage *usage,
-                  void *ud);
+  void (*on_done)(xAgentSession sess, xAgentDoneReason reason,
+                  const xAgentUsage *usage, void *ud);
 
   /**
    * @brief Fired as a diagnostic precursor when the run hits a
@@ -360,9 +363,9 @@ XDEF_ENUM(xAgentSessionEntryKind){
  * treat zero as "no timestamp available" rather than as the unix
  * epoch.
  */
-XDEF_STRUCT(xAgentSessionMsg){
-  xAgentRole               role;
-  xAgentSessionEntryKind   kind;
+XDEF_STRUCT(xAgentSessionMsg) {
+  xAgentRole             role;
+  xAgentSessionEntryKind kind;
 
   /* kind == Text / Thinking */
   const char *text;
@@ -380,14 +383,14 @@ XDEF_STRUCT(xAgentSessionMsg){
   int         tool_result_is_error;
 
   /* Wall-clock unix-ms when this entry was produced. 0 = unknown. */
-  uint64_t    created_at_ms;
+  uint64_t created_at_ms;
 
   /* Non-zero when this entry is a summary produced by the
-   * SummarizeOldest budget policy. This field exists so the
+   * Summarize budget policy. This field exists so the
    * public struct's layout matches the internal xAgentSessionMsg_
    * layout — without it, casting an internal array to a public
    * array would misalign every element after the first. */
-  int         is_summary;
+  int is_summary;
 };
 
 /**
@@ -405,7 +408,7 @@ XDEF_ENUM(xAgentL1PreserveReason){
    *  prefix. */
   xAgentL1PreserveReason_Truncated = 0,
 
-  /** SummarizeOldest compact: entries [0, n) are about to be
+  /** Summarize compact: entries [0, n) are about to be
    *  replaced by a summary (this is a head-trimming operation,
    *  so the [0, n) range remains correct). The consumer may want
    *  to keep the original entries for full-fidelity L1 storage
@@ -423,7 +426,7 @@ XDEF_ENUM(xAgentL1PreserveReason){
 /**
  * @brief L1 memory-preservation callback, fired when the session
  *        is about to discard history entries (due to a budget
- *        policy like TruncateTail or SummarizeOldest compact).
+ *        policy like TruncateTail or Summarize compact).
  *
  * The callback receives a read-only slice of the entries that are
  * about to be removed from the session's rolling history. The
@@ -449,11 +452,11 @@ XDEF_ENUM(xAgentL1PreserveReason){
  *
  * @see xAgentL1PreserveReason — why the callback was invoked.
  */
-typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession              sess,
-                                         const xAgentSessionMsg    *msgs,
-                                         size_t                  n_msgs,
-                                         xAgentL1PreserveReason     reason,
-                                         void                   *owner);
+typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession           sess,
+                                            const xAgentSessionMsg *msgs,
+                                            size_t                  n_msgs,
+                                            xAgentL1PreserveReason  reason,
+                                            void                   *owner);
 
 /**
  * @brief Strategy for keeping the serialized prompt under the
@@ -479,21 +482,19 @@ typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession              sess,
  * matches existing sessions byte-for-byte and is the default for
  * calloc'd configs.
  *
- * The recommended default is @ref xAgentBudgetPolicy_SummarizeOldest,
+ * The recommended default is @ref xAgentBudgetPolicy_Summarize,
  * which applies the full pipeline: retroactive tool_result trimming
- * → SummarizeOldest (compress old history). If the summarise step
+ * → Summarize (compress old history). If the summarise step
  * fails (empty output / OOM / provider error), the session reports
  * the failure via @ref xAgentBudgetEvent_CompactDone with
  * @c summary_ok=false and leaves the history untouched — the caller
  * decides whether to retry, relax the budget, or surface an error.
  */
 XDEF_ENUM(xAgentBudgetPolicy){
-  xAgentBudgetPolicy_Disabled        = 0, /**< No budget check runs      */
-  xAgentBudgetPolicy_Error           = 1, /**< Fail with PromptTooLong   */
-  /* value 2 was xAgentBudgetPolicy_TruncateOldest; removed. Setting
-   * policy to 2 now falls through to the default refuse path. */
-  xAgentBudgetPolicy_Callback        = 3, /**< Reserved: caller-supplied */
-  xAgentBudgetPolicy_SummarizeOldest = 4, /**< Recommended: trim tool_results,
+  xAgentBudgetPolicy_Disabled  = 0, /**< No budget check runs      */
+  xAgentBudgetPolicy_Error     = 1, /**< Fail with PromptTooLong   */
+  xAgentBudgetPolicy_Callback  = 3, /**< Reserved: caller-supplied */
+  xAgentBudgetPolicy_Summarize = 4, /**< Recommended: trim tool_results,
                                               then summarise old history.
                                               On failure the session
                                               reports the error and
@@ -519,13 +520,13 @@ XDEF_ENUM(xAgentBudgetPolicy){
  * @see xAgentBudgetConf::on_budget_event — where to register it.
  */
 XDEF_ENUM(xAgentBudgetEvent){
-  /** SummarizeOldest: an internal compact Query has been launched
+  /** Summarize: an internal compact Query has been launched
    *  to compress old history. The session is now Busy until the
    *  compact finishes (xAgentBudgetEvent_CompactDone). The caller's
    *  xAgentSessionInput has returned xErrno_Busy. */
-  xAgentBudgetEvent_Compacting  = 0,
+  xAgentBudgetEvent_Compacting = 0,
 
-  /** SummarizeOldest: the compact Query has finished. @p info
+  /** Summarize: the compact Query has finished. @p info
    *  carries a xAgentBudgetCompactInfo with the result. The session
    *  is now idle and the caller can retry xAgentSessionInput. */
   xAgentBudgetEvent_CompactDone = 1,
@@ -534,7 +535,7 @@ XDEF_ENUM(xAgentBudgetEvent){
    *  fit the budget, preserving the prefix for prompt caching.
    *  @p info carries a xAgentBudgetTruncateInfo with the count of
    *  entries removed. */
-  xAgentBudgetEvent_Truncated   = 2,
+  xAgentBudgetEvent_Truncated = 2,
 
   /** ToolResultsTrimmed: consumed tool_result outputs were shrunk
    *  in-place (retroactive trimming) to free token budget without
@@ -550,7 +551,7 @@ XDEF_ENUM(xAgentBudgetEvent){
    *  the caller can display remaining context capacity. Fires
    *  once per successful xAgentSessionInput, before the Query is
    *  submitted. */
-  xAgentBudgetEvent_GatePassed  = 3,
+  xAgentBudgetEvent_GatePassed = 3,
 };
 
 /**
@@ -599,8 +600,9 @@ XDEF_STRUCT(xAgentBudgetToolResultsTrimmedInfo) {
   size_t entries_trimmed;
 
   /** Approximate bytes freed by trimming (sum of original output sizes
-   *  minus the trimmed marker sizes). */
-  size_t bytes_freed;
+   *  minus the trimmed marker sizes). May be negative when the
+   *  trimmed marker is longer than the original short output. */
+  ssize_t bytes_freed;
 };
 
 /**
@@ -649,10 +651,9 @@ XDEF_STRUCT(xAgentBudgetGateInfo) {
  * @param info   Event-specific detail (may be NULL).
  * @param ud     The user_data from xAgentBudgetConf.
  */
-typedef void (*xAgentBudgetEventFunc)(xAgentSession      sess,
-                                  xAgentBudgetEvent  event,
-                                  const void     *info,
-                                  void           *ud);
+typedef void (*xAgentBudgetEventFunc)(xAgentSession     sess,
+                                      xAgentBudgetEvent event, const void *info,
+                                      void *ud);
 
 /**
  * @brief Configuration for the session's context-budget enforcement.
@@ -707,7 +708,7 @@ XDEF_STRUCT(xAgentBudgetConf) {
    *
    * A "User turn" here means one xAgentRole_User message plus every
    * assistant / tool entry that followed before the next user
-   * message. Under SummarizeOldest, these turns are NEVER summarised
+   * message. Under Summarize, these turns are NEVER summarised
    * away — they remain verbatim so the model keeps the original
    * instructions / task scope.
    *
@@ -722,7 +723,7 @@ XDEF_STRUCT(xAgentBudgetConf) {
    *        history (the most recent turns that carry the current
    *        working context).
    *
-   * Under SummarizeOldest, these tail turns are NEVER summarised
+   * Under Summarize, these tail turns are NEVER summarised
    * away — they remain verbatim so the model keeps local context
    * and can react coherently to the next input.
    *
@@ -748,17 +749,15 @@ XDEF_STRUCT(xAgentBudgetConf) {
   size_t max_tool_result_bytes;
 
   /**
-   * @brief Context-usage fraction that triggers retroactive trimming
-   *        of "consumed" tool_result entries (0.0–1.0, stored as
-   *        percentage × 100 to avoid floating point in the struct).
+   * @brief Absolute token count that triggers retroactive trimming
+   *        of "consumed" tool_result entries.
    *
-   * When the estimated context usage exceeds
-   *   context_window × trim_tool_results_threshold / 10000,
-   * the session scans history from tail to head and truncates
-   * tool_result outputs that have already been "consumed" by the
-   * model (i.e. there is a subsequent Assistant entry after the
-   * tool_result). The output is reduced to a short summary marker
-   * like "[result trimmed: was N bytes]".
+   * When current context usage (history + incoming) reaches or
+   * exceeds this threshold, the session scans history from tail to
+   * head and truncates tool_result outputs that have already been
+   * "consumed" by the model (i.e. there is a subsequent Assistant
+   * entry after the tool_result). The output is reduced to a short
+   * summary marker like "[result trimmed: was N bytes]".
    *
    * This is a lighter-weight alternative to TruncateTail: it frees
    * token budget by shrinking large tool outputs without removing
@@ -767,15 +766,28 @@ XDEF_STRUCT(xAgentBudgetConf) {
    *
    * Values:
    *   - 0 (default): disabled — no retroactive trimming.
-   *   - 7000: trim when usage ≥ 70% of context_window.
-   *   - 10000: trim only when usage ≥ 100% (effectively off unless
-   *     over budget).
+   *   - 140000: trim when usage ≥ 140 000 tokens.
    *
    * Retroactive trimming runs BEFORE TruncateTail in the budget
    * enforcement pipeline. If trimming alone frees enough space,
    * TruncateTail is not invoked.
    */
   unsigned trim_tool_results_threshold;
+
+  /**
+   * @brief Maximum output tokens the session allocates for a
+   *        Summarize compact Query.
+   *
+   * When the Summarize policy fires, the session launches an
+   * internal compact Query whose @c max_tokens is set to this
+   * value. A smaller cap produces a more concise summary and
+   * avoids "thinking burn" on models that support extended
+   * reasoning; a larger cap lets the model produce a more
+   * detailed summary when the conversation is complex.
+   *
+   * Zero means "use the built-in default" (currently 1024).
+   */
+  int summarize_max_tokens;
 
   /**
    * @brief Optional callback for budget-policy lifecycle events.
@@ -858,15 +870,15 @@ XDEF_STRUCT(xAgentSessionConf) {
    * API changes.
    */
   xAgentSessionFinalizingFunc on_finalizing;
-  void                  *finalizing_owner; /**< Passed back to
-                                                @ref on_finalizing. */
+  void                       *finalizing_owner; /**< Passed back to
+                                                     @ref on_finalizing. */
 
   /**
    * @brief Optional L1 memory-preservation callback, paired with
    *        @ref l1_preserve_owner.
    *
    * Fires when the session is about to discard history entries
-   * (TruncateTail / SummarizeOldest compact), and once at
+   * (TruncateTail / Summarize compact), and once at
    * teardown with the full remaining history. The Agent layer
    * uses this to capture the complete conversation before any
    * information is lost. Leave NULL if not used.
@@ -874,8 +886,8 @@ XDEF_STRUCT(xAgentSessionConf) {
    * @see xAgentSessionL1PreserveFunc for the full callback contract.
    */
   xAgentSessionL1PreserveFunc on_l1_preserve;
-  void                    *l1_preserve_owner; /**< Passed back to
-                                                   @ref on_l1_preserve. */
+  void                       *l1_preserve_owner; /**< Passed back to
+                                                      @ref on_l1_preserve. */
 
   /**
    * @brief Unique identifier for this session instance.
@@ -991,7 +1003,7 @@ XCAPI(void) xAgentSessionCancel(xAgentSession sess);
  * @param provider  Provider to use for the next query, or NULL to
  *                  clear the override.
  */
-XCAPI(void) xAgentSessionSetProvider(xAgentSession sess,
+XCAPI(void) xAgentSessionSetProvider(xAgentSession  sess,
                                      xAgentProvider provider);
 
 /**
@@ -1079,8 +1091,8 @@ XCAPI(void) xAgentSessionSetContextWindow(xAgentSession sess,
  *              threshold fields are read; @c policy and the
  *              callback fields are ignored.
  */
-XCAPI(void) xAgentSessionSetBudget(xAgentSession            sess,
-                                   const xAgentBudgetConf  *conf);
+XCAPI(void) xAgentSessionSetBudget(xAgentSession           sess,
+                                   const xAgentBudgetConf *conf);
 
 /**
  * @brief Destroy the session and release its resources.

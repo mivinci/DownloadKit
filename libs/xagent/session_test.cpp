@@ -1900,12 +1900,12 @@ TEST_F(SessionTest, BudgetErrorPolicyAllowsUnderBudgetInput) {
 /* keep_recent_turns (now: prefix turns) too high to honour the
  * budget at all: the session refuses with PromptTooLong rather
  * than silently violating the keep-prefix-turns floor. This is
- * the "safety over compliance" path. Applies to SummarizeOldest
+ * the "safety over compliance" path. Applies to Summarize
  * just as it did to the removed TruncateOldest. */
 TEST_F(SessionTest, BudgetRefusesWhenFloorUnreachable) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window        = 30;       /* very tight                   */
   budget.keep_recent_turns = 5;        /* absurdly high floor          */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
@@ -1930,7 +1930,7 @@ TEST_F(SessionTest, BudgetRefusesWhenFloorUnreachable) {
 /* Reserved policies (Callback only) must not accidentally behave like
  * Disabled — a caller who opted into them expects enforcement and
  * silently dropping to no-op would mask the budget violation.
- * SummarizeOldest is now implemented (β phase) and has its own
+ * Summarize is now implemented (β phase) and has its own
  * dedicated tests below. */
 TEST_F(SessionTest, BudgetReservedPoliciesRefuseWhenOver) {
   for (xAgentBudgetPolicy p :
@@ -1959,7 +1959,7 @@ TEST_F(SessionTest, BudgetReservedPoliciesRefuseWhenOver) {
 TEST_F(SessionTest, BudgetPolicyUnderBudgetIsNoop) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy     = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy     = xAgentBudgetPolicy_Summarize;
   budget.context_window = 500;             /* roomy                        */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -2044,13 +2044,13 @@ std::string TrimToolResultsFixture::large_payload_;
 TEST_F(TrimToolResultsFixture, TrimsConsumedToolResultsAboveThreshold) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy                       = xAgentBudgetPolicy_SummarizeOldest;
-  budget.context_window                   = 300;  /* tight: 2000-byte payload
-                                                 ≈ 500 tokens alone, plus
-                                                 other entries easily exceed */
-  budget.trim_tool_results_threshold  = 5000; /* 50% = 150 tokens */
+  budget.policy                       = xAgentBudgetPolicy_Summarize;
+  budget.context_window                   = 900;  /* enough for round 1 + 1.5;
+                                                 trim threshold fires at 150 */
+  budget.trim_tool_results_threshold  = 150; /* 150 tokens */
   budget.max_tool_result_bytes        = SIZE_MAX; /* no ingest-time truncation */
-  budget.keep_recent_turns            = 1;
+  budget.keep_head_turns              = 0;  /* no head band; middle band starts at index 0 */
+  budget.keep_recent_turns            = 1;  /* preserve last user turn as recent band */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -2081,6 +2081,15 @@ TEST_F(TrimToolResultsFixture, TrimsConsumedToolResultsAboveThreshold) {
     }
   }
   EXPECT_TRUE(found_large) << "large tool_result should exist after round 1";
+
+  /* Round 1.5: a separating user turn so that Round 1's tool_result
+   * falls into the middle band (between head and recent). */
+  fake_->script_queue.push_back({
+      SText("intermediate"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+  ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("mid")),
+            xErrno_Ok);
 
   /* Round 2: another input that pushes us over threshold. The
    * retroactive trimmer should shrink the consumed tool_result
@@ -2114,14 +2123,14 @@ TEST_F(TrimToolResultsFixture, TrimsConsumedToolResultsAboveThreshold) {
 }
 
 /* When trim_tool_results_threshold is 0 (disabled), no retroactive
- * trimming occurs. Under SummarizeOldest that means the compact
+ * trimming occurs. Under Summarize that means the compact
  * pipeline either launches a summarise Query (Busy) or refuses
  * outright (PromptTooLong / Busy). Either way, the tool_result
  * MUST NOT be trimmed in-place since the threshold is off. */
 TEST_F(TrimToolResultsFixture, NoTrimWhenThresholdDisabled) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy                       = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy                       = xAgentBudgetPolicy_Summarize;
   budget.context_window                   = 300;
   budget.trim_tool_results_threshold  = 0;    /* disabled */
   budget.max_tool_result_bytes        = SIZE_MAX;
@@ -2334,9 +2343,9 @@ TEST_F(SessionTest, BudgetBookkeepingFeedsBackIntoNextGate) {
   xAgentSessionDestroy(sess);
 }
 
-/* ── Context-budget: SummarizeOldest (β phase) ────────────────────
+/* ── Context-budget: Summarize (β phase) ────────────────────
  *
- * End-to-end coverage for the SummarizeOldest budget policy.
+ * End-to-end coverage for the Summarize budget policy.
  *
  * Key behaviour:
  *   - When the budget is exceeded, the session launches an internal
@@ -2352,16 +2361,16 @@ TEST_F(SessionTest, BudgetBookkeepingFeedsBackIntoNextGate) {
  *     degrades to TruncateOldest behaviour.
  */
 
-/* SummarizeOldest returns Busy when the budget is exceeded,
+/* Summarize returns Busy when the budget is exceeded,
  * indicating a compact Query is in flight. With the synchronous
  * fake provider the compact completes before xAgentQueryRun returns,
  * so by the time xAgentSessionInput yields Busy the history has
  * already been compressed. A second Input call on the same
  * message should then pass the budget gate and run normally. */
-TEST_F(SessionTest, BudgetSummarizeOldestCompactsHistory) {
+TEST_F(SessionTest, BudgetSummarizeCompactsHistory) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window        = 200;      /* enough for 3 primer rounds  */
   budget.keep_recent_turns = 1;        /* always keep the last turn    */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
@@ -2440,12 +2449,12 @@ TEST_F(SessionTest, BudgetSummarizeOldestCompactsHistory) {
   xAgentSessionDestroy(sess);
 }
 
-/* SummarizeOldest under budget is a no-op: the gate lets the turn
+/* Summarize under budget is a no-op: the gate lets the turn
  * through without launching a compact Query. */
-TEST_F(SessionTest, BudgetSummarizeOldestUnderBudgetIsNoop) {
+TEST_F(SessionTest, BudgetSummarizeUnderBudgetIsNoop) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy     = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy     = xAgentBudgetPolicy_Summarize;
   budget.context_window = 500;             /* generous */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -2479,10 +2488,10 @@ TEST_F(SessionTest, BudgetSummarizeOldestUnderBudgetIsNoop) {
  * summarize attempt is reported as failed (summary_ok=false) and
  * history is left untouched. There is NO degradation to truncation.
  * The caller (e.g. CLI) is responsible for deciding retry/abort. */
-TEST_F(SessionTest, BudgetSummarizeOldestReportsErrorOnEmptySummary) {
+TEST_F(SessionTest, BudgetSummarizeReportsErrorOnEmptySummary) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window        = 200;
   budget.keep_recent_turns = 1;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
@@ -2544,10 +2553,10 @@ TEST_F(SessionTest, BudgetSummarizeOldestReportsErrorOnEmptySummary) {
  * to TruncateOldest. This is common when the model's reasoning
  * phase exhausts the output token budget before producing visible
  * text. */
-TEST_F(SessionTest, BudgetSummarizeOldestFallsBackToThinkingWhenNoText) {
+TEST_F(SessionTest, BudgetSummarizeFallsBackToThinkingWhenNoText) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window        = 200;
   budget.keep_recent_turns = 1;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
@@ -2609,13 +2618,13 @@ TEST_F(SessionTest, BudgetSummarizeOldestFallsBackToThinkingWhenNoText) {
   xAgentSessionDestroy(sess);
 }
 
-/* SummarizeOldest with keep_recent_turns too high (no user turn
+/* Summarize with keep_recent_turns too high (no user turn
  * boundary to compress) must refuse with PromptTooLong, same as
  * TruncateOldest. */
-TEST_F(SessionTest, BudgetSummarizeOldestRefusesWhenFloorUnreachable) {
+TEST_F(SessionTest, BudgetSummarizeRefusesWhenFloorUnreachable) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window        = 30;       /* very tight                   */
   budget.keep_recent_turns = 5;        /* absurdly high floor          */
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
@@ -2738,7 +2747,7 @@ TEST_F(SessionTest, L1PreserveNullCallbackIsNoop) {
  * TruncateOldest policy. The remaining L1 preserve coverage
  * (Compacted / Finalizing) exercises the surviving code paths. */
 
-/* L1 preserve fires with Compacted reason when SummarizeOldest
+/* L1 preserve fires with Compacted reason when Summarize
  * replaces old history entries with a summary. The callback delivers
  * the original entries before they are replaced. */
 TEST_F(SessionTest, L1PreserveCompactedOnSummarize) {
@@ -2746,7 +2755,7 @@ TEST_F(SessionTest, L1PreserveCompactedOnSummarize) {
   Captured cap;
 
   xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window        = 80;
   budget.keep_recent_turns = 1;
 
@@ -2759,7 +2768,7 @@ TEST_F(SessionTest, L1PreserveCompactedOnSummarize) {
   xAgentSession sess = xAgentSessionCreate(agent_, &sc);
   ASSERT_NE(sess, nullptr);
 
-  /* Prime rounds to build up history. SummarizeOldest may trigger an
+  /* Prime rounds to build up history. Summarize may trigger an
    * async compact at any point once the budget ceiling is breached,
    * in which case xAgentSessionInput returns Busy. We keep scripting
    * provider responses and retrying until we observe the compact. */
@@ -2784,12 +2793,12 @@ TEST_F(SessionTest, L1PreserveCompactedOnSummarize) {
       EXPECT_GT(c.n_msgs, 0u) << "compacted callback must deliver entries";
     }
   }
-  EXPECT_TRUE(saw_compacted) << "L1 preserve should fire on SummarizeOldest compact";
+  EXPECT_TRUE(saw_compacted) << "L1 preserve should fire on Summarize compact";
 
   xAgentSessionDestroy(sess);
 }
 
-/* ── Middle-band SummarizeOldest (keep_head_turns > 0) ──────────────
+/* ── Middle-band Summarize (keep_head_turns > 0) ──────────────
  *
  * The pipeline keeps the first keep_head_turns user-turn groups
  * verbatim, summarises the middle band, and keeps the last
@@ -2812,10 +2821,10 @@ TEST_F(SessionTest, L1PreserveCompactedOnSummarize) {
  *      role:U0   A0   System(s)  U2   A2
  *      text:"u0" "a0" "[summary…]" "u2" "a2"
  */
-TEST_F(SessionTest, BudgetSummarizeOldestPreservesHeadAndRecent) {
+TEST_F(SessionTest, BudgetSummarizePreservesHeadAndRecent) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window    = 200;
   budget.keep_head_turns   = 1;
   budget.keep_recent_turns = 1;
@@ -2903,7 +2912,7 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversMiddleBandOnly) {
   Captured cap;
 
   xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window    = 200;
   budget.keep_head_turns   = 1;
   budget.keep_recent_turns = 1;
@@ -2972,10 +2981,10 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversMiddleBandOnly) {
  * the entire prefix up to recent_idx is replaced by the summary,
  * and the surviving tail is preserved. Regression anchor for the
  * "no behaviour change for existing callers" promise. */
-TEST_F(SessionTest, BudgetSummarizeOldestKeepHeadZeroDegradesToFrontReplace) {
+TEST_F(SessionTest, BudgetSummarizeKeepHeadZeroDegradesToFrontReplace) {
   Captured cap;
   xAgentBudgetConf budget{};
-  budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
+  budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window    = 200;
   budget.keep_head_turns   = 0;        /* legacy behaviour */
   budget.keep_recent_turns = 1;

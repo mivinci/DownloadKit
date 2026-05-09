@@ -30,7 +30,7 @@
  *     prompt caching), and, if that still does not fit, refuses.
  *     Disabled (the default) is a single-branch short-circuit and
  *     leaves behaviour byte-identical to pre-budget releases.
- *     Callback / SummarizeOldest policies are accepted by the
+ *     Callback / Summarize policies are accepted by the
  *     parser but behave like Error until c4+ wires the real
  *     implementations.
  *   - Incremental token bookkeeping: instead of re-estimating the
@@ -52,7 +52,7 @@
  *     set. Today every handler runs synchronously on the loop thread.
  *   - User-confirmation gate for needs_confirm tools.
  *   - Budget-policy implementations for Callback (caller-supplied
- *     compaction) and SummarizeOldest (async summary query).
+ *     compaction) and Summarize (async summary query).
  *     Multi-round tool runs do not yet contribute calibration
  *     observations; a proper split of per-round usage out of
  *     Query would unlock that in a later commit.
@@ -141,12 +141,11 @@ static struct xAgentSessionMsg_ *history_push(struct xAgentSession_ *s) {
 /* ── History append API (shared with query.c via session_private.h) ── */
 
 xErrno ai_history_append_text(struct xAgentSession_ *s, xAgentRole role,
-                              const char *text, size_t len,
-                              int is_summary) {
+                              const char *text, size_t len, int is_summary) {
   struct xAgentSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
-  slot->role = role;
-  slot->kind = xAgentSessionEntry_Text;
+  slot->role       = role;
+  slot->kind       = xAgentSessionEntry_Text;
   slot->is_summary = is_summary;
   if (len > 0) {
     slot->text = dup_bytes(text, len);
@@ -214,18 +213,18 @@ xErrno ai_history_append_tool_result(struct xAgentSession_ *s, const char *id,
   if (output_len > 0 && max_bytes < SIZE_MAX && output_len > max_bytes) {
     /* Truncate the output and append a marker. */
     static const char kTruncSuffix[] = "\n[truncated: showing %zu/%zu bytes]";
-    char   marker[128];
-    size_t marker_len = (size_t)snprintf(
-      marker, sizeof(marker), kTruncSuffix, max_bytes, output_len);
-    size_t total = max_bytes + marker_len;
-    char  *buf   = (char *)malloc(total + 1);
+    char              marker[128];
+    size_t marker_len = (size_t)snprintf(marker, sizeof(marker), kTruncSuffix,
+                                         max_bytes, output_len);
+    size_t total      = max_bytes + marker_len;
+    char  *buf        = (char *)malloc(total + 1);
     if (!buf) {
       xArrayPop(s->history_arr);
       return xErrno_NoMemory;
     }
     memcpy(buf, output, max_bytes);
     memcpy(buf + max_bytes, marker, marker_len);
-    buf[total] = '\0';
+    buf[total]                   = '\0';
     slot->tool_result_output     = buf;
     slot->tool_result_output_len = total;
   } else if (output_len > 0) {
@@ -306,7 +305,7 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  *     ├─ budget.policy == Disabled   → skip, proceed as before
  *     ├─ budget.policy == Error      → estimate; if over, return
  *     │                                xErrno_PromptTooLong
- *     └─ SummarizeOldest             → estimate; if over, retroactively
+ *     └─ Summarize             → estimate; if over, retroactively
  *                                      trim tool_results, then launch
  *                                      an internal compact Query.
  *                                      On compact success the old
@@ -357,7 +356,7 @@ static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
 
 /* Historically the session had a session_trim_history_front_() helper
  * that wiped history[0..keep_idx) in place. It was removed when the
- * SummarizeOldest pipeline moved to middle-band compaction: instead
+ * Summarize pipeline moved to middle-band compaction: instead
  * of replacing the front prefix with a summary, the new pipeline
  * preserves the head verbatim and splices the summary into the middle
  * via xArrayRemoveRange + xArrayInsert directly in sess_fwd_on_done.
@@ -384,42 +383,32 @@ static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
  *
  * Returns the number of tool_result entries that were trimmed.
  */
-static size_t session_trim_consumed_tool_results_(
-  struct xAgentSession_ *s, size_t target_tokens,
-  size_t *out_bytes_freed) {
-  size_t n          = xArrayLen(s->history_arr);
-  size_t trimmed    = 0;
-  size_t bytes_freed = 0;
-  int    has_assistant_after = 0;
-  size_t saved_estimate = 0;
+static size_t session_trim_consumed_tool_results_(struct xAgentSession_ *s,
+                                                  size_t   head_idx,
+                                                  size_t   recent_idx,
+                                                  ssize_t *out_bytes_freed) {
+  size_t  trimmed     = 0;
+  ssize_t bytes_freed = 0;
 
-  /* Walk from tail to head. A tool_result is "consumed" when we've
-   * already seen an Assistant entry closer to the tail — meaning the
-   * model already processed it and generated a follow-up. */
-  for (size_t i = n; i > 0; i--) {
-    struct xAgentSessionMsg_ *e = &((struct xAgentSessionMsg_ *)
-      xArrayData(s->history_arr))[i - 1];
+  /* Trim consumed tool_result outputs in the middle band only
+   * (head_idx..recent_idx). The head band preserves the task
+   * framing / cache prefix; the recent band preserves the current
+   * working context. Everything in between is fair game. */
+  for (size_t i = recent_idx; i > head_idx; i--) {
+    struct xAgentSessionMsg_ *e =
+      &((struct xAgentSessionMsg_ *)xArrayData(s->history_arr))[i - 1];
 
-    if (e->role == xAgentRole_Assistant) {
-      has_assistant_after = 1;
-      continue;
-    }
-
-    if (e->kind == xAgentSessionEntry_ToolResult && has_assistant_after &&
+    if (e->kind == xAgentSessionEntry_ToolResult &&
         e->tool_result_output_len > 0) {
-      /* This tool_result has been consumed. Replace its output with
-       * a short marker. We don't need to re-check the budget on every
-       * trim — we estimate the savings and stop when we've freed
-       * enough. */
-      size_t old_bytes  = e->tool_result_output_len;
-      size_t old_tokens = (old_bytes / XAGENT_BUDGET_BYTES_PER_TOKEN) +
-                          XAGENT_BUDGET_PER_MSG_TOKENS;
+      /* A tool_result in the middle band is "consumed" — the model
+       * has already seen it and generated a follow-up in a later
+       * turn. Replace its output with a short marker. */
+      size_t old_bytes = e->tool_result_output_len;
 
-      static const char kTrimSuffix[] =
-        "[result trimmed: was %zu bytes]";
-      char   marker[96];
-      size_t marker_len = (size_t)snprintf(
-        marker, sizeof(marker), kTrimSuffix, old_bytes);
+      static const char kTrimSuffix[] = "[result trimmed: was %zu bytes]";
+      char              marker[96];
+      size_t            marker_len =
+        (size_t)snprintf(marker, sizeof(marker), kTrimSuffix, old_bytes);
 
       char *buf = (char *)malloc(marker_len + 1);
       if (!buf) continue; /* skip on alloc failure */
@@ -430,16 +419,8 @@ static size_t session_trim_consumed_tool_results_(
       e->tool_result_output     = buf;
       e->tool_result_output_len = marker_len;
 
-      size_t new_tokens = (marker_len / XAGENT_BUDGET_BYTES_PER_TOKEN) +
-                          XAGENT_BUDGET_PER_MSG_TOKENS;
-      saved_estimate += (old_tokens - new_tokens);
-      bytes_freed += (old_bytes - marker_len);
+      bytes_freed += (ssize_t)old_bytes - (ssize_t)marker_len;
       trimmed++;
-
-      /* Check if we've freed enough. We use a rough check: if the
-       * estimated savings exceed the gap between current usage and
-       * target, we can stop. */
-      if (saved_estimate >= target_tokens) break;
     }
   }
 
@@ -492,9 +473,8 @@ static size_t session_estimate_current_(struct xAgentSession_ *s) {
   if (s->known_prompt_tokens >= 0 && s->delta_entries > 0) {
     /* Incremental: precise baseline + coarse delta estimate. */
     size_t hist_len = xArrayLen(s->history_arr);
-    size_t delta_start = hist_len > s->delta_entries
-                           ? hist_len - s->delta_entries
-                           : 0;
+    size_t delta_start =
+      hist_len > s->delta_entries ? hist_len - s->delta_entries : 0;
     size_t delta_est = ai_budget_estimate_tokens(
       (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr) +
         delta_start,
@@ -554,10 +534,18 @@ static size_t render_memory_entry_(const xAgentSessionMsg *m, char *buf,
                                    size_t cap) {
   const char *role_str = "?";
   switch (m->role) {
-  case xAgentRole_System: role_str = "system"; break;
-  case xAgentRole_User: role_str = "user"; break;
-  case xAgentRole_Assistant: role_str = "assistant"; break;
-  case xAgentRole_Tool: role_str = "tool"; break;
+  case xAgentRole_System:
+    role_str = "system";
+    break;
+  case xAgentRole_User:
+    role_str = "user";
+    break;
+  case xAgentRole_Assistant:
+    role_str = "assistant";
+    break;
+  case xAgentRole_Tool:
+    role_str = "tool";
+    break;
   }
 
   int n = 0;
@@ -581,7 +569,8 @@ static size_t render_memory_entry_(const xAgentSessionMsg *m, char *buf,
                          : m->tool_result_output_len),
                  m->tool_result_output ? m->tool_result_output : "");
     break;
-  default: return 0;
+  default:
+    return 0;
   }
   if (n < 0) return 0;
   if ((size_t)n >= cap) return cap - 1;
@@ -601,8 +590,8 @@ static char *format_memory_hits_(const xAgentMemoryHits *hits) {
    * formatting (64 bytes per entry is more than enough). */
   size_t cap = 64; /* header */
   for (size_t i = 0; i < hits->n_entries; i++) {
-    const xAgentSessionMsg *m = &hits->entries[i];
-    size_t approx = 64;
+    const xAgentSessionMsg *m      = &hits->entries[i];
+    size_t                  approx = 64;
     approx += m->text_len;
     approx += m->tool_result_output_len;
     if (m->tool_use_args) approx += strlen(m->tool_use_args);
@@ -613,8 +602,8 @@ static char *format_memory_hits_(const xAgentMemoryHits *hits) {
   char *buf = (char *)malloc(cap);
   if (!buf) return NULL;
 
-  size_t used = (size_t)snprintf(
-    buf, cap, "[retrieved memory: %zu entries]\n", hits->n_entries);
+  size_t used = (size_t)snprintf(buf, cap, "[retrieved memory: %zu entries]\n",
+                                 hits->n_entries);
   if (used >= cap) { /* shouldn't happen, but be safe */
     free(buf);
     return NULL;
@@ -634,39 +623,35 @@ static char *format_memory_hits_(const xAgentMemoryHits *hits) {
 
 /* Forward declaration — defined after session_enforce_budget_. */
 static xErrno sess_input_view_build(struct xAgentSession_   *s,
-                                     const xAgentMemoryHits  *hits,
-                                     struct sess_input_view_ *out);
+                                    const xAgentMemoryHits  *hits,
+                                    size_t                   hist_end,
+                                    struct sess_input_view_ *out);
 
 static xErrno session_enforce_budget_(struct xAgentSession_ *s,
                                       xAgentMessage          msg) {
   if (s->budget.policy == xAgentBudgetPolicy_Disabled) return xErrno_Ok;
 
-  size_t limit    = session_budget_limit_(s);
-  size_t incoming = estimate_incoming_user_tokens_(msg);
-  size_t current  = session_estimate_current_(s);
+  size_t limit     = session_budget_limit_(s);
+  size_t incoming  = estimate_incoming_user_tokens_(msg);
+  size_t current   = session_estimate_current_(s);
+  size_t estimated = current + incoming;
 
-  if (current + incoming <= limit) {
-    /* Remember what the gate saw so sess_fwd_on_done can compare
-     * it to the provider-reported prompt_tokens and update the
-     * bookkeeping. Note we store the COMBINED number (history +
-     * incoming), which is what the provider will actually count —
-     * not just the history side. */
-    s->last_gate_total = current + incoming;
-
-    /* Notify the caller that the gate passed, including the
-     * token breakdown so they can display remaining capacity. */
-    if (s->on_budget_event) {
-      struct xAgentBudgetGateInfo gi;
-      gi.limit                          = limit;
-      gi.estimated                      = current + incoming;
-      gi.remaining                      = limit - gi.estimated;
-      gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
-      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi,
-                         s->budget_event_ud);
-    }
-
-    return xErrno_Ok;
-  }
+  /* Pre-compute the three-band boundaries used by both the
+   * retroactive trimmer and Summarize compact path.
+   * head_idx marks the end of the head band (cache prefix +
+   * task framing); recent_idx marks the start of the recent
+   * band (current working context). The middle band
+   * [head_idx..recent_idx) is what gets trimmed or summarised. */
+  size_t                          hlen = xArrayLen(s->history_arr);
+  const struct xAgentSessionMsg_ *msgs_view =
+    (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr);
+  size_t head_idx =
+    s->budget.keep_head_turns > 0
+      ? ai_budget_head_band_end(msgs_view, hlen, s->budget.keep_head_turns)
+      : 0;
+  size_t recent_idx =
+    ai_budget_recent_band_start(msgs_view, hlen, s->budget.keep_recent_turns);
+  if (head_idx > hlen) head_idx = hlen;
 
   /* ── Retroactive tool_result trimming ────────────────────────
    *
@@ -675,47 +660,69 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
    * outputs in-place. This frees token budget without removing
    * entire turns, preserving conversation flow and cache prefix.
    *
-   * Only fires when trim_tool_results_threshold is configured AND
-   * current usage exceeds the threshold. */
+   * Fires when trim_tool_results_threshold is configured AND
+   * estimated usage (current + incoming) reaches the threshold.
+   * This can trigger even when still under the context limit — the
+   * idea is to free budget proactively so subsequent turns are less
+   * likely to hit TruncateTail. */
   if (s->budget.trim_tool_results_threshold > 0) {
-    /* threshold is stored as percentage × 100 (e.g. 7000 = 70%). */
-    size_t threshold_tokens = limit *
-      (size_t)s->budget.trim_tool_results_threshold / 10000u;
+    size_t threshold_tokens = (size_t)s->budget.trim_tool_results_threshold;
 
-    if (current >= threshold_tokens) {
-      /* How many tokens we need to free to get under the limit. */
-      size_t gap = (current + incoming) - limit;
-      size_t bytes_freed = 0;
-      size_t trimmed = session_trim_consumed_tool_results_(s, gap,
-        &bytes_freed);
+    if (estimated >= threshold_tokens) {
+      /* No middle to trim: either the two preserved bands meet
+       * (head_idx >= recent_idx) or the recent floor swallows
+       * everything (recent_idx == 0). */
+      if (recent_idx > 0 && head_idx < recent_idx) {
+        ssize_t bytes_freed = 0;
+        size_t  trimmed     = session_trim_consumed_tool_results_(
+          s, head_idx, recent_idx, &bytes_freed);
 
-      if (trimmed > 0) {
-        /* Re-estimate after trimming. */
-        current = session_estimate_current_(s);
-        if (current + incoming <= limit) {
-          s->last_gate_total = current + incoming;
+        if (trimmed > 0) {
+          /* Re-estimate after trimming. */
+          current   = session_estimate_current_(s);
+          estimated = current + incoming;
           if (s->on_budget_event) {
             struct xAgentBudgetToolResultsTrimmedInfo ti;
             ti.entries_trimmed = trimmed;
             ti.bytes_freed     = bytes_freed;
             s->on_budget_event((xAgentSession)s,
-              xAgentBudgetEvent_ToolResultsTrimmed, &ti,
-              s->budget_event_ud);
+                               xAgentBudgetEvent_ToolResultsTrimmed, &ti,
+                               s->budget_event_ud);
           }
-          return xErrno_Ok;
         }
-        /* Trimmed some but not enough — fall through to the
-         * policy-specific handling below. */
       }
     }
+  }
+
+  if (estimated <= limit) {
+    /* Remember what the gate saw so sess_fwd_on_done can compare
+     * it to the provider-reported prompt_tokens and update the
+     * bookkeeping. Note we store the COMBINED number (history +
+     * incoming), which is what the provider will actually count —
+     * not just the history side. */
+    s->last_gate_total = estimated;
+
+    /* Notify the caller that the gate passed, including the
+     * token breakdown so they can display remaining capacity. */
+    if (s->on_budget_event) {
+      struct xAgentBudgetGateInfo gi;
+      gi.limit                          = limit;
+      gi.estimated                      = estimated;
+      gi.remaining                      = limit - estimated;
+      gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
+      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi,
+                         s->budget_event_ud);
+    }
+
+    return xErrno_Ok;
   }
 
   switch (s->budget.policy) {
   case xAgentBudgetPolicy_Error:
     return xErrno_PromptTooLong;
 
-  case xAgentBudgetPolicy_SummarizeOldest: {
-    /* ── SummarizeOldest: compress middle history into a summary ──
+  case xAgentBudgetPolicy_Summarize: {
+    /* ── Summarize: compress middle history into a summary ──
      *
      * The idea: instead of truncating history outright (losing the
      * original task framing or the most recent working context), we
@@ -724,7 +731,8 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * keep_head_turns user turns) and tail (last @c keep_recent_turns
      * user turns) verbatim.
      *
-     *   [ head (keep_head_turns) | middle (summarised) | recent (keep_recent_turns) ]
+     *   [ head (keep_head_turns) | middle (summarised) | recent
+     * (keep_recent_turns) ]
      *     ^^^^^ anchors task     ^^^^^ replaced by     ^^^^^ current working
      *           goal & prefix          one [summary]         context
      *           cache
@@ -748,24 +756,10 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * [0..recent_idx) band" shape — callers who don't opt into
      * head preservation get the original behaviour unchanged.
      */
-    size_t hlen = xArrayLen(s->history_arr);
-    const struct xAgentSessionMsg_ *msgs_view =
-      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr);
-
-    size_t head_idx = s->budget.keep_head_turns > 0
-      ? ai_budget_tail_keep(msgs_view, hlen, s->budget.keep_head_turns)
-      : 0;
-    size_t recent_idx = ai_budget_earliest_keep(msgs_view, hlen,
-                                                s->budget.keep_recent_turns);
-
-    /* tail_keep returns n when not enough history — clamp to hlen
-     * so the middle-size arithmetic below doesn't underflow. */
-    if (head_idx > hlen) head_idx = hlen;
-
     /* No middle to summarise: either the two preserved bands meet
      * (head_idx >= recent_idx) or the recent floor swallows everything
      * (recent_idx == 0). Refuse rather than silently truncating — the
-     * caller opted into SummarizeOldest precisely to avoid data loss. */
+     * caller opted into Summarize precisely to avoid data loss. */
     if (recent_idx == 0 || head_idx >= recent_idx) {
       return xErrno_PromptTooLong;
     }
@@ -789,143 +783,46 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
                          s->budget_event_ud);
     }
 
-    /* Build a structured message array from history[0..recent_idx)
-     * — head + middle — preserving role information so the provider
-     * sees the same prefix structure as a normal conversation turn.
-     * This is cache-friendly (the head prefix matches what the
-     * provider already has cached) while keeping the request small
-     * enough to fit within the provider's context window (we skip
-     * the recent tail since including it would just confuse the
-     * summariser about what to compress). */
-    const size_t keep = recent_idx; /* alias kept for block-builder below */
-    char summary_instr[256];
-    snprintf(summary_instr, sizeof(summary_instr),
-             XAGENT_SUMMARY_SYSTEM_PROMPT, keep);
+    /* Build the conversation view for history[0..recent_idx) using
+     * sess_input_view_build so the message array is byte-identical
+     * to what a normal request would produce — maximising prompt
+     * cache hit rate. We then append a summary instruction as the
+     * final User message. */
+    struct sess_input_view_ hist_view;
+    xErrno                  vrc =
+      sess_input_view_build(s, /*hits=*/NULL, recent_idx, &hist_view);
+    if (vrc != xErrno_Ok) return xErrno_PromptTooLong;
 
-    /* Count messages and content blocks in [0..keep), same fold
-     * logic as sess_input_view_build. */
-    size_t extra_system = (s->system_prompt && s->system_prompt[0]) ? 1 : 0;
-    size_t n_msgs   = extra_system;
-    size_t n_blocks = extra_system;
-    for (size_t i = 0; i < keep;) {
-      struct xAgentSessionMsg_ *m =
-        (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
-      if (m->role == xAgentRole_Assistant) {
-        size_t j = i;
-        while (j < keep &&
-               ((struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, j))->role ==
-                 xAgentRole_Assistant)
-          j++;
-        n_msgs += 1;
-        n_blocks += (j - i);
-        i = j;
-      } else {
-        n_msgs += 1;
-        n_blocks += 1;
-        i += 1;
-      }
-    }
-    /* +1 for the summary instruction user message. */
-    n_msgs += 1;
-    n_blocks += 1;
+    const size_t keep = recent_idx;
+    char         summary_instr[256];
+    snprintf(summary_instr, sizeof(summary_instr),
+             XAGENT_SUMMARY_INSTRUCT_PROMPT, keep);
+
+    /* Extend the view by one message (the summary instruction). */
+    size_t n_msgs   = hist_view.n_msgs + 1;
+    size_t n_blocks = hist_view.n_blocks + 1;
 
     xAgentMessage *msgs =
-      (xAgentMessage *)calloc(n_msgs, sizeof(xAgentMessage));
-    xAgentContent *blocks =
-      (xAgentContent *)calloc(n_blocks, sizeof(xAgentContent));
+      (xAgentMessage *)realloc(hist_view.msgs, n_msgs * sizeof(xAgentMessage));
+    xAgentContent *blocks = (xAgentContent *)realloc(
+      hist_view.blocks, n_blocks * sizeof(xAgentContent));
     if (!msgs || !blocks) {
       free(msgs);
       free(blocks);
-      /* OOM building the compact view — leave history intact and
-       * refuse; the caller can decide whether to retry. */
+      free(hist_view.ephemeral_text);
       return xErrno_PromptTooLong;
     }
-
-    size_t mi = 0, bi = 0;
-
-    /* Optional system prompt. */
-    if (extra_system) {
-      blocks[bi].type        = xAgentContentType_Text;
-      blocks[bi].u.text.text = s->system_prompt;
-      blocks[bi].u.text.len  = strlen(s->system_prompt);
-      msgs[mi].role          = xAgentRole_System;
-      msgs[mi].contents      = &blocks[bi];
-      msgs[mi].n             = 1;
-      mi++;
-      bi++;
-    }
-
-    /* History entries [0..keep) — same fold logic as
-     * sess_input_view_build. */
-    for (size_t i = 0; i < keep;) {
-      struct xAgentSessionMsg_ *m =
-        (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
-      if (m->role == xAgentRole_Assistant) {
-        size_t block_start = bi;
-        size_t j           = i;
-        while (j < keep) {
-          struct xAgentSessionMsg_ *mm =
-            (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, j);
-          if (mm->role != xAgentRole_Assistant) break;
-          xAgentContent *b = &blocks[bi++];
-          if (mm->kind == xAgentSessionEntry_Text) {
-            b->type        = xAgentContentType_Text;
-            b->u.text.text = mm->text ? mm->text : "";
-            b->u.text.len  = mm->text_len;
-          } else if (mm->kind == xAgentSessionEntry_Thinking) {
-            b->type            = xAgentContentType_Thinking;
-            b->u.thinking.text = mm->text ? mm->text : "";
-            b->u.thinking.len  = mm->text_len;
-          } else if (mm->kind == xAgentSessionEntry_ToolUse) {
-            b->type              = xAgentContentType_ToolUse;
-            b->u.tool_use.id     = mm->tool_use_id ? mm->tool_use_id : "";
-            b->u.tool_use.name   = mm->tool_use_name ? mm->tool_use_name : "";
-            b->u.tool_use.args_json = mm->tool_use_args ? mm->tool_use_args : "";
-          } else if (mm->kind == xAgentSessionEntry_ToolResult) {
-            b->type                     = xAgentContentType_ToolResult;
-            b->u.tool_result.id         = mm->tool_use_id ? mm->tool_use_id : "";
-            b->u.tool_result.output     = mm->tool_result_output
-                                            ? mm->tool_result_output : "";
-            b->u.tool_result.output_len = mm->tool_result_output_len;
-            b->u.tool_result.is_error   = mm->tool_result_is_error;
-          }
-          j++;
-        }
-        msgs[mi].role     = xAgentRole_Assistant;
-        msgs[mi].contents = &blocks[block_start];
-        msgs[mi].n        = bi - block_start;
-        mi++;
-        i = j;
-      } else {
-        xAgentContent *b = &blocks[bi++];
-        if (m->kind == xAgentSessionEntry_ToolResult) {
-          b->type                     = xAgentContentType_ToolResult;
-          b->u.tool_result.id         = m->tool_use_id ? m->tool_use_id : "";
-          b->u.tool_result.output     = m->tool_result_output
-                                          ? m->tool_result_output : "";
-          b->u.tool_result.output_len = m->tool_result_output_len;
-          b->u.tool_result.is_error   = m->tool_result_is_error;
-          msgs[mi].role               = xAgentRole_Tool;
-        } else {
-          b->type        = xAgentContentType_Text;
-          b->u.text.text = m->text ? m->text : "";
-          b->u.text.len  = m->text_len;
-          msgs[mi].role  = m->role;
-        }
-        msgs[mi].contents = b;
-        msgs[mi].n        = 1;
-        mi++;
-        i++;
-      }
-    }
+    /* Zero the new tail so xAgentQueryRun sees clean slots. */
+    memset(&msgs[hist_view.n_msgs], 0, sizeof(xAgentMessage));
+    memset(&blocks[hist_view.n_blocks], 0, sizeof(xAgentContent));
 
     /* Append the summary instruction user message. */
-    blocks[bi].type        = xAgentContentType_Text;
-    blocks[bi].u.text.text = summary_instr;
-    blocks[bi].u.text.len  = strlen(summary_instr);
-    msgs[mi].role          = xAgentRole_User;
-    msgs[mi].contents      = &blocks[bi];
-    msgs[mi].n             = 1;
+    blocks[hist_view.n_blocks].type        = xAgentContentType_Text;
+    blocks[hist_view.n_blocks].u.text.text = summary_instr;
+    blocks[hist_view.n_blocks].u.text.len  = strlen(summary_instr);
+    msgs[hist_view.n_msgs].role            = xAgentRole_User;
+    msgs[hist_view.n_msgs].contents        = &blocks[hist_view.n_blocks];
+    msgs[hist_view.n_msgs].n               = 1;
 
     /* Create an internal Query for the summary task.
      * - The Query's only callback is on_done so we can harvest
@@ -937,29 +834,21 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     xAgentQueryConf qc = {0};
     qc.cbs.on_done     = sess_fwd_on_done;
     qc.cbs.user_data   = s;
-    /* Internal compact/summary Queries deliberately bypass any
-     * per-session provider/model override and run on the agent's
-     * defaults — we want consistent summarisation regardless of
-     * what backend the user picked for the conversation.
-     *
-     * Compact Queries are text-only: no tools (we want the model
-     * to summarise, not call tools) and max_turns=1 (no tool-loop
-     * rounds). max_tokens is capped at a reasonable summary
-     * budget so that "thinking" models don't burn the entire
-     * output quota on internal reasoning and leave nothing for
-     * the actual summary text. */
     qc.provider        = a->provider;
-    qc.tools           = NULL;
-    qc.tools_count     = 0;
-    qc.model           = a->model;
-    qc.max_tokens      = 1024;  /* concise summary; prevents thinking burn */
-    qc.max_turns       = 1;     /* single round: no tool loop */
+    qc.tools           = (const xAgentTool **)a->tools;
+    qc.tools_count     = a->tools_count;
+    qc.model           = s->model;
+    qc.max_tokens      = s->budget.summarize_max_tokens > 0
+                           ? s->budget.summarize_max_tokens
+                           : 1024;
+    qc.max_turns       = 1; /* single round: no tool loop */
     qc.session         = (xAgentSession)s;
 
     xAgentQuery q = xAgentQueryCreate(&qc);
     if (!q) {
       free(msgs);
       free(blocks);
+      free(hist_view.ephemeral_text);
       return xErrno_NoMemory;
     }
 
@@ -967,11 +856,12 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * inputs during the compact. */
     s->compacting = 1;
 
-    xErrno rc = xAgentQueryRun(q, msgs, mi);
+    xErrno rc = xAgentQueryRun(q, msgs, n_msgs);
     /* xAgentQueryRun deep-copies everything, so we can release
      * the combined array immediately. */
     free(msgs);
     free(blocks);
+    free(hist_view.ephemeral_text);
 
     if (rc != xErrno_Ok) {
       /* Compact query failed to start — clean up and refuse.
@@ -1011,6 +901,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
  * only for this one run (freed in sess_input_view_free). */
 static xErrno sess_input_view_build(struct xAgentSession_   *s,
                                     const xAgentMemoryHits  *hits,
+                                    size_t                   hist_end,
                                     struct sess_input_view_ *out) {
   memset(out, 0, sizeof(*out));
   size_t extra_system = (s->system_prompt && s->system_prompt[0]) ? 1 : 0;
@@ -1023,10 +914,12 @@ static xErrno sess_input_view_build(struct xAgentSession_   *s,
   }
   size_t extra_mem = mem_text ? 1 : 0;
 
+  /* hist_end == 0 means "use the full history". */
+  size_t hist_len = hist_end ? hist_end : xArrayLen(s->history_arr);
+
   /* Pass 1: count. */
   size_t n_msgs   = extra_system + extra_mem;
   size_t n_blocks = extra_system + extra_mem;
-  size_t hist_len = xArrayLen(s->history_arr);
   for (size_t i = 0; i < hist_len;) {
     struct xAgentSessionMsg_ *m =
       (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
@@ -1484,7 +1377,7 @@ static void session_sidecar_idle_timer_cb(void *arg) {
    * context muddying its prompt. */
   struct sess_input_view_ hist_view;
   xErrno                  vrc =
-    sess_input_view_build(s, /*hits=*/NULL, &hist_view);
+    sess_input_view_build(s, /*hits=*/NULL, /*hist_end=*/0, &hist_view);
   if (vrc != xErrno_Ok) {
     free(user_text);
     return;
@@ -1576,7 +1469,7 @@ static void session_sidecar_idle_timer_cb(void *arg) {
   qc.provider    = s->provider_override ? s->provider_override : a->provider;
   qc.tools       = sidecar_tools_count > 0 ? sidecar_tools : NULL;
   qc.tools_count = sidecar_tools_count;
-  qc.model       = s->model_override ? s->model_override : s->model;
+  qc.model       = s->model;
   qc.max_tokens  = 256; /* sidecar should be concise */
   qc.max_turns   = 1;   /* single round: analyse + act */
   qc.session     = (xAgentSession)s;
@@ -1638,7 +1531,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
   size_t                    n_produced = 0;
   ai_query_take_produced((struct xAgentQuery_ *)q, &produced, &n_produced);
 
-  /* ── SummarizeOldest compact completion ─────────────────────────
+  /* ── Summarize compact completion ─────────────────────────
    *
    * When a compact (summary) Query completes, we need to:
    *   1. Extract the summary text from the produced entries.
@@ -1674,7 +1567,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
     enum xAgentSessionEntryKind_ summary_kind = xAgentSessionEntry_Text;
     if (!text_found) {
       for (size_t i = 0; i < n_produced; i++) {
-        if (produced[i].kind == xAgentSessionEntry_Thinking && produced[i].text) {
+        if (produced[i].kind == xAgentSessionEntry_Thinking &&
+            produced[i].text) {
           summary_bytes += produced[i].text_len;
         }
       }
@@ -1759,7 +1653,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       summary_entry.created_at_ms = xWallMs();
       summary_entry.is_summary    = 1;
 
-      if (xArrayInsert(&s->history_arr, head_idx, &summary_entry) != xErrno_Ok) {
+      if (xArrayInsert(&s->history_arr, head_idx, &summary_entry) !=
+          xErrno_Ok) {
         /* OOM on insert — free the summary text and degrade. */
         free(summary_text);
         compact_ok = 0;
@@ -1777,10 +1672,9 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
         if (s->on_l1_preserve) {
           const xAgentSessionMsg *sum_ptr =
             (const xAgentSessionMsg *)xArrayData(s->history_arr) + head_idx;
-          s->on_l1_preserve(
-            (xAgentSession)s, sum_ptr, 1,
-            xAgentL1PreserveReason_Compacted,
-            s->l1_preserve_owner);
+          s->on_l1_preserve((xAgentSession)s, sum_ptr, 1,
+                            xAgentL1PreserveReason_Compacted,
+                            s->l1_preserve_owner);
         }
         /* The summary is now a persisted head entry. Ensure
          * persisted_prefix covers it so future flushes don't
@@ -1794,7 +1688,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       /* Compact failed (empty summary / OOM / provider error).
        * Leave history untouched — the caller decides whether to
        * retry, relax the budget, or surface an error. Silently
-       * truncating here would violate the SummarizeOldest contract
+       * truncating here would violate the Summarize contract
        * (the user opted in precisely because they did NOT want to
        * lose the head outright), and would also risk an infinite
        * loop if the post-trim history is still over budget. */
@@ -1845,8 +1739,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       cdi.summary_tokens =
         compact_ok
           ? ai_budget_estimate_tokens(
-              (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr)
-                + head_idx,
+              (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr) +
+                head_idx,
               1 /* just the summary entry */)
           : 0;
       cdi.entries_affected = recent_idx > head_idx ? recent_idx - head_idx : 0;
@@ -1952,7 +1846,11 @@ xAgentSession xAgentSessionCreate(xAgent agent, const xAgentSessionConf *conf) {
 
   s->system_prompt =
     conf->system_prompt ? conf->system_prompt : a->system_prompt;
-  s->model      = conf->model ? conf->model : a->model;
+  s->model = strdup(conf->model ? conf->model : a->model);
+  if (!s->model) {
+    free(s);
+    return NULL;
+  }
   s->max_turns  = conf->max_turns > 0 ? conf->max_turns : a->max_turns;
   s->max_tokens = conf->max_tokens > 0 ? conf->max_tokens : a->max_tokens;
 
@@ -1974,9 +1872,9 @@ xAgentSession xAgentSessionCreate(xAgent agent, const xAgentSessionConf *conf) {
    * baseline. delta_entries tracks how many history entries have
    * been added since the last provider report; only this small
    * delta needs coarse estimation. */
-  s->known_prompt_tokens           = -1;
-  s->delta_entries                 = 0;
-  s->last_gate_total               = 0;
+  s->known_prompt_tokens            = -1;
+  s->delta_entries                  = 0;
+  s->last_gate_total                = 0;
   s->last_first_round_prompt_tokens = -1;
 
   /* Session-lifetime properties: stamped here, never mutated. Zero
@@ -2025,7 +1923,7 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
 
   /* Single-flight: one live Query per Session. If the previous run
    * is still in flight refuse with Busy. Also refuse if a compact
-   * (SummarizeOldest) Query is in flight — the caller must wait
+   * (Summarize) Query is in flight — the caller must wait
    * for the compact to finish before submitting new input. */
   if (s->query || s->compacting) return xErrno_Busy;
 
@@ -2054,8 +1952,8 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
   if (a->memory && s->session_id) {
     xAgentMemoryQuery rq;
     memset(&rq, 0, sizeof(rq));
-    rq.session_id    = s->session_id;
-    rq.recent_turn   = &msg;
+    rq.session_id  = s->session_id;
+    rq.recent_turn = &msg;
     /* budget_tokens / max_entries left at 0 — let the backend pick
      * sensible defaults until the session-level budget knob gets
      * properly plumbed through. */
@@ -2090,7 +1988,7 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
    * (system prompt + ephemeral memory hits + rolling history
    * including the new user turn). */
   struct sess_input_view_ view;
-  rc = sess_input_view_build(s, &hits, &view);
+  rc = sess_input_view_build(s, &hits, /*hist_end=*/0, &view);
   if (rc != xErrno_Ok) {
     xAgentMemoryReleaseHits(a->memory, &hits);
     /* Roll back the user append — nothing observable happened. */
@@ -2124,7 +2022,7 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
   qc.provider    = s->provider_override ? s->provider_override : a->provider;
   qc.tools       = (const xAgentTool **)a->tools;
   qc.tools_count = a->tools_count;
-  qc.model       = s->model_override ? s->model_override : s->model;
+  qc.model       = s->model;
   qc.max_tokens  = s->max_tokens;
   qc.max_turns   = s->max_turns;
   qc.session     = sess;
@@ -2186,11 +2084,11 @@ xErrno xAgentSessionSetModel(xAgentSession sess, const char *model_id) {
    * legacy single-provider agents have nothing to look up. */
   if (!a->model_registry) return xErrno_InvalidState;
 
-  /* NULL id — clear both overrides and revert to agent defaults. */
+  /* NULL id — revert to agent default model. */
   if (!model_id) {
     s->provider_override = NULL;
-    free(s->model_override);
-    s->model_override = NULL;
+    free(s->model);
+    s->model = strdup(a->model); /* may be NULL if agent has no default */
     return xErrno_Ok;
   }
 
@@ -2199,9 +2097,9 @@ xErrno xAgentSessionSetModel(xAgentSession sess, const char *model_id) {
   if (!spec) return xErrno_NotFound;
 
   /* Prepare the new model-name copy up front so a failed strdup
-   * leaves both overrides untouched. spec->model may legitimately
+   * leaves the current model untouched. spec->model may legitimately
    * be NULL ("use the provider's own default") — in that case we
-   * mirror it with a NULL override. */
+   * mirror it with a NULL model. */
   char *new_model = NULL;
   if (spec->model) {
     new_model = strdup(spec->model);
@@ -2209,8 +2107,8 @@ xErrno xAgentSessionSetModel(xAgentSession sess, const char *model_id) {
   }
 
   s->provider_override = spec->provider;
-  free(s->model_override);
-  s->model_override = new_model;
+  free(s->model);
+  s->model = new_model;
   return xErrno_Ok;
 }
 
@@ -2227,8 +2125,7 @@ void xAgentSessionSetContextWindow(xAgentSession sess, size_t context_window) {
   s->budget.context_window = context_window;
 }
 
-void xAgentSessionSetBudget(xAgentSession           sess,
-                            const xAgentBudgetConf *conf) {
+void xAgentSessionSetBudget(xAgentSession sess, const xAgentBudgetConf *conf) {
   /* Bulk variant of SetContextWindow. We deliberately copy ONLY the
    * threshold knobs and leave s->budget.policy plus the
    * on_budget_event / budget_event_ud pair untouched — those are
@@ -2237,11 +2134,11 @@ void xAgentSessionSetBudget(xAgentSession           sess,
    * flight keeps running under its admitted limits; the new values
    * take effect at the next session_budget_limit_() check. */
   if (!sess || !conf) return;
-  struct xAgentSession_ *s = (struct xAgentSession_ *)sess;
-  s->budget.context_window             = conf->context_window;
-  s->budget.keep_head_turns            = conf->keep_head_turns;
-  s->budget.keep_recent_turns          = conf->keep_recent_turns;
-  s->budget.max_tool_result_bytes      = conf->max_tool_result_bytes;
+  struct xAgentSession_ *s              = (struct xAgentSession_ *)sess;
+  s->budget.context_window              = conf->context_window;
+  s->budget.keep_head_turns             = conf->keep_head_turns;
+  s->budget.keep_recent_turns           = conf->keep_recent_turns;
+  s->budget.max_tool_result_bytes       = conf->max_tool_result_bytes;
   s->budget.trim_tool_results_threshold = conf->trim_tool_results_threshold;
 }
 
@@ -2286,16 +2183,16 @@ void xAgentSessionDestroy(xAgentSession sess) {
     s->on_l1_preserve                 = NULL;
     s->l1_preserve_owner              = NULL;
     size_t hist_len                   = xArrayLen(s->history_arr);
-    size_t skip = s->persisted_prefix < hist_len ? s->persisted_prefix
-                                                 : hist_len;
+    size_t skip =
+      s->persisted_prefix < hist_len ? s->persisted_prefix : hist_len;
     const xAgentSessionMsg *base =
       (const xAgentSessionMsg *)xArrayData(s->history_arr);
     /* Always invoke the hook on Finalizing so the owner can free
      * its context even when the emitted slice is empty.  Pass the
      * post-prefix tail; the callback is responsible for handling
      * n_msgs == 0 gracefully. */
-    hook(sess, base + skip, hist_len - skip,
-         xAgentL1PreserveReason_Finalizing, owner);
+    hook(sess, base + skip, hist_len - skip, xAgentL1PreserveReason_Finalizing,
+         owner);
   }
 
   if (s->on_finalizing) {
@@ -2309,7 +2206,7 @@ void xAgentSessionDestroy(xAgentSession sess) {
   /* xArrayDestroy calls the release callback (ai_session_msg_free)
    * for every element still in the array. */
   xArrayDestroy(s->history_arr);
-  free(s->model_override);
+  free(s->model);
   free(s);
 }
 

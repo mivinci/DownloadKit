@@ -23,16 +23,15 @@
  *      that multiplier lives on the session and is updated from
  *      provider-reported xAgentUsage in sess_fwd_on_done.
  *
- *   2. ai_budget_find_nth_user_turn() — given a history slice, at
+ *   2. ai_budget_find_user_turn() — given a history slice, at
  *      what index does the k-th User-role entry sit? Pure indexing
  *      utility, used both by the trimmer and by tests to describe
  *      expected boundaries readably.
  *
- *   3. ai_budget_earliest_keep() — given a history and a
- *      keep_recent_turns lower bound, what is the earliest index
- *      the session is allowed to start keeping from? In other
- *      words: everything strictly before the returned index may
- *      be dropped without violating any of the four invariants
+ *   3. ai_budget_recent_band_start() — given a history and a
+ *      keep_recent_turns lower bound, what is the start index of
+ *      the "recent band"? Everything before that index may be
+ *      dropped without violating any of the four invariants
  *      spelled out in xAgentBudgetPolicy's doc.
  *
  * Exposed only to session.c, budget.c and budget_test.cpp. Other
@@ -115,8 +114,9 @@ extern "C" {
 /**
  * @brief Default @c trim_tool_results_threshold: 0 = disabled.
  *
- * When non-zero, the value is stored as percentage × 100
- * (e.g. 7000 = 70%). See @ref xAgentBudgetConf::trim_tool_results_threshold.
+ * When non-zero, the value is an absolute token count
+ * (e.g. 140000 = trim at 140k tokens). See
+ * @ref xAgentBudgetConf::trim_tool_results_threshold.
  */
 #define XAGENT_BUDGET_DEFAULT_TRIM_TOOL_RESULTS_THRESHOLD 0
 
@@ -160,16 +160,19 @@ size_t ai_budget_estimate_tokens(const struct xAgentSessionMsg_ *msgs, size_t n)
  *              @ref XAGENT_BUDGET_NO_SUCH_TURN if the slice contains
  *              fewer than @p k + 1 User-role entries.
  */
-size_t ai_budget_find_nth_user_turn(const struct xAgentSessionMsg_ *msgs, size_t n,
-                                    size_t k);
+size_t ai_budget_find_user_turn(const struct xAgentSessionMsg_ *msgs, size_t n,
+                                size_t k);
 
 /**
- * @brief Compute the earliest index the session may keep from
- *        without violating any budget invariant.
+ * @brief Compute the start index of the "recent band" — the
+ *        slice of history that must be kept because it contains
+ *        the newest @p keep_recent_turns user turns.
  *
- * Returned value @c idx has this meaning: entries in @c msgs[0..idx)
- * are safe to drop, entries in @c msgs[idx..n) must be retained.
- * A return value of @c 0 therefore means "nothing may be dropped".
+ * Returned value @c idx means:
+ *   - @c msgs[0..idx)  → droppable (older than the recent band)
+ *   - @c msgs[idx..n)  → recent band (must be retained)
+ *
+ * A return value of 0 means "nothing may be dropped".
  *
  * Guarantees (matching the invariants in xAgentBudgetPolicy's doc,
  * with system_prompt handled outside of history — see session.c):
@@ -186,10 +189,11 @@ size_t ai_budget_find_nth_user_turn(const struct xAgentSessionMsg_ *msgs, size_t
  *      User-role entries, the function returns 0 (keep everything)
  *      — there is not enough history to honour the floor, so we
  *      prefer safety over compliance.
- *   4. @p keep_recent_turns == 0 is legal: the earliest trimmable
- *      boundary collapses to the last User-role entry's index
- *      (keep only the current-most turn). If the slice has no
- *      User-role entries at all, returns 0 unconditionally.
+ *   4. @p keep_recent_turns == 0 means "no mandatory retention
+ *      floor". The boundary collapses to the last User-role
+ *      entry's index — the tightest split the tool-pair invariant
+ *      allows (effectively keeping only the most recent turn).
+ *      If the slice has no User-role entries at all, returns 0.
  *
  * This function is pure policy computation; it does not consult
  * any token budget. The actual "should I trim, and how much?"
@@ -199,10 +203,10 @@ size_t ai_budget_find_nth_user_turn(const struct xAgentSessionMsg_ *msgs, size_t
  * @param n                  Number of entries at @p msgs.
  * @param keep_recent_turns  Minimum number of complete recent User
  *                           turns that must remain intact.
- * @return Index where retention must begin. In @c [0, n].
+ * @return Index where the recent band starts. In @c [0, n].
  */
-size_t ai_budget_earliest_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
-                               size_t keep_recent_turns);
+size_t ai_budget_recent_band_start(const struct xAgentSessionMsg_ *msgs, size_t n,
+                                   size_t keep_recent_turns);
 
 /**
  * @brief Compute the fraction of token cost attributable to tool-use
@@ -211,7 +215,7 @@ size_t ai_budget_earliest_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
  * Returns a value in [0.0, 1.0] where 1.0 means every token in the
  * slice comes from ToolUse or ToolResult entries, and 0.0 means none
  * of them do (pure text / thinking conversation). Used by the Auto
- * budget policy to decide whether SummarizeOldest (good for text) or
+ * budget policy to decide whether Summarize (good for text) or
  * TruncateTail (safer for structured tool data) is the better
  * strategy.
  *
@@ -228,8 +232,8 @@ size_t ai_budget_earliest_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
 double ai_budget_tool_ratio(const struct xAgentSessionMsg_ *msgs, size_t n);
 
 /**
- * @brief Compute the tail-truncation boundary that preserves the
- *        prompt-cache prefix.
+ * @brief Compute the end index of the "head band" — the slice of
+ *        history that must be kept as a cache-friendly prefix.
  *
  * For TruncateTail (cache-friendly truncation): instead of removing
  * the oldest entries (which changes the prompt prefix and invalidates
@@ -237,10 +241,12 @@ double ai_budget_tool_ratio(const struct xAgentSessionMsg_ *msgs, size_t n);
  * of history. This keeps the prefix stable so the provider's cache
  * stays hot.
  *
- * Returned value @c idx has this meaning: entries in @c msgs[0..idx)
- * must be retained (prefix — never touched, preserves cache), and
- * entries in @c msgs[idx..n) may be dropped. A return value of @c n
- * means "nothing may be dropped" (the entire history is prefix).
+ * Returned value @c idx means:
+ *   - @c msgs[0..idx)  → head band (must be retained — cache prefix)
+ *   - @c msgs[idx..n)  → droppable (newer than the head band)
+ *
+ * A return value of @c n means "nothing may be dropped" (the entire
+ * history is head band).
  *
  * The function guarantees:
  *   1. At least @p keep_prefix_turns complete User turns are kept
@@ -252,9 +258,9 @@ double ai_budget_tool_ratio(const struct xAgentSessionMsg_ *msgs, size_t n);
  *      never split.
  *   3. If the slice contains fewer than @p keep_prefix_turns User
  *      entries, returns @p n (keep everything).
- *   4. @p keep_prefix_turns == 0 is legal: only the first User
- *      turn's starting index must survive. If no User entries exist,
- *      returns @p n unconditionally.
+ *   4. @p keep_prefix_turns == 0 means "no mandatory prefix" →
+ *      returns 0 (the head band is empty; everything can be
+ *      dropped from the tail side).
  *
  * @param msgs                Entry array.
  * @param n                   Number of entries at @p msgs.
@@ -262,8 +268,8 @@ double ai_budget_tool_ratio(const struct xAgentSessionMsg_ *msgs, size_t n);
  *                            prefix (counted from the head / oldest).
  * @return Index beyond which entries may be dropped. In @c [0, n].
  */
-size_t ai_budget_tail_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
-                           size_t keep_prefix_turns);
+size_t ai_budget_head_band_end(const struct xAgentSessionMsg_ *msgs, size_t n,
+                               size_t keep_prefix_turns);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -23,7 +23,7 @@
   ② Retroactive trim ──── shrink consumed tool_results in-place
         │ still over?
         ▼
-  ③ SummarizeOldest ───── splice [head .. recent) → [summary]
+  ③ Summarize ───── splice [head .. recent) → [summary]
         │ failed (provider error / empty)
         ▼
   ④ degrade TruncateTail  drop tail entries to fit
@@ -39,11 +39,11 @@
 | --- | --- | --- | --- |
 | 估算器 | `budget.c :: ai_budget_estimate_tokens` | history 大概多少 token | 无状态 |
 | 增量记账 | `session.c :: known_prompt_tokens + delta_entries` | 用 provider 上次报的 prompt_tokens 做精确基线，只对新增 entry 估增量 | Session 级 |
-| 双向锚点 | `budget.c :: ai_budget_tail_keep` / `ai_budget_earliest_keep` | 给出「头保 K 轮 / 尾保 K 轮」的下标 | 无状态 |
+| 双向锚点 | `budget.c :: ai_budget_head_band_end` / `ai_budget_recent_band_start` | 给出「头保 K 轮 / 尾保 K 轮」的下标 | 无状态 |
 | 闸门 | `session.c :: session_enforce_budget_` | 把上面缝起来，按 `xAgentBudgetPolicy` 决定放行 / 修剪 / 压缩 / 拒绝 | 复用 Session history |
 
 默认 (`xAgentBudgetPolicy_Disabled`) 是字节级 no-op。
-推荐配置是 `xAgentBudgetPolicy_SummarizeOldest`。
+推荐配置是 `xAgentBudgetPolicy_Summarize`。
 
 ---
 
@@ -109,8 +109,8 @@ Query 层做活得不够久没法承诺「这次裁掉的内容下次也不再�
 
 ### 触发条件
 
-`trim_tool_results_threshold`（万分比，默认 0 = 关）。设到 7000 就是
-「估算 ≥ 70% 窗口时启动 retroactive trim」。
+`trim_tool_results_threshold`（token 数，默认 0 = 关）。设到 140000 就是
+「估算 ≥ 140k tokens 时启动 retroactive trim」。
 
 只裁「已被消费」的 tool_result —— 即它后面已经有至少一条 Assistant entry。
 当前正在等待回复的那次 tool_result 不动（模型没看过结果，砍了等于毁掉这次工具调用）。
@@ -122,7 +122,7 @@ Query 层做活得不够久没法承诺「这次裁掉的内容下次也不再�
 
 ---
 
-## 阶段 ③：SummarizeOldest（中段摘要）
+## 阶段 ③：Summarize（中段摘要）
 
 如果 trim 后还是过线，进入压缩阶段。这是这次重设计的核心。
 
@@ -246,7 +246,7 @@ fire `CompactDone(summary_ok=false)`，history 完全不动，errno 直接交给
 
 | Reason | 触发点 | 喂进去什么 |
 | --- | --- | --- |
-| `Compacted` | SummarizeOldest 成功 splice 后 | 被替换的 middle 段 `[head_idx, recent_idx)` |
+| `Compacted` | Summarize 成功 splice 后 | 被替换的 middle 段 `[head_idx, recent_idx)` |
 | `Truncated` | TruncateTail 砍尾后 | 被砍掉的尾部 entry |
 | `Finalizing` | Session destroy 前 | 整个 history（让 L1 收尾）|
 
@@ -261,12 +261,12 @@ history 又在 L1），少了 L1 会漏掉。这条不变量由
 
 ```c
 xAgentBudgetConf b = {};
-b.policy                      = xAgentBudgetPolicy_SummarizeOldest;
+b.policy                      = xAgentBudgetPolicy_Summarize;
 b.context_window              = 128000;   // 模型窗口
 b.keep_head_turns             = 2;        // 保任务目标
 b.keep_recent_turns           = 4;        // 保最近上下文
 b.max_tool_result_bytes       = 8192;     // 单条 tool_result 上限
-b.trim_tool_results_threshold = 7000;     // 70% 触发 retroactive trim
+b.trim_tool_results_threshold = 90000;    // 90k tokens 触发 retroactive trim
 b.on_budget_event             = my_event_cb;
 ```
 
@@ -276,7 +276,7 @@ b.on_budget_event             = my_event_cb;
 ### models.json 中的配置（CLI 视角）
 
 CLI 把配置面分成 **顶层** 和 **per-model** 两层，per-model 同字段
-覆盖顶层。`policy` 不暴露——CLI 永远跑 `SummarizeOldest`。
+覆盖顶层。`policy` 不暴露——CLI 永远跑 `Summarize`。
 
 ```json
 {
@@ -285,7 +285,7 @@ CLI 把配置面分成 **顶层** 和 **per-model** 两层，per-model 同字段
     "context_window": 8192,
     "keep_head_turns": 1,
     "keep_recent_turns": 2,
-    "trim_tool_results_threshold": 7000,
+    "trim_tool_results_threshold": 90000,
     "max_tool_result_bytes": 8192
   },
   "models": [
@@ -317,7 +317,7 @@ CLI 把配置面分成 **顶层** 和 **per-model** 两层，per-model 同字段
 2. **当前正在提交的 user turn 不裁** —— 不然用户在问什么就没了。
 3. **`tool_use ↔ tool_result` 原子对** —— 切只在 User 边界切。
 4. **至少保留 `keep_recent_turns` 个完整 user turn**。
-5. **至少保留 `keep_head_turns` 个完整 user turn**（SummarizeOldest 专属）。
+5. **至少保留 `keep_head_turns` 个完整 user turn**（Summarize 专属）。
 6. **L1 preserve 喂进去的 = history 里即将消失的**，一一对应。
 
 ---
@@ -332,7 +332,7 @@ CLI 把配置面分成 **顶层** 和 **per-model** 两层，per-model 同字段
 - **Drop-oldest / windowed memory**：`keep_recent_turns` 等价 LangChain
   `ConversationBufferWindowMemory(k=...)` 的 `k`、OpenAI Assistants API
   `truncation_strategy: "auto"`。
-- **SummarizeOldest 思想**：LangChain `ConversationSummaryBufferMemory`
+- **Summarize 思想**：LangChain `ConversationSummaryBufferMemory`
   是经典参考。我们的实装走 Session 内部 compact Query 的路子。
 - **`tool_use ↔ tool_result` 配对**：Anthropic tool use 文档明确要求
   「every `tool_use` block must be followed by a `tool_result`」。
@@ -353,8 +353,8 @@ CLI 把配置面分成 **顶层** 和 **per-model** 两层，per-model 同字段
 3. **Cache-friendly compact Query**：head + middle 整段原样发出去做摘要，
    而不是抽取 / 重组。多花一些 input token，换 prompt cache 100% 命中。
 4. **删 Auto / 删 TruncateOldest / 删降级**：把策略空间从「Disabled / Error
-   / TruncateOldest / SummarizeOldest / Auto」收敛到「Disabled / Error /
-   SummarizeOldest（推荐） / TruncateTail（兜底）」。少即是多 —— 旧 Auto 阈值
+   / TruncateOldest / Summarize / Auto」收敛到「Disabled / Error /
+   Summarize（推荐） / TruncateTail（兜底）」。少即是多 —— 旧 Auto 阈值
    `tool_ratio = 0.4` 是经验值，且降级 truncate 会掩盖摘要失败的真因。
 5. **Splice = `xArrayRemoveRange + xArrayInsert`，不动 head 不动 tail**：
    把「保 prefix」从约定变成数据结构层面的保证。
@@ -374,11 +374,11 @@ CLI 把配置面分成 **顶层** 和 **per-model** 两层，per-model 同字段
 
 `libs/xagent/session_test.cpp`:
 
-- `BudgetSummarizeOldestPreservesHeadAndRecent` —— middle splice 字节级正确性。
+- `BudgetSummarizePreservesHeadAndRecent` —— middle splice 字节级正确性。
 - `L1PreserveCompactedDeliversMiddleBandOnly` —— L1 通道不变量。
-- `BudgetSummarizeOldestKeepHeadZeroDegradesToFrontReplace` —— `keep_head_turns=0`
+- `BudgetSummarizeKeepHeadZeroDegradesToFrontReplace` —— `keep_head_turns=0`
   退化兼容。
-- `BudgetSummarizeOldestCompactsHistory` —— end-to-end compact pipeline。
+- `BudgetSummarizeCompactsHistory` —— end-to-end compact pipeline。
 
 未覆盖（已知）：`persisted_prefix` 的「跨 middle」「>= recent_idx」两个分支
 还没单独测试 —— 当前测试都从空 L1 store 起步、`persisted_prefix = 0`，

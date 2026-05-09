@@ -145,6 +145,12 @@ bool parse_budget_block(const cJSON *obj, CliBudgetConf *out) {
     out->mask.max_tool_result_bytes = true;
   }
 
+  v = json_nonneg_int(obj, "summarize_max_tokens");
+  if (v >= 0) {
+    out->summarize_max_tokens      = static_cast<int>(v);
+    out->mask.summarize_max_tokens = true;
+  }
+
   return true;
 }
 
@@ -178,7 +184,10 @@ constexpr const char *kModelsJsonTemplate =
   "  \"budget\": {\n"
   "    \"context_window\": 8192,\n"
   "    \"keep_head_turns\": 1,\n"
-  "    \"keep_recent_turns\": 2\n"
+  "    \"keep_recent_turns\": 2,\n"
+  "    \"trim_tool_results_threshold\": 0,\n"
+  "    \"max_tool_result_bytes\": 0,\n"
+  "    \"summarize_max_tokens\": 1024\n"
   "  },\n"
   "  \"models\": [\n"
   "    {\n"
@@ -187,6 +196,7 @@ constexpr const char *kModelsJsonTemplate =
   "      \"model\": \"<model-name>\",\n"
   "      \"api_key\": \"<your-api-key>\",\n"
   "      \"base_url\": \"<provider-base-url>\",\n"
+  "      \"organization\": \"<your-organization>\",\n"
   "      \"budget\": {\n"
   "        \"context_window\": 8192\n"
   "      }\n"
@@ -490,6 +500,8 @@ xAgentBudgetConf cli_model_config_resolve_budget(const CliModelConfig *cfg,
       out.trim_tool_results_threshold = src.trim_tool_results_threshold;
     if (src.mask.max_tool_result_bytes)
       out.max_tool_result_bytes = src.max_tool_result_bytes;
+    if (src.mask.summarize_max_tokens)
+      out.summarize_max_tokens = src.summarize_max_tokens;
   };
 
   apply(cfg->budget);

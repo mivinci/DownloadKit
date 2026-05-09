@@ -31,6 +31,35 @@
 
 struct CliModelConfig; /* apps/cli/config.h */
 
+/* ── Renderer vtable ────────────────────────────────────────────────
+ *
+ * Thin C-style vtable that abstracts the output rendering pipeline.
+ * Allows the REPL to switch between markdown→ANSI and raw pass-
+ * through at runtime (e.g. via /md and /raw slash commands) without
+ * scattering `if (md_enabled)` branches across every callback.
+ *
+ * Three operations mirror the xMd contract:
+ *   feed  — ingest a byte chunk (may emit 0+ sink calls)
+ *   flush — drain pending state, close open SGR spans
+ *   reset — discard pending state + emit SGR reset (mid-stream cancel)
+ *
+ * Two built-in vtables are provided:
+ *   g_renderer_md  — routes through xMd (markdown → ANSI)
+ *   g_renderer_raw — routes through above_chunk (verbatim)
+ *
+ * The `state` pointer is passed as the first arg to every vfunc so
+ * each backend can carry its own context (xMd* or ReplCtx*). */
+struct Renderer {
+  void (*feed)(void *state, const char *data, size_t len);
+  void (*flush)(void *state);
+  void (*reset)(void *state);
+  void *state; /* opaque backend context */
+};
+
+/* Built-in renderer vtables (defined in output.cpp). */
+extern const Renderer g_renderer_md;
+extern const Renderer g_renderer_raw;
+
 /* One queued tool-confirm request. See the "Tool-confirm gate" block
  * in repl.cpp for the full semantics. */
 struct PendingConfirm {
@@ -57,11 +86,13 @@ struct ReplCtx {
    * 4-byte pending buffer) so we keep it inline. xMdReset() is
    * called between runs so state doesn't bleed across turns. */
   xMd           md_renderer       = {};
-  /* Opt-out for non-TTY / dumb terminals. When false, on_text
-   * bypasses md_renderer and writes chunks raw. Decided once at
-   * startup from isatty(stdout) && $TERM != "dumb" and never
-   * flipped - keeping this cheap and predictable. */
-  bool          md_enabled      = false;  size_t        budget_limit     = 0;   /* from last GatePassed event */
+  /* Active rendering pipeline. Switched at runtime by /md and /raw
+   * commands. The vtable routes feed/flush/reset to either the
+   * md_renderer above or the raw above_chunk path. Initialised in
+   * main.cpp based on isatty(stdout) / $TERM. */
+  Renderer      renderer          = {};
+  const char   *renderer_name     = nullptr; /* "md" or "raw" */
+  size_t        budget_limit     = 0;   /* from last GatePassed event */
   size_t        budget_remaining = 0;   /* from last GatePassed event */
   size_t        budget_estimated = 0;   /* pre-submit estimate (tokens) */
   int last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
@@ -116,5 +147,10 @@ struct ReplCtx {
    * opt in for the current session. */
   bool bypass_confirm = false;
 };
+
+/* Convenience: switch ctx->renderer to the md or raw backend.
+ * Must be declared after ReplCtx is complete. */
+void renderer_use_md(ReplCtx *ctx);
+void renderer_use_raw(ReplCtx *ctx);
 
 #endif /* MOO_APPS_CLI_CTX_H */

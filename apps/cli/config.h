@@ -19,7 +19,7 @@
  *     "context_window": 8192,
  *     "keep_head_turns": 1,
  *     "keep_recent_turns": 2,
- *     "trim_tool_results_threshold": 7000,
+ *     "trim_tool_results_threshold": 140000,
  *     "max_tool_result_bytes": 8192
  *   },
  *   "models": [
@@ -73,19 +73,21 @@ struct CliBudgetMask {
   bool keep_recent_turns           = false;
   bool trim_tool_results_threshold = false;
   bool max_tool_result_bytes       = false;
+  bool summarize_max_tokens        = false;
 };
 
 /* User-supplied budget thresholds. Pairs with CliBudgetMask: only
  * fields whose mask bit is true should be consulted. Mirrors the
  * threshold subset of xAgentBudgetConf — policy and event callback
  * are NOT user-configurable (the CLI pins the policy to
- * SummarizeOldest and owns the event sink for its TUI overlay). */
+ * Summarize and owns the event sink for its TUI overlay). */
 struct CliBudgetConf {
   size_t        context_window              = 0;
   size_t        keep_head_turns             = 0;
   size_t        keep_recent_turns           = 0;
   unsigned      trim_tool_results_threshold = 0;
   size_t        max_tool_result_bytes       = 0;
+  int           summarize_max_tokens        = 0;
   CliBudgetMask mask;
 };
 

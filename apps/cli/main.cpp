@@ -213,21 +213,16 @@ int main(int argc, char *argv[]) {
     ctx.model_registry = model_cfg.registry;
     ctx.model_cfg      = &model_cfg;
 
-    /* Streaming markdown → ANSI. Enabled only when stdout is a
-     * real TTY and $TERM isn't "dumb" — piping to a file, CI
-     * logging, or $TERM=dumb all want the raw bytes so downstream
-     * tooling (grep, tee, text editors) sees the original
-     * markdown. The renderer itself is cheap (~32 bytes + a small
-     * pending string) so we always allocate it; the flag just
-     * gates whether on_text routes chunks through it.
+    /* Streaming markdown → ANSI. The renderer vtable is always
+     * initialised; we pick the md or raw backend based on whether
+     * stdout is a real TTY and $TERM isn't "dumb". Piping to a
+     * file, CI logging, or $TERM=dumb all want the raw bytes so
+     * downstream tooling (grep, tee, text editors) sees the
+     * original markdown. The active renderer can be switched at
+     * runtime via /md and /raw slash commands.
      *
      * Sink: above_chunk via a trampoline in callbacks.cpp, so the
      * prompt row stays intact exactly like the unrendered path. */
-    {
-      const char *term = std::getenv("TERM");
-      ctx.md_enabled   = ::isatty(STDOUT_FILENO) != 0 &&
-                       !(term && std::strcmp(term, "dumb") == 0);
-    }
     xMdInit(
       &ctx.md_renderer,
       [](const char *data, size_t len, void *arg) {
@@ -235,6 +230,16 @@ int main(int argc, char *argv[]) {
         above_chunk(c->line, data, len);
       },
       &ctx);
+    {
+      const char *term = std::getenv("TERM");
+      bool is_tty = ::isatty(STDOUT_FILENO) != 0 &&
+                    !(term && std::strcmp(term, "dumb") == 0);
+      if (is_tty) {
+        renderer_use_md(&ctx);
+      } else {
+        renderer_use_raw(&ctx);
+      }
+    }
 
     shell_conf.callback_ud = &ctx;
     shell_conf.on_command  = [](const char *command, const char *cwd,
@@ -291,7 +296,7 @@ int main(int argc, char *argv[]) {
      * reasoning) plus the floor pinned by keep_recent_turns won't
      * trip the gate on turn #2, but small enough that a handful of
      * sustained turns will eventually push the rolling history past
-     * the cap and exercise SummarizeOldest. The top-level "budget"
+     * the cap and exercise Summarize. The top-level "budget"
      * block in models.json overrides any of these knobs globally,
      * and a per-model "budget" block overrides them again for the
      * matching entry — see cli_model_config_resolve_budget(). On
@@ -323,12 +328,13 @@ int main(int argc, char *argv[]) {
      * stay 0 when not set so xagent's own built-in defaults apply. */
     ctx.default_budget = merged;
 
-    sconf.budget.policy                      = xAgentBudgetPolicy_SummarizeOldest;
+    sconf.budget.policy                      = xAgentBudgetPolicy_Summarize;
     sconf.budget.context_window              = merged.context_window;
     sconf.budget.keep_head_turns             = merged.keep_head_turns;
     sconf.budget.keep_recent_turns           = merged.keep_recent_turns;
     sconf.budget.max_tool_result_bytes       = merged.max_tool_result_bytes;
     sconf.budget.trim_tool_results_threshold = merged.trim_tool_results_threshold;
+    sconf.budget.summarize_max_tokens        = merged.summarize_max_tokens;
     sconf.budget.on_budget_event             = on_budget_event;
     sconf.budget.budget_event_ud             = &ctx;
 

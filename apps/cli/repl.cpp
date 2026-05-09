@@ -459,12 +459,10 @@ xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
   ctx->in_thinking     = false;
   ctx->reply_bytes     = 0;
   ctx->input_ms        = xMonoMs();
-  /* Drop any residual markdown state from a previous run (shouldn't
+  /* Drop any residual renderer state from a previous run (shouldn't
    * happen after a clean on_done, but defensive against aborted
    * runs where Flush() may not have fired). */
-  if (ctx->md_enabled) {
-    xMdReset(&ctx->md_renderer);
-  }
+  ctx->renderer.reset(ctx->renderer.state);
 
   xAgentMessage m   = xAgentMessageFromText(text);
   xErrno        err = xAgentSessionInput(ctx->sess, m);

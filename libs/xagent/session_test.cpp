@@ -2380,8 +2380,7 @@ TEST_F(SessionTest, BudgetSummarizeCompactsHistory) {
   /* The first history entry should be the System summary. */
   auto *msgs = (const xAgentSessionMsg_ *)xArrayData(s->history_arr);
   ASSERT_NE(msgs, nullptr);
-  EXPECT_EQ(msgs[0].role, xAgentRole_System);
-  EXPECT_NE(msgs[0].text, nullptr);
+  EXPECT_EQ(msgs[0].role, xAgentRole_Assistant);  EXPECT_NE(msgs[0].text, nullptr);
   EXPECT_NE(std::string(msgs[0].text, msgs[0].text_len).find("[summary]"),
             std::string::npos)
       << "compact should produce a [summary] entry";
@@ -2491,7 +2490,7 @@ TEST_F(SessionTest, BudgetSummarizeReportsErrorOnEmptySummary) {
 
   int summary_count = 0;
   for (size_t i = 0; i < hlen_after; i++) {
-    if (msgs[i].role == xAgentRole_System && msgs[i].text &&
+    if (msgs[i].role == xAgentRole_Assistant && msgs[i].text &&
         std::string(msgs[i].text, msgs[i].text_len).find("[summary]") !=
             std::string::npos) {
       summary_count++;
@@ -2553,7 +2552,7 @@ TEST_F(SessionTest, BudgetSummarizeFallsBackToThinkingWhenNoText) {
 
   int summary_count = 0;
   for (size_t i = 0; i < hlen; i++) {
-    if (msgs[i].role == xAgentRole_System && msgs[i].text &&
+    if (msgs[i].role == xAgentRole_Assistant && msgs[i].text &&
         std::string(msgs[i].text, msgs[i].text_len).find("[summary]") !=
             std::string::npos) {
       summary_count++;
@@ -2719,8 +2718,8 @@ TEST_F(SessionTest, L1PreserveNullCallbackIsNoop) {
  *   Replaced band [0,4) = U0, A0, U1, A1 — replaced by a single [summary].
  *
  *   Post-compact layout (3 entries):
- *      idx: 0          1    2
- *      role:System(s)  U2   A2
+ *      idx: 0             1    2
+ *      role:Assistant(s)  U2   A2
  *      text:"[summary…]" "u2" "a2"
  */
 TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
@@ -2768,44 +2767,49 @@ TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
   EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(overflow_msg.c_str())),
             xErrno_Busy);
 
-  /* Compact finished synchronously, then auto-retry appended the
-   * user message and ran a new query. The history now contains:
-   * summary(1) + U2 + A2 + overflow_user + auto_retry_assistant = 5
-   * But the exact length depends on the auto-retry query result. */
+  /* Compact finished synchronously, then the post-compact budget
+   * check passed and a new query ran. The history now contains:
+   * summary(1) + overflow_user + auto_retry_assistant = 3.
+   * Everything before the overflow message was compacted, including
+   * u0, u1, u2 and all assistant replies. */
   size_t hlen = hist_len(s);
-  ASSERT_GE(hlen, 5u) << "should have at least summary + remaining entries";
+  ASSERT_GE(hlen, 3u) << "should have at least summary + user + reply";
 
   auto *msgs = (const xAgentSessionMsg_ *)xArrayData(s->history_arr);
   ASSERT_NE(msgs, nullptr);
 
-  /* Summary at position 0 (replaced the old head). */
-  EXPECT_EQ(msgs[0].role, xAgentRole_System);
+  /* Summary at position 0 (replaced the old entries). */
+  EXPECT_EQ(msgs[0].role, xAgentRole_Assistant);
   ASSERT_NE(msgs[0].text, nullptr);
   EXPECT_NE(std::string(msgs[0].text, msgs[0].text_len).find("[summary]"),
             std::string::npos);
 
-  /* Only the last user turn (u2) should survive in the history;
-   * everything before it (u0, u1, and their replies) was compacted
-   * into the summary. */
-  bool found_u1 = false, found_u2 = false;
+  /* All original user turns were compacted — only the overflow
+   * message (which triggered the compact) survives as the most
+   * recent user turn. */
+  bool found_u0 = false, found_u1 = false, found_u2 = false;
   for (size_t i = 0; i < hlen; i++) {
     if (msgs[i].role == xAgentRole_User && msgs[i].text) {
       std::string t(msgs[i].text, msgs[i].text_len);
+      if (t == u0) found_u0 = true;
       if (t == u1) found_u1 = true;
       if (t == u2) found_u2 = true;
     }
   }
+  EXPECT_FALSE(found_u0) << "u0 was before compact_end, should be compacted";
   EXPECT_FALSE(found_u1) << "u1 was before compact_end, should be compacted";
-  EXPECT_TRUE(found_u2) << "last user turn must survive";
+  EXPECT_FALSE(found_u2) << "u2 was before compact_end, should be compacted";
 
-  /* Old entries (u0 and u1) must NOT survive in any form. */
+  /* All old user turns must NOT survive in any form. */
   for (size_t i = 0; i < hlen; ++i) {
     if (msgs[i].text == nullptr) continue;
     std::string t(msgs[i].text, msgs[i].text_len);
     EXPECT_EQ(t.find(u0), std::string::npos)
-        << "old head user turn u0 must be gone (idx=" << i << ")";
+        << "compacted user turn u0 must be gone (idx=" << i << ")";
     EXPECT_EQ(t.find(u1), std::string::npos)
         << "compacted user turn u1 must be gone (idx=" << i << ")";
+    EXPECT_EQ(t.find(u2), std::string::npos)
+        << "compacted user turn u2 must be gone (idx=" << i << ")";
   }
 
   /* Auto-retry should have fired on_done for the pending message. */
@@ -2862,8 +2866,8 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
             xErrno_Busy);
 
   /* Find the Compacted call and assert exactly the replaced entries.
-   * compact_end_idx = 4 (last user turn), so
-   * [0,4) = U0, A0, U1, A1 = 4 entries are replaced. */
+   * compact_end_idx = 6 (the overflow message), so
+   * [0,6) = U0, A0, U1, A1, U2, A2 = 6 entries are replaced. */
   const L1PreserveCap::Call *compacted = nullptr;
   for (const auto &c : l1.calls) {
     if (c.reason == xAgentL1PreserveReason_Compacted) {
@@ -2873,8 +2877,8 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
   }
   ASSERT_NE(compacted, nullptr) << "Compacted callback must fire";
 
-  /* Replaced band [0,4) is exactly U0 + A0 + U1 + A1 = 4 entries. */
-  ASSERT_EQ(compacted->n_msgs, 4u)
+  /* Replaced band [0,6) is all 6 prior entries. */
+  ASSERT_EQ(compacted->n_msgs, 6u)
       << "L1 preserve must deliver exactly the replaced entries";
   EXPECT_EQ(compacted->roles[0], xAgentRole_User);
   EXPECT_EQ(compacted->texts[0], u0) << "entry 0 must be u0";
@@ -2882,22 +2886,18 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
   EXPECT_EQ(compacted->roles[2], xAgentRole_User);
   EXPECT_EQ(compacted->texts[2], u1) << "entry 2 must be u1";
   EXPECT_EQ(compacted->roles[3], xAgentRole_Assistant);
-
-  /* Negative assertion: u2 must NOT be in the
-   * preserve batch — it is still live in history. */
-  for (const auto &t : compacted->texts) {
-    EXPECT_EQ(t.find(u2), std::string::npos)
-        << "u2 must not appear in Compacted callback";
-  }
+  EXPECT_EQ(compacted->roles[4], xAgentRole_User);
+  EXPECT_EQ(compacted->texts[4], u2) << "entry 4 must be u2";
+  EXPECT_EQ(compacted->roles[5], xAgentRole_Assistant);
 
   xAgentSessionDestroy(sess);
 }
 
 /* The new design always replaces history[0, compact_end_idx) with
- * a summary, where compact_end_idx is the last user turn.
- * With 3 user turns, compact_end_idx = index of U2 (the
- * last), so [0, compact_end_idx) = U0, A0, U1, A1 is replaced.
- * The surviving tail (U2, A2) is preserved. */
+ * a summary, where compact_end_idx is the last user turn (the
+ * incoming overflow message). With 3 prior user turns, the
+ * overflow message is at index 6, so [0,6) = U0, A0, U1, A1, U2, A2
+ * is replaced. The surviving tail is just the overflow message. */
 TEST_F(SessionTest, BudgetSummarizeReplacesUpToCompactEnd) {
   Captured cap;
   xAgentBudgetConf budget{};
@@ -2932,23 +2932,26 @@ TEST_F(SessionTest, BudgetSummarizeReplacesUpToCompactEnd) {
                                      std::string(400, 'X').c_str())),
             xErrno_Busy);
 
-  /* Layout: [summary, U2, A2, overflow_user, auto_reply]
-   * compact_end_idx = 4 means entries [0,4) = U0, A0, U1, A1 were replaced.
-   * Then auto-retry appended the overflow message and ran a query. */
+  /* Layout: [summary, overflow_user, auto_reply]
+   * compact_end_idx = 6 (the overflow message), so [0,6) = all
+   * prior entries were replaced. Then the post-compact budget check
+   * passed and a query ran. */
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
-  ASSERT_GE(hist_len(s), 5u);
+  ASSERT_GE(hist_len(s), 3u);
 
   auto *msgs = (const xAgentSessionMsg_ *)xArrayData(s->history_arr);
   ASSERT_NE(msgs, nullptr);
-  EXPECT_EQ(msgs[0].role, xAgentRole_System);
-  EXPECT_NE(std::string(msgs[0].text, msgs[0].text_len).find("[summary]"),
+  EXPECT_EQ(msgs[0].role, xAgentRole_Assistant);  EXPECT_NE(std::string(msgs[0].text, msgs[0].text_len).find("[summary]"),
             std::string::npos);
 
-  /* u0 must NOT survive — it was in the replaced band. */
+  /* All original user turns must NOT survive — they were in the
+   * replaced band. */
   for (size_t i = 0; i < hist_len(s); ++i) {
     if (msgs[i].text == nullptr) continue;
     std::string t(msgs[i].text, msgs[i].text_len);
     EXPECT_EQ(t.find(u0), std::string::npos);
+    EXPECT_EQ(t.find(u1), std::string::npos);
+    EXPECT_EQ(t.find(u2), std::string::npos);
   }
 
   xAgentSessionDestroy(sess);

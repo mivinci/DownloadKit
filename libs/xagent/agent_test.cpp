@@ -293,6 +293,7 @@ TEST_F(AgentTest, DefaultSessionInheritsAgentDefaults) {
    * other session created via xAgentCreateSession.
    * model is strdup'd so the session owns its copy — compare
    * by content, not by pointer identity. */
+  auto *s = reinterpret_cast<struct xAgentSession_ *>(ds);
   EXPECT_STREQ(s->model,  conf.model);
   EXPECT_EQ(s->max_turns,  conf.max_turns);
   EXPECT_EQ(s->max_tokens, conf.max_tokens);

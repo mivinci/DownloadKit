@@ -1846,10 +1846,15 @@ xAgentSession xAgentSessionCreate(xAgent agent, const xAgentSessionConf *conf) {
 
   s->system_prompt =
     conf->system_prompt ? conf->system_prompt : a->system_prompt;
-  s->model = strdup(conf->model ? conf->model : a->model);
-  if (!s->model) {
-    free(s);
-    return NULL;
+  const char *model_src = conf->model ? conf->model : a->model;
+  if (model_src) {
+    s->model = strdup(model_src);
+    if (!s->model) {
+      free(s);
+      return NULL;
+    }
+  } else {
+    s->model = NULL;
   }
   s->max_turns  = conf->max_turns > 0 ? conf->max_turns : a->max_turns;
   s->max_tokens = conf->max_tokens > 0 ? conf->max_tokens : a->max_tokens;
@@ -2088,7 +2093,7 @@ xErrno xAgentSessionSetModel(xAgentSession sess, const char *model_id) {
   if (!model_id) {
     s->provider_override = NULL;
     free(s->model);
-    s->model = strdup(a->model); /* may be NULL if agent has no default */
+    s->model = a->model ? strdup(a->model) : NULL;
     return xErrno_Ok;
   }
 

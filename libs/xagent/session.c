@@ -664,18 +664,31 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
    * estimated usage (current + incoming) reaches the threshold.
    * This can trigger even when still under the context limit — the
    * idea is to free budget proactively so subsequent turns are less
-   * likely to hit TruncateTail. */
+   * likely to hit TruncateTail.
+   *
+   * Prefer trimming in the middle band [head_idx, recent_idx) to
+   * preserve the head (cache prefix) and the recent working context.
+   * When the middle band is empty (head_idx >= recent_idx or
+   * recent_idx == 0), fall back to trimming the entire history —
+   * losing some tool output is better than refusing to compress at
+   * all when the context is genuinely over-budget. */
   if (s->budget.trim_tool_results_threshold > 0) {
     size_t threshold_tokens = (size_t)s->budget.trim_tool_results_threshold;
 
     if (estimated >= threshold_tokens) {
-      /* No middle to trim: either the two preserved bands meet
-       * (head_idx >= recent_idx) or the recent floor swallows
-       * everything (recent_idx == 0). */
-      if (recent_idx > 0 && head_idx < recent_idx) {
+      size_t trim_lo = head_idx;
+      size_t trim_hi = recent_idx;
+
+      /* No middle band — relax to whole history. */
+      if (trim_hi == 0 || trim_lo >= trim_hi) {
+        trim_lo = 0;
+        trim_hi = hlen;
+      }
+
+      if (trim_hi > trim_lo) {
         ssize_t bytes_freed = 0;
         size_t  trimmed     = session_trim_consumed_tool_results_(
-          s, head_idx, recent_idx, &bytes_freed);
+          s, trim_lo, trim_hi, &bytes_freed);
 
         if (trimmed > 0) {
           /* Re-estimate after trimming. */
@@ -756,12 +769,44 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * [0..recent_idx) band" shape — callers who don't opt into
      * head preservation get the original behaviour unchanged.
      */
-    /* No middle to summarise: either the two preserved bands meet
-     * (head_idx >= recent_idx) or the recent floor swallows everything
-     * (recent_idx == 0). Refuse rather than silently truncating — the
-     * caller opted into Summarize precisely to avoid data loss. */
-    if (recent_idx == 0 || head_idx >= recent_idx) {
-      return xErrno_PromptTooLong;
+    /* ── Degradation cascade for Summarize ──────────────────
+     *
+     * When the ideal three-band split has no middle band
+     * (head_idx >= recent_idx or recent_idx == 0), we relax
+     * preservation constraints rather than refusing outright:
+     *
+     *   Normal:  compact [head_idx, recent_idx) — preserve
+     *            head (cache prefix) + recent (working context)
+     *   Relaxed: compact [0, last_user_idx) — give up head
+     *            preservation, keep only the most recent turn
+     *   Refuse:  no User turns at all → PromptTooLong
+     *
+     * Giving up the cache prefix is regrettable but better than
+     * refusing to compress when the context is genuinely
+     * over-budget. The model loses its cached prompt prefix
+     * but keeps the current working context intact. */
+    size_t compact_head = head_idx;
+    size_t compact_keep = recent_idx;
+
+    if (compact_keep == 0 || compact_head >= compact_keep) {
+      if (hlen == 0) return xErrno_PromptTooLong;
+
+      /* Find the last User-role entry — the tightest valid
+       * split that still preserves the most recent turn. */
+      size_t user_count = 0;
+      for (size_t i = 0; i < hlen; ++i) {
+        if (msgs_view[i].role == xAgentRole_User) ++user_count;
+      }
+      if (user_count == 0) return xErrno_PromptTooLong;
+
+      size_t last_user =
+        ai_budget_find_user_turn(msgs_view, hlen, user_count - 1);
+      if (last_user == XAGENT_BUDGET_NO_SUCH_TURN || last_user == 0) {
+        return xErrno_PromptTooLong;
+      }
+
+      compact_head = 0;
+      compact_keep = last_user;
     }
 
     /* Re-entrance guard: only one compact at a time. */
@@ -769,31 +814,31 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
     /* Record both band boundaries for sess_fwd_on_done to splice
      * the summary back into the right place. */
-    s->compact_head_idx = head_idx;
-    s->compact_keep_idx = recent_idx;
+    s->compact_head_idx = compact_head;
+    s->compact_keep_idx = compact_keep;
 
     /* ── Notify caller: compact is starting ───────────────
-     * entries_compacted is the middle-band size (what actually
+     * entries_compacted is the compact-band size (what actually
      * gets replaced) so the UI can say "compacting N entries"
      * honestly. */
     if (s->on_budget_event) {
       struct xAgentBudgetCompactInfo ci;
-      ci.entries_compacted = recent_idx - head_idx;
+      ci.entries_compacted = compact_keep - compact_head;
       s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_Compacting, &ci,
                          s->budget_event_ud);
     }
 
-    /* Build the conversation view for history[0..recent_idx) using
+    /* Build the conversation view for history[0..compact_keep) using
      * sess_input_view_build so the message array is byte-identical
      * to what a normal request would produce — maximising prompt
      * cache hit rate. We then append a summary instruction as the
      * final User message. */
     struct sess_input_view_ hist_view;
     xErrno                  vrc =
-      sess_input_view_build(s, /*hits=*/NULL, recent_idx, &hist_view);
+      sess_input_view_build(s, /*hits=*/NULL, compact_keep, &hist_view);
     if (vrc != xErrno_Ok) return xErrno_PromptTooLong;
 
-    const size_t keep = recent_idx;
+    const size_t keep = compact_keep;
     char         summary_instr[512];
     snprintf(summary_instr, sizeof(summary_instr),
              XAGENT_SUMMARY_INSTRUCT_PROMPT, keep);

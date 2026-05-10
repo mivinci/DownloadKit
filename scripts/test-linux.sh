@@ -248,6 +248,12 @@ done
 
 info "Test targets: ${TEST_TARGETS[*]}"
 
+# If all affected modules have no test binary, nothing to do.
+if [[ ${#TEST_TARGETS[@]} -eq 0 ]]; then
+    info "No test targets to build — all affected modules lack test binaries"
+    exit 0
+fi
+
 # ── CI mode: run natively on Linux ─────────────────────────────────────
 if [[ "$CI_MODE" -eq 1 ]]; then
     BUILD_DIR="${PROJECT_DIR}/build-linux-${TLS_BACKEND}"

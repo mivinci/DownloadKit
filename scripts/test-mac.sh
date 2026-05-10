@@ -99,6 +99,9 @@ MODULE_DEPS=(
 
 ALL_MODULES=(xbase xlog xbuf xnet xcrypto xhttp xp2p xfer xagent xline xjs xtui)
 
+# Modules that have no test binary (no ${module}_test CMake target).
+NO_TEST_MODULES=(xline)
+
 # ── Compute reverse dependents (transitive) ────────────────────────────
 # Given a set of changed modules, find all modules that depend on them.
 compute_affected() {
@@ -235,10 +238,16 @@ if [[ $DETECT_ONLY -eq 1 ]]; then
     exit 0
 fi
 
-# Collect test targets
+# Collect test targets (skip modules with no test binary)
 TEST_TARGETS=()
 for m in "${AFFECTED[@]}"; do
-    TEST_TARGETS+=("${m}_test")
+    skip=0
+    for nt in "${NO_TEST_MODULES[@]}"; do
+        if [[ "$m" == "$nt" ]]; then skip=1; break; fi
+    done
+    if [[ $skip -eq 0 ]]; then
+        TEST_TARGETS+=("${m}_test")
+    fi
 done
 
 info "Test targets: ${TEST_TARGETS[*]}"

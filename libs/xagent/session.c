@@ -798,31 +798,33 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     snprintf(summary_instr, sizeof(summary_instr),
              XAGENT_SUMMARY_INSTRUCT_PROMPT, keep);
 
-    /* Extend the view by one message (the summary instruction). */
-    size_t n_msgs   = hist_view.n_msgs + 1;
-    size_t n_blocks = hist_view.n_blocks + 1;
-
-    xAgentMessage *msgs =
-      (xAgentMessage *)realloc(hist_view.msgs, n_msgs * sizeof(xAgentMessage));
-    xAgentContent *blocks = (xAgentContent *)realloc(
-      hist_view.blocks, n_blocks * sizeof(xAgentContent));
-    if (!msgs || !blocks) {
+    /* Extend the view by one message (the summary instruction).
+     * CAUTION: we must NOT realloc hist_view.blocks because every
+     * existing msgs[i].contents pointer points into that array.
+     * Instead, allocate the extra block separately and use
+     * malloc+memcpy for the msgs array so the old contents
+     * pointers remain valid. */
+    size_t         n_msgs  = hist_view.n_msgs + 1;
+    xAgentMessage *msgs    = (xAgentMessage *)malloc(n_msgs * sizeof(xAgentMessage));
+    xAgentContent *sum_blk = (xAgentContent *)calloc(1, sizeof(xAgentContent));
+    if (!msgs || !sum_blk) {
       free(msgs);
-      free(blocks);
+      free(sum_blk);
       free(hist_view.ephemeral_text);
+      free(hist_view.blocks);
+      free(hist_view.msgs);
       return xErrno_PromptTooLong;
     }
-    /* Zero the new tail so xAgentQueryRun sees clean slots. */
+    memcpy(msgs, hist_view.msgs, hist_view.n_msgs * sizeof(xAgentMessage));
     memset(&msgs[hist_view.n_msgs], 0, sizeof(xAgentMessage));
-    memset(&blocks[hist_view.n_blocks], 0, sizeof(xAgentContent));
 
     /* Append the summary instruction user message. */
-    blocks[hist_view.n_blocks].type        = xAgentContentType_Text;
-    blocks[hist_view.n_blocks].u.text.text = summary_instr;
-    blocks[hist_view.n_blocks].u.text.len  = strlen(summary_instr);
-    msgs[hist_view.n_msgs].role            = xAgentRole_User;
-    msgs[hist_view.n_msgs].contents        = &blocks[hist_view.n_blocks];
-    msgs[hist_view.n_msgs].n               = 1;
+    sum_blk->type        = xAgentContentType_Text;
+    sum_blk->u.text.text = summary_instr;
+    sum_blk->u.text.len  = strlen(summary_instr);
+    msgs[hist_view.n_msgs].role     = xAgentRole_User;
+    msgs[hist_view.n_msgs].contents = sum_blk;
+    msgs[hist_view.n_msgs].n        = 1;
 
     /* Create an internal Query for the summary task.
      * - The Query's only callback is on_done so we can harvest
@@ -847,8 +849,10 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     xAgentQuery q = xAgentQueryCreate(&qc);
     if (!q) {
       free(msgs);
-      free(blocks);
+      free(sum_blk);
       free(hist_view.ephemeral_text);
+      free(hist_view.blocks);
+      free(hist_view.msgs);
       return xErrno_NoMemory;
     }
 
@@ -860,8 +864,10 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     /* xAgentQueryRun deep-copies everything, so we can release
      * the combined array immediately. */
     free(msgs);
-    free(blocks);
+    free(sum_blk);
     free(hist_view.ephemeral_text);
+    free(hist_view.blocks);
+    free(hist_view.msgs);
 
     if (rc != xErrno_Ok) {
       /* Compact query failed to start — clean up and refuse.

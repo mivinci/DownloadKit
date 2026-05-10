@@ -106,9 +106,15 @@ MODULE_DEPS=(
     [xp2p]="xbase xnet xcrypto"
     [xfer]="xp2p xhttp xnet xcrypto xbase"
     [xagent]="xbase xnet xhttp"
+    [xline]="xbase"
+    [xjs]="xbase"
+    [xtui]="xbase"
 )
 
-ALL_MODULES=(xbase xlog xbuf xnet xcrypto xhttp xp2p xfer xagent)
+ALL_MODULES=(xbase xlog xbuf xnet xcrypto xhttp xp2p xfer xagent xline xjs xtui)
+
+# Modules that have no test binary (no ${module}_test CMake target).
+NO_TEST_MODULES=(xline)
 
 # ── Compute reverse dependents (transitive) ────────────────────────────
 compute_affected() {
@@ -228,13 +234,25 @@ if [[ $DETECT_ONLY -eq 1 ]]; then
     exit 0
 fi
 
-# Collect test targets
+# Collect test targets (skip modules with no test binary)
 TEST_TARGETS=()
 for m in $AFFECTED; do
-    TEST_TARGETS+=("${m}_test")
+    skip=0
+    for nt in "${NO_TEST_MODULES[@]}"; do
+        if [[ "$m" == "$nt" ]]; then skip=1; break; fi
+    done
+    if [[ $skip -eq 0 ]]; then
+        TEST_TARGETS+=("${m}_test")
+    fi
 done
 
 info "Test targets: ${TEST_TARGETS[*]}"
+
+# If all affected modules have no test binary, nothing to do.
+if [[ ${#TEST_TARGETS[@]} -eq 0 ]]; then
+    info "No test targets to build — all affected modules lack test binaries"
+    exit 0
+fi
 
 # ── CI mode: run natively on Linux ─────────────────────────────────────
 if [[ "$CI_MODE" -eq 1 ]]; then

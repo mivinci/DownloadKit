@@ -88,6 +88,7 @@ static void session_sidecar_idle_timer_cb(void *arg);
 static void session_sidecar_on_done(xAgentQuery q, xAgentDoneReason reason,
                                     const xAgentUsage *usage, void *ud);
 static void session_sidecar_cleanup(struct xAgentSession_ *s);
+static void session_auto_retry_pending_(struct xAgentSession_ *s);
 
 /* ── Small helpers ──────────────────────────────────────────────────── */
 
@@ -204,30 +205,7 @@ xErrno ai_history_append_tool_result(struct xAgentSession_ *s, const char *id,
   slot->kind           = xAgentSessionEntry_ToolResult;
   slot->tool_result_id = dup_cstr(id ? id : "");
 
-  /* Determine the effective truncation threshold. If
-   * max_tool_result_bytes is 0 (the zero-init default), use the
-   * built-in default. SIZE_MAX means "no truncation". */
-  size_t max_bytes = s->budget.max_tool_result_bytes;
-  if (max_bytes == 0) max_bytes = XAGENT_BUDGET_DEFAULT_MAX_TOOL_RESULT_BYTES;
-
-  if (output_len > 0 && max_bytes < SIZE_MAX && output_len > max_bytes) {
-    /* Truncate the output and append a marker. */
-    static const char kTruncSuffix[] = "\n[truncated: showing %zu/%zu bytes]";
-    char              marker[128];
-    size_t marker_len = (size_t)snprintf(marker, sizeof(marker), kTruncSuffix,
-                                         max_bytes, output_len);
-    size_t total      = max_bytes + marker_len;
-    char  *buf        = (char *)malloc(total + 1);
-    if (!buf) {
-      xArrayPop(s->history_arr);
-      return xErrno_NoMemory;
-    }
-    memcpy(buf, output, max_bytes);
-    memcpy(buf + max_bytes, marker, marker_len);
-    buf[total]                   = '\0';
-    slot->tool_result_output     = buf;
-    slot->tool_result_output_len = total;
-  } else if (output_len > 0) {
+  if (output_len > 0) {
     slot->tool_result_output     = dup_bytes(output, output_len);
     slot->tool_result_output_len = output_len;
   } else if (output) {
@@ -294,9 +272,7 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  * Gate xAgentSessionInput runs on the structured xAgentBudgetConf policy.
  * The pipeline runs BEFORE the user message is committed to
  * history, so the Error policy can refuse the turn without leaving
- * history polluted, and the TruncateTail policy can shape history
- * first and then let the normal append path execute on an already-
- * conforming base.
+ * history polluted.
  *
  * Wire picture:
  *
@@ -309,32 +285,17 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  *                                      trim tool_results, then launch
  *                                      an internal compact Query.
  *                                      On compact success the old
- *                                      history is replaced by a summary.
- *                                      On compact failure history is
- *                                      left untouched and the caller
- *                                      is notified via
+ *                                      history is replaced by a summary
+ *                                      and the pending input is
+ *                                      auto-retried. On compact failure
+ *                                      history is left untouched and
+ *                                      the caller is notified via
  *                                      xAgentBudgetEvent_CompactDone.
  *
  * The estimator is the coarse one from budget.c — bytes/4 plus a
  * per-entry envelope constant — and is intentionally conservative
  * so a slightly-overestimate still errs on the side of "refuse /
- * trim a bit more" rather than busting the real provider window.
- *
- * TruncateTail vs TruncateOldest:
- *   TruncateTail removes entries from the tail (newest) end of
- *   history, keeping the prefix (oldest entries) intact. This
- *   preserves provider-side prompt caching: the cached prefix
- *   bytes are unchanged, so the provider re-uses its cached
- *   KV instead of re-processing the full prompt. The trade-off
- *   is that we lose more recent context instead of older context.
- *   For long-running agent conversations where the system prompt
- *   + early context is the most valuable (and most expensive to
- *   re-process), this trade-off is correct.
- *
- *   keep_recent_turns now means "keep at least N User turns from
- *   the HEAD as prefix" — the turns that anchor the prompt prefix
- *   for caching. Everything beyond that boundary may be truncated.
- */
+ * trim a bit more" rather than busting the real provider window. */
 
 /* Estimate the token footprint of an incoming xAgentMessage as if it
  * were already appended to history as a single xAgentRole_User text
@@ -356,17 +317,17 @@ static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
 
 /* Historically the session had a session_trim_history_front_() helper
  * that wiped history[0..keep_idx) in place. It was removed when the
- * Summarize pipeline moved to middle-band compaction: instead
- * of replacing the front prefix with a summary, the new pipeline
- * preserves the head verbatim and splices the summary into the middle
- * via xArrayRemoveRange + xArrayInsert directly in sess_fwd_on_done.
- * persisted_prefix adjustment is inlined at the call site (see the
- * "compact_ok" branch of sess_fwd_on_done). */
+ * Summarize pipeline moved to front-replacing compaction: instead
+ * of preserving the head and splicing the summary into the middle,
+ * the new pipeline replaces history[0..compact_end_idx) with a
+ * summary at index 0 via xArrayRemoveRange + xArrayInsert directly
+ * in sess_fwd_on_done. persisted_prefix adjustment is inlined at
+ * the call site (see the "compact_ok" branch of sess_fwd_on_done). */
 
 /* ── Retroactive tool_result trimming ───────────────────────────
  *
- * When context usage exceeds a configured threshold, this function
- * scans history from tail to head and truncates "consumed" tool_result
+ * When context usage exceeds the budget limit, this function
+ * scans all history entries and truncates "consumed" tool_result
  * outputs. A tool_result is "consumed" when the model has already
  * seen it and generated a subsequent response — i.e. there exists
  * an Assistant-role entry after it in history.
@@ -377,24 +338,31 @@ static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
  * structurally intact (the model still knows it called the tool and
  * got a result — it just doesn't see the full output anymore).
  *
- * This is lighter-weight than TruncateTail: no entire turns are
- * removed, the conversation flow is preserved, and the prompt prefix
- * stays untouched for caching.
+ * This is lighter-weight than compacting: no entire turns are
+ * removed, the conversation flow is preserved.
  *
  * Returns the number of tool_result entries that were trimmed.
  */
 static size_t session_trim_consumed_tool_results_(struct xAgentSession_ *s,
-                                                  size_t   head_idx,
-                                                  size_t   recent_idx,
                                                   ssize_t *out_bytes_freed) {
   size_t  trimmed     = 0;
   ssize_t bytes_freed = 0;
 
-  /* Trim consumed tool_result outputs in the middle band only
-   * (head_idx..recent_idx). The head band preserves the task
-   * framing / cache prefix; the recent band preserves the current
-   * working context. Everything in between is fair game. */
-  for (size_t i = recent_idx; i > head_idx; i--) {
+  /* Scan all history entries, trimming consumed tool_result
+   * outputs. A tool_result is "consumed" when the model has
+   * already seen it and generated a subsequent response — i.e.
+   * there exists an Assistant-role entry after it in history.
+   * We scan from end to start so we process the oldest entries
+   * first.
+   *
+   * The output is replaced with a short marker like
+   *   "[result trimmed: was 12345 bytes]"
+   * freeing token budget while keeping the tool_use/tool_result
+   * pair structurally intact (the model still knows it called the
+   * tool and got a result — it just doesn't see the full output
+   * anymore). */
+  size_t hlen = xArrayLen(s->history_arr);
+  for (size_t i = hlen; i > 0; i--) {
     struct xAgentSessionMsg_ *e =
       &((struct xAgentSessionMsg_ *)xArrayData(s->history_arr))[i - 1];
 
@@ -408,9 +376,6 @@ static size_t session_trim_consumed_tool_results_(struct xAgentSession_ *s,
          * non-zero trimmed count. */
         strncmp(e->tool_result_output,
                 "[result trimmed: ", strlen("[result trimmed: ")) != 0) {
-      /* A tool_result in the middle band is "consumed" — the model
-       * has already seen it and generated a follow-up in a later
-       * turn. Replace its output with a short marker. */
       size_t old_bytes = e->tool_result_output_len;
 
       static const char kTrimSuffix[] = "[result trimmed: was %zu bytes]";
@@ -455,7 +420,7 @@ static size_t session_budget_limit_(const struct xAgentSession_ *s) {
 /* Decide whether this incoming user message, combined with the
  * current history, fits in the configured budget — and if not,
  * act according to @c budget.policy. May mutate @c s->history
- * (TruncateTail path).
+ * (trim path).
  *
  * Returns xErrno_Ok to mean "proceed: it's safe to append and run
  * a Query"; any other value short-circuits xAgentSessionInput.
@@ -644,77 +609,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
   size_t current   = session_estimate_current_(s);
   size_t estimated = current + incoming;
 
-  /* Pre-compute the three-band boundaries used by both the
-   * retroactive trimmer and Summarize compact path.
-   * head_idx marks the end of the head band (cache prefix +
-   * task framing); recent_idx marks the start of the recent
-   * band (current working context). The middle band
-   * [head_idx..recent_idx) is what gets trimmed or summarised. */
-  size_t                          hlen = xArrayLen(s->history_arr);
-  const struct xAgentSessionMsg_ *msgs_view =
-    (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr);
-  size_t head_idx =
-    s->budget.keep_head_turns > 0
-      ? ai_budget_head_band_end(msgs_view, hlen, s->budget.keep_head_turns)
-      : 0;
-  size_t recent_idx =
-    ai_budget_recent_band_start(msgs_view, hlen, s->budget.keep_recent_turns);
-  if (head_idx > hlen) head_idx = hlen;
-
-  /* ── Retroactive tool_result trimming ────────────────────────
-   *
-   * Before falling into the heavy-weight TruncateTail / compact
-   * paths, try a lighter approach: shrink consumed tool_result
-   * outputs in-place. This frees token budget without removing
-   * entire turns, preserving conversation flow and cache prefix.
-   *
-   * Fires when trim_tool_results_threshold is configured AND
-   * estimated usage (current + incoming) reaches the threshold.
-   * This can trigger even when still under the context limit — the
-   * idea is to free budget proactively so subsequent turns are less
-   * likely to hit TruncateTail.
-   *
-   * Prefer trimming in the middle band [head_idx, recent_idx) to
-   * preserve the head (cache prefix) and the recent working context.
-   * When the middle band is empty (head_idx >= recent_idx or
-   * recent_idx == 0), fall back to trimming the entire history —
-   * losing some tool output is better than refusing to compress at
-   * all when the context is genuinely over-budget. */
-  if (s->budget.trim_tool_results_threshold > 0) {
-    size_t threshold_tokens = (size_t)s->budget.trim_tool_results_threshold;
-
-    if (estimated >= threshold_tokens) {
-      size_t trim_lo = head_idx;
-      size_t trim_hi = recent_idx;
-
-      /* No middle band — relax to whole history. */
-      if (trim_hi == 0 || trim_lo >= trim_hi) {
-        trim_lo = 0;
-        trim_hi = hlen;
-      }
-
-      if (trim_hi > trim_lo) {
-        ssize_t bytes_freed = 0;
-        size_t  trimmed     = session_trim_consumed_tool_results_(
-          s, trim_lo, trim_hi, &bytes_freed);
-
-        if (trimmed > 0) {
-          /* Re-estimate after trimming. */
-          current   = session_estimate_current_(s);
-          estimated = current + incoming;
-          if (s->on_budget_event) {
-            struct xAgentBudgetToolResultsTrimmedInfo ti;
-            ti.entries_trimmed = trimmed;
-            ti.bytes_freed     = bytes_freed;
-            s->on_budget_event((xAgentSession)s,
-                               xAgentBudgetEvent_ToolResultsTrimmed, &ti,
-                               s->budget_event_ud);
-          }
-        }
-      }
-    }
-  }
-
+  /* ── Step 0: Under budget — gate passes immediately ────────── */
   if (estimated <= limit) {
     /* Budget is OK — clear the anti-loop guard so a future
      * over-budget episode can try compacting from scratch. */
@@ -742,156 +637,161 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     return xErrno_Ok;
   }
 
+  /* ── Step 1: Trim consumed tool results (synchronous) ───────
+   *
+   * Before falling into the heavy-weight compact path, try a
+   * lighter approach: shrink consumed tool_result outputs in-place.
+   * This frees token budget without removing entire turns,
+   * preserving conversation flow. */
+  {
+    ssize_t bytes_freed = 0;
+    size_t  trimmed     = session_trim_consumed_tool_results_(s, &bytes_freed);
+    (void)trimmed;
+    (void)bytes_freed;
+
+    /* Re-estimate after trimming. */
+    current   = session_estimate_current_(s);
+    estimated = current + incoming;
+
+    if (estimated <= limit) {
+      /* Trimming brought us under budget. */
+      s->last_compact_history_len = 0;
+      s->last_gate_total          = estimated;
+
+      if (s->on_budget_event) {
+        struct xAgentBudgetGateInfo gi;
+        gi.limit                          = limit;
+        gi.estimated                      = estimated;
+        gi.remaining                      = limit - estimated;
+        gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
+        s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi,
+                           s->budget_event_ud);
+      }
+
+      return xErrno_Ok;
+    }
+  }
+
+  /* ── Step 2: Compact (asynchronous) ─────────────────────────
+   *
+   * Launch an internal summary Query that compresses old history
+   * into one System summary entry. The compact runs asynchronously;
+   * session_enforce_budget_ returns xErrno_Busy so the caller
+   * knows to wait. sess_fwd_on_done handles the compact completion
+   * and auto-retries the pending input.
+   *
+   * The compact replaces history[0..compact_end_idx) with one
+   * summary entry. compact_end_idx is the index of the
+   * second-to-last user turn, so we keep the last two user turns
+   * and compress everything before them. */
   switch (s->budget.policy) {
   case xAgentBudgetPolicy_Error:
     return xErrno_PromptTooLong;
 
   case xAgentBudgetPolicy_Summarize: {
-    /* ── Summarize: compress middle history into a summary ──
-     *
-     * The idea: instead of truncating history outright (losing the
-     * original task framing or the most recent working context), we
-     * launch a short internal Query that summarises the MIDDLE band
-     * of the conversation, and preserve the head (first @c
-     * keep_head_turns user turns) and tail (last @c keep_recent_turns
-     * user turns) verbatim.
-     *
-     *   [ head (keep_head_turns) | middle (summarised) | recent
-     * (keep_recent_turns) ]
-     *     ^^^^^ anchors task     ^^^^^ replaced by     ^^^^^ current working
-     *           goal & prefix          one [summary]         context
-     *           cache
-     *
-     * Steps:
-     *   1. Compute head_idx = tail_keep(keep_head_turns) and
-     *      recent_idx = earliest_keep(keep_recent_turns).
-     *   2. Bail if head_idx >= recent_idx (no middle to summarise
-     *      or floor exceeds available history).
-     *   3. If already compacting, return Busy.
-     *   4. Build a compact Query input from history[0..recent_idx)
-     *      (head + middle) plus a tail summarisation instruction.
-     *      We send head+middle so the model has the context needed
-     *      to produce a coherent summary; the summary replaces the
-     *      middle only, leaving head intact for cache-prefix stability.
-     *   5. Run the Query; return Busy — sess_fwd_on_done replaces
-     *      history[head_idx..recent_idx) with the summary entry.
-     *
-     * When @c keep_head_turns == 0 the head band is empty and the
-     * pipeline collapses to the classic "summarise the oldest
-     * [0..recent_idx) band" shape — callers who don't opt into
-     * head preservation get the original behaviour unchanged.
-     */
-    /* ── Degradation cascade for Summarize ──────────────────
-     *
-     * When the ideal three-band split has no middle band
-     * (head_idx >= recent_idx or recent_idx == 0), we relax
-     * preservation constraints rather than refusing outright:
-     *
-     *   Normal:  compact [head_idx, recent_idx) — preserve
-     *            head (cache prefix) + recent (working context)
-     *   Relaxed: compact [0, last_user_idx) — give up head
-     *            preservation, keep only the most recent turn
-     *   Refuse:  no User turns at all → PromptTooLong
-     *
-     * Giving up the cache prefix is regrettable but better than
-     * refusing to compress when the context is genuinely
-     * over-budget. The model loses its cached prompt prefix
-     * but keeps the current working context intact. */
-    size_t compact_head = head_idx;
-    size_t compact_keep = recent_idx;
+    size_t hlen = xArrayLen(s->history_arr);
+    const struct xAgentSessionMsg_ *msgs_view =
+      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr);
 
-    if (compact_keep == 0 || compact_head >= compact_keep) {
-      if (hlen == 0) return xErrno_PromptTooLong;
-
-      /* Find the last User-role entry — the tightest valid
-       * split that still preserves the most recent turn. */
-      size_t user_count = 0;
-      for (size_t i = 0; i < hlen; ++i) {
-        if (msgs_view[i].role == xAgentRole_User) ++user_count;
-      }
-      if (user_count == 0) return xErrno_PromptTooLong;
-
-      size_t last_user =
-        ai_budget_find_user_turn(msgs_view, hlen, user_count - 1);
-      if (last_user == XAGENT_BUDGET_NO_SUCH_TURN || last_user == 0) {
-        return xErrno_PromptTooLong;
-      }
-
-      compact_head = 0;
-      compact_keep = last_user;
+    /* Count user turns in history. */
+    size_t user_count = 0;
+    for (size_t i = 0; i < hlen; ++i) {
+      if (msgs_view[i].role == xAgentRole_User) ++user_count;
     }
 
-    /* Re-entrance guard: only one compact at a time. */
-    if (s->compacting) return xErrno_Busy;
+    /* If only 1 user turn, there's nothing to compact — we'd
+     * lose the only turn the user has. */
+    if (user_count <= 1) return xErrno_PromptTooLong;
 
-    /* ── Pre-flight: will compact actually help? ───────────────
-     *
-     * The compact replaces (compact_keep - compact_head) entries
-     * with one summary. If the middle band's token count is
-     * smaller than a typical summary, compacting will make
-     * the prompt LARGER, not smaller — and we'd still be over
-     * budget, leading to a retry loop.
-     *
-     * The minimum viable middle band scales with context_window:
-     * in a 200-token test fixture, summaries are ~50 tokens; in
-     * a 128k production session they're ~150-250 tokens. Use
-     * context_window / 400 as the floor (min 16 tokens) so the
-     * check adapts to both extremes. */
+    /* Find the second-to-last user turn index → compact_end.
+     * history[0..compact_end) will be replaced by the summary. */
+    size_t compact_end =
+      ai_budget_find_user_turn(msgs_view, hlen, user_count - 2);
+    if (compact_end == XAGENT_BUDGET_NO_SUCH_TURN || compact_end == 0) {
+      return xErrno_PromptTooLong;
+    }
+
+    /* Pre-flight: will compact actually help? If the tokens in
+     * [0, compact_end) are no larger than a typical summary,
+     * compacting would not save anything (or make things worse).
+     * The minimum viable band scales with context_window:
+     * context_window / 400 (min 16 tokens). */
     {
       size_t min_mid = limit / 400;
       if (min_mid < 16) min_mid = 16;
 
-      size_t mid_tokens = ai_budget_estimate_tokens(
-        msgs_view + compact_head, compact_keep - compact_head);
+      size_t mid_tokens = ai_budget_estimate_tokens(msgs_view, compact_end);
 
       if (mid_tokens <= min_mid) {
-        /* Middle band is no larger than a typical summary —
-         * compacting would not save anything (or make things
-         * worse). */
         return xErrno_PromptTooLong;
       }
     }
 
-    /* ── Anti-loop guard (safety net) ──────────────────────────
-     * If the previous compact finished but we're still over
-     * budget AND the history hasn't grown since that compact,
-     * launching another compact won't help. This should be
-     * unreachable if the pre-flight check above is correct,
-     * but guards against estimation inaccuracies. */
+    /* Anti-loop guard: if last_compact_history_len > 0 and
+     * hlen <= last_compact_history_len, another compact won't
+     * help. This guards against estimation inaccuracies that
+     * could cause an infinite compact loop. */
     if (s->last_compact_history_len > 0 &&
         hlen <= s->last_compact_history_len) {
       return xErrno_PromptTooLong;
     }
 
-    /* Record both band boundaries for sess_fwd_on_done to splice
-     * the summary back into the right place. Also record the history
-     * length for the anti-loop guard on the next call. */
-    s->compact_head_idx         = compact_head;
-    s->compact_keep_idx         = compact_keep;
+    /* Re-entrance guard: only one compact at a time. */
+    if (s->compacting) return xErrno_Busy;
+
+    /* Save the incoming user message text for auto-retry after
+     * the compact completes. Concatenate all text blocks into
+     * one string, matching history_append_user_msg's behaviour. */
+    {
+      size_t total_len = 0;
+      for (size_t i = 0; i < msg.n; i++) {
+        if (msg.contents[i].type == xAgentContentType_Text) {
+          total_len += msg.contents[i].u.text.len;
+        }
+      }
+
+      if (total_len > 0) {
+        char *buf = (char *)malloc(total_len + 1);
+        if (buf) {
+          size_t off = 0;
+          for (size_t i = 0; i < msg.n; i++) {
+            if (msg.contents[i].type == xAgentContentType_Text) {
+              size_t n = msg.contents[i].u.text.len;
+              if (n) memcpy(buf + off, msg.contents[i].u.text.text, n);
+              off += n;
+            }
+          }
+          buf[total_len] = '\0';
+          free(s->pending_text);
+          s->pending_text     = buf;
+          s->pending_text_len = total_len;
+        }
+      }
+    }
+
+    /* Record compact boundary and anti-loop state. */
+    s->compact_end_idx          = compact_end;
     s->last_compact_history_len = hlen;
 
-    /* ── Notify caller: compact is starting ───────────────
-     * entries_compacted is the compact-band size (what actually
-     * gets replaced) so the UI can say "compacting N entries"
-     * honestly. */
+    /* Notify caller: compact is starting. */
     if (s->on_budget_event) {
       struct xAgentBudgetCompactInfo ci;
-      ci.entries_compacted = compact_keep - compact_head;
+      ci.entries_compacted = compact_end;
       s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_Compacting, &ci,
                          s->budget_event_ud);
     }
 
-    /* Build the conversation view for history[0..compact_keep) using
-     * sess_input_view_build so the message array is byte-identical
-     * to what a normal request would produce — maximising prompt
-     * cache hit rate. We then append a summary instruction as the
-     * final User message. */
+    /* Build the conversation view for history[0..compact_end)
+     * using sess_input_view_build so the message array is
+     * byte-identical to what a normal request would produce —
+     * maximising prompt cache hit rate. We then append a summary
+     * instruction as the final User message. */
     struct sess_input_view_ hist_view;
     xErrno                  vrc =
-      sess_input_view_build(s, /*hits=*/NULL, compact_keep, &hist_view);
+      sess_input_view_build(s, /*hits=*/NULL, compact_end, &hist_view);
     if (vrc != xErrno_Ok) return xErrno_PromptTooLong;
 
-    const size_t keep = compact_keep;
+    const size_t keep = compact_end;
     char         summary_instr[512];
     snprintf(summary_instr, sizeof(summary_instr),
              XAGENT_SUMMARY_INSTRUCT_PROMPT, keep);
@@ -930,7 +830,8 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      *   the summary text.
      * - Budget enforcement is implicitly disabled: the compact
      *   Query is created by session_enforce_budget_ which gates
-     *   on s->compacting, so no recursive budget check occurs. */
+     *   on s->compacting, so no recursive budget check occurs.
+     * - max_tokens is hardcoded to 1024 (not from conf). */
     struct xAgent_ *a  = (struct xAgent_ *)s->agent;
     xAgentQueryConf qc = {0};
     qc.cbs.on_done     = sess_fwd_on_done;
@@ -939,9 +840,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     qc.tools           = (const xAgentTool **)a->tools;
     qc.tools_count     = a->tools_count;
     qc.model           = s->model;
-    qc.max_tokens      = s->budget.summarize_max_tokens > 0
-                           ? s->budget.summarize_max_tokens
-                           : 1024;
+    qc.max_tokens      = 1024;
     qc.max_turns       = 1; /* single round: no tool loop */
     qc.session         = (xAgentSession)s;
 
@@ -970,8 +869,8 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
     if (rc != xErrno_Ok) {
       /* Compact query failed to start — clean up and refuse.
-       * History is untouched so the caller can relax the budget,
-       * raise keep_recent_turns, or surface an error. */
+       * History is untouched so the caller can relax the budget
+       * or surface an error. */
       s->compacting = 0;
       xAgentQueryDestroy(q);
       return xErrno_PromptTooLong;
@@ -979,18 +878,13 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
 
     /* Compact query is now in flight. Return Busy so the caller
      * knows to wait. sess_fwd_on_done will handle the compact
-     * completion. */
+     * completion and auto-retry the pending input. */
     return xErrno_Busy;
   }
 
-  case xAgentBudgetPolicy_Callback:
   case xAgentBudgetPolicy_Disabled:
   default:
-    /* Reserved / unknown policies fall through to a hard refuse so a
-     * caller who asked for a non-implemented variant does not
-     * silently get Disabled behaviour. (Value 2 — formerly
-     * TruncateOldest — also lands here now that the policy has been
-     * removed.) */
+    /* Reserved / unknown policies fall through to a hard refuse. */
     return xErrno_PromptTooLong;
   }
 }
@@ -1611,6 +1505,42 @@ static void session_sidecar_idle_timer_cb(void *arg) {
   }
 }
 
+/* ── Auto-retry pending input after compact ───────────────────────
+ *
+ * Called from sess_fwd_on_done after a compact completes
+ * successfully. If a pending user message was saved before the
+ * compact was launched, re-submit it via xAgentSessionInput.
+ * The budget gate will re-evaluate (hopefully the compact freed
+ * enough space); if still over budget the gate may trim more tool
+ * results or refuse with PromptTooLong. In the rare case where
+ * auto-retry fails, the pending message is simply lost — the caller
+ * will see no response and can retry manually. */
+static void session_auto_retry_pending_(struct xAgentSession_ *s) {
+  if (!s->pending_text) return;
+  char  *text         = s->pending_text;
+  s->pending_text     = NULL;
+  size_t len          = s->pending_text_len;
+  s->pending_text_len = 0;
+
+  /* Construct xAgentMessage from the saved text. */
+  xAgentContent content;
+  memset(&content, 0, sizeof(content));
+  content.type         = xAgentContentType_Text;
+  content.u.text.text  = text;
+  content.u.text.len   = len;
+
+  xAgentMessage msg;
+  memset(&msg, 0, sizeof(msg));
+  msg.role     = xAgentRole_User;
+  msg.contents = &content;
+  msg.n        = 1;
+
+  /* xAgentSessionInput deep-copies the message, so it is safe
+   * to free text after the call returns. */
+  xAgentSessionInput((xAgentSession)s, msg);
+  free(text);
+}
+
 /* Terminal forwarding: pull the Query's produced-turn list into the
  * Session's history first (so the on_done handler sees the updated
  * conversation), then fire the caller's on_done, then release the
@@ -1640,14 +1570,9 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
    *
    * When a compact (summary) Query completes, we need to:
    *   1. Extract the summary text from the produced entries.
-   *   2. Replace the old history entries [0, compact_keep_idx)
+   *   2. Replace the old history entries [0, compact_end_idx)
    *      with one System summary entry.
-   *   3. Re-check the budget — if still over, degrade to
-   *      TruncateTail.
-   *   4. If budget is OK, the caller's original xAgentSessionInput
-   *      will be retried on the next call (we do NOT auto-retry
-   *      here because the caller needs to know the compact
-   *      happened).
+   *   3. Auto-retry the pending user message.
    *
    * The compact on_done does NOT fire the caller's on_done —
    * this is an internal operation. The caller is still waiting
@@ -1701,54 +1626,47 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
     }
 
     /* Compact succeeded (we got a non-empty summary) — splice the
-     * summary into history at head_idx, replacing the middle band
-     * history[head_idx..recent_idx). Compact failed (empty / OOM) —
-     * leave history untouched. */
-    size_t head_idx   = s->compact_head_idx;
-    size_t recent_idx = s->compact_keep_idx;
+     * summary into history, replacing entries [0, compact_end_idx).
+     * Compact failed (empty / OOM) — leave history untouched. */
+    size_t compact_end = s->compact_end_idx;
     int    compact_ok = (summary_text != NULL && summary_bytes > 0);
 
     if (compact_ok) {
-      /* L1 preserve: deliver the about-to-be-replaced MIDDLE entries
-       * [head_idx, recent_idx) before they are swapped out by the
-       * summary. Entries already in the external store (persisted
-       * prefix) are skipped so compaction doesn't re-append them.
-       *
-       * The persisted_prefix is counted from the START of history,
-       * so "already persisted within the middle band" is
-       * [head_idx, min(persisted_prefix, recent_idx)).
-       */
-      if (s->on_l1_preserve && recent_idx > head_idx) {
-        size_t skip_start = head_idx;
-        if (s->persisted_prefix > head_idx) {
+      /* L1 preserve: deliver the about-to-be-replaced entries
+       * [0, compact_end) before they are swapped out by the
+       * summary. Entries already in the external store
+       * (persisted_prefix) are skipped so compaction doesn't
+       * re-append them. */
+      if (s->on_l1_preserve && compact_end > 0) {
+        size_t skip_start = 0;
+        if (s->persisted_prefix > 0) {
           skip_start =
-            s->persisted_prefix < recent_idx ? s->persisted_prefix : recent_idx;
+            s->persisted_prefix < compact_end ? s->persisted_prefix
+                                              : compact_end;
         }
-        if (recent_idx > skip_start) {
+        if (compact_end > skip_start) {
           s->on_l1_preserve(
             (xAgentSession)s,
             (const xAgentSessionMsg *)xArrayData(s->history_arr) + skip_start,
-            recent_idx - skip_start, xAgentL1PreserveReason_Compacted,
+            compact_end - skip_start, xAgentL1PreserveReason_Compacted,
             s->l1_preserve_owner);
         }
       }
 
-      /* Remove the middle band [head_idx, recent_idx). */
-      if (recent_idx > head_idx) {
-        xArrayRemoveRange(s->history_arr, head_idx, recent_idx - head_idx);
-        /* Keep persisted_prefix consistent. Rows in
-         * [head_idx, recent_idx) just left history_arr, so the
-         * persisted prefix shrinks by the overlap. Clamped to head_idx
-         * so the prefix never grows past the surviving head. */
-        if (s->persisted_prefix > recent_idx) {
-          s->persisted_prefix -= (recent_idx - head_idx);
-        } else if (s->persisted_prefix > head_idx) {
-          s->persisted_prefix = head_idx;
+      /* Remove entries [0, compact_end). */
+      if (compact_end > 0) {
+        xArrayRemoveRange(s->history_arr, 0, compact_end);
+        /* Keep persisted_prefix consistent. Rows in [0, compact_end)
+         * just left history_arr, so the persisted prefix shrinks by
+         * the overlap. */
+        if (s->persisted_prefix > compact_end) {
+          s->persisted_prefix -= compact_end;
+        } else {
+          s->persisted_prefix = 0;
         }
       }
 
-      /* Build the summary entry and insert it at head_idx (right
-       * after the preserved head prefix). */
+      /* Build the summary entry and insert at index 0. */
       struct xAgentSessionMsg_ summary_entry;
       memset(&summary_entry, 0, sizeof(summary_entry));
       summary_entry.role          = xAgentRole_System;
@@ -1758,8 +1676,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       summary_entry.created_at_ms = xWallMs();
       summary_entry.is_summary    = 1;
 
-      if (xArrayInsert(&s->history_arr, head_idx, &summary_entry) !=
-          xErrno_Ok) {
+      if (xArrayInsert(&s->history_arr, 0, &summary_entry) != xErrno_Ok) {
         /* OOM on insert — free the summary text and degrade. */
         free(summary_text);
         compact_ok = 0;
@@ -1771,12 +1688,12 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
 
         /* L1-preserve the new summary entry so it is written to
          * the external store (JSONL). Persist NOW because the
-         * original middle entries it replaces are already gone — if
+         * original entries it replaces are already gone — if
          * we skip this, the summary will never reach disk and the
          * next prime will find a gap. */
         if (s->on_l1_preserve) {
           const xAgentSessionMsg *sum_ptr =
-            (const xAgentSessionMsg *)xArrayData(s->history_arr) + head_idx;
+            (const xAgentSessionMsg *)xArrayData(s->history_arr);
           s->on_l1_preserve((xAgentSession)s, sum_ptr, 1,
                             xAgentL1PreserveReason_Compacted,
                             s->l1_preserve_owner);
@@ -1784,8 +1701,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
         /* The summary is now a persisted head entry. Ensure
          * persisted_prefix covers it so future flushes don't
          * re-append it. */
-        if (s->persisted_prefix < head_idx + 1)
-          s->persisted_prefix = head_idx + 1;
+        if (s->persisted_prefix < 1) s->persisted_prefix = 1;
       }
     }
 
@@ -1801,9 +1717,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
     }
 
     /* Reset compacting state. */
-    s->compacting       = 0;
-    s->compact_head_idx = 0;
-    s->compact_keep_idx = 0;
+    s->compacting      = 0;
+    s->compact_end_idx = 0;
 
     /* Invalidate incremental bookkeeping when history actually
      * changed (compact_ok). On failure history is intact, so the
@@ -1819,11 +1734,10 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       ai_session_msg_free(&produced[i]);
     }
 
-    /* Destroy the compact Query BEFORE firing CompactDone/Truncated.
-     * xAgentQueryDestroy nulls s->query, and the caller is expected to
-     * re-enter xAgentSessionInput from inside the CompactDone callback
-     * (auto-retry pattern). If we kept s->query pointing at the
-     * about-to-be-freed compact Query while the callback ran, the
+    /* Destroy the compact Query BEFORE firing CompactDone.
+     * xAgentQueryDestroy nulls s->query, and the auto-retry
+     * below will re-enter xAgentSessionInput. If we kept s->query
+     * pointing at the about-to-be-freed compact Query, the
      * admission check in xAgentSessionInput would still see it and
      * refuse with xErrno_Busy — defeating the whole point of the
      * event. */
@@ -1831,33 +1745,35 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
 
     /* ── Notify caller: compact finished ──────────────────────
      * Fire CompactDone so the caller knows the session is now idle
-     * and can retry xAgentSessionInput. summary_ok distinguishes
-     * success (old entries replaced by a summary) from failure
-     * (history unchanged). On failure the caller is expected NOT
-     * to auto-retry the same pending input — that would just loop
-     * the failure — and instead either raise the budget, relax
-     * keep_recent_turns, or surface the error to the user.
-     * ────────────────────────────────────────────────────────── */
+     * and (if auto-retry is active) a new input is being submitted.
+     * summary_ok distinguishes success (old entries replaced by a
+     * summary) from failure (history unchanged). ────────────── */
     if (s->on_budget_event) {
       struct xAgentBudgetCompactDoneInfo cdi;
       cdi.summary_ok = compact_ok;
       cdi.summary_tokens =
         compact_ok
           ? ai_budget_estimate_tokens(
-              (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr) +
-                head_idx,
+              (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
               1 /* just the summary entry */)
           : 0;
-      cdi.entries_affected = recent_idx > head_idx ? recent_idx - head_idx : 0;
+      cdi.entries_affected = compact_end;
       s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_CompactDone, &cdi,
                          s->budget_event_ud);
     }
 
+    /* Auto-retry: if a pending user message was saved before the
+     * compact was launched, re-submit it now. The budget gate will
+     * re-evaluate; if still over budget the gate may trim more tool
+     * results or refuse with PromptTooLong. In the rare case where
+     * auto-retry fails, the pending message is lost and the caller
+     * will need to retry manually. */
+    session_auto_retry_pending_(s);
+
     /* The compact is done. The caller's on_done is NOT fired here
-     * — they're still holding a Busy result. The next time they
-     * call xAgentSessionInput, the budget gate will see the
-     * (hopefully reduced) history and either let the turn through
-     * or apply further policy. */
+     * — they're still holding a Busy result. If auto-retry was
+     * triggered, xAgentSessionInput has already been called and
+     * will either start a new query or return an error. */
     return;
   }
 
@@ -1986,6 +1902,11 @@ xAgentSession xAgentSessionCreate(xAgent agent, const xAgentSessionConf *conf) {
   s->delta_entries                  = 0;
   s->last_gate_total                = 0;
   s->last_first_round_prompt_tokens = -1;
+
+  /* Pending auto-retry text: calloc zeroes these already,
+   * but make the intent explicit. */
+  s->pending_text     = NULL;
+  s->pending_text_len = 0;
 
   /* Session-lifetime properties: stamped here, never mutated. Zero
    * for @c origin collapses to xAgentInputOrigin_User, which is also
@@ -2223,11 +2144,11 @@ xErrno xAgentSessionSetModel(xAgentSession sess, const char *model_id) {
 }
 
 void xAgentSessionSetContextWindow(xAgentSession sess, size_t context_window) {
-  /* Only touch budget.context_window. Policy, keep_recent_turns,
-   * callbacks, etc. stay exactly as the session was configured at
-   * create time — host apps that dial the window on a model switch
-   * shouldn't have to re-specify the rest of the budget conf. The
-   * write is consulted by session_budget_limit_() on the next
+  /* Only touch budget.context_window. Policy, callbacks,
+   * etc. stay exactly as the session was configured at create time
+   * — host apps that dial the window on a model switch shouldn't
+   * have to re-specify the rest of the budget conf. The write is
+   * consulted by session_budget_limit_() on the next
    * xAgentSessionInput; any Query already in flight keeps running
    * with the limit it was admitted under. */
   if (!sess) return;
@@ -2237,19 +2158,15 @@ void xAgentSessionSetContextWindow(xAgentSession sess, size_t context_window) {
 
 void xAgentSessionSetBudget(xAgentSession sess, const xAgentBudgetConf *conf) {
   /* Bulk variant of SetContextWindow. We deliberately copy ONLY the
-   * threshold knobs and leave s->budget.policy plus the
+   * context_window and leave s->budget.policy plus the
    * on_budget_event / budget_event_ud pair untouched — those are
    * infrastructure the host wired up at create time and would not
    * expect a "switch model" call to silently rewire. Anything in
    * flight keeps running under its admitted limits; the new values
    * take effect at the next session_budget_limit_() check. */
   if (!sess || !conf) return;
-  struct xAgentSession_ *s              = (struct xAgentSession_ *)sess;
-  s->budget.context_window              = conf->context_window;
-  s->budget.keep_head_turns             = conf->keep_head_turns;
-  s->budget.keep_recent_turns           = conf->keep_recent_turns;
-  s->budget.max_tool_result_bytes       = conf->max_tool_result_bytes;
-  s->budget.trim_tool_results_threshold = conf->trim_tool_results_threshold;
+  struct xAgentSession_ *s = (struct xAgentSession_ *)sess;
+  s->budget.context_window = conf->context_window;
 }
 
 void xAgentSessionDestroy(xAgentSession sess) {
@@ -2316,6 +2233,7 @@ void xAgentSessionDestroy(xAgentSession sess) {
   /* xArrayDestroy calls the release callback (ai_session_msg_free)
    * for every element still in the array. */
   xArrayDestroy(s->history_arr);
+  free(s->pending_text);
   free(s->model);
   free(s);
 }

@@ -467,25 +467,10 @@ xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
   xAgentMessage m   = xAgentMessageFromText(text);
   xErrno        err = xAgentSessionInput(ctx->sess, m);
   if (err == xErrno_Busy) {
-    /* A budget compact is in flight. Stash a copy of the text
-     * (the caller's buffer may be freed before CompactDone fires)
-     * and let on_budget_event re-enter submit on our behalf. */
-    if (ctx->pending_text) std::free(ctx->pending_text);
-    ctx->pending_text = strdup(text);
-    if (!ctx->pending_text) {
-      /* OOM: fail loudly rather than silently swallow the user's
-       * message. The retry flag stays false so on_budget_event's
-       * CompactDone branch doesn't fire a NULL resubmit. */
-      ctx->pending_retry = false;
-      above_printf(ctx->line,
-                   "\x1b[1;31m[error] out of memory stashing pending text "
-                   "\u2014 please resend after compact completes\x1b[0m");
-      return xErrno_NoMemory;
-    }
-    ctx->pending_retry = true;
-    above_printf(
-      ctx->line,
-      "\x1b[2m(session busy \u2014 will resubmit after compact)\x1b[0m");
+    /* A budget compact is in flight. The session will auto-retry
+     * the pending message when compact completes — just notify. */
+    above_printf(ctx->line,
+      "\x1b[2m(session busy — compact in progress, will auto-retry)\x1b[0m");
     return xErrno_Busy;
   }
   if (err != xErrno_Ok) {

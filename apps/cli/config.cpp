@@ -121,36 +121,6 @@ bool parse_budget_block(const cJSON *obj, CliBudgetConf *out) {
     out->mask.context_window = true;
   }
 
-  v = json_nonneg_int(obj, "keep_head_turns");
-  if (v >= 0) {
-    out->keep_head_turns      = static_cast<size_t>(v);
-    out->mask.keep_head_turns = true;
-  }
-
-  v = json_nonneg_int(obj, "keep_recent_turns");
-  if (v >= 0) {
-    out->keep_recent_turns      = static_cast<size_t>(v);
-    out->mask.keep_recent_turns = true;
-  }
-
-  v = json_nonneg_int(obj, "trim_tool_results_threshold");
-  if (v >= 0) {
-    out->trim_tool_results_threshold      = static_cast<unsigned>(v);
-    out->mask.trim_tool_results_threshold = true;
-  }
-
-  v = json_nonneg_int(obj, "max_tool_result_bytes");
-  if (v >= 0) {
-    out->max_tool_result_bytes      = static_cast<size_t>(v);
-    out->mask.max_tool_result_bytes = true;
-  }
-
-  v = json_nonneg_int(obj, "summarize_max_tokens");
-  if (v >= 0) {
-    out->summarize_max_tokens      = static_cast<int>(v);
-    out->mask.summarize_max_tokens = true;
-  }
-
   return true;
 }
 
@@ -182,12 +152,7 @@ constexpr const char *kModelsJsonTemplate =
   "  \"default\": \"my-model\",\n"
   "  \"max_turns\": 64,\n"
   "  \"budget\": {\n"
-  "    \"context_window\": 8192,\n"
-  "    \"keep_head_turns\": 1,\n"
-  "    \"keep_recent_turns\": 2,\n"
-  "    \"trim_tool_results_threshold\": 0,\n"
-  "    \"max_tool_result_bytes\": 0,\n"
-  "    \"summarize_max_tokens\": 1024\n"
+  "    \"context_window\": 8192\n"
   "  },\n"
   "  \"models\": [\n"
   "    {\n"
@@ -494,14 +459,6 @@ xAgentBudgetConf cli_model_config_resolve_budget(const CliModelConfig *cfg,
 
   auto apply = [&](const CliBudgetConf &src) {
     if (src.mask.context_window) out.context_window = src.context_window;
-    if (src.mask.keep_head_turns) out.keep_head_turns = src.keep_head_turns;
-    if (src.mask.keep_recent_turns) out.keep_recent_turns = src.keep_recent_turns;
-    if (src.mask.trim_tool_results_threshold)
-      out.trim_tool_results_threshold = src.trim_tool_results_threshold;
-    if (src.mask.max_tool_result_bytes)
-      out.max_tool_result_bytes = src.max_tool_result_bytes;
-    if (src.mask.summarize_max_tokens)
-      out.summarize_max_tokens = src.summarize_max_tokens;
   };
 
   apply(cfg->budget);

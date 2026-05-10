@@ -293,24 +293,17 @@ int main(int argc, char *argv[]) {
      *
      * The 8192 fallback was picked empirically: large enough that a
      * single long-form answer (think: a derivation with multi-paragraph
-     * reasoning) plus the floor pinned by keep_recent_turns won't
-     * trip the gate on turn #2, but small enough that a handful of
-     * sustained turns will eventually push the rolling history past
-     * the cap and exercise Summarize. The top-level "budget"
-     * block in models.json overrides any of these knobs globally,
-     * and a per-model "budget" block overrides them again for the
-     * matching entry — see cli_model_config_resolve_budget(). On
-     * /model switches the cascade is recomputed and pushed into the
-     * session via xAgentSessionSetBudget so large and small models
-     * don't share the same ceiling. keep_recent_turns =2 is the
-     * floor — the current user turn and the immediately prior
-     * assistant turn are never discarded, so the model keeps local
-     * context even when the trimmer fires. If you shrink
-     * context_window below ~4096 expect xErrno_PromptTooLong (which
-     * the REPL and on_error both surface with a hint line below),
-     * and see session.c's keep_recent_turns floor logic for why. */
-    constexpr size_t kDefaultContextWindow   = 8192;
-    constexpr size_t kDefaultKeepRecentTurns = 2;
+     * reasoning) won't trip the gate on turn #2, but small enough
+     * that a handful of sustained turns will eventually push the
+     * rolling history past the cap and exercise Summarize. The
+     * top-level "budget" block in models.json overrides any of
+     * these knobs globally, and a per-model "budget" block overrides
+     * them again for the matching entry — see
+     * cli_model_config_resolve_budget(). On /model switches the
+     * cascade is recomputed and pushed into the session via
+     * xAgentSessionSetBudget so large and small models don't share
+     * the same ceiling. */
+    constexpr size_t kDefaultContextWindow = 8192;
 
     /* Build the effective default budget by cascading built-in
      * defaults <- top-level "budget" <- the *default* model's
@@ -322,21 +315,13 @@ int main(int argc, char *argv[]) {
       merged = cli_model_config_resolve_budget(&model_cfg,
                                                model_cfg.default_id.c_str());
     }
-    if (merged.context_window == 0)    merged.context_window    = kDefaultContextWindow;
-    if (merged.keep_recent_turns == 0) merged.keep_recent_turns = kDefaultKeepRecentTurns;
-    /* keep_head_turns / max_tool_result_bytes / trim_tool_results_threshold
-     * stay 0 when not set so xagent's own built-in defaults apply. */
+    if (merged.context_window == 0) merged.context_window = kDefaultContextWindow;
     ctx.default_budget = merged;
 
-    sconf.budget.policy                      = xAgentBudgetPolicy_Summarize;
-    sconf.budget.context_window              = merged.context_window;
-    sconf.budget.keep_head_turns             = merged.keep_head_turns;
-    sconf.budget.keep_recent_turns           = merged.keep_recent_turns;
-    sconf.budget.max_tool_result_bytes       = merged.max_tool_result_bytes;
-    sconf.budget.trim_tool_results_threshold = merged.trim_tool_results_threshold;
-    sconf.budget.summarize_max_tokens        = merged.summarize_max_tokens;
-    sconf.budget.on_budget_event             = on_budget_event;
-    sconf.budget.budget_event_ud             = &ctx;
+    sconf.budget.policy          = xAgentBudgetPolicy_Summarize;
+    sconf.budget.context_window  = merged.context_window;
+    sconf.budget.on_budget_event = on_budget_event;
+    sconf.budget.budget_event_ud = &ctx;
 
     /* Sidecar idle timeout: when an async tool (e.g. shell) has not
      * produced output for 3 seconds, launch a sidecar Query so the

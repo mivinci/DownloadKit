@@ -110,28 +110,21 @@ struct xAgentSession_ {
    * launches an internal summary Query that compresses old history
    * into one System entry. During this compaction:
    *   - compacting == 1 signals "compact query in flight";
-   *   - compact_head_idx records the end of the HEAD prefix that is
-   *     preserved verbatim (history[0..compact_head_idx) survives);
-   *   - compact_keep_idx records the start of the RECENT tail that
-   *     is preserved verbatim (history[compact_keep_idx..n) survives);
-   *   - the MIDDLE segment [compact_head_idx..compact_keep_idx) will
-   *     be replaced by one System summary entry on success, and left
-   *     untouched on failure;
+   *   - compact_end_idx records the exclusive end of the range
+   *     [0..compact_end_idx) that will be replaced by one summary;
    *   - budget enforcement is implicitly disabled because the
    *     compact Query is driven by session_enforce_budget_ which
    *     gates on s->compacting, preventing recursive budget checks.
    *
-   * All are zero when no compact is in progress.
-   */
-  int    compacting;       /* 1 = compact query in flight              */
-  size_t compact_head_idx; /* end of preserved HEAD prefix (exclusive) */
-  size_t compact_keep_idx; /* start of preserved RECENT tail           */
+   * All are zero when no compact is in progress. */
+  int    compacting;        /* 1 = compact query in flight              */
+  size_t compact_end_idx;   /* exclusive end of range to replace        */
 
   /* ── Compact anti-loop guard ─────────────────────────────────────
    *
    * After a compact finishes but the session is still over budget,
-   * the caller retries xAgentSessionInput which re-enters
-   * session_enforce_budget_. Without a guard this can loop forever:
+   * the auto-retry re-enters session_enforce_budget_. Without a
+   * guard this can loop forever:
    *   compact → still over → compact → still over → …
    *
    * last_compact_history_len records the history array length at the
@@ -141,6 +134,16 @@ struct xAgentSession_ {
    *
    * Reset to 0 on gate pass (budget is OK again). */
   size_t last_compact_history_len;
+
+  /* ── Pending message for auto-retry after compact ────────────
+   *
+   * When a compact is launched, the user's input message is saved
+   * here. After compact completes, the session automatically
+   * retries this message without requiring the caller to re-submit.
+   * pending_text is a deep copy (session-owned); freed on destroy
+   * or when a new compact replaces it. */
+  char  *pending_text;
+  size_t pending_text_len;
 
   /* ── Session-lifetime properties (stamped at create, immutable) ── */
   xAgentInputOrigin           origin;           /* default User on zero    */

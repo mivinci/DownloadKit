@@ -2706,22 +2706,22 @@ TEST_F(SessionTest, L1PreserveNullCallbackIsNoop) {
 /* ── Summarize compact (new single-band model) ──────────────
  *
  * The pipeline replaces history[0, compact_end_idx) with a summary
- * entry. compact_end_idx is the index of the second-to-last user
- * turn, so the last two user turns are always preserved.
+ * entry. compact_end_idx is the index of the last user turn,
+ * so only the last user turn and everything after it is preserved.
  *
  * Fixture across these tests:
  *   3 successful prime rounds → history layout
  *      idx: 0    1    2    3    4    5
  *      role:U0   A0   U1   A1   U2   A2
  *
- *   compact_end_idx = index of second-to-last user turn = 2
+ *   compact_end_idx = index of last user turn = 4
  *
- *   Replaced band [0,2) = U0, A0 — replaced by a single [summary].
+ *   Replaced band [0,4) = U0, A0, U1, A1 — replaced by a single [summary].
  *
- *   Post-compact layout (5 entries):
- *      idx: 0          1    2    3    4
- *      role:System(s)  U1   A1   U2   A2
- *      text:"[summary…]" "u1" "a1" "u2" "a2"
+ *   Post-compact layout (3 entries):
+ *      idx: 0          1    2
+ *      role:System(s)  U2   A2
+ *      text:"[summary…]" "u2" "a2"
  */
 TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
   Captured cap;
@@ -2770,7 +2770,7 @@ TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
 
   /* Compact finished synchronously, then auto-retry appended the
    * user message and ran a new query. The history now contains:
-   * summary(1) + U1 + A1 + U2 + A2 + overflow_user + auto_retry_assistant = 7
+   * summary(1) + U2 + A2 + overflow_user + auto_retry_assistant = 5
    * But the exact length depends on the auto-retry query result. */
   size_t hlen = hist_len(s);
   ASSERT_GE(hlen, 5u) << "should have at least summary + remaining entries";
@@ -2784,7 +2784,9 @@ TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
   EXPECT_NE(std::string(msgs[0].text, msgs[0].text_len).find("[summary]"),
             std::string::npos);
 
-  /* Remaining turns should be preserved somewhere in the history. */
+  /* Only the last user turn (u2) should survive in the history;
+   * everything before it (u0, u1, and their replies) was compacted
+   * into the summary. */
   bool found_u1 = false, found_u2 = false;
   for (size_t i = 0; i < hlen; i++) {
     if (msgs[i].role == xAgentRole_User && msgs[i].text) {
@@ -2793,15 +2795,17 @@ TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
       if (t == u2) found_u2 = true;
     }
   }
-  EXPECT_TRUE(found_u1) << "second-to-last user turn must survive";
+  EXPECT_FALSE(found_u1) << "u1 was before compact_end, should be compacted";
   EXPECT_TRUE(found_u2) << "last user turn must survive";
 
-  /* Old head (u0) must NOT survive in any form. */
+  /* Old entries (u0 and u1) must NOT survive in any form. */
   for (size_t i = 0; i < hlen; ++i) {
     if (msgs[i].text == nullptr) continue;
-    EXPECT_EQ(std::string(msgs[i].text, msgs[i].text_len).find(u0),
-              std::string::npos)
+    std::string t(msgs[i].text, msgs[i].text_len);
+    EXPECT_EQ(t.find(u0), std::string::npos)
         << "old head user turn u0 must be gone (idx=" << i << ")";
+    EXPECT_EQ(t.find(u1), std::string::npos)
+        << "compacted user turn u1 must be gone (idx=" << i << ")";
   }
 
   /* Auto-retry should have fired on_done for the pending message. */
@@ -2858,8 +2862,8 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
             xErrno_Busy);
 
   /* Find the Compacted call and assert exactly the replaced entries.
-   * compact_end_idx = 2 (second-to-last user turn), so
-   * [0,2) = U0, A0 = 2 entries are replaced. */
+   * compact_end_idx = 4 (last user turn), so
+   * [0,4) = U0, A0, U1, A1 = 4 entries are replaced. */
   const L1PreserveCap::Call *compacted = nullptr;
   for (const auto &c : l1.calls) {
     if (c.reason == xAgentL1PreserveReason_Compacted) {
@@ -2869,18 +2873,19 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
   }
   ASSERT_NE(compacted, nullptr) << "Compacted callback must fire";
 
-  /* Replaced band [0,2) is exactly U0 + A0 = 2 entries. */
-  ASSERT_EQ(compacted->n_msgs, 2u)
+  /* Replaced band [0,4) is exactly U0 + A0 + U1 + A1 = 4 entries. */
+  ASSERT_EQ(compacted->n_msgs, 4u)
       << "L1 preserve must deliver exactly the replaced entries";
   EXPECT_EQ(compacted->roles[0], xAgentRole_User);
   EXPECT_EQ(compacted->texts[0], u0) << "entry 0 must be u0";
   EXPECT_EQ(compacted->roles[1], xAgentRole_Assistant);
+  EXPECT_EQ(compacted->roles[2], xAgentRole_User);
+  EXPECT_EQ(compacted->texts[2], u1) << "entry 2 must be u1";
+  EXPECT_EQ(compacted->roles[3], xAgentRole_Assistant);
 
-  /* Negative assertion: u1 and u2 must NOT be in the
-   * preserve batch — they are still live in history. */
+  /* Negative assertion: u2 must NOT be in the
+   * preserve batch — it is still live in history. */
   for (const auto &t : compacted->texts) {
-    EXPECT_EQ(t.find(u1), std::string::npos)
-        << "u1 must not appear in Compacted callback";
     EXPECT_EQ(t.find(u2), std::string::npos)
         << "u2 must not appear in Compacted callback";
   }
@@ -2889,10 +2894,10 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
 }
 
 /* The new design always replaces history[0, compact_end_idx) with
- * a summary, where compact_end_idx is the second-to-last user turn.
- * With only 3 user turns, compact_end_idx = index of U1 (the
- * second-to-last), so [0, compact_end_idx) = U0, A0 is replaced.
- * The surviving tail (U1, A1, U2, A2) is preserved. */
+ * a summary, where compact_end_idx is the last user turn.
+ * With 3 user turns, compact_end_idx = index of U2 (the
+ * last), so [0, compact_end_idx) = U0, A0, U1, A1 is replaced.
+ * The surviving tail (U2, A2) is preserved. */
 TEST_F(SessionTest, BudgetSummarizeReplacesUpToCompactEnd) {
   Captured cap;
   xAgentBudgetConf budget{};
@@ -2927,8 +2932,8 @@ TEST_F(SessionTest, BudgetSummarizeReplacesUpToCompactEnd) {
                                      std::string(400, 'X').c_str())),
             xErrno_Busy);
 
-  /* Layout: [summary, U1, A1, U2, A2, overflow_user, auto_reply]
-   * compact_end_idx = 2 means entries [0,2) = U0, A0 were replaced.
+  /* Layout: [summary, U2, A2, overflow_user, auto_reply]
+   * compact_end_idx = 4 means entries [0,4) = U0, A0, U1, A1 were replaced.
    * Then auto-retry appended the overflow message and ran a query. */
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
   ASSERT_GE(hist_len(s), 5u);

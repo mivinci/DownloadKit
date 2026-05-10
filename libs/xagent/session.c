@@ -681,15 +681,15 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
    * and auto-retries the pending input.
    *
    * The compact replaces history[0..compact_end_idx) with one
-   * summary entry. compact_end_idx is the index of the
-   * second-to-last user turn, so we keep the last two user turns
-   * and compress everything before them. */
+   * summary entry. compact_end_idx is the index of the last
+   * user turn, so we keep the last user turn (and any tool
+   * chatter after it) and compress everything before it. */
   switch (s->budget.policy) {
   case xAgentBudgetPolicy_Error:
     return xErrno_PromptTooLong;
 
   case xAgentBudgetPolicy_Summarize: {
-    size_t hlen = xArrayLen(s->history_arr);
+    size_t                          hlen = xArrayLen(s->history_arr);
     const struct xAgentSessionMsg_ *msgs_view =
       (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr);
 
@@ -699,14 +699,16 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
       if (msgs_view[i].role == xAgentRole_User) ++user_count;
     }
 
-    /* If only 1 user turn, there's nothing to compact — we'd
-     * lose the only turn the user has. */
-    if (user_count <= 1) return xErrno_PromptTooLong;
+    /* If no user turns, there's nothing meaningful to compact. */
+    if (user_count == 0) return xErrno_PromptTooLong;
 
-    /* Find the second-to-last user turn index → compact_end.
-     * history[0..compact_end) will be replaced by the summary. */
+    /* Find the last user turn index → compact_end.
+     * history[0..compact_end) will be replaced by the summary.
+     * We use the last (not second-to-last) user turn so that
+     * tool_use/tool_result chatter between user turns is also
+     * captured by the compact. */
     size_t compact_end =
-      ai_budget_find_user_turn(msgs_view, hlen, user_count - 2);
+      ai_budget_find_user_turn(msgs_view, hlen, user_count - 1);
     if (compact_end == XAGENT_BUDGET_NO_SUCH_TURN || compact_end == 0) {
       return xErrno_PromptTooLong;
     }
@@ -1517,7 +1519,7 @@ static void session_sidecar_idle_timer_cb(void *arg) {
  * will see no response and can retry manually. */
 static void session_auto_retry_pending_(struct xAgentSession_ *s) {
   if (!s->pending_text) return;
-  char  *text         = s->pending_text;
+  char *text          = s->pending_text;
   s->pending_text     = NULL;
   size_t len          = s->pending_text_len;
   s->pending_text_len = 0;
@@ -1525,9 +1527,9 @@ static void session_auto_retry_pending_(struct xAgentSession_ *s) {
   /* Construct xAgentMessage from the saved text. */
   xAgentContent content;
   memset(&content, 0, sizeof(content));
-  content.type         = xAgentContentType_Text;
-  content.u.text.text  = text;
-  content.u.text.len   = len;
+  content.type        = xAgentContentType_Text;
+  content.u.text.text = text;
+  content.u.text.len  = len;
 
   xAgentMessage msg;
   memset(&msg, 0, sizeof(msg));
@@ -1629,7 +1631,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
      * summary into history, replacing entries [0, compact_end_idx).
      * Compact failed (empty / OOM) — leave history untouched. */
     size_t compact_end = s->compact_end_idx;
-    int    compact_ok = (summary_text != NULL && summary_bytes > 0);
+    int    compact_ok  = (summary_text != NULL && summary_bytes > 0);
 
     if (compact_ok) {
       /* L1 preserve: deliver the about-to-be-replaced entries
@@ -1640,9 +1642,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       if (s->on_l1_preserve && compact_end > 0) {
         size_t skip_start = 0;
         if (s->persisted_prefix > 0) {
-          skip_start =
-            s->persisted_prefix < compact_end ? s->persisted_prefix
-                                              : compact_end;
+          skip_start = s->persisted_prefix < compact_end ? s->persisted_prefix
+                                                         : compact_end;
         }
         if (compact_end > skip_start) {
           s->on_l1_preserve(

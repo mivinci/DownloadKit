@@ -612,9 +612,40 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
     n_spans++;
   }
 
-  /* Only parse the tail window. */
+  /* Determine the parse window.
+   *
+   * First, locate the last summary line in the file. A summary
+   * absorbs all prior entries, so we never need to load anything
+   * before it. We do a lightweight substring search on the raw
+   * buffer rather than a full parse — just enough to find lines
+   * containing "is_summary":true. */
+  size_t summary_span = (size_t)-1; /* index into spans[] */
+  for (ssize_t k = (ssize_t)n_spans - 1; k >= 0; k--) {
+    const char *line = content + spans[k].off;
+    size_t      llen = spans[k].len;
+    /* Quick scan for the summary marker. We search for the
+     * literal key rather than doing a full JSON parse. The
+     * false-positive rate is effectively zero because this
+     * key is only written by write_msg_line_. */
+    int found = 0;
+    for (size_t j = 0; !found && j + 16 <= llen; j++) {
+      if (memcmp(line + j, "\"is_summary\":true", 17) == 0) {
+        summary_span = (size_t)k;
+        found = 1;
+      }
+    }
+    if (found) break;
+  }
+
+  /* take_from is the greater of the summary-boundary and the
+   * tail-cap boundary. This ensures we never load entries that
+   * precede the last summary, even if the cap window would have
+   * included them. */
   size_t take_from = (n_spans > cap) ? (n_spans - cap) : 0;
-  size_t window    = n_spans - take_from;
+  if (summary_span != (size_t)-1 && summary_span > take_from) {
+    take_from = summary_span;
+  }
+  size_t window = n_spans - take_from;
   if (window == 0) {
     free(spans);
     free(content);
@@ -666,13 +697,10 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
     return xErrno_Ok;
   }
 
-  /* Smart prime: scan backwards for the last is_summary entry.
-   * When a compact has produced a summary, the original entries
-   * before it are redundant — the summary already contains their
-   * information. Returning only the summary + entries after it
-   * saves tokens on prime and prevents stale pre-summary entries
-   * from polluting the context window. If no summary is found the
-   * full window is returned unchanged (backward-compatible). */
+  /* Safety net: if the span-level scan missed a summary marker
+   * (e.g., encoding edge case), the parse-level scan catches it.
+   * Most of the time this block is a no-op because take_from was
+   * already adjusted to start at the last summary. */
   {
     ssize_t summary_idx = -1;
     for (ssize_t k = (ssize_t)n_out - 1; k >= 0; k--) {

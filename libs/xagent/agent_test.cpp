@@ -290,9 +290,10 @@ TEST_F(AgentTest, DefaultSessionInheritsAgentDefaults) {
   ASSERT_NE(ds, nullptr);
 
   /* The default session inherits from the agent just like any
-   * other session created via xAgentCreateSession. */
-  auto *s = reinterpret_cast<struct xAgentSession_ *>(ds);
-  EXPECT_EQ(s->model,  conf.model);
+   * other session created via xAgentCreateSession.
+   * model is strdup'd so the session owns its copy — compare
+   * by content, not by pointer identity. */
+  EXPECT_STREQ(s->model,  conf.model);
   EXPECT_EQ(s->max_turns,  conf.max_turns);
   EXPECT_EQ(s->max_tokens, conf.max_tokens);
 

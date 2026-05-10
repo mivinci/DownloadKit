@@ -127,6 +127,21 @@ struct xAgentSession_ {
   size_t compact_head_idx; /* end of preserved HEAD prefix (exclusive) */
   size_t compact_keep_idx; /* start of preserved RECENT tail           */
 
+  /* ── Compact anti-loop guard ─────────────────────────────────────
+   *
+   * After a compact finishes but the session is still over budget,
+   * the caller retries xAgentSessionInput which re-enters
+   * session_enforce_budget_. Without a guard this can loop forever:
+   *   compact → still over → compact → still over → …
+   *
+   * last_compact_history_len records the history array length at the
+   * time the most recent compact was launched. If a new compact
+   * would be launched but the history hasn't grown since the last
+   * attempt, refuse with PromptTooLong — another compact won't help.
+   *
+   * Reset to 0 on gate pass (budget is OK again). */
+  size_t last_compact_history_len;
+
   /* ── Session-lifetime properties (stamped at create, immutable) ── */
   xAgentInputOrigin           origin;           /* default User on zero    */
   xAgentSessionFinalizingFunc on_finalizing;    /* NULL = no hook          */

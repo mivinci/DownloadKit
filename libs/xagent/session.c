@@ -399,7 +399,16 @@ static size_t session_trim_consumed_tool_results_(struct xAgentSession_ *s,
       &((struct xAgentSessionMsg_ *)xArrayData(s->history_arr))[i - 1];
 
     if (e->kind == xAgentSessionEntry_ToolResult &&
-        e->tool_result_output_len > 0) {
+        e->tool_result_output_len > 0 &&
+        e->tool_result_output != NULL &&
+        /* Skip entries that were already trimmed — their output
+         * starts with "[result trimmed:". Re-trimming them wastes
+         * a compact round and falsely reports "N entries trimmed"
+         * with 0 bytes freed, which can trigger an infinite loop
+         * when the Summarize path re-enters after seeing the
+         * non-zero trimmed count. */
+        strncmp(e->tool_result_output, "[result trimmed: ",
+                strlen("[result trimmed: ")) != 0) {
       /* A tool_result in the middle band is "consumed" — the model
        * has already seen it and generated a follow-up in a later
        * turn. Replace its output with a short marker. */
@@ -708,6 +717,10 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
   }
 
   if (estimated <= limit) {
+    /* Budget is OK — clear the anti-loop guard so a future
+     * over-budget episode can try compacting from scratch. */
+    s->last_compact_history_len = 0;
+
     /* Remember what the gate saw so sess_fwd_on_done can compare
      * it to the provider-reported prompt_tokens and update the
      * bookkeeping. Note we store the COMBINED number (history +
@@ -812,10 +825,23 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     /* Re-entrance guard: only one compact at a time. */
     if (s->compacting) return xErrno_Busy;
 
+    /* ── Anti-loop guard ─────────────────────────────────────
+     * If the previous compact finished but we're still over
+     * budget AND the history hasn't grown since that compact,
+     * launching another compact won't help — it would try to
+     * summarise the same (or fewer) entries and produce a
+     * summary that's just as large. Break the loop and refuse. */
+    if (s->last_compact_history_len > 0 &&
+        hlen <= s->last_compact_history_len) {
+      return xErrno_PromptTooLong;
+    }
+
     /* Record both band boundaries for sess_fwd_on_done to splice
-     * the summary back into the right place. */
+     * the summary back into the right place. Also record the history
+     * length for the anti-loop guard on the next call. */
     s->compact_head_idx = compact_head;
     s->compact_keep_idx = compact_keep;
+    s->last_compact_history_len = hlen;
 
     /* ── Notify caller: compact is starting ───────────────
      * entries_compacted is the compact-band size (what actually

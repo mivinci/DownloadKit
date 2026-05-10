@@ -794,7 +794,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     if (vrc != xErrno_Ok) return xErrno_PromptTooLong;
 
     const size_t keep = recent_idx;
-    char         summary_instr[256];
+    char         summary_instr[512];
     snprintf(summary_instr, sizeof(summary_instr),
              XAGENT_SUMMARY_INSTRUCT_PROMPT, keep);
 

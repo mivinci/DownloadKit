@@ -296,7 +296,6 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  * so a slightly-overestimate still errs on the side of "refuse /
  * trim a bit more" rather than busting the real provider window. */
 
-
 /* Historically the session had a session_trim_history_front_() helper
  * that wiped history[0..keep_idx) in place. It was removed when the
  * Summarize pipeline moved to front-replacing compaction: instead
@@ -305,6 +304,22 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
  * summary at index 0 via xArrayRemoveRange + xArrayInsert directly
  * in sess_fwd_on_done. persisted_prefix adjustment is inlined at
  * the call site (see the "compact_ok" branch of sess_fwd_on_done). */
+
+/* ── Incoming user message token estimator ────────────────────
+ *
+ * Coarse token estimate for an incoming user message so the
+ * budget gate can decide whether to let it through before
+ * the message is committed to history. */
+static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
+  size_t payload_bytes = 0;
+  for (size_t i = 0; i < msg.n; i++) {
+    if (msg.contents[i].type == xAgentContentType_Text) {
+      payload_bytes += msg.contents[i].u.text.len;
+    }
+  }
+  return (payload_bytes / XAGENT_BUDGET_BYTES_PER_TOKEN) +
+         XAGENT_BUDGET_PER_MSG_TOKENS;
+}
 
 /* ── Retroactive tool_result trimming ───────────────────────────
  *
@@ -582,12 +597,14 @@ static xErrno sess_input_view_build(struct xAgentSession_   *s,
                                     size_t                   hist_end,
                                     struct sess_input_view_ *out);
 
-static xErrno session_enforce_budget_(struct xAgentSession_ *s) {
+static xErrno session_enforce_budget_(struct xAgentSession_ *s,
+                                      xAgentMessage          msg) {
   if (s->budget.policy == xAgentBudgetPolicy_Disabled) return xErrno_Ok;
 
   size_t limit     = session_budget_limit_(s);
+  size_t incoming  = estimate_incoming_user_tokens_(msg);
   size_t current   = session_estimate_current_(s);
-  size_t estimated = current;
+  size_t estimated = current + incoming;
 
   /* ── Step 0: Under budget — gate passes immediately ────────── */
   if (estimated <= limit) {
@@ -631,7 +648,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s) {
 
     /* Re-estimate after trimming. */
     current   = session_estimate_current_(s);
-    estimated = current;
+    estimated = current + incoming;
 
     if (estimated <= limit) {
       /* Trimming brought us under budget. */
@@ -661,9 +678,10 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s) {
    * and auto-retries the pending input.
    *
    * The compact replaces history[0..compact_end_idx) with one
-   * summary entry. compact_end_idx is the index of the last
-   * user turn, so we keep the last user turn (and any tool
-   * chatter after it) and compress everything before it. */
+   * summary entry. compact_end_idx is determined by the
+   * context_compact_head setting: we keep the last N user turns
+   * (and any interleaved tool chatter), and compress everything
+   * before them. N defaults to 1. */
   switch (s->budget.policy) {
   case xAgentBudgetPolicy_Error:
     return xErrno_PromptTooLong;
@@ -682,13 +700,17 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s) {
     /* If no user turns, there's nothing meaningful to compact. */
     if (user_count == 0) return xErrno_PromptTooLong;
 
-    /* Find the last user turn index → compact_end.
-     * history[0..compact_end) will be replaced by the summary.
-     * We use the last (not second-to-last) user turn so that
-     * tool_use/tool_result chatter between user turns is also
-     * captured by the compact. */
+    /* Determine how many recent turns to keep.
+     * context_compact_head = 0 is treated as 1. */
+    size_t keep_turns = s->budget.context_compact_head;
+    if (keep_turns == 0) keep_turns = 1;
+
+    /* Find the user turn at (user_count - keep_turns) →
+     * compact_end. history[0..compact_end) will be replaced.
+     * If there aren't enough turns to keep, refuse. */
+    if (keep_turns >= user_count) return xErrno_PromptTooLong;
     size_t compact_end =
-      ai_budget_find_user_turn(msgs_view, hlen, user_count - 1);
+      ai_budget_find_user_turn(msgs_view, hlen, user_count - keep_turns);
     if (compact_end == XAGENT_BUDGET_NO_SUCH_TURN || compact_end == 0) {
       return xErrno_PromptTooLong;
     }
@@ -720,6 +742,36 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s) {
 
     /* Re-entrance guard: only one compact at a time. */
     if (s->compacting) return xErrno_Busy;
+
+    /* Save the incoming user message text for auto-retry after
+     * the compact completes. Concatenate all text blocks into
+     * one string, matching history_append_user_msg's behaviour. */
+    {
+      size_t total_len = 0;
+      for (size_t i = 0; i < msg.n; i++) {
+        if (msg.contents[i].type == xAgentContentType_Text) {
+          total_len += msg.contents[i].u.text.len;
+        }
+      }
+
+      if (total_len > 0) {
+        char *buf = (char *)malloc(total_len + 1);
+        if (buf) {
+          size_t off = 0;
+          for (size_t i = 0; i < msg.n; i++) {
+            if (msg.contents[i].type == xAgentContentType_Text) {
+              size_t n = msg.contents[i].u.text.len;
+              if (n) memcpy(buf + off, msg.contents[i].u.text.text, n);
+              off += n;
+            }
+          }
+          buf[total_len] = '\0';
+          free(s->pending_text);
+          s->pending_text     = buf;
+          s->pending_text_len = total_len;
+        }
+      }
+    }
 
     /* Record compact boundary and anti-loop state. */
     s->compact_end_idx          = compact_end;
@@ -1467,6 +1519,32 @@ static void session_sidecar_idle_timer_cb(void *arg) {
  * results or refuse with PromptTooLong. In the rare case where
  * auto-retry fails, the pending message is simply lost — the caller
  * will see no response and can retry manually. */
+static void session_auto_retry_pending_(struct xAgentSession_ *s) {
+  if (!s->pending_text) return;
+  char *text          = s->pending_text;
+  s->pending_text     = NULL;
+  size_t len          = s->pending_text_len;
+  s->pending_text_len = 0;
+
+  /* Construct xAgentMessage from the saved text. */
+  xAgentContent content;
+  memset(&content, 0, sizeof(content));
+  content.type        = xAgentContentType_Text;
+  content.u.text.text = text;
+  content.u.text.len  = len;
+
+  xAgentMessage msg;
+  memset(&msg, 0, sizeof(msg));
+  msg.role     = xAgentRole_User;
+  msg.contents = &content;
+  msg.n        = 1;
+
+  /* xAgentSessionInput deep-copies the message, so it is safe
+   * to free text after the call returns. */
+  xAgentSessionInput((xAgentSession)s, msg);
+  free(text);
+}
+
 /* Terminal forwarding: pull the Query's produced-turn list into the
  * Session's history first (so the on_done handler sees the updated
  * conversation), then fire the caller's on_done, then release the
@@ -1687,64 +1765,18 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
                          s->budget_event_ud);
     }
 
-    /* The user message was already appended to history before the
-     * compact was launched. After compact completes, re-evaluate
-     * the budget: if under budget, build the input view and start
-     * the query; if still over, roll back the user entry so the
-     * caller can retry later. */
-    {
-      xErrno brc = session_enforce_budget_(s);
-      if (brc == xErrno_Ok) {
-        /* Budget OK — build the view and start the query. The
-         * user message is already in history. */
-        struct sess_input_view_ view;
-        xErrno vrc = sess_input_view_build(s, /*hits=*/NULL,
-                                           /*hist_end=*/0, &view);
-        if (vrc == xErrno_Ok) {
-          struct xAgent_ *a = (struct xAgent_ *)s->agent;
-          xAgentQueryConf qc = {0};
-          qc.cbs.on_text        = sess_fwd_on_text;
-          qc.cbs.on_thinking    = sess_fwd_on_thinking;
-          qc.cbs.on_done        = sess_fwd_on_done;
-          qc.cbs.on_error       = sess_fwd_on_error;
-          qc.cbs.on_tool        = sess_fwd_on_tool;
-          qc.cbs.on_tool_output = sess_fwd_on_tool_output;
-          qc.cbs.user_data      = s;
-          if (s->cbs.on_tool_confirm) {
-            qc.cbs.on_tool_confirm = sess_fwd_on_tool_confirm;
-          }
-          qc.provider    = s->provider_override
-                             ? s->provider_override : a->provider;
-          qc.tools       = (const xAgentTool **)a->tools;
-          qc.tools_count = a->tools_count;
-          qc.model       = s->model;
-          qc.max_tokens  = s->max_tokens;
-          qc.max_turns   = s->max_turns;
-          qc.session     = (xAgentSession)s;
-
-          xAgentQuery nq = xAgentQueryCreate(&qc);
-          if (nq) {
-            s->query = nq;
-            xErrno rrc = xAgentQueryRun(nq, view.msgs, view.n_msgs);
-            if (rrc != xErrno_Ok) {
-              xAgentQueryDestroy(nq);
-            }
-          }
-          sess_input_view_free(&view);
-        }
-      } else {
-        /* Still over budget after compact — roll back the user
-         * message from history and invalidate bookkeeping. The
-         * caller can /clear, shorten, or raise context_window. */
-        xArrayPop(s->history_arr);
-        s->delta_entries = 0;
-        s->known_prompt_tokens = -1;
-      }
-    }
+    /* Auto-retry: if a pending user message was saved before the
+     * compact was launched, re-submit it now. The budget gate will
+     * re-evaluate; if still over budget the gate may trim more tool
+     * results or refuse with PromptTooLong. In the rare case where
+     * auto-retry fails, the pending message is lost and the caller
+     * will need to retry manually. */
+    session_auto_retry_pending_(s);
 
     /* The compact is done. The caller's on_done is NOT fired here
-     * — they're still holding a Busy result. If the budget check
-     * passed, a new query is already running. */
+     * — they're still holding a Busy result. If auto-retry was
+     * triggered, xAgentSessionInput has already been called and
+     * will either start a new query or return an error. */
     return;
   }
 
@@ -1962,51 +1994,29 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
     (void)xAgentMemoryRetrieve(a->memory, &rq, &hits);
   }
 
-  /* Commit the user message to history FIRST so the budget gate
-   * can see the full picture (including the new message) when
-   * computing the compact boundary. If the budget gate rejects
-   * the input we roll this back. */
+  /* Budget gate: consulted BEFORE any history mutation so the
+   * Error policy can refuse without leaving partial state behind,
+   * and the TruncateTail policy can shape history first so the
+   * subsequent append lands on an already-conforming base. A
+   * Disabled policy (the default) short-circuits inside
+   * session_enforce_budget_() with zero measurable overhead. */
+  xErrno rc = session_enforce_budget_(s, msg);
+  if (rc != xErrno_Ok) {
+    xAgentMemoryReleaseHits(a->memory, &hits);
+    return rc;
+  }
+
+  /* Commit the user message to history first so the input view
+   * below includes it. If the Query submit later fails we'll roll
+   * this back. */
   size_t history_checkpoint = xArrayLen(s->history_arr);
-  xErrno rc                 = history_append_user_msg(s, msg);
+  rc                        = history_append_user_msg(s, msg);
   if (rc != xErrno_Ok) {
     xAgentMemoryReleaseHits(a->memory, &hits);
     return rc;
   }
   /* Track the new entry for incremental token bookkeeping. */
   s->delta_entries += (xArrayLen(s->history_arr) - history_checkpoint);
-
-  /* Budget gate: the user message is already in history, so the
-   * gate's estimate reflects the true total. If the gate returns
-   * PromptTooLong or Busy, we roll back the append so the caller
-   * can retry later without a corrupted history. */
-  rc = session_enforce_budget_(s);
-  if (rc == xErrno_PromptTooLong) {
-    /* Roll back the user append — the gate couldn't make room. */
-    while (xArrayLen(s->history_arr) > history_checkpoint) {
-      xArrayPop(s->history_arr);
-    }
-    s->delta_entries = 0;
-    s->known_prompt_tokens = -1;
-    xAgentMemoryReleaseHits(a->memory, &hits);
-    return rc;
-  }
-  if (rc == xErrno_Busy) {
-    /* Compact is in flight. The user message stays in history so
-     * that the compact boundary includes it (compact_end points
-     * at the new message, maximising the compacted range). The
-     * compact completion handler will re-check the budget and
-     * either start the query or roll back on PromptTooLong. */
-    xAgentMemoryReleaseHits(a->memory, &hits);
-    return rc;
-  }
-  if (rc != xErrno_Ok) {
-    /* Any other error — roll back. */
-    while (xArrayLen(s->history_arr) > history_checkpoint) {
-      xArrayPop(s->history_arr);
-    }
-    xAgentMemoryReleaseHits(a->memory, &hits);
-    return rc;
-  }
 
   /* Build the complete message array the Query should run on
    * (system prompt + ephemeral memory hits + rolling history

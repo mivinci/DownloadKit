@@ -156,7 +156,8 @@ ic_private void highlight_match_braces(const char *s, attrbuf_t *attrs,
   brace_t       open[MAX_NESTING + 1];
   ssize_t       nesting   = 0;
   const ssize_t brace_len = ic_strlen(braces);
-  for (long i = 0; i < ic_strlen(s); i++) {
+  const ssize_t slen      = ic_strlen(s);
+  for (ssize_t i = 0; i < slen; i++) {
     const char c = s[i];
     // push open brace
     bool found_open = false;
@@ -221,7 +222,8 @@ ic_private ssize_t find_matching_brace(const char *s, ssize_t cursor_pos,
   brace_t       open[MAX_NESTING + 1];
   ssize_t       nesting   = 0;
   const ssize_t brace_len = ic_strlen(braces);
-  for (long i = 0; i < ic_strlen(s); i++) {
+  const ssize_t slen      = ic_strlen(s);
+  for (ssize_t i = 0; i < slen; i++) {
     const char c = s[i];
     // push open brace
     bool found_open = false;

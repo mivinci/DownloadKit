@@ -171,11 +171,21 @@ XDEF_STRUCT(xLineHandle_) {
   // as far as the terminal is concerned, but a subsequent term_attr_reset
   // (done on every sneak fast path) would clear it with no way to restore.
   //
-  // `active_sgr` accumulates every SGR sequence ever emitted to the above
-  // region since the last \x1b[0m / \x1b[m reset. Whenever we need to
-  // re-establish styling after term_attr_reset (sneak path), or prepend it
-  // to a slow-path rewrite so the re-emitted last_line inherits it, we
-  // replay this buffer. See xline_track_sgr() for the bookkeeping.
+  // `active_sgr` tracks the minimal equivalent SGR state (via
+  // xline_track_sgr / sgr_state_t) of every SGR sequence emitted to the
+  // above region since the last \x1b[0m / \x1b[m reset. Whenever we need
+  // to re-establish styling after term_attr_reset (sneak path), or prepend
+  // it to a slow-path rewrite so the re-emitted last_line inherits it, we
+  // replay this buffer.
+  //
+  // DESIGN ASSUMPTION: only SGR (Select Graphic Rendition) attributes are
+  // tracked. Non-SGR terminal modes (DEC private modes like auto-wrap
+  // \x1b[?7h, origin mode \x1b[?6h, etc.) are NOT replayed after
+  // term_attr_reset + DECRC. This is safe because (a) the sneak path's
+  // DECSC is issued AFTER term_attr_reset, so DECRC restores the
+  // post-reset (clean) attribute state; (b) the above region never
+  // intentionally changes DEC modes. If non-SGR modes are ever needed
+  // in the above region, active_sgr must be extended to track them too.
   stringbuf_t *active_sgr;
 
   // Below panel (persistent UI area underneath the edit region).

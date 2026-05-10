@@ -658,53 +658,306 @@ static void xline_erase_trailing(xLineHandle_ *h) {
   // Step up onto the separator row (the '\n' we emitted after last_line)
   // and above, then clear to end-of-screen.
   //
-  // We deliberately do NOT issue a CPR (\x1B[6n) round-trip here. The
-  // old code did, "to clamp term_up so we cannot overshoot into
-  // already-committed content above" when the terminal had auto-
-  // scrolled. In practice two things made that harmful:
+  // After wipe_edit_region the cursor is at the prompt row. We need to
+  // climb `last_line_rows` rows to reach the top of the trailing line,
+  // then \x1b[J clears from there to the bottom of the screen.
   //
-  //   1. CPR is a synchronous tty read. On every slow-path tick we
-  //      paid one round-trip (single-digit to tens of ms on local
-  //      terminals, way more over ssh). Under a bursty streaming
-  //      workload that snowballs into visible "the output froze and
-  //      keys don't register" — the main loop spends all its time
-  //      blocked on the CPR and never gets back to input dispatch.
+  // If last_line_rows is small (1) the cursor can't overshoot — one
+  // row up from the prompt row always lands inside the trailing line.
+  // When last_line wraps to 2+ screen rows there's a risk that the
+  // terminal auto-scrolled some of the trailing line into scrollback;
+  // term_up would then be clipped to row 1 and \x1b[J would wipe
+  // already-committed content (flushed lines above the trailing line
+  // that are still visible on screen).
   //
-  //   2. The clamp it enabled was the wrong shape. term_up is
-  //      already bounded by the terminal itself — the cursor can't
-  //      climb above row 1 regardless of what we ask for. The worst
-  //      that happens without the clamp is that \x1B[J clears a few
-  //      rows we're about to rewrite anyway; no user-visible content
-  //      is lost because xline_emit_bytes re-emits the full trailing
-  //      line immediately after.
-  //
-  // So: cap `up` at (term_height - 1) defensively (term_up(0) is a
-  // no-op, this just avoids asking for a silly number when the
-  // bookkeeping is briefly stale after a resize) and move on.
-  ssize_t up     = h->last_line_rows;
-  ssize_t h_rows = term_get_height(env->term);
-  if (h_rows > 1 && up > h_rows - 1) up = h_rows - 1;
+  // We therefore query the cursor's absolute row (CPR, one round-trip)
+  // and clamp `up` to (cursor_row - 1) so we never climb above row 1.
+  // The CPR cost is acceptable because this path only fires when
+  // last_line wraps to 2+ screen rows, which is the uncommon case;
+  // the fast path (single-row last_line) pays zero extra cost.
+  ssize_t up = h->last_line_rows;
+  if (up > 1) {
+    ssize_t cur_row = 0;
+    if (term_cursor_row(env->term, &cur_row) && cur_row > 1) {
+      if (up > cur_row - 1) up = cur_row - 1;
+    } else {
+      // CPR failed (e.g. piped output). Fall back to the
+      // height-based cap — may still overshoot on auto-scrolled
+      // terminals but we can't do better without the cursor position.
+      ssize_t h_rows = term_get_height(env->term);
+      if (h_rows > 1 && up > h_rows - 1) up = h_rows - 1;
+    }
+  }
   if (up > 0) {
     term_up(env->term, up);
   }
   term_write(env->term, "\r\x1b[J");
 }
 
-// Walk `data` and update `dst` to reflect the cumulative SGR state after
-// emitting those bytes. Any complete SGR sequence (ESC '[' ... 'm') is
-// appended verbatim; a reset (ESC '[' 'm' or ESC '[' '0' 'm', possibly with
-// leading zeros like '00') clears `dst` instead of being appended. All
-// non-SGR bytes are ignored. Malformed / truncated sequences are dropped.
+// SGR state machine that tracks the minimal equivalent styling.
 //
-// The result is a minimal "replay prefix" that, when written to a terminal
-// after a term_attr_reset, restores the styling that was in effect at the
-// end of `data` — modulo compound SGRs where a later sequence only
-// partially cancels an earlier one (e.g. \x1b[22m cancels faint but not
-// color). For our use (thinking / tool-output \x1b[2m paired with \x1b[0m)
-// this is exact.
+// Instead of appending raw SGR sequences (which makes active_sgr grow
+// without bound when the same attributes are toggled on/off), we
+// maintain a compact per-attribute state and reconstruct a minimal
+// replay prefix after every change.  This bounds active_sgr to a
+// small constant size regardless of how many SGR sequences the above
+// region has emitted.
+typedef struct sgr_state_s {
+  // Boolean attributes: bold(1), faint(2), italic(3), underline(4),
+  // blink(5), reverse(7), conceal(8), strikethrough(9).
+  // Cancellation codes: 22=bold+faint off, 23=italic off, 24=underline
+  // off, 25=blink off, 27=reverse off, 28=conceal off, 29=strikethrough off.
+  bool bold;
+  bool faint;
+  bool italic;
+  bool underline;
+  bool blink;
+  bool reverse;
+  bool conceal;
+  bool strikethrough;
+  // Foreground / background.  We store the raw sub-param string for
+  // extended colors (38;5;N or 38;2;R;G;B) so we can replay them
+  // verbatim.  An empty fg/bg means "default"; a single decimal
+  // like "31" means ANSI-16; "38;5;196" means 256-color; etc.
+  stringbuf_t *fg;
+  stringbuf_t *bg;
+} sgr_state_t;
+
+// Parse a decimal integer from `s[len)` into `out`.  Returns the
+// number of bytes consumed, or 0 on failure.
+static ssize_t sgr_parse_int(const char *s, ssize_t len, int *out) {
+  if (len <= 0) return 0;
+  int val = 0;
+  ssize_t n = 0;
+  while (n < len && s[n] >= '0' && s[n] <= '9') {
+    val = val * 10 + (s[n] - '0');
+    n++;
+  }
+  if (n == 0) return 0;
+  *out = val;
+  return n;
+}
+
+// Apply a single SGR sub-parameter list (between two ';'s or the
+// sequence boundaries) to `st`.  `subs[k..k+count-1]` are pointers
+// into the sub-parameter strings; sub 0 is the selector and subs
+// 1.. are its arguments (e.g. 38;5;196 → subs={38,5,196}).
+static void sgr_apply_subs(sgr_state_t *st, const char *subs[],
+                           ssize_t count) {
+  if (count <= 0) return;
+  int code = 0;
+  if (sgr_parse_int(subs[0], (ssize_t)strlen(subs[0]), &code) == 0) return;
+
+  switch (code) {
+  case 0: // reset
+    memset(st, 0, offsetof(sgr_state_t, fg));
+    sbuf_clear(st->fg);
+    sbuf_clear(st->bg);
+    break;
+  case 1:  st->bold = true; break;
+  case 2:  st->faint = true; break;
+  case 3:  st->italic = true; break;
+  case 4:  st->underline = true; break;
+  case 5:  st->blink = true; break;
+  case 7:  st->reverse = true; break;
+  case 8:  st->conceal = true; break;
+  case 9:  st->strikethrough = true; break;
+  case 22: st->bold = false; st->faint = false; break;
+  case 23: st->italic = false; break;
+  case 24: st->underline = false; break;
+  case 25: st->blink = false; break;
+  case 27: st->reverse = false; break;
+  case 28: st->conceal = false; break;
+  case 29: st->strikethrough = false; break;
+  case 39: sbuf_clear(st->fg); break; // default fg
+  case 49: sbuf_clear(st->bg); break; // default bg
+  default:
+    if (code >= 30 && code <= 37) {
+      // ANSI-16 foreground
+      sbuf_clear(st->fg);
+      sbuf_appendf(st->fg, "%d", code);
+    } else if (code >= 40 && code <= 47) {
+      // ANSI-16 background
+      sbuf_clear(st->bg);
+      sbuf_appendf(st->bg, "%d", code);
+    } else if (code >= 90 && code <= 97) {
+      // Bright foreground
+      sbuf_clear(st->fg);
+      sbuf_appendf(st->fg, "%d", code);
+    } else if (code >= 100 && code <= 107) {
+      // Bright background
+      sbuf_clear(st->bg);
+      sbuf_appendf(st->bg, "%d", code);
+    } else if (code == 38 && count >= 2) {
+      // Extended foreground: 38;5;N or 38;2;R;G;B
+      sbuf_clear(st->fg);
+      for (ssize_t i = 0; i < count; i++) {
+        if (i > 0) sbuf_append_char(st->fg, ';');
+        sbuf_append(st->fg, subs[i]);
+      }
+    } else if (code == 48 && count >= 2) {
+      // Extended background: 48;5;N or 48;2;R;G;B
+      sbuf_clear(st->bg);
+      for (ssize_t i = 0; i < count; i++) {
+        if (i > 0) sbuf_append_char(st->bg, ';');
+        sbuf_append(st->bg, subs[i]);
+      }
+    }
+    break;
+  }
+}
+
+// Reconstruct the minimal equivalent SGR sequence from `st` into `dst`.
+// Clears dst first, then writes at most one CSI sequence with all
+// active attributes concatenated.
+static void sgr_rebuild(stringbuf_t *dst, const sgr_state_t *st) {
+  sbuf_clear(dst);
+  stringbuf_t *params = sbuf_new();
+  if (params == NULL) return;
+
+  if (st->bold) {
+    if (sbuf_len(params) > 0) sbuf_append_char(params, ';');
+    sbuf_append(params, "1");
+  }
+  if (st->faint) {
+    if (sbuf_len(params) > 0) sbuf_append_char(params, ';');
+    sbuf_append(params, "2");
+  }
+  if (st->italic) {
+    if (sbuf_len(params) > 0) sbuf_append_char(params, ';');
+    sbuf_append(params, "3");
+  }
+  if (st->underline) {
+    if (sbuf_len(params) > 0) sbuf_append_char(params, ';');
+    sbuf_append(params, "4");
+  }
+  if (st->blink) {
+    if (sbuf_len(params) > 0) sbuf_append_char(params, ';');
+    sbuf_append(params, "5");
+  }
+  if (st->reverse) {
+    if (sbuf_len(params) > 0) sbuf_append_char(params, ';');
+    sbuf_append(params, "7");
+  }
+  if (st->conceal) {
+    if (sbuf_len(params) > 0) sbuf_append_char(params, ';');
+    sbuf_append(params, "8");
+  }
+  if (st->strikethrough) {
+    if (sbuf_len(params) > 0) sbuf_append_char(params, ';');
+    sbuf_append(params, "9");
+  }
+  if (sbuf_len(st->fg) > 0) {
+    if (sbuf_len(params) > 0) sbuf_append_char(params, ';');
+    sbuf_append_n(params, sbuf_string(st->fg), sbuf_len(st->fg));
+  }
+  if (sbuf_len(st->bg) > 0) {
+    if (sbuf_len(params) > 0) sbuf_append_char(params, ';');
+    sbuf_append_n(params, sbuf_string(st->bg), sbuf_len(st->bg));
+  }
+
+  if (sbuf_len(params) > 0) {
+    sbuf_append(dst, "\x1b[");
+    sbuf_append_n(dst, sbuf_string(params), sbuf_len(params));
+    sbuf_append(dst, "m");
+  }
+  sbuf_free(params);
+}
+
+// Walk `data` and update `dst` to reflect the cumulative SGR state after
+// emitting those bytes.
+//
+// Instead of appending raw SGR sequences (which causes unbounded growth
+// when attributes are toggled on and off), we maintain a canonical SGR
+// state machine.  Each sub-parameter is classified and applied to the
+// state; then `dst` is rebuilt from scratch as the minimal equivalent
+// sequence.  This guarantees `dst` is bounded to a small constant size
+// regardless of how many SGR transitions the above region has gone through.
+//
+// Non-SGR bytes are ignored.  Malformed / truncated sequences are dropped.
 static void xline_track_sgr(stringbuf_t *dst, const char *data, ssize_t len) {
   if (dst == NULL) return;
+
+  // Decompose the current dst into an sgr_state_t so we can apply
+  // incremental updates.  dst is always either empty or a single
+  // well-formed CSI SGR sequence produced by sgr_rebuild, so we can
+  // parse it straightforwardly.
+  sgr_state_t st;
+  memset(&st, 0, sizeof(st));
+  st.fg = sbuf_new();
+  st.bg = sbuf_new();
+  if (st.fg == NULL || st.bg == NULL) {
+    sbuf_free(st.fg);
+    sbuf_free(st.bg);
+    return;
+  }
+
+  // Parse the existing dst (if any) into the state machine.
+  if (sbuf_len(dst) > 0) {
+    const char *d = sbuf_string(dst);
+    ssize_t    dlen = sbuf_len(dst);
+    // dst is "\x1b[" <params> "m" — find the sub-params.
+    if (dlen >= 3 && (unsigned char)d[0] == 0x1b && d[1] == '[' &&
+        d[dlen - 1] == 'm') {
+      ssize_t pstart = 2;
+      ssize_t pend   = dlen - 1; // exclude 'm'
+      // Split on ';' and apply each sub-parameter group.
+      // Extended-color groups (38;5;N, 38;2;R;G;B) span multiple ';'
+      // fields, so we need to collect them as a unit.
+      ssize_t k = pstart;
+      while (k < pend) {
+        // Collect up to 5 sub-param strings (enough for 38;2;R;G;B).
+        const char *subs[5];
+        ssize_t    slens[5];
+        ssize_t    nsubs = 0;
+        // Read the first sub-param.
+        ssize_t sk = k;
+        while (sk < pend && d[sk] != ';') sk++;
+        subs[0]  = d + k;
+        slens[0] = sk - k;
+        nsubs    = 1;
+        int code = 0;
+        sgr_parse_int(subs[0], slens[0], &code);
+        // If it's 38 or 48, consume the following sub-params too.
+        if (code == 38 || code == 48) {
+          while (nsubs < 5 && sk < pend) {
+            sk++; // skip ';'
+            ssize_t s2 = sk;
+            while (s2 < pend && d[s2] != ';') s2++;
+            subs[nsubs]  = d + sk;
+            slens[nsubs] = s2 - sk;
+            nsubs++;
+            sk = s2;
+            // After "5" (256-color), the next sub is the index — done.
+            // After "2" (truecolor), next 3 are R;G;B — done.
+            int subcode = 0;
+            if (nsubs >= 2) {
+              sgr_parse_int(subs[1], slens[1], &subcode);
+              if (subcode == 5 && nsubs >= 3) break;
+              if (subcode == 2 && nsubs >= 5) break;
+            }
+          }
+        }
+        // Build NUL-terminated copies for sgr_apply_subs.
+        char *copied[5] = {NULL, NULL, NULL, NULL, NULL};
+        for (ssize_t i = 0; i < nsubs; i++) {
+          copied[i] = (char *)malloc(slens[i] + 1);
+          if (copied[i] != NULL) {
+            memcpy(copied[i], subs[i], slens[i]);
+            copied[i][slens[i]] = '\0';
+          }
+        }
+        sgr_apply_subs(&st, (const char **)copied, nsubs);
+        for (ssize_t i = 0; i < nsubs; i++) free(copied[i]);
+        k = sk;
+        if (k < pend && d[k] == ';') k++; // skip ';'
+      }
+    }
+  }
+
+  // Now scan `data` for SGR sequences and apply them to the state.
   ssize_t i = 0;
+  bool changed = false;
   while (i < len) {
     if ((unsigned char)data[i] != 0x1b) {
       i++;
@@ -714,8 +967,7 @@ static void xline_track_sgr(stringbuf_t *dst, const char *data, ssize_t len) {
       i++;
       continue;
     }
-    ssize_t start = i;
-    ssize_t j     = i + 2;
+    ssize_t j = i + 2;
     // parameter bytes 0x30-0x3f
     while (j < len) {
       unsigned char c = (unsigned char)data[j];
@@ -733,52 +985,69 @@ static void xline_track_sgr(stringbuf_t *dst, const char *data, ssize_t len) {
         break;
     }
     if (j >= len) break; // malformed, stop scanning
-    char    final = data[j];
-    ssize_t end   = j + 1; // one past the final byte
+    char final = data[j];
+    ssize_t end = j + 1;
     if (final == 'm') {
-      // Parse the parameter bytes as semicolon-separated sub-parameters.
-      // A compound SGR like \x1b[0;38;5;196m contains a reset (0)
-      // followed by a 256-color set; we must clear the stack on the
-      // reset and then append only the non-reset sub-parameters, so
-      // that the replay prefix reflects the *final* styling state.
-      //
-      // Sub-parameters are in [start+2, j). Walk them, splitting on ';'.
-      // If any sub-param is "0" (or empty, which means 0), clear dst.
-      // Non-reset sub-params are collected into a separate buffer and
-      // appended as a single SGR sequence after the scan.
-      stringbuf_t *non_reset = sbuf_new();
-      ssize_t      k         = start + 2;
+      // Parse sub-parameters in [i+2, j), splitting on ';'.
+      // Extended-color groups (38;5;N, 48;2;R;G;B) span multiple ';'
+      // fields and must be collected as a unit.
+      ssize_t k = i + 2;
       while (k < j) {
-        ssize_t sub_start = k;
-        while (k < j && data[k] != ';')
-          k++;
-        // sub-param bytes are [sub_start, k)
-        ssize_t sub_len = k - sub_start;
-        int     is_zero = 1;
-        for (ssize_t m = sub_start; m < k; m++) {
-          if (data[m] != '0') {
-            is_zero = 0;
-            break;
+        const char *subs[5];
+        ssize_t    slens[5];
+        ssize_t    nsubs = 0;
+        // Read first sub-param.
+        ssize_t sk = k;
+        while (sk < j && data[sk] != ';') sk++;
+        subs[0]  = data + k;
+        slens[0] = sk - k;
+        nsubs    = 1;
+        int code = 0;
+        sgr_parse_int(subs[0], slens[0], &code);
+        // Extended color: consume following sub-params.
+        if (code == 38 || code == 48) {
+          while (nsubs < 5 && sk < j) {
+            sk++; // skip ';'
+            ssize_t s2 = sk;
+            while (s2 < j && data[s2] != ';') s2++;
+            subs[nsubs]  = data + sk;
+            slens[nsubs] = s2 - sk;
+            nsubs++;
+            sk = s2;
+            int subcode = 0;
+            if (nsubs >= 2) {
+              sgr_parse_int(subs[1], slens[1], &subcode);
+              if (subcode == 5 && nsubs >= 3) break;
+              if (subcode == 2 && nsubs >= 5) break;
+            }
           }
         }
-        if (is_zero) {
-          sbuf_clear(dst);
-        } else if (sub_len > 0) {
-          if (sbuf_len(non_reset) > 0) sbuf_append_char(non_reset, ';');
-          sbuf_append_n(non_reset, data + sub_start, sub_len);
+        // Build NUL-terminated copies for sgr_apply_subs.
+        char *copied[5] = {NULL, NULL, NULL, NULL, NULL};
+        for (ssize_t p = 0; p < nsubs; p++) {
+          copied[p] = (char *)malloc(slens[p] + 1);
+          if (copied[p] != NULL) {
+            memcpy(copied[p], subs[p], slens[p]);
+            copied[p][slens[p]] = '\0';
+          }
         }
-        if (k < j) k++; // skip ';'
+        sgr_apply_subs(&st, (const char **)copied, nsubs);
+        for (ssize_t p = 0; p < nsubs; p++) free(copied[p]);
+        changed = true;
+        k = sk;
+        if (k < j && data[k] == ';') k++; // skip ';'
       }
-      // If any non-reset sub-params survived, emit them as one SGR.
-      if (sbuf_len(non_reset) > 0) {
-        sbuf_append(dst, "\x1b[");
-        sbuf_append_n(dst, sbuf_string(non_reset), sbuf_len(non_reset));
-        sbuf_append(dst, "m");
-      }
-      sbuf_free(non_reset);
     }
     i = end;
   }
+
+  // Rebuild dst from the state only if something changed.
+  if (changed) {
+    sgr_rebuild(dst, &st);
+  }
+
+  sbuf_free(st.fg);
+  sbuf_free(st.bg);
 }
 
 // Emit `data` (len bytes) verbatim into the above region, then repaint the
@@ -1371,10 +1640,15 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
       } else {
         // Sub-case B: last_line now occupies `added_rows` more screen
         // rows than before. The autowrap from `term_write(s)` already
-        // pushed the edit region down by that many rows — DECRC would
-        // restore the cursor to the *old* edit-region position, which
-        // now sits on top of the extended last_line. Discard DECRC
-        // and redraw the edit region in its new position instead.
+        // pushed the edit region down by that many rows. DECRC restores
+        // the cursor to the *old* edit-region position — which now sits
+        // `added_rows` lines too high because the autowrap shoved the
+        // edit region down. Move down by `added_rows` to land at the
+        // new edit-region cursor position, which is what edit_refresh
+        // expects (it backs up by cur_row from the current position).
+        term_write(env->term, "\x1b"
+                              "8"); // restore cursor (DECRC)
+        term_down(env->term, added_rows);
         term_flush(env->term);
         h->last_line_rows = new_rows;
         edit_refresh(env, eb);

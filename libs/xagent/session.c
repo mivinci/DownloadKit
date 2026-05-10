@@ -399,16 +399,15 @@ static size_t session_trim_consumed_tool_results_(struct xAgentSession_ *s,
       &((struct xAgentSessionMsg_ *)xArrayData(s->history_arr))[i - 1];
 
     if (e->kind == xAgentSessionEntry_ToolResult &&
-        e->tool_result_output_len > 0 &&
-        e->tool_result_output != NULL &&
+        e->tool_result_output_len > 0 && e->tool_result_output != NULL &&
         /* Skip entries that were already trimmed — their output
          * starts with "[result trimmed:". Re-trimming them wastes
          * a compact round and falsely reports "N entries trimmed"
          * with 0 bytes freed, which can trigger an infinite loop
          * when the Summarize path re-enters after seeing the
          * non-zero trimmed count. */
-        strncmp(e->tool_result_output, "[result trimmed: ",
-                strlen("[result trimmed: ")) != 0) {
+        strncmp(e->tool_result_output,
+                "[result trimmed: ", strlen("[result trimmed: ")) != 0) {
       /* A tool_result in the middle band is "consumed" — the model
        * has already seen it and generated a follow-up in a later
        * turn. Replace its output with a short marker. */
@@ -825,12 +824,40 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     /* Re-entrance guard: only one compact at a time. */
     if (s->compacting) return xErrno_Busy;
 
-    /* ── Anti-loop guard ─────────────────────────────────────
+    /* ── Pre-flight: will compact actually help? ───────────────
+     *
+     * The compact replaces (compact_keep - compact_head) entries
+     * with one summary. If the middle band's token count is
+     * smaller than a typical summary, compacting will make
+     * the prompt LARGER, not smaller — and we'd still be over
+     * budget, leading to a retry loop.
+     *
+     * The minimum viable middle band scales with context_window:
+     * in a 200-token test fixture, summaries are ~50 tokens; in
+     * a 128k production session they're ~150-250 tokens. Use
+     * context_window / 400 as the floor (min 16 tokens) so the
+     * check adapts to both extremes. */
+    {
+      size_t min_mid = limit / 400;
+      if (min_mid < 16) min_mid = 16;
+
+      size_t mid_tokens = ai_budget_estimate_tokens(
+        msgs_view + compact_head, compact_keep - compact_head);
+
+      if (mid_tokens <= min_mid) {
+        /* Middle band is no larger than a typical summary —
+         * compacting would not save anything (or make things
+         * worse). */
+        return xErrno_PromptTooLong;
+      }
+    }
+
+    /* ── Anti-loop guard (safety net) ──────────────────────────
      * If the previous compact finished but we're still over
      * budget AND the history hasn't grown since that compact,
-     * launching another compact won't help — it would try to
-     * summarise the same (or fewer) entries and produce a
-     * summary that's just as large. Break the loop and refuse. */
+     * launching another compact won't help. This should be
+     * unreachable if the pre-flight check above is correct,
+     * but guards against estimation inaccuracies. */
     if (s->last_compact_history_len > 0 &&
         hlen <= s->last_compact_history_len) {
       return xErrno_PromptTooLong;
@@ -839,8 +866,8 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     /* Record both band boundaries for sess_fwd_on_done to splice
      * the summary back into the right place. Also record the history
      * length for the anti-loop guard on the next call. */
-    s->compact_head_idx = compact_head;
-    s->compact_keep_idx = compact_keep;
+    s->compact_head_idx         = compact_head;
+    s->compact_keep_idx         = compact_keep;
     s->last_compact_history_len = hlen;
 
     /* ── Notify caller: compact is starting ───────────────
@@ -875,8 +902,9 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * Instead, allocate the extra block separately and use
      * malloc+memcpy for the msgs array so the old contents
      * pointers remain valid. */
-    size_t         n_msgs  = hist_view.n_msgs + 1;
-    xAgentMessage *msgs    = (xAgentMessage *)malloc(n_msgs * sizeof(xAgentMessage));
+    size_t         n_msgs = hist_view.n_msgs + 1;
+    xAgentMessage *msgs =
+      (xAgentMessage *)malloc(n_msgs * sizeof(xAgentMessage));
     xAgentContent *sum_blk = (xAgentContent *)calloc(1, sizeof(xAgentContent));
     if (!msgs || !sum_blk) {
       free(msgs);
@@ -890,9 +918,9 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     memset(&msgs[hist_view.n_msgs], 0, sizeof(xAgentMessage));
 
     /* Append the summary instruction user message. */
-    sum_blk->type        = xAgentContentType_Text;
-    sum_blk->u.text.text = summary_instr;
-    sum_blk->u.text.len  = strlen(summary_instr);
+    sum_blk->type                   = xAgentContentType_Text;
+    sum_blk->u.text.text            = summary_instr;
+    sum_blk->u.text.len             = strlen(summary_instr);
     msgs[hist_view.n_msgs].role     = xAgentRole_User;
     msgs[hist_view.n_msgs].contents = sum_blk;
     msgs[hist_view.n_msgs].n        = 1;

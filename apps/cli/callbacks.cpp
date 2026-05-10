@@ -35,15 +35,10 @@ void on_text(xAgentSession sess, const char *chunk, size_t len, void *ud) {
      * blocking version used. */
     ctx->saw_first_delta = true;
   }
-  /* Route through md renderer when a real TTY is attached; else
-   * pass bytes through raw so logs / pipes stay clean. The
-   * renderer sink is above_chunk, so both paths ultimately emit
-   * via xline's above channel. */
-  if (ctx->md_enabled) {
-    xMdFeed(&ctx->md_renderer, chunk, len);
-  } else {
-    above_chunk(ctx->line, chunk, len);
-  }
+  /* Route through the active renderer pipeline. The vtable dispatches
+   * to either xMdFeed (md) or above_chunk (raw) depending on which
+   * renderer was selected at startup or via /md / /raw commands. */
+  ctx->renderer.feed(ctx->renderer.state, chunk, len);
   ctx->reply_bytes += len;
 }
 
@@ -129,13 +124,11 @@ void on_done(xAgentSession sess, xAgentDoneReason reason,
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
-  /* Drain the markdown renderer before [done] chrome so any
+  /* Drain the active renderer before [done] chrome so any
    * still-pending delimiter bytes or open SGR spans are flushed
    * ahead of the faint block. Without this, an assistant reply
    * ending mid-bold would bleed bold into the [done] line. */
-  if (ctx->md_enabled) {
-    xMdFlush(&ctx->md_renderer);
-  }
+  ctx->renderer.flush(ctx->renderer.state);
   /* [done] is chrome — render the whole block faint so it recedes
    * and the model's answer above stays visually primary. Build the
    * full status line in a local buffer and emit it as one Above
@@ -181,7 +174,7 @@ void on_done(xAgentSession sess, xAgentDoneReason reason,
    * of every round (before the Query is submitted). Displaying
    * remaining/limit gives the user a real-time view of how much
    * context headroom is left before the budget gate would trigger
-   * TruncateTail or SummarizeOldest. A remaining of 0 means
+   * TruncateTail or Summarize. A remaining of 0 means
    * the very next input is likely to hit the cap. est is the
    * pre-submit estimate for this round. */
   if (ctx->budget_limit > 0) {
@@ -218,25 +211,23 @@ void on_error(xAgentSession sess, xErrno err, const char *msg, void *ud) {
    * bold red (`\x1b[1;31m`) instead of faint so the user notices the
    * run failed at a glance. */
   end_thinking(ctx);
-  /* Drop any markdown state: we're about to emit bold-red chrome
+  /* Drop any renderer state: we're about to emit bold-red chrome
    * and don't want half-parsed bold/italic/code bleeding into it. */
-  if (ctx->md_enabled) {
-    xMdReset(&ctx->md_renderer);
-  }
+  ctx->renderer.reset(ctx->renderer.state);
   above_printf(ctx->line, "\x1b[1;31m[error] errno=%d msg=%s\x1b[0m", (int)err,
                msg ? msg : "(none)");
   /* Surface the budget gate explicitly. PromptTooLong is the one
    * errno most likely to surprise a demo user ("I didn't do
    * anything weird, why did my innocuous follow-up get rejected?")
    * — it means either the rolling history plus the incoming
-   * message overflowed sconf.budget.max_tokens with no room to
+   * message overflowed sconf.budget.context_window with no room to
    * trim below keep_recent_turns, or the incoming message alone
    * is bigger than the cap. The fix is almost always "raise the
    * cap" for a calibrator demo; production callers would
-   * typically switch to SummarizeOldest or a Callback policy. */
+   * typically switch to Summarize or a Callback policy. */
   if (err == xErrno_PromptTooLong) {
     above_printf(ctx->line, "\x1b[1;31m        hit budget cap — raise "
-                            "sconf.budget.max_tokens or lower "
+                            "sconf.budget.context_window or lower "
                             "keep_recent_turns\x1b[0m");
   }
   ctx->busy = false;
@@ -245,11 +236,11 @@ void on_error(xAgentSession sess, xErrno err, const char *msg, void *ud) {
 /* ── Budget-event callback ────────────────────────────────────────────
  *
  * Registered via sconf.budget.on_budget_event so the REPL user can
- * observe the SummarizeOldest / TruncateOldest lifecycle in real time.
- * All three events are informational; ignoring them doesn't change
- * session behaviour, but surfacing them makes the budget demo much
- * easier to follow — the user sees why a subsequent xAgentSessionInput
- * returned Busy (Compacting) and knows when to retry (CompactDone). */
+ * observe the Summarize lifecycle in real time. Events are
+ * informational; ignoring them doesn't change session behaviour, but
+ * surfacing them makes the budget demo much easier to follow — the
+ * user sees why a subsequent xAgentSessionInput returned Busy
+ * (Compacting) and knows when to retry (CompactDone). */
 void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
                      const void *info, void *ud) {
   (void)sess;
@@ -271,22 +262,31 @@ void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
                    "\x1b[2m[budget] compact done — summary %zu tokens, "
                    "%zu entries affected\x1b[0m",
                    cdi->summary_tokens, cdi->entries_affected);
+      /* Compact succeeded — session is idle again, retry the stashed
+       * user message. */
+      if (ctx->pending_retry && ctx->pending_text) {
+        char *text         = ctx->pending_text;
+        ctx->pending_text  = nullptr;
+        ctx->pending_retry = false;
+        (void)repl_submit_text(ctx, text);
+        std::free(text);
+      }
     } else {
-      above_printf(ctx->line,
-                   "\x1b[2m[budget] compact degraded to truncate — %zu "
-                   "entries affected\x1b[0m",
-                   cdi ? cdi->entries_affected : (size_t)0);
-    }
-    /* Compact finished — the session is idle now, so auto-retry the
-     * pending user message. Unlike the blocking version, we never
-     * stop the event loop: the editor stays live the whole time
-     * and the retry just re-enters the input path. */
-    if (ctx->pending_retry && ctx->pending_text) {
-      char *text         = ctx->pending_text;
-      ctx->pending_text  = nullptr;
+      /* Compact failed (empty summary / OOM / provider error). The
+       * session left history untouched — re-submitting the same text
+       * would just hit the gate again and loop forever. Drop the
+       * pending text and surface a clear error so the user can
+       * decide: /clear, shorten input, or adjust context_window. */
+      above_printf(
+          ctx->line,
+          "\x1b[1;31m[error] compact failed — history unchanged. Your "
+          "last message was not sent. Try /clear or a shorter prompt."
+          "\x1b[0m");
+      if (ctx->pending_text) {
+        std::free(ctx->pending_text);
+        ctx->pending_text = nullptr;
+      }
       ctx->pending_retry = false;
-      (void)repl_submit_text(ctx, text);
-      std::free(text);
     }
     break;
   }
@@ -299,9 +299,9 @@ void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
   case xAgentBudgetEvent_ToolResultsTrimmed: {
     auto *ti = static_cast<const xAgentBudgetToolResultsTrimmedInfo *>(info);
     above_printf(ctx->line,
-                 "\x1b[2m[budget] trimmed %zu tool results (~%zu bytes)\x1b[0m",
+                 "\x1b[2m[budget] trimmed %zu tool results (~%zd bytes)\x1b[0m",
                  ti ? ti->entries_trimmed : (size_t)0,
-                 ti ? ti->bytes_freed : (size_t)0);
+                 ti ? ti->bytes_freed : (ssize_t)0);
     break;
   }
   case xAgentBudgetEvent_GatePassed: {

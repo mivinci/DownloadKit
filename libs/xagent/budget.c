@@ -61,14 +61,14 @@ size_t ai_budget_estimate_tokens(const struct xAgentSessionMsg_ *msgs, size_t n)
 }
 
 /* ─────────────────────────────────────────────────────────────────
- * ai_budget_find_nth_user_turn
+ * ai_budget_find_user_turn
  *
- * Linear scan. The slice sizes we deal with are in the tens to low
- * hundreds, so this is not a hot path even when called repeatedly
- * from the trimmer.
+ * Return the array index of the @p k-th User-role entry (0-based).
+ * Linear scan; slice sizes are in the tens-to-low-hundreds range,
+ * so this is never a hot path.
  * ──────────────────────────────────────────────────────────────── */
-size_t ai_budget_find_nth_user_turn(const struct xAgentSessionMsg_ *msgs, size_t n,
-                                    size_t k) {
+size_t ai_budget_find_user_turn(const struct xAgentSessionMsg_ *msgs, size_t n,
+                                size_t k) {
   if (!msgs) return XAGENT_BUDGET_NO_SUCH_TURN;
 
   size_t seen = 0;
@@ -82,33 +82,33 @@ size_t ai_budget_find_nth_user_turn(const struct xAgentSessionMsg_ *msgs, size_t
 }
 
 /* ─────────────────────────────────────────────────────────────────
- * ai_budget_earliest_keep
+ * ai_budget_recent_band_start
  *
- * High-level shape:
+ * Return the start index of the "recent band" — the slice of
+ * history that must be kept because it contains the newest
+ * @p keep_recent_turns user turns.
  *
- *   1. Count total User-role entries in the slice (call it @c U).
- *   2. If U == 0, nothing anchors a trim boundary → return 0.
- *   3. If U <= keep_recent_turns, we do not have enough history to
- *      meet the floor → return 0 (the caller keeps everything).
- *   4. Otherwise the keep window begins at the (U - keep_recent_turns)-th
- *      User-role entry (0-indexed), i.e. the first User turn that
- *      we are obliged to keep. Everything strictly before that
- *      index is safe to drop.
+ *   msgs[0 .. idx)           → droppable (older than recent band)
+ *   msgs[idx .. n)           → recent band (must be kept)
  *
- * Correctness sketch for the tool_use / tool_result invariant:
- * history is produced exclusively by ai_history_append_*(). User
- * messages (xAgentRole_User) can only carry Text entries — never
- * ToolUse or ToolResult. Therefore a User-role boundary can never
- * sit between a tool_use and its matching tool_result, so slicing
- * the array at that index preserves pairing.
+ * Returns 0 when nothing may be dropped (entire history is recent).
+ *
+ * The returned index is always either 0 or the index of a User-role
+ * entry.  This guarantees tool_use / tool_result pairs are never
+ * split: history is built by ai_history_append_*() which only
+ * places ToolUse / ToolResult under Assistant / Tool roles, so a
+ * User-role boundary can never fall inside a tool pair.
+ *
+ * keep_recent_turns == 0 means "no mandatory retention floor", but
+ * the boundary must still land on a User entry (tool-pair
+ * invariant).  We collapse to the last User entry — effectively
+ * keeping only the most recent turn, which is the tightest
+ * boundary the invariant allows.
  * ──────────────────────────────────────────────────────────────── */
-size_t ai_budget_earliest_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
-                               size_t keep_recent_turns) {
+size_t ai_budget_recent_band_start(const struct xAgentSessionMsg_ *msgs, size_t n,
+                                   size_t keep_recent_turns) {
   if (!msgs || n == 0) return 0;
 
-  /* Count user turns in one pass. Cheap and keeps the subsequent
-   * find_nth_user_turn call from having to walk past the desired
-   * entry just to verify it exists. */
   size_t user_count = 0;
   for (size_t i = 0; i < n; ++i) {
     if (msgs[i].role == xAgentRole_User) ++user_count;
@@ -116,61 +116,51 @@ size_t ai_budget_earliest_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
 
   if (user_count == 0) return 0;
 
-  /* Special-case keep_recent_turns == 0: keep only the last user
-   * turn. The earliest-keep index is then the index of the last
-   * User-role entry, because everything strictly before it (its
-   * older peers plus their assistant/tool chatter) is expendable. */
+  /* keep_recent_turns == 0: no mandatory floor, but the boundary
+   * must still land on a User entry.  Use the last one — the
+   * tightest valid split. */
   if (keep_recent_turns == 0) {
-    size_t last = ai_budget_find_nth_user_turn(msgs, n, user_count - 1);
-    /* user_count > 0 here, so find_nth_user_turn must succeed. */
+    size_t last = ai_budget_find_user_turn(msgs, n, user_count - 1);
     return last == XAGENT_BUDGET_NO_SUCH_TURN ? 0 : last;
   }
 
-  /* Not enough history to honour the floor: keep everything. */
+  /* Not enough user turns to meet the floor → keep everything. */
   if (user_count <= keep_recent_turns) return 0;
 
-  /* The keep window starts at the (user_count - keep_recent_turns)-th
-   * User-role entry. Example: 5 user turns, keep_recent_turns = 2
-   * → start keeping from the 3rd user turn (index 2 in 0-based k). */
+  /* Normal case: the recent band starts at the
+   * (user_count - keep_recent_turns)-th User entry.
+   * E.g. 5 user turns, keep_recent = 2 → start at k=3 (4th User). */
   size_t k    = user_count - keep_recent_turns;
-  size_t keep = ai_budget_find_nth_user_turn(msgs, n, k);
+  size_t keep = ai_budget_find_user_turn(msgs, n, k);
   return keep == XAGENT_BUDGET_NO_SUCH_TURN ? 0 : keep;
 }
 
 /* ─────────────────────────────────────────────────────────────────
- * ai_budget_tail_keep
+ * ai_budget_head_band_end
  *
- * Cache-friendly truncation boundary: instead of removing the oldest
- * entries (which changes the prompt prefix and invalidates prompt
- * caching), we compute how far from the HEAD we must keep to satisfy
- * the keep_prefix_turns floor. Everything beyond that boundary may
- * be dropped from the tail.
+ * Return the end index of the "head band" — the slice of history
+ * that must be kept as a cache-friendly prefix because it contains
+ * the oldest @p keep_prefix_turns user turns.
  *
- * High-level shape:
+ *   msgs[0 .. idx)           → head band (must be kept — cache prefix)
+ *   msgs[idx .. n)           → droppable (newer than head band)
  *
- *   1. Count total User-role entries in the slice (call it @c U).
- *   2. If U == 0, nothing anchors a boundary → return n (keep all).
- *   3. If U <= keep_prefix_turns, we need to keep everything to
- *      honour the floor → return n.
- *   4. Otherwise find the END of the keep_prefix_turns-th User turn
- *      group. The index just past that group is the boundary;
- *      entries beyond it (newer turns) may be dropped.
+ * Returns n when nothing may be dropped (entire history is head).
  *
- * "End of the keep_prefix_turns-th User turn group" means the index
- * of the (keep_prefix_turns)-th User entry plus all its trailing
- * Assistant/Tool entries. Concretely: we find the
- * (keep_prefix_turns)-th User entry, then find the NEXT User entry
- * after it; the boundary is the next User entry's index (or n if
- * there is no next User entry).
+ * The returned index always lands on a User-role entry or equals n,
+ * so tool_use / tool_result pairs are never split.
  *
- * Correctness for tool_use/tool_result pairing: the boundary always
- * lands on a User-role entry (or n), so no tool pair is split.
+ * keep_prefix_turns == 0 means "no mandatory prefix" → return 0
+ * (the head band is empty; everything can be dropped from the
+ * tail side).
  * ──────────────────────────────────────────────────────────────── */
-size_t ai_budget_tail_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
-                           size_t keep_prefix_turns) {
+size_t ai_budget_head_band_end(const struct xAgentSessionMsg_ *msgs, size_t n,
+                               size_t keep_prefix_turns) {
   if (!msgs || n == 0) return n;
 
-  /* Count user turns in one pass. */
+  /* No mandatory prefix → head band is empty. */
+  if (keep_prefix_turns == 0) return 0;
+
   size_t user_count = 0;
   for (size_t i = 0; i < n; ++i) {
     if (msgs[i].role == xAgentRole_User) ++user_count;
@@ -178,37 +168,26 @@ size_t ai_budget_tail_keep(const struct xAgentSessionMsg_ *msgs, size_t n,
 
   if (user_count == 0) return n;
 
-  /* Not enough history to honour the floor: keep everything. */
+  /* Not enough user turns to honour the floor → keep everything. */
   if (user_count <= keep_prefix_turns) return n;
 
-  /* Special-case keep_prefix_turns == 0: keep only the first user
-   * turn group. The boundary is the start of the 2nd User entry. */
-  if (keep_prefix_turns == 0) {
-    /* Find the first User entry, then the second User entry. */
-    size_t first = ai_budget_find_nth_user_turn(msgs, n, 0);
-    if (first == XAGENT_BUDGET_NO_SUCH_TURN) return n;
-    /* Scan forward from first+1 to find the next User entry. */
-    for (size_t i = first + 1; i < n; ++i) {
-      if (msgs[i].role == xAgentRole_User) return i;
-    }
-    /* No second User entry — the first turn group extends to end. */
-    return n;
-  }
-
-  /* Find the (keep_prefix_turns)-th User entry (0-indexed). This is
-   * the last User entry we must keep. Everything after its turn group
-   * may be dropped. */
-  size_t last_keep = ai_budget_find_nth_user_turn(msgs, n,
-                                                   keep_prefix_turns - 1);
+  /* Find the last User entry that must be kept (the
+   * keep_prefix_turns-th one, 0-indexed → index k-1). Then
+   * scan forward for the next User entry — that's where the
+   * head band ends and droppable territory begins.
+   *
+   * E.g. 5 user turns, keep_prefix = 2 → keep User #0 and #1,
+   * boundary = start of User #2. */
+  size_t last_keep = ai_budget_find_user_turn(msgs, n,
+                                               keep_prefix_turns - 1);
   if (last_keep == XAGENT_BUDGET_NO_SUCH_TURN) return n;
 
-  /* Find the next User entry after last_keep — that's the boundary. */
   for (size_t i = last_keep + 1; i < n; ++i) {
     if (msgs[i].role == xAgentRole_User) return i;
   }
 
-  /* No more User entries after last_keep: the turn group extends to
-   * the end of history — nothing can be dropped. */
+  /* No more User entries after last_keep → head band extends to
+   * end of history, nothing can be dropped. */
   return n;
 }
 

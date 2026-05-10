@@ -118,7 +118,7 @@ L1 的写入（即 Session 全量消息的采集）通过 **`on_l1_preserve` 回
 1. **TruncateOldest 裁剪前**（`xAgentL1PreserveReason_Truncated`）：
    传递即将被丢弃的 `entries [0, keep)`，回调在 `session_trim_history_front_`
    之前触发，保证数据仍然有效。
-2. **SummarizeOldest compact 替换前**（`xAgentL1PreserveReason_Compacted`）：
+2. **Summarize compact 替换前**（`xAgentL1PreserveReason_Compacted`）：
    传递即将被 summary 替换的原始 `entries [0, keep_idx)`，Consumer 可以
    保留原始全量条目（虽然 session history 只留 summary）。
 3. **Session teardown 时**（`xAgentL1PreserveReason_Finalizing`）：

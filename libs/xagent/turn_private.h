@@ -109,9 +109,9 @@ struct xAgentSessionMsg_ {
   uint64_t created_at_ms;
 
   /* Non-zero when this entry is a summary produced by the
-   * SummarizeOldest budget policy. Summary entries are synthetic
+   * Summarize budget policy. Summary entries are synthetic
    * System-role Text entries that compress older conversation
-   * history. Marking them allows the SummarizeOldest logic to
+   * history. Marking them allows the Summarize logic to
    * skip existing summaries when building the input for a second
    * compact, preventing information loss from re-summarising an
    * already-compressed summary (the "摘要叠罗汉" problem). */

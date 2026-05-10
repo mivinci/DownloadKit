@@ -23,7 +23,6 @@
 #include <sys/ioctl.h>
 #endif
 
-#include <xbase/log.h>
 #include "edit.h"
 #include "env.h"
 #include "line.h"
@@ -31,6 +30,7 @@
 #include "stringbuf.h"
 #include "term.h"
 #include "tty.h"
+#include <xbase/log.h>
 
 //-------------------------------------------------------------
 // Trace logging to a side file. Two-stage gate:
@@ -46,13 +46,13 @@
 
 #if XLINE_TRACE_ENABLED
 
-static FILE *g_xline_trace_fp      = NULL;
-static int   g_xline_trace_tried   = 0;
+static FILE *g_xline_trace_fp    = NULL;
+static int   g_xline_trace_tried = 0;
 
 static FILE *xline_trace_file(void) {
   if (g_xline_trace_tried) return g_xline_trace_fp;
   g_xline_trace_tried = 1;
-  const char *path = getenv("XLINE_TRACE");
+  const char *path    = getenv("XLINE_TRACE");
   if (path == NULL || *path == '\0') return NULL;
   g_xline_trace_fp = fopen(path, "w");
   if (g_xline_trace_fp != NULL) {
@@ -87,13 +87,20 @@ ic_private void xline_trace_bytes(const char *label, const char *data,
           ts.tv_nsec / 1000, label ? label : "bytes", len);
   for (ssize_t i = 0; i < len; i++) {
     unsigned char c = (unsigned char)data[i];
-    if (c == '\\')       fputs("\\\\", fp);
-    else if (c == '\n')  fputs("\\n", fp);
-    else if (c == '\r')  fputs("\\r", fp);
-    else if (c == '\t')  fputs("\\t", fp);
-    else if (c == 0x1b)  fputs("\\e", fp);
-    else if (c < 0x20 || c == 0x7f) fprintf(fp, "\\x%02x", c);
-    else                 fputc((int)c, fp);
+    if (c == '\\')
+      fputs("\\\\", fp);
+    else if (c == '\n')
+      fputs("\\n", fp);
+    else if (c == '\r')
+      fputs("\\r", fp);
+    else if (c == '\t')
+      fputs("\\t", fp);
+    else if (c == 0x1b)
+      fputs("\\e", fp);
+    else if (c < 0x20 || c == 0x7f)
+      fprintf(fp, "\\x%02x", c);
+    else
+      fputc((int)c, fp);
   }
   fputs("]\n", fp);
 }
@@ -105,21 +112,21 @@ ic_private void xline_trace_bytes(const char *label, const char *data,
 //-------------------------------------------------------------
 
 typedef enum xline_async_state_e {
-  XLINE_ASYNC_INIT = 0,      // freshly begun; Begin/Step not yet taken/ended
-  XLINE_ASYNC_RUNNING,       // still feeding keys
-  XLINE_ASYNC_DONE_LINE,     // user pressed Enter (or cancel returning empty
-                             // string)
-  XLINE_ASYNC_DONE_EOF,      // Ctrl-D on empty input or STOP
+  XLINE_ASYNC_INIT = 0,       // freshly begun; Begin/Step not yet taken/ended
+  XLINE_ASYNC_RUNNING,        // still feeding keys
+  XLINE_ASYNC_DONE_LINE,      // user pressed Enter (or cancel returning empty
+                              // string)
+  XLINE_ASYNC_DONE_EOF,       // Ctrl-D on empty input or STOP
   XLINE_ASYNC_DONE_INTERRUPT, // user pressed Ctrl-C / ^G
-  XLINE_ASYNC_DONE_ERROR,    // unrecoverable error
+  XLINE_ASYNC_DONE_ERROR,     // unrecoverable error
 } xline_async_state_t;
 
 XDEF_STRUCT(xLineHandle_) {
   ic_env_t           *env;
   editor_t            eb;
   xline_async_state_t state;
-  code_t              last_code;    // last code that drove us into a terminal state
-  char               *taken_line;   // cached result after finalize
+  code_t last_code;  // last code that drove us into a terminal state
+  char  *taken_line; // cached result after finalize
   // Token-level streaming above the prompt.
   //
   // The terminal screen is logically split into an "above region" (everything
@@ -151,8 +158,9 @@ XDEF_STRUCT(xLineHandle_) {
   // Visual effect: tokens appear to flow onto the same line, wrapping
   // naturally; completed lines scroll up. The prompt never jitters onto a
   // "taken" line.
-  stringbuf_t        *last_line;
-  ssize_t             last_line_rows;
+  stringbuf_t *last_line;
+  ssize_t      last_line_rows;
+  ssize_t      last_line_col; // cached column at tail of last_line
 
   // Active SGR stack for the above region.
   //
@@ -168,7 +176,7 @@ XDEF_STRUCT(xLineHandle_) {
   // re-establish styling after term_attr_reset (sneak path), or prepend it
   // to a slow-path rewrite so the re-emitted last_line inherits it, we
   // replay this buffer. See xline_track_sgr() for the bookkeeping.
-  stringbuf_t        *active_sgr;
+  stringbuf_t *active_sgr;
 
   // Below panel (persistent UI area underneath the edit region).
   //
@@ -182,16 +190,16 @@ XDEF_STRUCT(xLineHandle_) {
   //
   // `below_title` may be NULL. An empty `below_body` means the panel is
   // hidden.
-  stringbuf_t        *below_title;
-  stringbuf_t        *below_body;
+  stringbuf_t *below_title;
+  stringbuf_t *below_body;
 
   // Last observed terminal geometry. Used to distinguish a real SIGWINCH
   // (columns/rows actually changed) from spurious ones (the terminal
   // emulator re-raises SIGWINCH on focus/theme events, and
   // tty_term_resize_event also hard-returns true on platforms without a
   // native resize event). Only real changes trigger edit_resize bookkeeping.
-  ssize_t             last_term_w;
-  ssize_t             last_term_h;
+  ssize_t last_term_w;
+  ssize_t last_term_h;
 
   // Bracketed paste state.
   //
@@ -212,7 +220,7 @@ XDEF_STRUCT(xLineHandle_) {
   // eb->suspend_refresh is set) and issue exactly one refresh after
   // the terminator. For a 1 KB paste that turns O(N) full repaints
   // into a single one, eliminating the otherwise very visible flicker.
-  bool                in_paste;
+  bool in_paste;
 };
 
 // Max visible lines for the below panel. Longer bodies are truncated with a
@@ -239,9 +247,10 @@ static ssize_t xline_count_newlines(const char *s, ssize_t len) {
 // of the slot (clobbers any previous content). When the panel is empty the
 // slot is just cleared, which matches the "no below region" rendering.
 static void xline_sync_extra_from_below(xLineHandle_ *h) {
-  editor_t   *eb      = &h->eb;
-  const char *body    = (h->below_body != NULL ? sbuf_string(h->below_body) : NULL);
-  ssize_t     body_n  = (h->below_body != NULL ? sbuf_len(h->below_body) : 0);
+  editor_t   *eb = &h->eb;
+  const char *body =
+    (h->below_body != NULL ? sbuf_string(h->below_body) : NULL);
+  ssize_t body_n = (h->below_body != NULL ? sbuf_len(h->below_body) : 0);
 
   sbuf_clear(eb->extra);
   if (body == NULL || body_n == 0) return;
@@ -275,16 +284,16 @@ static void xline_sync_extra_from_below(xLineHandle_ *h) {
   // All current callers pass ASCII literals (e.g. "bypass") so this
   // is fine in practice.
   ssize_t rule_w = (h->env != NULL ? term_get_width(h->env->term) - 2 : 78);
-  if (rule_w < 4)  rule_w = 4;
+  if (rule_w < 4) rule_w = 4;
   if (rule_w > 512) rule_w = 512; // defensive cap; no real terminal is wider
 
   sbuf_append(eb->extra, "\x1b[2m");
   if (h->below_title != NULL && sbuf_len(h->below_title) > 0) {
-    const char *title   = sbuf_string(h->below_title);
+    const char *title = sbuf_string(h->below_title);
     // "── " (2 glyphs + 1 space) + title + " "  → fixed prefix width.
-    ssize_t     title_w = str_column_width(title);
-    ssize_t     prefix  = 2 + 1 + title_w + 1;
-    ssize_t     tail    = rule_w - prefix;
+    ssize_t title_w = str_column_width(title);
+    ssize_t prefix  = 2 + 1 + title_w + 1;
+    ssize_t tail    = rule_w - prefix;
     if (tail < 3) tail = 3; // always leave a minimum visible rule stub
     sbuf_appendf(eb->extra, "\xe2\x94\x80\xe2\x94\x80 %s ", title);
     for (ssize_t i = 0; i < tail; i++) {
@@ -314,7 +323,7 @@ static void xline_sync_extra_from_below(xLineHandle_ *h) {
     sbuf_append(eb->extra, "[/pre]");
   } else {
     // Find end offset of the Nth line.
-    ssize_t cut = 0;
+    ssize_t cut  = 0;
     ssize_t seen = 0;
     for (ssize_t i = 0; i < body_n && seen < XLINE_BELOW_PANEL_MAX_ROWS; i++) {
       if (body[i] == '\n') {
@@ -326,8 +335,8 @@ static void xline_sync_extra_from_below(xLineHandle_ *h) {
     sbuf_append_n(eb->extra, body, cut);
     sbuf_append(eb->extra, "[/pre]");
     ssize_t rest = total_lines - XLINE_BELOW_PANEL_MAX_ROWS;
-    sbuf_appendf(eb->extra, "[ic-diminish]... (%zd more line%s)[/]",
-                 rest, rest == 1 ? "" : "s");
+    sbuf_appendf(eb->extra, "[ic-diminish]... (%zd more line%s)[/]", rest,
+                 rest == 1 ? "" : "s");
   }
 }
 
@@ -405,6 +414,47 @@ static ssize_t xline_count_rows(ic_env_t *env, const char *s, ssize_t len) {
   ssize_t rows = 1;
   ssize_t i    = 0;
   while (i < len) {
+    // Skip ANSI escape sequences — they emit no cells, but
+    // str_next_ofs + char_width would count them as literal ASCII
+    // (ESC, '[', digits, 'm' …) and inflate the width by 3-5 columns
+    // per SGR. This mirrors the skip logic in
+    // xline_count_rows_and_last_col.
+    if (s[i] == '\x1B' && i + 1 < len) {
+      char next = s[i + 1];
+      if (next == '[') {
+        // CSI: ESC [ <params 0x30-0x3F> <intermediates 0x20-0x2F> <final
+        // 0x40-0x7E>
+        ssize_t j = i + 2;
+        while (j < len) {
+          unsigned char c = (unsigned char)s[j];
+          j++;
+          if (c >= 0x40 && c <= 0x7E) break;
+        }
+        i = j;
+        continue;
+      }
+      if (next == ']') {
+        // OSC: ESC ] ... (BEL | ESC '\')
+        ssize_t j = i + 2;
+        while (j < len) {
+          unsigned char c = (unsigned char)s[j];
+          if (c == 0x07) {
+            j++;
+            break;
+          }
+          if (c == 0x1B && j + 1 < len && s[j + 1] == '\\') {
+            j += 2;
+            break;
+          }
+          j++;
+        }
+        i = j;
+        continue;
+      }
+      // Two-byte ESC sequence (DECSC \e7, DECRC \e8, etc.) — skip both.
+      i += 2;
+      continue;
+    }
     ssize_t w    = 0;
     ssize_t next = str_next_ofs(s, len, i, &w);
     if (next <= 0) break;
@@ -471,14 +521,93 @@ static ssize_t xline_count_rows_and_last_col(ic_env_t *env, const char *s,
         ssize_t j = i + 2;
         while (j < len) {
           unsigned char c = (unsigned char)s[j];
-          if (c == 0x07) { j++; break; }
-          if (c == 0x1B && j + 1 < len && s[j + 1] == '\\') { j += 2; break; }
+          if (c == 0x07) {
+            j++;
+            break;
+          }
+          if (c == 0x1B && j + 1 < len && s[j + 1] == '\\') {
+            j += 2;
+            break;
+          }
           j++;
         }
         i = j;
         continue;
       }
       // Two-byte ESC sequence (DECSC \e7, DECRC \e8, etc.) — skip both.
+      i += 2;
+      continue;
+    }
+    ssize_t w    = 0;
+    ssize_t next = str_next_ofs(s, len, i, &w);
+    if (next <= 0) break;
+    if (s[i] == '\n') {
+      rows++;
+      col = 0;
+      i += next;
+      continue;
+    }
+    if (w > 0 && col + w > termw) {
+      rows++;
+      col = w;
+    } else {
+      col += w;
+    }
+    i += next;
+  }
+  if (out_col != NULL) *out_col = col;
+  return rows;
+}
+
+// Variant of xline_count_rows_and_last_col that starts from an arbitrary
+// initial column instead of 0.  Used by the sneak fast path in
+// xLinePrintAboveChunk to compute row/column deltas from the *chunk alone*
+// (O(chunk_len)) using the cached last_line_col as the starting column,
+// avoiding the O(last_line_len) re-scan of the entire trailing line.
+//
+// Returns the number of *additional* screen rows consumed (i.e. 0 when the
+// chunk fits on the same row as the initial column), and writes the final
+// column to *out_col.
+static ssize_t xline_count_rows_from_col(ic_env_t *env, const char *s,
+                                         ssize_t len, ssize_t termw,
+                                         ssize_t init_col, ssize_t *out_col) {
+  (void)env;
+  if (out_col != NULL) *out_col = init_col;
+  if (len <= 0) return 0;
+  if (termw <= 0) termw = 80;
+  ssize_t col  = init_col;
+  ssize_t rows = 0; // additional rows beyond the one init_col sits on
+  ssize_t i    = 0;
+  while (i < len) {
+    if (s[i] == '\x1B' && i + 1 < len) {
+      char next = s[i + 1];
+      if (next == '[') {
+        ssize_t j = i + 2;
+        while (j < len) {
+          unsigned char c = (unsigned char)s[j];
+          j++;
+          if (c >= 0x40 && c <= 0x7E) break;
+        }
+        i = j;
+        continue;
+      }
+      if (next == ']') {
+        ssize_t j = i + 2;
+        while (j < len) {
+          unsigned char c = (unsigned char)s[j];
+          if (c == 0x07) {
+            j++;
+            break;
+          }
+          if (c == 0x1B && j + 1 < len && s[j + 1] == '\\') {
+            j += 2;
+            break;
+          }
+          j++;
+        }
+        i = j;
+        continue;
+      }
       i += 2;
       continue;
     }
@@ -552,7 +681,7 @@ static void xline_erase_trailing(xLineHandle_ *h) {
   // So: cap `up` at (term_height - 1) defensively (term_up(0) is a
   // no-op, this just avoids asking for a silly number when the
   // bookkeeping is briefly stale after a resize) and move on.
-  ssize_t up = h->last_line_rows;
+  ssize_t up     = h->last_line_rows;
   ssize_t h_rows = term_get_height(env->term);
   if (h_rows > 1 && up > h_rows - 1) up = h_rows - 1;
   if (up > 0) {
@@ -577,41 +706,76 @@ static void xline_track_sgr(stringbuf_t *dst, const char *data, ssize_t len) {
   if (dst == NULL) return;
   ssize_t i = 0;
   while (i < len) {
-    if ((unsigned char)data[i] != 0x1b) { i++; continue; }
-    if (i + 1 >= len || data[i + 1] != '[') { i++; continue; }
+    if ((unsigned char)data[i] != 0x1b) {
+      i++;
+      continue;
+    }
+    if (i + 1 >= len || data[i + 1] != '[') {
+      i++;
+      continue;
+    }
     ssize_t start = i;
     ssize_t j     = i + 2;
     // parameter bytes 0x30-0x3f
     while (j < len) {
       unsigned char c = (unsigned char)data[j];
-      if (c >= 0x30 && c <= 0x3f) j++; else break;
+      if (c >= 0x30 && c <= 0x3f)
+        j++;
+      else
+        break;
     }
     // intermediate bytes 0x20-0x2f
     while (j < len) {
       unsigned char c = (unsigned char)data[j];
-      if (c >= 0x20 && c <= 0x2f) j++; else break;
+      if (c >= 0x20 && c <= 0x2f)
+        j++;
+      else
+        break;
     }
     if (j >= len) break; // malformed, stop scanning
     char    final = data[j];
     ssize_t end   = j + 1; // one past the final byte
     if (final == 'm') {
-      // Detect reset: parameter bytes are in [start+2, j). A sequence with
-      // no parameters (\x1b[m) or one whose params reduce to 0 (e.g.
-      // \x1b[0m, \x1b[00m, \x1b[0;0m) clears the stack. Anything else is
-      // appended as-is; compound resets embedded in longer sequences are
-      // rare enough that we don't bother parsing them.
-      int is_reset = 1;
-      for (ssize_t k = start + 2; k < j; k++) {
-        char c = data[k];
-        if (c == '0' || c == ';') continue;
-        is_reset = 0;
-        break;
+      // Parse the parameter bytes as semicolon-separated sub-parameters.
+      // A compound SGR like \x1b[0;38;5;196m contains a reset (0)
+      // followed by a 256-color set; we must clear the stack on the
+      // reset and then append only the non-reset sub-parameters, so
+      // that the replay prefix reflects the *final* styling state.
+      //
+      // Sub-parameters are in [start+2, j). Walk them, splitting on ';'.
+      // If any sub-param is "0" (or empty, which means 0), clear dst.
+      // Non-reset sub-params are collected into a separate buffer and
+      // appended as a single SGR sequence after the scan.
+      stringbuf_t *non_reset = sbuf_new();
+      ssize_t      k         = start + 2;
+      while (k < j) {
+        ssize_t sub_start = k;
+        while (k < j && data[k] != ';')
+          k++;
+        // sub-param bytes are [sub_start, k)
+        ssize_t sub_len = k - sub_start;
+        int     is_zero = 1;
+        for (ssize_t m = sub_start; m < k; m++) {
+          if (data[m] != '0') {
+            is_zero = 0;
+            break;
+          }
+        }
+        if (is_zero) {
+          sbuf_clear(dst);
+        } else if (sub_len > 0) {
+          if (sbuf_len(non_reset) > 0) sbuf_append_char(non_reset, ';');
+          sbuf_append_n(non_reset, data + sub_start, sub_len);
+        }
+        if (k < j) k++; // skip ';'
       }
-      if (is_reset) {
-        sbuf_clear(dst);
-      } else {
-        sbuf_append_n(dst, data + start, end - start);
+      // If any non-reset sub-params survived, emit them as one SGR.
+      if (sbuf_len(non_reset) > 0) {
+        sbuf_append(dst, "\x1b[");
+        sbuf_append_n(dst, sbuf_string(non_reset), sbuf_len(non_reset));
+        sbuf_append(dst, "m");
       }
+      sbuf_free(non_reset);
     }
     i = end;
   }
@@ -637,7 +801,10 @@ static void xline_emit_bytes(xLineHandle_ *h, const char *data, ssize_t len) {
   // Find last '\n' to split "flushed lines" vs "new trailing line".
   ssize_t last_nl = -1;
   for (ssize_t i = len - 1; i >= 0; i--) {
-    if (data[i] == '\n') { last_nl = i; break; }
+    if (data[i] == '\n') {
+      last_nl = i;
+      break;
+    }
   }
   sbuf_clear(h->last_line);
   if (last_nl + 1 < len) {
@@ -645,6 +812,12 @@ static void xline_emit_bytes(xLineHandle_ *h, const char *data, ssize_t len) {
   }
   h->last_line_rows =
     xline_count_rows(env, sbuf_string(h->last_line), sbuf_len(h->last_line));
+  h->last_line_col = 0;
+  if (h->last_line_rows > 0) {
+    (void)xline_count_rows_and_last_col(env, sbuf_string(h->last_line),
+                                        sbuf_len(h->last_line),
+                                        &h->last_line_col);
+  }
 
   // Separator '\n' so edit_refresh can safely draw the prompt at column 0
   // of a fresh row. We'll undo this separator on the next flush.
@@ -664,9 +837,10 @@ static void xline_emit_bytes(xLineHandle_ *h, const char *data, ssize_t len) {
 //-------------------------------------------------------------
 
 ic_public xLineHandle xLineBegin(const char *prompt_text) {
-  xline_trace("===== xLineBegin(prompt=%s) =====", prompt_text ? prompt_text : "");
+  xline_trace("===== xLineBegin(prompt=%s) =====",
+              prompt_text ? prompt_text : "");
   if (g_live_session != NULL) {
-  XDEBUG("xline: xLineBegin() called while another session is live\n");
+    XDEBUG("xline: xLineBegin() called while another session is live\n");
     return NULL;
   }
   ic_env_t *env = ic_get_env();
@@ -699,6 +873,7 @@ ic_public xLineHandle xLineBegin(const char *prompt_text) {
 
   h->last_line      = sbuf_new();
   h->last_line_rows = 0;
+  h->last_line_col  = 0;
   h->active_sgr     = sbuf_new();
   h->below_title    = sbuf_new();
   h->below_body     = sbuf_new();
@@ -719,8 +894,8 @@ ic_public xLineHandle xLineBegin(const char *prompt_text) {
   edit_refresh(env, &h->eb);
   term_flush(env->term);
 
-  h->state          = XLINE_ASYNC_RUNNING;
-  g_live_session    = h;
+  h->state       = XLINE_ASYNC_RUNNING;
+  g_live_session = h;
   return (xLineHandle)h;
 }
 
@@ -738,6 +913,7 @@ ic_public void xLineEnd(xLineHandle handle) {
     sbuf_free(h->last_line);
     h->last_line      = NULL;
     h->last_line_rows = 0;
+    h->last_line_col  = 0;
   }
   if (h->active_sgr != NULL) {
     sbuf_free(h->active_sgr);
@@ -891,8 +1067,8 @@ ic_public xLineStepResult xLineStep(xLineHandle handle) {
       ssize_t nw = term_get_width(env->term);
       ssize_t nh = term_get_height(env->term);
       if (nw != h->last_term_w || nh != h->last_term_h) {
-        xline_trace("resize event (real): %zdx%zd -> %zdx%zd",
-                    h->last_term_w, h->last_term_h, nw, nh);
+        xline_trace("resize event (real): %zdx%zd -> %zdx%zd", h->last_term_w,
+                    h->last_term_h, nw, nh);
         edit_resize(env, eb);
         h->last_term_w = nw;
         h->last_term_h = nh;
@@ -921,13 +1097,13 @@ ic_public xLineStepResult xLineStep(xLineHandle handle) {
     // restores normal dispatch plus issues the one coalesced refresh.
     if (c == KEY_EVENT_PASTE_BEGIN) {
       xline_trace("paste: begin");
-      h->in_paste        = true;
+      h->in_paste         = true;
       eb->suspend_refresh = true;
       continue;
     }
     if (c == KEY_EVENT_PASTE_END) {
       xline_trace("paste: end input_len=%zd", sbuf_len(eb->input));
-      h->in_paste        = false;
+      h->in_paste         = false;
       eb->suspend_refresh = false;
       // Single coalesced repaint for the whole paste. Using
       // edit_refresh (not _hint) is deliberate: we don't want the
@@ -1082,74 +1258,134 @@ ic_public void xLinePrintAboveChunk(xLineHandle handle, const char *s) {
   //
   // The slow path below is now reserved for chunks that actually contain
   // a '\n' (the only shape that truly forces a boundary re-layout).
-  if (strchr(s, '\n') == NULL && h->last_line_rows > 0) {
-    ic_env_t *env = h->env;
-    editor_t *eb  = &h->eb;
-    ssize_t last_col = 0;
-    (void)xline_count_rows_and_last_col(env, sbuf_string(h->last_line),
-                                        sbuf_len(h->last_line), &last_col);
-    stringbuf_t *probe = sbuf_new();
-    if (probe != NULL) {
-      sbuf_append(probe, sbuf_string(h->last_line));
-      sbuf_append(probe, s);
-      ssize_t new_last_col = 0;
-      ssize_t new_rows     = xline_count_rows_and_last_col(
-        env, sbuf_string(probe), sbuf_len(probe), &new_last_col);
-      if (new_rows >= h->last_line_rows) {
-        // Sneak path is viable (both sub-cases).
-        ssize_t added_rows = new_rows - h->last_line_rows;
-        xline_trace("sneak: last_rows=%zd+%zd last_col=%zd -> col=%zd "
-                    "chunk_len=%zu",
-                    h->last_line_rows, added_rows, last_col, new_last_col,
-                    (size_t)strlen(s));
-        term_attr_reset(env->term);
-        term_write(env->term, "\x1b" "7"); // save cursor (DECSC)
-        // Climb from current edit-region cursor to the final row of
-        // last_line. cur_row is 0-based inside the edit region; one
-        // extra row up accounts for the '\n' separator between the
-        // above region and the prompt.
-        term_up(env->term, (ssize_t)eb->cur_row + 1);
-        term_write(env->term, "\r");
-        term_right(env->term, last_col);
-        // Re-establish the active SGR stack before writing the chunk, so
-        // styling set by an earlier above_chunk survives the term_attr_reset
-        // above — even if the defining escape has since scrolled out of
-        // last_line (e.g. \x1b[2m on row 0, then a '\n' followed by more
-        // thinking text on row 1+). active_sgr is kept in sync by
-        // xline_emit_bytes (slow path) and xline_track_sgr below (fast
-        // path). Zero-width, so cursor position set up by term_up/
-        // term_right stays valid; DECSC above saved the default attrs, so
-        // DECRC below still restores the edit region to a clean state.
-        if (h->active_sgr != NULL && sbuf_len(h->active_sgr) > 0) {
-          term_write_n(env->term, sbuf_string(h->active_sgr),
-                       sbuf_len(h->active_sgr));
-        }
-        term_write(env->term, s);
-        if (added_rows == 0) {
-          // Sub-case A: no new rows, DECRC restores the edit region
-          // cursor exactly.
-          term_write(env->term, "\x1b" "8"); // restore cursor (DECRC)
-          term_flush(env->term);
-        } else {
-          // Sub-case B: last_line now occupies `added_rows` more screen
-          // rows than before. The autowrap from `term_write(s)` already
-          // pushed the edit region down by that many rows — DECRC would
-          // restore the cursor to the *old* edit-region position, which
-          // now sits on top of the extended last_line. Discard DECRC
-          // and redraw the edit region in its new position instead.
-          term_flush(env->term);
-          h->last_line_rows = new_rows;
-          edit_refresh(env, eb);
-        }
-        // Commit the new trailing line.
-        sbuf_append(h->last_line, s);
-        // Keep active_sgr up to date with what the chunk just emitted:
-        // the slow path reads from it, and the next sneak tick replays it.
-        xline_track_sgr(h->active_sgr, s, (ssize_t)strlen(s));
-        sbuf_free(probe);
-        return;
+  if (strchr(s, '\n') == NULL) {
+    ic_env_t *env  = h->env;
+    editor_t *eb   = &h->eb;
+    ssize_t   slen = (ssize_t)strlen(s);
+
+    if (h->last_line_rows <= 0) {
+      // First chunk: no trailing line exists yet, so the edit region
+      // sits directly below the prompt. We wipe the edit region,
+      // write the chunk on the freed line, then repaint the prompt
+      // below it. This avoids the slow path's erase_trailing which
+      // would do an unnecessary second wipe_edit_region + climb.
+      xline_trace("sneak-first: chunk_len=%zu", (size_t)slen);
+      xline_wipe_edit_region(env, eb);
+      // Re-establish active SGR styling if any was set by a prior
+      // above_printf (e.g. \x1b[2m for thinking output).
+      if (h->active_sgr != NULL && sbuf_len(h->active_sgr) > 0) {
+        term_write_n(env->term, sbuf_string(h->active_sgr),
+                     sbuf_len(h->active_sgr));
       }
-      sbuf_free(probe);
+      term_write(env->term, s);
+      // Commit the new trailing line.
+      sbuf_append(h->last_line, s);
+      // Compute rows/col for the just-written chunk starting at col 0.
+      ssize_t new_col   = 0;
+      h->last_line_rows = xline_count_rows_from_col(
+        env, s, slen, term_get_width(env->term), 0, &new_col);
+      // xline_count_rows_from_col returns *additional* rows; with
+      // init_col==0 the first row is row 0, so total rows is +1.
+      h->last_line_rows += 1;
+      h->last_line_col = new_col;
+      xline_track_sgr(h->active_sgr, s, slen);
+      // Separator '\n' so edit_refresh can safely draw the prompt at
+      // column 0 of a fresh row.
+      if (h->last_line_rows > 0) term_write(env->term, "\n");
+      edit_refresh(env, eb);
+      term_flush(env->term);
+      return;
+    }
+
+    // Use the cached column from the previous successful sneak/emit
+    // instead of re-scanning the entire last_line (which is O(N) per
+    // chunk and makes long runs O(N²) total).
+    ssize_t last_col = h->last_line_col;
+
+    // Compute new rows/col from the chunk *alone*, starting at the
+    // cached last_col as the initial column offset.  This turns the
+    // per-chunk work from O(last_line_len) into O(chunk_len).
+    ssize_t chunk_col  = last_col;
+    ssize_t chunk_rows = 0;
+    {
+      ssize_t termw = term_get_width(env->term);
+      if (termw <= 0) termw = 80;
+      chunk_rows =
+        xline_count_rows_from_col(env, s, slen, termw, chunk_col, &chunk_col);
+    }
+    ssize_t new_rows     = h->last_line_rows + chunk_rows;
+    ssize_t new_last_col = chunk_col;
+
+    if (new_rows >= h->last_line_rows) {
+      // Sneak path is viable (both sub-cases).
+      ssize_t added_rows = new_rows - h->last_line_rows;
+      xline_trace("sneak: last_rows=%zd+%zd last_col=%zd -> col=%zd "
+                  "chunk_len=%zu",
+                  h->last_line_rows, added_rows, last_col, new_last_col,
+                  (size_t)strlen(s));
+      term_attr_reset(env->term);
+      term_write(env->term, "\x1b"
+                            "7"); // save cursor (DECSC)
+      // Climb from current edit-region cursor to the final row of
+      // last_line. cur_row is 0-based inside the edit region; one
+      // extra row up accounts for the '\n' separator between the
+      // above region and the prompt.
+      term_up(env->term, (ssize_t)eb->cur_row + 1);
+      term_write(env->term, "\r");
+      // Position the cursor at the tail of last_line.
+      // When last_col == termw the terminal has already autowrapped
+      // the cursor onto the next row at column 0 — we must NOT call
+      // term_right(termw) because that would overshoot by an entire
+      // row. Instead, move down one row (undoing the extra term_up)
+      // and stay at column 0; otherwise, move right by last_col.
+      {
+        ssize_t termw = term_get_width(env->term);
+        if (termw <= 0) termw = 80;
+        if (last_col >= termw) {
+          term_down(env->term, 1);
+          // Cursor is now at column 0 of the autowrapped row.
+        } else {
+          term_right(env->term, last_col);
+        }
+      }
+      // Re-establish the active SGR stack before writing the chunk, so
+      // styling set by an earlier above_chunk survives the term_attr_reset
+      // above — even if the defining escape has since scrolled out of
+      // last_line (e.g. \x1b[2m on row 0, then a '\n' followed by more
+      // thinking text on row 1+). active_sgr is kept in sync by
+      // xline_emit_bytes (slow path) and xline_track_sgr below (fast
+      // path). Zero-width, so cursor position set up by term_up/
+      // term_right stays valid; DECSC above saved the default attrs, so
+      // DECRC below still restores the edit region to a clean state.
+      if (h->active_sgr != NULL && sbuf_len(h->active_sgr) > 0) {
+        term_write_n(env->term, sbuf_string(h->active_sgr),
+                     sbuf_len(h->active_sgr));
+      }
+      term_write(env->term, s);
+      if (added_rows == 0) {
+        // Sub-case A: no new rows, DECRC restores the edit region
+        // cursor exactly.
+        term_write(env->term, "\x1b"
+                              "8"); // restore cursor (DECRC)
+        term_flush(env->term);
+      } else {
+        // Sub-case B: last_line now occupies `added_rows` more screen
+        // rows than before. The autowrap from `term_write(s)` already
+        // pushed the edit region down by that many rows — DECRC would
+        // restore the cursor to the *old* edit-region position, which
+        // now sits on top of the extended last_line. Discard DECRC
+        // and redraw the edit region in its new position instead.
+        term_flush(env->term);
+        h->last_line_rows = new_rows;
+        edit_refresh(env, eb);
+      }
+      // Commit the new trailing line.
+      sbuf_append(h->last_line, s);
+      h->last_line_col = new_last_col;
+      // Keep active_sgr up to date with what the chunk just emitted:
+      // the slow path reads from it, and the next sneak tick replays it.
+      xline_track_sgr(h->active_sgr, s, (ssize_t)strlen(s));
+      return;
     }
   }
 
@@ -1190,8 +1426,7 @@ static void xline_repaint_below(xLineHandle_ *h) {
   /* No trailing line and no panel contents means nothing on screen
    * would change — avoid the wipe+refresh cycle so callers that clear
    * an already-empty panel don't cost a redundant repaint. */
-  if (sbuf_len(h->last_line) == 0 &&
-      sbuf_len(h->below_title) == 0 &&
+  if (sbuf_len(h->last_line) == 0 && sbuf_len(h->below_title) == 0 &&
       sbuf_len(h->below_body) == 0) {
     return;
   }

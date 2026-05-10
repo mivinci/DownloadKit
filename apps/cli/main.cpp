@@ -182,7 +182,7 @@ int main(int argc, char *argv[]) {
      * entries, default_id empty) and we drop into degraded mode —
      * agent/session are skipped, the REPL still starts so the user
      * can reach /help, /exit, etc. Any *other* error (malformed
-     * JSON, unknown "kind", "default" not in "models", I/O error
+     * JSON, unknown "provider", "default" not in "models", I/O error
      * other than ENOENT) is still fatal, because in those cases the
      * user wrote a file and got it wrong — silently degrading would
      * hide the mistake. The config owns every created provider plus
@@ -213,21 +213,16 @@ int main(int argc, char *argv[]) {
     ctx.model_registry = model_cfg.registry;
     ctx.model_cfg      = &model_cfg;
 
-    /* Streaming markdown → ANSI. Enabled only when stdout is a
-     * real TTY and $TERM isn't "dumb" — piping to a file, CI
-     * logging, or $TERM=dumb all want the raw bytes so downstream
-     * tooling (grep, tee, text editors) sees the original
-     * markdown. The renderer itself is cheap (~32 bytes + a small
-     * pending string) so we always allocate it; the flag just
-     * gates whether on_text routes chunks through it.
+    /* Streaming markdown → ANSI. The renderer vtable is always
+     * initialised; we pick the md or raw backend based on whether
+     * stdout is a real TTY and $TERM isn't "dumb". Piping to a
+     * file, CI logging, or $TERM=dumb all want the raw bytes so
+     * downstream tooling (grep, tee, text editors) sees the
+     * original markdown. The active renderer can be switched at
+     * runtime via /md and /raw slash commands.
      *
      * Sink: above_chunk via a trampoline in callbacks.cpp, so the
      * prompt row stays intact exactly like the unrendered path. */
-    {
-      const char *term = std::getenv("TERM");
-      ctx.md_enabled   = ::isatty(STDOUT_FILENO) != 0 &&
-                       !(term && std::strcmp(term, "dumb") == 0);
-    }
     xMdInit(
       &ctx.md_renderer,
       [](const char *data, size_t len, void *arg) {
@@ -235,6 +230,16 @@ int main(int argc, char *argv[]) {
         above_chunk(c->line, data, len);
       },
       &ctx);
+    {
+      const char *term = std::getenv("TERM");
+      bool is_tty = ::isatty(STDOUT_FILENO) != 0 &&
+                    !(term && std::strcmp(term, "dumb") == 0);
+      if (is_tty) {
+        renderer_use_md(&ctx);
+      } else {
+        renderer_use_raw(&ctx);
+      }
+    }
 
     shell_conf.callback_ud = &ctx;
     shell_conf.on_command  = [](const char *command, const char *cwd,
@@ -291,34 +296,47 @@ int main(int argc, char *argv[]) {
      * reasoning) plus the floor pinned by keep_recent_turns won't
      * trip the gate on turn #2, but small enough that a handful of
      * sustained turns will eventually push the rolling history past
-     * the cap and exercise TruncateOldest. Per-model
-     * "context_window" in models.json overrides it for models whose
-     * real window is meaningfully larger (e.g. 128k for kimi-k2) or
-     * smaller (e.g. 8k for a local llama.cpp server); /model
-     * switches re-apply the selected entry's value so the budget
-     * gate always matches the active backend. keep_recent_turns
-     * =2 is the floor — the current user turn and the immediately
-     * prior assistant turn are never discarded, so the model keeps
-     * local context even when the trimmer fires. If you shrink
-     * max_tokens below ~4096 expect xErrno_PromptTooLong (which the
-     * REPL and on_error both surface with a hint line below), and
-     * see session.c's keep_recent_turns floor logic for why. */
-    constexpr size_t kDefaultContextWindow = 8192;
-    size_t           session_max_tokens    = kDefaultContextWindow;
-    if (!no_models) {
-      const CliModelEntry *def =
-        cli_model_config_find(&model_cfg, model_cfg.default_id.c_str());
-      if (def && def->context_window > 0) {
-        session_max_tokens = def->context_window;
-      }
-    }
-    ctx.default_context_window = kDefaultContextWindow;
+     * the cap and exercise Summarize. The top-level "budget"
+     * block in models.json overrides any of these knobs globally,
+     * and a per-model "budget" block overrides them again for the
+     * matching entry — see cli_model_config_resolve_budget(). On
+     * /model switches the cascade is recomputed and pushed into the
+     * session via xAgentSessionSetBudget so large and small models
+     * don't share the same ceiling. keep_recent_turns =2 is the
+     * floor — the current user turn and the immediately prior
+     * assistant turn are never discarded, so the model keeps local
+     * context even when the trimmer fires. If you shrink
+     * context_window below ~4096 expect xErrno_PromptTooLong (which
+     * the REPL and on_error both surface with a hint line below),
+     * and see session.c's keep_recent_turns floor logic for why. */
+    constexpr size_t kDefaultContextWindow   = 8192;
+    constexpr size_t kDefaultKeepRecentTurns = 2;
 
-    sconf.budget.policy            = xAgentBudgetPolicy_SummarizeOldest;
-    sconf.budget.max_tokens        = session_max_tokens;
-    sconf.budget.keep_recent_turns = 2;
-    sconf.budget.on_budget_event   = on_budget_event;
-    sconf.budget.budget_event_ud   = &ctx;
+    /* Build the effective default budget by cascading built-in
+     * defaults <- top-level "budget" <- the *default* model's
+     * per-model "budget". This snapshot is what /model uses as the
+     * fallback when switching to entries that didn't override one
+     * of the threshold fields. */
+    xAgentBudgetConf merged = {};
+    if (!no_models) {
+      merged = cli_model_config_resolve_budget(&model_cfg,
+                                               model_cfg.default_id.c_str());
+    }
+    if (merged.context_window == 0)    merged.context_window    = kDefaultContextWindow;
+    if (merged.keep_recent_turns == 0) merged.keep_recent_turns = kDefaultKeepRecentTurns;
+    /* keep_head_turns / max_tool_result_bytes / trim_tool_results_threshold
+     * stay 0 when not set so xagent's own built-in defaults apply. */
+    ctx.default_budget = merged;
+
+    sconf.budget.policy                      = xAgentBudgetPolicy_Summarize;
+    sconf.budget.context_window              = merged.context_window;
+    sconf.budget.keep_head_turns             = merged.keep_head_turns;
+    sconf.budget.keep_recent_turns           = merged.keep_recent_turns;
+    sconf.budget.max_tool_result_bytes       = merged.max_tool_result_bytes;
+    sconf.budget.trim_tool_results_threshold = merged.trim_tool_results_threshold;
+    sconf.budget.summarize_max_tokens        = merged.summarize_max_tokens;
+    sconf.budget.on_budget_event             = on_budget_event;
+    sconf.budget.budget_event_ud             = &ctx;
 
     /* Sidecar idle timeout: when an async tool (e.g. shell) has not
      * produced output for 3 seconds, launch a sidecar Query so the

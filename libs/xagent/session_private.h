@@ -13,13 +13,12 @@
 #ifndef XAGENT_SESSION_PRIVATE_H
 #define XAGENT_SESSION_PRIVATE_H
 
-#include <xagent/session.h>
-
-#include "budget_private.h" /* xAgentBudgetCalibrator                    */
 #include "query_private.h"
 
-#include <stddef.h>
+#include <xagent/session.h>
 #include <xbase/array.h>
+
+#include <stddef.h>
 
 /**
  * @brief The session instance.
@@ -35,9 +34,9 @@ struct xAgentSession_ {
   xAgent                 agent; /* borrowed                              */
   xAgentSessionCallbacks cbs;   /* copied by value                       */
 
-  /* ── Configuration snapshot (borrowed from conf or agent) ─────── */
+  /* ── Configuration snapshot (owned by the session) ──────────── */
   const char *system_prompt; /* borrowed from conf or agent           */
-  const char *model;         /* borrowed from conf or agent           */
+  char       *model;         /* owned: strdup'd at create / SetModel  */
   int         max_turns;     /* resolved (>0) or 0 = unlimited        */
   int         max_tokens;    /* resolved per-round cap                */
 
@@ -49,15 +48,6 @@ struct xAgentSession_ {
    * (set to NULL) before being destroyed. Not used for internal
    * summary/compact Queries — those always use agent->provider. */
   xAgentProvider provider_override;
-
-  /* Model-name override paired with @ref provider_override when the
-   * host switches models via xAgentSessionSetModel(). Owned by the
-   * session: set with strdup, freed on replacement and on destroy.
-   * NULL means "use @ref model" (no override). Unlike
-   * provider_override we must own this string because it typically
-   * comes from an xAgentModelSpec whose lifetime is tied to the
-   * registry, not to this session. */
-  char *model_override;
 
   /* Structured context-budget policy, captured from conf by value
    * at create time. Zero-initialised (Disabled) means "no budget
@@ -104,9 +94,9 @@ struct xAgentSession_ {
    * After a successful GatePassed, we record what the gate computed
    * as the pre-submit estimate in last_gate_total so the on_done
    * handler can compare it with the first-round provider report. */
-  int    known_prompt_tokens;      /* -1 = unknown / cold start          */
-  size_t delta_entries;            /* entries added since last report     */
-  size_t last_gate_total;          /* gate's pre-submit total (or 0)     */
+  int    known_prompt_tokens; /* -1 = unknown / cold start          */
+  size_t delta_entries;       /* entries added since last report     */
+  size_t last_gate_total;     /* gate's pre-submit total (or 0)     */
 
   /* The provider-reported prompt_tokens from the first round of
    * the most recently completed run, or -1 if unavailable.
@@ -114,23 +104,28 @@ struct xAgentSession_ {
    * estimated vs actual. */
   int last_first_round_prompt_tokens;
 
-  /* ── Compact-in-progress state (SummarizeOldest policy) ──────
+  /* ── Compact-in-progress state (Summarize policy) ──────
    *
-   * When the budget gate fires on SummarizeOldest, the Session
+   * When the budget gate fires on Summarize, the Session
    * launches an internal summary Query that compresses old history
    * into one System entry. During this compaction:
    *   - compacting == 1 signals "compact query in flight";
-   *   - compact_keep_idx records the earliest history index that
-   *     survives the compact (entries before it will be replaced by
-   *     the summary);
+   *   - compact_head_idx records the end of the HEAD prefix that is
+   *     preserved verbatim (history[0..compact_head_idx) survives);
+   *   - compact_keep_idx records the start of the RECENT tail that
+   *     is preserved verbatim (history[compact_keep_idx..n) survives);
+   *   - the MIDDLE segment [compact_head_idx..compact_keep_idx) will
+   *     be replaced by one System summary entry on success, and left
+   *     untouched on failure;
    *   - budget enforcement is implicitly disabled because the
    *     compact Query is driven by session_enforce_budget_ which
    *     gates on s->compacting, preventing recursive budget checks.
    *
-   * All three are zero when no compact is in progress.
+   * All are zero when no compact is in progress.
    */
-  int    compacting;       /* 1 = compact query in flight           */
-  size_t compact_keep_idx; /* earliest index to keep after compact  */
+  int    compacting;       /* 1 = compact query in flight              */
+  size_t compact_head_idx; /* end of preserved HEAD prefix (exclusive) */
+  size_t compact_keep_idx; /* start of preserved RECENT tail           */
 
   /* ── Session-lifetime properties (stamped at create, immutable) ── */
   xAgentInputOrigin           origin;           /* default User on zero    */
@@ -138,7 +133,7 @@ struct xAgentSession_ {
   void                       *finalizing_owner; /* passed back verbatim    */
 
   /* L1 memory-preservation callback. Fired when the session is about
-   * to discard history entries (TruncateTail / SummarizeOldest
+   * to discard history entries (TruncateTail / Summarize
    * compact), and once at teardown with the full remaining history.
    * Copied from xAgentSessionConf at create time. NULL = no L1 hook. */
   xAgentSessionL1PreserveFunc on_l1_preserve;
@@ -198,14 +193,17 @@ struct xAgentSession_ {
 #define XAGENT_SESSION_DEFAULT_MAX_TURNS 16
 
 /* System prompt used by the internal summary Query when the
- * SummarizeOldest budget policy is active. Instructs the model to
+ * Summarize budget policy is active. Instructs the model to
  * produce a concise summary of the conversation segment it receives.
  * The placeholder [N] will be replaced with the number of messages
  * being summarised. */
-#define XAGENT_SUMMARY_SYSTEM_PROMPT                                    \
-  "Summarise the following %zu messages concisely in no more than 200 " \
-  "words. Preserve all names, numbers, decisions and key facts. "       \
-  "Do NOT add any information that was not in the original messages."
+#define XAGENT_SUMMARY_INSTRUCT_PROMPT                                   \
+  "The conversation above has grown too long and must be compressed. "   \
+  "Please summarise the %zu messages above so that the conversation "    \
+  "can continue with this summary in place of the originals. Be as "    \
+  "concise as possible while preserving all names, numbers, decisions "  \
+  "and key facts. Do NOT add any information that was not in the "       \
+  "original messages."
 
 /* ── Cross-TU helpers (session.c implementers, query.c consumers) ── */
 
@@ -213,8 +211,7 @@ struct xAgentSession_ {
  * @brief Append a (role, text) history entry. @p text is duplicated.
  */
 xErrno ai_history_append_text(struct xAgentSession_ *s, xAgentRole role,
-                              const char *text, size_t len,
-                              int is_summary);
+                              const char *text, size_t len, int is_summary);
 
 /**
  * @brief Append an Assistant chain-of-thought entry. @p text is duplicated.

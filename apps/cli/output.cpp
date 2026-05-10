@@ -69,3 +69,53 @@ void end_thinking(ReplCtx *ctx) {
   xLinePrintAbove(ctx->line, "\x1b[0m\n");
   ctx->in_thinking = false;
 }
+
+/* ── Renderer vtable implementations ────────────────────────────────
+ *
+ * Two backends: md (markdown → ANSI via xMd) and raw (verbatim
+ * pass-through via above_chunk). Each is a const vtable + a void*
+ * state pointer. The state for the md backend is &ctx->md_renderer;
+ * the state for the raw backend is &ctx (it needs ctx->line to call
+ * above_chunk). Switching is done by assigning ctx->renderer. */
+
+static void renderer_md_feed(void *state, const char *data, size_t len) {
+  xMdFeed(static_cast<xMd *>(state), data, len);
+}
+
+static void renderer_md_flush(void *state) {
+  xMdFlush(static_cast<xMd *>(state));
+}
+
+static void renderer_md_reset(void *state) {
+  xMdReset(static_cast<xMd *>(state));
+}
+
+static void renderer_raw_feed(void *state, const char *data, size_t len) {
+  auto *ctx = static_cast<ReplCtx *>(state);
+  above_chunk(ctx->line, data, len);
+}
+
+static void renderer_raw_flush(void *state) {
+  (void)state; /* raw has no pending state to flush */
+}
+
+static void renderer_raw_reset(void *state) {
+  (void)state; /* raw has no SGR spans to close */
+}
+
+const Renderer g_renderer_md  = {renderer_md_feed, renderer_md_flush,
+                                 renderer_md_reset, nullptr};
+const Renderer g_renderer_raw = {renderer_raw_feed, renderer_raw_flush,
+                                 renderer_raw_reset, nullptr};
+
+void renderer_use_md(ReplCtx *ctx) {
+  ctx->renderer = g_renderer_md;
+  ctx->renderer.state = &ctx->md_renderer;
+  ctx->renderer_name = "md";
+}
+
+void renderer_use_raw(ReplCtx *ctx) {
+  ctx->renderer = g_renderer_raw;
+  ctx->renderer.state = ctx;
+  ctx->renderer_name = "raw";
+}

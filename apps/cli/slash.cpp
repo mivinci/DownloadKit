@@ -78,6 +78,9 @@ static void slash_argc_model(xLineCompletionEnv cenv, ReplCtx *ctx,
 static void slash_cmd_bypass(ReplCtx *ctx, const char *args);
 static void slash_argc_bypass(xLineCompletionEnv cenv, ReplCtx *ctx,
                               const char *token);
+static void slash_cmd_renderer(ReplCtx *ctx, const char *args);
+static void slash_argc_renderer(xLineCompletionEnv cenv, ReplCtx *ctx,
+                                const char *token);
 
 static const SlashCmd g_slash_cmds[] = {
   {"/help", "show this help", slash_cmd_help, nullptr},
@@ -92,6 +95,8 @@ static const SlashCmd g_slash_cmds[] = {
   {"/bypass",
    "skip tool confirms (/bypass on --yes | off)",
    slash_cmd_bypass, slash_argc_bypass},
+  {"/renderer", "set output renderer (md | raw)",
+   slash_cmd_renderer, slash_argc_renderer},
 };
 static const size_t g_slash_cmds_count =
   sizeof(g_slash_cmds) / sizeof(g_slash_cmds[0]);
@@ -429,22 +434,30 @@ static void slash_cmd_model(ReplCtx *ctx, const char *args) {
    * and future banner updates reflect it. */
   ctx->current_model_id = args;
 
-  /* Refresh the session's budget ceiling to match the newly-selected
-   * model's context_window. Without this the budget gate would keep
-   * enforcing whatever limit was installed for the previous model,
-   * which is wrong in both directions: switching up to a 128k model
-   * would leave 120k of window unused, and switching down to an 8k
-   * model would let the gate admit prompts the model immediately
-   * truncates server-side. A zero / missing context_window in the
-   * entry falls back to the session-wide default captured at
-   * startup, so the gate never slips into the built-in policy
-   * default (which is intentionally tiny). */
+  /* Refresh the session's budget thresholds to match the newly-
+   * selected model. cli_model_config_resolve_budget cascades
+   * built-in defaults <- top-level "budget" <- the selected
+   * entry's "budget", so any field this entry doesn't override
+   * cleanly falls back through the layers. We then splice the
+   * startup defaults back in for fields the cascade left at zero
+   * — without this, switching to an entry that didn't set
+   * keep_recent_turns would silently let it drop to zero and
+   * remove the floor that protects the most recent turn. The
+   * resulting conf is pushed into the session as a single bulk
+   * update via xAgentSessionSetBudget; policy and the event
+   * callback pair are NOT touched (the session keeps the values
+   * main.cpp installed at create time). */
   if (ctx->model_cfg) {
-    const CliModelEntry *e = cli_model_config_find(ctx->model_cfg, args);
-    size_t cw = (e && e->context_window > 0)
-                  ? e->context_window
-                  : ctx->default_context_window;
-    if (cw > 0) xAgentSessionSetContextWindow(ctx->sess, cw);
+    xAgentBudgetConf b = cli_model_config_resolve_budget(ctx->model_cfg, args);
+    if (b.context_window == 0)        b.context_window        = ctx->default_budget.context_window;
+    if (b.keep_recent_turns == 0)     b.keep_recent_turns     = ctx->default_budget.keep_recent_turns;
+    if (b.keep_head_turns == 0)       b.keep_head_turns       = ctx->default_budget.keep_head_turns;
+    if (b.max_tool_result_bytes == 0) b.max_tool_result_bytes = ctx->default_budget.max_tool_result_bytes;
+    if (b.trim_tool_results_threshold == 0)
+      b.trim_tool_results_threshold = ctx->default_budget.trim_tool_results_threshold;
+    if (b.summarize_max_tokens == 0)
+      b.summarize_max_tokens = ctx->default_budget.summarize_max_tokens;
+    xAgentSessionSetBudget(ctx->sess, &b);
   }
 
   const xAgentModelSpec *spec =
@@ -629,6 +642,65 @@ static void slash_argc_bypass(xLineCompletionEnv cenv, ReplCtx *ctx,
  * silently falling through to the model, because "oops my /taht
  * typo just got sent to gpt-4o" is a worse UX than "unknown
  * command". */
+
+/* ── /renderer [md|raw]: switch output rendering backend ────────────
+ *
+ * Takes effect on the NEXT streamed chunk. If a run is in flight the
+ * current turn's output was already being rendered through whatever
+ * backend was active; the switch only changes the routing for chunks
+ * that arrive after this command. Flush the old backend first so any
+ * pending state (e.g. half-parsed emphasis) is emitted before we
+ * swap the vtable. */
+static void slash_cmd_renderer(ReplCtx *ctx, const char *args) {
+  /* Trim leading whitespace. */
+  while (*args == ' ' || *args == '\t') args++;
+
+  /* No argument: show current mode + usage, matching /model's layout. */
+  if (!*args) {
+    const char *mode = ctx->renderer_name ? ctx->renderer_name : "md";
+    char body[256];
+    std::snprintf(body, sizeof(body),
+                  "current: %s\n\n"
+                  "usage:\n"
+                  "  /renderer md    markdown → ANSI rendering\n"
+                  "  /renderer raw   verbatim (no formatting)",
+                  mode);
+    xLineSetBelowPanel(ctx->line, "renderer", body);
+    return;
+  }
+
+  if (std::strcmp(args, "md") == 0) {
+    ctx->renderer.flush(ctx->renderer.state);
+    renderer_use_md(ctx);
+    above_printf(ctx->line, "\x1b[2m[render] markdown\x1b[0m");
+  } else if (std::strcmp(args, "raw") == 0) {
+    ctx->renderer.flush(ctx->renderer.state);
+    renderer_use_raw(ctx);
+    above_printf(ctx->line, "\x1b[2m[render] raw\x1b[0m");
+  } else {
+    above_printf(ctx->line,
+                 "\x1b[2m[render] unknown mode \"%s\" — use /renderer md "
+                 "or /renderer raw\x1b[0m",
+                 args);
+  }
+}
+
+static void slash_argc_renderer(xLineCompletionEnv cenv, ReplCtx *ctx,
+                                const char *token) {
+  (void)ctx;
+  static const struct {
+    const char *name;
+    const char *help;
+  } cands[] = {
+    {"md",  "markdown → ANSI rendering"},
+    {"raw", "verbatim (no formatting)"},
+  };
+  for (const auto &c : cands) {
+    if (!xLineStartsWith(c.name, token)) continue;
+    xLineAddCompletionEx(cenv, c.name, c.name, c.help);
+  }
+}
+
 bool slash_dispatch(ReplCtx *ctx, const char *line) {
   if (!line || line[0] != '/') return false;
   /* Split command and args. */

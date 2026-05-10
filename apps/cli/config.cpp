@@ -98,6 +98,62 @@ long json_nonneg_int(const cJSON *obj, const char *key) {
   return static_cast<long>(d);
 }
 
+/* Parse a "budget" sub-object into a CliBudgetConf. Every field
+ * is optional; the mask records which ones the user actually
+ * wrote so per-model overrides can be merged with a clean "this
+ * field was set" semantics — zero is a meaningful sentinel for
+ * every threshold (it means "fall back to xagent's built-in
+ * default") so we cannot use the value alone to tell missing
+ * apart from explicitly-zero. Returns true if the input was a
+ * non-null JSON object (or null, treated as "no overrides").
+ * Returns false if the key was present but not an object, so the
+ * caller can surface a pointed error. */
+bool parse_budget_block(const cJSON *obj, CliBudgetConf *out) {
+  if (!obj) return true;                /* absent: leave defaults */
+  if (cJSON_IsNull(obj)) return true;   /* explicit null: same   */
+  if (!cJSON_IsObject(obj)) return false;
+
+  long v;
+
+  v = json_nonneg_int(obj, "context_window");
+  if (v >= 0) {
+    out->context_window      = static_cast<size_t>(v);
+    out->mask.context_window = true;
+  }
+
+  v = json_nonneg_int(obj, "keep_head_turns");
+  if (v >= 0) {
+    out->keep_head_turns      = static_cast<size_t>(v);
+    out->mask.keep_head_turns = true;
+  }
+
+  v = json_nonneg_int(obj, "keep_recent_turns");
+  if (v >= 0) {
+    out->keep_recent_turns      = static_cast<size_t>(v);
+    out->mask.keep_recent_turns = true;
+  }
+
+  v = json_nonneg_int(obj, "trim_tool_results_threshold");
+  if (v >= 0) {
+    out->trim_tool_results_threshold      = static_cast<unsigned>(v);
+    out->mask.trim_tool_results_threshold = true;
+  }
+
+  v = json_nonneg_int(obj, "max_tool_result_bytes");
+  if (v >= 0) {
+    out->max_tool_result_bytes      = static_cast<size_t>(v);
+    out->mask.max_tool_result_bytes = true;
+  }
+
+  v = json_nonneg_int(obj, "summarize_max_tokens");
+  if (v >= 0) {
+    out->summarize_max_tokens      = static_cast<int>(v);
+    out->mask.summarize_max_tokens = true;
+  }
+
+  return true;
+}
+
 /* Detect the "<...>" placeholders we ship in kModelsJsonTemplate.
  * A value that still looks like <foo-bar> means the user saved the
  * scaffold unchanged (or only partially filled it in). We treat
@@ -125,14 +181,25 @@ constexpr const char *kModelsJsonTemplate =
   "{\n"
   "  \"default\": \"my-model\",\n"
   "  \"max_turns\": 64,\n"
+  "  \"budget\": {\n"
+  "    \"context_window\": 8192,\n"
+  "    \"keep_head_turns\": 1,\n"
+  "    \"keep_recent_turns\": 2,\n"
+  "    \"trim_tool_results_threshold\": 0,\n"
+  "    \"max_tool_result_bytes\": 0,\n"
+  "    \"summarize_max_tokens\": 1024\n"
+  "  },\n"
   "  \"models\": [\n"
   "    {\n"
   "      \"id\": \"my-model\",\n"
-  "      \"kind\": \"openai\",\n"
+  "      \"provider\": \"openai\",\n"
   "      \"model\": \"<model-name>\",\n"
   "      \"api_key\": \"<your-api-key>\",\n"
   "      \"base_url\": \"<provider-base-url>\",\n"
-  "      \"context_window\": 8192\n"
+  "      \"organization\": \"<your-organization>\",\n"
+  "      \"budget\": {\n"
+  "        \"context_window\": 8192\n"
+  "      }\n"
   "    }\n"
   "  ]\n"
   "}\n";
@@ -262,6 +329,19 @@ int cli_model_config_load(const char     *data_dir,
     if (mt > 0) max_turns = static_cast<int>(mt);
   }
 
+  /* Optional top-level "budget" block. Every field inside is
+   * optional too; a missing field inherits xagent's built-in
+   * default at apply time. The CliBudgetMask captures which
+   * fields were explicitly written so per-model overrides can
+   * be merged on top with proper "set vs absent" semantics. */
+  CliBudgetConf top_budget;
+  {
+    cJSON *budget_v = cJSON_GetObjectItemCaseSensitive(root, "budget");
+    if (!parse_budget_block(budget_v, &top_budget)) {
+      return bail(path + ": top-level \"budget\" must be an object");
+    }
+  }
+
   cJSON *models_v = cJSON_GetObjectItemCaseSensitive(root, "models");
   if (!models_v || !cJSON_IsArray(models_v)) {
     return bail(path + ": missing or non-array \"models\" field");
@@ -285,19 +365,19 @@ int cli_model_config_load(const char     *data_dir,
       return bail(path + ": every entry in \"models\" must be an object");
     }
 
-    std::string id    = json_string(item, "id");
-    std::string kind  = json_string(item, "kind");
-    std::string model = json_string(item, "model");
+    std::string id            = json_string(item, "id");
+    std::string provider_kind = json_string(item, "provider");
+    std::string model         = json_string(item, "model");
     if (id.empty()) return bail(path + ": model entry missing \"id\"");
-    if (kind.empty())
-      return bail(path + ": model \"" + id + "\" missing \"kind\"");
+    if (provider_kind.empty())
+      return bail(path + ": model \"" + id + "\" missing \"provider\"");
     if (model.empty())
       return bail(path + ": model \"" + id + "\" missing \"model\"");
     if (is_placeholder(model)) has_placeholder = true;
 
     xAgentProvider pvd = nullptr;
 
-    if (kind == "openai") {
+    if (provider_kind == "openai") {
       std::string api_key  = json_string(item, "api_key");
       std::string base_url = json_string(item, "base_url");
       std::string org      = json_string(item, "organization");
@@ -315,30 +395,32 @@ int cli_model_config_load(const char     *data_dir,
       pconf.timeout_ms    = 60000;
       pvd = xAgentProviderOpenAICreate(loop, http, &pconf);
     } else {
-      return bail(path + ": model \"" + id + "\" has unknown kind \"" + kind +
-                  "\" (known: openai)");
+      return bail(path + ": model \"" + id + "\" has unknown provider \"" +
+                  provider_kind + "\" (known: openai)");
     }
 
     if (!pvd)
       return bail(path + ": failed to create provider for \"" + id + "\"");
 
-    /* Optional per-entry "context_window": overrides the session's
-     * budget.max_tokens whenever this model is active. Missing or
-     * non-positive means "use the global default set up in main.cpp",
-     * which we encode as 0 so the caller can distinguish explicit
-     * from absent. */
-    size_t context_window = 0;
+    /* Optional per-entry "budget" block: any field set here
+     * overrides the same field in the top-level budget for this
+     * model only. Threshold-only — the CLI pins the policy and owns
+     * the event sink. */
+    CliBudgetConf model_budget;
     {
-      long cw = json_nonneg_int(item, "context_window");
-      if (cw > 0) context_window = static_cast<size_t>(cw);
+      cJSON *bv = cJSON_GetObjectItemCaseSensitive(item, "budget");
+      if (!parse_budget_block(bv, &model_budget)) {
+        return bail(path + ": model \"" + id +
+                    "\" \"budget\" must be an object");
+      }
     }
 
     CliModelEntry e;
-    e.id             = id;
-    e.kind           = kind;
-    e.model          = model;
-    e.context_window = context_window;
-    e.provider       = pvd;
+    e.id            = id;
+    e.provider_kind = provider_kind;
+    e.model         = model;
+    e.budget        = model_budget;
+    e.provider      = pvd;
     entries.push_back(std::move(e));
 
     /* Register in the registry — entry index equals registry index. */
@@ -394,7 +476,42 @@ int cli_model_config_load(const char     *data_dir,
   out->registry   = registry;
   out->default_id = std::move(default_id);
   out->max_turns  = max_turns;
+  out->budget     = top_budget;
   return 0;
+}
+
+xAgentBudgetConf cli_model_config_resolve_budget(const CliModelConfig *cfg,
+                                                 const char           *model_id) {
+  /* Cascade order: zero-init (= "use built-in defaults"), then
+   * top-level "budget" fills in whatever the user set there, then
+   * the per-model entry overrides any field its mask claims. The
+   * caller (main.cpp / slash.cpp) is responsible for splicing
+   * policy and the event-callback pair back in afterwards — those
+   * are infrastructure the host owns end-to-end. */
+  xAgentBudgetConf out;
+  std::memset(&out, 0, sizeof(out));
+  if (!cfg) return out;
+
+  auto apply = [&](const CliBudgetConf &src) {
+    if (src.mask.context_window) out.context_window = src.context_window;
+    if (src.mask.keep_head_turns) out.keep_head_turns = src.keep_head_turns;
+    if (src.mask.keep_recent_turns) out.keep_recent_turns = src.keep_recent_turns;
+    if (src.mask.trim_tool_results_threshold)
+      out.trim_tool_results_threshold = src.trim_tool_results_threshold;
+    if (src.mask.max_tool_result_bytes)
+      out.max_tool_result_bytes = src.max_tool_result_bytes;
+    if (src.mask.summarize_max_tokens)
+      out.summarize_max_tokens = src.summarize_max_tokens;
+  };
+
+  apply(cfg->budget);
+
+  if (model_id && *model_id) {
+    const CliModelEntry *e = cli_model_config_find(cfg, model_id);
+    if (e) apply(e->budget);
+  }
+
+  return out;
 }
 
 const CliModelEntry *cli_model_config_find(const CliModelConfig *cfg,
@@ -427,4 +544,5 @@ void cli_model_config_destroy(CliModelConfig *cfg) {
   cfg->entries.clear();
   cfg->default_id.clear();
   cfg->max_turns = 0;
+  cfg->budget    = CliBudgetConf{};
 }

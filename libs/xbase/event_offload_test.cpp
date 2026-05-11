@@ -400,7 +400,7 @@ TEST_F(EventOffloadTest, CancelRunningWorkFails) {
   }
 
   /* Cancel should fail — task is already running */
-  EXPECT_EQ(xEventLoopWorkCancel(loop, work), xErrno_InvalidState);
+  EXPECT_EQ(xEventLoopWorkCancel(loop, work), xErrno_Busy);
 
   /* Let it finish and pump the loop */
   unblock.store(true, std::memory_order_release);

@@ -369,7 +369,7 @@ xErrno xTaskCancel(xTask t_) {
     return xErrno_Ok;
   }
 
-  return xErrno_InvalidState;
+  return xErrno_Busy;
 }
 
 xErrno xTaskGroupWait(xTaskGroup g_) {

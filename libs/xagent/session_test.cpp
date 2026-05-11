@@ -1802,6 +1802,14 @@ xAgentSession make_session_with_budget(xAgent agent,
   xAgentSessionConf sc = {};
   sc.cbs            = cbs;
   sc.budget         = budget;
+  /* The budget gate reserves max_tokens for completion, so
+   * context_window must exceed max_tokens. Budget tests use
+   * small context_windows (200–500), so cap max_tokens at
+   * a quarter of context_window (but at least 64). */
+  sc.max_tokens     = budget.context_window > 0
+                        ? (budget.context_window / 4 > 64
+                             ? budget.context_window / 4 : 64)
+                        : 256;
   return xAgentSessionCreate(agent, &sc);
 }
 
@@ -2844,6 +2852,7 @@ TEST_F(SessionTest, MemoryStoreReceivesCompactedEntries) {
   xAgentSessionConf sc   = {};
   sc.cbs                 = make_cbs(&cap);
   sc.budget              = budget;
+  sc.max_tokens          = 50; /* fits in context_window=200 */
   sc.memory              = store;
   sc.session_id          = "s1";
   sc.session_id_copy     = strdup("s1");

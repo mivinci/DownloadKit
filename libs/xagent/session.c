@@ -436,12 +436,25 @@ static size_t session_budget_limit_(const struct xAgentSession_ *s) {
  * we fall back to estimating the full history with the coarse
  * bytes/4 heuristic. */
 
-/* Compute the current estimated token count using incremental
- * bookkeeping when available, or the coarse full-history estimate
- * as fallback. */
+/* Compute the estimated HISTORY token count (excluding system
+ * prompt and memory hits) so the budget gate can compare it
+ * against the effective limit (context_window minus overhead
+ * and completion reserve).
+ *
+ * - Incremental path: known_prompt_tokens includes everything
+ *   the provider saw (system + memory + history + user), so we
+ *   subtract the cached overhead to get history-only tokens,
+ *   then add the coarse delta estimate for new entries.
+ * - Cold start: the coarse estimator only looks at the history
+ *   array, so the result is already history-only. */
 static size_t session_estimate_current_(struct xAgentSession_ *s) {
   if (s->known_prompt_tokens >= 0 && s->delta_entries > 0) {
-    /* Incremental: precise baseline + coarse delta estimate. */
+    /* Incremental: precise baseline minus overhead + coarse delta. */
+    size_t base = (size_t)s->known_prompt_tokens;
+    if (base > s->overhead_tokens)
+      base -= s->overhead_tokens;
+    else
+      base = 0;
     size_t hist_len = xArrayLen(s->history_arr);
     size_t delta_start =
       hist_len > s->delta_entries ? hist_len - s->delta_entries : 0;
@@ -449,18 +462,41 @@ static size_t session_estimate_current_(struct xAgentSession_ *s) {
       (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr) +
         delta_start,
       s->delta_entries);
-    return (size_t)s->known_prompt_tokens + delta_est;
+    return base + delta_est;
   }
   if (s->known_prompt_tokens >= 0 && s->delta_entries == 0) {
     /* No new entries since last provider report — the known value
-     * is still precise. */
-    return (size_t)s->known_prompt_tokens;
+     * is still precise. Strip overhead to get history-only. */
+    size_t base = (size_t)s->known_prompt_tokens;
+    if (base > s->overhead_tokens)
+      base -= s->overhead_tokens;
+    else
+      base = 0;
+    return base;
   }
   /* Cold start or post-trim invalidation: fall back to full
-   * coarse estimate. */
+   * coarse estimate (history-only by definition). */
   return ai_budget_estimate_tokens(
     (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
     xArrayLen(s->history_arr));
+}
+
+/* Estimate the token overhead consumed by non-history prompt
+ * components: the system prompt and the memory-hits block.
+ * Called once after each view build so the budget gate can
+ * reserve space without re-estimating on every call. */
+static void session_update_overhead_tokens_(struct xAgentSession_ *s,
+                                            const char            *mem_text) {
+  size_t tokens = 0;
+  if (s->system_prompt && s->system_prompt[0]) {
+    tokens += strlen(s->system_prompt) / XAGENT_BUDGET_BYTES_PER_TOKEN +
+              XAGENT_BUDGET_PER_MSG_TOKENS;
+  }
+  if (mem_text) {
+    tokens += strlen(mem_text) / XAGENT_BUDGET_BYTES_PER_TOKEN +
+              XAGENT_BUDGET_PER_MSG_TOKENS;
+  }
+  s->overhead_tokens = tokens;
 }
 
 /* ── Building the Query input from Session state ──────────────────── *
@@ -606,8 +642,18 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
   size_t current   = session_estimate_current_(s);
   size_t estimated = current + incoming;
 
+  /* Compute the effective limit: the provider's context_window must
+   * accommodate history + system_prompt + memory hits + completion
+   * tokens (max_tokens). Reserve space for the non-history consumers
+   * so the gate decision accounts for the true prompt size. */
+  size_t completion_reserve = (s->max_tokens > 0) ? (size_t)s->max_tokens : 0;
+  size_t overhead           = s->overhead_tokens;
+  size_t effective_limit    = (limit > overhead + completion_reserve)
+                                ? limit - overhead - completion_reserve
+                                : 0;
+
   /* ── Step 0: Under budget — gate passes immediately ────────── */
-  if (estimated <= limit) {
+  if (estimated <= effective_limit) {
     /* Budget is OK — clear the anti-loop guard so a future
      * over-budget episode can try compacting from scratch. */
     s->last_compact_history_len = 0;
@@ -620,12 +666,15 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     s->last_gate_total = estimated;
 
     /* Notify the caller that the gate passed, including the
-     * token breakdown so they can display remaining capacity. */
+     * token breakdown so they can display remaining capacity.
+     * 'limit' is the raw context_window; 'remaining' is the
+     * effective headroom for history (already subtracting
+     * overhead + completion reserve). */
     if (s->on_budget_event) {
       struct xAgentBudgetGateInfo gi;
       gi.limit                          = limit;
       gi.estimated                      = estimated;
-      gi.remaining                      = limit - estimated;
+      gi.remaining                      = effective_limit - estimated;
       gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
       s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi,
                          s->budget_event_ud);
@@ -650,7 +699,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     current   = session_estimate_current_(s);
     estimated = current + incoming;
 
-    if (estimated <= limit) {
+    if (estimated <= effective_limit) {
       /* Trimming brought us under budget. */
       s->last_compact_history_len = 0;
       s->last_gate_total          = estimated;
@@ -659,7 +708,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
         struct xAgentBudgetGateInfo gi;
         gi.limit                          = limit;
         gi.estimated                      = estimated;
-        gi.remaining                      = limit - estimated;
+        gi.remaining                      = effective_limit - estimated;
         gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
         s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi,
                            s->budget_event_ud);
@@ -713,8 +762,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * (= user turn at position keep_head).
      * compact_end = hlen when keep_tail == 0 (compact to the end),
      * otherwise the index of the first preserved tail user turn. */
-    size_t compact_start =
-      ai_budget_find_user_turn(msgs_view, hlen, keep_head);
+    size_t compact_start = ai_budget_find_user_turn(msgs_view, hlen, keep_head);
     size_t compact_end;
     if (keep_tail == 0) {
       compact_end = hlen;
@@ -727,7 +775,6 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
         compact_start >= compact_end) {
       return xErrno_PromptTooLong;
     }
-
 
     /* Anti-loop guard: if last_compact_history_len > 0 and
      * hlen <= last_compact_history_len, another compact won't
@@ -1647,9 +1694,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       if (s->memory && s->session_id_copy && compact_end > compact_start) {
         size_t skip_start = compact_start;
         if (s->persisted_prefix > compact_start) {
-          skip_start = s->persisted_prefix < compact_end
-                         ? s->persisted_prefix
-                         : compact_end;
+          skip_start = s->persisted_prefix < compact_end ? s->persisted_prefix
+                                                         : compact_end;
         }
         if (compact_end > skip_start) {
           xAgentMemoryQuery q;
@@ -1668,9 +1714,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       /* Keep persisted_prefix consistent. If the compacted range
        * overlaps with the persisted prefix, adjust it. */
       if (s->persisted_prefix > compact_start) {
-        size_t overlap_end = s->persisted_prefix < compact_end
-                               ? s->persisted_prefix
-                               : compact_end;
+        size_t overlap_end =
+          s->persisted_prefix < compact_end ? s->persisted_prefix : compact_end;
         s->persisted_prefix -= (overlap_end - compact_start);
       }
 
@@ -1684,8 +1729,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       summary_entry.created_at_ms = xWallMs();
       summary_entry.is_summary    = 1;
 
-      if (xArrayInsert(&s->history_arr, compact_start, &summary_entry)
-          != xErrno_Ok) {
+      if (xArrayInsert(&s->history_arr, compact_start, &summary_entry) !=
+          xErrno_Ok) {
         /* OOM on insert — free the summary text and degrade. */
         free(summary_text);
         compact_ok = 0;
@@ -1706,8 +1751,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
           xAgentMemoryQuery q;
           memset(&q, 0, sizeof(q));
           q.session_id = s->session_id_copy;
-          xAgentMemoryAppend(s->memory, &q,
-                             xAgentMemoryAppendReason_Compacted,
+          xAgentMemoryAppend(s->memory, &q, xAgentMemoryAppendReason_Compacted,
                              base + compact_start, 1);
         }
         /* The summary is now at index compact_start and is a
@@ -1922,6 +1966,10 @@ xAgentSession xAgentSessionCreate(xAgent agent, const xAgentSessionConf *conf) {
   s->last_gate_total                = 0;
   s->last_first_round_prompt_tokens = -1;
 
+  /* Seed the overhead estimate with the system prompt. Memory hits
+   * are added after the first view build. */
+  session_update_overhead_tokens_(s, NULL);
+
   /* Pending auto-retry text: calloc zeroes these already,
    * but make the intent explicit. */
   s->pending_text     = NULL;
@@ -2047,6 +2095,10 @@ xErrno xAgentSessionInput(xAgentSession sess, xAgentMessage msg) {
     }
     return rc;
   }
+
+  /* Update the cached overhead estimate so the next budget gate
+   * reserves space for system_prompt + memory hits. */
+  session_update_overhead_tokens_(s, view.ephemeral_text);
 
   /* view copied whatever it needed out of hits (the ephemeral_text
    * block is now self-contained in view), so we can release the
@@ -2228,8 +2280,7 @@ void xAgentSessionDestroy(xAgentSession sess) {
     xAgentMemoryQuery q;
     memset(&q, 0, sizeof(q));
     q.session_id = s->session_id_copy;
-    xAgentMemoryAppend(s->memory, &q,
-                       xAgentMemoryAppendReason_Finalizing,
+    xAgentMemoryAppend(s->memory, &q, xAgentMemoryAppendReason_Finalizing,
                        base + skip, hist_len - skip);
     /* Free the owned copy now — nothing else needs it. */
     free(s->session_id_copy);

@@ -2341,6 +2341,7 @@ TEST_F(SessionTest, BudgetSummarizeCompactsHistory) {
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window        = 200;      /* enough for 3 primer rounds  */
+  budget.context_preserve_tail_turns = 1;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -2737,6 +2738,7 @@ TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_Summarize;
+  budget.context_preserve_tail_turns = 1;
   budget.context_window    = 200;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -2840,6 +2842,7 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window    = 200;
+  budget.context_preserve_tail_turns = 1;
 
   xAgentSessionConf sc   = {};
   sc.cbs                 = make_cbs(&cap);
@@ -2963,6 +2966,89 @@ TEST_F(SessionTest, BudgetSummarizeReplacesUpToCompactEnd) {
     if (msgs[i].text == nullptr) continue;
     std::string t(msgs[i].text, msgs[i].text_len);
     EXPECT_EQ(t.find(u1), std::string::npos);
+  }
+
+  xAgentSessionDestroy(sess);
+}
+
+/* With context_preserve_tail_turns=0, the compact runs from the
+ * head boundary to the end of history — no tail is preserved.
+ * All user turns except the head are replaced by the summary. */
+TEST_F(SessionTest, BudgetSummarizeTailZeroCompactsToEnd) {
+  Captured cap;
+  xAgentBudgetConf budget{};
+  budget.policy            = xAgentBudgetPolicy_Summarize;
+  budget.context_window    = 200;
+  budget.context_preserve_tail_turns = 0;  /* compact to end */
+
+  xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
+  ASSERT_NE(sess, nullptr);
+
+  const std::string u0 = std::string(80, '0');
+  const std::string u1 = std::string(80, '1');
+  const std::string u2 = std::string(80, '2');
+
+  for (const std::string *u : {&u0, &u1, &u2}) {
+    fake_->script_queue.push_back({
+        SText("ack"),
+        SDone(xAgentProviderStop_EndTurn),
+    });
+    ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(u->c_str())),
+              xErrno_Ok);
+  }
+
+  fake_->script_queue.push_back({
+      SText("[summary] middle compressed"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+  fake_->script_queue.push_back({
+      SText("ok"),
+      SDone(xAgentProviderStop_EndTurn),
+  });
+  EXPECT_EQ(xAgentSessionInput(sess, xAgentMessageFromText(
+                                     std::string(400, 'X').c_str())),
+            xErrno_Busy);
+
+  /* With keep_tail=0, the compact runs to hlen. The only surviving
+   * old user turn is u0 (the preserved head). u1 and u2 are gone.
+   * The overflow user message is also gone (part of the compacted
+   * tail) — wait, no: the compact happened before the overflow
+   * message was appended (budget-check-first). After compact the
+   * auto-retry appends the overflow message. So the layout is:
+   * [U0, A0, summary, overflow_user, auto_reply] */
+  auto *s = reinterpret_cast<xAgentSession_ *>(sess);
+  size_t hlen = hist_len(s);
+  auto *msgs = (const xAgentSessionMsg_ *)xArrayData(s->history_arr);
+
+  /* Find the summary. */
+  int summary_idx = -1;
+  for (size_t i = 0; i < hlen; i++) {
+    if (msgs[i].is_summary) { summary_idx = (int)i; break; }
+  }
+  ASSERT_NE(summary_idx, -1);
+
+  /* u0 (head) survives. u1, u2 do not. */
+  bool found_u0 = false, found_u1 = false, found_u2 = false;
+  for (size_t i = 0; i < hlen; i++) {
+    if (msgs[i].role == xAgentRole_User && msgs[i].text) {
+      std::string t(msgs[i].text, msgs[i].text_len);
+      if (t == u0) found_u0 = true;
+      if (t == u1) found_u1 = true;
+      if (t == u2) found_u2 = true;
+    }
+  }
+  EXPECT_TRUE(found_u0) << "u0 is the preserved head turn";
+  EXPECT_FALSE(found_u1) << "u1 was in compacted range";
+  EXPECT_FALSE(found_u2) << "u2 was in compacted range (tail=0)";
+
+  /* Compacted turns must NOT appear anywhere. */
+  for (size_t i = 0; i < hlen; ++i) {
+    if (msgs[i].text == nullptr) continue;
+    std::string t(msgs[i].text, msgs[i].text_len);
+    EXPECT_EQ(t.find(u1), std::string::npos)
+        << "compacted u1 must be gone (idx=" << i << ")";
+    EXPECT_EQ(t.find(u2), std::string::npos)
+        << "compacted u2 must be gone (idx=" << i << ")";
   }
 
   xAgentSessionDestroy(sess);

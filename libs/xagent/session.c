@@ -702,23 +702,31 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     if (user_count == 0) return xErrno_PromptTooLong;
 
     /* Determine how many head/tail turns to preserve.
-     * 0 is treated as 1 for both. */
+     * XAGENT_BUDGET_DEFAULT (SIZE_MAX) = use default.
+     * head: 0 → 1 (at least one head turn required).
+     * tail: 0 = compact to end (no tail preserved). */
     size_t keep_head = s->budget.context_preserve_head_turns;
-    if (keep_head == 0) keep_head = 1;
     size_t keep_tail = s->budget.context_preserve_tail_turns;
-    if (keep_tail == 0) keep_tail = 1;
+    if (keep_head == XAGENT_BUDGET_DEFAULT) keep_head = 1;
+    if (keep_tail == XAGENT_BUDGET_DEFAULT) keep_tail = 1;
+    if (keep_head == 0) keep_head = 1;
 
     /* Not enough turns to compact. */
     if (keep_head + keep_tail >= user_count) return xErrno_PromptTooLong;
 
     /* compact_start = index of the first user turn to compact
      * (= user turn at position keep_head).
-     * compact_end = index of the first preserved tail user turn
-     * (= user turn at position user_count - keep_tail). */
+     * compact_end = hlen when keep_tail == 0 (compact to the end),
+     * otherwise the index of the first preserved tail user turn. */
     size_t compact_start =
       ai_budget_find_user_turn(msgs_view, hlen, keep_head);
-    size_t compact_end =
-      ai_budget_find_user_turn(msgs_view, hlen, user_count - keep_tail);
+    size_t compact_end;
+    if (keep_tail == 0) {
+      compact_end = hlen;
+    } else {
+      compact_end =
+        ai_budget_find_user_turn(msgs_view, hlen, user_count - keep_tail);
+    }
     if (compact_start == XAGENT_BUDGET_NO_SUCH_TURN ||
         compact_end == XAGENT_BUDGET_NO_SUCH_TURN ||
         compact_start >= compact_end) {

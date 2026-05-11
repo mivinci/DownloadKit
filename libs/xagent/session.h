@@ -793,7 +793,7 @@ XDEF_STRUCT(xAgentSessionConf) {
    * Used by the agent's pluggable memory store (see
    * xAgentConf::memory) to key per-session state. The built-in
    * JSONL backend, for example, lays out one file per id under
-   *   {root_dir}/sessions/{session_id}/memory.jsonl
+   *   {root_dir}/sessions/{session_id}/history.jsonl
    * Borrowed from the caller; must remain alive for the session's
    * lifetime. When NULL the agent may auto-generate one during
    * xAgentCreateSession(). Readable via xAgentSessionId().

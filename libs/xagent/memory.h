@@ -291,7 +291,7 @@ XCAPI(void) xAgentMemoryDestroy(xAgentMemory store);
  * @brief Configuration for the built-in JSONL backend.
  *
  * Each session gets its own append-only file at
- *   {root_dir}/sessions/{session_id}/memory.jsonl
+ *   {root_dir}/sessions/{session_id}/history.jsonl
  * and retrieval reads the tail of that file, newest-first. It is
  * intentionally simple — no indexing, no summarisation, no vector
  * search — so callers can compose it with smarter layers on top.

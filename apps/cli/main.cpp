@@ -355,7 +355,7 @@ int main(int argc, char *argv[]) {
     /* ── Pluggable long-term memory ──────────────────────────────
      *
      * The built-in JSONL backend lays out one file per session
-     * under <data_dir>/sessions/<session_id>/memory.jsonl. The
+     * under <data_dir>/sessions/<session_id>/history.jsonl. The
      * agent wires it into every session it mints (append on
      * preserve, prime on create) so conversations resume across
      * process runs when the caller reuses a stable session_id.

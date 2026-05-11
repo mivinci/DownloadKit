@@ -158,7 +158,7 @@ TEST(xAgentMemoryJsonl, AppendThenRetrieveText) {
             xErrno_Ok);
 
   /* The file should now exist on disk. */
-  std::string path = root + "/sessions/sess1/memory.jsonl";
+  std::string path = root + "/sessions/sess1/history.jsonl";
   ASSERT_TRUE(PathExists(path));
 
   xAgentMemoryHits hits{};
@@ -405,7 +405,7 @@ TEST(xAgentMemoryJsonl, MalformedLinesAreSkipped) {
   /* Prepare a file with one good line sandwiched between garbage. */
   std::string dir = root + "/sessions/default";
   MkdirsP(dir);
-  std::string path = dir + "/memory.jsonl";
+  std::string path = dir + "/history.jsonl";
   {
     std::ofstream f(path.c_str());
     f << "this is not json\n";
@@ -503,7 +503,7 @@ TEST(xAgentMemoryJsonl, AppendPersistsExplicitCreatedAtMs) {
                                &m, 1),
             xErrno_Ok);
 
-  std::string path = root + "/sessions/s/memory.jsonl";
+  std::string path = root + "/sessions/s/history.jsonl";
   std::ifstream f(path);
   ASSERT_TRUE(f.is_open());
   std::string line;
@@ -534,7 +534,7 @@ TEST(xAgentMemoryJsonl, AppendFallsBackToWallClockWhenUnset) {
                                &m, 1),
             xErrno_Ok);
 
-  std::string path = root + "/sessions/s/memory.jsonl";
+  std::string path = root + "/sessions/s/history.jsonl";
   std::ifstream f(path);
   ASSERT_TRUE(f.is_open());
   std::string line;
@@ -565,7 +565,7 @@ TEST(xAgentMemoryJsonl, ReadsLegacyLinesWithoutTs) {
   std::string dir = root + "/sessions/s";
   MkdirsP(dir);
   {
-    std::ofstream f(dir + "/memory.jsonl");
+    std::ofstream f(dir + "/history.jsonl");
     /* Exactly the shape the pre-migration agent wrote. */
     f << "{\"role\":\"user\",\"kind\":\"text\",\"text\":\"legacy\"}\n";
   }

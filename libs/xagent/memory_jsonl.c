@@ -6,7 +6,7 @@
  * memory_jsonl.c - Built-in file-backed xAgentMemory implementation
  *
  * Lays out one JSONL file per session_id under:
- *   {root_dir}/sessions/{session_id}/memory.jsonl
+ *   {root_dir}/sessions/{session_id}/history.jsonl
  *
  * Append is a straight fopen("a") + fprintf; each line is one
  * xAgentSessionMsg serialised into a minimal, self-describing JSON
@@ -92,10 +92,10 @@ static char *build_path_(const struct memory_jsonl_ *b,
   if (!b || !b->root_dir || !session_id) return NULL;
 
   size_t n = strlen(b->root_dir) + strlen("/sessions/") + strlen(session_id) +
-             strlen("/memory.jsonl") + 1;
+             strlen("/history.jsonl") + 1;
   char *p = (char *)malloc(n);
   if (!p) return NULL;
-  snprintf(p, n, "%s/sessions/%s/memory.jsonl", b->root_dir, session_id);
+  snprintf(p, n, "%s/sessions/%s/history.jsonl", b->root_dir, session_id);
   return p;
 }
 

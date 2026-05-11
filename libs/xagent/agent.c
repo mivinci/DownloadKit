@@ -171,7 +171,7 @@ xAgent xAgentCreate(const xAgentConf *conf) {
   if (conf->default_session_conf) {
     /* Force the default session's id to "default" so its memory
      * slot is deterministic:
-     *   {root_dir}/sessions/default/memory.jsonl
+     *   {root_dir}/sessions/default/history.jsonl
      * rather than a random id like "s_0001ab". */
     xAgentSessionConf dsconf = *conf->default_session_conf;
     dsconf.session_id     = "default";

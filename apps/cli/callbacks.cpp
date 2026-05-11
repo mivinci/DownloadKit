@@ -75,6 +75,9 @@ void on_tool_output(xAgentSession sess, const char *tool_use_id,
   (void)tool_use_id;
   (void)tool_name;
   auto *ctx = static_cast<ReplCtx *>(ud);
+  /* Honor /verbose off: suppress tool data output.
+   * Start/finish, command echo, and result summary still appear. */
+  if (!ctx->verbose_tool_output) return;
   /* Close any open thinking block before showing tool output. */
   end_thinking(ctx);
   /* Render tool output faint; stream it as a chunk so multi-line

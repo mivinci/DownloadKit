@@ -144,6 +144,11 @@ struct ReplCtx {
    * forget about, and the point of the flag is that you explicitly
    * opt in for the current session. */
   bool bypass_confirm = false;
+  /* Verbose tool output ──────────────────────────────────────────
+   * When true (default), on_tool_output streams full data.
+   * When false, only [tool] start/finish, command echo, and result
+   * summary are shown. Toggled by /verbose. */
+  bool verbose_tool_output = true;
 };
 
 /* Convenience: switch ctx->renderer to the md or raw backend.

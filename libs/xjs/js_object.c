@@ -527,10 +527,10 @@ xJSObjectRef xJSObjectMakeFunction(xJSContextRef c, xJSStringRef name,
   char *src = (char *)malloc(total);
   if (!src) goto oom;
   char *p = src;
-  p += sprintf(p, "(function %s(", name_s ? name_s : "");
+  p += snprintf(p, (size_t)(src + total - p), "(function %s(", name_s ? name_s : "");
   for (unsigned i = 0; i < parameterCount; ++i)
-    p += sprintf(p, "%s%s", i ? "," : "", params[i]);
-  p += sprintf(p, "){%s})", body_s ? body_s : "");
+    p += snprintf(p, (size_t)(src + total - p), "%s%s", i ? "," : "", params[i]);
+  p += snprintf(p, (size_t)(src + total - p), "){%s})", body_s ? body_s : "");
 
   char *url = xjs_str_to_utf8(sourceURL);
   JSValue v =

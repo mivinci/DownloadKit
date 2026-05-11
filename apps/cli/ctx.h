@@ -75,8 +75,6 @@ struct ReplCtx {
   xLineHandle   line             = nullptr; /* current async editor */
   xEventSource  src              = nullptr; /* loop fd registration */
   bool          busy             = false;   /* AI run in flight */
-  bool          pending_retry    = false; /* retry pending_text after compact */
-  char         *pending_text     = nullptr; /* stashed submit text, owned */
   bool          saw_first_delta  = false;
   bool          in_thinking      = false; /* currently streaming thinking? */
   size_t        reply_bytes      = 0;

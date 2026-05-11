@@ -394,71 +394,6 @@ XDEF_STRUCT(xAgentSessionMsg) {
 };
 
 /**
- * @brief Why the L1 preserve callback was invoked.
- *
- * The reason tells the consumer whether this is an incremental
- * slice (entries about to be trimmed/compacted) or the final
- * full delivery (session teardown).
- */
-XDEF_ENUM(xAgentL1PreserveReason){
-  /** TruncateTail: tail-end entries [n, end) are about to be
-   *  silently dropped, preserving the prefix for prompt caching.
-   *  The @p n parameter in the callback indicates the first entry
-   *  being dropped; entries [0, n) survive as the cache-stable
-   *  prefix. */
-  xAgentL1PreserveReason_Truncated = 0,
-
-  /** Summarize compact: entries [0, n) are about to be
-   *  replaced by a summary (this is a head-trimming operation,
-   *  so the [0, n) range remains correct). The consumer may want
-   *  to keep the original entries for full-fidelity L1 storage
-   *  even though a summary will replace them in the session's
-   *  history. */
-  xAgentL1PreserveReason_Compacted = 1,
-
-  /** Session teardown: the full remaining history is being
-   *  delivered as a final L1 snapshot. This fires from
-   *  xAgentSessionDestroy before any session-owned storage is
-   *  released. */
-  xAgentL1PreserveReason_Finalizing = 2,
-};
-
-/**
- * @brief L1 memory-preservation callback, fired when the session
- *        is about to discard history entries (due to a budget
- *        policy like TruncateTail or Summarize compact).
- *
- * The callback receives a read-only slice of the entries that are
- * about to be removed from the session's rolling history. The
- * Agent layer (or any registered consumer) can deep-copy them
- * into its own L1 store before they are lost.
- *
- * Additionally, this callback fires once during xAgentSessionDestroy
- * with @p reason == @ref xAgentL1PreserveReason_Finalizing and the
- * full remaining history, so that sessions that never triggered a
- * budget event still deliver their complete conversation to L1.
- *
- * Semantics:
- *   - Entries are only valid for the duration of the callback —
- *     the caller must deep-copy anything it wants to retain.
- *   - The callback runs on the agent event loop.
- *   - NULL = no L1 preservation, which is the default.
- *
- * @param sess     The session.
- * @param msgs     Read-only array of entries about to be lost.
- * @param n_msgs   Number of entries in @p msgs.
- * @param reason   Why the entries are being preserved.
- * @param owner    The xAgentSessionConf::l1_preserve_owner pointer.
- *
- * @see xAgentL1PreserveReason — why the callback was invoked.
- */
-typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession           sess,
-                                            const xAgentSessionMsg *msgs,
-                                            size_t                  n_msgs,
-                                            xAgentL1PreserveReason  reason,
-                                            void                   *owner);
-
-/**
  * @brief Strategy for keeping the serialized prompt under the
  *        session's token budget.
  *
@@ -474,9 +409,8 @@ typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession           sess,
  *   3. tool_use / tool_result pairs are trimmed atomically — a
  *      surviving tool_use always has its matching tool_result and
  *      vice versa;
- *   4. at least @ref xAgentBudgetConf::keep_recent_turns User turns
- *      from the front (oldest) are kept intact as a cache-stable
- *      prefix; newer tail entries are truncated first.
+ *   4. the most recent User turn is always preserved; older
+ *      entries are compacted into a summary first.
  *
  * Zero (@ref xAgentBudgetPolicy_Disabled) means "do nothing", which
  * matches existing sessions byte-for-byte and is the default for
@@ -493,9 +427,8 @@ typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession           sess,
 XDEF_ENUM(xAgentBudgetPolicy){
   xAgentBudgetPolicy_Disabled  = 0, /**< No budget check runs      */
   xAgentBudgetPolicy_Error     = 1, /**< Fail with PromptTooLong   */
-  xAgentBudgetPolicy_Callback  = 3, /**< Reserved: caller-supplied */
-  xAgentBudgetPolicy_Summarize = 4, /**< Recommended: trim tool_results,
-                                              then summarise old history.
+  xAgentBudgetPolicy_Summarize = 2, /**< Trim tool results, then
+                                              summarise old history.
                                               On failure the session
                                               reports the error and
                                               leaves history intact.    */
@@ -509,9 +442,9 @@ XDEF_ENUM(xAgentBudgetPolicy){
  * caller can:
  *   - distinguish xErrno_Busy caused by an in-flight compact from
  *     Busy caused by a normal user Query still running;
- *   - learn when a compact finishes so it can retry the input;
- *   - learn when TruncateTail silently drops history so it can
- *     update UI or log the event.
+ *   - learn when a compact finishes (the session auto-retries the
+ *     pending input, but the caller may want to update its UI);
+ *   - learn the token breakdown when a gate check passes.
  *
  * All events are informational — ignoring them does not change the
  * session's behaviour. The callback runs on the agent event loop.
@@ -527,23 +460,10 @@ XDEF_ENUM(xAgentBudgetEvent){
   xAgentBudgetEvent_Compacting = 0,
 
   /** Summarize: the compact Query has finished. @p info
-   *  carries a xAgentBudgetCompactInfo with the result. The session
-   *  is now idle and the caller can retry xAgentSessionInput. */
+   *  carries a xAgentBudgetCompactDoneInfo with the result. The
+   *  session will auto-retry the pending input; the caller does
+   *  not need to re-submit. */
   xAgentBudgetEvent_CompactDone = 1,
-
-  /** TruncateTail: tail-end history entries were silently dropped to
-   *  fit the budget, preserving the prefix for prompt caching.
-   *  @p info carries a xAgentBudgetTruncateInfo with the count of
-   *  entries removed. */
-  xAgentBudgetEvent_Truncated = 2,
-
-  /** ToolResultsTrimmed: consumed tool_result outputs were shrunk
-   *  in-place (retroactive trimming) to free token budget without
-   *  dropping entire turns. @p info carries a
-   *  xAgentBudgetToolResultsTrimmedInfo with the count of entries
-   *  trimmed and approximate bytes freed. Fires before TruncateTail
-   *  in the budget enforcement pipeline. */
-  xAgentBudgetEvent_ToolResultsTrimmed = 4,
 
   /** GatePassed: the budget gate allowed the incoming message
    *  through — history + incoming fit within the limit. @p info
@@ -551,7 +471,7 @@ XDEF_ENUM(xAgentBudgetEvent){
    *  the caller can display remaining context capacity. Fires
    *  once per successful xAgentSessionInput, before the Query is
    *  submitted. */
-  xAgentBudgetEvent_GatePassed = 3,
+  xAgentBudgetEvent_GatePassed = 2,
 };
 
 /**
@@ -582,27 +502,6 @@ XDEF_STRUCT(xAgentBudgetCompactDoneInfo) {
    *  or that the compact attempted to cover (summary_ok == 0). When
    *  summary_ok == 0, history is unchanged regardless of this value. */
   size_t entries_affected;
-};
-
-/**
- * @brief Extra detail passed with xAgentBudgetEvent_Truncated.
- */
-XDEF_STRUCT(xAgentBudgetTruncateInfo) {
-  /** Number of history entries that were removed. */
-  size_t entries_removed;
-};
-
-/**
- * @brief Extra detail passed with xAgentBudgetEvent_ToolResultsTrimmed.
- */
-XDEF_STRUCT(xAgentBudgetToolResultsTrimmedInfo) {
-  /** Number of tool_result entries whose output was shrunk in-place. */
-  size_t entries_trimmed;
-
-  /** Approximate bytes freed by trimming (sum of original output sizes
-   *  minus the trimmed marker sizes). May be negative when the
-   *  trimmed marker is longer than the original short output. */
-  ssize_t bytes_freed;
 };
 
 /**
@@ -637,11 +536,9 @@ XDEF_STRUCT(xAgentBudgetGateInfo) {
  * @brief Callback invoked when a budget-policy lifecycle event fires.
  *
  * @p info is event-specific; its concrete type depends on @p event:
- *   - Compacting          → xAgentBudgetCompactInfo
- *   - CompactDone         → xAgentBudgetCompactDoneInfo
- *   - Truncated           → xAgentBudgetTruncateInfo
- *   - ToolResultsTrimmed  → xAgentBudgetToolResultsTrimmedInfo
- *   - GatePassed          → xAgentBudgetGateInfo
+ *   - Compacting  → xAgentBudgetCompactInfo
+ *   - CompactDone → xAgentBudgetCompactDoneInfo
+ *   - GatePassed  → xAgentBudgetGateInfo
  *
  * @p info may be NULL if the implementation cannot provide detail
  * (e.g. OOM while building the struct). The caller must check.
@@ -658,7 +555,7 @@ typedef void (*xAgentBudgetEventFunc)(xAgentSession     sess,
 /**
  * @brief Configuration for the session's context-budget enforcement.
  *
- * All three fields are optional. When @ref policy is
+ * All fields are optional. When @ref policy is
  * @ref xAgentBudgetPolicy_Disabled the other two are ignored, and the
  * session behaves exactly as if this struct did not exist — this
  * is the default for zero-initialised configs, so existing callers
@@ -702,110 +599,46 @@ XDEF_STRUCT(xAgentBudgetConf) {
   size_t context_window;
 
   /**
-   * @brief Minimum number of User turns to preserve at the HEAD of
-   *        history (the oldest turns that anchor the prompt prefix
-   *        for caching and the task-goal framing).
-   *
-   * A "User turn" here means one xAgentRole_User message plus every
-   * assistant / tool entry that followed before the next user
-   * message. Under Summarize, these turns are NEVER summarised
-   * away — they remain verbatim so the model keeps the original
-   * instructions / task scope.
-   *
-   * Zero means "no head reservation" (the first summarise boundary
-   * starts at index 0). Defaults to 2 when left as zero by callers
-   * that only set @c context_window.
-   */
-  size_t keep_head_turns;
-
-  /**
-   * @brief Minimum number of User turns to preserve at the TAIL of
-   *        history (the most recent turns that carry the current
-   *        working context).
-   *
-   * Under Summarize, these tail turns are NEVER summarised
-   * away — they remain verbatim so the model keeps local context
-   * and can react coherently to the next input.
-   *
-   * Zero means "keep only the most recent User turn". The session
-   * may clamp very high values downward if honouring them would
-   * itself violate @ref context_window.
-   */
-  size_t keep_recent_turns;
-
-  /**
-   * @brief Maximum number of bytes for a single tool_result output
-   *        before it is truncated in-place.
-   *
-   * When a tool_result entry exceeds this threshold, its output is
-   * truncated and a "[truncated: showing N/M bytes]" marker is
-   * appended. This prevents a single large tool output (e.g. shell
-   * command producing kilobytes of output) from consuming the entire
-   * context budget and forcing a full-turn truncation.
-   *
-   * Zero means "use the built-in default" (8 KiB). Set to
-   * SIZE_MAX to disable truncation entirely.
-   */
-  size_t max_tool_result_bytes;
-
-  /**
-   * @brief Absolute token count that triggers retroactive trimming
-   *        of "consumed" tool_result entries.
-   *
-   * When current context usage (history + incoming) reaches or
-   * exceeds this threshold, the session scans history from tail to
-   * head and truncates tool_result outputs that have already been
-   * "consumed" by the model (i.e. there is a subsequent Assistant
-   * entry after the tool_result). The output is reduced to a short
-   * summary marker like "[result trimmed: was N bytes]".
-   *
-   * This is a lighter-weight alternative to TruncateTail: it frees
-   * token budget by shrinking large tool outputs without removing
-   * entire turns or breaking the conversation flow. The prompt prefix
-   * stays intact, so provider-side prompt caching remains effective.
-   *
-   * Values:
-   *   - 0 (default): disabled — no retroactive trimming.
-   *   - 140000: trim when usage ≥ 140 000 tokens.
-   *
-   * Retroactive trimming runs BEFORE TruncateTail in the budget
-   * enforcement pipeline. If trimming alone frees enough space,
-   * TruncateTail is not invoked.
-   */
-  unsigned trim_tool_results_threshold;
-
-  /**
-   * @brief Maximum output tokens the session allocates for a
-   *        Summarize compact Query.
-   *
-   * When the Summarize policy fires, the session launches an
-   * internal compact Query whose @c max_tokens is set to this
-   * value. A smaller cap produces a more concise summary and
-   * avoids "thinking burn" on models that support extended
-   * reasoning; a larger cap lets the model produce a more
-   * detailed summary when the conversation is complex.
-   *
-   * Zero means "use the built-in default" (currently 1024).
-   */
-  int summarize_max_tokens;
-
-  /**
    * @brief Optional callback for budget-policy lifecycle events.
    *
    * Fires when the budget gate takes observable action (compacting
-   * old history, completing a compact, truncating entries). Leave
-   * NULL if you don't need these notifications — the session's
-   * behaviour is the same either way.
+   * old history, completing a compact). Leave NULL if you don't
+   * need these notifications — the session's behaviour is the same
+   * either way.
    *
    * This is a side-channel: it does NOT replace on_done or any
    * xAgentSessionCallbacks entry. It exists so callers can
    * distinguish "Busy because compacting" from "Busy because a
-   * user Query is in flight" and know when to retry.
+   * user Query is in flight" and know when to update their UI.
    */
   xAgentBudgetEventFunc on_budget_event;
 
   /** Forwarded to every invocation of @ref on_budget_event. */
   void *budget_event_ud;
+
+  /**
+   * @brief Number of earliest user turns to preserve during compact.
+   *
+   * When the Summarize policy triggers a compact, the session
+   * replaces history[compact_start..compact_end) with a summary.
+   * compact_start is the index of the user turn at position
+   * @c context_preserve_head_turns — everything before it (the
+   * "head") stays intact.
+   *
+   * 0 = no head preserved (compact from the beginning).
+   */
+  size_t context_preserve_head_turns;
+
+  /**
+   * @brief Number of latest user turns to preserve during compact.
+   *
+   * compact_end is the index of the user turn at position
+   * (user_count - @c context_preserve_tail_turns) — everything
+   * from it onward (the "tail") stays intact.
+   *
+   * 0 = no tail preserved (compact to the end of history).
+   */
+  size_t context_preserve_tail_turns;
 };
 
 /**
@@ -874,33 +707,35 @@ XDEF_STRUCT(xAgentSessionConf) {
                                                      @ref on_finalizing. */
 
   /**
-   * @brief Optional L1 memory-preservation callback, paired with
-   *        @ref l1_preserve_owner.
-   *
-   * Fires when the session is about to discard history entries
-   * (TruncateTail / Summarize compact), and once at
-   * teardown with the full remaining history. The Agent layer
-   * uses this to capture the complete conversation before any
-   * information is lost. Leave NULL if not used.
-   *
-   * @see xAgentSessionL1PreserveFunc for the full callback contract.
-   */
-  xAgentSessionL1PreserveFunc on_l1_preserve;
-  void                       *l1_preserve_owner; /**< Passed back to
-                                                      @ref on_l1_preserve. */
-
-  /**
    * @brief Unique identifier for this session instance.
    *
    * Used by the agent's pluggable memory store (see
    * xAgentConf::memory) to key per-session state. The built-in
    * JSONL backend, for example, lays out one file per id under
-   *   {root_dir}/sessions/{session_id}/memory.jsonl
+   *   {root_dir}/sessions/{session_id}/history.jsonl
    * Borrowed from the caller; must remain alive for the session's
    * lifetime. When NULL the agent may auto-generate one during
    * xAgentCreateSession(). Readable via xAgentSessionId().
    */
   const char *session_id;
+
+  /**
+   * @brief Memory store for persistence (borrowed, may be NULL).
+   *
+   * When non-NULL, the session writes history entries to this store
+   * on compact and finalization. Typically set by the agent in
+   * xAgentCreateSession().
+   */
+  xAgentMemory memory;
+
+  /**
+   * @brief Owned copy of session_id for memory store writes.
+   *
+   * Must survive session teardown so the Finalizing append can
+   * reference it. Freed in xAgentSessionDestroy after the
+   * Finalizing append completes. Typically set by the agent.
+   */
+  char *session_id_copy;
 
   /**
    * @brief Idle timeout (in ms) before launching a sidecar Query
@@ -1047,7 +882,7 @@ XCAPI(xErrno) xAgentSessionSetModel(xAgentSession sess, const char *model_id);
  * budget state. The new limit is consulted on the NEXT
  * xAgentSessionInput — any run already in flight keeps the limit it
  * was admitted with. All other budget fields (policy,
- * keep_recent_turns, on_budget_event, …) are left untouched.
+ * on_budget_event, …) are left untouched.
  *
  * Intended for host apps that ship a per-model context-window
  * figure (e.g. loaded from a models.json entry) and want to keep
@@ -1065,10 +900,8 @@ XCAPI(void) xAgentSessionSetContextWindow(xAgentSession sess,
 /**
  * @brief Replace the session's budget thresholds in bulk.
  *
- * Like xAgentSessionSetContextWindow but for every threshold field
- * on @ref xAgentBudgetConf at once: @c context_window,
- * @c keep_head_turns, @c keep_recent_turns,
- * @c max_tool_result_bytes and @c trim_tool_results_threshold.
+ * Like xAgentSessionSetContextWindow but for the @c context_window
+ * field on @ref xAgentBudgetConf.
  * The @c policy stays whatever was configured at session-create
  * time, and the @c on_budget_event / @c budget_event_ud callback
  * pair is left untouched — host apps that dial budget knobs on a
@@ -1088,7 +921,7 @@ XCAPI(void) xAgentSessionSetContextWindow(xAgentSession sess,
  *
  * @param sess  Session handle (NULL is a no-op).
  * @param conf  Budget conf to apply (NULL is a no-op). Only the
- *              threshold fields are read; @c policy and the
+ *              @c context_window field is read; @c policy and the
  *              callback fields are ignored.
  */
 XCAPI(void) xAgentSessionSetBudget(xAgentSession           sess,

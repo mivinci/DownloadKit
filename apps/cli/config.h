@@ -16,11 +16,7 @@
  *   "default": "kimi",
  *   "max_turns": 64,
  *   "budget": {
- *     "context_window": 8192,
- *     "keep_head_turns": 1,
- *     "keep_recent_turns": 2,
- *     "trim_tool_results_threshold": 140000,
- *     "max_tool_result_bytes": 8192
+ *     "context_window": 8192
  *   },
  *   "models": [
  *     {"id": "kimi", "provider": "openai",
@@ -68,12 +64,7 @@
  * from "explicitly 0" by inspecting the value alone — and per-model
  * overrides need to know which fields to actually override. */
 struct CliBudgetMask {
-  bool context_window              = false;
-  bool keep_head_turns             = false;
-  bool keep_recent_turns           = false;
-  bool trim_tool_results_threshold = false;
-  bool max_tool_result_bytes       = false;
-  bool summarize_max_tokens        = false;
+  bool context_window = false;
 };
 
 /* User-supplied budget thresholds. Pairs with CliBudgetMask: only
@@ -82,12 +73,7 @@ struct CliBudgetMask {
  * are NOT user-configurable (the CLI pins the policy to
  * Summarize and owns the event sink for its TUI overlay). */
 struct CliBudgetConf {
-  size_t        context_window              = 0;
-  size_t        keep_head_turns             = 0;
-  size_t        keep_recent_turns           = 0;
-  unsigned      trim_tool_results_threshold = 0;
-  size_t        max_tool_result_bytes       = 0;
-  int           summarize_max_tokens        = 0;
+  size_t        context_window = 0;
   CliBudgetMask mask;
 };
 

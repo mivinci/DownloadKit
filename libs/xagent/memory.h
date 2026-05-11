@@ -6,17 +6,17 @@
  * memory.h - Pluggable long-term memory store for the xai agent core
  *
  * An xAgentMemory abstracts "where and how do we keep history across
- * sessions". Today the agent auto-wires a JSONL file writer into
- * every session via xAgentSessionConf::on_l1_preserve; that works for
- * the simple "append everything to disk" case but gives the session
- * layer no way to pull context back in on the NEXT run, and no way
- * to plug in smarter backends (summarisation, vector search, remote
- * services) without surgery in agent.c.
+ * sessions". The agent wires a JSONL file writer into every session
+ * via xAgentSessionConf::memory; that works for the simple "append
+ * everything to disk" case but gives the session layer no way to
+ * pull context back in on the NEXT run, and no way to plug in
+ * smarter backends (summarisation, vector search, remote services)
+ * without surgery in agent.c.
  *
  * The store model fixes both:
  *   - The persistence direction ("session → disk") is expressed as
- *     xAgentMemoryAppend(), still fed by the L1 preserve hook but now
- *     routed through a vtable the caller can override.
+ *     xAgentMemoryAppend(), routed through a vtable the caller can
+ *     override.
  *   - The retrieval direction ("disk → session") is expressed as
  *     xAgentMemoryRetrieve(), consulted by the session layer on every
  *     xAgentSessionInput BEFORE the budget gate so hits become part
@@ -48,8 +48,8 @@
 #define XAGENT_MEMORY_H
 
 #include <stddef.h>
-#include <xagent/message.h>   /* xAgentRole                           */
-#include <xagent/session.h>   /* xAgentSessionMsg, xAgentSessionEntryKind */
+#include <xagent/message.h> /* xAgentRole                           */
+#include <xagent/session.h> /* xAgentSessionMsg, xAgentSessionEntryKind */
 #include <xbase/base.h>
 #include <xbase/error.h>
 
@@ -134,13 +134,12 @@ XDEF_STRUCT(xAgentMemoryHits) {
 /**
  * @brief Reason an Append batch was delivered.
  *
- * Mirrors xAgentL1PreserveReason so a store backed by a session's
- * L1 hook can route events without translation. New values may be
- * added over time; stores MUST tolerate unknown values.
+ * New values may be added over time; stores MUST tolerate unknown
+ * values.
  */
 XDEF_ENUM(xAgentMemoryAppendReason){
-  xAgentMemoryAppendReason_Truncated  = 0, /**< session trimmed old entries */
-  xAgentMemoryAppendReason_Compacted  = 1, /**< session replaced entries
+  xAgentMemoryAppendReason_Truncated = 0,  /**< session trimmed old entries */
+  xAgentMemoryAppendReason_Compacted = 1,  /**< session replaced entries
                                             with a summary              */
   xAgentMemoryAppendReason_Finalizing = 2, /**< session shutting down      */
   xAgentMemoryAppendReason_Explicit   = 3, /**< host called Append directly */
@@ -239,7 +238,7 @@ XDEF_STRUCT(xAgentMemoryVTable) {
  * call with NULL @p store (no-op, returns xErrno_Ok) so callers can
  * treat "no memory configured" uniformly.
  */
-XCAPI(xErrno) xAgentMemoryAppend(xAgentMemory store,
+XCAPI(xErrno) xAgentMemoryAppend(xAgentMemory             store,
                                  const xAgentMemoryQuery *query,
                                  xAgentMemoryAppendReason reason,
                                  const xAgentSessionMsg *msgs, size_t n_msgs);
@@ -251,15 +250,14 @@ XCAPI(xErrno) xAgentMemoryAppend(xAgentMemory store,
  * eventually call xAgentMemoryReleaseHits to free the result.
  * With NULL @p store the call succeeds with an empty result.
  */
-XCAPI(xErrno) xAgentMemoryRetrieve(xAgentMemory store,
+XCAPI(xErrno) xAgentMemoryRetrieve(xAgentMemory             store,
                                    const xAgentMemoryQuery *query,
-                                   xAgentMemoryHits *out);
+                                   xAgentMemoryHits        *out);
 
 /**
  * @brief Release a previously-retrieved hit set. Zeroes @p hits.
  */
-XCAPI(void) xAgentMemoryReleaseHits(xAgentMemory store,
-                                    xAgentMemoryHits *hits);
+XCAPI(void) xAgentMemoryReleaseHits(xAgentMemory store, xAgentMemoryHits *hits);
 
 /**
  * @brief Notify the store that a session is about to start running
@@ -267,13 +265,13 @@ XCAPI(void) xAgentMemoryReleaseHits(xAgentMemory store,
  *        does not implement on_session_open.
  */
 XCAPI(xErrno) xAgentMemoryOpenSession(xAgentMemory store,
-                                      const char *session_id);
+                                      const char  *session_id);
 
 /**
  * @brief Notify the store that a session has just torn down.
  */
 XCAPI(xErrno) xAgentMemoryCloseSession(xAgentMemory store,
-                                       const char *session_id);
+                                       const char  *session_id);
 
 /**
  * @brief Destroy a memory store. NULL is a no-op.
@@ -291,7 +289,7 @@ XCAPI(void) xAgentMemoryDestroy(xAgentMemory store);
  * @brief Configuration for the built-in JSONL backend.
  *
  * Each session gets its own append-only file at
- *   {root_dir}/sessions/{session_id}/memory.jsonl
+ *   {root_dir}/sessions/{session_id}/history.jsonl
  * and retrieval reads the tail of that file, newest-first. It is
  * intentionally simple — no indexing, no summarisation, no vector
  * search — so callers can compose it with smarter layers on top.

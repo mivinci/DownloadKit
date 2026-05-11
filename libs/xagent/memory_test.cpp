@@ -158,7 +158,7 @@ TEST(xAgentMemoryJsonl, AppendThenRetrieveText) {
             xErrno_Ok);
 
   /* The file should now exist on disk. */
-  std::string path = root + "/sessions/sess1/memory.jsonl";
+  std::string path = root + "/sessions/sess1/history.jsonl";
   ASSERT_TRUE(PathExists(path));
 
   xAgentMemoryHits hits{};
@@ -405,7 +405,7 @@ TEST(xAgentMemoryJsonl, MalformedLinesAreSkipped) {
   /* Prepare a file with one good line sandwiched between garbage. */
   std::string dir = root + "/sessions/default";
   MkdirsP(dir);
-  std::string path = dir + "/memory.jsonl";
+  std::string path = dir + "/history.jsonl";
   {
     std::ofstream f(path.c_str());
     f << "this is not json\n";
@@ -503,7 +503,7 @@ TEST(xAgentMemoryJsonl, AppendPersistsExplicitCreatedAtMs) {
                                &m, 1),
             xErrno_Ok);
 
-  std::string path = root + "/sessions/s/memory.jsonl";
+  std::string path = root + "/sessions/s/history.jsonl";
   std::ifstream f(path);
   ASSERT_TRUE(f.is_open());
   std::string line;
@@ -534,7 +534,7 @@ TEST(xAgentMemoryJsonl, AppendFallsBackToWallClockWhenUnset) {
                                &m, 1),
             xErrno_Ok);
 
-  std::string path = root + "/sessions/s/memory.jsonl";
+  std::string path = root + "/sessions/s/history.jsonl";
   std::ifstream f(path);
   ASSERT_TRUE(f.is_open());
   std::string line;
@@ -565,7 +565,7 @@ TEST(xAgentMemoryJsonl, ReadsLegacyLinesWithoutTs) {
   std::string dir = root + "/sessions/s";
   MkdirsP(dir);
   {
-    std::ofstream f(dir + "/memory.jsonl");
+    std::ofstream f(dir + "/history.jsonl");
     /* Exactly the shape the pre-migration agent wrote. */
     f << "{\"role\":\"user\",\"kind\":\"text\",\"text\":\"legacy\"}\n";
   }
@@ -580,5 +580,138 @@ TEST(xAgentMemoryJsonl, ReadsLegacyLinesWithoutTs) {
             std::string("legacy"));
   xAgentMemoryReleaseHits(store, &hits);
 
+  xAgentMemoryDestroy(store);
+}
+
+/* When a summary entry exists in the JSONL, Retrieve must only
+ * return entries from the last summary onward — everything
+ * before it has been absorbed. This test writes a file with
+ * pre-summary entries, a summary, and post-summary entries, and
+ * verifies that only the summary + post-summary entries come back. */
+TEST(xAgentMemoryJsonl, RetrieveStartsFromLastSummary) {
+  const std::string root = TempRoot("summary_start");
+  xAgentMemoryJsonlConf c{};
+  c.root_dir = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&c);
+  ASSERT_NE(store, nullptr);
+
+  /* Append pre-summary entries. */
+  xAgentMemoryQuery q{};
+  q.session_id = "s";
+  xAgentSessionMsg pre = MakeText(xAgentRole_User, "old_message");
+  ASSERT_EQ(xAgentMemoryAppend(store, &q,
+                               xAgentMemoryAppendReason_Compacted, &pre, 1),
+            xErrno_Ok);
+
+  /* Append the summary entry. */
+  xAgentSessionMsg summary{};
+  summary.role        = xAgentRole_Assistant;
+  summary.kind        = xAgentSessionEntryKind_Text;
+  summary.text        = "[summary] conversation so far";
+  summary.text_len    = std::strlen(summary.text);
+  summary.is_summary = 1;
+  ASSERT_EQ(xAgentMemoryAppend(store, &q,
+                               xAgentMemoryAppendReason_Compacted,
+                               &summary, 1),
+            xErrno_Ok);
+
+  /* Append post-summary entries. */
+  xAgentSessionMsg post1 = MakeText(xAgentRole_User, "new_question");
+  xAgentSessionMsg post2 = MakeText(xAgentRole_Assistant, "new_answer");
+  xAgentSessionMsg post_arr[] = {post1, post2};
+  ASSERT_EQ(xAgentMemoryAppend(store, &q,
+                               xAgentMemoryAppendReason_Explicit,
+                               post_arr, 2),
+            xErrno_Ok);
+
+  /* Retrieve: should get summary + 2 post entries = 3. */
+  xAgentMemoryHits hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
+  ASSERT_EQ(hits.n_entries, size_t{3});
+
+  /* First entry must be the summary. */
+  EXPECT_EQ(hits.entries[0].role, xAgentRole_Assistant);
+  EXPECT_EQ(hits.entries[0].is_summary, 1);
+  EXPECT_NE(std::string(hits.entries[0].text, hits.entries[0].text_len)
+              .find("[summary]"),
+            std::string::npos);
+
+  /* Pre-summary entry must not appear anywhere. */
+  for (size_t i = 0; i < hits.n_entries; i++) {
+    if (hits.entries[i].text) {
+      std::string t(hits.entries[i].text, hits.entries[i].text_len);
+      EXPECT_EQ(t.find("old_message"), std::string::npos)
+          << "pre-summary entry must not be loaded";
+    }
+  }
+
+  xAgentMemoryReleaseHits(store, &hits);
+  xAgentMemoryDestroy(store);
+}
+
+/* When the cap window would include pre-summary entries but the
+ * summary is beyond the cap boundary, we still start from the
+ * summary — even if it means returning fewer entries than @p cap. */
+TEST(xAgentMemoryJsonl, SummaryOverridesCapBoundary) {
+  const std::string root = TempRoot("summary_overrides_cap");
+  xAgentMemoryJsonlConf c{};
+  c.root_dir = root.c_str();
+  /* Set a small default_max_entries so the cap window is tight. */
+  c.default_max_entries = 4;
+  xAgentMemory store = xAgentMemoryJsonlCreate(&c);
+  ASSERT_NE(store, nullptr);
+
+  xAgentMemoryQuery q{};
+  q.session_id = "s";
+
+  /* Write 5 pre-summary entries (more than the cap of 4). */
+  for (int i = 0; i < 5; i++) {
+    std::string text = "pre_" + std::to_string(i);
+    xAgentSessionMsg m = MakeText(xAgentRole_User, text.c_str());
+    ASSERT_EQ(xAgentMemoryAppend(store, &q,
+                                 xAgentMemoryAppendReason_Compacted, &m, 1),
+              xErrno_Ok);
+  }
+
+  /* Write the summary. */
+  xAgentSessionMsg summary{};
+  summary.role        = xAgentRole_Assistant;
+  summary.kind        = xAgentSessionEntryKind_Text;
+  summary.text        = "[summary] compacted history";
+  summary.text_len    = std::strlen(summary.text);
+  summary.is_summary = 1;
+  ASSERT_EQ(xAgentMemoryAppend(store, &q,
+                               xAgentMemoryAppendReason_Compacted,
+                               &summary, 1),
+            xErrno_Ok);
+
+  /* Write 2 post-summary entries. */
+  xAgentSessionMsg post1 = MakeText(xAgentRole_User, "after_summary");
+  xAgentSessionMsg post2 = MakeText(xAgentRole_Assistant, "response");
+  xAgentSessionMsg post_arr[] = {post1, post2};
+  ASSERT_EQ(xAgentMemoryAppend(store, &q,
+                               xAgentMemoryAppendReason_Explicit,
+                               post_arr, 2),
+            xErrno_Ok);
+
+  /* With cap=4, the tail window would normally be entries 4-7
+   * (the last 4 of 8). But the summary is at index 5, so
+   * take_from should be 5, returning entries 5,6,7 = 3. */
+  xAgentMemoryHits hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
+  ASSERT_EQ(hits.n_entries, size_t{3});
+
+  /* First must be summary. */
+  EXPECT_EQ(hits.entries[0].is_summary, 1);
+
+  /* No pre-summary entries. */
+  for (size_t i = 0; i < hits.n_entries; i++) {
+    if (hits.entries[i].text) {
+      std::string t(hits.entries[i].text, hits.entries[i].text_len);
+      EXPECT_EQ(t.find("pre_"), std::string::npos);
+    }
+  }
+
+  xAgentMemoryReleaseHits(store, &hits);
   xAgentMemoryDestroy(store);
 }

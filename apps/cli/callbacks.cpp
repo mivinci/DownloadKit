@@ -227,8 +227,7 @@ void on_error(xAgentSession sess, xErrno err, const char *msg, void *ud) {
    * typically switch to Summarize or a Callback policy. */
   if (err == xErrno_PromptTooLong) {
     above_printf(ctx->line, "\x1b[1;31m        hit budget cap — raise "
-                            "sconf.budget.context_window or lower "
-                            "keep_recent_turns\x1b[0m");
+                            "sconf.budget.context_window\x1b[0m");
   }
   ctx->busy = false;
 }
@@ -262,46 +261,17 @@ void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
                    "\x1b[2m[budget] compact done — summary %zu tokens, "
                    "%zu entries affected\x1b[0m",
                    cdi->summary_tokens, cdi->entries_affected);
-      /* Compact succeeded — session is idle again, retry the stashed
-       * user message. */
-      if (ctx->pending_retry && ctx->pending_text) {
-        char *text         = ctx->pending_text;
-        ctx->pending_text  = nullptr;
-        ctx->pending_retry = false;
-        (void)repl_submit_text(ctx, text);
-        std::free(text);
-      }
+      /* Session auto-retries the pending message internally. */
     } else {
       /* Compact failed (empty summary / OOM / provider error). The
-       * session left history untouched — re-submitting the same text
-       * would just hit the gate again and loop forever. Drop the
-       * pending text and surface a clear error so the user can
-       * decide: /clear, shorten input, or adjust context_window. */
+       * session left history untouched. Surface a clear error so the
+       * user can decide: /clear, shorten input, or adjust
+       * context_window. */
       above_printf(
           ctx->line,
-          "\x1b[1;31m[error] compact failed — history unchanged. Your "
-          "last message was not sent. Try /clear or a shorter prompt."
-          "\x1b[0m");
-      if (ctx->pending_text) {
-        std::free(ctx->pending_text);
-        ctx->pending_text = nullptr;
-      }
-      ctx->pending_retry = false;
+          "\x1b[1;31m[error] compact failed — history unchanged. Try "
+          "/clear or a shorter prompt.\x1b[0m");
     }
-    break;
-  }
-  case xAgentBudgetEvent_Truncated: {
-    auto *ti = static_cast<const xAgentBudgetTruncateInfo *>(info);
-    above_printf(ctx->line, "\x1b[2m[budget] truncated %zu old entries\x1b[0m",
-                 ti ? ti->entries_removed : (size_t)0);
-    break;
-  }
-  case xAgentBudgetEvent_ToolResultsTrimmed: {
-    auto *ti = static_cast<const xAgentBudgetToolResultsTrimmedInfo *>(info);
-    above_printf(ctx->line,
-                 "\x1b[2m[budget] trimmed %zu tool results (~%zd bytes)\x1b[0m",
-                 ti ? ti->entries_trimmed : (size_t)0,
-                 ti ? ti->bytes_freed : (ssize_t)0);
     break;
   }
   case xAgentBudgetEvent_GatePassed: {

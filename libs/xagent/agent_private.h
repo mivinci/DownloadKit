@@ -129,10 +129,9 @@ struct xAgent_ {
   /**
    * Optional pluggable memory store supplied at Create time.
    * Borrowed from xAgentConf::memory; may be NULL. When non-NULL
-   * the agent routes every session's on_l1_preserve callback
-   * through xAgentMemoryAppend() and primes newly-created
-   * sessions from it. NULL disables cross-run persistence
-   * entirely — sessions run in-memory only.
+   * the agent wires it into every session it creates and primes
+   * newly-created sessions from it. NULL disables cross-run
+   * persistence entirely — sessions run in-memory only.
    */
   xAgentMemory memory;
 

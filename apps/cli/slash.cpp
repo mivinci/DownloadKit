@@ -439,24 +439,14 @@ static void slash_cmd_model(ReplCtx *ctx, const char *args) {
    * built-in defaults <- top-level "budget" <- the selected
    * entry's "budget", so any field this entry doesn't override
    * cleanly falls back through the layers. We then splice the
-   * startup defaults back in for fields the cascade left at zero
-   * — without this, switching to an entry that didn't set
-   * keep_recent_turns would silently let it drop to zero and
-   * remove the floor that protects the most recent turn. The
-   * resulting conf is pushed into the session as a single bulk
-   * update via xAgentSessionSetBudget; policy and the event
+   * startup default back in for context_window if the cascade
+   * left it at zero. The resulting conf is pushed into the
+   * session via xAgentSessionSetBudget; policy and the event
    * callback pair are NOT touched (the session keeps the values
    * main.cpp installed at create time). */
   if (ctx->model_cfg) {
     xAgentBudgetConf b = cli_model_config_resolve_budget(ctx->model_cfg, args);
-    if (b.context_window == 0)        b.context_window        = ctx->default_budget.context_window;
-    if (b.keep_recent_turns == 0)     b.keep_recent_turns     = ctx->default_budget.keep_recent_turns;
-    if (b.keep_head_turns == 0)       b.keep_head_turns       = ctx->default_budget.keep_head_turns;
-    if (b.max_tool_result_bytes == 0) b.max_tool_result_bytes = ctx->default_budget.max_tool_result_bytes;
-    if (b.trim_tool_results_threshold == 0)
-      b.trim_tool_results_threshold = ctx->default_budget.trim_tool_results_threshold;
-    if (b.summarize_max_tokens == 0)
-      b.summarize_max_tokens = ctx->default_budget.summarize_max_tokens;
+    if (b.context_window == 0) b.context_window = ctx->default_budget.context_window;
     xAgentSessionSetBudget(ctx->sess, &b);
   }
 

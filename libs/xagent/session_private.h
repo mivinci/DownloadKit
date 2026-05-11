@@ -110,15 +110,19 @@ struct xAgentSession_ {
    * launches an internal summary Query that compresses old history
    * into one System entry. During this compaction:
    *   - compacting == 1 signals "compact query in flight";
-   *   - compact_end_idx records the exclusive end of the range
-   *     [0..compact_end_idx) that will be replaced by one summary;
+  *   - compact_start_idx records the inclusive start of the
+  *     range that will be replaced by one summary;
+  *   - compact_end_idx records the exclusive end of the range
+  *     [compact_start_idx..compact_end_idx) that will be
+  *     replaced by one summary;
    *   - budget enforcement is implicitly disabled because the
    *     compact Query is driven by session_enforce_budget_ which
    *     gates on s->compacting, preventing recursive budget checks.
    *
    * All are zero when no compact is in progress. */
-  int    compacting;        /* 1 = compact query in flight              */
-  size_t compact_end_idx;   /* exclusive end of range to replace        */
+  int    compacting;          /* 1 = compact query in flight              */
+  size_t compact_start_idx;   /* inclusive start of range to replace      */
+  size_t compact_end_idx;     /* exclusive end of range to replace        */
 
   /* ── Compact anti-loop guard ─────────────────────────────────────
    *

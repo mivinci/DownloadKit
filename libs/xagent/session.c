@@ -677,11 +677,12 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
    * knows to wait. sess_fwd_on_done handles the compact completion
    * and auto-retries the pending input.
    *
-   * The compact replaces history[0..compact_end_idx) with one
-   * summary entry. compact_end_idx is determined by the
-   * context_compact_head setting: we keep the last N user turns
-   * (and any interleaved tool chatter), and compress everything
-   * before them. N defaults to 1. */
+   * The compact replaces history[compact_start..compact_end) with
+   * one summary entry. compact_start is the index of the user turn
+   * at position context_compact_head (the first turn to compact);
+   * compact_end is the index of the last user turn. The first
+   * context_compact_head turns (0-based) are preserved as the
+   * conversation head context. Default context_compact_head = 1. */
   switch (s->budget.policy) {
   case xAgentBudgetPolicy_Error:
     return xErrno_PromptTooLong;
@@ -700,31 +701,41 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     /* If no user turns, there's nothing meaningful to compact. */
     if (user_count == 0) return xErrno_PromptTooLong;
 
-    /* Determine how many recent turns to keep.
+    /* Determine how many earliest turns to keep.
      * context_compact_head = 0 is treated as 1. */
-    size_t keep_turns = s->budget.context_compact_head;
-    if (keep_turns == 0) keep_turns = 1;
+    size_t keep_head = s->budget.context_compact_head;
+    if (keep_head == 0) keep_head = 1;
 
-    /* Find the user turn at (user_count - keep_turns) →
-     * compact_end. history[0..compact_end) will be replaced.
-     * If there aren't enough turns to keep, refuse. */
-    if (keep_turns >= user_count) return xErrno_PromptTooLong;
+    /* Not enough turns to compact. */
+    if (keep_head >= user_count) return xErrno_PromptTooLong;
+
+    /* compact_start = index of the first user turn to compact
+     * (= user turn at position keep_head).
+     * compact_end = index of the last user turn (exclusive boundary
+     * for the replaced range). The last turn is always kept so
+     * the summary sits between the head and the tail. */
+    size_t compact_start =
+      ai_budget_find_user_turn(msgs_view, hlen, keep_head);
     size_t compact_end =
-      ai_budget_find_user_turn(msgs_view, hlen, user_count - keep_turns);
-    if (compact_end == XAGENT_BUDGET_NO_SUCH_TURN || compact_end == 0) {
+      ai_budget_find_user_turn(msgs_view, hlen, user_count - 1);
+    if (compact_start == XAGENT_BUDGET_NO_SUCH_TURN ||
+        compact_end == XAGENT_BUDGET_NO_SUCH_TURN ||
+        compact_start >= compact_end) {
       return xErrno_PromptTooLong;
     }
 
     /* Pre-flight: will compact actually help? If the tokens in
-     * [0, compact_end) are no larger than a typical summary,
-     * compacting would not save anything (or make things worse).
-     * The minimum viable band scales with context_window:
-     * context_window / 400 (min 16 tokens). */
+     * [compact_start, compact_end) are no larger than a typical
+     * summary, compacting would not save anything. */
     {
       size_t min_mid = limit / 400;
       if (min_mid < 16) min_mid = 16;
 
-      size_t mid_tokens = ai_budget_estimate_tokens(msgs_view, compact_end);
+      size_t head_tokens =
+        ai_budget_estimate_tokens(msgs_view, compact_start);
+      size_t total_tokens =
+        ai_budget_estimate_tokens(msgs_view, compact_end);
+      size_t mid_tokens = total_tokens - head_tokens;
 
       if (mid_tokens <= min_mid) {
         return xErrno_PromptTooLong;
@@ -774,6 +785,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     }
 
     /* Record compact boundary and anti-loop state. */
+    s->compact_start_idx        = compact_start;
     s->compact_end_idx          = compact_end;
     s->last_compact_history_len = hlen;
 
@@ -788,14 +800,16 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     /* Build the conversation view for history[0..compact_end)
      * using sess_input_view_build so the message array is
      * byte-identical to what a normal request would produce —
-     * maximising prompt cache hit rate. We then append a summary
-     * instruction as the final User message. */
+     * maximising prompt cache hit rate. The summary instruction
+     * tells the model to summarize from the compact_start turn.
+     * We then append a summary instruction as the final User
+     * message. */
     struct sess_input_view_ hist_view;
     xErrno                  vrc =
       sess_input_view_build(s, /*hits=*/NULL, compact_end, &hist_view);
     if (vrc != xErrno_Ok) return xErrno_PromptTooLong;
 
-    const size_t keep = compact_end;
+    const size_t keep = compact_end - compact_start;
     char         summary_instr[512];
     snprintf(summary_instr, sizeof(summary_instr),
              XAGENT_SUMMARY_INSTRUCT_PROMPT, keep);
@@ -1630,22 +1644,25 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
     }
 
     /* Compact succeeded (we got a non-empty summary) — splice the
-     * summary into history, replacing entries [0, compact_end_idx).
-     * Compact failed (empty / OOM) — leave history untouched. */
-    size_t compact_end = s->compact_end_idx;
-    int    compact_ok  = (summary_text != NULL && summary_bytes > 0);
+     * summary into history, replacing entries
+     * [compact_start, compact_end). Compact failed (empty / OOM) —
+     * leave history untouched. */
+    size_t compact_start = s->compact_start_idx;
+    size_t compact_end   = s->compact_end_idx;
+    int    compact_ok    = (summary_text != NULL && summary_bytes > 0);
 
     if (compact_ok) {
       /* L1 preserve: deliver the about-to-be-replaced entries
-       * [0, compact_end) before they are swapped out by the
-       * summary. Entries already in the external store
+       * [compact_start, compact_end) before they are swapped out
+       * by the summary. Entries already in the external store
        * (persisted_prefix) are skipped so compaction doesn't
        * re-append them. */
-      if (s->on_l1_preserve && compact_end > 0) {
-        size_t skip_start = 0;
-        if (s->persisted_prefix > 0) {
-          skip_start = s->persisted_prefix < compact_end ? s->persisted_prefix
-                                                         : compact_end;
+      if (s->on_l1_preserve && compact_end > compact_start) {
+        size_t skip_start = compact_start;
+        if (s->persisted_prefix > compact_start) {
+          skip_start = s->persisted_prefix < compact_end
+                         ? s->persisted_prefix
+                         : compact_end;
         }
         if (compact_end > skip_start) {
           s->on_l1_preserve(
@@ -1656,20 +1673,19 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
         }
       }
 
-      /* Remove entries [0, compact_end). */
-      if (compact_end > 0) {
-        xArrayRemoveRange(s->history_arr, 0, compact_end);
-        /* Keep persisted_prefix consistent. Rows in [0, compact_end)
-         * just left history_arr, so the persisted prefix shrinks by
-         * the overlap. */
-        if (s->persisted_prefix > compact_end) {
-          s->persisted_prefix -= compact_end;
-        } else {
-          s->persisted_prefix = 0;
-        }
+      /* Remove entries [compact_start, compact_end). */
+      size_t remove_count = compact_end - compact_start;
+      xArrayRemoveRange(s->history_arr, compact_start, remove_count);
+      /* Keep persisted_prefix consistent. If the compacted range
+       * overlaps with the persisted prefix, adjust it. */
+      if (s->persisted_prefix > compact_start) {
+        size_t overlap_end = s->persisted_prefix < compact_end
+                               ? s->persisted_prefix
+                               : compact_end;
+        s->persisted_prefix -= (overlap_end - compact_start);
       }
 
-      /* Build the summary entry and insert at index 0. */
+      /* Build the summary entry and insert at compact_start. */
       struct xAgentSessionMsg_ summary_entry;
       memset(&summary_entry, 0, sizeof(summary_entry));
       summary_entry.role          = xAgentRole_Assistant;
@@ -1679,7 +1695,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       summary_entry.created_at_ms = xWallMs();
       summary_entry.is_summary    = 1;
 
-      if (xArrayInsert(&s->history_arr, 0, &summary_entry) != xErrno_Ok) {
+      if (xArrayInsert(&s->history_arr, compact_start, &summary_entry)
+          != xErrno_Ok) {
         /* OOM on insert — free the summary text and degrade. */
         free(summary_text);
         compact_ok = 0;
@@ -1695,16 +1712,22 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
          * we skip this, the summary will never reach disk and the
          * next prime will find a gap. */
         if (s->on_l1_preserve) {
-          const xAgentSessionMsg *sum_ptr =
+          const xAgentSessionMsg *base =
             (const xAgentSessionMsg *)xArrayData(s->history_arr);
-          s->on_l1_preserve((xAgentSession)s, sum_ptr, 1,
+          s->on_l1_preserve((xAgentSession)s, base + compact_start, 1,
                             xAgentL1PreserveReason_Compacted,
                             s->l1_preserve_owner);
         }
-        /* The summary is now a persisted head entry. Ensure
-         * persisted_prefix covers it so future flushes don't
-         * re-append it. */
-        if (s->persisted_prefix < 1) s->persisted_prefix = 1;
+        /* The summary is now at index compact_start and is a
+         * persisted entry. Ensure persisted_prefix covers it
+         * so future flushes don't re-append it. Since entries
+         * before compact_start were already persisted (they
+         * were the head we preserved), the prefix should now
+         * cover up to and including the summary. */
+        size_t new_prefix = compact_start + 1;
+        if (s->persisted_prefix < new_prefix) {
+          s->persisted_prefix = new_prefix;
+        }
       }
     }
 
@@ -1720,8 +1743,9 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
     }
 
     /* Reset compacting state. */
-    s->compacting      = 0;
-    s->compact_end_idx = 0;
+    s->compacting        = 0;
+    s->compact_start_idx = 0;
+    s->compact_end_idx   = 0;
 
     /* Invalidate incremental bookkeeping when history actually
      * changed (compact_ok). On failure history is intact, so the

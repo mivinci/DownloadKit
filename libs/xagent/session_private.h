@@ -104,6 +104,12 @@ struct xAgentSession_ {
    * estimated vs actual. */
   int last_first_round_prompt_tokens;
 
+  /* Token overhead that the budget gate must reserve for non-history
+   * consumers: system_prompt + memory hits. These are estimated once
+   * and cached so the gate doesn't re-estimate on every call.
+   * Updated after each view build / prompt submission. */
+  size_t overhead_tokens;
+
   /* ── Compact-in-progress state (Summarize policy) ──────
    *
    * When the budget gate fires on Summarize, the Session

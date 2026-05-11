@@ -394,71 +394,6 @@ XDEF_STRUCT(xAgentSessionMsg) {
 };
 
 /**
- * @brief Why the L1 preserve callback was invoked.
- *
- * The reason tells the consumer whether this is an incremental
- * slice (entries about to be trimmed/compacted) or the final
- * full delivery (session teardown).
- */
-XDEF_ENUM(xAgentL1PreserveReason){
-  /** TruncateTail: tail-end entries [n, end) are about to be
-   *  silently dropped, preserving the prefix for prompt caching.
-   *  The @p n parameter in the callback indicates the first entry
-   *  being dropped; entries [0, n) survive as the cache-stable
-   *  prefix. */
-  xAgentL1PreserveReason_Truncated = 0,
-
-  /** Summarize compact: entries [0, n) are about to be
-   *  replaced by a summary (this is a head-trimming operation,
-   *  so the [0, n) range remains correct). The consumer may want
-   *  to keep the original entries for full-fidelity L1 storage
-   *  even though a summary will replace them in the session's
-   *  history. */
-  xAgentL1PreserveReason_Compacted = 1,
-
-  /** Session teardown: the full remaining history is being
-   *  delivered as a final L1 snapshot. This fires from
-   *  xAgentSessionDestroy before any session-owned storage is
-   *  released. */
-  xAgentL1PreserveReason_Finalizing = 2,
-};
-
-/**
- * @brief L1 memory-preservation callback, fired when the session
- *        is about to discard history entries (due to a budget
- *        policy like TruncateTail or Summarize compact).
- *
- * The callback receives a read-only slice of the entries that are
- * about to be removed from the session's rolling history. The
- * Agent layer (or any registered consumer) can deep-copy them
- * into its own L1 store before they are lost.
- *
- * Additionally, this callback fires once during xAgentSessionDestroy
- * with @p reason == @ref xAgentL1PreserveReason_Finalizing and the
- * full remaining history, so that sessions that never triggered a
- * budget event still deliver their complete conversation to L1.
- *
- * Semantics:
- *   - Entries are only valid for the duration of the callback —
- *     the caller must deep-copy anything it wants to retain.
- *   - The callback runs on the agent event loop.
- *   - NULL = no L1 preservation, which is the default.
- *
- * @param sess     The session.
- * @param msgs     Read-only array of entries about to be lost.
- * @param n_msgs   Number of entries in @p msgs.
- * @param reason   Why the entries are being preserved.
- * @param owner    The xAgentSessionConf::l1_preserve_owner pointer.
- *
- * @see xAgentL1PreserveReason — why the callback was invoked.
- */
-typedef void (*xAgentSessionL1PreserveFunc)(xAgentSession           sess,
-                                            const xAgentSessionMsg *msgs,
-                                            size_t                  n_msgs,
-                                            xAgentL1PreserveReason  reason,
-                                            void                   *owner);
-
-/**
  * @brief Strategy for keeping the serialized prompt under the
  *        session's token budget.
  *
@@ -772,22 +707,6 @@ XDEF_STRUCT(xAgentSessionConf) {
                                                      @ref on_finalizing. */
 
   /**
-   * @brief Optional L1 memory-preservation callback, paired with
-   *        @ref l1_preserve_owner.
-   *
-   * Fires when the session is about to discard history entries
-   * (TruncateTail / Summarize compact), and once at
-   * teardown with the full remaining history. The Agent layer
-   * uses this to capture the complete conversation before any
-   * information is lost. Leave NULL if not used.
-   *
-   * @see xAgentSessionL1PreserveFunc for the full callback contract.
-   */
-  xAgentSessionL1PreserveFunc on_l1_preserve;
-  void                       *l1_preserve_owner; /**< Passed back to
-                                                      @ref on_l1_preserve. */
-
-  /**
    * @brief Unique identifier for this session instance.
    *
    * Used by the agent's pluggable memory store (see
@@ -799,6 +718,24 @@ XDEF_STRUCT(xAgentSessionConf) {
    * xAgentCreateSession(). Readable via xAgentSessionId().
    */
   const char *session_id;
+
+  /**
+   * @brief Memory store for persistence (borrowed, may be NULL).
+   *
+   * When non-NULL, the session writes history entries to this store
+   * on compact and finalization. Typically set by the agent in
+   * xAgentCreateSession().
+   */
+  xAgentMemory memory;
+
+  /**
+   * @brief Owned copy of session_id for memory store writes.
+   *
+   * Must survive session teardown so the Finalizing append can
+   * reference it. Freed in xAgentSessionDestroy after the
+   * Finalizing append completes. Typically set by the agent.
+   */
+  char *session_id_copy;
 
   /**
    * @brief Idle timeout (in ms) before launching a sidecar Query

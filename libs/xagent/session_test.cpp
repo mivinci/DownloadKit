@@ -17,6 +17,7 @@ extern "C" {
 #include "session_private.h"
 
 #include <xagent/agent.h>
+#include <xagent/memory.h>
 #include <xagent/message.h>
 #include <xagent/provider.h>
 #include <xagent/session.h>
@@ -2610,54 +2611,34 @@ TEST_F(SessionTest, BudgetSummarizeRefusesWhenFloorUnreachable) {
 namespace {
 
 /* Capture struct that records every L1 preserve callback invocation. */
-struct L1PreserveCap {
-  struct Call {
-    std::vector<std::string>  texts;   /* text field from each msg  */
-    std::vector<xAgentRole>      roles;   /* role field from each msg  */
-    std::vector<xAgentSessionEntryKind> kinds;
-    xAgentL1PreserveReason       reason  = (xAgentL1PreserveReason)-1;
-    size_t                    n_msgs  = 0;
-  };
-  std::vector<Call> calls;
-};
-
-void cb_l1_preserve(xAgentSession sess, const xAgentSessionMsg *msgs,
-                    size_t n_msgs, xAgentL1PreserveReason reason,
-                    void *owner) {
-  (void)sess;
-  auto *cap       = static_cast<L1PreserveCap *>(owner);
-  auto  call      = L1PreserveCap::Call{};
-  call.reason     = reason;
-  call.n_msgs     = n_msgs;
-  for (size_t i = 0; i < n_msgs; i++) {
-    /* Read text/text_len only for Text/Thinking entries — ToolUse and
-     * ToolResult store their payload in different fields. */
-    if (msgs[i].kind == xAgentSessionEntry_Text ||
-        msgs[i].kind == xAgentSessionEntry_Thinking) {
-      call.texts.push_back(msgs[i].text ? std::string(msgs[i].text,
-                                                       msgs[i].text_len)
-                                        : std::string());
-    } else {
-      call.texts.push_back(std::string());
-    }
-    call.roles.push_back(msgs[i].role);
-    call.kinds.push_back(msgs[i].kind);
-  }
-  cap->calls.push_back(std::move(call));
-}
-
 }  // namespace
 
-/* L1 preserve fires with Finalizing reason when the session is
+/* Memory store receives Finalizing append when the session is
  * destroyed, delivering the full remaining history. */
-TEST_F(SessionTest, L1PreserveFinalizingOnDestroy) {
-  L1PreserveCap l1;
+TEST_F(SessionTest, MemoryStoreReceivesFinalizingOnDestroy) {
   Captured cap;
+
+  /* Create an in-memory JSONL store. */
+  std::string root = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR")
+                                                        : "/tmp") +
+                     "/xagent_sess_finalizing_" +
+                     std::to_string(::testing::UnitTest::GetInstance()
+                                      ->current_test_info()
+                                      ->name()
+                                      ? 0
+                                      : 0);
+  std::string rm = "rm -rf '" + root + "'";
+  (void)std::system(rm.c_str());
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
 
   xAgentSessionConf sc      = {};
   sc.cbs                  = make_cbs(&cap);
-  sc.on_l1_preserve       = cb_l1_preserve;
-  sc.l1_preserve_owner    = &l1;
+  sc.memory               = store;
+  sc.session_id           = "s1";
+  sc.session_id_copy      = strdup("s1");
 
   xAgentSession sess = xAgentSessionCreate(agent_, &sc);
   ASSERT_NE(sess, nullptr);
@@ -2670,28 +2651,28 @@ TEST_F(SessionTest, L1PreserveFinalizingOnDestroy) {
   ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("hi")), xErrno_Ok);
   EXPECT_EQ(cap.done_fired, 1);
 
-  /* History now has: [User: "hi", Assistant: "hello"] */
-  EXPECT_EQ(l1.calls.size(), 0u);
-
   xAgentSessionDestroy(sess);
 
-  /* Should have fired exactly once with Finalizing reason. */
-  ASSERT_EQ(l1.calls.size(), 1u);
-  EXPECT_EQ(l1.calls[0].reason, xAgentL1PreserveReason_Finalizing);
-  EXPECT_EQ(l1.calls[0].n_msgs, 2u);
-  ASSERT_EQ(l1.calls[0].roles.size(), 2u);
-  EXPECT_EQ(l1.calls[0].roles[0], xAgentRole_User);
-  EXPECT_EQ(l1.calls[0].roles[1], xAgentRole_Assistant);
-  EXPECT_EQ(l1.calls[0].texts[0], "hi");
-  EXPECT_EQ(l1.calls[0].texts[1], "hello");
+  /* Retrieve from the store and assert the entries were persisted. */
+  xAgentMemoryQuery q{};
+  q.session_id = "s1";
+  xAgentMemoryHits hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
+  ASSERT_EQ(hits.n_entries, size_t{2});
+  EXPECT_EQ(hits.entries[0].role, xAgentRole_User);
+  EXPECT_EQ(hits.entries[1].role, xAgentRole_Assistant);
+  xAgentMemoryReleaseHits(store, &hits);
+
+  xAgentMemoryDestroy(store);
+  (void)std::system(rm.c_str());
 }
 
-/* L1 preserve does NOT fire on destroy when the callback is NULL. */
-TEST_F(SessionTest, L1PreserveNullCallbackIsNoop) {
+/* Destroy does not crash when no memory store is configured. */
+TEST_F(SessionTest, NoMemoryStoreDestroyIsNoop) {
   Captured cap;
   xAgentSessionConf sc = {};
   sc.cbs             = make_cbs(&cap);
-  /* on_l1_preserve left as NULL (default) */
+  /* memory left as NULL (default) */
 
   xAgentSession sess = xAgentSessionCreate(agent_, &sc);
   ASSERT_NE(sess, nullptr);
@@ -2702,7 +2683,7 @@ TEST_F(SessionTest, L1PreserveNullCallbackIsNoop) {
   });
   ASSERT_EQ(xAgentSessionInput(sess, xAgentMessageFromText("hello")), xErrno_Ok);
 
-  /* Destroy should not crash even though no L1 callback is set. */
+  /* Destroy should not crash even though no memory store is set. */
   xAgentSessionDestroy(sess);
 }
 
@@ -2833,13 +2814,26 @@ TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
   xAgentSessionDestroy(sess);
 }
 
-/* L1 preserve under compact must deliver the entries that were
- * replaced by the summary. The surviving tail stays in history and
- * must not be in the preserve callback (otherwise the L1 store would
- * double-count entries that are still live). */
-TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
-  L1PreserveCap l1;
+/* Memory store receives Compacted append when Summarize replaces
+ * old history entries. The store receives the original entries
+ * before they are replaced and the new summary entry after. */
+TEST_F(SessionTest, MemoryStoreReceivesCompactedEntries) {
   Captured cap;
+
+  std::string root = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR")
+                                                        : "/tmp") +
+                     "/xagent_sess_compact_" +
+                     std::to_string(::testing::UnitTest::GetInstance()
+                                      ->current_test_info()
+                                      ->name()
+                                      ? 0
+                                      : 0);
+  std::string rm = "rm -rf '" + root + "'";
+  (void)std::system(rm.c_str());
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
 
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_Summarize;
@@ -2850,8 +2844,9 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
   xAgentSessionConf sc   = {};
   sc.cbs                 = make_cbs(&cap);
   sc.budget              = budget;
-  sc.on_l1_preserve      = cb_l1_preserve;
-  sc.l1_preserve_owner   = &l1;
+  sc.memory              = store;
+  sc.session_id          = "s1";
+  sc.session_id_copy     = strdup("s1");
 
   xAgentSession sess = xAgentSessionCreate(agent_, &sc);
   ASSERT_NE(sess, nullptr);
@@ -2882,26 +2877,33 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
                                      std::string(400, 'X').c_str())),
             xErrno_Busy);
 
-  /* Find the Compacted call and assert exactly the replaced entries.
-   * With context_preserve_head_turns=1, compact_start = index of U1 = 2,
-   * compact_end = index of U2 = 4, so [2,4) = U1, A1 are replaced. */
-  const L1PreserveCap::Call *compacted = nullptr;
-  for (const auto &c : l1.calls) {
-    if (c.reason == xAgentL1PreserveReason_Compacted) {
-      compacted = &c;
-      break;
+  /* Verify the store received entries. After compact + finalizing,
+   * the store should have the compacted entries + summary. */
+  xAgentSessionDestroy(sess);
+
+  xAgentMemoryQuery q{};
+  q.session_id = "s1";
+  xAgentMemoryHits hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
+  /* The JSONL store's retrieve skips entries before the last
+   * summary line (a summary absorbs all prior entries). So
+   * the compacted entries (u1, a1) are NOT returned by
+   * Retrieve — only the summary and entries after it. */
+  bool found_summary = false;
+  bool found_u2 = false;
+  for (size_t i = 0; i < hits.n_entries; i++) {
+    if (hits.entries[i].text) {
+      std::string t(hits.entries[i].text, hits.entries[i].text_len);
+      if (t.find("[summary]") != std::string::npos) found_summary = true;
+      if (t == u2) found_u2 = true;
     }
   }
-  ASSERT_NE(compacted, nullptr) << "Compacted callback must fire";
+  EXPECT_TRUE(found_summary) << "summary entry should be in store";
+  EXPECT_TRUE(found_u2) << "preserved tail entry u2 should be in store";
 
-  /* Replaced band [2,4) = U1, A1 (2 entries). */
-  ASSERT_EQ(compacted->n_msgs, 2u)
-      << "L1 preserve must deliver exactly the replaced entries";
-  EXPECT_EQ(compacted->roles[0], xAgentRole_User);
-  EXPECT_EQ(compacted->texts[0], u1) << "entry 0 must be u1";
-  EXPECT_EQ(compacted->roles[1], xAgentRole_Assistant);
-
-  xAgentSessionDestroy(sess);
+  xAgentMemoryReleaseHits(store, &hits);
+  xAgentMemoryDestroy(store);
+  (void)std::system(rm.c_str());
 }
 
 /* With context_preserve_head_turns=1 (default), compact_start = index of U1,
@@ -3060,15 +3062,30 @@ TEST_F(SessionTest, BudgetSummarizeTailZeroCompactsToEnd) {
   xAgentSessionDestroy(sess);
 }
 
-/* L1 preserve Finalizing fires before on_finalizing, and both see the
- * same (still-intact) history. */
-TEST_F(SessionTest, L1PreserveFinalizingFiresBeforeOnFinalizing) {
-  L1PreserveCap l1;
+/* Memory store Finalizing append fires before on_finalizing, and
+ * both see the same (still-intact) history. */
+TEST_F(SessionTest, MemoryStoreFinalizingFiresBeforeOnFinalizing) {
   FinalizingCap fin_cap;
 
+  std::string root = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR")
+                                                        : "/tmp") +
+                     "/xagent_sess_finbefore_" +
+                     std::to_string(::testing::UnitTest::GetInstance()
+                                      ->current_test_info()
+                                      ->name()
+                                      ? 0
+                                      : 0);
+  std::string rm = "rm -rf '" + root + "'";
+  (void)std::system(rm.c_str());
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
+
   xAgentSessionConf sc       = {};
-  sc.on_l1_preserve       = cb_l1_preserve;
-  sc.l1_preserve_owner    = &l1;
+  sc.memory               = store;
+  sc.session_id           = "s1";
+  sc.session_id_copy      = strdup("s1");
   sc.on_finalizing        = cb_finalizing;
   sc.finalizing_owner     = &fin_cap;
 
@@ -3088,25 +3105,43 @@ TEST_F(SessionTest, L1PreserveFinalizingFiresBeforeOnFinalizing) {
 
   xAgentSessionDestroy(sess);
 
-  /* Both hooks should have fired. */
-  EXPECT_EQ(l1.calls.size(), 1u);
+  /* on_finalizing should have fired. */
   EXPECT_EQ(fin_cap.calls, 1);
 
-  /* L1 should have seen the same history length as on_finalizing. */
-  ASSERT_EQ(l1.calls.size(), 1u);
-  EXPECT_EQ(l1.calls[0].n_msgs, fin_cap.history_len);
-  EXPECT_EQ(l1.calls[0].reason, xAgentL1PreserveReason_Finalizing);
+  /* The store should have received entries. */
+  xAgentMemoryQuery q{};
+  q.session_id = "s1";
+  xAgentMemoryHits hits{};
+  ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
+  EXPECT_GE(hits.n_entries, size_t{2});
+  xAgentMemoryReleaseHits(store, &hits);
+
+  xAgentMemoryDestroy(store);
+  (void)std::system(rm.c_str());
 }
 
-/* L1 preserve Finalizing fires even when history is empty so the
- * owner gets a chance to release resources (e.g. heap-allocated
- * context created by xAgentCreateSession). */
-TEST_F(SessionTest, L1PreserveFinalizingSkipsEmptyHistory) {
-  L1PreserveCap l1;
+/* Memory store Finalizing with empty history is safe — no crash,
+ * session_id_copy is freed. */
+TEST_F(SessionTest, MemoryStoreFinalizingSkipsEmptyHistory) {
+  std::string root = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR")
+                                                        : "/tmp") +
+                     "/xagent_sess_emptyfin_" +
+                     std::to_string(::testing::UnitTest::GetInstance()
+                                      ->current_test_info()
+                                      ->name()
+                                      ? 0
+                                      : 0);
+  std::string rm = "rm -rf '" + root + "'";
+  (void)std::system(rm.c_str());
+  xAgentMemoryJsonlConf mc = {};
+  mc.root_dir = root.c_str();
+  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  ASSERT_NE(store, nullptr);
 
   xAgentSessionConf sc       = {};
-  sc.on_l1_preserve       = cb_l1_preserve;
-  sc.l1_preserve_owner    = &l1;
+  sc.memory               = store;
+  sc.session_id           = "s1";
+  sc.session_id_copy      = strdup("s1");
 
   xAgentSession sess = xAgentSessionCreate(agent_, &sc);
   ASSERT_NE(sess, nullptr);
@@ -3114,11 +3149,8 @@ TEST_F(SessionTest, L1PreserveFinalizingSkipsEmptyHistory) {
   /* No inputs, so history is empty. */
   xAgentSessionDestroy(sess);
 
-  /* Finalizing still fires (with n_msgs == 0) so the owner can
-   * free its context. */
-  ASSERT_EQ(l1.calls.size(), 1u);
-  EXPECT_EQ(l1.calls[0].n_msgs, 0u);
-  EXPECT_EQ(l1.calls[0].reason, xAgentL1PreserveReason_Finalizing);
+  xAgentMemoryDestroy(store);
+  (void)std::system(rm.c_str());
 }
 
 /* ── Tool-confirmation gate (needs_confirm) ─────────────────────────

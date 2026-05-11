@@ -27,65 +27,6 @@
 
 #include <xagent/memory.h>
 
-/* ── L1 memory persistence ───────────────────────────────────────────
- *
- * When the agent is configured with an xAgentMemory store, it
- * auto-wires an L1 preserve callback into every session it creates.
- * The callback routes each persist batch (Truncated / Compacted /
- * Finalizing) through xAgentMemoryAppend(), letting the store decide
- * where and how to persist. Without a memory store configured the
- * agent does nothing special — sessions run in-memory only.
- *
- * Owner context carries the session_id across calls because the
- * session struct is torn down before the final Finalizing batch
- * fires (the callback itself is responsible for freeing the ctx
- * at Finalizing time).
- */
-struct agent_l1_ctx_ {
-  struct xAgent_ *agent;      /* borrowed, always valid by contract */
-  char           *session_id; /* owned copy, survives session teardown */
-};
-
-/* The agent's memory-backed L1 preserve callback.
- *
- * L1 reason values map 1:1 to xAgentMemoryAppendReason's first
- * three entries (Truncated=0, Compacted=1, Finalizing=2), so we
- * pass the enum through by cast. */
-static void agent_memory_preserve_cb_(xAgentSession sess,
-                                      const xAgentSessionMsg *msgs,
-                                      size_t n_msgs,
-                                      xAgentL1PreserveReason reason,
-                                      void *owner) {
-  (void)sess;
-  if (!owner) return;
-
-  struct agent_l1_ctx_ *ctx = (struct agent_l1_ctx_ *)owner;
-  struct xAgent_       *a   = ctx->agent;
-
-  /* On Finalizing we must always free the owner context, even when
-   * the batch is empty, so we don't leak the session_id copy. */
-  if (!msgs || n_msgs == 0) {
-    if (reason == xAgentL1PreserveReason_Finalizing) {
-      free(ctx->session_id);
-      free(ctx);
-    }
-    return;
-  }
-
-  if (a->memory && ctx->session_id) {
-    xAgentMemoryQuery q;
-    memset(&q, 0, sizeof(q));
-    q.session_id = ctx->session_id;
-    xAgentMemoryAppend(a->memory, &q, (xAgentMemoryAppendReason)reason, msgs,
-                       n_msgs);
-  }
-
-  if (reason == xAgentL1PreserveReason_Finalizing) {
-    free(ctx->session_id);
-    free(ctx);
-  }
-}
-
 /* ── Simple random session ID generator ──────────────────────────────
  *
  * Generates a short random string like "s_1a3b5c7d". Uses
@@ -230,31 +171,20 @@ xAgentSession xAgentCreateSession(xAgent agent, const xAgentSessionConf *conf) {
     effective.session_id = generated_id;
   }
 
-  /* Wire the agent's memory-backed L1 preserve callback when the
-   * caller hasn't supplied one of their own and we actually have
-   * a memory store to route to. Caller-supplied hooks always win
-   * so higher layers can intercept / augment persistence. */
-  struct agent_l1_ctx_ *l1_ctx = NULL;
-  if (!effective.on_l1_preserve && a->memory) {
-    l1_ctx = (struct agent_l1_ctx_ *)calloc(1, sizeof(*l1_ctx));
-    if (l1_ctx) {
-      l1_ctx->agent = a;
-      l1_ctx->session_id =
-        effective.session_id ? strdup(effective.session_id) : NULL;
-      effective.on_l1_preserve    = agent_memory_preserve_cb_;
-      effective.l1_preserve_owner = l1_ctx;
-    }
-    /* If calloc fails we simply skip L1 wiring — the session
-     * works fine without persistence. */
+  /* Wire the agent's memory store directly into the session conf.
+   * The session writes to the store on compact and finalization,
+   * using the session_id_copy (owned strdup) as the key. */
+  if (a->memory && effective.session_id) {
+    effective.memory          = a->memory;
+    effective.session_id_copy = strdup(effective.session_id);
   }
 
   /* Create the session normally via xAgentSessionCreate. */
   xAgentSession sess = xAgentSessionCreate(agent, &effective);
 
-  if (!sess && l1_ctx) {
-    /* Session creation failed — clean up the L1 context. */
-    free(l1_ctx->session_id);
-    free(l1_ctx);
+  if (!sess) {
+    /* Session creation failed — clean up the session_id_copy. */
+    free(effective.session_id_copy);
   }
 
   /* ── Memory prime: replay persisted history into this session ──

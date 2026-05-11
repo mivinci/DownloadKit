@@ -2341,6 +2341,7 @@ TEST_F(SessionTest, BudgetSummarizeCompactsHistory) {
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window        = 200;      /* enough for 3 primer rounds  */
+  budget.context_preserve_head_turns = 1;
   budget.context_preserve_tail_turns = 1;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
@@ -2738,6 +2739,7 @@ TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
   Captured cap;
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_Summarize;
+  budget.context_preserve_head_turns = 1;
   budget.context_preserve_tail_turns = 1;
   budget.context_window    = 200;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
@@ -2842,6 +2844,7 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window    = 200;
+  budget.context_preserve_head_turns = 1;
   budget.context_preserve_tail_turns = 1;
 
   xAgentSessionConf sc   = {};
@@ -2909,6 +2912,8 @@ TEST_F(SessionTest, BudgetSummarizeReplacesUpToCompactEnd) {
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window    = 200;
+  budget.context_preserve_head_turns = 1;
+  budget.context_preserve_tail_turns = 1;
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);
   ASSERT_NE(sess, nullptr);
 
@@ -2979,6 +2984,7 @@ TEST_F(SessionTest, BudgetSummarizeTailZeroCompactsToEnd) {
   xAgentBudgetConf budget{};
   budget.policy            = xAgentBudgetPolicy_Summarize;
   budget.context_window    = 200;
+  budget.context_preserve_head_turns = 1;
   budget.context_preserve_tail_turns = 0;  /* compact to end */
 
   xAgentSession sess = make_session_with_budget(agent_, make_cbs(&cap), budget);

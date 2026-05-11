@@ -633,10 +633,6 @@ typedef void (*xAgentBudgetEventFunc)(xAgentSession     sess,
  * the coarse bytes/4 heuristic. This gives much higher accuracy
  * than re-estimating the full history every turn.
  */
-
-/** @brief Sentinel value: use the compile-time default. */
-#define XAGENT_BUDGET_DEFAULT ((size_t)-1)
-
 XDEF_STRUCT(xAgentBudgetConf) {
   /**
    * @brief Which policy the session applies when the estimated
@@ -694,9 +690,7 @@ XDEF_STRUCT(xAgentBudgetConf) {
    * @c context_preserve_head_turns — everything before it (the
    * "head") stays intact.
    *
-   * Default: 1. A value of 0 is treated as 1 (at least one head
-   * turn is required for coherent context). Set to
-   * @c XAGENT_BUDGET_DEFAULT to explicitly opt for the default.
+   * 0 = no head preserved (compact from the beginning).
    */
   size_t context_preserve_head_turns;
 
@@ -707,10 +701,7 @@ XDEF_STRUCT(xAgentBudgetConf) {
    * (user_count - @c context_preserve_tail_turns) — everything
    * from it onward (the "tail") stays intact.
    *
-   * Default: 1. A value of 0 means no tail is preserved; the
-   * compact runs from the head boundary to the end of history.
-   * Set to @c XAGENT_BUDGET_DEFAULT to explicitly opt for the
-   * default.
+   * 0 = no tail preserved (compact to the end of history).
    */
   size_t context_preserve_tail_turns;
 };

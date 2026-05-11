@@ -702,14 +702,9 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     if (user_count == 0) return xErrno_PromptTooLong;
 
     /* Determine how many head/tail turns to preserve.
-     * XAGENT_BUDGET_DEFAULT (SIZE_MAX) = use default.
-     * head: 0 → 1 (at least one head turn required).
-     * tail: 0 = compact to end (no tail preserved). */
+     * 0 = no turns preserved on that side. */
     size_t keep_head = s->budget.context_preserve_head_turns;
     size_t keep_tail = s->budget.context_preserve_tail_turns;
-    if (keep_head == XAGENT_BUDGET_DEFAULT) keep_head = 1;
-    if (keep_tail == XAGENT_BUDGET_DEFAULT) keep_tail = 1;
-    if (keep_head == 0) keep_head = 1;
 
     /* Not enough turns to compact. */
     if (keep_head + keep_tail >= user_count) return xErrno_PromptTooLong;

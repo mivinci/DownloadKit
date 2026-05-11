@@ -31,7 +31,7 @@ step()  { echo -e "${CYAN}[STEP]${NC} $*" >&2; }
 
 # ── Defaults ────────────────────────────────────────────────────────────
 TLS_BACKEND="openssl"
-BASE_REF="origin/main"
+BASE_REF=""
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 BUILD_TYPE="Debug"
 BUILD_DIR=""
@@ -120,7 +120,7 @@ compute_affected() {
         changed_again=0
         for m in "${ALL_MODULES[@]}"; do
             if [[ -z "${affected[$m]+_}" ]]; then
-                for d in ${MODULE_DEPS[$m]}; do
+                for d in ${=MODULE_DEPS[$m]}; do
                     if [[ -n "${affected[$d]+_}" ]]; then
                         affected[$m]=1
                         changed_again=1
@@ -153,23 +153,44 @@ detect_changed_modules() {
     local diff_target
     if [[ -n "$BASE_SHA" ]]; then
         diff_target="$BASE_SHA"
-    elif git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
-        diff_target="$BASE_REF"
-    else
-        warn "Base ref '$BASE_REF' not found, fetching..."
-        git fetch origin "${BASE_REF#origin/}" 2>/dev/null || true
+    elif [[ -n "$BASE_REF" ]]; then
         if git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
             diff_target="$BASE_REF"
         else
+            warn "Base ref '$BASE_REF' not found, fetching..."
+            local remote_ref="${BASE_REF#origin/}"
+            local remote_name
+            remote_name="$(git remote | head -1)"
+            git fetch "$remote_name" "$remote_ref" 2>/dev/null || true
+            if git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+                diff_target="$BASE_REF"
+            else
+                diff_target="HEAD~1"
+                warn "Cannot find '$BASE_REF', falling back to $diff_target"
+            fi
+        fi
+    else
+        # Auto-detect: find the main branch from any remote
+        local main_branch=""
+        for ref in "refs/remotes/gh/main" "refs/remotes/origin/main" "refs/remotes/upstream/main"; do
+            if git rev-parse --verify "$ref" >/dev/null 2>&1; then
+                main_branch="${ref#refs/remotes/}"
+                break
+            fi
+        done
+        if [[ -n "$main_branch" ]]; then
+            diff_target="$main_branch"
+            info "Auto-detected base: $diff_target"
+        else
             diff_target="HEAD~1"
-            warn "Cannot find '$BASE_REF', falling back to $diff_target"
+            warn "Cannot find main branch, falling back to $diff_target"
         fi
     fi
 
     local changed_files
-    changed_files=$(git diff --name-only "$diff_target" HEAD 2>/dev/null || git diff --name-only HEAD 2>/dev/null || echo "")
+    changed_files=("${(@f)$(git diff --name-only "$diff_target" HEAD 2>/dev/null || git diff --name-only HEAD 2>/dev/null || echo "")}")
 
-    if [[ -z "$changed_files" ]]; then
+    if [[ ${#changed_files[@]} -eq 0 ]]; then
         info "No changes detected, testing all modules"
         printf '%s\n' "${ALL_MODULES[@]}"
         return
@@ -177,7 +198,7 @@ detect_changed_modules() {
 
     # Map changed files to modules
     local -A changed_mods=([__none__]=1)
-    for f in $changed_files; do
+    for f in "${changed_files[@]}"; do
         if [[ "$f" == libs/*/* ]]; then
             local mod="${f#libs/}"
             mod="${mod%%/*}"
@@ -222,9 +243,10 @@ detect_changed_modules() {
 
 # ── Main ────────────────────────────────────────────────────────────────
 AFFECTED=()
-local _line
-detect_changed_modules | while IFS= read -r _line; do
-    AFFECTED+=("$_line")
+local _result
+_result="$(detect_changed_modules)"
+for _line in "${(@f)_result}"; do
+    [[ -n "$_line" ]] && AFFECTED+=("$_line")
 done
 
 if [[ ${#AFFECTED[@]} -eq 0 ]]; then

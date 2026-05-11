@@ -2372,7 +2372,7 @@ TEST_F(SessionTest, BudgetSummarizeCompactsHistory) {
             xErrno_Busy);
 
   /* The compact has completed synchronously. With
-   * context_compact_head=1 (default), the first user turn is
+   * context_preserve_head_turns=1 (default), the first user turn is
    * preserved and the summary is inserted after it. */
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);
   size_t hlen = hist_len(s);
@@ -2397,7 +2397,7 @@ TEST_F(SessionTest, BudgetSummarizeCompactsHistory) {
   EXPECT_EQ(msgs[0].role, xAgentRole_User)
       << "first entry should be the preserved head turn";
 
-  /* With context_compact_head=1, the first user turn is preserved.
+  /* With context_preserve_head_turns=1, the first user turn is preserved.
    * Turns 1 and 2 are compacted into the summary. */
   int old_user_count = 0;
   for (size_t i = 0; i < hlen; i++) {
@@ -2779,7 +2779,7 @@ TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
             xErrno_Busy);
 
   /* Compact finished synchronously, then auto-retry resubmitted the
-   * pending message and a new query ran. With context_compact_head=1
+   * pending message and a new query ran. With context_preserve_head_turns=1
    * (default), the earliest 1 user turn is kept as head context.
    * History: U0, A0, summary, overflow_user, auto_reply */
   size_t hlen = hist_len(s);
@@ -2799,7 +2799,7 @@ TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
   ASSERT_NE(summary_idx, -1);
   EXPECT_EQ(msgs[summary_idx].role, xAgentRole_Assistant);
 
-  /* With context_compact_head=1, u0 is the preserved head.
+  /* With context_preserve_head_turns=1, u0 is the preserved head.
    * u1 is in the compacted range. u2 is the preserved tail
    * (compact_end points at it, exclusive). */
   bool found_u0 = false, found_u1 = false, found_u2 = false;
@@ -2877,7 +2877,7 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
             xErrno_Busy);
 
   /* Find the Compacted call and assert exactly the replaced entries.
-   * With context_compact_head=1, compact_start = index of U1 = 2,
+   * With context_preserve_head_turns=1, compact_start = index of U1 = 2,
    * compact_end = index of U2 = 4, so [2,4) = U1, A1 are replaced. */
   const L1PreserveCap::Call *compacted = nullptr;
   for (const auto &c : l1.calls) {
@@ -2898,7 +2898,7 @@ TEST_F(SessionTest, L1PreserveCompactedDeliversReplacedEntries) {
   xAgentSessionDestroy(sess);
 }
 
-/* With context_compact_head=1 (default), compact_start = index of U1,
+/* With context_preserve_head_turns=1 (default), compact_start = index of U1,
  * compact_end = index of U2. The range [U1, U2) = U1, A1 is replaced
  * by a summary. U0 and A0 are preserved as the head context. */
 TEST_F(SessionTest, BudgetSummarizeReplacesUpToCompactEnd) {
@@ -2936,7 +2936,7 @@ TEST_F(SessionTest, BudgetSummarizeReplacesUpToCompactEnd) {
             xErrno_Busy);
 
   /* Layout: [U0, A0, summary, U2, A2, overflow_user, auto_reply]
-   * With context_compact_head=1, compact_start = U1_idx, compact_end = U2_idx.
+   * With context_preserve_head_turns=1, compact_start = U1_idx, compact_end = U2_idx.
    * [U1_idx, U2_idx) = U1, A1 were replaced by the summary.
    * U0 and A0 are preserved as the head context. */
   auto *s = reinterpret_cast<xAgentSession_ *>(sess);

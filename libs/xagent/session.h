@@ -682,21 +682,28 @@ XDEF_STRUCT(xAgentBudgetConf) {
   void *budget_event_ud;
 
   /**
-   * @brief Number of recent turns to keep after compacting.
+   * @brief Number of earliest user turns to preserve during compact.
    *
    * When the Summarize policy triggers a compact, the session
-   * replaces history[0..compact_end) with a summary entry.
-   * compact_end is determined by counting user-role turns from
-   * the end of history: the last @c context_compact_head user
-   * turns (and any interleaved tool chatter) are preserved;
-   * everything before them is compacted.
+   * replaces history[compact_start..compact_end) with a summary.
+   * compact_start is the index of the user turn at position
+   * @c context_preserve_head_turns — everything before it (the
+   * "head") stays intact.
    *
-   * Default: 1 (keep the most recent turn, compact everything
-   * before it). Set to 2+ to preserve more recent context at the
-   * cost of a larger prompt after compact. A value of 0 is
-   * treated as 1.
+   * Default: 1 (keep the first user turn). 0 is treated as 1.
    */
-  size_t context_compact_head;
+  size_t context_preserve_head_turns;
+
+  /**
+   * @brief Number of latest user turns to preserve during compact.
+   *
+   * compact_end is the index of the user turn at position
+   * (user_count - @c context_preserve_tail_turns) — everything
+   * from it onward (the "tail") stays intact.
+   *
+   * Default: 1 (keep the last user turn). 0 is treated as 1.
+   */
+  size_t context_preserve_tail_turns;
 };
 
 /**

@@ -679,10 +679,10 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
    *
    * The compact replaces history[compact_start..compact_end) with
    * one summary entry. compact_start is the index of the user turn
-   * at position context_compact_head (the first turn to compact);
-   * compact_end is the index of the last user turn. The first
-   * context_compact_head turns (0-based) are preserved as the
-   * conversation head context. Default context_compact_head = 1. */
+   * at position context_preserve_head_turns; compact_end is the
+   * index of the user turn at position
+   * (user_count - context_preserve_tail_turns). The head and tail
+   * turns are preserved; everything in between is compacted. */
   switch (s->budget.policy) {
   case xAgentBudgetPolicy_Error:
     return xErrno_PromptTooLong;
@@ -701,23 +701,24 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     /* If no user turns, there's nothing meaningful to compact. */
     if (user_count == 0) return xErrno_PromptTooLong;
 
-    /* Determine how many earliest turns to keep.
-     * context_compact_head = 0 is treated as 1. */
-    size_t keep_head = s->budget.context_compact_head;
+    /* Determine how many head/tail turns to preserve.
+     * 0 is treated as 1 for both. */
+    size_t keep_head = s->budget.context_preserve_head_turns;
     if (keep_head == 0) keep_head = 1;
+    size_t keep_tail = s->budget.context_preserve_tail_turns;
+    if (keep_tail == 0) keep_tail = 1;
 
     /* Not enough turns to compact. */
-    if (keep_head >= user_count) return xErrno_PromptTooLong;
+    if (keep_head + keep_tail >= user_count) return xErrno_PromptTooLong;
 
     /* compact_start = index of the first user turn to compact
      * (= user turn at position keep_head).
-     * compact_end = index of the last user turn (exclusive boundary
-     * for the replaced range). The last turn is always kept so
-     * the summary sits between the head and the tail. */
+     * compact_end = index of the first preserved tail user turn
+     * (= user turn at position user_count - keep_tail). */
     size_t compact_start =
       ai_budget_find_user_turn(msgs_view, hlen, keep_head);
     size_t compact_end =
-      ai_budget_find_user_turn(msgs_view, hlen, user_count - 1);
+      ai_budget_find_user_turn(msgs_view, hlen, user_count - keep_tail);
     if (compact_start == XAGENT_BUDGET_NO_SUCH_TURN ||
         compact_end == XAGENT_BUDGET_NO_SUCH_TURN ||
         compact_start >= compact_end) {

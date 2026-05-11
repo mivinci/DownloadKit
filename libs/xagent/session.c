@@ -728,23 +728,6 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
       return xErrno_PromptTooLong;
     }
 
-    /* Pre-flight: will compact actually help? If the tokens in
-     * [compact_start, compact_end) are no larger than a typical
-     * summary, compacting would not save anything. */
-    {
-      size_t min_mid = limit / 400;
-      if (min_mid < 16) min_mid = 16;
-
-      size_t head_tokens =
-        ai_budget_estimate_tokens(msgs_view, compact_start);
-      size_t total_tokens =
-        ai_budget_estimate_tokens(msgs_view, compact_end);
-      size_t mid_tokens = total_tokens - head_tokens;
-
-      if (mid_tokens <= min_mid) {
-        return xErrno_PromptTooLong;
-      }
-    }
 
     /* Anti-loop guard: if last_compact_history_len > 0 and
      * hlen <= last_compact_history_len, another compact won't

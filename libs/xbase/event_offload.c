@@ -84,7 +84,7 @@ xErrno xEventLoopWorkCancel(xEventLoop loop, xEventWork work) {
    * queued in the thread pool, xTaskCancel succeeds and the
    * offload_worker will never execute. */
   xErrno err = xTaskCancel(w->task);
-  if (err != xErrno_Ok) return xErrno_InvalidState;
+  if (err != xErrno_Ok) return xErrno_Busy;
 
   /* Cancel succeeded — offload_worker will NOT run, so the work item
    * will never be pushed to the done queue by the worker.  We must

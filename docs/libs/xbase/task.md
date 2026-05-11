@@ -162,7 +162,7 @@ Using a single condition variable caused lost wakeups: `pthread_cond_signal()` c
 | `xTaskGroupDestroy` | `void xTaskGroupDestroy(xTaskGroup g)` | Wait for pending tasks, then destroy. | Not thread-safe |
 | `xTaskSubmit` | `xTask xTaskSubmit(xTaskGroup g, xTaskFunc fn, void *arg)` | Submit a task. Returns NULL if queue is full. | **Thread-safe** |
 | `xTaskWait` | `xErrno xTaskWait(xTask t, void **result)` | Block until task completes. Returns `xErrno_Cancelled` if the task was cancelled. | **Thread-safe** |
-| `xTaskCancel` | `xErrno xTaskCancel(xTask t)` | Cancel a queued task. Returns `xErrno_Ok` on success, `xErrno_InvalidState` if already running/done. | **Thread-safe** |
+| `xTaskCancel` | `xErrno xTaskCancel(xTask t)` | Cancel a queued task. Returns `xErrno_Ok` on success, `xErrno_Busy` if already running/done. | **Thread-safe** |
 | `xTaskGroupWait` | `xErrno xTaskGroupWait(xTaskGroup g)` | Block until all pending tasks complete. | **Thread-safe** |
 | `xTaskGroupThreads` | `size_t xTaskGroupThreads(xTaskGroup g)` | Return number of spawned worker threads. | **Thread-safe** (atomic read) |
 | `xTaskGroupPending` | `size_t xTaskGroupPending(xTaskGroup g)` | Return number of pending tasks. | **Thread-safe** (atomic read) |
@@ -300,7 +300,7 @@ int main(void) {
 ## Best Practices
 
 - **Always call `xTaskWait()` or let `xTaskGroupDestroy()` clean up.** Each `xTaskSubmit()` allocates a task struct (from the TLS freelist or malloc). Task memory is reclaimed when the done queue is drained (during `xTaskGroupWait()` or `xTaskGroupDestroy()`). Leaking task handles leaks resources.
-- **Check `xTaskCancel()` return value before releasing the arg.** `xErrno_Ok` means the task will not execute — safe to free. `xErrno_InvalidState` means it's already running or done — you must `xTaskWait()` first.
+- **Check `xTaskCancel()` return value before releasing the arg.** `xErrno_Ok` means the task will not execute — safe to free. `xErrno_Busy` means it's already running or done — you must `xTaskWait()` first.
 - **Set `queue_cap` for backpressure.** Without a cap, unbounded submission can exhaust memory. A bounded queue lets you detect overload via NULL returns from `xTaskSubmit()`.
 - **Don't destroy the global group.** `xTaskGroupGlobal()` is managed internally and destroyed at `atexit()`. Passing it to `xTaskGroupDestroy()` is undefined behavior.
 - **Use `xTaskGroupWait()` for barriers, not busy-polling.** It uses a dedicated condition variable and blocks efficiently.

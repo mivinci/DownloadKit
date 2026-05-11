@@ -92,7 +92,7 @@ XCAPI(xErrno) xTaskWait(xTask t, void **result);
  *
  * @ingroup xTask
  * @param t The task handle.
- * @return xErrno_Ok if cancelled successfully, xErrno_InvalidState if the task
+ * @return xErrno_Ok if cancelled successfully, xErrno_Busy if the task
  *         is already running or finished.
  */
 XCAPI(xErrno) xTaskCancel(xTask t);

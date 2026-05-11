@@ -360,7 +360,7 @@ TEST_F(TaskTest, CancelRunningTaskReturnsBusy) {
   }
 
   /* Cancel should fail — task is already running */
-  EXPECT_EQ(xTaskCancel(t), xErrno_InvalidState);
+  EXPECT_EQ(xTaskCancel(t), xErrno_Busy);
 
   /* Let it finish and wait */
   unblock.store(true, std::memory_order_release);
@@ -374,8 +374,8 @@ TEST_F(TaskTest, CancelAlreadyDoneReturnsBusy) {
   /* Wait for it to complete first */
   EXPECT_EQ(xTaskWait(t, nullptr), xErrno_Ok);
 
-  /* Cancel after completion should return InvalidState */
-  EXPECT_EQ(xTaskCancel(t), xErrno_InvalidState);
+  /* Cancel after completion should return Busy */
+  EXPECT_EQ(xTaskCancel(t), xErrno_Busy);
 }
 
 TEST_F(TaskTest, CancelSafeArgRelease) {

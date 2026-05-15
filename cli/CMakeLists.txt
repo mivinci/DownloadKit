@@ -17,6 +17,10 @@ add_executable(moo
   config.cpp
   output.cpp
   slash.cpp
+  slash_model.cpp
+  slash_bypass.cpp
+  slash_renderer.cpp
+  slash_verbose.cpp
   callbacks.cpp
   repl.cpp
   banner.cpp

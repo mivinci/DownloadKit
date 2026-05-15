@@ -356,7 +356,7 @@ Options:
 
 2. **CLI Tools** — Small moo-based utilities (benchmarks, migration scripts, diagnostic tools) that want conventional POSIX/GNU syntax without pulling in `argp` or a heavyweight parser.
 
-3. **Application Front-Ends** — Projects under `apps/` that wrap moo modules into standalone binaries can use `flag.h` for their startup configuration, and later upgrade to `xcli` once subcommand trees are needed.
+3. **Application Front-Ends** — Projects under `cli/` that wrap moo modules into standalone binaries can use `flag.h` for their startup configuration, and later upgrade to `xcli` once subcommand trees are needed.
 
 4. **Configuration Overrides** — Parse command-line overrides before loading a config file; `xFlagAttr_Required` marks mandatory knobs and `[default: ...]` documents the rest in `--help`.
 

@@ -355,7 +355,7 @@ static void forward_on_done(xAgentQuery q, const xAgentQueryResult *r, void *ud)
 
 #### Step 2：正式引出 xAgentQuery 类型
 
-- 新建 `libs/xagent/query.h`、`query_private.h`、`query.c`、`query_test.cpp`。
+- 新建 `libx/xagent/query.h`、`query_private.h`、`query.c`、`query_test.cpp`。
 - 把 Step 1 里 `query_` 前缀的那批函数 + 相关数据（`assist_buf` / `reasoning_buf` / `pending` / `turn`）**搬家**到 `query.c`。
 - `struct xAgentSession_` 瘦身：删掉那些搬走的字段，加一个 `xAgentQuery current_q` 字段。
 - `session.c` 的 `xAgentSessionInput` 改写成 `QueryCreate + QueryRun` 两步。
@@ -378,12 +378,12 @@ static void forward_on_done(xAgentQuery q, const xAgentQueryResult *r, void *ud)
 #### 11.1 现状盘点
 
 ```text
-libs/xagent/session_test.cpp     — 覆盖 session-level 的 Input/Cancel/Destroy、
+libx/xagent/session_test.cpp     — 覆盖 session-level 的 Input/Cancel/Destroy、
                                     tool loop、max_turns、cb_done 签名
-libs/xagent/provider_openai_test.cpp — 覆盖 provider wire 编解码
-libs/xagent/agent_test.cpp       — agent 级 tool 注册 / 生命周期
-libs/xagent/tool_test.cpp        — tool 对象本身
-libs/xagent/message_test.cpp     — message 结构
+libx/xagent/provider_openai_test.cpp — 覆盖 provider wire 编解码
+libx/xagent/agent_test.cpp       — agent 级 tool 注册 / 生命周期
+libx/xagent/tool_test.cpp        — tool 对象本身
+libx/xagent/message_test.cpp     — message 结构
 ```
 
 #### 11.2 改造量预估
@@ -454,7 +454,7 @@ libs/xagent/message_test.cpp     — message 结构
 - [ ] 实装 L2/L3 的持久化后端（选型：sqlite? 文本? 文件布局？——独立起一份 `docs/design/xagent_memory_storage.md`）
 - [ ] 主动唤醒调度器（先做一个最简单的定时器 MVP）
 - [ ] Mood state（v1，不在 MVP 内）
-- [ ] 示例 `examples/ai_agent.cpp`（像 `apps/cli` 一样的 REPL，但持有 Agent）
+- [ ] 示例 `examples/ai_agent.cpp`（像 `cli/` 一样的 REPL，但持有 Agent）
 - [ ] 测试：`agent_test.cpp` 扩展 + `session_agent_integration_test.cpp`
 
 ### 15. Agent 层开放问题

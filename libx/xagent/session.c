@@ -141,12 +141,11 @@ static struct xAgentSessionMsg_ *history_push(struct xAgentSession_ *s) {
 /* ── History append API (shared with query.c via session_private.h) ── */
 
 xErrno ai_history_append_text(struct xAgentSession_ *s, xAgentRole role,
-                              const char *text, size_t len, int is_summary) {
+                              const char *text, size_t len) {
   struct xAgentSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
-  slot->role       = role;
-  slot->kind       = xAgentSessionEntry_Text;
-  slot->is_summary = is_summary;
+  slot->role = role;
+  slot->kind = xAgentSessionEntry_Text;
   if (len > 0) {
     slot->text = dup_bytes(text, len);
     if (!slot->text) {
@@ -239,7 +238,7 @@ static xErrno history_append_user_msg(struct xAgentSession_ *s,
     }
   }
   if (total == 0) {
-    return ai_history_append_text(s, msg.role, NULL, 0, 0);
+    return ai_history_append_text(s, msg.role, NULL, 0);
   }
 
   char *buf = (char *)malloc(total + 1);
@@ -1722,12 +1721,11 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       /* Build the summary entry and insert at compact_start. */
       struct xAgentSessionMsg_ summary_entry;
       memset(&summary_entry, 0, sizeof(summary_entry));
-      summary_entry.role          = xAgentRole_Assistant;
+      summary_entry.role          = xAgentRole_Summary;
       summary_entry.kind          = xAgentSessionEntry_Text;
       summary_entry.text          = summary_text;
       summary_entry.text_len      = prefix_len + summary_bytes;
       summary_entry.created_at_ms = xWallMs();
-      summary_entry.is_summary    = 1;
 
       if (xArrayInsert(&s->history_arr, compact_start, &summary_entry) !=
           xErrno_Ok) {

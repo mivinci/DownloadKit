@@ -140,6 +140,7 @@ static const char *oai_role_str(xAgentRole r) {
   case xAgentRole_User:      return "user";
   case xAgentRole_Assistant: return "assistant";
   case xAgentRole_Tool:      return "tool";
+  case xAgentRole_Summary:   return "system";
   }
   return "user";
 }

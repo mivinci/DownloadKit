@@ -605,11 +605,10 @@ TEST(xAgentMemoryJsonl, RetrieveStartsFromLastSummary) {
 
   /* Append the summary entry. */
   xAgentSessionMsg summary{};
-  summary.role        = xAgentRole_Assistant;
+  summary.role        = xAgentRole_Summary;
   summary.kind        = xAgentSessionEntryKind_Text;
   summary.text        = "[summary] conversation so far";
   summary.text_len    = std::strlen(summary.text);
-  summary.is_summary = 1;
   ASSERT_EQ(xAgentMemoryAppend(store, &q,
                                xAgentMemoryAppendReason_Compacted,
                                &summary, 1),
@@ -630,8 +629,7 @@ TEST(xAgentMemoryJsonl, RetrieveStartsFromLastSummary) {
   ASSERT_EQ(hits.n_entries, size_t{3});
 
   /* First entry must be the summary. */
-  EXPECT_EQ(hits.entries[0].role, xAgentRole_Assistant);
-  EXPECT_EQ(hits.entries[0].is_summary, 1);
+  EXPECT_EQ(hits.entries[0].role, xAgentRole_Summary);
   EXPECT_NE(std::string(hits.entries[0].text, hits.entries[0].text_len)
               .find("[summary]"),
             std::string::npos);
@@ -675,11 +673,10 @@ TEST(xAgentMemoryJsonl, SummaryOverridesCapBoundary) {
 
   /* Write the summary. */
   xAgentSessionMsg summary{};
-  summary.role        = xAgentRole_Assistant;
+  summary.role        = xAgentRole_Summary;
   summary.kind        = xAgentSessionEntryKind_Text;
   summary.text        = "[summary] compacted history";
   summary.text_len    = std::strlen(summary.text);
-  summary.is_summary = 1;
   ASSERT_EQ(xAgentMemoryAppend(store, &q,
                                xAgentMemoryAppendReason_Compacted,
                                &summary, 1),
@@ -702,7 +699,7 @@ TEST(xAgentMemoryJsonl, SummaryOverridesCapBoundary) {
   ASSERT_EQ(hits.n_entries, size_t{3});
 
   /* First must be summary. */
-  EXPECT_EQ(hits.entries[0].is_summary, 1);
+  EXPECT_EQ(hits.entries[0].role, xAgentRole_Summary);
 
   /* No pre-summary entries. */
   for (size_t i = 0; i < hits.n_entries; i++) {

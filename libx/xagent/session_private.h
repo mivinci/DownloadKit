@@ -242,7 +242,7 @@ struct xAgentSession_ {
  * @brief Append a (role, text) history entry. @p text is duplicated.
  */
 xErrno ai_history_append_text(struct xAgentSession_ *s, xAgentRole role,
-                              const char *text, size_t len, int is_summary);
+                              const char *text, size_t len);
 
 /**
  * @brief Append an Assistant chain-of-thought entry. @p text is duplicated.

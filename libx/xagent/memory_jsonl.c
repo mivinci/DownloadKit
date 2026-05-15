@@ -119,10 +119,11 @@ static void write_json_str_(FILE *fp, const char *s, size_t n) {
 
 static const char *role_to_str_(xAgentRole r) {
   switch (r) {
-  case xAgentRole_System: return "system";
-  case xAgentRole_User: return "user";
+  case xAgentRole_System:    return "system";
+  case xAgentRole_User:      return "user";
   case xAgentRole_Assistant: return "assistant";
-  case xAgentRole_Tool: return "tool";
+  case xAgentRole_Tool:      return "tool";
+  case xAgentRole_Summary:   return "summary";
   }
   return "system";
 }
@@ -161,8 +162,6 @@ static void write_msg_line_(FILE *fp, const xAgentSessionMsg *m) {
       write_json_str_(fp, m->text, m->text_len);
       fputc('"', fp);
     }
-    if (m->is_summary)
-      fputs(",\"is_summary\":true", fp);
   } else if (m->kind == xAgentSessionEntryKind_ToolUse) {
     if (m->tool_use_id)
       fprintf(fp, ",\"tool_use_id\":\"%s\"", m->tool_use_id);
@@ -409,6 +408,8 @@ static int parse_line_(const char *line, size_t line_len, char *arena,
           out->role = xAgentRole_Assistant;
         else if (strncmp(v, "tool", v_len) == 0 && v_len == 4)
           out->role = xAgentRole_Tool;
+        else if (strncmp(v, "summary", v_len) == 0 && v_len == 7)
+          out->role = xAgentRole_Summary;
       } else if (strcmp(key, "kind") == 0) {
         if (strncmp(v, "text", v_len) == 0 && v_len == 4)
           out->kind = xAgentSessionEntryKind_Text;
@@ -436,10 +437,8 @@ static int parse_line_(const char *line, size_t line_len, char *arena,
       /* Bool / null. */
       if (match_lit_(&p, end, "true")) {
         if (strcmp(key, "is_error") == 0) out->tool_result_is_error = 1;
-        else if (strcmp(key, "is_summary") == 0) out->is_summary = 1;
       } else if (match_lit_(&p, end, "false")) {
         if (strcmp(key, "is_error") == 0) out->tool_result_is_error = 0;
-        else if (strcmp(key, "is_summary") == 0) out->is_summary = 0;
       } else if (match_lit_(&p, end, "null")) {
         /* ignore */
       } else {
@@ -618,18 +617,18 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
    * absorbs all prior entries, so we never need to load anything
    * before it. We do a lightweight substring search on the raw
    * buffer rather than a full parse — just enough to find lines
-   * containing "is_summary":true. */
+   * containing "role":"summary". */
   size_t summary_span = (size_t)-1; /* index into spans[] */
   for (ssize_t k = (ssize_t)n_spans - 1; k >= 0; k--) {
     const char *line = content + spans[k].off;
     size_t      llen = spans[k].len;
-    /* Quick scan for the summary marker. We search for the
+    /* Quick scan for the summary role marker. We search for the
      * literal key rather than doing a full JSON parse. The
      * false-positive rate is effectively zero because this
      * key is only written by write_msg_line_. */
     int found = 0;
-    for (size_t j = 0; !found && j + 16 <= llen; j++) {
-      if (memcmp(line + j, "\"is_summary\":true", 17) == 0) {
+    for (size_t j = 0; !found && j + 15 <= llen; j++) {
+      if (memcmp(line + j, "\"role\":\"summary\"", 16) == 0) {
         summary_span = (size_t)k;
         found = 1;
       }
@@ -697,14 +696,14 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
     return xErrno_Ok;
   }
 
-  /* Safety net: if the span-level scan missed a summary marker
+  /* Safety net: if the span-level scan missed a summary role
    * (e.g., encoding edge case), the parse-level scan catches it.
    * Most of the time this block is a no-op because take_from was
    * already adjusted to start at the last summary. */
   {
     ssize_t summary_idx = -1;
     for (ssize_t k = (ssize_t)n_out - 1; k >= 0; k--) {
-      if (entries[k].is_summary) {
+      if (entries[k].role == xAgentRole_Summary) {
         summary_idx = k;
         break;
       }

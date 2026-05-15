@@ -384,13 +384,6 @@ XDEF_STRUCT(xAgentSessionMsg) {
 
   /* Wall-clock unix-ms when this entry was produced. 0 = unknown. */
   uint64_t created_at_ms;
-
-  /* Non-zero when this entry is a summary produced by the
-   * Summarize budget policy. This field exists so the
-   * public struct's layout matches the internal xAgentSessionMsg_
-   * layout — without it, casting an internal array to a public
-   * array would misalign every element after the first. */
-  int is_summary;
 };
 
 /**

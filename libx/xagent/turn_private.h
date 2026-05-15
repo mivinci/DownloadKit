@@ -107,15 +107,6 @@ struct xAgentSessionMsg_ {
    * value when writing the "ts" field and only falls back to a
    * fresh wall-clock read when the field is zero. */
   uint64_t created_at_ms;
-
-  /* Non-zero when this entry is a summary produced by the
-   * Summarize budget policy. Summary entries are synthetic
-   * System-role Text entries that compress older conversation
-   * history. Marking them allows the Summarize logic to
-   * skip existing summaries when building the input for a second
-   * compact, preventing information loss from re-summarising an
-   * already-compressed summary (the "摘要叠罗汉" problem). */
-  int is_summary;
 };
 
 /**

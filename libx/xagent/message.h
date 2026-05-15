@@ -36,6 +36,7 @@ XDEF_ENUM(xAgentRole){
   xAgentRole_User      = 1, /**< End-user input                              */
   xAgentRole_Assistant = 2, /**< Model output                                */
   xAgentRole_Tool      = 3, /**< Tool result fed back to the model           */
+  xAgentRole_Summary   = 4, /**< Compressed context from prior history       */
 };
 
 /**

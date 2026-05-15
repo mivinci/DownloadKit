@@ -2395,10 +2395,10 @@ TEST_F(SessionTest, BudgetSummarizeCompactsHistory) {
   /* Find the summary entry (not necessarily at index 0). */
   int summary_idx = -1;
   for (size_t i = 0; i < hlen; i++) {
-    if (msgs[i].is_summary) { summary_idx = (int)i; break; }
+    if (msgs[i].role == xAgentRole_Summary) { summary_idx = (int)i; break; }
   }
   ASSERT_NE(summary_idx, -1) << "compact should produce a [summary] entry";
-  EXPECT_EQ(msgs[summary_idx].role, xAgentRole_Assistant);
+  EXPECT_EQ(msgs[summary_idx].role, xAgentRole_Summary);
   EXPECT_NE(std::string(msgs[summary_idx].text, msgs[summary_idx].text_len)
               .find("[summary]"),
             std::string::npos);
@@ -2512,7 +2512,7 @@ TEST_F(SessionTest, BudgetSummarizeReportsErrorOnEmptySummary) {
 
   int summary_count = 0;
   for (size_t i = 0; i < hlen_after; i++) {
-    if (msgs[i].role == xAgentRole_Assistant && msgs[i].text &&
+    if (msgs[i].role == xAgentRole_Summary && msgs[i].text &&
         std::string(msgs[i].text, msgs[i].text_len).find("[summary]") !=
             std::string::npos) {
       summary_count++;
@@ -2574,7 +2574,7 @@ TEST_F(SessionTest, BudgetSummarizeFallsBackToThinkingWhenNoText) {
 
   int summary_count = 0;
   for (size_t i = 0; i < hlen; i++) {
-    if (msgs[i].role == xAgentRole_Assistant && msgs[i].text &&
+    if (msgs[i].role == xAgentRole_Summary && msgs[i].text &&
         std::string(msgs[i].text, msgs[i].text_len).find("[summary]") !=
             std::string::npos) {
       summary_count++;
@@ -2787,10 +2787,10 @@ TEST_F(SessionTest, BudgetSummarizeReplacesOldHistory) {
   /* Find the summary entry after the head. */
   int summary_idx = -1;
   for (size_t i = 0; i < hlen; i++) {
-    if (msgs[i].is_summary) { summary_idx = (int)i; break; }
+    if (msgs[i].role == xAgentRole_Summary) { summary_idx = (int)i; break; }
   }
   ASSERT_NE(summary_idx, -1);
-  EXPECT_EQ(msgs[summary_idx].role, xAgentRole_Assistant);
+  EXPECT_EQ(msgs[summary_idx].role, xAgentRole_Summary);
 
   /* With context_preserve_head_turns=1, u0 is the preserved head.
    * u1 is in the compacted range. u2 is the preserved tail
@@ -2970,7 +2970,7 @@ TEST_F(SessionTest, BudgetSummarizeReplacesUpToCompactEnd) {
   /* Find the summary entry. */
   int summary_idx = -1;
   for (size_t i = 0; i < hist_len(s); i++) {
-    if (msgs[i].is_summary) { summary_idx = (int)i; break; }
+    if (msgs[i].role == xAgentRole_Summary) { summary_idx = (int)i; break; }
   }
   ASSERT_NE(summary_idx, -1);
   EXPECT_NE(std::string(msgs[summary_idx].text, msgs[summary_idx].text_len)
@@ -3040,7 +3040,7 @@ TEST_F(SessionTest, BudgetSummarizeTailZeroCompactsToEnd) {
   /* Find the summary. */
   int summary_idx = -1;
   for (size_t i = 0; i < hlen; i++) {
-    if (msgs[i].is_summary) { summary_idx = (int)i; break; }
+    if (msgs[i].role == xAgentRole_Summary) { summary_idx = (int)i; break; }
   }
   ASSERT_NE(summary_idx, -1);
 

@@ -199,8 +199,8 @@ detect_changed_modules() {
     # Map changed files to modules
     local -A changed_mods=([__none__]=1)
     for f in "${changed_files[@]}"; do
-        if [[ "$f" == libs/*/* ]]; then
-            local mod="${f#libs/}"
+        if [[ "$f" == libx/*/* ]]; then
+            local mod="${f#libx/}"
             mod="${mod%%/*}"
             # Only count if it's a known module
             for m in "${ALL_MODULES[@]}"; do

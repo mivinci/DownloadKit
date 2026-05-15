@@ -232,7 +232,7 @@ int main(void) {
 ## Benchmark
 
 > Environment: Apple Mac15,7 (12 cores), 36 GB RAM, macOS 26.x, Release build (`-O2`). Each result is the median of 3 repetitions.
-> Source: [`xbase/timer_bench.cpp`](https://github.com/mivinci/moo/blob/main/libs/xbase/timer_bench.cpp)
+> Source: [`xbase/timer_bench.cpp`](https://github.com/mivinci/moo/blob/main/libx/xbase/timer_bench.cpp)
 
 | Benchmark | N | Time (ns) | CPU (ns) | Throughput |
 | --- | ---: | ---: | ---: | --- |

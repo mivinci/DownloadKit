@@ -134,7 +134,7 @@ P2 — The current strategy works correctly but adds unnecessary latency (100–
 
 ### Affected Code
 
-- `libs/xp2p/ice_agent.c` — `try_nominate()`, `check_pacing_cb()`, `on_check_response()`
+- `libx/xp2p/ice_agent.c` — `try_nominate()`, `check_pacing_cb()`, `on_check_response()`
 
 ### References
 

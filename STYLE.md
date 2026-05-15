@@ -23,7 +23,7 @@ clang-format **无法覆盖**的约定。
 ### 2.1 目录结构
 
 ```plain
-libs/
+libx/
   xbase/        # 核心原语 — 事件循环、定时器、任务、异步 socket、内存、无锁数据结构
   xbuf/         # 缓冲区原语 — 线性、环形、链式 I/O 缓冲区
   xnet/         # 网络原语 — URL 解析、异步 DNS、TCP、TLS 传输层
@@ -32,7 +32,7 @@ libs/
   xcrypto/      # 密码学原语 — SHA-1（OpenSSL / mbedTLS / builtin）
   xp2p/         # P2P 连接 — ICE agent、STUN/TURN、SDP、NAT 穿透、DTLS、DataChannel
   xfer/         # P2P 文件传输 — 零配置发送/接收、分块、SHA-1 校验、断点续传
-apps/           # 面向最终用户的可安装程序（如 cli）
+cli/            # 面向最终用户的可安装程序（如 cli）
 examples/       # 示例程序
 bench/          # 端到端基准测试（HTTP server vs Go 等）
 cmake/          # CMake 辅助模块（Find*.cmake、Functions.cmake）
@@ -85,37 +85,33 @@ docs/           # 文档站点源文件
 #endif /* XBASE_EVENT_H */
 ```
 
-### 2.5 `apps/` 目录约定
+### 2.5 `cli/` 目录约定
 
-`apps/` 存放面向最终用户的可安装程序，与 `examples/` 的最小用法样例
+`cli/` 存放面向最终用户的可安装程序，与 `examples/` 的最小用法样例
 区分开：
 
-| 维度 | `apps/` | `examples/` |
+| 维度 | `cli/` | `examples/` |
 | ------ | ------ | ------ |
 | 定位 | 正式产物（`cli`、未来的 `server` 等） | 最小用法样例、API 诊断 |
 | 默认构建 | 仅当 `MOO_BUILD_APPS=ON` 时构建（默认 `OFF`） | 仅当 `MOO_BUILD_EXAMPLES=ON` 时构建 |
 | 规模 | 可跨多个 TU，按职责拆分子文件 | 单文件为主 |
 | 语言 | C / C++ 均可（选最合适的） | 跟随所演示模块的语言 |
-| 依赖 | 可依赖任意 `libs/*` 公共库 | 同左 |
+| 依赖 | 可依赖任意 `libx/*` 公共库 | 同左 |
 
 **目录布局：**
 
 ```plain
-apps/
-  CMakeLists.txt      # 仅 add_subdirectory 每个子 app
-  <app>/              # 例如 cli/
-    CMakeLists.txt    # 该 app 的构建规则（add_executable + link）
-    main.cpp          # 入口：argv 解析、对象装配、事件循环驱动
-    <module>.{h,cpp}  # 按职责拆分的子模块（repl、slash、callbacks…）
+cli/
+  CMakeLists.txt    # 该 app 的构建规则（add_executable + link）
+  main.cpp          # 入口：argv 解析、对象装配、事件循环驱动
+  <module>.{h,cpp}  # 按职责拆分的子模块（repl、slash、callbacks…）
 ```
 
-**头文件后缀**：单个 app 内部的头文件统一用 `.h`（与 `libs/` 一致），
+**头文件后缀**：cli 内部的头文件统一用 `.h`（与 `libx/` 一致），
 不使用 `.hpp`，即便整个 app 是 C++ 实现。Include guard 的命名为
-`MOO_APPS_<APP>_<FILE>_H`（例如 `MOO_APPS_CLI_REPL_H`）。
+`MOO_CLI_<FILE>_H`（例如 `MOO_CLI_REPL_H`）。
 
 **命名**：产物名（`add_executable(<name> …)`）与目录同名，用小写短名。
-跨 app 共享的库（如果将来出现）放到 `apps/<name>/` 下并以 `moo_` 前缀
-与模块库区分；目前仓里只有 `cli` 一个 app，未触发这条规则。
 
 ---
 

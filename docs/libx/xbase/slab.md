@@ -279,7 +279,7 @@ xSlabReset(loop->source_pool);
 ## Benchmark
 
 > Environment: Apple Mac15,7 (12 cores), 36 GB RAM, macOS 26.x, Release build (`-O2`). Each result is the median of 3 repetitions (`--benchmark_min_time=1.0s --benchmark_repetitions=3 --benchmark_report_aggregates_only=true`).
-> Source: [`xbase/slab_bench.cpp`](https://github.com/mivinci/moo/blob/main/libs/xbase/slab_bench.cpp)
+> Source: [`xbase/slab_bench.cpp`](https://github.com/mivinci/moo/blob/main/libx/xbase/slab_bench.cpp)
 
 ### Single-Threaded Alloc + Free
 

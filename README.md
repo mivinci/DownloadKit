@@ -57,7 +57,7 @@ change.
 ## Quick Start
 
 ```bash
-# 1. Configure + build the app (apps/ is off by default)
+# 1. Configure + build the app (cli/ is off by default)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
       -DMOO_BUILD_APPS=ON -DMOO_BUILD_TESTS=OFF -DMOO_BUILD_BENCHMARKS=OFF
 cmake --build build --parallel
@@ -89,7 +89,7 @@ cat > ~/.moo/models.json <<'JSON'
 JSON
 
 # 3. Talk to it
-./build/apps/cli/moo --data-dir ~/.moo
+./build/cli/moo --data-dir ~/.moo
 ```
 
 Inside the REPL, slash commands are available:
@@ -119,7 +119,7 @@ Here's what a session looks like:
 
 ```plain
                      ┌─────────────────────────┐
-                     │   apps/cli  (the `moo`  │
+                     │   cli  (the `moo`      │
                      │         REPL)           │
                      └────────────┬────────────┘
                                   │
@@ -142,7 +142,7 @@ Here's what a session looks like:
    (WebRTC + DataChannel file transfer) — supporting infra.
 ```
 
-### The agent (`libs/xagent`)
+### The agent (`libx/xagent`)
 
 | Module | Role |
 | ------ | ---- |
@@ -155,28 +155,28 @@ Here's what a session looks like:
 | `tool.{h,c}` · `tool_shell.{h,c}` | Tool definition ABI + a built-in shell tool with confirmation hooks. |
 | `budget.{h,c}` | Prompt-size estimator, rolling trimmer, auto-calibrator. |
 
-See [`libs/xagent/agent.h`](libs/xagent/agent.h) for the entry point, and
+See [`libx/xagent/agent.h`](libx/xagent/agent.h) for the entry point, and
 [`docs/design/`](docs/design) for the design notes
 (context budget, layered memory, three-layer conversation model).
 
 ### The foundation libraries
 
-Everything in `libs/` below `xagent` is shared, reusable, and independently
+Everything in `libx/` below `xagent` is shared, reusable, and independently
 testable — you can link any of them into your own C project without
 pulling in the agent.
 
 | Library | What you get |
 | ------- | ------------ |
-| **[xbase](https://le0.me/moo/libs/xbase)** | Event loop, timers, tasks, async sockets, lock-free structures |
-| **[xbuf](https://le0.me/moo/libs/xbuf)** | Linear, ring, and block-chain I/O buffers |
-| **[xnet](https://le0.me/moo/libs/xnet)** | URL parser, async DNS, TCP, shared TLS config |
-| **[xhttp](https://le0.me/moo/libs/xhttp)** | libcurl multi-socket client with SSE; HTTP/1.1 + HTTP/2 server; WebSocket |
-| **[xline](https://le0.me/moo/libs/xline)** | CJK-aware line editor with persistent history and reverse search |
-| **[xlog](https://le0.me/moo/libs/xlog)** | Async MPSC logger with rotation |
-| **[xjs](https://le0.me/moo/libs/xjs)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped API |
-| **[xcrypto](https://le0.me/moo/libs/xcrypto)** | SHA-1 / SHA-256 / MD5 / CRC-32 / HMAC |
-| **[xp2p](https://le0.me/moo/libs/xp2p)** | ICE · STUN/TURN · SDP · DTLS · SCTP · DataChannel |
-| **[xfer](https://le0.me/moo/libs/xfer)** | Zero-config P2P file transfer over WebRTC DataChannel |
+| **[xbase](https://le0.me/moo/libx/xbase)** | Event loop, timers, tasks, async sockets, lock-free structures |
+| **[xbuf](https://le0.me/moo/libx/xbuf)** | Linear, ring, and block-chain I/O buffers |
+| **[xnet](https://le0.me/moo/libx/xnet)** | URL parser, async DNS, TCP, shared TLS config |
+| **[xhttp](https://le0.me/moo/libx/xhttp)** | libcurl multi-socket client with SSE; HTTP/1.1 + HTTP/2 server; WebSocket |
+| **[xline](https://le0.me/moo/libx/xline)** | CJK-aware line editor with persistent history and reverse search |
+| **[xlog](https://le0.me/moo/libx/xlog)** | Async MPSC logger with rotation |
+| **[xjs](https://le0.me/moo/libx/xjs)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped API |
+| **[xcrypto](https://le0.me/moo/libx/xcrypto)** | SHA-1 / SHA-256 / MD5 / CRC-32 / HMAC |
+| **[xp2p](https://le0.me/moo/libx/xp2p)** | ICE · STUN/TURN · SDP · DTLS · SCTP · DataChannel |
+| **[xfer](https://le0.me/moo/libx/xfer)** | Zero-config P2P file transfer over WebRTC DataChannel |
 
 ## Prerequisites
 
@@ -209,7 +209,7 @@ Useful options:
 
 | Option | Default | Purpose |
 | ------ | ------- | ------- |
-| `MOO_BUILD_APPS` | `OFF` | Build `apps/` (the `moo` CLI lives here) |
+| `MOO_BUILD_APPS` | `OFF` | Build `cli/` (the `moo` CLI lives here) |
 | `MOO_BUILD_TESTS` | `ON` | Build unit tests |
 | `MOO_BUILD_BENCHMARKS` | `ON` | Build micro- and end-to-end benchmarks |
 | `MOO_BUILD_EXAMPLES` | `OFF` | Build example programs |

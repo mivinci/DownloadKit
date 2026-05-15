@@ -32,7 +32,7 @@ mkdir -p "$PREFETCH_DIR"
 # Copy only what cmake needs to resolve FetchContent
 cp -r /work/cmake "$PREFETCH_DIR/"
 cp /work/CMakeLists.txt "$PREFETCH_DIR/"
-cp -r /work/libs "$PREFETCH_DIR/"
+cp -r /work/libx "$PREFETCH_DIR/"
 cp -r /work/bench "$PREFETCH_DIR/"
 
 cd "$PREFETCH_DIR" && \

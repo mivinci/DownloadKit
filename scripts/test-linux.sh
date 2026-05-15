@@ -186,7 +186,7 @@ detect_changed_modules() {
 
     local -A changed_mods=([__none__]=1)
     for f in $changed_files; do
-        if [[ "$f" =~ ^libs/([^/]+)/ ]]; then
+        if [[ "$f" =~ ^libx/([^/]+)/ ]]; then
             local mod="${BASH_REMATCH[1]}"
             for m in "${ALL_MODULES[@]}"; do
                 if [[ "$mod" == "$m" ]]; then

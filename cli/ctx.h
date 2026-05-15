@@ -148,7 +148,7 @@ struct ReplCtx {
    * When true (default), on_tool_output streams full data.
    * When false, only [tool] start/finish, command echo, and result
    * summary are shown. Toggled by /verbose. */
-  bool verbose_tool_output = true;
+  bool verbose_tool_output = false;
 };
 
 /* Convenience: switch ctx->renderer to the md or raw backend.

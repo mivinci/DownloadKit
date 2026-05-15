@@ -25,7 +25,7 @@ add_executable(moo
 find_package(Cjson REQUIRED)
 target_link_libraries(moo PRIVATE xagent xhttp xbase xline xtui Cjson::Cjson)
 target_include_directories(moo PRIVATE
-  ${CMAKE_SOURCE_DIR}/libs
+  ${CMAKE_SOURCE_DIR}/libx
   ${CMAKE_CURRENT_SOURCE_DIR}
 )
 # Startup banner reads this to avoid drifting from the single source of

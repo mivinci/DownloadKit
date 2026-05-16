@@ -64,7 +64,8 @@ endif()
 message(STATUS "xcrypto: crypto module enabled (SHA-1, SHA-256, MD5, CRC-32, HMAC)")
 
 # ── Tests ──────────────────────────────────────────────────────────────
-if(MOO_BUILD_TESTS)
+option(XCRYPTO_BUILD_TESTS "Build xcrypto tests" ${MOO_BUILD_TESTS})
+if(XCRYPTO_BUILD_TESTS)
   file(GLOB_RECURSE XCRYPTO_TEST_SOURCES "*_test.cpp")
   if(XCRYPTO_TEST_SOURCES)
     add_executable(xcrypto_test ${XCRYPTO_TEST_SOURCES})

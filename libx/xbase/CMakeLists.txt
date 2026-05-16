@@ -93,7 +93,13 @@ else()
   message(STATUS "xbase: backtrace backend = DbgHelp (Windows)")
 endif()
 
-if(MOO_BUILD_TESTS)
+# Sub-project switches default to inheriting the top-level MOO_* values
+# but can be flipped independently (e.g. -DXBASE_BUILD_TESTS=OFF while
+# the rest of the tree builds tests).
+option(XBASE_BUILD_TESTS      "Build xbase tests"      ${MOO_BUILD_TESTS})
+option(XBASE_BUILD_BENCHMARKS "Build xbase benchmarks" ${MOO_BUILD_BENCHMARKS})
+
+if(XBASE_BUILD_TESTS)
   file(GLOB_RECURSE XBASE_TEST_SOURCES "*_test.cpp")
   add_executable(xbase_test ${XBASE_TEST_SOURCES})
   target_link_libraries(xbase_test PRIVATE xbase GTest::gtest_main)
@@ -105,7 +111,7 @@ if(MOO_BUILD_TESTS)
   add_test(NAME xbase_test COMMAND xbase_test)
 endif()
 
-if(MOO_BUILD_BENCHMARKS)
+if(XBASE_BUILD_BENCHMARKS)
   find_package(Libuv QUIET)
 
   file(GLOB XBASE_BENCH_SOURCES "*_bench.cpp")

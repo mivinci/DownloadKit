@@ -9,7 +9,8 @@ target_link_libraries(xtui PUBLIC xbase)
 
 message(STATUS "xtui: terminal UI primitives enabled")
 
-if(MOO_BUILD_TESTS)
+option(XTUI_BUILD_TESTS "Build xtui tests" ${MOO_BUILD_TESTS})
+if(XTUI_BUILD_TESTS)
   file(GLOB_RECURSE XTUI_TEST_SOURCES "*_test.cpp")
   if(XTUI_TEST_SOURCES)
     add_executable(xtui_test ${XTUI_TEST_SOURCES})

@@ -10,7 +10,8 @@ target_link_libraries(xfer PUBLIC xp2p xhttp xnet xcrypto xbase PRIVATE Cjson::C
 message(STATUS "xfer: P2P file transfer module enabled")
 
 # ── Tests ──────────────────────────────────────────────────────────────
-if(MOO_BUILD_TESTS)
+option(XFER_BUILD_TESTS "Build xfer tests" ${MOO_BUILD_TESTS})
+if(XFER_BUILD_TESTS)
   file(GLOB_RECURSE XFER_TEST_SOURCES "*_test.cpp")
   if(XFER_TEST_SOURCES)
     add_executable(xfer_test ${XFER_TEST_SOURCES})

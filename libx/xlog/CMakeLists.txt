@@ -6,7 +6,8 @@ target_link_libraries(xlog PUBLIC xbase)
 
 message(STATUS "xlog: async logging module enabled")
 
-if(MOO_BUILD_TESTS)
+option(XLOG_BUILD_TESTS "Build xlog tests" ${MOO_BUILD_TESTS})
+if(XLOG_BUILD_TESTS)
   file(GLOB_RECURSE XLOG_TEST_SOURCES "*_test.cpp")
   if(XLOG_TEST_SOURCES)
     add_executable(xlog_test ${XLOG_TEST_SOURCES})

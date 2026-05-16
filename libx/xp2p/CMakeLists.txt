@@ -79,7 +79,8 @@ target_link_libraries(xp2p PRIVATE Usrsctp::Usrsctp)
 target_include_directories(xp2p PRIVATE ${Usrsctp_INCLUDE_DIRS})
 
 # ── Tests ──────────────────────────────────────────────────────────────
-if(MOO_BUILD_TESTS)
+option(XP2P_BUILD_TESTS "Build xp2p tests" ${MOO_BUILD_TESTS})
+if(XP2P_BUILD_TESTS)
   file(GLOB_RECURSE XP2P_TEST_SOURCES "*_test.cpp")
   if(XP2P_TEST_SOURCES)
     add_executable(xp2p_test ${XP2P_TEST_SOURCES})

@@ -21,7 +21,8 @@ target_link_libraries(xjs
 message(STATUS "xjs: JavaScript scripting engine enabled (QuickJS)")
 
 # ── Tests ──────────────────────────────────────────────────────────────
-if(MOO_BUILD_TESTS)
+option(XJS_BUILD_TESTS "Build xjs tests" ${MOO_BUILD_TESTS})
+if(XJS_BUILD_TESTS)
   file(GLOB_RECURSE XJS_TEST_SOURCES "*_test.cpp")
   if(XJS_TEST_SOURCES)
     add_executable(xjs_test ${XJS_TEST_SOURCES})

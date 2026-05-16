@@ -6,7 +6,10 @@ target_link_libraries(xbuf PUBLIC xbase)
 
 message(STATUS "xbuf: buffer module enabled (xBuffer + xRingBuffer + xIOBuffer)")
 
-if(MOO_BUILD_TESTS)
+option(XBUF_BUILD_TESTS      "Build xbuf tests"      ${MOO_BUILD_TESTS})
+option(XBUF_BUILD_BENCHMARKS "Build xbuf benchmarks" ${MOO_BUILD_BENCHMARKS})
+
+if(XBUF_BUILD_TESTS)
   file(GLOB_RECURSE XBUF_TEST_SOURCES "*_test.cpp")
   if(XBUF_TEST_SOURCES)
     add_executable(xbuf_test ${XBUF_TEST_SOURCES})
@@ -15,7 +18,7 @@ if(MOO_BUILD_TESTS)
   endif()
 endif()
 
-if(MOO_BUILD_BENCHMARKS)
+if(XBUF_BUILD_BENCHMARKS)
   file(GLOB XBUF_BENCH_SOURCES "*_bench.cpp")
   foreach(src ${XBUF_BENCH_SOURCES})
     get_filename_component(name ${src} NAME_WE)

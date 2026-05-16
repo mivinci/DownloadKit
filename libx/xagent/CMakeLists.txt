@@ -23,7 +23,8 @@ message(STATUS "xagent: LLM agent core enabled "
                "(message + tool + provider + openai)")
 
 # ── Tests ──────────────────────────────────────────────────────────────
-if(MOO_BUILD_TESTS)
+option(XAGENT_BUILD_TESTS "Build xagent tests" ${MOO_BUILD_TESTS})
+if(XAGENT_BUILD_TESTS)
   file(GLOB_RECURSE XAGENT_TEST_SOURCES "*_test.cpp")
   if(XAGENT_TEST_SOURCES)
     add_executable(xagent_test ${XAGENT_TEST_SOURCES})

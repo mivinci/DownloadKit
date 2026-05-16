@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 The moo Authors. All rights reserved.
+ * Copyright 2026 The libx Authors. All rights reserved.
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *

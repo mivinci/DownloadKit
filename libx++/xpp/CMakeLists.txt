@@ -12,17 +12,17 @@ file(GLOB XPP_SOURCES "*.cpp")
 file(GLOB XPP_TEST_SOURCES "*_test.cpp")
 list(REMOVE_ITEM XPP_SOURCES ${XPP_TEST_SOURCES})
 
-add_library(xpp ${XPP_SOURCES})
-target_compile_features(xpp PUBLIC cxx_std_14)
-target_link_libraries(xpp PUBLIC xbase)
-target_include_directories(xpp PUBLIC
+add_library(x++ ${XPP_SOURCES})
+target_compile_features(x++ PUBLIC cxx_std_14)
+target_link_libraries(x++ PUBLIC xbase)
+target_include_directories(x++ PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_SOURCE_DIR}/libx
   ${CMAKE_SOURCE_DIR}/libx++
 )
 
 if(XPP_BUILD_TESTS)
-  add_executable(xpp_test ${XPP_TEST_SOURCES})
-  target_link_libraries(xpp_test PRIVATE xpp GTest::gtest_main)
-  add_test(NAME xpp_test COMMAND xpp_test)
+  add_executable(x++_test ${XPP_TEST_SOURCES})
+  target_link_libraries(x++_test PRIVATE x++ GTest::gtest_main)
+  add_test(NAME x++_test COMMAND x++_test)
 endif()

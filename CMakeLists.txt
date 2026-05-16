@@ -71,6 +71,7 @@ add_subdirectory(libx/xagent)
 add_subdirectory(libx/xjs)
 add_subdirectory(libx/xline)
 add_subdirectory(libx/xtui)
+add_subdirectory(libxpp)
 
 if(MOO_BUILD_APPS)
   add_subdirectory(cli)

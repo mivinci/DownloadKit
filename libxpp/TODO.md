@@ -1,4 +1,4 @@
-# libx++ — C++ RAII Wrappers for libx
+# libxpp — C++ RAII Wrappers for libx
 
 Thin C++ wrappers that RAII-ify the C API in `libx/`.
 
@@ -123,7 +123,7 @@ target_link_libraries(my_app PRIVATE xpp)
 ## Directory Layout
 
 ```text
-libx++/
+libxpp/
   TODO.md
   CMakeLists.txt
   error.h

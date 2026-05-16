@@ -14,6 +14,7 @@
 #ifndef XBASE_LOG_H
 #define XBASE_LOG_H
 
+#include <stdarg.h>
 #include <stdbool.h>
 #include <xbase/base.h>
 
@@ -30,6 +31,11 @@
  * @param msg        Formatted error message (never NULL).
  * @param backtrace  Stack trace string when fatal is true; NULL otherwise.
  * @param userdata   User-provided context pointer.
+ *
+ * @note When invoked with a non-NULL backtrace (i.e. fatal=true), the
+ *       callback MUST NOT call xLog(true, ...) again. Doing so triggers
+ *       the per-thread recursion guard, which aborts immediately and
+ *       skips the callback to prevent unbounded recursion.
  */
 typedef void (*xLogCallback)(const char *msg, const char *backtrace,
                              void *userdata);
@@ -52,11 +58,31 @@ XCAPI(void) xLogSetCallback(xLogCallback cb, void *userdata);
  * message is printed to stderr as a fallback.
  * If @p fatal is true, abort() is called after the callback/stderr output.
  *
+ * @note Fatal calls are protected by a per-thread recursion guard: if
+ *       this function is re-entered with fatal=true while already in a
+ *       fatal dispatch (e.g. the callback itself calls xLog(true, ...),
+ *       or a signal handler fires mid-abort), the second call skips the
+ *       callback and aborts immediately. Non-fatal calls are not guarded.
+ *
  * @param fatal If true, call abort() after dispatching the message.
  * @param fmt   printf-style format string (NULL is handled safely).
  * @param ...   Format arguments.
  */
 XCAPI(void) xLog(bool fatal, const char *fmt, ...);
+
+/**
+ * @brief va_list variant of xLog().
+ *
+ * Identical semantics to xLog() — recursion guard, callback dispatch,
+ * backtrace capture, abort-on-fatal — but accepts a pre-built va_list.
+ * Use this when forwarding from another variadic function (e.g. a
+ * panic helper that adds a location prefix).
+ *
+ * @param fatal If true, call abort() after dispatching the message.
+ * @param fmt   printf-style format string (NULL is handled safely).
+ * @param ap    va_list initialized via va_start at the caller.
+ */
+XCAPI(void) xLogV(bool fatal, const char *fmt, va_list ap);
 
 /**
  * @brief Level-based debug logging macros.

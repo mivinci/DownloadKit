@@ -28,8 +28,10 @@ XDEF_STRUCT(xLogCtx) {
 
 #ifdef _WIN32
 static __declspec(thread) xLogCtx tl_ctx;
+static __declspec(thread) bool tl_in_fatal = false;
 #else
 static __thread xLogCtx tl_ctx;
+static __thread bool tl_in_fatal = false;
 #endif
 
 /* ───────────────── Public API ───────────────── */
@@ -40,16 +42,30 @@ void xLogSetCallback(xLogCallback cb, void *userdata) {
 }
 
 void xLog(bool fatal, const char *fmt, ...) {
-  va_list     ap;
+  va_list ap;
+  va_start(ap, fmt);
+  xLogV(fatal, fmt, ap);
+  va_end(ap);
+}
+
+void xLogV(bool fatal, const char *fmt, va_list ap) {
   const char *msg;
+
+  /* Recursion guard: a fatal xLog must terminate the process. If the
+   * registered callback re-enters xLog(fatal=true), or a signal handler
+   * fires another fatal log mid-abort, skip the callback path and abort
+   * immediately to avoid unbounded recursion / stack overflow. */
+  if (fatal && tl_in_fatal) {
+    fprintf(stderr, "xLog: recursive fatal — aborting\n");
+    abort();
+  }
+  if (fatal) tl_in_fatal = true;
 
   if (!fmt) {
     /* Defend against NULL format string */
     msg = "(null)";
   } else {
-    va_start(ap, fmt);
     vsnprintf(tl_ctx.buf, sizeof(tl_ctx.buf), fmt, ap);
-    va_end(ap);
     msg = tl_ctx.buf;
   }
 

@@ -66,8 +66,7 @@ static void on_state_change(xTransfer xfer, xTransferState state, void *ctx) {
   printf("[Recv] State: %s\n", s);
 }
 
-static void on_progress(xTransfer xfer, uint64_t transferred, uint64_t total,
-                        void *ctx) {
+static void on_progress(xTransfer xfer, uint64_t transferred, uint64_t total, void *ctx) {
   (void)xfer;
   (void)ctx;
   char speed_buf[32];
@@ -75,18 +74,15 @@ static void on_progress(xTransfer xfer, uint64_t transferred, uint64_t total,
   xSpeedTrackerUpdate(&spd, transferred);
   xSpeedTrackerFormat(&spd, speed_buf, sizeof(speed_buf));
 
-  printf("\r[Recv] Progress: %llu / %llu bytes (%.1f%%)%s   ",
-         (unsigned long long)transferred, (unsigned long long)total,
-         total > 0 ? 100.0 * transferred / total : 0.0, speed_buf);
+  printf("\r[Recv] Progress: %llu / %llu bytes (%.1f%%)%s   ", (unsigned long long)transferred,
+         (unsigned long long)total, total > 0 ? 100.0 * transferred / total : 0.0, speed_buf);
   fflush(stdout);
 }
 
-static void on_file_meta(xTransfer xfer, const char *filename,
-                         uint64_t filesize, void *ctx) {
+static void on_file_meta(xTransfer xfer, const char *filename, uint64_t filesize, void *ctx) {
   (void)xfer;
   (void)ctx;
-  printf("[Recv] Incoming file: \"%s\" (%llu bytes)\n", filename,
-         (unsigned long long)filesize);
+  printf("[Recv] Incoming file: \"%s\" (%llu bytes)\n", filename, (unsigned long long)filesize);
 }
 
 static void on_error(xTransfer xfer, xErrno err, const char *msg, void *ctx) {

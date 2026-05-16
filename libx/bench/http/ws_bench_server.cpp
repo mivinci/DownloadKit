@@ -18,10 +18,10 @@
  *   - wscat for manual testing
  */
 
+#include <atomic>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
-#include <csignal>
-#include <atomic>
 
 extern "C" {
 #include <x/base/event.h>
@@ -29,7 +29,7 @@ extern "C" {
 #include <x/http/ws.h>
 }
 
-static xEventLoop g_loop = nullptr;
+static xEventLoop            g_loop = nullptr;
 static std::atomic<uint64_t> g_connections{0};
 static std::atomic<uint64_t> g_messages{0};
 
@@ -41,18 +41,14 @@ static void on_open(xWsConn conn, void *arg) {
   g_connections.fetch_add(1, std::memory_order_relaxed);
 }
 
-static void on_message(xWsConn conn, xWsOpcode opcode,
-                       const void *payload, size_t len,
-                       void *arg) {
+static void on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len, void *arg) {
   (void)arg;
   g_messages.fetch_add(1, std::memory_order_relaxed);
   /* Echo the message back */
   xWsSend(conn, opcode, payload, len);
 }
 
-static void on_close(xWsConn conn, uint16_t code,
-                     const char *reason, size_t len,
-                     void *arg) {
+static void on_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) {
   (void)conn;
   (void)code;
   (void)reason;
@@ -77,8 +73,7 @@ int main(int argc, char *argv[]) {
   }
 
   /* Watch SIGINT to stop gracefully */
-  xEventLoopSignalWatch(g_loop, SIGINT,
-                        [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
+  xEventLoopSignalWatch(g_loop, SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
 
   xHttpServer server = xWsServe(g_loop, "0.0.0.0", port, &ws_cbs, nullptr);
   if (!server) {
@@ -93,10 +88,8 @@ int main(int argc, char *argv[]) {
 
   xEventLoopRun(g_loop);
 
-  fprintf(stdout, "\nTotal connections: %llu\n",
-          (unsigned long long)g_connections.load());
-  fprintf(stdout, "Total messages:    %llu\n",
-          (unsigned long long)g_messages.load());
+  fprintf(stdout, "\nTotal connections: %llu\n", (unsigned long long)g_connections.load());
+  fprintf(stdout, "Total messages:    %llu\n", (unsigned long long)g_messages.load());
 
   xHttpServerDestroy(server);
   xEventLoopDestroy(g_loop);

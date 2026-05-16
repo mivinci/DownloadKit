@@ -25,8 +25,7 @@ struct CapturedLog {
   int         count;
 };
 
-static void capture_callback(const char *msg, const char *backtrace,
-                             void *userdata) {
+static void capture_callback(const char *msg, const char *backtrace, void *userdata) {
   (void)backtrace;
   auto *cap     = static_cast<CapturedLog *>(userdata);
   cap->msg      = msg;
@@ -237,11 +236,8 @@ TEST(LogDeathTest, FatalCallbackReceivesBacktrace) {
 
 TEST_F(LogTest, NonFatalBacktraceIsNull) {
   static const char *received_bt = nullptr;
-  xLogSetCallback(
-    [](const char *, const char *backtrace, void *) {
-      received_bt = backtrace;
-    },
-    nullptr);
+  xLogSetCallback([](const char *, const char *backtrace, void *) { received_bt = backtrace; },
+                  nullptr);
   xLog(false, "non-fatal");
   EXPECT_EQ(received_bt, nullptr);
 }

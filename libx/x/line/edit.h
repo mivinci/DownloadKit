@@ -28,14 +28,14 @@ typedef struct editor_s {
   stringbuf_t *hint;      // hint displayed as part of the input
   stringbuf_t *hint_help; // help for a hint.
   ssize_t      pos;       // current cursor position in the input
-  ssize_t cur_rows; // current used rows to display our content (including extra
-                    // content)
-  ssize_t cur_row;  // current row that has the cursor (0 based, relative to the
-                    // prompt)
+  ssize_t      cur_rows;  // current used rows to display our content (including extra
+                          // content)
+  ssize_t cur_row;        // current row that has the cursor (0 based, relative to the
+                          // prompt)
   ssize_t termw;
-  bool    modified; // has a modification happened? (used for history navigation
-                    // for example)
-  bool    disable_undo; // temporarily disable auto undo (for history search)
+  bool    modified;  // has a modification happened? (used for history navigation
+                     // for example)
+  bool disable_undo; // temporarily disable auto undo (for history search)
   // When true, edit_refresh / edit_refresh_hint short-circuit without
   // touching the terminal. Used by the async layer's bracketed-paste
   // handling to coalesce O(paste_len) per-character repaints into a
@@ -43,10 +43,10 @@ typedef struct editor_s {
   // is an editor-level flag (rather than an env-level one) so that
   // concurrent sessions — should we ever allow them — don't stomp on
   // each other's refresh state.
-  bool    suspend_refresh;
-  ssize_t history_idx;  // current index in the history
-  editstate_t *undo;    // undo buffer
-  editstate_t *redo;    // redo buffer
+  bool         suspend_refresh;
+  ssize_t      history_idx; // current index in the history
+  editstate_t *undo;        // undo buffer
+  editstate_t *redo;        // redo buffer
   const char  *prompt_text; // text of the prompt before the prompt marker
   // caches
   attrbuf_t *attrs; // reuse attribute buffers
@@ -57,8 +57,8 @@ typedef struct editor_s {
 // Edit primitives shared across the xline internals.
 //-------------------------------------------------------------
 
-ic_private bool edit_init(ic_env_t *env, editor_t *eb, const char *prompt_text);
-ic_private bool edit_dispatch_key(ic_env_t *env, editor_t *eb, code_t c);
+ic_private bool  edit_init(ic_env_t *env, editor_t *eb, const char *prompt_text);
+ic_private bool  edit_dispatch_key(ic_env_t *env, editor_t *eb, code_t c);
 ic_private char *edit_finalize(ic_env_t *env, editor_t *eb, code_t last_c);
 
 //-------------------------------------------------------------
@@ -70,12 +70,11 @@ ic_private char *edit_finalize(ic_env_t *env, editor_t *eb, code_t last_c);
 ic_private void    edit_refresh(ic_env_t *env, editor_t *eb);
 ic_private void    edit_clear(ic_env_t *env, editor_t *eb);
 ic_private bool    edit_resize(ic_env_t *env, editor_t *eb);
-ic_private void    edit_write_prompt(ic_env_t *env, editor_t *eb, ssize_t row,
-                                     bool in_extra);
+ic_private void    edit_write_prompt(ic_env_t *env, editor_t *eb, ssize_t row, bool in_extra);
 ic_private ssize_t edit_get_rowcol(ic_env_t *env, editor_t *eb, rowcol_t *rc);
 ic_private void    edit_backspace(ic_env_t *env, editor_t *eb);
 ic_private void    edit_insert_char(ic_env_t *env, editor_t *eb, char c);
-ic_private void edit_insert_unicode(ic_env_t *env, editor_t *eb, unicode_t u);
+ic_private void    edit_insert_unicode(ic_env_t *env, editor_t *eb, unicode_t u);
 
 ic_private void editor_start_modify(editor_t *eb);
 ic_private void editor_undo_capture(editor_t *eb);
@@ -86,10 +85,8 @@ ic_private void editor_undo_forget(editor_t *eb);
 ic_private void edit_show_help(ic_env_t *env, editor_t *eb);
 ic_private void edit_history_prev(ic_env_t *env, editor_t *eb);
 ic_private void edit_history_next(ic_env_t *env, editor_t *eb);
-ic_private void edit_history_search_with_current_word(ic_env_t *env,
-                                                      editor_t *eb);
-ic_private void edit_generate_completions(ic_env_t *env, editor_t *eb,
-                                          bool autotab);
+ic_private void edit_history_search_with_current_word(ic_env_t *env, editor_t *eb);
+ic_private void edit_generate_completions(ic_env_t *env, editor_t *eb, bool autotab);
 
 //-------------------------------------------------------------
 // Cross-TU trace logging (implemented in async.c). Controlled at
@@ -110,10 +107,9 @@ ic_private void edit_generate_completions(ic_env_t *env, editor_t *eb,
 
 #if XLINE_TRACE_ENABLED
 ic_private void xline_trace(const char *fmt, ...);
-ic_private void xline_trace_bytes(const char *label, const char *data,
-                                  ssize_t len);
+ic_private void xline_trace_bytes(const char *label, const char *data, ssize_t len);
 #else
-#define xline_trace(...)              ((void)0)
+#define xline_trace(...)                    ((void)0)
 #define xline_trace_bytes(label, data, len) ((void)0)
 #endif
 

@@ -26,10 +26,10 @@ typedef enum palette_e {
   MONOCHROME, // no color
   ANSI8,      // only basic 8 ANSI color     (ESC[<idx>m, idx: 30-37, +10 for
               // background)
-  ANSI16, // basic + bright ANSI colors  (ESC[<idx>m, idx: 30-37, 90-97, +10 for
-          // background)
-  ANSI256, // ANSI 256 color palette      (ESC[38;5;<idx>m)
-  ANSIRGB  // direct rgb colors           (ESC[38;2;<r>;<g>;<b>m)
+  ANSI16,     // basic + bright ANSI colors  (ESC[<idx>m, idx: 30-37, 90-97, +10 for
+              // background)
+  ANSI256,    // ANSI 256 color palette      (ESC[38;5;<idx>m)
+  ANSIRGB     // direct rgb colors           (ESC[38;2;<r>;<g>;<b>m)
 } palette_t;
 
 typedef enum buffer_mode_e {
@@ -39,8 +39,7 @@ typedef enum buffer_mode_e {
 } buffer_mode_t;
 
 // Primitives
-ic_private term_t *term_new(tty_t *tty, bool nocolor, bool silent,
-                            int fd_out);
+ic_private term_t *term_new(tty_t *tty, bool nocolor, bool silent, int fd_out);
 ic_private void    term_free(term_t *term);
 
 ic_private bool term_is_interactive(const term_t *term);
@@ -57,7 +56,7 @@ ic_private buffer_mode_t term_set_buffer_mode(term_t *term, buffer_mode_t mode);
 // them to the tty. Useful when a caller has queued output it wants to
 // "un-do" (for example, discarding the initial prompt painted by
 // edit_init before re-anchoring the edit region).
-ic_private void          term_discard_buffer(term_t *term);
+ic_private void term_discard_buffer(term_t *term);
 
 ic_private void term_write_n(term_t *term, const char *s, ssize_t n);
 ic_private void term_write(term_t *term, const char *s);
@@ -85,7 +84,7 @@ ic_private int     term_get_color_bits(term_t *term);
 //
 // Returns false on failure (ioctl error, malformed CPR response, tty
 // gave up waiting). On success *row is the current cursor row.
-ic_private bool    term_cursor_row(term_t *term, ssize_t *row);
+ic_private bool term_cursor_row(term_t *term, ssize_t *row);
 
 // Helpers
 ic_private void term_writef(term_t *term, const char *fmt, ...);
@@ -124,10 +123,8 @@ ic_private extern uint32_t ansi256[256];
 
 ic_private attr_t term_get_attr(const term_t *term);
 ic_private void   term_set_attr(term_t *term, attr_t attr);
-ic_private void   term_write_formatted(term_t *term, const char *s,
-                                       const attr_t *attrs);
-ic_private void   term_write_formatted_n(term_t *term, const char *s,
-                                         const attr_t *attrs, ssize_t n);
+ic_private void   term_write_formatted(term_t *term, const char *s, const attr_t *attrs);
+ic_private void term_write_formatted_n(term_t *term, const char *s, const attr_t *attrs, ssize_t n);
 
 ic_private ic_color_t color_from_ansi256(ssize_t i);
 

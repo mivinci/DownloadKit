@@ -49,8 +49,7 @@
  *                 the NUL terminator).
  * @return         0 on success, -1 if the output buffer is too small.
  */
-XCAPI(int) xHexEncode(const uint8_t *src, size_t src_len, char *dst,
-                      size_t *dst_len);
+XCAPI(int) xHexEncode(const uint8_t *src, size_t src_len, char *dst, size_t *dst_len);
 
 /**
  * @brief Decode a hex string to binary data.
@@ -69,7 +68,6 @@ XCAPI(int) xHexEncode(const uint8_t *src, size_t src_len, char *dst,
  *                 or the input contains invalid characters or has an
  *                 odd length.
  */
-XCAPI(int) xHexDecode(const char *src, size_t src_len, uint8_t *dst,
-                      size_t *dst_len);
+XCAPI(int) xHexDecode(const char *src, size_t src_len, uint8_t *dst, size_t *dst_len);
 
 #endif /* XBASE_HEX_H */

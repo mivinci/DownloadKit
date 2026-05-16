@@ -48,7 +48,6 @@ void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd);
  * @param fd         File descriptor for the TCP connection.
  * @return           0 on success, -1 on error.
  */
-int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx,
-                            const char *hostname, int fd);
+int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx, const char *hostname, int fd);
 
 #endif /* XNET_TRANSPORT_PRIVATE_H */

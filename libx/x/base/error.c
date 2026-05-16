@@ -30,8 +30,7 @@ static const char *xErrnoStrings[] = {
 };
 
 const char *xstrerror(xErrno err) {
-  if (err < 0 ||
-      err >= (int)(sizeof(xErrnoStrings) / sizeof(xErrnoStrings[0]))) {
+  if (err < 0 || err >= (int)(sizeof(xErrnoStrings) / sizeof(xErrnoStrings[0]))) {
     return "unknown error";
   }
   return xErrnoStrings[err];

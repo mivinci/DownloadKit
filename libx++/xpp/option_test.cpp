@@ -15,8 +15,8 @@
 #include <string>
 #include <utility>
 
-#include "option.h"
-#include "result.h"
+#include <xpp/option.h>
+#include <xpp/result.h>
 
 namespace {
 
@@ -108,7 +108,7 @@ TEST(OptionTest, ValueConstructIsSome) {
 }
 
 TEST(OptionTest, RvalueConstruct) {
-  std::string       s = "hi";
+  std::string              s = "hi";
   xpp::Option<std::string> o(std::move(s));
   EXPECT_TRUE(o.isSome());
   EXPECT_EQ(o.unwrap(), "hi");
@@ -185,16 +185,16 @@ TEST_F(TrackerTest, SelfCopyAssignNoOp) {
   xpp::Option<Tracker> a(Tracker(3));
   // Through a reference to defeat -Wself-assign-overloaded.
   xpp::Option<Tracker> &ref = a;
-  a = ref;
+  a                         = ref;
   EXPECT_TRUE(a.isSome());
   EXPECT_EQ(a.unwrap().value, 3);
   EXPECT_EQ(Tracker::alive, 1);
 }
 
 TEST_F(TrackerTest, SelfMoveAssignNoOp) {
-  xpp::Option<Tracker> a(Tracker(4));
+  xpp::Option<Tracker>  a(Tracker(4));
   xpp::Option<Tracker> &ref = a;
-  a = std::move(ref);
+  a                         = std::move(ref);
   // After self-move semantics are valid but unspecified; we only assert
   // no leak/double-free.
   EXPECT_LE(Tracker::alive, 1);
@@ -309,7 +309,7 @@ TEST_F(TrackerTest, UnwrapRvalueOverloadMoves) {
   xpp::Option<Tracker> o(Tracker(5));
   Tracker::copies = 0;
   Tracker::moves  = 0;
-  Tracker t = std::move(o).unwrap();
+  Tracker t       = std::move(o).unwrap();
   EXPECT_EQ(t.value, 5);
   EXPECT_EQ(Tracker::copies, 0);
   EXPECT_GE(Tracker::moves, 1);
@@ -318,11 +318,11 @@ TEST_F(TrackerTest, UnwrapRvalueOverloadMoves) {
 TEST(OptionDeathTest, UnwrapOnNone) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(
-      {
-        xpp::Option<int> o;
-        (void)o.unwrap();
-      },
-      "unwrap\\(\\) on None Option");
+    {
+      xpp::Option<int> o;
+      (void)o.unwrap();
+    },
+    "unwrap\\(\\) on None Option");
 }
 
 TEST(OptionTest, UnwrapUncheckedHappyPath) {
@@ -336,11 +336,11 @@ TEST(OptionTest, UnwrapUncheckedHappyPath) {
 TEST(OptionDeathTest, UnwrapUncheckedOnNoneInDebug) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(
-      {
-        xpp::Option<int> o;
-        (void)o.unwrapUnchecked();
-      },
-      "internal: Option must be Some");
+    {
+      xpp::Option<int> o;
+      (void)o.unwrapUnchecked();
+    },
+    "internal: Option must be Some");
 }
 #endif
 
@@ -368,7 +368,7 @@ TEST_F(TrackerTest, UnwrapOrRvalueOverloadMovesFallback) {
 
 TEST_F(TrackerTest, TakeOnSomeReturnsValueAndClears) {
   xpp::Option<Tracker> a(Tracker(50));
-  Tracker::copies = 0;
+  Tracker::copies        = 0;
   xpp::Option<Tracker> b = a.take();
   EXPECT_TRUE(a.isNone());
   EXPECT_TRUE(b.isSome());
@@ -416,7 +416,7 @@ namespace {
 struct NoDefault {
   int v;
   explicit NoDefault(int x) : v(x) {}
-  NoDefault()                  = delete;
+  NoDefault() = delete;
 };
 } // namespace
 
@@ -491,14 +491,14 @@ TEST_F(TrackerTest, MapRvalueMovesValueIntoFn) {
 
 TEST(OptionTest, AndThenChainsSome) {
   xpp::Option<int> o(4);
-  auto r = o.andThen([](int x) { return xpp::Option<int>(x + 1); });
+  auto             r = o.andThen([](int x) { return xpp::Option<int>(x + 1); });
   EXPECT_TRUE(r.isSome());
   EXPECT_EQ(r.unwrap(), 5);
 }
 
 TEST(OptionTest, AndThenReturnsNoneFromFn) {
   xpp::Option<int> o(4);
-  auto r = o.andThen([](int) { return xpp::Option<int>(xpp::none); });
+  auto             r = o.andThen([](int) { return xpp::Option<int>(xpp::none); });
   EXPECT_TRUE(r.isNone());
 }
 
@@ -515,7 +515,7 @@ TEST(OptionTest, AndThenPassesThroughNone) {
 
 TEST(OptionTest, AndThenChangesType) {
   xpp::Option<int> o(3);
-  auto r = o.andThen([](int x) { return xpp::Option<std::string>(std::to_string(x)); });
+  auto             r = o.andThen([](int x) { return xpp::Option<std::string>(std::to_string(x)); });
   static_assert(std::is_same<decltype(r), xpp::Option<std::string>>::value, "");
   EXPECT_EQ(r.unwrap(), "3");
 }
@@ -603,9 +603,7 @@ TEST(OptionTest, InspectSkipsWhenNone) {
 TEST(OptionTest, InspectIsChainable) {
   xpp::Option<int> o(1);
   int              seen = 0;
-  auto             r    = std::move(o).inspect([&](const int &x) { seen = x; }).map([](int x) {
-    return x + 10;
-  });
+  auto r = std::move(o).inspect([&](const int &x) { seen = x; }).map([](int x) { return x + 10; });
   EXPECT_EQ(seen, 1);
   EXPECT_EQ(r.unwrap(), 11);
 }
@@ -613,14 +611,14 @@ TEST(OptionTest, InspectIsChainable) {
 /* ── okOr ─────────────────────────────────────────────────────────────── */
 
 TEST(OptionTest, OkOrReturnsOkWhenSome) {
-  xpp::Option<int>                    o(42);
+  xpp::Option<int>              o(42);
   xpp::Result<int, std::string> r = std::move(o).okOr<std::string>("nope");
   EXPECT_TRUE(r.isOk());
   EXPECT_EQ(r.unwrap(), 42);
 }
 
 TEST(OptionTest, OkOrReturnsErrWhenNone) {
-  xpp::Option<int>                    o;
+  xpp::Option<int>              o;
   xpp::Result<int, std::string> r = std::move(o).okOr<std::string>("nope");
   EXPECT_TRUE(r.isErr());
   EXPECT_EQ(r.unwrapErr(), "nope");

@@ -13,8 +13,8 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <x/agent/provider.h>
 #include "provider_private.h"
+#include <x/agent/provider.h>
 }
 
 #include <cstdlib>
@@ -27,21 +27,19 @@ struct FakeImpl {
   int cancel_calls  = 0;
   int destroy_calls = 0;
 
-  xErrno                            submit_return = xErrno_Ok;
+  xErrno                               submit_return = xErrno_Ok;
   const xAgentProviderSubmitConf      *last_conf     = nullptr;
   const xAgentProviderStreamCallbacks *last_cbs      = nullptr;
-  void                             *last_cb_arg   = nullptr;
+  void                                *last_cb_arg   = nullptr;
 
   /* When non-zero, destroy actually free()s this struct. Otherwise
    * the test keeps ownership to inspect counters after destroy. */
   int self_free = 0;
 };
 
-static xErrno fake_submit(void                             *impl,
-                          const xAgentProviderSubmitConf      *conf,
-                          const xAgentProviderStreamCallbacks *cbs,
-                          void                             *cb_arg) {
-  auto *f       = static_cast<FakeImpl *>(impl);
+static xErrno fake_submit(void *impl, const xAgentProviderSubmitConf *conf,
+                          const xAgentProviderStreamCallbacks *cbs, void *cb_arg) {
+  auto *f = static_cast<FakeImpl *>(impl);
   f->submit_calls++;
   f->last_conf   = conf;
   f->last_cbs    = cbs;
@@ -76,12 +74,12 @@ static xAgentProvider make_fake_provider(FakeImpl *impl) {
 /* ── ai_provider_submit ───────────────────────────────────────────────── */
 
 TEST(XaiProvider, SubmitDispatchesToVtable) {
-  FakeImpl    impl;
+  FakeImpl       impl;
   xAgentProvider pvd = make_fake_provider(&impl);
 
-  xAgentProviderSubmitConf      conf = {};
-  xAgentProviderStreamCallbacks cbs  = {};
-  int                        arg_marker = 0;
+  xAgentProviderSubmitConf      conf       = {};
+  xAgentProviderStreamCallbacks cbs        = {};
+  int                           arg_marker = 0;
 
   EXPECT_EQ(ai_provider_submit(pvd, &conf, &cbs, &arg_marker), xErrno_Ok);
   EXPECT_EQ(impl.submit_calls, 1);
@@ -95,30 +93,26 @@ TEST(XaiProvider, SubmitDispatchesToVtable) {
 TEST(XaiProvider, SubmitPropagatesReturnCode) {
   FakeImpl impl;
   impl.submit_return = xErrno_InvalidState;
-  xAgentProvider pvd    = make_fake_provider(&impl);
+  xAgentProvider pvd = make_fake_provider(&impl);
 
   xAgentProviderSubmitConf      conf = {};
   xAgentProviderStreamCallbacks cbs  = {};
-  EXPECT_EQ(ai_provider_submit(pvd, &conf, &cbs, nullptr),
-            xErrno_InvalidState);
+  EXPECT_EQ(ai_provider_submit(pvd, &conf, &cbs, nullptr), xErrno_InvalidState);
   EXPECT_EQ(impl.submit_calls, 1);
 
   xAgentProviderDestroy(pvd);
 }
 
 TEST(XaiProvider, SubmitRejectsNullArgs) {
-  FakeImpl    impl;
+  FakeImpl       impl;
   xAgentProvider pvd = make_fake_provider(&impl);
 
   xAgentProviderSubmitConf      conf = {};
   xAgentProviderStreamCallbacks cbs  = {};
 
-  EXPECT_EQ(ai_provider_submit(nullptr, &conf, &cbs, nullptr),
-            xErrno_InvalidArg);
-  EXPECT_EQ(ai_provider_submit(pvd, nullptr, &cbs, nullptr),
-            xErrno_InvalidArg);
-  EXPECT_EQ(ai_provider_submit(pvd, &conf, nullptr, nullptr),
-            xErrno_InvalidArg);
+  EXPECT_EQ(ai_provider_submit(nullptr, &conf, &cbs, nullptr), xErrno_InvalidArg);
+  EXPECT_EQ(ai_provider_submit(pvd, nullptr, &cbs, nullptr), xErrno_InvalidArg);
+  EXPECT_EQ(ai_provider_submit(pvd, &conf, nullptr, nullptr), xErrno_InvalidArg);
 
   /* None of those NULL paths should have reached the vtable. */
   EXPECT_EQ(impl.submit_calls, 0);
@@ -129,7 +123,7 @@ TEST(XaiProvider, SubmitRejectsNullArgs) {
 /* ── ai_provider_cancel ───────────────────────────────────────────────── */
 
 TEST(XaiProvider, CancelDispatchesToVtable) {
-  FakeImpl    impl;
+  FakeImpl       impl;
   xAgentProvider pvd = make_fake_provider(&impl);
 
   ai_provider_cancel(pvd);
@@ -146,8 +140,8 @@ TEST(XaiProvider, CancelOnNullIsNoop) {
 /* ── xAgentProviderDestroy ───────────────────────────────────────────────── */
 
 TEST(XaiProvider, DestroyCallsImplDestroyThenFrees) {
-  auto *impl     = new FakeImpl();
-  impl->self_free = 1;
+  auto *impl         = new FakeImpl();
+  impl->self_free    = 1;
   xAgentProvider pvd = make_fake_provider(impl);
 
   /* After Destroy, both the impl and the base struct are gone;
@@ -173,7 +167,7 @@ TEST(XaiProvider, DestroyNullIsNoop) {
 }
 
 TEST(XaiProvider, DestroyInvokesImplDestroyExactlyOnce) {
-  FakeImpl    impl;
+  FakeImpl       impl;
   xAgentProvider pvd = make_fake_provider(&impl);
 
   xAgentProviderDestroy(pvd);

@@ -68,9 +68,8 @@ XDEF_HANDLE(xAgentSession);
  * human-driven conversations.
  */
 XDEF_ENUM(xAgentInputOrigin){
-  xAgentInputOrigin_User = 0, /**< Real user speaking (default)    */
-  xAgentInputOrigin_SystemSynthesized =
-    1, /**< Agent-composed wake-up / nudge  */
+  xAgentInputOrigin_User              = 0, /**< Real user speaking (default)    */
+  xAgentInputOrigin_SystemSynthesized = 1, /**< Agent-composed wake-up / nudge  */
 };
 
 /**
@@ -130,8 +129,7 @@ XDEF_STRUCT(xAgentSessionCallbacks) {
    * @param len    Length of @p chunk in bytes.
    * @param ud     The user_data pointer from this struct.
    */
-  void (*on_thinking)(xAgentSession sess, const char *chunk, size_t len,
-                      void *ud);
+  void (*on_thinking)(xAgentSession sess, const char *chunk, size_t len, void *ud);
 
   /**
    * @brief Fired exactly once when the current run terminates.
@@ -160,8 +158,7 @@ XDEF_STRUCT(xAgentSessionCallbacks) {
    *                to keep.
    * @param ud      The user_data pointer from this struct.
    */
-  void (*on_done)(xAgentSession sess, xAgentDoneReason reason,
-                  const xAgentUsage *usage, void *ud);
+  void (*on_done)(xAgentSession sess, xAgentDoneReason reason, const xAgentUsage *usage, void *ud);
 
   /**
    * @brief Fired as a diagnostic precursor when the run hits a
@@ -203,8 +200,7 @@ XDEF_STRUCT(xAgentSessionCallbacks) {
    * @param started    Non-zero = started; zero = finished.
    * @param ud         The user_data pointer from this struct.
    */
-  void (*on_tool)(xAgentSession sess, const char *tool_name, int started,
-                  void *ud);
+  void (*on_tool)(xAgentSession sess, const char *tool_name, int started, void *ud);
 
   /**
    * @brief Optional: streaming output from an in-flight tool.
@@ -220,9 +216,8 @@ XDEF_STRUCT(xAgentSessionCallbacks) {
    * @param len         Length of @p data in bytes.
    * @param ud          The user_data pointer from this struct.
    */
-  void (*on_tool_output)(xAgentSession sess, const char *tool_use_id,
-                         const char *tool_name, const char *data, size_t len,
-                         void *ud);
+  void (*on_tool_output)(xAgentSession sess, const char *tool_use_id, const char *tool_name,
+                         const char *data, size_t len, void *ud);
 
   /**
    * @brief Optional: user-confirmation gate for tools flagged as
@@ -267,9 +262,8 @@ XDEF_STRUCT(xAgentSessionCallbacks) {
    * @param resolver     Opaque handle; pass to xAgentToolConfirmResolve.
    * @param ud           The user_data pointer from this struct.
    */
-  void (*on_tool_confirm)(xAgentSession sess, const char *tool_name,
-                          const char *tool_use_id, const char *args_json,
-                          xAgentToolConfirmResolver resolver, void *ud);
+  void (*on_tool_confirm)(xAgentSession sess, const char *tool_name, const char *tool_use_id,
+                          const char *args_json, xAgentToolConfirmResolver resolver, void *ud);
 
   /**
    *
@@ -541,8 +535,7 @@ XDEF_STRUCT(xAgentBudgetGateInfo) {
  * @param info   Event-specific detail (may be NULL).
  * @param ud     The user_data from xAgentBudgetConf.
  */
-typedef void (*xAgentBudgetEventFunc)(xAgentSession     sess,
-                                      xAgentBudgetEvent event, const void *info,
+typedef void (*xAgentBudgetEventFunc)(xAgentSession sess, xAgentBudgetEvent event, const void *info,
                                       void *ud);
 
 /**
@@ -831,8 +824,7 @@ XCAPI(void) xAgentSessionCancel(xAgentSession sess);
  * @param provider  Provider to use for the next query, or NULL to
  *                  clear the override.
  */
-XCAPI(void) xAgentSessionSetProvider(xAgentSession  sess,
-                                     xAgentProvider provider);
+XCAPI(void) xAgentSessionSetProvider(xAgentSession sess, xAgentProvider provider);
 
 /**
  * @brief Switch the session to a spec registered in its agent's
@@ -887,8 +879,7 @@ XCAPI(xErrno) xAgentSessionSetModel(xAgentSession sess, const char *model_id);
  *                        means "fall back to the built-in default"
  *                        (xAgentBudgetConf documents the exact value).
  */
-XCAPI(void) xAgentSessionSetContextWindow(xAgentSession sess,
-                                          size_t        context_window);
+XCAPI(void) xAgentSessionSetContextWindow(xAgentSession sess, size_t context_window);
 
 /**
  * @brief Replace the session's budget thresholds in bulk.
@@ -917,8 +908,7 @@ XCAPI(void) xAgentSessionSetContextWindow(xAgentSession sess,
  *              @c context_window field is read; @c policy and the
  *              callback fields are ignored.
  */
-XCAPI(void) xAgentSessionSetBudget(xAgentSession           sess,
-                                   const xAgentBudgetConf *conf);
+XCAPI(void) xAgentSessionSetBudget(xAgentSession sess, const xAgentBudgetConf *conf);
 
 /**
  * @brief Destroy the session and release its resources.

@@ -26,8 +26,8 @@
 
 /* ── Global state ──────────────────────────────────────── */
 
-static xEventLoop   g_loop = nullptr;
-static xWsConn      g_conn = nullptr;
+static xEventLoop        g_loop = nullptr;
+static xWsConn           g_conn = nullptr;
 static std::atomic<bool> g_connected{false};
 static std::atomic<bool> g_done{false};
 
@@ -35,16 +35,14 @@ static std::atomic<bool> g_done{false};
 
 static void on_open(xWsConn conn, void *arg) {
   (void)arg;
-  g_conn = conn;
+  g_conn      = conn;
   g_connected = true;
   printf("[ws] connected!\n");
   printf("[ws] type a message and press Enter "
          "(\"quit\" to close)\n");
 }
 
-static void on_message(xWsConn conn, xWsOpcode opcode,
-                       const void *payload, size_t len,
-                       void *arg) {
+static void on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len, void *arg) {
   (void)conn;
   (void)arg;
 
@@ -55,9 +53,7 @@ static void on_message(xWsConn conn, xWsOpcode opcode,
   }
 }
 
-static void on_close(xWsConn conn, uint16_t code,
-                     const char *reason, size_t len,
-                     void *arg) {
+static void on_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) {
   (void)conn;
   (void)arg;
   printf("[ws] closed (code=%u", code);
@@ -67,8 +63,8 @@ static void on_close(xWsConn conn, uint16_t code,
   printf(")\n");
 
   g_connected = false;
-  g_conn = nullptr;
-  g_done = true;
+  g_conn      = nullptr;
+  g_done      = true;
 
   /* Stop the event loop so the program exits */
   xEventLoopStop(g_loop);
@@ -92,8 +88,7 @@ static void stdin_thread_func() {
 
     /* Strip trailing newline */
     size_t n = strlen(line);
-    while (n > 0 &&
-           (line[n - 1] == '\n' || line[n - 1] == '\r')) {
+    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) {
       line[--n] = '\0';
     }
     if (n == 0) continue;
@@ -133,8 +128,8 @@ int main(int argc, char *argv[]) {
   }
 
   xWsConnectConf conf = {};
-  conf.url        = url;
-  conf.timeout_ms = 5000;
+  conf.url            = url;
+  conf.timeout_ms     = 5000;
 
   printf("[ws] connecting to %s ...\n", url);
 

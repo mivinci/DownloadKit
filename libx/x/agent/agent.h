@@ -321,7 +321,6 @@ XCAPI(xAgentSession) xAgentDefaultSession(xAgent agent);
  *               should usually be set).
  * @return       A new session handle, or NULL on failure.
  */
-XCAPI(xAgentSession) xAgentCreateSession(xAgent              agent,
-                                        const xAgentSessionConf *conf);
+XCAPI(xAgentSession) xAgentCreateSession(xAgent agent, const xAgentSessionConf *conf);
 
 #endif /* XAGENT_AGENT_H */

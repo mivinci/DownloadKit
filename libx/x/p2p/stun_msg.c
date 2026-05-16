@@ -10,8 +10,7 @@
 
 #include <string.h>
 
-void xStunMsgInit(xStunMsg *msg, xStunMsgType type,
-                  const uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
+void xStunMsgInit(xStunMsg *msg, xStunMsgType type, const uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
   memset(msg, 0, sizeof(*msg));
   msg->type = type;
   memcpy(msg->txn_id, txn_id, XSTUN_TXN_ID_SIZE);

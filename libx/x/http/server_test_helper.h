@@ -117,9 +117,8 @@ static inline std::string recv_all(int fd, int timeout_ms = 2000) {
         size_t cl_start = cl_pos + 16;
         size_t cl_end   = result.find("\r\n", cl_start);
         if (cl_end != std::string::npos) {
-          int content_len =
-            std::stoi(result.substr(cl_start, cl_end - cl_start));
-          size_t body_start = result.find("\r\n\r\n") + 4;
+          int    content_len = std::stoi(result.substr(cl_start, cl_end - cl_start));
+          size_t body_start  = result.find("\r\n\r\n") + 4;
           if (result.size() >= body_start + (size_t)content_len) break;
         }
       } else {

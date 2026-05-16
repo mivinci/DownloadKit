@@ -4,9 +4,9 @@
   under the terms of the MIT License. A copy of the license can be
   found in the "LICENSE" file at the root of this distribution.
 -----------------------------------------------------------------------------*/
-#include <x/base/log.h>
 #include "tty.h"
 #include <string.h>
+#include <x/base/log.h>
 
 /*-------------------------------------------------------------
 Decoding escape sequences to key codes.
@@ -301,23 +301,20 @@ static code_t esc_decode_ss3(uint8_t ss3_code) {
   return KEY_NONE;
 }
 
-static void tty_read_csi_num(tty_t *tty, uint8_t *ppeek, uint32_t *num,
-                             long esc_timeout) {
+static void tty_read_csi_num(tty_t *tty, uint8_t *ppeek, uint32_t *num, long esc_timeout) {
   *num           = 1; // default
   ssize_t  count = 0;
   uint32_t i     = 0;
   while (*ppeek >= '0' && *ppeek <= '9' && count < 16) {
     uint8_t digit = *ppeek - '0';
-    if (!tty_readc_noblock(tty, ppeek, esc_timeout))
-      break; // peek is not modified in this case
+    if (!tty_readc_noblock(tty, ppeek, esc_timeout)) break; // peek is not modified in this case
     count++;
     i = 10 * i + digit;
   }
   if (count > 0) *num = i;
 }
 
-static code_t tty_read_csi(tty_t *tty, uint8_t c1, uint8_t peek, code_t mods0,
-                           long esc_timeout) {
+static code_t tty_read_csi(tty_t *tty, uint8_t c1, uint8_t peek, code_t mods0, long esc_timeout) {
   // CSI starts with 0x9b (c1=='[') | ESC [ (c1=='[') | ESC [Oo?] (c1 == 'O') /*
   // = SS3 */
 
@@ -352,8 +349,8 @@ static code_t tty_read_csi(tty_t *tty, uint8_t c1, uint8_t peek, code_t mods0,
   uint8_t final     = peek;
   code_t  modifiers = mods0;
 
-  XDEBUG("tty: escape sequence: ESC %c %c %d;%d %c\n", c1,
-            (special == 0 ? '_' : special), num1, num2, final);
+  XDEBUG("tty: escape sequence: ESC %c %c %d;%d %c\n", c1, (special == 0 ? '_' : special), num1,
+         num2, final);
 
   // Adjust special cases into standard ones.
   if ((final == '@' || final == '9') && c1 == '[' && num1 == 1) {
@@ -411,8 +408,7 @@ static code_t tty_read_csi(tty_t *tty, uint8_t c1, uint8_t peek, code_t mods0,
   } else if (c1 == '[' && final == 'u') {
     // unicode
     code = key_unicode(num1);
-  } else if (c1 == 'O' && ((final >= 'A' && final <= 'Z') ||
-                           (final >= 'a' && final <= 'z'))) {
+  } else if (c1 == 'O' && ((final >= 'A' && final <= 'Z') || (final >= 'a' && final <= 'z'))) {
     // ss3
     code = esc_decode_ss3(final);
   } else if (num1 == 1 && final >= 'A' && final <= 'Z') {
@@ -424,8 +420,7 @@ static code_t tty_read_csi(tty_t *tty, uint8_t c1, uint8_t peek, code_t mods0,
   }
 
   if (code == KEY_NONE && final != 'R') {
-    XDEBUG("tty: ignore escape sequence: ESC %c %zu;%zu %c\n", c1, num1,
-              num2, final);
+    XDEBUG("tty: ignore escape sequence: ESC %c %zu;%zu %c\n", c1, num1, num2, final);
   }
   // Paste boundaries are event codes, not keys — don't let stray
   // modifiers (unlikely but defensive) leak into them.
@@ -457,8 +452,7 @@ static code_t tty_read_osc(tty_t *tty, uint8_t *ppeek, long esc_timeout) {
   return KEY_NONE;
 }
 
-ic_private code_t tty_read_esc(tty_t *tty, long esc_initial_timeout,
-                               long esc_timeout) {
+ic_private code_t tty_read_esc(tty_t *tty, long esc_initial_timeout, long esc_timeout) {
   code_t  mods = 0;
   uint8_t peek = 0;
 

@@ -40,8 +40,8 @@ static void client_on_open(xWsConn conn, void *arg) {
   ctx->conn = conn;
 }
 
-static void client_on_message(xWsConn conn, xWsOpcode opcode,
-                              const void *payload, size_t len, void *arg) {
+static void client_on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len,
+                              void *arg) {
   (void)conn;
   auto *ctx = (WsClientCtx *)arg;
   ctx->message_count++;
@@ -53,8 +53,8 @@ static void client_on_message(xWsConn conn, xWsOpcode opcode,
   }
 }
 
-static void client_on_close(xWsConn conn, uint16_t code, const char *reason,
-                            size_t len, void *arg) {
+static void client_on_close(xWsConn conn, uint16_t code, const char *reason, size_t len,
+                            void *arg) {
   (void)conn;
   (void)reason;
   (void)len;
@@ -81,16 +81,16 @@ static void server_on_open(xWsConn conn, void *arg) {
   ctx->conn = conn;
 }
 
-static void server_on_message(xWsConn conn, xWsOpcode opcode,
-                              const void *payload, size_t len, void *arg) {
+static void server_on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len,
+                              void *arg) {
   auto *ctx = (WsServerCtx *)arg;
   ctx->message_count++;
   /* Echo back */
   xWsSend(conn, opcode, payload, len);
 }
 
-static void server_on_close(xWsConn conn, uint16_t code, const char *reason,
-                            size_t len, void *arg) {
+static void server_on_close(xWsConn conn, uint16_t code, const char *reason, size_t len,
+                            void *arg) {
   (void)code;
   (void)conn;
   (void)reason;
@@ -99,8 +99,7 @@ static void server_on_close(xWsConn conn, uint16_t code, const char *reason,
   ctx->close_count++;
 }
 
-static void ws_echo_handler(xHttpResponseWriter writer, const xHttpRequest *req,
-                            void *arg) {
+static void ws_echo_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   WsServerCtx *ctx = (WsServerCtx *)arg;
   xWsCallbacks cbs = {};
   cbs.on_open      = server_on_open;
@@ -121,8 +120,7 @@ protected:
 
   void SetUpEchoServer(const std::string &path = "/ws") {
     std::string pattern = "GET " + path;
-    xErrno      err =
-      xHttpServerRoute(server, pattern.c_str(), ws_echo_handler, &server_ctx);
+    xErrno      err     = xHttpServerRoute(server, pattern.c_str(), ws_echo_handler, &server_ctx);
     ASSERT_EQ(err, xErrno_Ok);
   }
 };
@@ -203,7 +201,7 @@ TEST_F(WsConnectTest, ConnectBinaryMessage) {
 
   /* Send binary data */
   uint8_t data[] = {0x00, 0x01, 0x02, 0xFF, 0xFE};
-  err = xWsSend(client_ctx.conn, xWsOpcode_Binary, data, sizeof(data));
+  err            = xWsSend(client_ctx.conn, xWsOpcode_Binary, data, sizeof(data));
   ASSERT_EQ(err, xErrno_Ok);
 
   for (int i = 0; i < 100 && client_ctx.message_count == 0; i++)

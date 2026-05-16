@@ -39,12 +39,12 @@
 
 /* ───────────────────── DCEP Channel Types (RFC 8832) ───────────────────── */
 
-#define XDCEP_CHANNEL_RELIABLE                0x00
-#define XDCEP_CHANNEL_RELIABLE_UNORDERED      0x80
-#define XDCEP_CHANNEL_PARTIAL_RTXS            0x01
-#define XDCEP_CHANNEL_PARTIAL_RTXS_UNORDERED  0x81
-#define XDCEP_CHANNEL_PARTIAL_TIME            0x02
-#define XDCEP_CHANNEL_PARTIAL_TIME_UNORDERED  0x82
+#define XDCEP_CHANNEL_RELIABLE               0x00
+#define XDCEP_CHANNEL_RELIABLE_UNORDERED     0x80
+#define XDCEP_CHANNEL_PARTIAL_RTXS           0x01
+#define XDCEP_CHANNEL_PARTIAL_RTXS_UNORDERED 0x81
+#define XDCEP_CHANNEL_PARTIAL_TIME           0x02
+#define XDCEP_CHANNEL_PARTIAL_TIME_UNORDERED 0x82
 
 /* ───────────────────── DataChannel State ───────────────────── */
 
@@ -77,10 +77,8 @@ typedef void (*xDataChannelOnOpen)(xDataChannel channel, void *arg);
 /**
  * @brief Called when a DataChannel receives a message.
  */
-typedef void (*xDataChannelOnMessage)(xDataChannel channel,
-                                      xDataChannelMsgType type,
-                                      const uint8_t *data, size_t len,
-                                      void *arg);
+typedef void (*xDataChannelOnMessage)(xDataChannel channel, xDataChannelMsgType type,
+                                      const uint8_t *data, size_t len, void *arg);
 
 /**
  * @brief Called when a DataChannel is closed.
@@ -90,8 +88,7 @@ typedef void (*xDataChannelOnClose)(xDataChannel channel, void *arg);
 /**
  * @brief Called when a DataChannel encounters an error.
  */
-typedef void (*xDataChannelOnError)(xDataChannel channel, xErrno err,
-                                    void *arg);
+typedef void (*xDataChannelOnError)(xDataChannel channel, xErrno err, void *arg);
 
 /**
  * @brief Called when the DataChannel's buffered amount drops to or
@@ -100,8 +97,7 @@ typedef void (*xDataChannelOnError)(xDataChannel channel, xErrno err,
  * Used for backpressure: pause sending when buffered amount is high,
  * resume when this callback fires.
  */
-typedef void (*xDataChannelOnBufferedAmountLow)(xDataChannel channel,
-                                                void *arg);
+typedef void (*xDataChannelOnBufferedAmountLow)(xDataChannel channel, void *arg);
 
 /* ───────────────────── DataChannel Manager ───────────────────── */
 
@@ -114,8 +110,7 @@ XDEF_HANDLE(xDataChannelMgr);
 /**
  * @brief Called when a remote peer opens a new DataChannel.
  */
-typedef void (*xDataChannelOnRemoteOpen)(xDataChannelMgr mgr,
-                                         xDataChannel    channel, void *arg);
+typedef void (*xDataChannelOnRemoteOpen)(xDataChannelMgr mgr, xDataChannel channel, void *arg);
 
 /* ───────────────────── Manager Configuration ───────────────────── */
 
@@ -138,9 +133,9 @@ XDEF_STRUCT(xDataChannelMgrConf) {
 XDEF_STRUCT(xDataChannelConf) {
   char     label[XDC_MAX_LABEL_LEN];       /**< Channel label.          */
   char     protocol[XDC_MAX_PROTOCOL_LEN]; /**< Sub-protocol.           */
-  bool     ordered;          /**< Ordered delivery (default true).      */
-  uint16_t max_retransmits;  /**< Max retransmits (0 = reliable).       */
-  uint16_t max_packet_life_time; /**< Max lifetime ms (0 = reliable).   */
+  bool     ordered;                        /**< Ordered delivery (default true).      */
+  uint16_t max_retransmits;                /**< Max retransmits (0 = reliable).       */
+  uint16_t max_packet_life_time;           /**< Max lifetime ms (0 = reliable).   */
 
   /** Per-channel callbacks (override manager defaults if non-NULL). */
   xDataChannelOnOpen              on_open;
@@ -179,15 +174,13 @@ XCAPI(void) xDataChannelMgrDestroy(xDataChannelMgr mgr);
  * @param data       Received data.
  * @param len        Length of data.
  */
-XCAPI(void) xDataChannelMgrOnData(xDataChannelMgr mgr, uint16_t stream_id,
-                                   uint32_t ppid, const uint8_t *data,
-                                   size_t len);
+XCAPI(void) xDataChannelMgrOnData(xDataChannelMgr mgr, uint16_t stream_id, uint32_t ppid,
+                                  const uint8_t *data, size_t len);
 
 /**
  * @brief Handle SCTP stream close notification.
  */
-XCAPI(void) xDataChannelMgrOnStreamClose(xDataChannelMgr mgr,
-                                          uint16_t        stream_id);
+XCAPI(void) xDataChannelMgrOnStreamClose(xDataChannelMgr mgr, uint16_t stream_id);
 
 /* ───────────────────── Channel API ───────────────────── */
 
@@ -200,20 +193,17 @@ XCAPI(void) xDataChannelMgrOnStreamClose(xDataChannelMgr mgr,
  * @param conf  Channel configuration.
  * @return      Channel handle, or NULL on failure.
  */
-XCAPI(xDataChannel) xDataChannelCreate(xDataChannelMgr        mgr,
-                                        const xDataChannelConf *conf);
+XCAPI(xDataChannel) xDataChannelCreate(xDataChannelMgr mgr, const xDataChannelConf *conf);
 
 /**
  * @brief Send a string message on a DataChannel.
  */
-XCAPI(xErrno) xDataChannelSendString(xDataChannel channel, const char *str,
-                                      size_t len);
+XCAPI(xErrno) xDataChannelSendString(xDataChannel channel, const char *str, size_t len);
 
 /**
  * @brief Send a binary message on a DataChannel.
  */
-XCAPI(xErrno) xDataChannelSendBinary(xDataChannel channel, const uint8_t *data,
-                                      size_t len);
+XCAPI(xErrno) xDataChannelSendBinary(xDataChannel channel, const uint8_t *data, size_t len);
 
 /**
  * @brief Close a DataChannel.
@@ -252,8 +242,7 @@ XCAPI(size_t) xDataChannelGetBufferedAmount(xDataChannel channel);
  * @param channel    DataChannel handle.
  * @param threshold  Threshold in bytes (default 0).
  */
-XCAPI(void) xDataChannelSetBufferedAmountLowThreshold(xDataChannel channel,
-                                                       size_t threshold);
+XCAPI(void) xDataChannelSetBufferedAmountLowThreshold(xDataChannel channel, size_t threshold);
 
 /**
  * @brief Notify the DataChannel manager that the SCTP send buffer

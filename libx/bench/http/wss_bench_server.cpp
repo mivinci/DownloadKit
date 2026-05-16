@@ -18,10 +18,10 @@
  *   - Custom Go benchmark client (ws_bench_client.go) using wss:// URL
  */
 
+#include <atomic>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
-#include <csignal>
-#include <atomic>
 
 extern "C" {
 #include <x/base/event.h>
@@ -30,7 +30,7 @@ extern "C" {
 #include <x/net/tls.h>
 }
 
-static xEventLoop g_loop = nullptr;
+static xEventLoop            g_loop = nullptr;
 static std::atomic<uint64_t> g_connections{0};
 static std::atomic<uint64_t> g_messages{0};
 
@@ -42,18 +42,14 @@ static void on_open(xWsConn conn, void *arg) {
   g_connections.fetch_add(1, std::memory_order_relaxed);
 }
 
-static void on_message(xWsConn conn, xWsOpcode opcode,
-                       const void *payload, size_t len,
-                       void *arg) {
+static void on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len, void *arg) {
   (void)arg;
   g_messages.fetch_add(1, std::memory_order_relaxed);
   /* Echo the message back */
   xWsSend(conn, opcode, payload, len);
 }
 
-static void on_close(xWsConn conn, uint16_t code,
-                     const char *reason, size_t len,
-                     void *arg) {
+static void on_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) {
   (void)conn;
   (void)code;
   (void)reason;
@@ -69,17 +65,15 @@ static const xWsCallbacks ws_cbs = {
 
 /* ── HTTP handler that upgrades to WebSocket ───────────── */
 
-static void ws_handler(xHttpResponseWriter w,
-                       const xHttpRequest *req,
-                       void *arg) {
+static void ws_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)arg;
   xWsUpgrade(w, req, &ws_cbs, nullptr);
 }
 
 int main(int argc, char *argv[]) {
-  uint16_t port = 9090;
+  uint16_t    port      = 9090;
   const char *cert_path = "bench_cert.pem";
-  const char *key_path = "bench_key.pem";
+  const char *key_path  = "bench_key.pem";
 
   if (argc > 1) port = (uint16_t)atoi(argv[1]);
   if (argc > 2) cert_path = argv[2];
@@ -92,8 +86,7 @@ int main(int argc, char *argv[]) {
   }
 
   /* Watch SIGINT to stop gracefully */
-  xEventLoopSignalWatch(g_loop, SIGINT,
-                        [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
+  xEventLoopSignalWatch(g_loop, SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
 
   xHttpServer server = xHttpServerCreate(g_loop);
   if (!server) {
@@ -105,13 +98,13 @@ int main(int argc, char *argv[]) {
   xHttpServerRoute(server, "GET /", ws_handler, nullptr);
 
   xTlsConf tls = {};
-  tls.cert = cert_path;
-  tls.key = key_path;
+  tls.cert     = cert_path;
+  tls.key      = key_path;
 
   /* WebSocket upgrade requires HTTP/1.1 — disable h2 ALPN */
   static const char *ws_alpn[] = {"http/1.1", NULL};
-  tls.alpn = ws_alpn;
-  tls.skip_verify = 1; /* No client cert required for benchmarking */
+  tls.alpn                     = ws_alpn;
+  tls.skip_verify              = 1; /* No client cert required for benchmarking */
 
   xErrno err = xHttpServerListenTls(server, "0.0.0.0", port, &tls);
   if (err != xErrno_Ok) {
@@ -120,8 +113,9 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "  cert: %s\n", cert_path);
     fprintf(stderr, "  key:  %s\n", key_path);
     fprintf(stderr, "Generate with:\n");
-    fprintf(stderr, "  openssl req -x509 -newkey rsa:2048 -keyout %s -out %s "
-                    "-days 365 -nodes -subj '/CN=localhost'\n",
+    fprintf(stderr,
+            "  openssl req -x509 -newkey rsa:2048 -keyout %s -out %s "
+            "-days 365 -nodes -subj '/CN=localhost'\n",
             key_path, cert_path);
     xHttpServerDestroy(server);
     xEventLoopDestroy(g_loop);
@@ -136,10 +130,8 @@ int main(int argc, char *argv[]) {
 
   xEventLoopRun(g_loop);
 
-  fprintf(stdout, "\nTotal connections: %llu\n",
-          (unsigned long long)g_connections.load());
-  fprintf(stdout, "Total messages:    %llu\n",
-          (unsigned long long)g_messages.load());
+  fprintf(stdout, "\nTotal connections: %llu\n", (unsigned long long)g_connections.load());
+  fprintf(stdout, "Total messages:    %llu\n", (unsigned long long)g_messages.load());
 
   xHttpServerDestroy(server);
   xEventLoopDestroy(g_loop);

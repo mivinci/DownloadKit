@@ -47,10 +47,8 @@ static void sift_down(struct xHeap_ *h, size_t i) {
     size_t left     = 2 * i + 1;
     size_t right    = 2 * i + 2;
 
-    if (left < h->size && h->cmp(h->data[left], h->data[smallest]) < 0)
-      smallest = left;
-    if (right < h->size && h->cmp(h->data[right], h->data[smallest]) < 0)
-      smallest = right;
+    if (left < h->size && h->cmp(h->data[left], h->data[smallest]) < 0) smallest = left;
+    if (right < h->size && h->cmp(h->data[right], h->data[smallest]) < 0) smallest = right;
 
     if (smallest == i) break;
     swap(h, i, smallest);

@@ -26,8 +26,7 @@
  * @param addr  Source address of the response (NULL on timeout).
  * @param arg   User-provided argument.
  */
-typedef void (*xStunTxnFunc)(const xStunMsg *msg, const struct sockaddr *addr,
-                             void *arg);
+typedef void (*xStunTxnFunc)(const xStunMsg *msg, const struct sockaddr *addr, void *arg);
 
 /**
  * @brief Callback for sending a STUN message over the network.
@@ -38,8 +37,8 @@ typedef void (*xStunTxnFunc)(const xStunMsg *msg, const struct sockaddr *addr,
  * @param arg   User-provided argument (typically the socket context).
  * @return      xErrno_Ok on success.
  */
-typedef xErrno (*xStunTxnSendFunc)(const uint8_t *data, size_t len,
-                                   const struct sockaddr *addr, void *arg);
+typedef xErrno (*xStunTxnSendFunc)(const uint8_t *data, size_t len, const struct sockaddr *addr,
+                                   void *arg);
 
 /* ───────────────────── Transaction ───────────────────── */
 
@@ -111,9 +110,8 @@ void xStunTxnMgrDestroy(xStunTxnMgr *mgr);
  * @param cb_arg      Argument for on_complete.
  * @return            xErrno_Ok on success.
  */
-xErrno xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type,
-                       const uint8_t *attrs, uint16_t attrs_len,
-                       const struct sockaddr *dest, xStunTxnSendFunc send_fn,
+xErrno xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type, const uint8_t *attrs,
+                       uint16_t attrs_len, const struct sockaddr *dest, xStunTxnSendFunc send_fn,
                        void *send_arg, xStunTxnFunc on_complete, void *cb_arg);
 
 /**
@@ -131,9 +129,8 @@ xErrno xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type,
  * @param cb_arg      Argument for on_complete.
  * @return            xErrno_Ok on success.
  */
-xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf,
-                          size_t msg_len, const struct sockaddr *dest,
-                          xStunTxnSendFunc send_fn, void *send_arg,
+xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf, size_t msg_len,
+                          const struct sockaddr *dest, xStunTxnSendFunc send_fn, void *send_arg,
                           xStunTxnFunc on_complete, void *cb_arg);
 
 /**
@@ -150,9 +147,8 @@ xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf,
  * @param from     Source address of the response.
  * @return         true if the response was matched to a transaction.
  */
-bool xStunTxnMgrOnResponse(xStunTxnMgr *mgr, const xStunMsg *msg,
-                           const uint8_t *raw_buf, size_t raw_len,
-                           const struct sockaddr *from);
+bool xStunTxnMgrOnResponse(xStunTxnMgr *mgr, const xStunMsg *msg, const uint8_t *raw_buf,
+                           size_t raw_len, const struct sockaddr *from);
 
 /**
  * @brief Cancel all pending transactions.

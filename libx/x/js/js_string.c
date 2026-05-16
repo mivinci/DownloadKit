@@ -17,8 +17,8 @@ static xJSStringRef string_alloc(size_t len) {
    * (the extra slot is the NUL terminator).  calloc zero-fills
    * both the header and the buffer, so we still get a terminated
    * empty string for free. */
-  struct OpaqueXJSString *s = (struct OpaqueXJSString *)calloc(
-    1, sizeof(*s) + (len + 1) * sizeof(uint16_t));
+  struct OpaqueXJSString *s =
+    (struct OpaqueXJSString *)calloc(1, sizeof(*s) + (len + 1) * sizeof(uint16_t));
   if (!s) return NULL;
   s->refcount = 1;
   s->length   = len;
@@ -26,8 +26,7 @@ static xJSStringRef string_alloc(size_t len) {
   return s;
 }
 
-xJSStringRef xJSStringCreateWithCharacters(const uint16_t *chars,
-                                           size_t          numChars) {
+xJSStringRef xJSStringCreateWithCharacters(const uint16_t *chars, size_t numChars) {
   xJSStringRef s = string_alloc(numChars);
   if (!s) return NULL;
   if (chars && numChars) {
@@ -70,8 +69,7 @@ size_t xJSStringGetMaximumUTF8CStringSize(xJSStringRef s) {
   return s ? s->length * 3 + 1 : 1;
 }
 
-size_t xJSStringGetUTF8CString(xJSStringRef s, char *buffer,
-                               size_t bufferSize) {
+size_t xJSStringGetUTF8CString(xJSStringRef s, char *buffer, size_t bufferSize) {
   if (!buffer || bufferSize == 0) return 0;
   if (!s) {
     buffer[0] = 0;

@@ -10,8 +10,7 @@
 
 /* ───────────────────── Helpers ───────────────────── */
 
-static xEventTimer submit_timer(xEventLoop loop_, xEventTimerFunc fn, void *arg,
-                                uint64_t abs_ms) {
+static xEventTimer submit_timer(xEventLoop loop_, xEventTimerFunc fn, void *arg, uint64_t abs_ms) {
   struct xEventLoop_ *loop = (struct xEventLoop_ *)loop_;
   if (!loop || !fn) return NULL;
 
@@ -55,8 +54,7 @@ xEventTimer xEventLoopTimerAfter(xEventLoop loop, xEventTimerFunc fn, void *arg,
   return submit_timer(loop, fn, arg, xMonoMs() + delay_ms);
 }
 
-xEventTimer xEventLoopTimerAt(xEventLoop loop, xEventTimerFunc fn, void *arg,
-                              uint64_t abs_ms) {
+xEventTimer xEventLoopTimerAt(xEventLoop loop, xEventTimerFunc fn, void *arg, uint64_t abs_ms) {
   return submit_timer(loop, fn, arg, abs_ms);
 }
 

@@ -82,8 +82,8 @@
 
 /* ── Forward declarations ──────────────────────────────────────────── */
 
-static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
-                             const xAgentUsage *usage, void *ud);
+static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason, const xAgentUsage *usage,
+                             void *ud);
 static void session_sidecar_idle_timer_cb(void *arg);
 static void session_sidecar_on_done(xAgentQuery q, xAgentDoneReason reason,
                                     const xAgentUsage *usage, void *ud);
@@ -132,16 +132,15 @@ static const xArrayCallbacks kHistoryCbs = {NULL, session_msg_release, NULL};
  * record (produced → history splice) will overwrite the whole
  * struct and therefore carry the earlier, more accurate stamp. */
 static struct xAgentSessionMsg_ *history_push(struct xAgentSession_ *s) {
-  struct xAgentSessionMsg_ *slot =
-    (struct xAgentSessionMsg_ *)xArrayPush(&s->history_arr);
+  struct xAgentSessionMsg_ *slot = (struct xAgentSessionMsg_ *)xArrayPush(&s->history_arr);
   if (slot) slot->created_at_ms = xWallMs();
   return slot;
 }
 
 /* ── History append API (shared with query.c via session_private.h) ── */
 
-xErrno ai_history_append_text(struct xAgentSession_ *s, xAgentRole role,
-                              const char *text, size_t len) {
+xErrno ai_history_append_text(struct xAgentSession_ *s, xAgentRole role, const char *text,
+                              size_t len) {
   struct xAgentSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
   slot->role = role;
@@ -157,8 +156,8 @@ xErrno ai_history_append_text(struct xAgentSession_ *s, xAgentRole role,
   return xErrno_Ok;
 }
 
-xErrno ai_history_append_tool_use(struct xAgentSession_ *s, const char *id,
-                                  const char *name, const char *args) {
+xErrno ai_history_append_tool_use(struct xAgentSession_ *s, const char *id, const char *name,
+                                  const char *args) {
   struct xAgentSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
   slot->role          = xAgentRole_Assistant;
@@ -177,8 +176,7 @@ xErrno ai_history_append_tool_use(struct xAgentSession_ *s, const char *id,
 
 /* Payload reuses the Text-kind @c text / @c text_len slot so
  * ai_session_msg_free() stays uniform. */
-xErrno ai_history_append_thinking(struct xAgentSession_ *s, const char *text,
-                                  size_t len) {
+xErrno ai_history_append_thinking(struct xAgentSession_ *s, const char *text, size_t len) {
   struct xAgentSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
   slot->role = xAgentRole_Assistant;
@@ -194,9 +192,8 @@ xErrno ai_history_append_thinking(struct xAgentSession_ *s, const char *text,
   return xErrno_Ok;
 }
 
-xErrno ai_history_append_tool_result(struct xAgentSession_ *s, const char *id,
-                                     const char *output, size_t output_len,
-                                     int is_error) {
+xErrno ai_history_append_tool_result(struct xAgentSession_ *s, const char *id, const char *output,
+                                     size_t output_len, int is_error) {
   struct xAgentSessionMsg_ *slot = history_push(s);
   if (!slot) return xErrno_NoMemory;
   slot->role           = xAgentRole_Tool;
@@ -229,8 +226,7 @@ xErrno ai_history_append_tool_result(struct xAgentSession_ *s, const char *id,
  * pipeline, not xAgentSessionInput). Kept static: only xAgentSessionInput
  * consumes this shape now that the Query no longer drives history
  * writes itself. */
-static xErrno history_append_user_msg(struct xAgentSession_ *s,
-                                      xAgentMessage          msg) {
+static xErrno history_append_user_msg(struct xAgentSession_ *s, xAgentMessage msg) {
   size_t total = 0;
   for (size_t i = 0; i < msg.n; i++) {
     if (msg.contents[i].type == xAgentContentType_Text) {
@@ -316,8 +312,7 @@ static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
       payload_bytes += msg.contents[i].u.text.len;
     }
   }
-  return (payload_bytes / XAGENT_BUDGET_BYTES_PER_TOKEN) +
-         XAGENT_BUDGET_PER_MSG_TOKENS;
+  return (payload_bytes / XAGENT_BUDGET_BYTES_PER_TOKEN) + XAGENT_BUDGET_PER_MSG_TOKENS;
 }
 
 /* ── Retroactive tool_result trimming ───────────────────────────
@@ -340,7 +335,7 @@ static size_t estimate_incoming_user_tokens_(xAgentMessage msg) {
  * Returns the number of tool_result entries that were trimmed.
  */
 static size_t session_trim_consumed_tool_results_(struct xAgentSession_ *s,
-                                                  ssize_t *out_bytes_freed) {
+                                                  ssize_t               *out_bytes_freed) {
   size_t  trimmed     = 0;
   ssize_t bytes_freed = 0;
 
@@ -359,25 +354,22 @@ static size_t session_trim_consumed_tool_results_(struct xAgentSession_ *s,
    * anymore). */
   size_t hlen = xArrayLen(s->history_arr);
   for (size_t i = hlen; i > 0; i--) {
-    struct xAgentSessionMsg_ *e =
-      &((struct xAgentSessionMsg_ *)xArrayData(s->history_arr))[i - 1];
+    struct xAgentSessionMsg_ *e = &((struct xAgentSessionMsg_ *)xArrayData(s->history_arr))[i - 1];
 
-    if (e->kind == xAgentSessionEntry_ToolResult &&
-        e->tool_result_output_len > 0 && e->tool_result_output != NULL &&
+    if (e->kind == xAgentSessionEntry_ToolResult && e->tool_result_output_len > 0 &&
+        e->tool_result_output != NULL &&
         /* Skip entries that were already trimmed — their output
          * starts with "[result trimmed:". Re-trimming them wastes
          * a compact round and falsely reports "N entries trimmed"
          * with 0 bytes freed, which can trigger an infinite loop
          * when the Summarize path re-enters after seeing the
          * non-zero trimmed count. */
-        strncmp(e->tool_result_output,
-                "[result trimmed: ", strlen("[result trimmed: ")) != 0) {
+        strncmp(e->tool_result_output, "[result trimmed: ", strlen("[result trimmed: ")) != 0) {
       size_t old_bytes = e->tool_result_output_len;
 
       static const char kTrimSuffix[] = "[result trimmed: was %zu bytes]";
       char              marker[96];
-      size_t            marker_len =
-        (size_t)snprintf(marker, sizeof(marker), kTrimSuffix, old_bytes);
+      size_t marker_len = (size_t)snprintf(marker, sizeof(marker), kTrimSuffix, old_bytes);
 
       char *buf = (char *)malloc(marker_len + 1);
       if (!buf) continue; /* skip on alloc failure */
@@ -409,8 +401,7 @@ static size_t session_trim_consumed_tool_results_(struct xAgentSession_ *s,
  * explicit value. Kept inline-ish so each policy branch does not
  * repeat the fallback. */
 static size_t session_budget_limit_(const struct xAgentSession_ *s) {
-  return s->budget.context_window > 0 ? s->budget.context_window
-                                      : XAGENT_BUDGET_DEFAULT_MAX_TOKENS;
+  return s->budget.context_window > 0 ? s->budget.context_window : XAGENT_BUDGET_DEFAULT_MAX_TOKENS;
 }
 
 /* Decide whether this incoming user message, combined with the
@@ -454,13 +445,10 @@ static size_t session_estimate_current_(struct xAgentSession_ *s) {
       base -= s->overhead_tokens;
     else
       base = 0;
-    size_t hist_len = xArrayLen(s->history_arr);
-    size_t delta_start =
-      hist_len > s->delta_entries ? hist_len - s->delta_entries : 0;
-    size_t delta_est = ai_budget_estimate_tokens(
-      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr) +
-        delta_start,
-      s->delta_entries);
+    size_t hist_len    = xArrayLen(s->history_arr);
+    size_t delta_start = hist_len > s->delta_entries ? hist_len - s->delta_entries : 0;
+    size_t delta_est   = ai_budget_estimate_tokens(
+      (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr) + delta_start, s->delta_entries);
     return base + delta_est;
   }
   if (s->known_prompt_tokens >= 0 && s->delta_entries == 0) {
@@ -475,25 +463,22 @@ static size_t session_estimate_current_(struct xAgentSession_ *s) {
   }
   /* Cold start or post-trim invalidation: fall back to full
    * coarse estimate (history-only by definition). */
-  return ai_budget_estimate_tokens(
-    (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
-    xArrayLen(s->history_arr));
+  return ai_budget_estimate_tokens((const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
+                                   xArrayLen(s->history_arr));
 }
 
 /* Estimate the token overhead consumed by non-history prompt
  * components: the system prompt and the memory-hits block.
  * Called once after each view build so the budget gate can
  * reserve space without re-estimating on every call. */
-static void session_update_overhead_tokens_(struct xAgentSession_ *s,
-                                            const char            *mem_text) {
+static void session_update_overhead_tokens_(struct xAgentSession_ *s, const char *mem_text) {
   size_t tokens = 0;
   if (s->system_prompt && s->system_prompt[0]) {
-    tokens += strlen(s->system_prompt) / XAGENT_BUDGET_BYTES_PER_TOKEN +
-              XAGENT_BUDGET_PER_MSG_TOKENS;
+    tokens +=
+      strlen(s->system_prompt) / XAGENT_BUDGET_BYTES_PER_TOKEN + XAGENT_BUDGET_PER_MSG_TOKENS;
   }
   if (mem_text) {
-    tokens += strlen(mem_text) / XAGENT_BUDGET_BYTES_PER_TOKEN +
-              XAGENT_BUDGET_PER_MSG_TOKENS;
+    tokens += strlen(mem_text) / XAGENT_BUDGET_BYTES_PER_TOKEN + XAGENT_BUDGET_PER_MSG_TOKENS;
   }
   s->overhead_tokens = tokens;
 }
@@ -535,8 +520,7 @@ static void sess_input_view_free(struct sess_input_view_ *v) {
  * is truncated to @p cap bytes; caller sizes @p cap generously so
  * this rarely trims.
  */
-static size_t render_memory_entry_(const xAgentSessionMsg *m, char *buf,
-                                   size_t cap) {
+static size_t render_memory_entry_(const xAgentSessionMsg *m, char *buf, size_t cap) {
   const char *role_str = "?";
   switch (m->role) {
   case xAgentRole_System:
@@ -562,17 +546,15 @@ static size_t render_memory_entry_(const xAgentSessionMsg *m, char *buf,
                  m->text ? m->text : "");
     break;
   case xAgentSessionEntry_ToolUse:
-    n = snprintf(buf, cap, "- %s (call %s: %s)\n", role_str,
-                 m->tool_use_name ? m->tool_use_name : "?",
-                 m->tool_use_args ? m->tool_use_args : "");
+    n =
+      snprintf(buf, cap, "- %s (call %s: %s)\n", role_str,
+               m->tool_use_name ? m->tool_use_name : "?", m->tool_use_args ? m->tool_use_args : "");
     break;
   case xAgentSessionEntry_ToolResult:
-    n = snprintf(buf, cap, "- %s%s: %.*s\n", role_str,
-                 m->tool_result_is_error ? " [error]" : "",
-                 (int)(m->tool_result_output_len > (size_t)INT_MAX
-                         ? INT_MAX
-                         : m->tool_result_output_len),
-                 m->tool_result_output ? m->tool_result_output : "");
+    n = snprintf(
+      buf, cap, "- %s%s: %.*s\n", role_str, m->tool_result_is_error ? " [error]" : "",
+      (int)(m->tool_result_output_len > (size_t)INT_MAX ? INT_MAX : m->tool_result_output_len),
+      m->tool_result_output ? m->tool_result_output : "");
     break;
   default:
     return 0;
@@ -607,8 +589,7 @@ static char *format_memory_hits_(const xAgentMemoryHits *hits) {
   char *buf = (char *)malloc(cap);
   if (!buf) return NULL;
 
-  size_t used = (size_t)snprintf(buf, cap, "[retrieved memory: %zu entries]\n",
-                                 hits->n_entries);
+  size_t used = (size_t)snprintf(buf, cap, "[retrieved memory: %zu entries]\n", hits->n_entries);
   if (used >= cap) { /* shouldn't happen, but be safe */
     free(buf);
     return NULL;
@@ -627,13 +608,10 @@ static char *format_memory_hits_(const xAgentMemoryHits *hits) {
 }
 
 /* Forward declaration — defined after session_enforce_budget_. */
-static xErrno sess_input_view_build(struct xAgentSession_   *s,
-                                    const xAgentMemoryHits  *hits,
-                                    size_t                   hist_end,
-                                    struct sess_input_view_ *out);
+static xErrno sess_input_view_build(struct xAgentSession_ *s, const xAgentMemoryHits *hits,
+                                    size_t hist_end, struct sess_input_view_ *out);
 
-static xErrno session_enforce_budget_(struct xAgentSession_ *s,
-                                      xAgentMessage          msg) {
+static xErrno session_enforce_budget_(struct xAgentSession_ *s, xAgentMessage msg) {
   if (s->budget.policy == xAgentBudgetPolicy_Disabled) return xErrno_Ok;
 
   size_t limit     = session_budget_limit_(s);
@@ -647,9 +625,8 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
    * so the gate decision accounts for the true prompt size. */
   size_t completion_reserve = (s->max_tokens > 0) ? (size_t)s->max_tokens : 0;
   size_t overhead           = s->overhead_tokens;
-  size_t effective_limit    = (limit > overhead + completion_reserve)
-                                ? limit - overhead - completion_reserve
-                                : 0;
+  size_t effective_limit =
+    (limit > overhead + completion_reserve) ? limit - overhead - completion_reserve : 0;
 
   /* ── Step 0: Under budget — gate passes immediately ────────── */
   if (estimated <= effective_limit) {
@@ -675,8 +652,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
       gi.estimated                      = estimated;
       gi.remaining                      = effective_limit - estimated;
       gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
-      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi,
-                         s->budget_event_ud);
+      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi, s->budget_event_ud);
     }
 
     return xErrno_Ok;
@@ -709,8 +685,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
         gi.estimated                      = estimated;
         gi.remaining                      = effective_limit - estimated;
         gi.last_first_round_prompt_tokens = s->last_first_round_prompt_tokens;
-        s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi,
-                           s->budget_event_ud);
+        s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_GatePassed, &gi, s->budget_event_ud);
       }
 
       return xErrno_Ok;
@@ -766,11 +741,9 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     if (keep_tail == 0) {
       compact_end = hlen;
     } else {
-      compact_end =
-        ai_budget_find_user_turn(msgs_view, hlen, user_count - keep_tail);
+      compact_end = ai_budget_find_user_turn(msgs_view, hlen, user_count - keep_tail);
     }
-    if (compact_start == XAGENT_BUDGET_NO_SUCH_TURN ||
-        compact_end == XAGENT_BUDGET_NO_SUCH_TURN ||
+    if (compact_start == XAGENT_BUDGET_NO_SUCH_TURN || compact_end == XAGENT_BUDGET_NO_SUCH_TURN ||
         compact_start >= compact_end) {
       return xErrno_PromptTooLong;
     }
@@ -779,8 +752,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * hlen <= last_compact_history_len, another compact won't
      * help. This guards against estimation inaccuracies that
      * could cause an infinite compact loop. */
-    if (s->last_compact_history_len > 0 &&
-        hlen <= s->last_compact_history_len) {
+    if (s->last_compact_history_len > 0 && hlen <= s->last_compact_history_len) {
       return xErrno_PromptTooLong;
     }
 
@@ -826,8 +798,7 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
     if (s->on_budget_event) {
       struct xAgentBudgetCompactInfo ci;
       ci.entries_compacted = compact_end;
-      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_Compacting, &ci,
-                         s->budget_event_ud);
+      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_Compacting, &ci, s->budget_event_ud);
     }
 
     /* Build the conversation view for history[0..compact_end)
@@ -838,14 +809,12 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * We then append a summary instruction as the final User
      * message. */
     struct sess_input_view_ hist_view;
-    xErrno                  vrc =
-      sess_input_view_build(s, /*hits=*/NULL, compact_end, &hist_view);
+    xErrno                  vrc = sess_input_view_build(s, /*hits=*/NULL, compact_end, &hist_view);
     if (vrc != xErrno_Ok) return xErrno_PromptTooLong;
 
     const size_t keep = compact_end - compact_start;
     char         summary_instr[512];
-    snprintf(summary_instr, sizeof(summary_instr),
-             XAGENT_SUMMARY_INSTRUCT_PROMPT, keep);
+    snprintf(summary_instr, sizeof(summary_instr), XAGENT_SUMMARY_INSTRUCT_PROMPT, keep);
 
     /* Extend the view by one message (the summary instruction).
      * CAUTION: we must NOT realloc hist_view.blocks because every
@@ -853,9 +822,8 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
      * Instead, allocate the extra block separately and use
      * malloc+memcpy for the msgs array so the old contents
      * pointers remain valid. */
-    size_t         n_msgs = hist_view.n_msgs + 1;
-    xAgentMessage *msgs =
-      (xAgentMessage *)malloc(n_msgs * sizeof(xAgentMessage));
+    size_t         n_msgs  = hist_view.n_msgs + 1;
+    xAgentMessage *msgs    = (xAgentMessage *)malloc(n_msgs * sizeof(xAgentMessage));
     xAgentContent *sum_blk = (xAgentContent *)calloc(1, sizeof(xAgentContent));
     if (!msgs || !sum_blk) {
       free(msgs);
@@ -949,10 +917,8 @@ static xErrno session_enforce_budget_(struct xAgentSession_ *s,
  * prompt (if any), carrying a rendered summary of the memory hits.
  * The block is ephemeral: it never touches history_arr and lives
  * only for this one run (freed in sess_input_view_free). */
-static xErrno sess_input_view_build(struct xAgentSession_   *s,
-                                    const xAgentMemoryHits  *hits,
-                                    size_t                   hist_end,
-                                    struct sess_input_view_ *out) {
+static xErrno sess_input_view_build(struct xAgentSession_ *s, const xAgentMemoryHits *hits,
+                                    size_t hist_end, struct sess_input_view_ *out) {
   memset(out, 0, sizeof(*out));
   size_t extra_system = (s->system_prompt && s->system_prompt[0]) ? 1 : 0;
 
@@ -971,13 +937,11 @@ static xErrno sess_input_view_build(struct xAgentSession_   *s,
   size_t n_msgs   = extra_system + extra_mem;
   size_t n_blocks = extra_system + extra_mem;
   for (size_t i = 0; i < hist_len;) {
-    struct xAgentSessionMsg_ *m =
-      (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
+    struct xAgentSessionMsg_ *m = (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
     if (m->role == xAgentRole_Assistant) {
       size_t j = i;
-      while (j < hist_len &&
-             ((struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, j))->role ==
-               xAgentRole_Assistant)
+      while (j < hist_len && ((struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, j))->role ==
+                               xAgentRole_Assistant)
         j++;
       n_msgs += 1;
       n_blocks += (j - i);
@@ -1034,14 +998,12 @@ static xErrno sess_input_view_build(struct xAgentSession_   *s,
   }
 
   for (size_t i = 0; i < hist_len;) {
-    struct xAgentSessionMsg_ *m =
-      (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
+    struct xAgentSessionMsg_ *m = (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, i);
     if (m->role == xAgentRole_Assistant) {
       size_t block_start = bi;
       size_t j           = i;
       while (j < hist_len) {
-        struct xAgentSessionMsg_ *mm =
-          (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, j);
+        struct xAgentSessionMsg_ *mm = (struct xAgentSessionMsg_ *)xArrayAt(s->history_arr, j);
         if (mm->role != xAgentRole_Assistant) break;
         xAgentContent *b = &out->blocks[bi++];
         if (mm->kind == xAgentSessionEntry_Text) {
@@ -1099,8 +1061,7 @@ static xErrno sess_input_view_build(struct xAgentSession_   *s,
  * Session as user_data.
  */
 
-static void sess_fwd_on_text(xAgentQuery q, const char *chunk, size_t len,
-                             void *ud) {
+static void sess_fwd_on_text(xAgentQuery q, const char *chunk, size_t len, void *ud) {
   (void)q;
   struct xAgentSession_ *s = (struct xAgentSession_ *)ud;
   if (s->cbs.on_text) {
@@ -1108,8 +1069,7 @@ static void sess_fwd_on_text(xAgentQuery q, const char *chunk, size_t len,
   }
 }
 
-static void sess_fwd_on_thinking(xAgentQuery q, const char *chunk, size_t len,
-                                 void *ud) {
+static void sess_fwd_on_thinking(xAgentQuery q, const char *chunk, size_t len, void *ud) {
   (void)q;
   struct xAgentSession_ *s = (struct xAgentSession_ *)ud;
   if (s->cbs.on_thinking) {
@@ -1117,8 +1077,7 @@ static void sess_fwd_on_thinking(xAgentQuery q, const char *chunk, size_t len,
   }
 }
 
-static void sess_fwd_on_error(xAgentQuery q, xErrno err, const char *msg,
-                              void *ud) {
+static void sess_fwd_on_error(xAgentQuery q, xErrno err, const char *msg, void *ud) {
   (void)q;
   struct xAgentSession_ *s = (struct xAgentSession_ *)ud;
   if (s->cbs.on_error) {
@@ -1126,8 +1085,7 @@ static void sess_fwd_on_error(xAgentQuery q, xErrno err, const char *msg,
   }
 }
 
-static void sess_fwd_on_tool(xAgentQuery q, const char *tool_name, int started,
-                             void *ud) {
+static void sess_fwd_on_tool(xAgentQuery q, const char *tool_name, int started, void *ud) {
   (void)q;
   struct xAgentSession_ *s = (struct xAgentSession_ *)ud;
   if (s->cbs.on_tool) {
@@ -1153,14 +1111,12 @@ static const xArrayCallbacks kSidecarChunkCbs = {
   .release = sidecar_chunk_release,
 };
 
-static void sess_fwd_on_tool_output(xAgentQuery q, const char *tool_use_id,
-                                    const char *tool_name, const char *data,
-                                    size_t len, void *ud) {
+static void sess_fwd_on_tool_output(xAgentQuery q, const char *tool_use_id, const char *tool_name,
+                                    const char *data, size_t len, void *ud) {
   (void)q;
   struct xAgentSession_ *s = (struct xAgentSession_ *)ud;
   if (s->cbs.on_tool_output) {
-    s->cbs.on_tool_output((xAgentSession)s, tool_use_id, tool_name, data, len,
-                          s->cbs.user_data);
+    s->cbs.on_tool_output((xAgentSession)s, tool_use_id, tool_name, data, len, s->cbs.user_data);
   }
 
   /* ── Sidecar idle-detection ──────────────────────────────────
@@ -1168,8 +1124,7 @@ static void sess_fwd_on_tool_output(xAgentQuery q, const char *tool_use_id,
    * session has sidecar_idle_ms configured, (re-)arm a timer so
    * that a sidecar Query is launched when the tool goes idle. */
   struct xAgent_ *a = (struct xAgent_ *)s->agent;
-  if (s->sidecar_idle_ms > 0 && a->enable_sidecar_query && s->query &&
-      !s->sidecar) {
+  if (s->sidecar_idle_ms > 0 && a->enable_sidecar_query && s->query && !s->sidecar) {
 
     /* Record which tool_use_id is producing output (the one most
      * likely to need stdin if it stalls). */
@@ -1180,12 +1135,10 @@ static void sess_fwd_on_tool_output(xAgentQuery q, const char *tool_use_id,
     /* Accumulate the output chunk so the sidecar has context
      * when it fires. Lazy-create the accumulator on first chunk. */
     if (!s->sidecar_output) {
-      s->sidecar_output =
-        xArrayCreate(sizeof(struct sidecar_chunk_), 16, &kSidecarChunkCbs);
+      s->sidecar_output = xArrayCreate(sizeof(struct sidecar_chunk_), 16, &kSidecarChunkCbs);
     }
     if (s->sidecar_output) {
-      struct sidecar_chunk_ *slot =
-        (struct sidecar_chunk_ *)xArrayPush(&s->sidecar_output);
+      struct sidecar_chunk_ *slot = (struct sidecar_chunk_ *)xArrayPush(&s->sidecar_output);
       if (slot) {
         slot->data = dup_bytes(data, len);
         slot->len  = len;
@@ -1200,8 +1153,8 @@ static void sess_fwd_on_tool_output(xAgentQuery q, const char *tool_use_id,
       s->sidecar_idle_timer = NULL;
     }
 
-    s->sidecar_idle_timer = xEventLoopTimerAfter(
-      a->loop, session_sidecar_idle_timer_cb, s, s->sidecar_idle_ms);
+    s->sidecar_idle_timer =
+      xEventLoopTimerAfter(a->loop, session_sidecar_idle_timer_cb, s, s->sidecar_idle_ms);
   }
 }
 
@@ -1211,16 +1164,14 @@ static void sess_fwd_on_tool_output(xAgentQuery q, const char *tool_use_id,
  * xAgentSession one and pass the host\u2019s user_data. If the host did
  * not wire on_tool_confirm, this forwarder is never stamped into
  * the query\u2019s callback table, so we cannot get called at all. */
-static void sess_fwd_on_tool_confirm(xAgentQuery q, const char *tool_name,
-                                     const char               *tool_use_id,
-                                     const char               *args_json,
-                                     xAgentToolConfirmResolver resolver,
-                                     void                     *ud) {
+static void sess_fwd_on_tool_confirm(xAgentQuery q, const char *tool_name, const char *tool_use_id,
+                                     const char *args_json, xAgentToolConfirmResolver resolver,
+                                     void *ud) {
   (void)q;
   struct xAgentSession_ *s = (struct xAgentSession_ *)ud;
   if (s->cbs.on_tool_confirm) {
-    s->cbs.on_tool_confirm((xAgentSession)s, tool_name, tool_use_id, args_json,
-                           resolver, s->cbs.user_data);
+    s->cbs.on_tool_confirm((xAgentSession)s, tool_name, tool_use_id, args_json, resolver,
+                           s->cbs.user_data);
     return;
   }
   /* Defensive fallback: the callback table should not be stamped
@@ -1319,8 +1270,8 @@ static void session_sidecar_on_done(xAgentQuery q, xAgentDoneReason reason,
           produced[i].text_len > 0) {
         /* Sidecar text is informational — just forward it. */
         if (s->cbs.on_text) {
-          s->cbs.on_text((xAgentSession)s, produced[i].text,
-                         produced[i].text_len, s->cbs.user_data);
+          s->cbs.on_text((xAgentSession)s, produced[i].text, produced[i].text_len,
+                         s->cbs.user_data);
         }
       }
     }
@@ -1328,8 +1279,7 @@ static void session_sidecar_on_done(xAgentQuery q, xAgentDoneReason reason,
 
   /* Notify the caller that the sidecar query has completed. */
   if (s->cbs.on_sidecar) {
-    s->cbs.on_sidecar((xAgentSession)s, xAgentSidecarEvent_Done,
-                      s->cbs.user_data);
+    s->cbs.on_sidecar((xAgentSession)s, xAgentSidecarEvent_Done, s->cbs.user_data);
   }
 
   /* Clean up the sidecar state. */
@@ -1366,8 +1316,7 @@ static void session_sidecar_idle_timer_cb(void *arg) {
   size_t total_len = 0;
   size_t n_chunks  = xArrayLen(s->sidecar_output);
   for (size_t i = 0; i < n_chunks; i++) {
-    struct sidecar_chunk_ *c =
-      (struct sidecar_chunk_ *)xArrayAt(s->sidecar_output, i);
+    struct sidecar_chunk_ *c = (struct sidecar_chunk_ *)xArrayAt(s->sidecar_output, i);
     total_len += c->len;
   }
 
@@ -1377,8 +1326,7 @@ static void session_sidecar_idle_timer_cb(void *arg) {
     if (output_text) {
       size_t ooff = 0;
       for (size_t i = 0; i < n_chunks; i++) {
-        struct sidecar_chunk_ *c =
-          (struct sidecar_chunk_ *)xArrayAt(s->sidecar_output, i);
+        struct sidecar_chunk_ *c = (struct sidecar_chunk_ *)xArrayAt(s->sidecar_output, i);
         if (c->data && c->len > 0) {
           memcpy(output_text + ooff, c->data, c->len);
           ooff += c->len;
@@ -1394,12 +1342,11 @@ static void session_sidecar_idle_timer_cb(void *arg) {
     "for a while. tool_use_id=\"";
   static const char kIdleMid[] = "\"\n\nLast accumulated output:\n";
 
-  const char *tid =
-    s->sidecar_tool_use_id ? s->sidecar_tool_use_id : "(unknown)";
-  size_t tid_len    = strlen(tid);
-  size_t prefix_len = sizeof(kIdlePrefix) - 1;
-  size_t mid_len    = sizeof(kIdleMid) - 1;
-  size_t user_len   = prefix_len + tid_len + mid_len + total_len;
+  const char *tid        = s->sidecar_tool_use_id ? s->sidecar_tool_use_id : "(unknown)";
+  size_t      tid_len    = strlen(tid);
+  size_t      prefix_len = sizeof(kIdlePrefix) - 1;
+  size_t      mid_len    = sizeof(kIdleMid) - 1;
+  size_t      user_len   = prefix_len + tid_len + mid_len + total_len;
 
   char *user_text = (char *)malloc(user_len + 1);
   if (!user_text) {
@@ -1426,8 +1373,7 @@ static void session_sidecar_idle_timer_cb(void *arg) {
    * its own narrow analysis and does not want main-run memory
    * context muddying its prompt. */
   struct sess_input_view_ hist_view;
-  xErrno                  vrc =
-    sess_input_view_build(s, /*hits=*/NULL, /*hist_end=*/0, &hist_view);
+  xErrno                  vrc = sess_input_view_build(s, /*hits=*/NULL, /*hist_end=*/0, &hist_view);
   if (vrc != xErrno_Ok) {
     free(user_text);
     return;
@@ -1435,9 +1381,8 @@ static void session_sidecar_idle_timer_cb(void *arg) {
 
   /* Determine whether the history view starts with a system prompt
    * (we'll skip it and use the sidecar-specific one instead). */
-  int has_system =
-    (hist_view.n_msgs > 0 && hist_view.msgs[0].role == xAgentRole_System);
-  size_t hist_skip = has_system ? 1 : 0;
+  int    has_system = (hist_view.n_msgs > 0 && hist_view.msgs[0].role == xAgentRole_System);
+  size_t hist_skip  = has_system ? 1 : 0;
 
   /* ── Find the shell_stdin tool among the agent's tools ──────── */
   xAgentTool stdin_tool = NULL;
@@ -1470,10 +1415,8 @@ static void session_sidecar_idle_timer_cb(void *arg) {
   /* +1 for the sidecar system msg + +1 for the idle user message. */
   size_t n_total_msgs = 1 + n_hist + 1;
 
-  xAgentMessage *msgs =
-    (xAgentMessage *)calloc(n_total_msgs, sizeof(xAgentMessage));
-  xAgentContent *extra_blocks =
-    (xAgentContent *)calloc(2, sizeof(xAgentContent));
+  xAgentMessage *msgs         = (xAgentMessage *)calloc(n_total_msgs, sizeof(xAgentMessage));
+  xAgentContent *extra_blocks = (xAgentContent *)calloc(2, sizeof(xAgentContent));
   if (!msgs || !extra_blocks) {
     free(msgs);
     free(extra_blocks);
@@ -1496,8 +1439,7 @@ static void session_sidecar_idle_timer_cb(void *arg) {
   /* Copy the history view messages (skipping the original system
    * prompt if present). */
   if (n_hist > 0) {
-    memcpy(&msgs[mi], &hist_view.msgs[hist_skip],
-           n_hist * sizeof(xAgentMessage));
+    memcpy(&msgs[mi], &hist_view.msgs[hist_skip], n_hist * sizeof(xAgentMessage));
     mi += n_hist;
   }
   /* Append the idle user message. */
@@ -1551,8 +1493,7 @@ static void session_sidecar_idle_timer_cb(void *arg) {
 
   /* Notify the caller that a sidecar query has started. */
   if (s->cbs.on_sidecar) {
-    s->cbs.on_sidecar((xAgentSession)s, xAgentSidecarEvent_Started,
-                      s->cbs.user_data);
+    s->cbs.on_sidecar((xAgentSession)s, xAgentSidecarEvent_Started, s->cbs.user_data);
   }
 }
 
@@ -1607,8 +1548,8 @@ static void session_auto_retry_pending_(struct xAgentSession_ *s) {
  * Aborted / MaxTurns / errors: whatever partial output the model
  * managed to emit before the run ended is legitimate conversation
  * history and the next xAgentSessionInput should see it. */
-static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
-                             const xAgentUsage *usage, void *ud) {
+static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason, const xAgentUsage *usage,
+                             void *ud) {
   struct xAgentSession_ *s = (struct xAgentSession_ *)ud;
 
   /* Steal the produced list (ownership transfer). After this the
@@ -1648,8 +1589,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
     enum xAgentSessionEntryKind_ summary_kind = xAgentSessionEntry_Text;
     if (!text_found) {
       for (size_t i = 0; i < n_produced; i++) {
-        if (produced[i].kind == xAgentSessionEntry_Thinking &&
-            produced[i].text) {
+        if (produced[i].kind == xAgentSessionEntry_Thinking && produced[i].text) {
           summary_bytes += produced[i].text_len;
         }
       }
@@ -1693,17 +1633,15 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       if (s->memory && s->session_id_copy && compact_end > compact_start) {
         size_t skip_start = compact_start;
         if (s->persisted_prefix > compact_start) {
-          skip_start = s->persisted_prefix < compact_end ? s->persisted_prefix
-                                                         : compact_end;
+          skip_start = s->persisted_prefix < compact_end ? s->persisted_prefix : compact_end;
         }
         if (compact_end > skip_start) {
           xAgentMemoryQuery q;
           memset(&q, 0, sizeof(q));
           q.session_id = s->session_id_copy;
-          xAgentMemoryAppend(
-            s->memory, &q, xAgentMemoryAppendReason_Compacted,
-            (const xAgentSessionMsg *)xArrayData(s->history_arr) + skip_start,
-            compact_end - skip_start);
+          xAgentMemoryAppend(s->memory, &q, xAgentMemoryAppendReason_Compacted,
+                             (const xAgentSessionMsg *)xArrayData(s->history_arr) + skip_start,
+                             compact_end - skip_start);
         }
       }
 
@@ -1713,8 +1651,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       /* Keep persisted_prefix consistent. If the compacted range
        * overlaps with the persisted prefix, adjust it. */
       if (s->persisted_prefix > compact_start) {
-        size_t overlap_end =
-          s->persisted_prefix < compact_end ? s->persisted_prefix : compact_end;
+        size_t overlap_end = s->persisted_prefix < compact_end ? s->persisted_prefix : compact_end;
         s->persisted_prefix -= (overlap_end - compact_start);
       }
 
@@ -1727,8 +1664,7 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       summary_entry.text_len      = prefix_len + summary_bytes;
       summary_entry.created_at_ms = xWallMs();
 
-      if (xArrayInsert(&s->history_arr, compact_start, &summary_entry) !=
-          xErrno_Ok) {
+      if (xArrayInsert(&s->history_arr, compact_start, &summary_entry) != xErrno_Ok) {
         /* OOM on insert — free the summary text and degrade. */
         free(summary_text);
         compact_ok = 0;
@@ -1744,9 +1680,8 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
          * summary will never reach disk and the next prime will
          * find a gap. */
         if (s->memory && s->session_id_copy) {
-          const xAgentSessionMsg *base =
-            (const xAgentSessionMsg *)xArrayData(s->history_arr);
-          xAgentMemoryQuery q;
+          const xAgentSessionMsg *base = (const xAgentSessionMsg *)xArrayData(s->history_arr);
+          xAgentMemoryQuery       q;
           memset(&q, 0, sizeof(q));
           q.session_id = s->session_id_copy;
           xAgentMemoryAppend(s->memory, &q, xAgentMemoryAppendReason_Compacted,
@@ -1814,13 +1749,11 @@ static void sess_fwd_on_done(xAgentQuery q, xAgentDoneReason reason,
       cdi.summary_ok = compact_ok;
       cdi.summary_tokens =
         compact_ok
-          ? ai_budget_estimate_tokens(
-              (const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
-              1 /* just the summary entry */)
+          ? ai_budget_estimate_tokens((const struct xAgentSessionMsg_ *)xArrayData(s->history_arr),
+                                      1 /* just the summary entry */)
           : 0;
       cdi.entries_affected = compact_end;
-      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_CompactDone, &cdi,
-                         s->budget_event_ud);
+      s->on_budget_event((xAgentSession)s, xAgentBudgetEvent_CompactDone, &cdi, s->budget_event_ud);
     }
 
     /* Auto-retry: if a pending user message was saved before the
@@ -1926,8 +1859,7 @@ xAgentSession xAgentSessionCreate(xAgent agent, const xAgentSessionConf *conf) {
   s->agent = agent;
   s->cbs   = conf->cbs;
 
-  s->system_prompt =
-    conf->system_prompt ? conf->system_prompt : a->system_prompt;
+  s->system_prompt      = conf->system_prompt ? conf->system_prompt : a->system_prompt;
   const char *model_src = conf->model ? conf->model : a->model;
   if (model_src) {
     s->model = strdup(model_src);
@@ -2002,8 +1934,7 @@ xAgentSession xAgentSessionCreate(xAgent agent, const xAgentSessionConf *conf) {
   /* Create the history array with a release callback that frees
    * per-element heap resources. No retain — callers fill the
    * zero-initialised slot manually after xArrayPush(). */
-  s->history_arr =
-    xArrayCreate(sizeof(struct xAgentSessionMsg_), 8, &kHistoryCbs);
+  s->history_arr = xArrayCreate(sizeof(struct xAgentSessionMsg_), 8, &kHistoryCbs);
   if (!s->history_arr) {
     free(s);
     return NULL;
@@ -2192,8 +2123,7 @@ xErrno xAgentSessionSetModel(xAgentSession sess, const char *model_id) {
     return xErrno_Ok;
   }
 
-  const xAgentModelSpec *spec =
-    xAgentModelRegistryGet(a->model_registry, model_id);
+  const xAgentModelSpec *spec = xAgentModelRegistryGet(a->model_registry, model_id);
   if (!spec) return xErrno_NotFound;
 
   /* Prepare the new model-name copy up front so a failed strdup
@@ -2270,16 +2200,14 @@ void xAgentSessionDestroy(xAgentSession sess) {
    * persisted_prefix entries are already in the store; skip them
    * here so we don't double-append on every resume. */
   if (s->memory && s->session_id_copy) {
-    size_t hist_len = xArrayLen(s->history_arr);
-    size_t skip =
-      s->persisted_prefix < hist_len ? s->persisted_prefix : hist_len;
-    const xAgentSessionMsg *base =
-      (const xAgentSessionMsg *)xArrayData(s->history_arr);
-    xAgentMemoryQuery q;
+    size_t                  hist_len = xArrayLen(s->history_arr);
+    size_t                  skip = s->persisted_prefix < hist_len ? s->persisted_prefix : hist_len;
+    const xAgentSessionMsg *base = (const xAgentSessionMsg *)xArrayData(s->history_arr);
+    xAgentMemoryQuery       q;
     memset(&q, 0, sizeof(q));
     q.session_id = s->session_id_copy;
-    xAgentMemoryAppend(s->memory, &q, xAgentMemoryAppendReason_Finalizing,
-                       base + skip, hist_len - skip);
+    xAgentMemoryAppend(s->memory, &q, xAgentMemoryAppendReason_Finalizing, base + skip,
+                       hist_len - skip);
     /* Free the owned copy now — nothing else needs it. */
     free(s->session_id_copy);
     s->session_id_copy = NULL;

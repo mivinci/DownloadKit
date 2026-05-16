@@ -32,11 +32,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <libgen.h>     /* dirname() */
-#include <fcntl.h>      /* open() */
-#include <sys/mman.h>   /* mmap(), munmap() */
-#include <sys/stat.h>    /* fstat() */
-#include <unistd.h>     /* close() */
+#include <fcntl.h>    /* open() */
+#include <libgen.h>   /* dirname() */
+#include <sys/mman.h> /* mmap(), munmap() */
+#include <sys/stat.h> /* fstat() */
+#include <unistd.h>   /* close() */
 
 /* ── Peer tracking ─────────────────────────────────────── */
 
@@ -95,9 +95,7 @@ static void on_open(xWsConn conn, void *arg) {
   }
 }
 
-static void on_message(xWsConn conn, xWsOpcode opcode,
-                       const void *payload, size_t len,
-                       void *arg) {
+static void on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len, void *arg) {
   (void)arg;
   int idx = peer_index(conn);
   printf("[signal] peer %d sent %zu bytes\n", idx, len);
@@ -106,20 +104,17 @@ static void on_message(xWsConn conn, xWsOpcode opcode,
   xWsConn other = peer_other(conn);
   if (other) {
     xWsSend(other, opcode, payload, len);
-    printf("[signal] forwarded to peer %d\n",
-           peer_index(other));
+    printf("[signal] forwarded to peer %d\n", peer_index(other));
   } else {
     printf("[signal] no other peer to forward to\n");
   }
 }
 
-static void on_close(xWsConn conn, uint16_t code,
-                     const char *reason, size_t len,
-                     void *arg) {
+static void on_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) {
   (void)arg;
   int idx = peer_index(conn);
-  printf("[signal] peer %d disconnected (code=%u reason=%.*s)\n",
-         idx, code, (int)len, reason ? reason : "");
+  printf("[signal] peer %d disconnected (code=%u reason=%.*s)\n", idx, code, (int)len,
+         reason ? reason : "");
   peer_remove(conn);
 }
 
@@ -141,8 +136,8 @@ static const char *html_path_relative_to_source() {
   return buf;
 }
 
-static char  *g_html      = nullptr;
-static size_t g_html_len  = 0;
+static char  *g_html     = nullptr;
+static size_t g_html_len = 0;
 
 static void load_html(const char *path) {
   int fd = open(path, O_RDONLY);
@@ -155,8 +150,7 @@ static void load_html(const char *path) {
     close(fd);
     return;
   }
-  void *addr = mmap(nullptr, (size_t)st.st_size, PROT_READ,
-                    MAP_PRIVATE, fd, 0);
+  void *addr = mmap(nullptr, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
   close(fd);
   if (addr == MAP_FAILED) {
     printf("[signal] warning: mmap failed for %s\n", path);
@@ -167,22 +161,18 @@ static void load_html(const char *path) {
   printf("[signal] loaded HTML client (%zu bytes, mmap)\n", g_html_len);
 }
 
-static const char *FALLBACK_HTML =
-  "<!DOCTYPE html><html><body>"
-  "<h2>pc_client.html not found</h2>"
-  "<p>Place pc_client.html next to the server binary.</p>"
-  "</body></html>";
+static const char *FALLBACK_HTML = "<!DOCTYPE html><html><body>"
+                                   "<h2>pc_client.html not found</h2>"
+                                   "<p>Place pc_client.html next to the server binary.</p>"
+                                   "</body></html>";
 
 /* ── HTTP handlers ─────────────────────────────────────── */
 
-static void index_handler(xHttpResponseWriter w,
-                          const xHttpRequest *req,
-                          void *arg) {
+static void index_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)req;
   (void)arg;
   xHttpResponseSetStatus(w, 200);
-  xHttpResponseSetHeader(w, "Content-Type",
-                         "text/html; charset=utf-8");
+  xHttpResponseSetHeader(w, "Content-Type", "text/html; charset=utf-8");
   if (g_html) {
     xHttpResponseSend(w, g_html, g_html_len);
   } else {
@@ -190,9 +180,7 @@ static void index_handler(xHttpResponseWriter w,
   }
 }
 
-static void ws_handler(xHttpResponseWriter w,
-                       const xHttpRequest *req,
-                       void *arg) {
+static void ws_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)arg;
   xErrno err = xWsUpgrade(w, req, &ws_cbs, nullptr);
   if (err != xErrno_Ok) {
@@ -234,8 +222,7 @@ int main(int argc, char *argv[]) {
 
   xErrno err = xHttpServerListen(server, "0.0.0.0", port);
   if (err != xErrno_Ok) {
-    fprintf(stderr, "Failed to listen on port %u: %d\n",
-            port, err);
+    fprintf(stderr, "Failed to listen on port %u: %d\n", port, err);
     xHttpServerDestroy(server);
     xEventLoopDestroy(loop);
     if (g_html) munmap(g_html, g_html_len);

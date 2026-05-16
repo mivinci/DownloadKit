@@ -22,12 +22,12 @@
 
 /* ───────────────────── Message Types ───────────────────── */
 
-#define XFER_MSG_FILE_META 0x01 /**< File metadata (name, size, hash). */
-#define XFER_MSG_FILE_CHUNK 0x02 /**< File data chunk.                 */
-#define XFER_MSG_FILE_DONE 0x03 /**< Transfer complete.                */
-#define XFER_MSG_ACK 0x04       /**< Acknowledgement.                  */
-#define XFER_MSG_ERROR 0x05     /**< Error message.                    */
-#define XFER_MSG_CANCEL 0x06    /**< Cancel transfer.                  */
+#define XFER_MSG_FILE_META   0x01 /**< File metadata (name, size, hash). */
+#define XFER_MSG_FILE_CHUNK  0x02 /**< File data chunk.                 */
+#define XFER_MSG_FILE_DONE   0x03 /**< Transfer complete.                */
+#define XFER_MSG_ACK         0x04 /**< Acknowledgement.                  */
+#define XFER_MSG_ERROR       0x05 /**< Error message.                    */
+#define XFER_MSG_CANCEL      0x06 /**< Cancel transfer.                  */
 #define XFER_MSG_FILE_RESUME 0x07 /**< Resume bitmap (receiver → sender). */
 
 /* ───────────────────── SHA-1 ───────────────────── */
@@ -55,10 +55,10 @@
  *   +------+----------+-----------+----------+----------+--------+
  */
 XDEF_STRUCT(xTransferFileMeta) {
-  char     filename[256]; /**< Original filename (no path).  */
-  uint16_t filename_len;  /**< Length of filename.            */
-  uint64_t file_size;     /**< Total file size in bytes.      */
-  uint32_t chunk_size;    /**< Chunk size in bytes.            */
+  char     filename[256];        /**< Original filename (no path).  */
+  uint16_t filename_len;         /**< Length of filename.            */
+  uint64_t file_size;            /**< Total file size in bytes.      */
+  uint32_t chunk_size;           /**< Chunk size in bytes.            */
   uint8_t  sha1[XFER_SHA1_SIZE]; /**< SHA-1 of the file. */
 };
 
@@ -89,7 +89,7 @@ XDEF_STRUCT(xTransferFileChunk) {
  *   +------+-----------+--------+
  */
 XDEF_STRUCT(xTransferFileDone) {
-  uint32_t total_chunks;             /**< Total number of chunks sent. */
+  uint32_t total_chunks;         /**< Total number of chunks sent. */
   uint8_t  sha1[XFER_SHA1_SIZE]; /**< SHA-1 of the entire file.  */
 };
 
@@ -140,9 +140,8 @@ XDEF_STRUCT(xTransferFileResume) {
  * @param out   Actual encoded length (output).
  * @return      xErrno_Ok on success.
  */
-XCAPI(xErrno) xTransferEncodeFileMeta(const xTransferFileMeta *meta,
-                                       uint8_t *buf, size_t cap,
-                                       size_t *out);
+XCAPI(xErrno) xTransferEncodeFileMeta(const xTransferFileMeta *meta, uint8_t *buf, size_t cap,
+                                      size_t *out);
 
 /**
  * @brief Decode a FILE_META message from a buffer.
@@ -152,8 +151,7 @@ XCAPI(xErrno) xTransferEncodeFileMeta(const xTransferFileMeta *meta,
  * @param meta  Output metadata.
  * @return      xErrno_Ok on success.
  */
-XCAPI(xErrno) xTransferDecodeFileMeta(const uint8_t *data, size_t len,
-                                       xTransferFileMeta *meta);
+XCAPI(xErrno) xTransferDecodeFileMeta(const uint8_t *data, size_t len, xTransferFileMeta *meta);
 
 /**
  * @brief Encode a FILE_CHUNK header into a buffer.
@@ -167,8 +165,7 @@ XCAPI(xErrno) xTransferDecodeFileMeta(const uint8_t *data, size_t len,
  * @param out       Actual header length (output).
  * @return          xErrno_Ok on success.
  */
-XCAPI(xErrno) xTransferEncodeChunkHeader(uint32_t chunk_id, uint8_t *buf,
-                                          size_t cap, size_t *out);
+XCAPI(xErrno) xTransferEncodeChunkHeader(uint32_t chunk_id, uint8_t *buf, size_t cap, size_t *out);
 
 /**
  * @brief Decode a FILE_CHUNK header from a buffer.
@@ -180,10 +177,8 @@ XCAPI(xErrno) xTransferEncodeChunkHeader(uint32_t chunk_id, uint8_t *buf,
  * @param payload_len Output length of chunk data.
  * @return          xErrno_Ok on success.
  */
-XCAPI(xErrno) xTransferDecodeChunkHeader(const uint8_t *data, size_t len,
-                                          uint32_t *chunk_id,
-                                          const uint8_t **payload,
-                                          uint32_t *payload_len);
+XCAPI(xErrno) xTransferDecodeChunkHeader(const uint8_t *data, size_t len, uint32_t *chunk_id,
+                                         const uint8_t **payload, uint32_t *payload_len);
 
 /**
  * @brief Encode a FILE_DONE message into a buffer.
@@ -194,9 +189,8 @@ XCAPI(xErrno) xTransferDecodeChunkHeader(const uint8_t *data, size_t len,
  * @param out   Actual encoded length (output).
  * @return      xErrno_Ok on success.
  */
-XCAPI(xErrno) xTransferEncodeFileDone(const xTransferFileDone *done,
-                                       uint8_t *buf, size_t cap,
-                                       size_t *out);
+XCAPI(xErrno) xTransferEncodeFileDone(const xTransferFileDone *done, uint8_t *buf, size_t cap,
+                                      size_t *out);
 
 /**
  * @brief Decode a FILE_DONE message from a buffer.
@@ -206,8 +200,7 @@ XCAPI(xErrno) xTransferEncodeFileDone(const xTransferFileDone *done,
  * @param done  Output done metadata.
  * @return      xErrno_Ok on success.
  */
-XCAPI(xErrno) xTransferDecodeFileDone(const uint8_t *data, size_t len,
-                                       xTransferFileDone *done);
+XCAPI(xErrno) xTransferDecodeFileDone(const uint8_t *data, size_t len, xTransferFileDone *done);
 
 /**
  * @brief Encode a FILE_RESUME message into a buffer.
@@ -218,9 +211,8 @@ XCAPI(xErrno) xTransferDecodeFileDone(const uint8_t *data, size_t len,
  * @param out     Actual encoded length (output).
  * @return        xErrno_Ok on success.
  */
-XCAPI(xErrno) xTransferEncodeFileResume(const xTransferFileResume *resume,
-                                         uint8_t *buf, size_t cap,
-                                         size_t *out);
+XCAPI(xErrno) xTransferEncodeFileResume(const xTransferFileResume *resume, uint8_t *buf, size_t cap,
+                                        size_t *out);
 
 /**
  * @brief Decode a FILE_RESUME message from a buffer.
@@ -232,7 +224,7 @@ XCAPI(xErrno) xTransferEncodeFileResume(const xTransferFileResume *resume,
  * @return        xErrno_Ok on success.
  */
 XCAPI(xErrno) xTransferDecodeFileResume(const uint8_t *data, size_t len,
-                                         xTransferFileResume *resume);
+                                        xTransferFileResume *resume);
 
 /**
  * @brief Encode a FILE_ACK message into a buffer.
@@ -243,9 +235,8 @@ XCAPI(xErrno) xTransferDecodeFileResume(const uint8_t *data, size_t len,
  * @param out   Actual encoded length (output).
  * @return      xErrno_Ok on success.
  */
-XCAPI(xErrno) xTransferEncodeFileAck(const xTransferFileAck *ack,
-                                      uint8_t *buf, size_t cap,
-                                      size_t *out);
+XCAPI(xErrno) xTransferEncodeFileAck(const xTransferFileAck *ack, uint8_t *buf, size_t cap,
+                                     size_t *out);
 
 /**
  * @brief Decode a FILE_ACK message from a buffer.
@@ -255,7 +246,6 @@ XCAPI(xErrno) xTransferEncodeFileAck(const xTransferFileAck *ack,
  * @param ack   Output ack metadata.
  * @return      xErrno_Ok on success.
  */
-XCAPI(xErrno) xTransferDecodeFileAck(const uint8_t *data, size_t len,
-                                      xTransferFileAck *ack);
+XCAPI(xErrno) xTransferDecodeFileAck(const uint8_t *data, size_t len, xTransferFileAck *ack);
 
 #endif /* XFER_PROTOCOL_H */

@@ -71,10 +71,8 @@ protected:
   void RunUntilDone(std::atomic<bool> &done, int timeout_ms = 10000) {
     std::thread runner([&]() { xEventLoopRun(loop); });
 
-    auto deadline =
-      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    while (!done.load(std::memory_order_acquire) &&
-           std::chrono::steady_clock::now() < deadline) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (!done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
       sleep_ms(10);
     }
 
@@ -125,9 +123,8 @@ static void loopback_connect_cb(xTcpConn conn, xErrno err, void *arg) {
   ctx->connect_done.store(true, std::memory_order_release);
 }
 
-static void loopback_accept_cb(xTcpListener listener, xTcpConn conn,
-                               const struct sockaddr *addr, socklen_t addrlen,
-                               void *arg) {
+static void loopback_accept_cb(xTcpListener listener, xTcpConn conn, const struct sockaddr *addr,
+                               socklen_t addrlen, void *arg) {
   (void)listener;
   (void)addr;
   (void)addrlen;
@@ -146,13 +143,12 @@ TEST_F(TcpTest, LoopbackPlainTcp) {
 
   /* Create listener */
   xTcpListenerConf lconf = {};
-  xTcpListener listener  = xTcpListenerCreate(loop, "127.0.0.1", port, &lconf,
-                                              loopback_accept_cb, &ctx);
+  xTcpListener     listener =
+    xTcpListenerCreate(loop, "127.0.0.1", port, &lconf, loopback_accept_cb, &ctx);
   ASSERT_NE(listener, nullptr);
 
   /* Connect to the listener */
-  xErrno err =
-    xTcpConnect(loop, "127.0.0.1", port, nullptr, loopback_connect_cb, &ctx);
+  xErrno err = xTcpConnect(loop, "127.0.0.1", port, nullptr, loopback_connect_cb, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Run event loop until both sides are done */
@@ -283,21 +279,15 @@ TEST_F(TcpTest, ConnectTimeout) {
 
 TEST_F(TcpTest, ConnectNullArgs) {
   auto noop = [](xTcpConn, xErrno, void *) {};
-  EXPECT_EQ(xTcpConnect(nullptr, "host", 80, nullptr, noop, nullptr),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xTcpConnect(loop, nullptr, 80, nullptr, noop, nullptr),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xTcpConnect(loop, "host", 80, nullptr, nullptr, nullptr),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xTcpConnect(nullptr, "host", 80, nullptr, noop, nullptr), xErrno_InvalidArg);
+  EXPECT_EQ(xTcpConnect(loop, nullptr, 80, nullptr, noop, nullptr), xErrno_InvalidArg);
+  EXPECT_EQ(xTcpConnect(loop, "host", 80, nullptr, nullptr, nullptr), xErrno_InvalidArg);
 }
 
 TEST_F(TcpTest, ListenerNullArgs) {
-  auto noop = [](xTcpListener, xTcpConn, const struct sockaddr *, socklen_t,
-                 void *) {};
-  EXPECT_EQ(xTcpListenerCreate(nullptr, "127.0.0.1", 0, nullptr, noop, nullptr),
-            nullptr);
-  EXPECT_EQ(xTcpListenerCreate(loop, "127.0.0.1", 0, nullptr, nullptr, nullptr),
-            nullptr);
+  auto noop = [](xTcpListener, xTcpConn, const struct sockaddr *, socklen_t, void *) {};
+  EXPECT_EQ(xTcpListenerCreate(nullptr, "127.0.0.1", 0, nullptr, noop, nullptr), nullptr);
+  EXPECT_EQ(xTcpListenerCreate(loop, "127.0.0.1", 0, nullptr, nullptr, nullptr), nullptr);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -320,9 +310,8 @@ static void transfer_connect_cb(xTcpConn conn, xErrno err, void *arg) {
   ctx->connect_done.store(true, std::memory_order_release);
 }
 
-static void transfer_accept_cb(xTcpListener listener, xTcpConn conn,
-                               const struct sockaddr *addr, socklen_t addrlen,
-                               void *arg) {
+static void transfer_accept_cb(xTcpListener listener, xTcpConn conn, const struct sockaddr *addr,
+                               socklen_t addrlen, void *arg) {
   (void)listener;
   (void)addr;
   (void)addrlen;
@@ -338,12 +327,11 @@ TEST_F(TcpTest, TakeSocketAndTransport) {
   ASSERT_GT(port, 0);
 
   xTcpListenerConf lconf = {};
-  xTcpListener listener  = xTcpListenerCreate(loop, "127.0.0.1", port, &lconf,
-                                              transfer_accept_cb, &ctx);
+  xTcpListener     listener =
+    xTcpListenerCreate(loop, "127.0.0.1", port, &lconf, transfer_accept_cb, &ctx);
   ASSERT_NE(listener, nullptr);
 
-  xErrno err =
-    xTcpConnect(loop, "127.0.0.1", port, nullptr, transfer_connect_cb, &ctx);
+  xErrno err = xTcpConnect(loop, "127.0.0.1", port, nullptr, transfer_connect_cb, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   std::thread runner([&]() { xEventLoopRun(loop); });
@@ -393,9 +381,8 @@ TEST_F(TcpTest, TakeSocketAndTransport) {
 TEST_F(TcpTest, ListenerDestroyStopsAccept) {
   std::atomic<int> accept_count{0};
 
-  auto accept_cb = [](xTcpListener listener, xTcpConn conn,
-                      const struct sockaddr *addr, socklen_t addrlen,
-                      void *arg) {
+  auto accept_cb = [](xTcpListener listener, xTcpConn conn, const struct sockaddr *addr,
+                      socklen_t addrlen, void *arg) {
     (void)listener;
     (void)addr;
     (void)addrlen;
@@ -409,8 +396,8 @@ TEST_F(TcpTest, ListenerDestroyStopsAccept) {
   ASSERT_GT(lport, 0);
 
   xTcpListenerConf lconf = {};
-  xTcpListener listener  = xTcpListenerCreate(loop, "127.0.0.1", lport, &lconf,
-                                              accept_cb, &accept_count);
+  xTcpListener     listener =
+    xTcpListenerCreate(loop, "127.0.0.1", lport, &lconf, accept_cb, &accept_count);
   ASSERT_NE(listener, nullptr);
 
   /* Destroy the listener immediately */
@@ -456,9 +443,8 @@ static void adapter_connect_cb(xTcpConn conn, xErrno err, void *arg) {
   ctx->connect_done.store(true, std::memory_order_release);
 }
 
-static void adapter_accept_cb(xTcpListener listener, xTcpConn conn,
-                               const struct sockaddr *addr, socklen_t addrlen,
-                               void *arg) {
+static void adapter_accept_cb(xTcpListener listener, xTcpConn conn, const struct sockaddr *addr,
+                              socklen_t addrlen, void *arg) {
   (void)listener;
   (void)addr;
   (void)addrlen;
@@ -474,12 +460,11 @@ TEST_F(TcpTest, ReaderWriterAdapterLoopback) {
   ASSERT_GT(port, 0);
 
   xTcpListenerConf lconf = {};
-  xTcpListener listener  = xTcpListenerCreate(loop, "127.0.0.1", port, &lconf,
-                                              adapter_accept_cb, &ctx);
+  xTcpListener     listener =
+    xTcpListenerCreate(loop, "127.0.0.1", port, &lconf, adapter_accept_cb, &ctx);
   ASSERT_NE(listener, nullptr);
 
-  xErrno err =
-    xTcpConnect(loop, "127.0.0.1", port, nullptr, adapter_connect_cb, &ctx);
+  xErrno err = xTcpConnect(loop, "127.0.0.1", port, nullptr, adapter_connect_cb, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   std::thread runner([&]() { xEventLoopRun(loop); });
@@ -516,7 +501,7 @@ TEST_F(TcpTest, ReaderWriterAdapterLoopback) {
 
   /* Verify adapter behavior matches direct API */
   const char *msg2 = "direct compare";
-  nw = xTcpConnSend(ctx.client_conn, msg2, strlen(msg2));
+  nw               = xTcpConnSend(ctx.client_conn, msg2, strlen(msg2));
   EXPECT_GT(nw, 0);
 
   sleep_ms(50);

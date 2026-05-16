@@ -103,7 +103,7 @@ XDEF_STRUCT(xAgentContent) {
 XDEF_STRUCT(xAgentMessage) {
   xAgentRole           role;     /**< Speaker role                           */
   const xAgentContent *contents; /**< Array of @p n content blocks, or NULL  */
-  size_t            n;        /**< Number of content blocks               */
+  size_t               n;        /**< Number of content blocks               */
 };
 
 /* ── Convenience builders (borrow-only, no allocation) ─────────────── */
@@ -140,8 +140,8 @@ XCAPI(xAgentContent) xAgentContentText(const char *text);
  * @param n        Number of content blocks.
  * @return         A message view.
  */
-XCAPI(xAgentMessage) xAgentMessageFromContent(xAgentRole           role,
-                                        const xAgentContent *contents, size_t n);
+XCAPI(xAgentMessage) xAgentMessageFromContent(xAgentRole role, const xAgentContent *contents,
+                                              size_t n);
 
 /**
  * @brief Build a user-role message carrying a single text block.

@@ -28,9 +28,9 @@
 #ifndef XPP_OWN_H
 #define XPP_OWN_H
 
-#include "nonnull_own.h"
-#include "option.h"
-#include "panic.h"
+#include <xpp/nonnull_own.h>
+#include <xpp/option.h>
+#include <xpp/panic.h>
 
 #include <memory>
 #include <type_traits>
@@ -49,8 +49,7 @@ namespace xpp {
  * @tparam Deleter  Function-object-like type called on the held pointer
  *                  when non-null. Defaults to std::default_delete<T>.
  */
-template <class T, class Deleter = std::default_delete<T>>
-class Own {
+template <class T, class Deleter = std::default_delete<T>> class Own {
   using Inner = Option<NonNullOwn<T, Deleter>>;
 
 public:
@@ -72,8 +71,7 @@ public:
   explicit Own(T *p) noexcept : m_inner(NonNullOwn<T, Deleter>::from(p)) {}
 
   /** @brief Take ownership of a raw pointer with a custom deleter instance. */
-  Own(T *p, Deleter d) noexcept
-      : m_inner(NonNullOwn<T, Deleter>::from(p, std::move(d))) {}
+  Own(T *p, Deleter d) noexcept : m_inner(NonNullOwn<T, Deleter>::from(p, std::move(d))) {}
 
   /** @brief Adopt an existing NonNullOwn (always non-empty). */
   Own(NonNullOwn<T, Deleter> &&nn) noexcept : m_inner(std::move(nn)) {}
@@ -83,23 +81,23 @@ public:
 
   /** @brief Covariant: adopt NonNullOwn<Derived, E>. */
   template <class U, class E,
-            class = typename std::enable_if<
-                std::is_convertible<U *, T *>::value && !std::is_same<U, T>::value &&
-                std::is_convertible<E &&, Deleter>::value>::type>
+            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                            !std::is_same<U, T>::value &&
+                                            std::is_convertible<E &&, Deleter>::value>::type>
   Own(NonNullOwn<U, E> &&nn) noexcept : m_inner(std::move(nn)) {}
 
   /** @brief Covariant: adopt Option<NonNullOwn<Derived, E>>. */
   template <class U, class E,
-            class = typename std::enable_if<
-                std::is_convertible<U *, T *>::value && !std::is_same<U, T>::value &&
-                std::is_convertible<E &&, Deleter>::value>::type>
+            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                            !std::is_same<U, T>::value &&
+                                            std::is_convertible<E &&, Deleter>::value>::type>
   Own(Option<NonNullOwn<U, E>> &&opt) noexcept : m_inner(std::move(opt)) {}
 
   /** @brief Covariant: Own<Derived, E> → Own<Base, D>. */
   template <class U, class E,
-            class = typename std::enable_if<
-                std::is_convertible<U *, T *>::value && !std::is_same<U, T>::value &&
-                std::is_convertible<E &&, Deleter>::value>::type>
+            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                            !std::is_same<U, T>::value &&
+                                            std::is_convertible<E &&, Deleter>::value>::type>
   Own(Own<U, E> &&other) noexcept : m_inner(std::move(other.m_inner)) {}
 
   Own(const Own &)            = delete;
@@ -136,7 +134,9 @@ public:
    *
    * std::unique_ptr-style name. Equivalent to `take()`.
    */
-  T *release() noexcept { return take(); }
+  T *release() noexcept {
+    return take();
+  }
 
   /** @brief Get raw pointer; null if empty. */
   T *get() const noexcept {
@@ -144,25 +144,29 @@ public:
   }
 
   /** @brief Dereference. Debug-asserts non-empty; UB in release on empty. */
-  template <class U = T,
-            class   = typename std::enable_if<!std::is_void<U>::value>::type>
+  template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   U &operator*() const noexcept {
     XPP_DEBUG_ASSERT(m_inner.isSome(), "Own::operator* on empty Own");
     return *m_inner.unwrapUnchecked();
   }
 
-  template <class U = T,
-            class   = typename std::enable_if<!std::is_void<U>::value>::type>
+  template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   U *operator->() const noexcept {
     XPP_DEBUG_ASSERT(m_inner.isSome(), "Own::operator-> on empty Own");
     return m_inner.unwrapUnchecked();
   }
 
   /** @brief True iff non-empty. */
-  explicit operator bool() const noexcept { return m_inner.isSome(); }
+  explicit operator bool() const noexcept {
+    return m_inner.isSome();
+  }
 
-  bool operator==(std::nullptr_t) const noexcept { return m_inner.isNone(); }
-  bool operator!=(std::nullptr_t) const noexcept { return m_inner.isSome(); }
+  bool operator==(std::nullptr_t) const noexcept {
+    return m_inner.isNone();
+  }
+  bool operator!=(std::nullptr_t) const noexcept {
+    return m_inner.isSome();
+  }
 
   /**
    * @brief Consume into Option<NonNullOwn>. Bridges to the Rust-style API.

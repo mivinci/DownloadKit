@@ -14,8 +14,8 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <x/agent/model.h>
 #include "provider_private.h"
+#include <x/agent/model.h>
 }
 
 #include <cstdlib>
@@ -24,14 +24,15 @@ extern "C" {
 /* A bare xAgentProvider_ whose vtable is never invoked — just needs
  * to be a distinct non-NULL pointer that outlives the registry. */
 static xAgentProvider make_dummy_provider() {
-  auto *base =
-    static_cast<xAgentProvider_ *>(calloc(1, sizeof(xAgentProvider_)));
-  base->vt  = nullptr;
-  base->ctx = nullptr;
+  auto *base = static_cast<xAgentProvider_ *>(calloc(1, sizeof(xAgentProvider_)));
+  base->vt   = nullptr;
+  base->ctx  = nullptr;
   return reinterpret_cast<xAgentProvider>(base);
 }
 
-static void free_dummy_provider(xAgentProvider p) { free(p); }
+static void free_dummy_provider(xAgentProvider p) {
+  free(p);
+}
 
 /* ── Basic lifecycle ─────────────────────────────────────────────────── */
 
@@ -59,11 +60,11 @@ TEST(XAgentModelRegistry, AddAndGet) {
   xAgentProvider pvd = make_dummy_provider();
 
   xAgentModelSpec spec = {};
-  spec.id          = "kimi";
-  spec.provider    = pvd;
-  spec.model       = "kimi-k2.6";
-  spec.temperature = 0.7;
-  spec.max_tokens  = 4096;
+  spec.id              = "kimi";
+  spec.provider        = pvd;
+  spec.model           = "kimi-k2.6";
+  spec.temperature     = 0.7;
+  spec.max_tokens      = 4096;
 
   EXPECT_EQ(xAgentModelRegistryAdd(reg, &spec), xErrno_Ok);
   EXPECT_EQ(xAgentModelRegistryCount(reg), 1u);
@@ -91,9 +92,9 @@ TEST(XAgentModelRegistry, AddDeepCopiesStrings) {
   std::strcpy(model_buf, "glm-4.5");
 
   xAgentModelSpec spec = {};
-  spec.id       = id_buf;
-  spec.provider = pvd;
-  spec.model    = model_buf;
+  spec.id              = id_buf;
+  spec.provider        = pvd;
+  spec.model           = model_buf;
   ASSERT_EQ(xAgentModelRegistryAdd(reg, &spec), xErrno_Ok);
 
   /* Mutate the caller buffers — the registry must not be affected. */
@@ -114,9 +115,9 @@ TEST(XAgentModelRegistry, AddNullModelIsAllowed) {
   xAgentProvider      pvd = make_dummy_provider();
 
   xAgentModelSpec spec = {};
-  spec.id       = "default";
-  spec.provider = pvd;
-  spec.model    = nullptr; /* caller wants provider's own default */
+  spec.id              = "default";
+  spec.provider        = pvd;
+  spec.model           = nullptr; /* caller wants provider's own default */
 
   EXPECT_EQ(xAgentModelRegistryAdd(reg, &spec), xErrno_Ok);
   const xAgentModelSpec *got = xAgentModelRegistryGet(reg, "default");
@@ -132,8 +133,8 @@ TEST(XAgentModelRegistry, GetReturnsNullForMissingId) {
   xAgentProvider      pvd = make_dummy_provider();
 
   xAgentModelSpec spec = {};
-  spec.id       = "only";
-  spec.provider = pvd;
+  spec.id              = "only";
+  spec.provider        = pvd;
   ASSERT_EQ(xAgentModelRegistryAdd(reg, &spec), xErrno_Ok);
 
   EXPECT_EQ(xAgentModelRegistryGet(reg, "missing"), nullptr);
@@ -154,15 +155,18 @@ TEST(XAgentModelRegistry, AddRejectsBadArgs) {
 
   xAgentModelSpec spec = {};
   /* Missing id */
-  spec.id = nullptr; spec.provider = pvd;
+  spec.id       = nullptr;
+  spec.provider = pvd;
   EXPECT_EQ(xAgentModelRegistryAdd(reg, &spec), xErrno_InvalidArg);
 
   /* Empty id */
-  spec.id = ""; spec.provider = pvd;
+  spec.id       = "";
+  spec.provider = pvd;
   EXPECT_EQ(xAgentModelRegistryAdd(reg, &spec), xErrno_InvalidArg);
 
   /* Missing provider */
-  spec.id = "foo"; spec.provider = nullptr;
+  spec.id       = "foo";
+  spec.provider = nullptr;
   EXPECT_EQ(xAgentModelRegistryAdd(reg, &spec), xErrno_InvalidArg);
 
   EXPECT_EQ(xAgentModelRegistryCount(reg), 0u);
@@ -176,7 +180,9 @@ TEST(XAgentModelRegistry, AddRejectsDuplicateId) {
   xAgentProvider      pvd = make_dummy_provider();
 
   xAgentModelSpec spec = {};
-  spec.id = "kimi"; spec.provider = pvd; spec.model = "kimi-k2.6";
+  spec.id              = "kimi";
+  spec.provider        = pvd;
+  spec.model           = "kimi-k2.6";
   EXPECT_EQ(xAgentModelRegistryAdd(reg, &spec), xErrno_Ok);
 
   /* Same id, different model — still rejected. */
@@ -202,8 +208,8 @@ TEST(XAgentModelRegistry, AtReturnsEntriesInInsertionOrder) {
   const char *ids[] = {"a", "b", "c", "d", "e"};
   for (const char *id : ids) {
     xAgentModelSpec spec = {};
-    spec.id       = id;
-    spec.provider = pvd;
+    spec.id              = id;
+    spec.provider        = pvd;
     ASSERT_EQ(xAgentModelRegistryAdd(reg, &spec), xErrno_Ok);
   }
 
@@ -229,8 +235,8 @@ TEST(XAgentModelRegistry, GrowsBeyondInitialCapacity) {
     char idbuf[16];
     std::snprintf(idbuf, sizeof(idbuf), "m%02d", i);
     xAgentModelSpec spec = {};
-    spec.id       = idbuf;
-    spec.provider = pvd;
+    spec.id              = idbuf;
+    spec.provider        = pvd;
     ASSERT_EQ(xAgentModelRegistryAdd(reg, &spec), xErrno_Ok) << "i=" << i;
   }
   EXPECT_EQ(xAgentModelRegistryCount(reg), 20u);

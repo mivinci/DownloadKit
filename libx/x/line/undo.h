@@ -17,10 +17,8 @@ typedef struct editstate_s editstate_t;
 
 ic_private void editstate_init(editstate_t **es);
 ic_private void editstate_done(editstate_t **es);
-ic_private void editstate_capture(editstate_t **es,
-                                  const char *input, ssize_t pos);
-ic_private bool editstate_restore(editstate_t **es,
-                                  const char **input,
+ic_private void editstate_capture(editstate_t **es, const char *input, ssize_t pos);
+ic_private bool editstate_restore(editstate_t **es, const char **input,
                                   ssize_t *pos); // caller needs to free input
 
 #endif // IC_UNDO_H

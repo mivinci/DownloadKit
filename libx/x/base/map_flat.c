@@ -47,17 +47,15 @@ static inline size_t slot_idx(xMapFlat *f, const void *key) {
 }
 
 static xErrno flat_resize(xMapFlat *f) {
-  size_t        new_cap = f->cap * 2;
-  xMapFlatSlot *new_slots =
-    (xMapFlatSlot *)calloc(new_cap, sizeof(xMapFlatSlot));
+  size_t        new_cap   = f->cap * 2;
+  xMapFlatSlot *new_slots = (xMapFlatSlot *)calloc(new_cap, sizeof(xMapFlatSlot));
   if (!new_slots) return xErrno_NoMemory;
 
   /* Rehash only OCCUPIED entries (tombstones are discarded) */
   for (size_t i = 0; i < f->cap; i++) {
     if (f->slots[i].state != SLOT_OCCUPIED) continue;
 
-    size_t idx =
-      (size_t)(f->base.hash(f->slots[i].key) & (uint64_t)(new_cap - 1));
+    size_t idx = (size_t)(f->base.hash(f->slots[i].key) & (uint64_t)(new_cap - 1));
     while (new_slots[idx].state == SLOT_OCCUPIED) {
       idx = (idx + 1) & (new_cap - 1);
     }
@@ -127,8 +125,7 @@ static void *flat_get(xMap m, const void *key) {
 
     if (f->slots[cur].state == SLOT_EMPTY) return NULL;
 
-    if (f->slots[cur].state == SLOT_OCCUPIED &&
-        f->base.eq(f->slots[cur].key, key)) {
+    if (f->slots[cur].state == SLOT_OCCUPIED && f->base.eq(f->slots[cur].key, key)) {
       return f->slots[cur].val;
     }
     /* TOMBSTONE: keep probing */
@@ -145,8 +142,7 @@ static void *flat_del(xMap m, const void *key) {
 
     if (f->slots[cur].state == SLOT_EMPTY) return NULL;
 
-    if (f->slots[cur].state == SLOT_OCCUPIED &&
-        f->base.eq(f->slots[cur].key, key)) {
+    if (f->slots[cur].state == SLOT_OCCUPIED && f->base.eq(f->slots[cur].key, key)) {
       void *val           = f->slots[cur].val;
       f->slots[cur].key   = NULL;
       f->slots[cur].val   = NULL;

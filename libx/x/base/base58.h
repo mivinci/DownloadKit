@@ -49,8 +49,7 @@
  *                 the null terminator).
  * @return         0 on success, -1 if the output buffer is too small.
  */
-XCAPI(int) xBase58Encode(const uint8_t *src, size_t src_len,
-                         char *dst, size_t *dst_len);
+XCAPI(int) xBase58Encode(const uint8_t *src, size_t src_len, char *dst, size_t *dst_len);
 
 /**
  * @brief Decode a Base58 string to binary data.
@@ -63,7 +62,6 @@ XCAPI(int) xBase58Encode(const uint8_t *src, size_t src_len,
  * @return         0 on success, -1 if the output buffer is too small
  *                 or the input contains invalid characters.
  */
-XCAPI(int) xBase58Decode(const char *src, size_t src_len,
-                         uint8_t *dst, size_t *dst_len);
+XCAPI(int) xBase58Decode(const char *src, size_t src_len, uint8_t *dst, size_t *dst_len);
 
 #endif /* XBASE_BASE58_H */

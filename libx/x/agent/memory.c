@@ -27,8 +27,8 @@
 /* ── Append ──────────────────────────────────────────────────────── */
 
 xErrno xAgentMemoryAppend(xAgentMemory store, const xAgentMemoryQuery *query,
-                          xAgentMemoryAppendReason reason,
-                          const xAgentSessionMsg *msgs, size_t n_msgs) {
+                          xAgentMemoryAppendReason reason, const xAgentSessionMsg *msgs,
+                          size_t n_msgs) {
   /* Tolerate NULL store — "no memory configured" → silently drop. */
   if (!store) return xErrno_Ok;
   if (!query) return xErrno_InvalidArg;

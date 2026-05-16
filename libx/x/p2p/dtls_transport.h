@@ -32,8 +32,7 @@ XDEF_HANDLE(xDtlsTransport);
  * @param state      New DTLS state.
  * @param arg        User-provided context.
  */
-typedef void (*xDtlsOnStateChange)(xDtlsTransport transport, xDtlsState state,
-                                   void *arg);
+typedef void (*xDtlsOnStateChange)(xDtlsTransport transport, xDtlsState state, void *arg);
 
 /**
  * @brief Called when decrypted application data is available.
@@ -43,8 +42,7 @@ typedef void (*xDtlsOnStateChange)(xDtlsTransport transport, xDtlsState state,
  * @param len        Length of data.
  * @param arg        User-provided context.
  */
-typedef void (*xDtlsOnData)(xDtlsTransport transport, const uint8_t *data,
-                            size_t len, void *arg);
+typedef void (*xDtlsOnData)(xDtlsTransport transport, const uint8_t *data, size_t len, void *arg);
 
 /* ───────────────────── Configuration ───────────────────── */
 
@@ -67,7 +65,7 @@ XDEF_STRUCT(xDtlsTransportConf) {
   /** State change and data callbacks. */
   xDtlsOnStateChange on_state_change;
   xDtlsOnData        on_data;
-  void               *ctx; /**< Forwarded to all callbacks. */
+  void              *ctx; /**< Forwarded to all callbacks. */
 
   /** Handshake timeout in milliseconds (0 = default 10000ms). */
   uint32_t handshake_timeout_ms;
@@ -118,8 +116,7 @@ XCAPI(xErrno) xDtlsTransportStart(xDtlsTransport transport);
  * @param len        Length of data.
  * @return           xErrno_Ok on success.
  */
-XCAPI(xErrno) xDtlsTransportFeedInput(xDtlsTransport transport,
-                                       const uint8_t *data, size_t len);
+XCAPI(xErrno) xDtlsTransportFeedInput(xDtlsTransport transport, const uint8_t *data, size_t len);
 
 /**
  * @brief Send application data through the DTLS encrypted channel.
@@ -131,8 +128,7 @@ XCAPI(xErrno) xDtlsTransportFeedInput(xDtlsTransport transport,
  * @param len        Length of data.
  * @return           xErrno_Ok on success.
  */
-XCAPI(xErrno) xDtlsTransportSend(xDtlsTransport transport,
-                                  const uint8_t *data, size_t len);
+XCAPI(xErrno) xDtlsTransportSend(xDtlsTransport transport, const uint8_t *data, size_t len);
 
 /* ───────────────────── Queries ───────────────────── */
 
@@ -143,8 +139,7 @@ XCAPI(xErrno) xDtlsTransportSend(xDtlsTransport transport,
  * @param out        Output buffer (XDTLS_FINGERPRINT_SIZE bytes).
  * @return           xErrno_Ok on success.
  */
-XCAPI(xErrno) xDtlsTransportGetFingerprint(xDtlsTransport transport,
-                                            uint8_t       *out);
+XCAPI(xErrno) xDtlsTransportGetFingerprint(xDtlsTransport transport, uint8_t *out);
 
 /**
  * @brief Get the local fingerprint as a colon-separated hex string.
@@ -153,8 +148,7 @@ XCAPI(xErrno) xDtlsTransportGetFingerprint(xDtlsTransport transport,
  * @param out        Output buffer (at least XDTLS_FINGERPRINT_STR_SIZE).
  * @return           xErrno_Ok on success.
  */
-XCAPI(xErrno) xDtlsTransportGetFingerprintStr(xDtlsTransport transport,
-                                               char          *out);
+XCAPI(xErrno) xDtlsTransportGetFingerprintStr(xDtlsTransport transport, char *out);
 
 /**
  * @brief Get the current DTLS state.

@@ -66,7 +66,7 @@
  */
 struct OwnedTurn {
   xAgentRole                     role;
-  std::string                 text;
+  std::string                    text;
   std::unique_ptr<xAgentContent> content; /* stable address; held by msg */
 };
 
@@ -81,8 +81,7 @@ struct ReplCtx {
 
 /* ── Tool: get_time (demo only) ─────────────────────────────────────── */
 
-static xErrno tool_get_time(xAgentQuery q, const xAgentContent *in, xAgentContent *out,
-                            void *ud) {
+static xErrno tool_get_time(xAgentQuery q, const xAgentContent *in, xAgentContent *out, void *ud) {
   (void)q;
   (void)in;
   (void)ud;
@@ -153,15 +152,15 @@ static const char *stop_reason_name(xAgentProviderStopReason r) {
   return "?";
 }
 
-static void on_done(xAgentProviderStopReason reason, xErrno err,
-                    const xAgentUsage *usage, const char *errmsg, void *arg) {
+static void on_done(xAgentProviderStopReason reason, xErrno err, const xAgentUsage *usage,
+                    const char *errmsg, void *arg) {
   (void)errmsg;
   auto *ctx = static_cast<ReplCtx *>(arg);
 
   /* Always surface the outcome so "silent failure" is impossible. */
   std::putchar('\n');
-  std::printf("[done] reason=%s errno=%d reply_bytes=%zu",
-              stop_reason_name(reason), (int)err, ctx->reply.size());
+  std::printf("[done] reason=%s errno=%d reply_bytes=%zu", stop_reason_name(reason), (int)err,
+              ctx->reply.size());
   if (usage) {
     /* -1 means "server was silent about this field" — show "?" so
      * the user can tell missing from zero. */
@@ -249,8 +248,8 @@ int main() {
     return 1;
   }
   const xAgentTool *tools[] = {&time_tool}; /* xAgentTool is opaque void*;
-                                          * sconf.tools is xAgentTool**
-                                          * (array of handle pointers) */
+                                             * sconf.tools is xAgentTool**
+                                             * (array of handle pointers) */
 
   ReplCtx ctx;
   ctx.loop = loop;
@@ -261,16 +260,16 @@ int main() {
 
   /* ── History ────────────────────────────────────────────────────── */
   std::vector<std::unique_ptr<OwnedTurn>> turns; /* stable addresses  */
-  std::vector<xAgentMessage>                 history;
+  std::vector<xAgentMessage>              history;
 
   /* Seed with a system message. */
   {
-    auto t         = std::make_unique<OwnedTurn>();
-    t->role        = xAgentRole_System;
-    t->text        = "You are a concise assistant running on moo's xagent "
-                     "provider-level demo. Answer briefly.";
-    t->content     = std::make_unique<xAgentContent>();
-    *t->content    = xAgentContentText(t->text.c_str());
+    auto t            = std::make_unique<OwnedTurn>();
+    t->role           = xAgentRole_System;
+    t->text           = "You are a concise assistant running on moo's xagent "
+                        "provider-level demo. Answer briefly.";
+    t->content        = std::make_unique<xAgentContent>();
+    *t->content       = xAgentContentText(t->text.c_str());
     xAgentMessage sys = xAgentMessageFromContent(xAgentRole_System, t->content.get(), 1);
     history.push_back(sys);
     turns.push_back(std::move(t));
@@ -295,11 +294,11 @@ int main() {
 
     /* Append user turn. */
     {
-      auto t       = std::make_unique<OwnedTurn>();
-      t->role      = xAgentRole_User;
-      t->text      = line;
-      t->content   = std::make_unique<xAgentContent>();
-      *t->content  = xAgentContentText(t->text.c_str());
+      auto t          = std::make_unique<OwnedTurn>();
+      t->role         = xAgentRole_User;
+      t->text         = line;
+      t->content      = std::make_unique<xAgentContent>();
+      *t->content     = xAgentContentText(t->text.c_str());
       xAgentMessage m = xAgentMessageFromContent(xAgentRole_User, t->content.get(), 1);
       history.push_back(m);
       turns.push_back(std::move(t));
@@ -332,13 +331,12 @@ int main() {
 
     /* Append assistant reply to history if we got one. */
     if (!ctx.reply.empty()) {
-      auto t      = std::make_unique<OwnedTurn>();
-      t->role     = xAgentRole_Assistant;
-      t->text     = std::move(ctx.reply);
-      t->content  = std::make_unique<xAgentContent>();
-      *t->content = xAgentContentText(t->text.c_str());
-      xAgentMessage m =
-        xAgentMessageFromContent(xAgentRole_Assistant, t->content.get(), 1);
+      auto t          = std::make_unique<OwnedTurn>();
+      t->role         = xAgentRole_Assistant;
+      t->text         = std::move(ctx.reply);
+      t->content      = std::make_unique<xAgentContent>();
+      *t->content     = xAgentContentText(t->text.c_str());
+      xAgentMessage m = xAgentMessageFromContent(xAgentRole_Assistant, t->content.get(), 1);
       history.push_back(m);
       turns.push_back(std::move(t));
     }

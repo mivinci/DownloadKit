@@ -38,9 +38,9 @@ extern "C" {
  *       internal context type.
  */
 XDEF_STRUCT(xHashVtable) {
-  size_t  digest_size; /**< Output digest length in bytes.      */
-  size_t  block_size;  /**< Internal block size in bytes.       */
-  size_t  ctx_size;    /**< Size of the opaque context struct.  */
+  size_t digest_size; /**< Output digest length in bytes.      */
+  size_t block_size;  /**< Internal block size in bytes.       */
+  size_t ctx_size;    /**< Size of the opaque context struct.  */
 
   xErrno (*init)(void *ctx_buf);
   xErrno (*update)(void *ctx_buf, const uint8_t *data, size_t len);

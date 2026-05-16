@@ -84,8 +84,8 @@ XDEF_HANDLE(xAgentTool);
  *             be notified of completion via @ref on_done_fn); anything
  *             else is surfaced as a tool error to the model.
  */
-typedef xErrno (*xAgentToolHandlerFunc)(xAgentQuery q, const xAgentContent *in,
-                                     xAgentContent *out, void *ud);
+typedef xErrno (*xAgentToolHandlerFunc)(xAgentQuery q, const xAgentContent *in, xAgentContent *out,
+                                        void *ud);
 
 typedef void (*xAgentToolUserDataDestroyFunc)(void *user_data);
 
@@ -108,9 +108,8 @@ typedef void (*xAgentToolUserDataDestroyFunc)(void *user_data);
  *                   content block.
  * @param ud         The on_done_ud pointer supplied in xAgentToolConf.
  */
-typedef void (*xAgentToolDoneFunc)(xAgentQuery q, const char *tool_use_id,
-                                xAgentTool tool, const xAgentContent *in,
-                                xAgentContent *out, void *ud);
+typedef void (*xAgentToolDoneFunc)(xAgentQuery q, const char *tool_use_id, xAgentTool tool,
+                                   const xAgentContent *in, xAgentContent *out, void *ud);
 
 /**
  * @brief Cancellation callback for async tools.
@@ -128,8 +127,8 @@ typedef void (*xAgentToolDoneFunc)(xAgentQuery q, const char *tool_use_id,
  * @param tool       The tool handle.
  * @param ud         The on_cancel_ud pointer supplied in xAgentToolConf.
  */
-typedef void (*xAgentToolCancelFunc)(xAgentQuery q, const char *tool_use_id,
-                                  xAgentTool tool, void *ud);
+typedef void (*xAgentToolCancelFunc)(xAgentQuery q, const char *tool_use_id, xAgentTool tool,
+                                     void *ud);
 
 /**
  * @brief Configuration for creating a tool.
@@ -138,15 +137,15 @@ typedef void (*xAgentToolCancelFunc)(xAgentQuery q, const char *tool_use_id,
  * required, no user data).
  */
 XDEF_STRUCT(xAgentToolConf) {
-  const char *name;         /**< Tool identifier exposed to the model
-                                 (must not be NULL, conventionally
-                                 [a-zA-Z0-9_]+).                         */
-  const char *description;  /**< Human-readable description (may be NULL)*/
-  const char *json_schema;  /**< JSON Schema string for the tool's
-                                 arguments (may be NULL = no arguments). */
+  const char *name;        /**< Tool identifier exposed to the model
+                                (must not be NULL, conventionally
+                                [a-zA-Z0-9_]+).                         */
+  const char *description; /**< Human-readable description (may be NULL)*/
+  const char *json_schema; /**< JSON Schema string for the tool's
+                                arguments (may be NULL = no arguments). */
 
-  xAgentToolHandlerFunc handler;    /**< Execution callback (must not be NULL) */
-  void              *user_data;  /**< Forwarded to @ref handler             */
+  xAgentToolHandlerFunc handler;   /**< Execution callback (must not be NULL) */
+  void                 *user_data; /**< Forwarded to @ref handler             */
 
   xAgentToolUserDataDestroyFunc user_data_destroy; /**< Called by
                             xAgentToolDestroy to release @ref user_data
@@ -165,13 +164,13 @@ XDEF_STRUCT(xAgentToolConf) {
                                    the agent will invoke this callback with
                                    the completed tool_result once the
                                    operation finishes.                     */
-  void *on_done_ud;            /**< User data forwarded to on_done_fn
-                                    (may be NULL).                         */
+  void *on_done_ud;              /**< User data forwarded to on_done_fn
+                                      (may be NULL).                         */
 
   xAgentToolCancelFunc on_cancel_fn; /**< Cancellation callback (may be NULL
                                        = tool does not support cancel).    */
-  void *on_cancel_ud;             /**< User data forwarded to on_cancel_fn
-                                       (may be NULL).                      */
+  void *on_cancel_ud;                /**< User data forwarded to on_cancel_fn
+                                          (may be NULL).                      */
 };
 
 /**

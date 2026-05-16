@@ -32,6 +32,5 @@ TEST(Crc32, Deterministic) {
 TEST(Crc32, DifferentInputs) {
   const char *a = "foo";
   const char *b = "bar";
-  EXPECT_NE(xCrc32((const uint8_t *)a, strlen(a)),
-            xCrc32((const uint8_t *)b, strlen(b)));
+  EXPECT_NE(xCrc32((const uint8_t *)a, strlen(a)), xCrc32((const uint8_t *)b, strlen(b)));
 }

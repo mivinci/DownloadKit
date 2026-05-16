@@ -29,15 +29,12 @@ int xIceCandidateTypePref(xIceCandidateType type) {
   }
 }
 
-uint32_t xIceCandidatePriority(xIceCandidateType type, uint16_t local_pref,
-                               int component_id) {
+uint32_t xIceCandidatePriority(xIceCandidateType type, uint16_t local_pref, int component_id) {
   int type_pref = xIceCandidateTypePref(type);
-  return ((uint32_t)type_pref << 24) | ((uint32_t)local_pref << 8) |
-         (uint32_t)(256 - component_id);
+  return ((uint32_t)type_pref << 24) | ((uint32_t)local_pref << 8) | (uint32_t)(256 - component_id);
 }
 
-void xIceCandidateFoundation(xIceCandidate         *cand,
-                             const struct sockaddr *stun_server) {
+void xIceCandidateFoundation(xIceCandidate *cand, const struct sockaddr *stun_server) {
   /*
    * Foundation = hash(type, base_addr, stun_server).
    * We use CRC-32 of the concatenation for simplicity.
@@ -127,11 +124,10 @@ uint16_t xSockaddrPort(const struct sockaddr *addr) {
 
 const char *xSockaddrIP(const struct sockaddr *addr, char *buf, size_t len) {
   if (addr->sa_family == AF_INET) {
-    return inet_ntop(AF_INET, &((const struct sockaddr_in *)addr)->sin_addr,
-                     buf, (socklen_t)len);
+    return inet_ntop(AF_INET, &((const struct sockaddr_in *)addr)->sin_addr, buf, (socklen_t)len);
   } else if (addr->sa_family == AF_INET6) {
-    return inet_ntop(AF_INET6, &((const struct sockaddr_in6 *)addr)->sin6_addr,
-                     buf, (socklen_t)len);
+    return inet_ntop(AF_INET6, &((const struct sockaddr_in6 *)addr)->sin6_addr, buf,
+                     (socklen_t)len);
   }
   return NULL;
 }

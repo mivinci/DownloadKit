@@ -43,16 +43,16 @@ TEST_F(DcepTest, OpenMessageRoundTrip) {
   uint8_t buf[512];
   size_t  label_len = strlen(conf.label);
 
-  buf[0] = XDCEP_DATA_CHANNEL_OPEN;
-  buf[1] = XDCEP_CHANNEL_RELIABLE; /* ordered, reliable */
-  buf[2] = 0;
-  buf[3] = 0;
-  buf[4] = 0;
-  buf[5] = 0;
-  buf[6] = 0;
-  buf[7] = 0;
-  buf[8] = (uint8_t)(label_len >> 8);
-  buf[9] = (uint8_t)(label_len);
+  buf[0]  = XDCEP_DATA_CHANNEL_OPEN;
+  buf[1]  = XDCEP_CHANNEL_RELIABLE; /* ordered, reliable */
+  buf[2]  = 0;
+  buf[3]  = 0;
+  buf[4]  = 0;
+  buf[5]  = 0;
+  buf[6]  = 0;
+  buf[7]  = 0;
+  buf[8]  = (uint8_t)(label_len >> 8);
+  buf[9]  = (uint8_t)(label_len);
   buf[10] = 0;
   buf[11] = 0;
   memcpy(buf + 12, conf.label, label_len);
@@ -93,11 +93,10 @@ class WebRTCSdpTest : public ::testing::Test {};
 
 TEST_F(WebRTCSdpTest, EncodeWebRTCSdp) {
   char buf[XSDP_MAX_SIZE];
-  int  len = xIceSdpEncodeWebRTC(
-    "user1234", "pass5678", NULL, 0, true,
-    "sha-256 AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
-    "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
-    xIceSdpSetup_Actpass, "0", 5000, buf, sizeof(buf));
+  int  len = xIceSdpEncodeWebRTC("user1234", "pass5678", NULL, 0, true,
+                                 "sha-256 AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+                                  "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+                                 xIceSdpSetup_Actpass, "0", 5000, buf, sizeof(buf));
 
   ASSERT_GT(len, 0);
   buf[len] = '\0';
@@ -105,8 +104,7 @@ TEST_F(WebRTCSdpTest, EncodeWebRTCSdp) {
   /* Verify required WebRTC SDP fields */
   EXPECT_NE(strstr(buf, "v=0"), nullptr);
   EXPECT_NE(strstr(buf, "a=group:BUNDLE 0"), nullptr);
-  EXPECT_NE(strstr(buf, "m=application 9 UDP/DTLS/SCTP webrtc-datachannel"),
-            nullptr);
+  EXPECT_NE(strstr(buf, "m=application 9 UDP/DTLS/SCTP webrtc-datachannel"), nullptr);
   EXPECT_NE(strstr(buf, "a=mid:0"), nullptr);
   EXPECT_NE(strstr(buf, "a=ice-ufrag:user1234"), nullptr);
   EXPECT_NE(strstr(buf, "a=ice-pwd:pass5678"), nullptr);
@@ -117,22 +115,21 @@ TEST_F(WebRTCSdpTest, EncodeWebRTCSdp) {
 }
 
 TEST_F(WebRTCSdpTest, DecodeWebRTCSdp) {
-  const char *sdp =
-    "v=0\r\n"
-    "o=- 0 0 IN IP4 0.0.0.0\r\n"
-    "s=-\r\n"
-    "t=0 0\r\n"
-    "a=group:BUNDLE 0\r\n"
-    "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
-    "c=IN IP4 0.0.0.0\r\n"
-    "a=mid:0\r\n"
-    "a=ice-ufrag:testufrag\r\n"
-    "a=ice-pwd:testpassword\r\n"
-    "a=fingerprint:sha-256 AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
-    "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99\r\n"
-    "a=setup:active\r\n"
-    "a=sctp-port:5000\r\n"
-    "a=ice-options:trickle\r\n";
+  const char *sdp = "v=0\r\n"
+                    "o=- 0 0 IN IP4 0.0.0.0\r\n"
+                    "s=-\r\n"
+                    "t=0 0\r\n"
+                    "a=group:BUNDLE 0\r\n"
+                    "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+                    "c=IN IP4 0.0.0.0\r\n"
+                    "a=mid:0\r\n"
+                    "a=ice-ufrag:testufrag\r\n"
+                    "a=ice-pwd:testpassword\r\n"
+                    "a=fingerprint:sha-256 AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+                    "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99\r\n"
+                    "a=setup:active\r\n"
+                    "a=sctp-port:5000\r\n"
+                    "a=ice-options:trickle\r\n";
 
   xIceSdp parsed;
   xErrno  err = xIceSdpDecode(sdp, strlen(sdp), &parsed);
@@ -149,16 +146,15 @@ TEST_F(WebRTCSdpTest, DecodeWebRTCSdp) {
 }
 
 TEST_F(WebRTCSdpTest, DecodeWebRTCSdpMissingFingerprint) {
-  const char *sdp =
-    "v=0\r\n"
-    "o=- 0 0 IN IP4 0.0.0.0\r\n"
-    "s=-\r\n"
-    "t=0 0\r\n"
-    "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
-    "c=IN IP4 0.0.0.0\r\n"
-    "a=ice-ufrag:testufrag\r\n"
-    "a=ice-pwd:testpassword\r\n"
-    "a=setup:active\r\n";
+  const char *sdp = "v=0\r\n"
+                    "o=- 0 0 IN IP4 0.0.0.0\r\n"
+                    "s=-\r\n"
+                    "t=0 0\r\n"
+                    "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+                    "c=IN IP4 0.0.0.0\r\n"
+                    "a=ice-ufrag:testufrag\r\n"
+                    "a=ice-pwd:testpassword\r\n"
+                    "a=setup:active\r\n";
 
   xIceSdp parsed;
   xErrno  err = xIceSdpDecode(sdp, strlen(sdp), &parsed);
@@ -168,16 +164,15 @@ TEST_F(WebRTCSdpTest, DecodeWebRTCSdpMissingFingerprint) {
 }
 
 TEST_F(WebRTCSdpTest, DecodePureIceSdpBackwardCompat) {
-  const char *sdp =
-    "v=0\r\n"
-    "o=- 0 0 IN IP4 0.0.0.0\r\n"
-    "s=-\r\n"
-    "t=0 0\r\n"
-    "m=application 9 UDP/ICE 0\r\n"
-    "c=IN IP4 0.0.0.0\r\n"
-    "a=ice-ufrag:pureice\r\n"
-    "a=ice-pwd:pureicepwd\r\n"
-    "a=ice-options:trickle\r\n";
+  const char *sdp = "v=0\r\n"
+                    "o=- 0 0 IN IP4 0.0.0.0\r\n"
+                    "s=-\r\n"
+                    "t=0 0\r\n"
+                    "m=application 9 UDP/ICE 0\r\n"
+                    "c=IN IP4 0.0.0.0\r\n"
+                    "a=ice-ufrag:pureice\r\n"
+                    "a=ice-pwd:pureicepwd\r\n"
+                    "a=ice-options:trickle\r\n";
 
   xIceSdp parsed;
   xErrno  err = xIceSdpDecode(sdp, strlen(sdp), &parsed);
@@ -192,11 +187,10 @@ TEST_F(WebRTCSdpTest, DecodePureIceSdpBackwardCompat) {
 
 TEST_F(WebRTCSdpTest, EncodeDecodeRoundTrip) {
   char buf[XSDP_MAX_SIZE];
-  int  len = xIceSdpEncodeWebRTC(
-    "roundtrip_ufrag", "roundtrip_pwd", NULL, 0, true,
-    "sha-256 01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:"
-    "11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F:20",
-    xIceSdpSetup_Passive, "data", 5000, buf, sizeof(buf));
+  int  len = xIceSdpEncodeWebRTC("roundtrip_ufrag", "roundtrip_pwd", NULL, 0, true,
+                                 "sha-256 01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:"
+                                  "11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F:20",
+                                 xIceSdpSetup_Passive, "data", 5000, buf, sizeof(buf));
 
   ASSERT_GT(len, 0);
   buf[len] = '\0';

@@ -48,21 +48,17 @@ struct xjs_host_fn {
   xJSStringRef                    name; /* retained; may be NULL */
 };
 
-static JSValue xjs_host_fn_call(JSContext *ctx, JSValueConst func_obj,
-                                JSValueConst this_val, int argc,
-                                JSValueConst *argv, int flags) {
+static JSValue xjs_host_fn_call(JSContext *ctx, JSValueConst func_obj, JSValueConst this_val,
+                                int argc, JSValueConst *argv, int flags) {
   (void)flags;
-  struct xjs_host_fn *h =
-    (struct xjs_host_fn *)JS_GetOpaque(func_obj, s_host_fn_class_id);
+  struct xjs_host_fn *h = (struct xjs_host_fn *)JS_GetOpaque(func_obj, s_host_fn_class_id);
   if (!h || !h->fn) return JS_UNDEFINED;
 
   struct OpaqueXJSContext *xctx = xjs_ctx_from_q(ctx);
 
   /* Box func_obj and this_val into xjs slots (each taking one ref). */
-  xJSObjectRef xfunc =
-    (xJSObjectRef)xjs_slot_make(ctx, JS_DupValue(ctx, func_obj));
-  xJSObjectRef xthis =
-    (xJSObjectRef)xjs_slot_make(ctx, JS_DupValue(ctx, this_val));
+  xJSObjectRef xfunc = (xJSObjectRef)xjs_slot_make(ctx, JS_DupValue(ctx, func_obj));
+  xJSObjectRef xthis = (xJSObjectRef)xjs_slot_make(ctx, JS_DupValue(ctx, this_val));
 
   /* Box arguments.  For zero-arg calls we pass NULL to match JSC. */
   xJSValueRef *xargs = NULL;
@@ -78,8 +74,8 @@ static JSValue xjs_host_fn_call(JSContext *ctx, JSValueConst func_obj,
   }
 
   xJSValueRef exc = NULL;
-  xJSValueRef ret = h->fn((xJSContextRef)xctx, xfunc, xthis, (size_t)argc,
-                          (const xJSValueRef *)xargs, &exc);
+  xJSValueRef ret =
+    h->fn((xJSContextRef)xctx, xfunc, xthis, (size_t)argc, (const xJSValueRef *)xargs, &exc);
 
   /* Convert result back into a QuickJS JSValue.
    *
@@ -96,7 +92,10 @@ static JSValue xjs_host_fn_call(JSContext *ctx, JSValueConst func_obj,
       ret_aliases_input = 1;
     } else {
       for (int i = 0; i < argc; ++i)
-        if (ret == xargs[i]) { ret_aliases_input = 1; break; }
+        if (ret == xargs[i]) {
+          ret_aliases_input = 1;
+          break;
+        }
     }
   }
 
@@ -113,7 +112,8 @@ static JSValue xjs_host_fn_call(JSContext *ctx, JSValueConst func_obj,
   }
 
   if (xargs) {
-    for (int i = 0; i < argc; ++i) xjs_slot_release(xargs[i]);
+    for (int i = 0; i < argc; ++i)
+      xjs_slot_release(xargs[i]);
     free(xargs);
   }
   xjs_slot_release((xJSValueRef)xfunc);
@@ -123,8 +123,7 @@ static JSValue xjs_host_fn_call(JSContext *ctx, JSValueConst func_obj,
 
 static void xjs_host_fn_finalize(JSRuntime *rt, JSValue val) {
   (void)rt;
-  struct xjs_host_fn *h =
-    (struct xjs_host_fn *)JS_GetOpaque(val, s_host_fn_class_id);
+  struct xjs_host_fn *h = (struct xjs_host_fn *)JS_GetOpaque(val, s_host_fn_class_id);
   if (!h) return;
   if (h->name) xJSStringRelease(h->name);
   free(h);
@@ -163,23 +162,19 @@ struct xjs_host_ctor {
   xJSClassRef                        jsClass; /* retained; may be NULL */
 };
 
-static JSValue xjs_host_ctor_call(JSContext *ctx, JSValueConst func_obj,
-                                  JSValueConst this_val, int argc,
-                                  JSValueConst *argv, int flags) {
+static JSValue xjs_host_ctor_call(JSContext *ctx, JSValueConst func_obj, JSValueConst this_val,
+                                  int argc, JSValueConst *argv, int flags) {
   (void)this_val;
   (void)flags; /* We treat plain-call and `new` identically here —
                 * JSC's JSObjectCallAsConstructorCallback does not
                 * distinguish, it's always invoked as a constructor. */
 
-  struct xjs_host_ctor *h =
-    (struct xjs_host_ctor *)JS_GetOpaque(func_obj, s_host_ctor_class_id);
-  if (!h || !h->fn)
-    return JS_ThrowTypeError(ctx, "constructor has no callback");
+  struct xjs_host_ctor *h = (struct xjs_host_ctor *)JS_GetOpaque(func_obj, s_host_ctor_class_id);
+  if (!h || !h->fn) return JS_ThrowTypeError(ctx, "constructor has no callback");
 
   struct OpaqueXJSContext *xctx = xjs_ctx_from_q(ctx);
 
-  xJSObjectRef xctor =
-    (xJSObjectRef)xjs_slot_make(ctx, JS_DupValue(ctx, func_obj));
+  xJSObjectRef xctor = (xJSObjectRef)xjs_slot_make(ctx, JS_DupValue(ctx, func_obj));
 
   xJSValueRef *xargs = NULL;
   if (argc > 0) {
@@ -193,8 +188,8 @@ static JSValue xjs_host_ctor_call(JSContext *ctx, JSValueConst func_obj,
   }
 
   xJSValueRef  exc = NULL;
-  xJSObjectRef ret = h->fn((xJSContextRef)xctx, xctor, (size_t)argc,
-                           (const xJSValueRef *)xargs, &exc);
+  xJSObjectRef ret =
+    h->fn((xJSContextRef)xctx, xctor, (size_t)argc, (const xJSValueRef *)xargs, &exc);
 
   int ret_aliases_input = 0;
   if (ret) {
@@ -224,7 +219,8 @@ static JSValue xjs_host_ctor_call(JSContext *ctx, JSValueConst func_obj,
   }
 
   if (xargs) {
-    for (int i = 0; i < argc; ++i) xjs_slot_release(xargs[i]);
+    for (int i = 0; i < argc; ++i)
+      xjs_slot_release(xargs[i]);
     free(xargs);
   }
   xjs_slot_release((xJSValueRef)xctor);
@@ -233,8 +229,7 @@ static JSValue xjs_host_ctor_call(JSContext *ctx, JSValueConst func_obj,
 
 static void xjs_host_ctor_finalize(JSRuntime *rt, JSValue val) {
   (void)rt;
-  struct xjs_host_ctor *h =
-    (struct xjs_host_ctor *)JS_GetOpaque(val, s_host_ctor_class_id);
+  struct xjs_host_ctor *h = (struct xjs_host_ctor *)JS_GetOpaque(val, s_host_ctor_class_id);
   if (!h) return;
   if (h->jsClass) xJSClassRelease(h->jsClass);
   free(h);
@@ -273,8 +268,7 @@ xJSObjectRef xJSObjectMake(xJSContextRef c, xJSClassRef k, void *data) {
   JSValue obj = JS_NewObjectClass(q, (int)k->qclass);
   if (JS_IsException(obj)) return NULL;
 
-  struct xjs_native_priv *priv =
-    (struct xjs_native_priv *)malloc(sizeof(*priv));
+  struct xjs_native_priv *priv = (struct xjs_native_priv *)malloc(sizeof(*priv));
   if (!priv) {
     JS_FreeValue(q, obj);
     return NULL;
@@ -297,9 +291,8 @@ xJSObjectRef xJSObjectMake(xJSContextRef c, xJSClassRef k, void *data) {
   return (xJSObjectRef)xjs_slot_make(q, obj);
 }
 
-xJSObjectRef
-xJSObjectMakeFunctionWithCallback(xJSContextRef c, xJSStringRef name,
-                                  xJSObjectCallAsFunctionCallback fn) {
+xJSObjectRef xJSObjectMakeFunctionWithCallback(xJSContextRef c, xJSStringRef name,
+                                               xJSObjectCallAsFunctionCallback fn) {
   JSContext *q = xjs_ctx_of(c);
   if (!q || !fn) return NULL;
 
@@ -309,8 +302,7 @@ xJSObjectMakeFunctionWithCallback(xJSContextRef c, xJSStringRef name,
   JSValue obj = JS_NewObjectClass(q, (int)s_host_fn_class_id);
   if (JS_IsException(obj)) return NULL;
 
-  struct xjs_host_fn *h =
-    (struct xjs_host_fn *)calloc(1, sizeof(*h));
+  struct xjs_host_fn *h = (struct xjs_host_fn *)calloc(1, sizeof(*h));
   if (!h) {
     JS_FreeValue(q, obj);
     return NULL;
@@ -325,8 +317,7 @@ xJSObjectMakeFunctionWithCallback(xJSContextRef c, xJSStringRef name,
    * "name" property to match JSC's semantics. */
   if (name) {
     JSValue jname = xjs_qv_from_string(q, name);
-    JS_DefinePropertyValueStr(q, obj, "name", jname,
-                              JS_PROP_CONFIGURABLE);
+    JS_DefinePropertyValueStr(q, obj, "name", jname, JS_PROP_CONFIGURABLE);
   }
   return (xJSObjectRef)xjs_slot_make(q, obj);
 }
@@ -342,8 +333,7 @@ xJSObjectRef xJSObjectMakeConstructor(xJSContextRef c, xJSClassRef k,
   JSValue obj = JS_NewObjectClass(q, (int)s_host_ctor_class_id);
   if (JS_IsException(obj)) return NULL;
 
-  struct xjs_host_ctor *h =
-    (struct xjs_host_ctor *)calloc(1, sizeof(*h));
+  struct xjs_host_ctor *h = (struct xjs_host_ctor *)calloc(1, sizeof(*h));
   if (!h) {
     JS_FreeValue(q, obj);
     return NULL;
@@ -359,8 +349,8 @@ xJSObjectRef xJSObjectMakeConstructor(xJSContextRef c, xJSClassRef k,
   return (xJSObjectRef)xjs_slot_make(q, obj);
 }
 
-xJSObjectRef xJSObjectMakeArray(xJSContextRef c, size_t argc,
-                                const xJSValueRef argv[], xJSValueRef *exc) {
+xJSObjectRef xJSObjectMakeArray(xJSContextRef c, size_t argc, const xJSValueRef argv[],
+                                xJSValueRef *exc) {
   JSContext *q = xjs_ctx_of(c);
   JSValue    a = JS_NewArray(q);
   if (JS_IsException(a)) {
@@ -379,9 +369,8 @@ xJSObjectRef xJSObjectMakeArray(xJSContextRef c, size_t argc,
  * doesn't expose a direct C API (RegExp) or the JS path covers far
  * more argument shapes than the C one (Date).  Returns NULL on
  * exception or if the named global isn't a constructor. */
-static xJSObjectRef xjs_construct_global(JSContext *q, const char *name,
-                                         size_t argc, const xJSValueRef argv[],
-                                         xJSValueRef *exc) {
+static xJSObjectRef xjs_construct_global(JSContext *q, const char *name, size_t argc,
+                                         const xJSValueRef argv[], xJSValueRef *exc) {
   JSValue global = JS_GetGlobalObject(q);
   JSValue ctor   = JS_GetPropertyStr(q, global, name);
   JS_FreeValue(q, global);
@@ -406,7 +395,8 @@ static xJSObjectRef xjs_construct_global(JSContext *q, const char *name,
       JS_FreeValue(q, ctor);
       return NULL;
     }
-    for (size_t i = 0; i < argc; ++i) qargs[i] = xjs_slot_qv(argv[i]);
+    for (size_t i = 0; i < argc; ++i)
+      qargs[i] = xjs_slot_qv(argv[i]);
   }
 
   JSValue r = JS_CallConstructor(q, ctor, (int)argc, qargs);
@@ -420,8 +410,8 @@ static xJSObjectRef xjs_construct_global(JSContext *q, const char *name,
   return (xJSObjectRef)xjs_slot_make(q, r);
 }
 
-xJSObjectRef xJSObjectMakeDate(xJSContextRef c, size_t argc,
-                               const xJSValueRef argv[], xJSValueRef *exc) {
+xJSObjectRef xJSObjectMakeDate(xJSContextRef c, size_t argc, const xJSValueRef argv[],
+                               xJSValueRef *exc) {
   JSContext *q = xjs_ctx_of(c);
   if (!q) return NULL;
 
@@ -431,8 +421,8 @@ xJSObjectRef xJSObjectMakeDate(xJSContextRef c, size_t argc,
   return xjs_construct_global(q, "Date", argc, argv, exc);
 }
 
-xJSObjectRef xJSObjectMakeError(xJSContextRef c, size_t argc,
-                                const xJSValueRef argv[], xJSValueRef *exc) {
+xJSObjectRef xJSObjectMakeError(xJSContextRef c, size_t argc, const xJSValueRef argv[],
+                                xJSValueRef *exc) {
   (void)exc;
   JSContext *q = xjs_ctx_of(c);
   JSValue    e = JS_NewError(q);
@@ -443,15 +433,15 @@ xJSObjectRef xJSObjectMakeError(xJSContextRef c, size_t argc,
   return (xJSObjectRef)xjs_slot_make(q, e);
 }
 
-xJSObjectRef xJSObjectMakeRegExp(xJSContextRef c, size_t argc,
-                                 const xJSValueRef argv[], xJSValueRef *exc) {
+xJSObjectRef xJSObjectMakeRegExp(xJSContextRef c, size_t argc, const xJSValueRef argv[],
+                                 xJSValueRef *exc) {
   JSContext *q = xjs_ctx_of(c);
   if (!q) return NULL;
   return xjs_construct_global(q, "RegExp", argc, argv, exc);
 }
 
-xJSObjectRef xJSObjectMakeDeferredPromise(xJSContextRef c, xJSObjectRef *res,
-                                          xJSObjectRef *rej, xJSValueRef *exc) {
+xJSObjectRef xJSObjectMakeDeferredPromise(xJSContextRef c, xJSObjectRef *res, xJSObjectRef *rej,
+                                          xJSValueRef *exc) {
   JSContext *q = xjs_ctx_of(c);
   if (!q) return NULL;
 
@@ -491,11 +481,9 @@ static char *xjs_str_to_utf8(xJSStringRef s) {
   return buf;
 }
 
-xJSObjectRef xJSObjectMakeFunction(xJSContextRef c, xJSStringRef name,
-                                   unsigned           parameterCount,
-                                   const xJSStringRef parameterNames[],
-                                   xJSStringRef body, xJSStringRef sourceURL,
-                                   int          startingLineNumber,
+xJSObjectRef xJSObjectMakeFunction(xJSContextRef c, xJSStringRef name, unsigned parameterCount,
+                                   const xJSStringRef parameterNames[], xJSStringRef body,
+                                   xJSStringRef sourceURL, int startingLineNumber,
                                    xJSValueRef *exception) {
   (void)startingLineNumber; /* [TODO] pipe through JS_Eval when API exposes it */
   JSContext *q = xjs_ctx_of(c);
@@ -532,16 +520,15 @@ xJSObjectRef xJSObjectMakeFunction(xJSContextRef c, xJSStringRef name,
     p += snprintf(p, (size_t)(src + total - p), "%s%s", i ? "," : "", params[i]);
   p += snprintf(p, (size_t)(src + total - p), "){%s})", body_s ? body_s : "");
 
-  char *url = xjs_str_to_utf8(sourceURL);
-  JSValue v =
-    JS_Eval(q, src, (size_t)(p - src), url ? url : "<xjs_fn>",
-            JS_EVAL_TYPE_GLOBAL);
+  char   *url = xjs_str_to_utf8(sourceURL);
+  JSValue v   = JS_Eval(q, src, (size_t)(p - src), url ? url : "<xjs_fn>", JS_EVAL_TYPE_GLOBAL);
   free(src);
   free(url);
   free(body_s);
   free(name_s);
   if (params) {
-    for (unsigned i = 0; i < parameterCount; ++i) free(params[i]);
+    for (unsigned i = 0; i < parameterCount; ++i)
+      free(params[i]);
     free(params);
   }
 
@@ -555,7 +542,8 @@ oom:
   free(body_s);
   free(name_s);
   if (params) {
-    for (unsigned i = 0; i < parameterCount; ++i) free(params[i]);
+    for (unsigned i = 0; i < parameterCount; ++i)
+      free(params[i]);
     free(params);
   }
   return NULL;
@@ -591,8 +579,8 @@ bool xJSObjectHasProperty(xJSContextRef c, xJSObjectRef o, xJSStringRef name) {
   return has == 1;
 }
 
-xJSValueRef xJSObjectGetProperty(xJSContextRef c, xJSObjectRef o,
-                                 xJSStringRef name, xJSValueRef *exc) {
+xJSValueRef xJSObjectGetProperty(xJSContextRef c, xJSObjectRef o, xJSStringRef name,
+                                 xJSValueRef *exc) {
   if (!o || !name) return NULL;
   JSContext *q     = xjs_ctx_of(c);
   size_t     bytes = xjs_utf16_to_utf8(name->data, name->length, NULL, 0);
@@ -609,9 +597,8 @@ xJSValueRef xJSObjectGetProperty(xJSContextRef c, xJSObjectRef o,
   return xjs_slot_make(q, v);
 }
 
-void xJSObjectSetProperty(xJSContextRef c, xJSObjectRef o, xJSStringRef name,
-                          xJSValueRef v, xJSPropertyAttributes attrs,
-                          xJSValueRef *exc) {
+void xJSObjectSetProperty(xJSContextRef c, xJSObjectRef o, xJSStringRef name, xJSValueRef v,
+                          xJSPropertyAttributes attrs, xJSValueRef *exc) {
   if (!o || !name) return;
   JSContext *q     = xjs_ctx_of(c);
   size_t     bytes = xjs_utf16_to_utf8(name->data, name->length, NULL, 0);
@@ -629,23 +616,21 @@ void xJSObjectSetProperty(xJSContextRef c, xJSObjectRef o, xJSStringRef name,
    * the JSC contract is that the caller wants to pin descriptor
    * shape, so we switch to JS_DefinePropertyValue — which creates or
    * replaces the own property with the exact flags we specify. */
-  int    r      = 0;
+  int    r            = 0;
   JSAtom consumedAtom = JS_ATOM_NULL;
   if (attrs == kXJSPropertyAttributeNone) {
     r = JS_SetPropertyStr(q, xjs_slot_qv((xJSValueRef)o), buf, qv);
     /* JS_SetPropertyStr takes ownership of qv regardless of success. */
   } else {
-    int flags = JS_PROP_HAS_VALUE |
-                JS_PROP_HAS_WRITABLE | JS_PROP_HAS_ENUMERABLE |
-                JS_PROP_HAS_CONFIGURABLE;
-    if (!(attrs & kXJSPropertyAttributeReadOnly))   flags |= JS_PROP_WRITABLE;
-    if (!(attrs & kXJSPropertyAttributeDontEnum))   flags |= JS_PROP_ENUMERABLE;
+    int flags =
+      JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE | JS_PROP_HAS_ENUMERABLE | JS_PROP_HAS_CONFIGURABLE;
+    if (!(attrs & kXJSPropertyAttributeReadOnly)) flags |= JS_PROP_WRITABLE;
+    if (!(attrs & kXJSPropertyAttributeDontEnum)) flags |= JS_PROP_ENUMERABLE;
     if (!(attrs & kXJSPropertyAttributeDontDelete)) flags |= JS_PROP_CONFIGURABLE;
-    JSAtom atom = JS_NewAtom(q, buf);
+    JSAtom atom  = JS_NewAtom(q, buf);
     consumedAtom = atom;
     /* JS_DefinePropertyValue consumes qv on both success and failure. */
-    r = JS_DefinePropertyValue(q, xjs_slot_qv((xJSValueRef)o), atom, qv,
-                               flags);
+    r = JS_DefinePropertyValue(q, xjs_slot_qv((xJSValueRef)o), atom, qv, flags);
     JS_FreeAtom(q, consumedAtom);
   }
   if (r < 0) {
@@ -654,8 +639,7 @@ void xJSObjectSetProperty(xJSContextRef c, xJSObjectRef o, xJSStringRef name,
   free(buf);
 }
 
-bool xJSObjectDeleteProperty(xJSContextRef c, xJSObjectRef o, xJSStringRef name,
-                             xJSValueRef *exc) {
+bool xJSObjectDeleteProperty(xJSContextRef c, xJSObjectRef o, xJSStringRef name, xJSValueRef *exc) {
   if (!o || !name) return false;
   JSContext *q     = xjs_ctx_of(c);
   size_t     bytes = xjs_utf16_to_utf8(name->data, name->length, NULL, 0);
@@ -674,8 +658,8 @@ bool xJSObjectDeleteProperty(xJSContextRef c, xJSObjectRef o, xJSStringRef name,
   return r == 1;
 }
 
-xJSValueRef xJSObjectGetPropertyAtIndex(xJSContextRef c, xJSObjectRef o,
-                                        unsigned idx, xJSValueRef *exc) {
+xJSValueRef xJSObjectGetPropertyAtIndex(xJSContextRef c, xJSObjectRef o, unsigned idx,
+                                        xJSValueRef *exc) {
   if (!o) return NULL;
   JSContext *q = xjs_ctx_of(c);
   JSValue    v = JS_GetPropertyUint32(q, xjs_slot_qv((xJSValueRef)o), idx);
@@ -686,8 +670,8 @@ xJSValueRef xJSObjectGetPropertyAtIndex(xJSContextRef c, xJSObjectRef o,
   return xjs_slot_make(q, v);
 }
 
-void xJSObjectSetPropertyAtIndex(xJSContextRef c, xJSObjectRef o, unsigned idx,
-                                 xJSValueRef v, xJSValueRef *exc) {
+void xJSObjectSetPropertyAtIndex(xJSContextRef c, xJSObjectRef o, unsigned idx, xJSValueRef v,
+                                 xJSValueRef *exc) {
   if (!o) return;
   JSContext *q  = xjs_ctx_of(c);
   JSValue    qv = v ? JS_DupValue(q, xjs_slot_qv(v)) : JS_UNDEFINED;
@@ -701,8 +685,7 @@ void *xJSObjectGetPrivate(xJSObjectRef o) {
   JSValue   qv = xjs_slot_qv((xJSValueRef)o);
   JSClassID id = JS_GetClassID(qv);
   if (id == JS_INVALID_CLASS_ID) return NULL;
-  struct xjs_native_priv *priv =
-    (struct xjs_native_priv *)JS_GetOpaque(qv, id);
+  struct xjs_native_priv *priv = (struct xjs_native_priv *)JS_GetOpaque(qv, id);
   return priv ? priv->data : NULL;
 }
 
@@ -711,8 +694,7 @@ bool xJSObjectSetPrivate(xJSObjectRef o, void *data) {
   JSValue   qv = xjs_slot_qv((xJSValueRef)o);
   JSClassID id = JS_GetClassID(qv);
   if (id == JS_INVALID_CLASS_ID) return false;
-  struct xjs_native_priv *priv =
-    (struct xjs_native_priv *)JS_GetOpaque(qv, id);
+  struct xjs_native_priv *priv = (struct xjs_native_priv *)JS_GetOpaque(qv, id);
   if (!priv) return false;
   priv->data = data;
   return true;
@@ -723,14 +705,11 @@ bool xJSObjectSetPrivate(xJSObjectRef o, void *data) {
  * ═══════════════════════════════════════════════════════════════════ */
 
 bool xJSObjectIsFunction(xJSContextRef c, xJSObjectRef o) {
-  return o ? JS_IsFunction(xjs_ctx_of(c), xjs_slot_qv((xJSValueRef)o)) == 1
-           : false;
+  return o ? JS_IsFunction(xjs_ctx_of(c), xjs_slot_qv((xJSValueRef)o)) == 1 : false;
 }
 
-xJSValueRef xJSObjectCallAsFunction(xJSContextRef c, xJSObjectRef o,
-                                    xJSObjectRef thisObj, size_t argc,
-                                    const xJSValueRef argv[],
-                                    xJSValueRef      *exc) {
+xJSValueRef xJSObjectCallAsFunction(xJSContextRef c, xJSObjectRef o, xJSObjectRef thisObj,
+                                    size_t argc, const xJSValueRef argv[], xJSValueRef *exc) {
   if (!o) return NULL;
   JSContext *q     = xjs_ctx_of(c);
   JSValue    thisV = thisObj ? xjs_slot_qv((xJSValueRef)thisObj) : JS_UNDEFINED;
@@ -751,13 +730,11 @@ xJSValueRef xJSObjectCallAsFunction(xJSContextRef c, xJSObjectRef o,
 }
 
 bool xJSObjectIsConstructor(xJSContextRef c, xJSObjectRef o) {
-  return o ? JS_IsConstructor(xjs_ctx_of(c), xjs_slot_qv((xJSValueRef)o)) == 1
-           : false;
+  return o ? JS_IsConstructor(xjs_ctx_of(c), xjs_slot_qv((xJSValueRef)o)) == 1 : false;
 }
 
-xJSObjectRef xJSObjectCallAsConstructor(xJSContextRef c, xJSObjectRef o,
-                                        size_t argc, const xJSValueRef argv[],
-                                        xJSValueRef *exc) {
+xJSObjectRef xJSObjectCallAsConstructor(xJSContextRef c, xJSObjectRef o, size_t argc,
+                                        const xJSValueRef argv[], xJSValueRef *exc) {
   if (!o) return NULL;
   JSContext *q     = xjs_ctx_of(c);
   JSValue   *qargs = NULL;
@@ -767,8 +744,7 @@ xJSObjectRef xJSObjectCallAsConstructor(xJSContextRef c, xJSObjectRef o,
     for (size_t i = 0; i < argc; ++i)
       qargs[i] = xjs_slot_qv(argv[i]);
   }
-  JSValue r =
-    JS_CallConstructor(q, xjs_slot_qv((xJSValueRef)o), (int)argc, qargs);
+  JSValue r = JS_CallConstructor(q, xjs_slot_qv((xJSValueRef)o), (int)argc, qargs);
   free(qargs);
   if (JS_IsException(r)) {
     xjs_propagate_exception(q, exc);
@@ -781,12 +757,11 @@ xJSObjectRef xJSObjectCallAsConstructor(xJSContextRef c, xJSObjectRef o,
  * Property-name array / accumulator
  * ═══════════════════════════════════════════════════════════════════ */
 
-xJSPropertyNameArrayRef xJSObjectCopyPropertyNames(xJSContextRef c,
-                                                   xJSObjectRef  o) {
+xJSPropertyNameArrayRef xJSObjectCopyPropertyNames(xJSContextRef c, xJSObjectRef o) {
   if (!o) return NULL;
-  JSContext       *q   = xjs_ctx_of(c);
-  JSPropertyEnum  *tab = NULL;
-  uint32_t         len = 0;
+  JSContext      *q   = xjs_ctx_of(c);
+  JSPropertyEnum *tab = NULL;
+  uint32_t        len = 0;
 
   /* JSC semantics: own, enumerable, string-keyed properties only —
    * mirrors Object.keys().  We deliberately omit JS_GPN_SYMBOL_MASK
@@ -803,8 +778,7 @@ xJSPropertyNameArrayRef xJSObjectCopyPropertyNames(xJSContextRef c,
   }
 
   struct OpaqueXJSPropertyNameArray *a =
-    (struct OpaqueXJSPropertyNameArray *)calloc(
-      1, sizeof(struct OpaqueXJSPropertyNameArray));
+    (struct OpaqueXJSPropertyNameArray *)calloc(1, sizeof(struct OpaqueXJSPropertyNameArray));
   if (!a) goto fail_tab;
   a->refcount = 1;
   a->count    = 0;
@@ -824,17 +798,20 @@ xJSPropertyNameArrayRef xJSObjectCopyPropertyNames(xJSContextRef c,
   }
 
   /* Release the QuickJS property-enum table. */
-  for (uint32_t i = 0; i < len; ++i) JS_FreeAtom(q, tab[i].atom);
+  for (uint32_t i = 0; i < len; ++i)
+    JS_FreeAtom(q, tab[i].atom);
   js_free(q, tab);
   return a;
 
 fail_partial:
-  for (size_t i = 0; i < a->count; ++i) xJSStringRelease(a->names[i]);
+  for (size_t i = 0; i < a->count; ++i)
+    xJSStringRelease(a->names[i]);
   free(a->names);
 fail_array:
   free(a);
 fail_tab:
-  for (uint32_t i = 0; i < len; ++i) JS_FreeAtom(q, tab[i].atom);
+  for (uint32_t i = 0; i < len; ++i)
+    JS_FreeAtom(q, tab[i].atom);
   js_free(q, tab);
   return NULL;
 }
@@ -857,13 +834,11 @@ size_t xJSPropertyNameArrayGetCount(xJSPropertyNameArrayRef a) {
   return a ? a->count : 0;
 }
 
-xJSStringRef xJSPropertyNameArrayGetNameAtIndex(xJSPropertyNameArrayRef a,
-                                                size_t                  i) {
+xJSStringRef xJSPropertyNameArrayGetNameAtIndex(xJSPropertyNameArrayRef a, size_t i) {
   return (a && i < a->count) ? a->names[i] : NULL;
 }
 
-void xJSPropertyNameAccumulatorAddName(xJSPropertyNameAccumulatorRef acc,
-                                       xJSStringRef                  name) {
+void xJSPropertyNameAccumulatorAddName(xJSPropertyNameAccumulatorRef acc, xJSStringRef name) {
   if (!acc || !name) return;
   if (acc->count == acc->capacity) {
     size_t        nc = acc->capacity ? acc->capacity * 2 : 8;

@@ -18,8 +18,7 @@
 #include <stdlib.h>
 
 xErrno ai_provider_submit(xAgentProvider pvd, const xAgentProviderSubmitConf *conf,
-                          const xAgentProviderStreamCallbacks *cbs,
-                          void *cb_arg) {
+                          const xAgentProviderStreamCallbacks *cbs, void *cb_arg) {
   struct xAgentProvider_ *base = (struct xAgentProvider_ *)pvd;
   if (!base || !base->vt || !base->vt->submit || !conf || !cbs) {
     return xErrno_InvalidArg;

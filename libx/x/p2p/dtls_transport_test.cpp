@@ -35,8 +35,8 @@ extern "C" {
  * small increments so timers and callbacks fire promptly.
  */
 static void tick_loop(xEventLoop loop, int total_ms) {
-  int elapsed = 0;
-  const int step = 5;
+  int       elapsed = 0;
+  const int step    = 5;
   while (elapsed < total_ms) {
     xEventWait(loop, step);
     elapsed += step;
@@ -51,12 +51,11 @@ class DtlsFingerprintTest : public ::testing::Test {};
 
 TEST_F(DtlsFingerprintTest, ParseValidFingerprint) {
   /* Build a known fingerprint string */
-  const char *fp_str =
-    "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
-    "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99";
+  const char *fp_str = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+                       "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99";
 
   uint8_t out[XDTLS_FINGERPRINT_SIZE];
-  xErrno err = xDtlsFingerprintFromStr(fp_str, out);
+  xErrno  err = xDtlsFingerprintFromStr(fp_str, out);
   ASSERT_EQ(err, xErrno_Ok);
 
   EXPECT_EQ(out[0], 0xAA);
@@ -68,12 +67,11 @@ TEST_F(DtlsFingerprintTest, ParseValidFingerprint) {
 }
 
 TEST_F(DtlsFingerprintTest, ParseLowercaseFingerprint) {
-  const char *fp_str =
-    "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99:"
-    "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99";
+  const char *fp_str = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99:"
+                       "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99";
 
   uint8_t out[XDTLS_FINGERPRINT_SIZE];
-  xErrno err = xDtlsFingerprintFromStr(fp_str, out);
+  xErrno  err = xDtlsFingerprintFromStr(fp_str, out);
   ASSERT_EQ(err, xErrno_Ok);
 
   EXPECT_EQ(out[0], 0xAA);
@@ -82,8 +80,8 @@ TEST_F(DtlsFingerprintTest, ParseLowercaseFingerprint) {
 
 TEST_F(DtlsFingerprintTest, ParseTooShort) {
   const char *fp_str = "AA:BB:CC";
-  uint8_t out[XDTLS_FINGERPRINT_SIZE];
-  xErrno err = xDtlsFingerprintFromStr(fp_str, out);
+  uint8_t     out[XDTLS_FINGERPRINT_SIZE];
+  xErrno      err = xDtlsFingerprintFromStr(fp_str, out);
   EXPECT_NE(err, xErrno_Ok);
 }
 
@@ -95,12 +93,11 @@ TEST_F(DtlsFingerprintTest, ParseNull) {
 
 TEST_F(DtlsFingerprintTest, ParseInvalidChar) {
   /* 'GG' is not valid hex */
-  const char *fp_str =
-    "GG:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
-    "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99";
+  const char *fp_str = "GG:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+                       "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99";
 
   uint8_t out[XDTLS_FINGERPRINT_SIZE];
-  xErrno err = xDtlsFingerprintFromStr(fp_str, out);
+  xErrno  err = xDtlsFingerprintFromStr(fp_str, out);
   EXPECT_NE(err, xErrno_Ok);
 }
 
@@ -112,15 +109,16 @@ class DtlsLifecycleTest : public ::testing::Test {
 protected:
   xEventLoop loop = nullptr;
 
-  void SetUp() override { loop = xEventLoopCreate(); }
+  void SetUp() override {
+    loop = xEventLoopCreate();
+  }
   void TearDown() override {
     if (loop) xEventLoopDestroy(loop);
   }
 };
 
 /* Dummy send function that does nothing */
-static xErrno dummy_send(const uint8_t * /*data*/, size_t /*len*/,
-                         void * /*arg*/) {
+static xErrno dummy_send(const uint8_t * /*data*/, size_t /*len*/, void * /*arg*/) {
   return xErrno_Ok;
 }
 
@@ -209,7 +207,9 @@ class DtlsFingerprintGenTest : public ::testing::Test {
 protected:
   xEventLoop loop = nullptr;
 
-  void SetUp() override { loop = xEventLoopCreate(); }
+  void SetUp() override {
+    loop = xEventLoopCreate();
+  }
   void TearDown() override {
     if (loop) xEventLoopDestroy(loop);
   }
@@ -226,7 +226,7 @@ TEST_F(DtlsFingerprintGenTest, GetFingerprintRaw) {
   ASSERT_NE(t, nullptr);
 
   uint8_t fp[XDTLS_FINGERPRINT_SIZE];
-  xErrno err = xDtlsTransportGetFingerprint(t, fp);
+  xErrno  err = xDtlsTransportGetFingerprint(t, fp);
   EXPECT_EQ(err, xErrno_Ok);
 
   /* Fingerprint should not be all zeros (that would mean cert gen failed) */
@@ -252,7 +252,7 @@ TEST_F(DtlsFingerprintGenTest, GetFingerprintStr) {
   xDtlsTransport t = xDtlsTransportCreate(&conf);
   ASSERT_NE(t, nullptr);
 
-  char fp_str[XDTLS_FINGERPRINT_STR_SIZE];
+  char   fp_str[XDTLS_FINGERPRINT_STR_SIZE];
   xErrno err = xDtlsTransportGetFingerprintStr(t, fp_str);
   EXPECT_EQ(err, xErrno_Ok);
 
@@ -370,7 +370,9 @@ class DtlsStartTest : public ::testing::Test {
 protected:
   xEventLoop loop = nullptr;
 
-  void SetUp() override { loop = xEventLoopCreate(); }
+  void SetUp() override {
+    loop = xEventLoopCreate();
+  }
   void TearDown() override {
     if (loop) xEventLoopDestroy(loop);
   }
@@ -458,12 +460,12 @@ TEST_F(DtlsStartTest, SendBeforeHandshakeFails) {
  */
 class DtlsHandshakeTest : public ::testing::Test {
 protected:
-  xEventLoop     loop = nullptr;
-  xDtlsTransport active = nullptr;
+  xEventLoop     loop    = nullptr;
+  xDtlsTransport active  = nullptr;
   xDtlsTransport passive = nullptr;
 
   /* State tracking */
-  xDtlsState active_state = xDtlsState_New;
+  xDtlsState active_state  = xDtlsState_New;
   xDtlsState passive_state = xDtlsState_New;
 
   /* Received application data */
@@ -515,8 +517,7 @@ protected:
     active_conf.ctx                = this;
     active_conf.verify_fingerprint = verify_fingerprint;
     if (verify_fingerprint) {
-      memcpy(active_conf.remote_fingerprint, passive_fp,
-             XDTLS_FINGERPRINT_SIZE);
+      memcpy(active_conf.remote_fingerprint, passive_fp, XDTLS_FINGERPRINT_SIZE);
     }
 
     active = xDtlsTransportCreate(&active_conf);
@@ -525,18 +526,16 @@ protected:
 
   /* Run the handshake loop until both sides are connected or timeout */
   bool RunHandshake(int timeout_ms = 3000) {
-    int elapsed = 0;
-    const int step = 5;
+    int       elapsed = 0;
+    const int step    = 5;
     while (elapsed < timeout_ms) {
       xEventWait(loop, step);
       elapsed += step;
 
-      if (active_state == xDtlsState_Connected &&
-          passive_state == xDtlsState_Connected) {
+      if (active_state == xDtlsState_Connected && passive_state == xDtlsState_Connected) {
         return true;
       }
-      if (active_state == xDtlsState_Failed ||
-          passive_state == xDtlsState_Failed) {
+      if (active_state == xDtlsState_Failed || passive_state == xDtlsState_Failed) {
         return false;
       }
     }
@@ -566,32 +565,26 @@ private:
 
   /* ── State change callbacks ── */
 
-  static void active_state_cb(xDtlsTransport /*t*/, xDtlsState state,
-                               void *arg) {
-    auto *self = static_cast<DtlsHandshakeTest *>(arg);
+  static void active_state_cb(xDtlsTransport /*t*/, xDtlsState state, void *arg) {
+    auto *self         = static_cast<DtlsHandshakeTest *>(arg);
     self->active_state = state;
   }
 
-  static void passive_state_cb(xDtlsTransport /*t*/, xDtlsState state,
-                                void *arg) {
-    auto *self = static_cast<DtlsHandshakeTest *>(arg);
+  static void passive_state_cb(xDtlsTransport /*t*/, xDtlsState state, void *arg) {
+    auto *self          = static_cast<DtlsHandshakeTest *>(arg);
     self->passive_state = state;
   }
 
   /* ── Data callbacks ── */
 
-  static void active_data_cb(xDtlsTransport /*t*/, const uint8_t *data,
-                              size_t len, void *arg) {
+  static void active_data_cb(xDtlsTransport /*t*/, const uint8_t *data, size_t len, void *arg) {
     auto *self = static_cast<DtlsHandshakeTest *>(arg);
-    self->active_received.insert(self->active_received.end(), data,
-                                 data + len);
+    self->active_received.insert(self->active_received.end(), data, data + len);
   }
 
-  static void passive_data_cb(xDtlsTransport /*t*/, const uint8_t *data,
-                               size_t len, void *arg) {
+  static void passive_data_cb(xDtlsTransport /*t*/, const uint8_t *data, size_t len, void *arg) {
     auto *self = static_cast<DtlsHandshakeTest *>(arg);
-    self->passive_received.insert(self->passive_received.end(), data,
-                                  data + len);
+    self->passive_received.insert(self->passive_received.end(), data, data + len);
   }
 };
 
@@ -603,10 +596,9 @@ TEST_F(DtlsHandshakeTest, ActivePassiveHandshakeCompletes) {
   ASSERT_EQ(xDtlsTransportStart(passive), xErrno_Ok);
 
   /* Run handshake */
-  ASSERT_TRUE(RunHandshake())
-    << "Handshake did not complete within timeout. "
-    << "Active state: " << active_state
-    << ", Passive state: " << passive_state;
+  ASSERT_TRUE(RunHandshake()) << "Handshake did not complete within timeout. "
+                              << "Active state: " << active_state
+                              << ", Passive state: " << passive_state;
 
   EXPECT_EQ(xDtlsTransportGetState(active), xDtlsState_Connected);
   EXPECT_EQ(xDtlsTransportGetState(passive), xDtlsState_Connected);
@@ -618,10 +610,9 @@ TEST_F(DtlsHandshakeTest, HandshakeWithFingerprintVerification) {
   ASSERT_EQ(xDtlsTransportStart(active), xErrno_Ok);
   ASSERT_EQ(xDtlsTransportStart(passive), xErrno_Ok);
 
-  ASSERT_TRUE(RunHandshake())
-    << "Handshake with fingerprint verification failed. "
-    << "Active state: " << active_state
-    << ", Passive state: " << passive_state;
+  ASSERT_TRUE(RunHandshake()) << "Handshake with fingerprint verification failed. "
+                              << "Active state: " << active_state
+                              << ", Passive state: " << passive_state;
 
   EXPECT_EQ(xDtlsTransportGetState(active), xDtlsState_Connected);
   EXPECT_EQ(xDtlsTransportGetState(passive), xDtlsState_Connected);
@@ -636,7 +627,7 @@ TEST_F(DtlsHandshakeTest, DataExchangeAfterHandshake) {
 
   /* Send data from Active → Passive */
   const char *msg1 = "Hello from Active!";
-  xErrno err = xDtlsTransportSend(active, (const uint8_t *)msg1, strlen(msg1));
+  xErrno      err  = xDtlsTransportSend(active, (const uint8_t *)msg1, strlen(msg1));
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Tick to let data flow */
@@ -647,7 +638,7 @@ TEST_F(DtlsHandshakeTest, DataExchangeAfterHandshake) {
 
   /* Send data from Passive → Active */
   const char *msg2 = "Hello from Passive!";
-  err = xDtlsTransportSend(passive, (const uint8_t *)msg2, strlen(msg2));
+  err              = xDtlsTransportSend(passive, (const uint8_t *)msg2, strlen(msg2));
   ASSERT_EQ(err, xErrno_Ok);
 
   tick_loop(loop, 50);
@@ -669,8 +660,7 @@ TEST_F(DtlsHandshakeTest, LargeDataExchange) {
     payload[i] = (uint8_t)(i & 0xFF);
   }
 
-  xErrno err =
-    xDtlsTransportSend(active, payload.data(), payload.size());
+  xErrno err = xDtlsTransportSend(active, payload.data(), payload.size());
   ASSERT_EQ(err, xErrno_Ok);
 
   tick_loop(loop, 100);
@@ -685,14 +675,16 @@ TEST_F(DtlsHandshakeTest, LargeDataExchange) {
 
 class DtlsWrongFingerprintTest : public ::testing::Test {
 protected:
-  xEventLoop     loop = nullptr;
-  xDtlsTransport active = nullptr;
+  xEventLoop     loop    = nullptr;
+  xDtlsTransport active  = nullptr;
   xDtlsTransport passive = nullptr;
 
-  xDtlsState active_state = xDtlsState_New;
+  xDtlsState active_state  = xDtlsState_New;
   xDtlsState passive_state = xDtlsState_New;
 
-  void SetUp() override { loop = xEventLoopCreate(); }
+  void SetUp() override {
+    loop = xEventLoopCreate();
+  }
   void TearDown() override {
     if (active) xDtlsTransportDestroy(active);
     if (passive) xDtlsTransportDestroy(passive);
@@ -701,15 +693,13 @@ protected:
 
   static xErrno active_send(const uint8_t *data, size_t len, void *arg) {
     auto *self = static_cast<DtlsWrongFingerprintTest *>(arg);
-    if (self->passive)
-      xDtlsTransportFeedInput(self->passive, data, len);
+    if (self->passive) xDtlsTransportFeedInput(self->passive, data, len);
     return xErrno_Ok;
   }
 
   static xErrno passive_send(const uint8_t *data, size_t len, void *arg) {
     auto *self = static_cast<DtlsWrongFingerprintTest *>(arg);
-    if (self->active)
-      xDtlsTransportFeedInput(self->active, data, len);
+    if (self->active) xDtlsTransportFeedInput(self->active, data, len);
     return xErrno_Ok;
   }
 
@@ -758,8 +748,8 @@ TEST_F(DtlsWrongFingerprintTest, WrongFingerprintCausesFailure) {
   ASSERT_EQ(xDtlsTransportStart(passive), xErrno_Ok);
 
   /* Run handshake — should fail due to fingerprint mismatch */
-  int elapsed = 0;
-  bool failed = false;
+  int  elapsed = 0;
+  bool failed  = false;
   while (elapsed < 5000) {
     xEventWait(loop, 10);
     elapsed += 10;
@@ -769,9 +759,8 @@ TEST_F(DtlsWrongFingerprintTest, WrongFingerprintCausesFailure) {
     }
   }
 
-  EXPECT_TRUE(failed)
-    << "Expected handshake to fail due to wrong fingerprint, "
-    << "but active state is: " << active_state;
+  EXPECT_TRUE(failed) << "Expected handshake to fail due to wrong fingerprint, "
+                      << "but active state is: " << active_state;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -782,7 +771,9 @@ class DtlsTimeoutTest : public ::testing::Test {
 protected:
   xEventLoop loop = nullptr;
 
-  void SetUp() override { loop = xEventLoopCreate(); }
+  void SetUp() override {
+    loop = xEventLoopCreate();
+  }
   void TearDown() override {
     if (loop) xEventLoopDestroy(loop);
   }
@@ -857,7 +848,9 @@ class DtlsRoleTest : public ::testing::Test {
 protected:
   xEventLoop loop = nullptr;
 
-  void SetUp() override { loop = xEventLoopCreate(); }
+  void SetUp() override {
+    loop = xEventLoopCreate();
+  }
   void TearDown() override {
     if (loop) xEventLoopDestroy(loop);
   }
@@ -910,7 +903,9 @@ class DtlsFeedInputTest : public ::testing::Test {
 protected:
   xEventLoop loop = nullptr;
 
-  void SetUp() override { loop = xEventLoopCreate(); }
+  void SetUp() override {
+    loop = xEventLoopCreate();
+  }
   void TearDown() override {
     if (loop) xEventLoopDestroy(loop);
   }

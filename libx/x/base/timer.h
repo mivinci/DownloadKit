@@ -79,8 +79,7 @@ XCAPI(void) xTimerDestroy(xTimer t);
  * @param delay_ms  Delay in milliseconds from now.
  * @return          A task handle, or NULL on failure.
  */
-XCAPI(xTimerTask) xTimerSubmitAfter(xTimer t, xTimerFunc fn, void *arg,
-                                    uint64_t delay_ms);
+XCAPI(xTimerTask) xTimerSubmitAfter(xTimer t, xTimerFunc fn, void *arg, uint64_t delay_ms);
 
 /**
  * @brief Schedule a callback to fire at an absolute monotonic time.
@@ -92,8 +91,7 @@ XCAPI(xTimerTask) xTimerSubmitAfter(xTimer t, xTimerFunc fn, void *arg,
  *                Use xTimerNowMs() to obtain the current time.
  * @return        A task handle, or NULL on failure.
  */
-XCAPI(xTimerTask) xTimerSubmitAt(xTimer t, xTimerFunc fn, void *arg,
-                                 uint64_t abs_ms);
+XCAPI(xTimerTask) xTimerSubmitAt(xTimer t, xTimerFunc fn, void *arg, uint64_t abs_ms);
 
 /**
  * @brief Cancel a pending timer entry.

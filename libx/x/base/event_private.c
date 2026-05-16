@@ -19,9 +19,8 @@ void source_array_free(struct xEventSourceArray_ *s) {
   s->cap   = 0;
 }
 
-struct xEventSource_ *source_array_add(struct xEventSourceArray_ *s, int fd,
-                                       xEventMask mask, xEventFunc fn,
-                                       void *arg) {
+struct xEventSource_ *source_array_add(struct xEventSourceArray_ *s, int fd, xEventMask mask,
+                                       xEventFunc fn, void *arg) {
   if (s->len == s->cap) {
     size_t                 newcap = s->cap ? s->cap * 2 : 16;
     struct xEventSource_ **tmp =
@@ -30,8 +29,7 @@ struct xEventSource_ *source_array_add(struct xEventSourceArray_ *s, int fd,
     s->items = tmp;
     s->cap   = newcap;
   }
-  struct xEventSource_ *src =
-    (struct xEventSource_ *)calloc(1, sizeof(struct xEventSource_));
+  struct xEventSource_ *src = (struct xEventSource_ *)calloc(1, sizeof(struct xEventSource_));
   if (!src) return NULL;
   src->fd            = fd;
   src->mask          = mask;
@@ -85,12 +83,10 @@ int loop_fire_expired_timers(struct xEventLoop_ *loop) {
       size_t                newcap = batch_cap * 2;
       struct xEventTimer_ **heap_buf;
       if (batch == stack_buf) {
-        heap_buf = (struct xEventTimer_ **)malloc(
-          newcap * sizeof(struct xEventTimer_ *));
+        heap_buf = (struct xEventTimer_ **)malloc(newcap * sizeof(struct xEventTimer_ *));
         if (heap_buf) memcpy(heap_buf, stack_buf, batch_len * sizeof(*batch));
       } else {
-        heap_buf = (struct xEventTimer_ **)realloc(
-          batch, newcap * sizeof(struct xEventTimer_ *));
+        heap_buf = (struct xEventTimer_ **)realloc(batch, newcap * sizeof(struct xEventTimer_ *));
       }
       if (!heap_buf) {
         /* Out of memory — fire what we have so far, recycle, retry later */

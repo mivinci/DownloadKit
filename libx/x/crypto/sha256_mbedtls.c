@@ -176,8 +176,7 @@ xErrno xSha256Final(xSha256Ctx *ctx, uint8_t *digest) {
 xErrno xSha256(const uint8_t *data, size_t len, uint8_t *digest) {
   if (!data || !digest) return xErrno_InvalidArg;
 
-  int ret = mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
-                       data, len, digest);
+  int ret = mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), data, len, digest);
   return (ret == 0) ? xErrno_Ok : xErrno_SysError;
 }
 

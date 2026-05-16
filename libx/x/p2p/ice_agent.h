@@ -63,8 +63,7 @@ typedef void (*xIceOnStateChange)(xIceAgent agent, xIceState state, void *arg);
  * @param candidate_sdp  SDP candidate line (e.g. "candidate:..."), or NULL.
  * @param arg            User-provided argument.
  */
-typedef void (*xIceOnCandidate)(xIceAgent agent, const char *candidate_sdp,
-                                void *arg);
+typedef void (*xIceOnCandidate)(xIceAgent agent, const char *candidate_sdp, void *arg);
 
 /**
  * @brief Called when application data is received on the nominated pair.
@@ -73,8 +72,7 @@ typedef void (*xIceOnCandidate)(xIceAgent agent, const char *candidate_sdp,
  * @param len    Length of data in bytes.
  * @param arg    User-provided argument.
  */
-typedef void (*xIceOnData)(xIceAgent agent, const uint8_t *data, size_t len,
-                           void *arg);
+typedef void (*xIceOnData)(xIceAgent agent, const uint8_t *data, size_t len, void *arg);
 
 /* ───────────────────── Configuration ───────────────────── */
 
@@ -184,8 +182,7 @@ XCAPI(xErrno) xIceAgentSetRemoteDescription(xIceAgent agent, const char *sdp);
  * @param candidate_sdp  SDP candidate line (e.g. "candidate:...").
  * @return               xErrno_Ok on success.
  */
-XCAPI(xErrno) xIceAgentAddRemoteCandidate(xIceAgent   agent,
-                                          const char *candidate_sdp);
+XCAPI(xErrno) xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp);
 
 /* ───────────────────── Data ───────────────────── */
 
@@ -236,8 +233,7 @@ XCAPI(xEventLoop) xIceAgentGetLoop(xIceAgent agent);
  * @param out_count  Output: number of candidates (may be NULL).
  * @return           Pointer to internal candidate array, or NULL.
  */
-XCAPI(const xIceCandidate *) xIceAgentGetLocalCandidates(xIceAgent agent,
-                                                         int      *out_count);
+XCAPI(const xIceCandidate *) xIceAgentGetLocalCandidates(xIceAgent agent, int *out_count);
 
 /* ───────────────────── DTLS Input Hook ───────────────────── */
 
@@ -250,8 +246,8 @@ struct sockaddr; /* Forward declaration for callback signature */
  * it invokes this callback so the PeerConnection layer can feed the
  * data into its DTLS transport.
  */
-typedef void (*xIceDtlsInputFn)(const uint8_t *data, size_t len,
-                                const struct sockaddr *from, void *arg);
+typedef void (*xIceDtlsInputFn)(const uint8_t *data, size_t len, const struct sockaddr *from,
+                                void *arg);
 
 /**
  * @brief Register a DTLS input callback on the ICE agent.
@@ -263,8 +259,7 @@ typedef void (*xIceDtlsInputFn)(const uint8_t *data, size_t len,
  * @param fn     Callback function, or NULL to unregister.
  * @param arg    User-provided context forwarded to @p fn.
  */
-XCAPI(void) xIceAgentSetDtlsInputCallback(xIceAgent agent,
-                                           xIceDtlsInputFn fn, void *arg);
+XCAPI(void) xIceAgentSetDtlsInputCallback(xIceAgent agent, xIceDtlsInputFn fn, void *arg);
 
 /**
  * @brief Change the ICE agent role (Controlling / Controlled).

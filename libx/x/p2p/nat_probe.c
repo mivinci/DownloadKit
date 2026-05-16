@@ -45,19 +45,19 @@ static void nat_probe_gen_txn_id(uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
  * @brief State for a single STUN test within a probe.
  */
 XDEF_STRUCT(xNatProbeTest) {
-  int      fd;                         /**< UDP socket fd (-1 if unused).   */
-  xSocket  sock;                       /**< Async socket handle.            */
-  bool     done;                       /**< Response received.              */
-  bool     failed;                     /**< Timed out or error.             */
-  uint16_t mapped_port;                /**< Mapped port from STUN response. */
-  uint8_t  txn_id[XSTUN_TXN_ID_SIZE]; /**< Transaction ID for matching.    */
-  struct xNatProbe_ *probe;        /**< Back-pointer to parent probe.   */
+  int                fd;                        /**< UDP socket fd (-1 if unused).   */
+  xSocket            sock;                      /**< Async socket handle.            */
+  bool               done;                      /**< Response received.              */
+  bool               failed;                    /**< Timed out or error.             */
+  uint16_t           mapped_port;               /**< Mapped port from STUN response. */
+  uint8_t            txn_id[XSTUN_TXN_ID_SIZE]; /**< Transaction ID for matching.    */
+  struct xNatProbe_ *probe;                     /**< Back-pointer to parent probe.   */
 };
 
 /**
  * @brief Probe phase.
  */
-XDEF_ENUM(xNatProbePhase) {
+XDEF_ENUM(xNatProbePhase){
   xNatProbePhase_DNS1 = 0, /**< Resolving first STUN server.  */
   xNatProbePhase_DNS2,     /**< Resolving second STUN server. */
   xNatProbePhase_Phase1,   /**< Phase 1: Cone vs Symmetric.   */
@@ -75,9 +75,9 @@ XDEF_STRUCT(xNatProbe_) {
   /* STUN server addresses (resolved). */
   struct sockaddr_storage stun_addr1; /**< First STUN server address.  */
   struct sockaddr_storage stun_addr2; /**< Second STUN server address. */
-  uint16_t stun_port1;
-  uint16_t stun_port2;
-  char    *stun_host2; /**< Saved for deferred DNS resolution. */
+  uint16_t                stun_port1;
+  uint16_t                stun_port2;
+  char                   *stun_host2; /**< Saved for deferred DNS resolution. */
 
   xNatProbePhase phase;
 
@@ -90,10 +90,10 @@ XDEF_STRUCT(xNatProbe_) {
   xNatProbeTest phase2_tests[XNAT_PHASE2_COUNT];
   int           phase2_done_count;
 
-  xDnsQuery     dns_query; /**< Pending DNS query handle.         */
-  int           timeout_ms;
-  xEventTimer   timeout_timer; /**< Overall timeout timer.        */
-  bool          finished;      /**< Probe already completed/cancelled. */
+  xDnsQuery   dns_query; /**< Pending DNS query handle.         */
+  int         timeout_ms;
+  xEventTimer timeout_timer; /**< Overall timeout timer.        */
+  bool        finished;      /**< Probe already completed/cancelled. */
 };
 
 /* ───────────────────── Forward declarations ───────────────────── */
@@ -104,11 +104,9 @@ static void nat_probe_finish(xNatProbe_ *p, bool timed_out);
 static void nat_probe_free(xNatProbe_ *p);
 static bool nat_probe_start_phase1(xNatProbe_ *p);
 static bool nat_probe_start_phase2(xNatProbe_ *p);
-static bool nat_probe_send_request_to(xNatProbe_ *p, xNatProbeTest *t,
-                                      int fd,
+static bool nat_probe_send_request_to(xNatProbe_ *p, xNatProbeTest *t, int fd,
                                       struct sockaddr_storage *addr);
-static void nat_probe_phase1_on_readable(xSocket sock, xEventMask mask,
-                                         void *arg);
+static void nat_probe_phase1_on_readable(xSocket sock, xEventMask mask, void *arg);
 
 /* ───────────────────── Parse STUN response (shared) ───────────────────── */
 
@@ -117,8 +115,7 @@ static void nat_probe_phase1_on_readable(xSocket sock, xEventMask mask,
  * @return true on success (mapped_port is set), false on failure.
  */
 static bool nat_probe_parse_response(const uint8_t *buf, size_t len,
-                                     const uint8_t txn_id[XSTUN_TXN_ID_SIZE],
-                                     uint16_t *out_port) {
+                                     const uint8_t txn_id[XSTUN_TXN_ID_SIZE], uint16_t *out_port) {
   if (!xStunMsgIsStun(buf, len)) return false;
 
   xStunMsg msg;
@@ -135,8 +132,7 @@ static bool nat_probe_parse_response(const uint8_t *buf, size_t len,
 
   while (xStunAttrIterNext(&iter, &attr)) {
     if (attr.type == xStunAttrType_XorMappedAddress) {
-      if (xStunAttrDecodeXorMappedAddress(&attr, msg.txn_id, &mapped) ==
-          xErrno_Ok) {
+      if (xStunAttrDecodeXorMappedAddress(&attr, msg.txn_id, &mapped) == xErrno_Ok) {
         found = true;
         break;
       }
@@ -164,11 +160,10 @@ static bool nat_probe_parse_response(const uint8_t *buf, size_t len,
 
 /* ───────────────────── Phase 2 read callback ───────────────────── */
 
-static void nat_probe_phase2_on_readable(xSocket sock, xEventMask mask,
-                                         void *arg) {
-  xNatProbeTest  *t = (xNatProbeTest *)arg;
-  xNatProbe_ *p = t->probe;
-  int             idx = (int)(t - p->phase2_tests);
+static void nat_probe_phase2_on_readable(xSocket sock, xEventMask mask, void *arg) {
+  xNatProbeTest *t   = (xNatProbeTest *)arg;
+  xNatProbe_    *p   = t->probe;
+  int            idx = (int)(t - p->phase2_tests);
 
   (void)sock;
   (void)idx;
@@ -188,16 +183,14 @@ static void nat_probe_phase2_on_readable(xSocket sock, xEventMask mask,
   struct sockaddr_storage from;
   socklen_t               from_len = sizeof(from);
 
-  ssize_t n =
-    recvfrom(t->fd, buf, sizeof(buf), 0, (struct sockaddr *)&from, &from_len);
+  ssize_t n = recvfrom(t->fd, buf, sizeof(buf), 0, (struct sockaddr *)&from, &from_len);
   if (n <= 0) return;
 
   if (!nat_probe_parse_response(buf, (size_t)n, t->txn_id, &t->mapped_port)) {
     return;
   }
 
-  XDEBUGL1("[nat-probe] phase2 test[%d] mapped port = %u", idx,
-           (unsigned)t->mapped_port);
+  XDEBUGL1("[nat-probe] phase2 test[%d] mapped port = %u", idx, (unsigned)t->mapped_port);
 
   t->done = true;
   p->phase2_done_count++;
@@ -236,8 +229,7 @@ static void nat_probe_check_phase1_done(xNatProbe_ *p) {
   uint16_t port_a = p->phase1_tests[0].mapped_port;
   uint16_t port_b = p->phase1_tests[1].mapped_port;
 
-  XDEBUGL0("[nat-probe] phase1: port_a=%u port_b=%u", (unsigned)port_a,
-           (unsigned)port_b);
+  XDEBUGL0("[nat-probe] phase1: port_a=%u port_b=%u", (unsigned)port_a, (unsigned)port_b);
 
   if (port_a == port_b) {
     /* Cone NAT — done. */
@@ -283,8 +275,7 @@ static void nat_probe_check_phase2_done(xNatProbe_ *p) {
 
 /* ───────────────────── Classify NAT type ───────────────────── */
 
-static xNatType nat_classify_phase2(const uint16_t ports[XNAT_PHASE2_COUNT],
-                                    int *out_delta) {
+static xNatType nat_classify_phase2(const uint16_t ports[XNAT_PHASE2_COUNT], int *out_delta) {
   *out_delta = 0;
 
   int d1 = (int)ports[1] - (int)ports[0];
@@ -338,9 +329,8 @@ static void nat_probe_finish(xNatProbe_ *p, bool timed_out) {
     /* Cone NAT. */
     result.type       = xNatType_Cone;
     result.port_delta = 0;
-    XDEBUGL0("[nat-probe] result: type=%s ports=[%u,%u]",
-             xNatTypeStr(result.type), result.mapped_ports[0],
-             result.mapped_ports[1]);
+    XDEBUGL0("[nat-probe] result: type=%s ports=[%u,%u]", xNatTypeStr(result.type),
+             result.mapped_ports[0], result.mapped_ports[1]);
     p->cb(&result, p->arg);
     nat_probe_free(p);
     return;
@@ -369,9 +359,8 @@ static void nat_probe_finish(xNatProbe_ *p, bool timed_out) {
 
   XDEBUGL0("[nat-probe] result: type=%s phase1=[%u,%u] phase2=[%u,%u,%u] "
            "delta=%d",
-           xNatTypeStr(result.type), result.mapped_ports[0],
-           result.mapped_ports[1], result.mapped_ports[2],
-           result.mapped_ports[3], result.mapped_ports[4],
+           xNatTypeStr(result.type), result.mapped_ports[0], result.mapped_ports[1],
+           result.mapped_ports[2], result.mapped_ports[3], result.mapped_ports[4],
            result.port_delta);
 
   p->cb(&result, p->arg);
@@ -418,7 +407,7 @@ static void nat_probe_on_dns2(xDnsResult *result, void *arg);
 
 static void nat_probe_on_dns1(xDnsResult *result, void *arg) {
   xNatProbe_ *p = (xNatProbe_ *)arg;
-  p->dns_query      = NULL;
+  p->dns_query  = NULL;
 
   if (p->finished) {
     xDnsResultFree(result);
@@ -426,8 +415,7 @@ static void nat_probe_on_dns1(xDnsResult *result, void *arg) {
   }
 
   if (result->error != xErrno_Ok || !result->addrs) {
-    XDEBUGL0("[nat-probe] DNS resolution for server1 failed (err=%d)",
-             result->error);
+    XDEBUGL0("[nat-probe] DNS resolution for server1 failed (err=%d)", result->error);
     xDnsResultFree(result);
     nat_probe_finish(p, false);
     return;
@@ -452,8 +440,7 @@ static void nat_probe_on_dns1(xDnsResult *result, void *arg) {
   hints.ai_family   = p->stun_addr1.ss_family; /* Match family of server 1. */
   hints.ai_socktype = SOCK_DGRAM;
 
-  p->dns_query =
-    xDnsResolve(p->loop, p->stun_host2, NULL, &hints, nat_probe_on_dns2, p);
+  p->dns_query = xDnsResolve(p->loop, p->stun_host2, NULL, &hints, nat_probe_on_dns2, p);
   if (!p->dns_query) {
     XDEBUGL0("[nat-probe] xDnsResolve failed for server2");
     nat_probe_finish(p, false);
@@ -462,7 +449,7 @@ static void nat_probe_on_dns1(xDnsResult *result, void *arg) {
 
 static void nat_probe_on_dns2(xDnsResult *result, void *arg) {
   xNatProbe_ *p = (xNatProbe_ *)arg;
-  p->dns_query      = NULL;
+  p->dns_query  = NULL;
 
   if (p->finished) {
     xDnsResultFree(result);
@@ -470,8 +457,7 @@ static void nat_probe_on_dns2(xDnsResult *result, void *arg) {
   }
 
   if (result->error != xErrno_Ok || !result->addrs) {
-    XDEBUGL0("[nat-probe] DNS resolution for server2 failed (err=%d)",
-             result->error);
+    XDEBUGL0("[nat-probe] DNS resolution for server2 failed (err=%d)", result->error);
     xDnsResultFree(result);
     nat_probe_finish(p, false);
     return;
@@ -515,15 +501,14 @@ static bool nat_probe_start_phase1(xNatProbe_ *p) {
     nat_probe_gen_txn_id(p->phase1_tests[i].txn_id);
   }
 
-  p->phase1_tests[0].sock =
-    xSocketCreate(p->loop, family, SOCK_DGRAM, 0, xEvent_Read,
-                  nat_probe_phase1_on_readable, &p->phase1_tests[0]);
+  p->phase1_tests[0].sock = xSocketCreate(p->loop, family, SOCK_DGRAM, 0, xEvent_Read,
+                                          nat_probe_phase1_on_readable, &p->phase1_tests[0]);
   if (!p->phase1_tests[0].sock) {
     XDEBUGL0("[nat-probe] phase1: xSocketCreate failed");
     return false;
   }
 
-  int fd = xSocketFd(p->phase1_tests[0].sock);
+  int fd       = xSocketFd(p->phase1_tests[0].sock);
   p->phase1_fd = fd;
 
   /* Both tests share this fd. */
@@ -554,11 +539,10 @@ static bool nat_probe_start_phase1(xNatProbe_ *p) {
  * this callback dispatches responses to the correct test by matching
  * the transaction ID.
  */
-static void nat_probe_phase1_on_readable(xSocket sock, xEventMask mask,
-                                         void *arg) {
+static void nat_probe_phase1_on_readable(xSocket sock, xEventMask mask, void *arg) {
   /* arg is always &phase1_tests[0] since that's the xSocket owner. */
-  xNatProbeTest  *t0 = (xNatProbeTest *)arg;
-  xNatProbe_ *p  = t0->probe;
+  xNatProbeTest *t0 = (xNatProbeTest *)arg;
+  xNatProbe_    *p  = t0->probe;
 
   (void)sock;
 
@@ -582,8 +566,7 @@ static void nat_probe_phase1_on_readable(xSocket sock, xEventMask mask,
     struct sockaddr_storage from;
     socklen_t               from_len = sizeof(from);
 
-    ssize_t n = recvfrom(t0->fd, buf, sizeof(buf), 0,
-                         (struct sockaddr *)&from, &from_len);
+    ssize_t n = recvfrom(t0->fd, buf, sizeof(buf), 0, (struct sockaddr *)&from, &from_len);
     if (n <= 0) break;
 
     /* Try to match against each phase1 test's txn_id. */
@@ -596,8 +579,7 @@ static void nat_probe_phase1_on_readable(xSocket sock, xEventMask mask,
         t->mapped_port = port;
         t->done        = true;
         p->phase1_done_count++;
-        XDEBUGL1("[nat-probe] phase1 test[%d] mapped port = %u", i,
-                 (unsigned)port);
+        XDEBUGL1("[nat-probe] phase1 test[%d] mapped port = %u", i, (unsigned)port);
         break; /* Each response matches at most one test. */
       }
     }
@@ -615,12 +597,12 @@ static bool nat_probe_start_phase2(xNatProbe_ *p) {
 
   for (int i = 0; i < XNAT_PHASE2_COUNT; i++) {
     xNatProbeTest *t = &p->phase2_tests[i];
-    t->probe = p;
+    t->probe         = p;
 
     nat_probe_gen_txn_id(t->txn_id);
 
-    t->sock = xSocketCreate(p->loop, family, SOCK_DGRAM, 0, xEvent_Read,
-                            nat_probe_phase2_on_readable, t);
+    t->sock =
+      xSocketCreate(p->loop, family, SOCK_DGRAM, 0, xEvent_Read, nat_probe_phase2_on_readable, t);
     if (!t->sock) {
       XDEBUGL0("[nat-probe] phase2: xSocketCreate failed for test[%d]", i);
       return false;
@@ -632,8 +614,7 @@ static bool nat_probe_start_phase2(xNatProbe_ *p) {
 
   /* Send STUN Binding Requests to server A from each socket. */
   for (int i = 0; i < XNAT_PHASE2_COUNT; i++) {
-    if (!nat_probe_send_request_to(p, &p->phase2_tests[i],
-                                   p->phase2_tests[i].fd, &p->stun_addr1)) {
+    if (!nat_probe_send_request_to(p, &p->phase2_tests[i], p->phase2_tests[i].fd, &p->stun_addr1)) {
       p->phase2_tests[i].failed = true;
       p->phase2_done_count++;
     }
@@ -645,8 +626,7 @@ static bool nat_probe_start_phase2(xNatProbe_ *p) {
 
 /* ───────────────────── Send one STUN Binding Request ───────────────────── */
 
-static bool nat_probe_send_request_to(xNatProbe_ *p, xNatProbeTest *t,
-                                      int fd,
+static bool nat_probe_send_request_to(xNatProbe_ *p, xNatProbeTest *t, int fd,
                                       struct sockaddr_storage *addr) {
   (void)p;
 
@@ -660,12 +640,10 @@ static bool nat_probe_send_request_to(xNatProbe_ *p, xNatProbeTest *t,
     return false;
   }
 
-  socklen_t addrlen = addr->ss_family == AF_INET6
-                        ? sizeof(struct sockaddr_in6)
-                        : sizeof(struct sockaddr_in);
+  socklen_t addrlen =
+    addr->ss_family == AF_INET6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
 
-  ssize_t n = sendto(fd, buf, (size_t)len, 0,
-                     (const struct sockaddr *)addr, addrlen);
+  ssize_t n = sendto(fd, buf, (size_t)len, 0, (const struct sockaddr *)addr, addrlen);
   if (n < 0) {
     XDEBUGL1("[nat-probe] sendto failed: %s", strerror(errno));
     return false;
@@ -689,10 +667,8 @@ static void nat_probe_gen_txn_id(uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-XCAPI(xNatProbe) xNatProbeStart(xEventLoop loop,
-                                const char *stun_host1, uint16_t stun_port1,
-                                const char *stun_host2, uint16_t stun_port2,
-                                int timeout_ms,
+XCAPI(xNatProbe) xNatProbeStart(xEventLoop loop, const char *stun_host1, uint16_t stun_port1,
+                                const char *stun_host2, uint16_t stun_port2, int timeout_ms,
                                 xNatProbeFunc cb, void *arg) {
   if (!loop || !stun_host1 || !stun_host2 || !cb) return NULL;
 
@@ -727,8 +703,8 @@ XCAPI(xNatProbe) xNatProbeStart(xEventLoop loop,
 
   /* Schedule overall timeout — covers DNS + Phase1 + Phase2. */
   int total_timeout = timeout_ms * 2 + 2000; /* generous for two phases */
-  p->timeout_timer = xEventLoopTimerAfter(p->loop, nat_probe_on_timeout, p,
-                                          (uint64_t)total_timeout);
+  p->timeout_timer =
+    xEventLoopTimerAfter(p->loop, nat_probe_on_timeout, p, (uint64_t)total_timeout);
 
   /* Resolve STUN server 1 first. */
   p->phase = xNatProbePhase_DNS1;
@@ -738,8 +714,7 @@ XCAPI(xNatProbe) xNatProbeStart(xEventLoop loop,
   hints.ai_family   = AF_UNSPEC;
   hints.ai_socktype = SOCK_DGRAM;
 
-  p->dns_query =
-    xDnsResolve(loop, stun_host1, NULL, &hints, nat_probe_on_dns1, p);
+  p->dns_query = xDnsResolve(loop, stun_host1, NULL, &hints, nat_probe_on_dns1, p);
   if (!p->dns_query) {
     XDEBUGL0("[nat-probe] xDnsResolve failed for %s", stun_host1);
     xEventLoopTimerCancel(loop, p->timeout_timer);
@@ -748,8 +723,8 @@ XCAPI(xNatProbe) xNatProbeStart(xEventLoop loop,
     return NULL;
   }
 
-  XDEBUGL0("[nat-probe] resolving %s:%u + %s:%u (timeout=%dms)", stun_host1,
-           (unsigned)stun_port1, stun_host2, (unsigned)stun_port2, timeout_ms);
+  XDEBUGL0("[nat-probe] resolving %s:%u + %s:%u (timeout=%dms)", stun_host1, (unsigned)stun_port1,
+           stun_host2, (unsigned)stun_port2, timeout_ms);
 
   return (xNatProbe)p;
 }

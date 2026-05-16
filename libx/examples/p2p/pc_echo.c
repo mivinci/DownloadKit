@@ -43,25 +43,37 @@ static void exchange_sdp(void);
 
 /* ── PeerConnection Callbacks ──────────────────────────── */
 
-static void on_state_change(xPeerConnection pc, xPeerConnectionState state,
-                            void *ctx) {
+static void on_state_change(xPeerConnection pc, xPeerConnectionState state, void *ctx) {
   (void)pc;
   const char *name = (const char *)ctx;
   const char *state_str;
   switch (state) {
-  case xPeerConnectionState_New:          state_str = "New";          break;
-  case xPeerConnectionState_Connecting:   state_str = "Connecting";   break;
-  case xPeerConnectionState_Connected:    state_str = "Connected";    break;
-  case xPeerConnectionState_Disconnected: state_str = "Disconnected"; break;
-  case xPeerConnectionState_Failed:       state_str = "Failed";       break;
-  case xPeerConnectionState_Closed:       state_str = "Closed";       break;
-  default:                                state_str = "Unknown";      break;
+  case xPeerConnectionState_New:
+    state_str = "New";
+    break;
+  case xPeerConnectionState_Connecting:
+    state_str = "Connecting";
+    break;
+  case xPeerConnectionState_Connected:
+    state_str = "Connected";
+    break;
+  case xPeerConnectionState_Disconnected:
+    state_str = "Disconnected";
+    break;
+  case xPeerConnectionState_Failed:
+    state_str = "Failed";
+    break;
+  case xPeerConnectionState_Closed:
+    state_str = "Closed";
+    break;
+  default:
+    state_str = "Unknown";
+    break;
   }
   printf("[%s] State: %s\n", name, state_str);
 }
 
-static void on_ice_candidate(xPeerConnection pc, const char *candidate,
-                             void *ctx) {
+static void on_ice_candidate(xPeerConnection pc, const char *candidate, void *ctx) {
   const char *name = (const char *)ctx;
   if (candidate) {
     printf("[%s] ICE candidate: %s\n", name, candidate);
@@ -78,18 +90,15 @@ static void on_ice_candidate(xPeerConnection pc, const char *candidate,
 
 /* ── DataChannel Callbacks ─────────────────────────────── */
 
-static void on_datachannel(xPeerConnection pc, xDataChannel channel,
-                           void *ctx) {
+static void on_datachannel(xPeerConnection pc, xDataChannel channel, void *ctx) {
   (void)pc;
   const char *name = (const char *)ctx;
-  printf("[%s] Remote DataChannel opened: label=\"%s\"\n", name,
-         xDataChannelGetLabel(channel));
+  printf("[%s] Remote DataChannel opened: label=\"%s\"\n", name, xDataChannelGetLabel(channel));
 }
 
 static void on_dc_open(xDataChannel channel, void *ctx) {
   const char *name = (const char *)ctx;
-  printf("[%s] DataChannel open: label=\"%s\"\n", name,
-         xDataChannelGetLabel(channel));
+  printf("[%s] DataChannel open: label=\"%s\"\n", name, xDataChannelGetLabel(channel));
 
   /* Offerer sends a message when channel opens */
   if (strcmp(name, "PC-A") == 0) {
@@ -99,12 +108,11 @@ static void on_dc_open(xDataChannel channel, void *ctx) {
   }
 }
 
-static void on_dc_message(xDataChannel channel, xDataChannelMsgType type,
-                          const uint8_t *data, size_t len, void *ctx) {
+static void on_dc_message(xDataChannel channel, xDataChannelMsgType type, const uint8_t *data,
+                          size_t len, void *ctx) {
   const char *name = (const char *)ctx;
   if (type == xDataChannelMsgType_String) {
-    printf("[%s] Received string (%zu bytes): %.*s\n", name, len, (int)len,
-           (const char *)data);
+    printf("[%s] Received string (%zu bytes): %.*s\n", name, len, (int)len, (const char *)data);
 
     /* Answerer echoes back */
     if (strcmp(name, "PC-B") == 0) {

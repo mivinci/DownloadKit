@@ -8,9 +8,9 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstring>
 #include <thread>
-#include <chrono>
 
 extern "C" {
 #include <x/base/speed_tracker.h>

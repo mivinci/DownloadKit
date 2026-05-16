@@ -31,7 +31,7 @@ extern "C" {
  */
 struct xAgentProvider_ {
   const xAgentProviderVtable *vt;  /**< Static vtable (never NULL).         */
-  void                    *ctx; /**< Provider-owned private context.     */
+  void                       *ctx; /**< Provider-owned private context.     */
 };
 
 /**

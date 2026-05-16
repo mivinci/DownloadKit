@@ -37,8 +37,7 @@ void xfer_report_error(xTransfer_ *impl, xErrno err, const char *msg) {
   xfer_set_state(impl, xTransferState_Failed);
 }
 
-void xfer_report_progress(xTransfer_ *impl, uint64_t transferred,
-                            uint64_t total) {
+void xfer_report_progress(xTransfer_ *impl, uint64_t transferred, uint64_t total) {
   if (impl->conf.on_progress) {
     impl->conf.on_progress((xTransfer)impl, transferred, total, impl->conf.ctx);
   }
@@ -50,21 +49,23 @@ void xfer_report_progress(xTransfer_ *impl, uint64_t transferred,
  * Reads the file in 64 KiB blocks so arbitrarily large files can be
  * hashed without loading them entirely into memory.
  */
-xErrno xfer_compute_file_sha1(const xTransferVfs *vfs, const char *path,
-                                uint8_t *digest) {
+xErrno xfer_compute_file_sha1(const xTransferVfs *vfs, const char *path, uint8_t *digest) {
   void *handle = vfs->open(vfs->ctx, path, "rb");
   if (!handle) return xErrno_SysError;
 
   xSha1Ctx ctx;
   xSha1Init(&ctx);
 
-  uint8_t buf[65536];
+  uint8_t  buf[65536];
   uint64_t offset = 0;
-  size_t n = 0;
-  xErrno err;
+  size_t   n      = 0;
+  xErrno   err;
   for (;;) {
     err = vfs->pread(vfs->ctx, handle, buf, sizeof(buf), offset, &n);
-    if (err != xErrno_Ok) { vfs->close(vfs->ctx, handle); return err; }
+    if (err != xErrno_Ok) {
+      vfs->close(vfs->ctx, handle);
+      return err;
+    }
     if (n == 0) break;
     xSha1Update(&ctx, buf, n);
     offset += n;
@@ -89,8 +90,7 @@ static const char *basename_of(const char *path) {
  *
  * File format: total_chunks(4 bytes, big-endian) + bitmap raw bytes.
  */
-xErrno xfer_bitmap_save(const xBitmap *bm, uint32_t total_chunks,
-                           const char *path) {
+xErrno xfer_bitmap_save(const xBitmap *bm, uint32_t total_chunks, const char *path) {
   FILE *fp = fopen(path, "wb");
   if (!fp) return xErrno_SysError;
 
@@ -100,11 +100,14 @@ xErrno xfer_bitmap_save(const xBitmap *bm, uint32_t total_chunks,
   hdr[1] = (uint8_t)(total_chunks >> 16);
   hdr[2] = (uint8_t)(total_chunks >> 8);
   hdr[3] = (uint8_t)(total_chunks);
-  if (fwrite(hdr, 1, 4, fp) != 4) { fclose(fp); return xErrno_SysError; }
+  if (fwrite(hdr, 1, 4, fp) != 4) {
+    fclose(fp);
+    return xErrno_SysError;
+  }
 
   /* Write bitmap data */
-  uint32_t nbytes = 0;
-  const uint8_t *data = xBitmapData(bm, &nbytes);
+  uint32_t       nbytes = 0;
+  const uint8_t *data   = xBitmapData(bm, &nbytes);
   if (data && nbytes > 0) {
     if (fwrite(data, 1, nbytes, fp) != nbytes) {
       fclose(fp);
@@ -124,22 +127,30 @@ xErrno xfer_bitmap_save(const xBitmap *bm, uint32_t total_chunks,
  * @param path          Path to the .bitmap file.
  * @return xErrno_Ok on success, xErrno_NotFound if file doesn't exist.
  */
-xErrno xfer_bitmap_load(xBitmap *bm, uint32_t *total_chunks,
-                           const char *path) {
+xErrno xfer_bitmap_load(xBitmap *bm, uint32_t *total_chunks, const char *path) {
   FILE *fp = fopen(path, "rb");
   if (!fp) return xErrno_NotFound;
 
   /* Read total_chunks */
   uint8_t hdr[4];
-  if (fread(hdr, 1, 4, fp) != 4) { fclose(fp); return xErrno_SysError; }
-  *total_chunks = ((uint32_t)hdr[0] << 24) | ((uint32_t)hdr[1] << 16) |
-                  ((uint32_t)hdr[2] << 8) | (uint32_t)hdr[3];
+  if (fread(hdr, 1, 4, fp) != 4) {
+    fclose(fp);
+    return xErrno_SysError;
+  }
+  *total_chunks = ((uint32_t)hdr[0] << 24) | ((uint32_t)hdr[1] << 16) | ((uint32_t)hdr[2] << 8) |
+                  (uint32_t)hdr[3];
 
-  if (*total_chunks == 0) { fclose(fp); return xErrno_InvalidArg; }
+  if (*total_chunks == 0) {
+    fclose(fp);
+    return xErrno_InvalidArg;
+  }
 
   /* Init bitmap */
   xErrno err = xBitmapInit(bm, *total_chunks);
-  if (err != xErrno_Ok) { fclose(fp); return err; }
+  if (err != xErrno_Ok) {
+    fclose(fp);
+    return err;
+  }
 
   /* Read bitmap data */
   uint32_t nbytes = bm->nbytes;
@@ -155,8 +166,7 @@ xErrno xfer_bitmap_load(xBitmap *bm, uint32_t *total_chunks,
 
 /* ── PeerConnection callbacks ──────────────────────────── */
 
-static void on_pc_state_change(xPeerConnection pc, xPeerConnectionState state,
-                               void *ctx) {
+static void on_pc_state_change(xPeerConnection pc, xPeerConnectionState state, void *ctx) {
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)pc;
 
@@ -172,10 +182,8 @@ static void on_pc_state_change(xPeerConnection pc, xPeerConnectionState state,
     break;
   case xPeerConnectionState_Disconnected:
   case xPeerConnectionState_Closed:
-    if (impl->state != xTransferState_Done &&
-        impl->state != xTransferState_Failed) {
-      xfer_report_error(impl, xErrno_Unknown,
-                        "PeerConnection closed unexpectedly");
+    if (impl->state != xTransferState_Done && impl->state != xTransferState_Failed) {
+      xfer_report_error(impl, xErrno_Unknown, "PeerConnection closed unexpectedly");
     }
     break;
   default:
@@ -183,8 +191,7 @@ static void on_pc_state_change(xPeerConnection pc, xPeerConnectionState state,
   }
 }
 
-static void on_pc_datachannel(xPeerConnection pc, xDataChannel channel,
-                              void *ctx) {
+static void on_pc_datachannel(xPeerConnection pc, xDataChannel channel, void *ctx) {
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)pc;
 
@@ -192,8 +199,7 @@ static void on_pc_datachannel(xPeerConnection pc, xDataChannel channel,
   impl->dc = channel;
 }
 
-static void on_pc_ice_candidate(xPeerConnection pc, const char *candidate,
-                                void *ctx) {
+static void on_pc_ice_candidate(xPeerConnection pc, const char *candidate, void *ctx) {
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)pc;
 
@@ -263,8 +269,7 @@ static void on_signal_offer(xSignalClient client, const char *sdp, void *ctx) {
   xIceAgentGather(xPeerConnectionGetIceAgent(impl->pc));
 }
 
-static void on_signal_answer(xSignalClient client, const char *sdp,
-                             void *ctx) {
+static void on_signal_answer(xSignalClient client, const char *sdp, void *ctx) {
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)client;
 
@@ -272,8 +277,7 @@ static void on_signal_answer(xSignalClient client, const char *sdp,
   xPeerConnectionSetRemoteDescription(impl->pc, sdp);
 }
 
-static void on_signal_candidate(xSignalClient client, const char *candidate,
-                                void *ctx) {
+static void on_signal_candidate(xSignalClient client, const char *candidate, void *ctx) {
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)client;
 
@@ -281,8 +285,7 @@ static void on_signal_candidate(xSignalClient client, const char *candidate,
   xIceAgentAddRemoteCandidate(xPeerConnectionGetIceAgent(impl->pc), candidate);
 }
 
-static void on_signal_error(xSignalClient client, xErrno err, const char *msg,
-                            void *ctx) {
+static void on_signal_error(xSignalClient client, xErrno err, const char *msg, void *ctx) {
   xTransfer_ *impl = (xTransfer_ *)ctx;
   (void)client;
   (void)err;
@@ -298,8 +301,7 @@ static void on_signal_error(xSignalClient client, xErrno err, const char *msg,
  * @param code  Code for joining (receiver only, NULL for sender).
  * @return      xErrno_Ok on success, or if no signal_server configured.
  */
-static xErrno connect_signaling(xTransfer_ *impl, xSignalClientRole role,
-                                const char *code) {
+static xErrno connect_signaling(xTransfer_ *impl, xSignalClientRole role, const char *code) {
   if (!impl->conf.signal_server) return xErrno_Ok;
 
   xSignalClientConf sc_conf;
@@ -331,11 +333,11 @@ xTransfer xTransferCreate(xEventLoop loop, const xTransferConf *conf) {
   xTransfer_ *impl = (xTransfer_ *)calloc(1, sizeof(xTransfer_));
   if (!impl) return NULL;
 
-  impl->loop = loop;
-  impl->conf = *conf;
-  impl->state = xTransferState_Idle;
+  impl->loop            = loop;
+  impl->conf            = *conf;
+  impl->state           = xTransferState_Idle;
   impl->send_chunk_size = XFER_DEFAULT_CHUNK_SIZE;
-  impl->vfs = conf->vfs ? conf->vfs : xTransferPosixVfs();
+  impl->vfs             = conf->vfs ? conf->vfs : xTransferPosixVfs();
 
   return (xTransfer)impl;
 }
@@ -398,8 +400,7 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
   impl->send_filesize = fsize;
 
   impl->send_total_chunks =
-    (uint32_t)((impl->send_filesize + impl->send_chunk_size - 1) /
-               impl->send_chunk_size);
+    (uint32_t)((impl->send_filesize + impl->send_chunk_size - 1) / impl->send_chunk_size);
   impl->send_next_chunk = 0;
 
   /* SHA-1 will be computed incrementally during transfer.
@@ -409,21 +410,20 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
   /* Create PeerConnection */
   xPeerConnectionConf pc_conf;
   memset(&pc_conf, 0, sizeof(pc_conf));
-  pc_conf.stun_server = impl->conf.stun_server;
-  pc_conf.turn_server = impl->conf.turn_server;
-  pc_conf.turn_username = impl->conf.turn_username;
-  pc_conf.turn_password = impl->conf.turn_password;
-  pc_conf.enable_ipv6 = impl->conf.enable_ipv6;
-  pc_conf.on_state_change = on_pc_state_change;
+  pc_conf.stun_server      = impl->conf.stun_server;
+  pc_conf.turn_server      = impl->conf.turn_server;
+  pc_conf.turn_username    = impl->conf.turn_username;
+  pc_conf.turn_password    = impl->conf.turn_password;
+  pc_conf.enable_ipv6      = impl->conf.enable_ipv6;
+  pc_conf.on_state_change  = on_pc_state_change;
   pc_conf.on_ice_candidate = on_pc_ice_candidate;
-  pc_conf.on_datachannel = on_pc_datachannel;
-  pc_conf.on_dc_open = sender_on_dc_open;
-  pc_conf.ctx = impl;
+  pc_conf.on_datachannel   = on_pc_datachannel;
+  pc_conf.on_dc_open       = sender_on_dc_open;
+  pc_conf.ctx              = impl;
 
   impl->pc = xPeerConnectionCreate(impl->loop, &pc_conf);
   if (!impl->pc) {
-    xfer_report_error(impl, xErrno_Unknown,
-                      "Failed to create PeerConnection");
+    xfer_report_error(impl, xErrno_Unknown, "Failed to create PeerConnection");
     return xErrno_Unknown;
   }
 
@@ -431,11 +431,11 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
   xDataChannelConf dc_conf;
   memset(&dc_conf, 0, sizeof(dc_conf));
   strncpy(dc_conf.label, "xfer", XDC_MAX_LABEL_LEN - 1);
-  dc_conf.ordered = true;
-  dc_conf.on_open = sender_on_dc_open;
+  dc_conf.ordered                = true;
+  dc_conf.on_open                = sender_on_dc_open;
   dc_conf.on_buffered_amount_low = sender_on_buffered_amount_low;
-  dc_conf.on_message = sender_on_dc_message;
-  dc_conf.ctx = impl;
+  dc_conf.on_message             = sender_on_dc_message;
+  dc_conf.ctx                    = impl;
 
   /* DataChannel may be queued (returns NULL) until SCTP connects.
      The PeerConnection will create it later and fire on_dc_open. */
@@ -446,16 +446,14 @@ xErrno xTransferSendFile(xTransfer xfer, const char *filepath) {
   /* Connect to signaling server if configured */
   xErrno sig_err = connect_signaling(impl, xSignalClientRole_Sender, NULL);
   if (sig_err != xErrno_Ok) {
-    xfer_report_error(impl, sig_err,
-                      "Failed to connect to signaling server");
+    xfer_report_error(impl, sig_err, "Failed to connect to signaling server");
     return sig_err;
   }
 
   return xErrno_Ok;
 }
 
-xErrno xTransferRecvFile(xTransfer xfer, const char *code,
-                         const char *dest_dir) {
+xErrno xTransferRecvFile(xTransfer xfer, const char *code, const char *dest_dir) {
   if (!xfer || !code || !dest_dir) return xErrno_InvalidArg;
   xTransfer_ *impl = (xTransfer_ *)xfer;
 
@@ -470,32 +468,29 @@ xErrno xTransferRecvFile(xTransfer xfer, const char *code,
   /* Create PeerConnection */
   xPeerConnectionConf pc_conf;
   memset(&pc_conf, 0, sizeof(pc_conf));
-  pc_conf.stun_server = impl->conf.stun_server;
-  pc_conf.turn_server = impl->conf.turn_server;
-  pc_conf.turn_username = impl->conf.turn_username;
-  pc_conf.turn_password = impl->conf.turn_password;
-  pc_conf.enable_ipv6 = impl->conf.enable_ipv6;
-  pc_conf.on_state_change = on_pc_state_change;
+  pc_conf.stun_server      = impl->conf.stun_server;
+  pc_conf.turn_server      = impl->conf.turn_server;
+  pc_conf.turn_username    = impl->conf.turn_username;
+  pc_conf.turn_password    = impl->conf.turn_password;
+  pc_conf.enable_ipv6      = impl->conf.enable_ipv6;
+  pc_conf.on_state_change  = on_pc_state_change;
   pc_conf.on_ice_candidate = on_pc_ice_candidate;
-  pc_conf.on_datachannel = on_pc_datachannel;
-  pc_conf.on_dc_message = receiver_on_dc_message;
-  pc_conf.ctx = impl;
+  pc_conf.on_datachannel   = on_pc_datachannel;
+  pc_conf.on_dc_message    = receiver_on_dc_message;
+  pc_conf.ctx              = impl;
 
   impl->pc = xPeerConnectionCreate(impl->loop, &pc_conf);
   if (!impl->pc) {
-    xfer_report_error(impl, xErrno_Unknown,
-                      "Failed to create PeerConnection");
+    xfer_report_error(impl, xErrno_Unknown, "Failed to create PeerConnection");
     return xErrno_Unknown;
   }
 
   xfer_set_state(impl, xTransferState_WaitingPeer);
 
   /* Connect to signaling server if configured */
-  xErrno sig_err = connect_signaling(impl, xSignalClientRole_Receiver,
-                                     session_code);
+  xErrno sig_err = connect_signaling(impl, xSignalClientRole_Receiver, session_code);
   if (sig_err != xErrno_Ok) {
-    xfer_report_error(impl, sig_err,
-                      "Failed to connect to signaling server");
+    xfer_report_error(impl, sig_err, "Failed to connect to signaling server");
     return sig_err;
   }
 
@@ -516,8 +511,7 @@ void xTransferCancel(xTransfer xfer) {
   if (!xfer) return;
   xTransfer_ *impl = (xTransfer_ *)xfer;
 
-  if (impl->state == xTransferState_Done ||
-      impl->state == xTransferState_Failed) {
+  if (impl->state == xTransferState_Done || impl->state == xTransferState_Failed) {
     return;
   }
 

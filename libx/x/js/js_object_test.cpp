@@ -223,19 +223,16 @@ TEST_F(XjsObjectTest, SetPropertyReadOnlyRejectsAssignment) {
   xJSStringRef k = xJSStringCreateWithUTF8CString("ro");
 
   xJSValueRef seven = xJSValueMakeNumber(ctx_, 7);
-  xJSObjectSetProperty(ctx_, o, k, seven, kXJSPropertyAttributeReadOnly,
-                       nullptr);
+  xJSObjectSetProperty(ctx_, o, k, seven, kXJSPropertyAttributeReadOnly, nullptr);
   xjs_slot_release(seven);
 
   /* Subsequent assignment from JS silently fails in sloppy mode;
    * the value must stay 7. */
-  xJSStringRef js = xJSStringCreateWithUTF8CString(
-    "(function(o){ o.ro = 99; return o.ro; })");
-  xJSValueRef  fn  = xJSEvaluateScript(ctx_, js, nullptr, nullptr, 0, nullptr);
+  xJSStringRef js = xJSStringCreateWithUTF8CString("(function(o){ o.ro = 99; return o.ro; })");
+  xJSValueRef  fn = xJSEvaluateScript(ctx_, js, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(fn, nullptr);
-  xJSValueRef  arg = (xJSValueRef)o;
-  xJSValueRef  ret = xJSObjectCallAsFunction(ctx_, (xJSObjectRef)fn, nullptr,
-                                             1, &arg, nullptr);
+  xJSValueRef arg = (xJSValueRef)o;
+  xJSValueRef ret = xJSObjectCallAsFunction(ctx_, (xJSObjectRef)fn, nullptr, 1, &arg, nullptr);
   ASSERT_NE(ret, nullptr);
   EXPECT_DOUBLE_EQ(xJSValueToNumber(ctx_, ret, nullptr), 7.0);
 
@@ -247,26 +244,23 @@ TEST_F(XjsObjectTest, SetPropertyReadOnlyRejectsAssignment) {
 }
 
 TEST_F(XjsObjectTest, SetPropertyDontEnumHidesFromKeys) {
-  xJSObjectRef o = xJSObjectMake(ctx_, nullptr, nullptr);
+  xJSObjectRef o        = xJSObjectMake(ctx_, nullptr, nullptr);
   xJSStringRef kHidden  = xJSStringCreateWithUTF8CString("hidden");
   xJSStringRef kVisible = xJSStringCreateWithUTF8CString("visible");
   xJSValueRef  one      = xJSValueMakeNumber(ctx_, 1);
   xJSValueRef  two      = xJSValueMakeNumber(ctx_, 2);
 
-  xJSObjectSetProperty(ctx_, o, kHidden, one, kXJSPropertyAttributeDontEnum,
-                       nullptr);
-  xJSObjectSetProperty(ctx_, o, kVisible, two, kXJSPropertyAttributeNone,
-                       nullptr);
+  xJSObjectSetProperty(ctx_, o, kHidden, one, kXJSPropertyAttributeDontEnum, nullptr);
+  xJSObjectSetProperty(ctx_, o, kVisible, two, kXJSPropertyAttributeNone, nullptr);
 
   /* Object.keys() skips non-enumerable own props. */
-  xJSStringRef js = xJSStringCreateWithUTF8CString(
-    "(function(o){ return Object.keys(o).join(','); })");
+  xJSStringRef js =
+    xJSStringCreateWithUTF8CString("(function(o){ return Object.keys(o).join(','); })");
   xJSValueRef fn = xJSEvaluateScript(ctx_, js, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(fn, nullptr);
-  xJSValueRef arg = (xJSValueRef)o;
-  xJSValueRef ret = xJSObjectCallAsFunction(ctx_, (xJSObjectRef)fn, nullptr,
-                                            1, &arg, nullptr);
-  xJSStringRef s = xJSValueToStringCopy(ctx_, ret, nullptr);
+  xJSValueRef  arg = (xJSValueRef)o;
+  xJSValueRef  ret = xJSObjectCallAsFunction(ctx_, (xJSObjectRef)fn, nullptr, 1, &arg, nullptr);
+  xJSStringRef s   = xJSValueToStringCopy(ctx_, ret, nullptr);
   EXPECT_TRUE(xJSStringIsEqualToUTF8CString(s, "visible"));
 
   /* But the hidden property is still readable by name. */
@@ -289,8 +283,7 @@ TEST_F(XjsObjectTest, SetPropertyDontDeleteBlocksDeletion) {
   xJSObjectRef o = xJSObjectMake(ctx_, nullptr, nullptr);
   xJSStringRef k = xJSStringCreateWithUTF8CString("locked");
   xJSValueRef  v = xJSValueMakeNumber(ctx_, 42);
-  xJSObjectSetProperty(ctx_, o, k, v, kXJSPropertyAttributeDontDelete,
-                       nullptr);
+  xJSObjectSetProperty(ctx_, o, k, v, kXJSPropertyAttributeDontDelete, nullptr);
   xjs_slot_release(v);
 
   /* `delete` on a non-configurable property returns false in sloppy
@@ -309,19 +302,17 @@ TEST_F(XjsObjectTest, SetPropertyCombinedAttributes) {
   xJSStringRef k = xJSStringCreateWithUTF8CString("frozen");
   xJSValueRef  v = xJSValueMakeNumber(ctx_, 5);
   xJSObjectSetProperty(ctx_, o, k, v,
-                       kXJSPropertyAttributeReadOnly |
-                         kXJSPropertyAttributeDontEnum |
+                       kXJSPropertyAttributeReadOnly | kXJSPropertyAttributeDontEnum |
                          kXJSPropertyAttributeDontDelete,
                        nullptr);
   xjs_slot_release(v);
 
   /* Readonly: assignment via JS no-ops in sloppy mode. */
-  xJSStringRef js = xJSStringCreateWithUTF8CString(
-    "(function(o){ o.frozen = 9; return o.frozen; })");
-  xJSValueRef fn = xJSEvaluateScript(ctx_, js, nullptr, nullptr, 0, nullptr);
+  xJSStringRef js =
+    xJSStringCreateWithUTF8CString("(function(o){ o.frozen = 9; return o.frozen; })");
+  xJSValueRef fn  = xJSEvaluateScript(ctx_, js, nullptr, nullptr, 0, nullptr);
   xJSValueRef arg = (xJSValueRef)o;
-  xJSValueRef ret = xJSObjectCallAsFunction(ctx_, (xJSObjectRef)fn, nullptr,
-                                            1, &arg, nullptr);
+  xJSValueRef ret = xJSObjectCallAsFunction(ctx_, (xJSObjectRef)fn, nullptr, 1, &arg, nullptr);
   EXPECT_DOUBLE_EQ(xJSValueToNumber(ctx_, ret, nullptr), 5.0);
   xjs_slot_release(ret);
   xjs_slot_release(fn);
@@ -338,11 +329,10 @@ TEST_F(XjsObjectTest, SetPropertyNoFlagsPreservesSetterSemantics) {
   /* When no attribute flags are passed, SetProperty goes through
    * [[Set]] so prototype setters fire — unlike the DefineProperty
    * path used for flag-bearing calls. */
-  xJSObjectRef o = evalObj(
-    "({ _v: 0, "
-    "   set trip(x) { this._v = x * 10; }, "
-    "   get trip()  { return this._v; } "
-    "})");
+  xJSObjectRef o = evalObj("({ _v: 0, "
+                           "   set trip(x) { this._v = x * 10; }, "
+                           "   get trip()  { return this._v; } "
+                           "})");
   ASSERT_NE(o, nullptr);
   xJSStringRef k     = xJSStringCreateWithUTF8CString("trip");
   xJSValueRef  three = xJSValueMakeNumber(ctx_, 3);
@@ -359,8 +349,7 @@ TEST_F(XjsObjectTest, SetPropertyNoFlagsPreservesSetterSemantics) {
 
 TEST_F(XjsObjectTest, GetPropertyPropagatesException) {
   /* Proxy trap throwing — access raises. */
-  xJSObjectRef o =
-    evalObj("new Proxy({}, { get() { throw new Error('bad'); } })");
+  xJSObjectRef o = evalObj("new Proxy({}, { get() { throw new Error('bad'); } })");
   ASSERT_NE(o, nullptr);
   xJSStringRef k   = xJSStringCreateWithUTF8CString("anything");
   xJSValueRef  exc = nullptr;
@@ -408,15 +397,14 @@ TEST_F(XjsObjectTest, IsFunctionAndCall) {
   xJSValueRef a      = xJSValueMakeNumber(ctx_, 3);
   xJSValueRef b      = xJSValueMakeNumber(ctx_, 4);
   xJSValueRef args[] = {a, b};
-  xJSValueRef r = xJSObjectCallAsFunction(ctx_, fn, nullptr, 2, args, nullptr);
+  xJSValueRef r      = xJSObjectCallAsFunction(ctx_, fn, nullptr, 2, args, nullptr);
   ASSERT_NE(r, nullptr);
   EXPECT_DOUBLE_EQ(xJSValueToNumber(ctx_, r, nullptr), 7.0);
   xjs_slot_release(r);
 
   /* Call with no args */
   xJSObjectRef zero = evalObj("(function(){return 42})");
-  xJSValueRef  r2 =
-    xJSObjectCallAsFunction(ctx_, zero, nullptr, 0, nullptr, nullptr);
+  xJSValueRef  r2   = xJSObjectCallAsFunction(ctx_, zero, nullptr, 0, nullptr, nullptr);
   EXPECT_DOUBLE_EQ(xJSValueToNumber(ctx_, r2, nullptr), 42.0);
   xjs_slot_release(r2);
   xjs_slot_release((xJSValueRef)zero);
@@ -429,7 +417,7 @@ TEST_F(XjsObjectTest, IsFunctionAndCall) {
 TEST_F(XjsObjectTest, CallThrowsPropagates) {
   xJSObjectRef fn  = evalObj("(function(){throw new Error('x')})");
   xJSValueRef  exc = nullptr;
-  xJSValueRef  r = xJSObjectCallAsFunction(ctx_, fn, nullptr, 0, nullptr, &exc);
+  xJSValueRef  r   = xJSObjectCallAsFunction(ctx_, fn, nullptr, 0, nullptr, &exc);
   EXPECT_EQ(r, nullptr);
   EXPECT_NE(exc, nullptr);
   if (exc) xjs_slot_release(exc);
@@ -437,9 +425,7 @@ TEST_F(XjsObjectTest, CallThrowsPropagates) {
 }
 
 TEST_F(XjsObjectTest, CallNullObjectReturnsNull) {
-  EXPECT_EQ(
-    xJSObjectCallAsFunction(ctx_, nullptr, nullptr, 0, nullptr, nullptr),
-    nullptr);
+  EXPECT_EQ(xJSObjectCallAsFunction(ctx_, nullptr, nullptr, 0, nullptr, nullptr), nullptr);
 }
 
 TEST_F(XjsObjectTest, IsConstructorAndNew) {
@@ -450,7 +436,7 @@ TEST_F(XjsObjectTest, IsConstructorAndNew) {
 
   xJSValueRef  x      = xJSValueMakeNumber(ctx_, 10);
   xJSValueRef  args[] = {x};
-  xJSObjectRef inst = xJSObjectCallAsConstructor(ctx_, ctor, 1, args, nullptr);
+  xJSObjectRef inst   = xJSObjectCallAsConstructor(ctx_, ctor, 1, args, nullptr);
   ASSERT_NE(inst, nullptr);
   xJSStringRef kX = xJSStringCreateWithUTF8CString("x");
   xJSValueRef  v  = xJSObjectGetProperty(ctx_, inst, kX, nullptr);
@@ -474,8 +460,7 @@ TEST_F(XjsObjectTest, ConstructorThrowsPropagates) {
 }
 
 TEST_F(XjsObjectTest, ConstructNullObjectReturnsNull) {
-  EXPECT_EQ(xJSObjectCallAsConstructor(ctx_, nullptr, 0, nullptr, nullptr),
-            nullptr);
+  EXPECT_EQ(xJSObjectCallAsConstructor(ctx_, nullptr, 0, nullptr, nullptr), nullptr);
 }
 
 /* ─────────── PropertyNameArray (manual construction) ─────────── */
@@ -485,8 +470,7 @@ TEST(XjsPropNameArray, RetainReleaseAndAccess) {
    * through xJSObjectCopyPropertyNames — handy when debugging to
    * isolate storage bugs from enumeration bugs. */
   struct OpaqueXJSPropertyNameArray *a =
-    (struct OpaqueXJSPropertyNameArray *)calloc(
-      1, sizeof(struct OpaqueXJSPropertyNameArray));
+    (struct OpaqueXJSPropertyNameArray *)calloc(1, sizeof(struct OpaqueXJSPropertyNameArray));
   ASSERT_NE(a, nullptr);
   a->refcount = 1;
   a->count    = 2;
@@ -529,12 +513,9 @@ TEST_F(XjsObjectTest, CopyPropertyNamesListsOwnEnumerableStringKeys) {
   ASSERT_NE(names, nullptr);
   ASSERT_EQ(xJSPropertyNameArrayGetCount(names), 3u);
 
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 0), "a"));
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 1), "b"));
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 2), "c"));
+  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 0), "a"));
+  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 1), "b"));
+  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 2), "c"));
 
   xJSPropertyNameArrayRelease(names);
   xjs_slot_release((xJSValueRef)o);
@@ -554,21 +535,19 @@ TEST_F(XjsObjectTest, CopyPropertyNamesEmpty) {
 TEST_F(XjsObjectTest, CopyPropertyNamesSkipsNonEnumerable) {
   /* Use DontEnum flag from xJSObjectSetProperty so the output must
    * contain only "visible". */
-  xJSObjectRef o = xJSObjectMake(ctx_, nullptr, nullptr);
+  xJSObjectRef o        = xJSObjectMake(ctx_, nullptr, nullptr);
   xJSStringRef kHidden  = xJSStringCreateWithUTF8CString("hidden");
   xJSStringRef kVisible = xJSStringCreateWithUTF8CString("visible");
   xJSValueRef  one      = xJSValueMakeNumber(ctx_, 1);
   xJSValueRef  two      = xJSValueMakeNumber(ctx_, 2);
-  xJSObjectSetProperty(ctx_, o, kHidden, one, kXJSPropertyAttributeDontEnum,
-                       nullptr);
-  xJSObjectSetProperty(ctx_, o, kVisible, two, kXJSPropertyAttributeNone,
-                       nullptr);
+  xJSObjectSetProperty(ctx_, o, kHidden, one, kXJSPropertyAttributeDontEnum, nullptr);
+  xJSObjectSetProperty(ctx_, o, kVisible, two, kXJSPropertyAttributeNone, nullptr);
 
   xJSPropertyNameArrayRef names = xJSObjectCopyPropertyNames(ctx_, o);
   ASSERT_NE(names, nullptr);
   ASSERT_EQ(xJSPropertyNameArrayGetCount(names), 1u);
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 0), "visible"));
+  EXPECT_TRUE(
+    xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 0), "visible"));
 
   xJSPropertyNameArrayRelease(names);
   xjs_slot_release(one);
@@ -581,30 +560,27 @@ TEST_F(XjsObjectTest, CopyPropertyNamesSkipsNonEnumerable) {
 TEST_F(XjsObjectTest, CopyPropertyNamesSkipsSymbolKeys) {
   /* Object with a Symbol key should not leak that key out through
    * the string-key enumeration surface. */
-  xJSObjectRef o = evalObj(
-    "(() => { const s = Symbol('x'); const o = { plain: 1 }; "
-    "  o[s] = 2; return o; })()");
+  xJSObjectRef o = evalObj("(() => { const s = Symbol('x'); const o = { plain: 1 }; "
+                           "  o[s] = 2; return o; })()");
   ASSERT_NE(o, nullptr);
   xJSPropertyNameArrayRef names = xJSObjectCopyPropertyNames(ctx_, o);
   ASSERT_NE(names, nullptr);
   EXPECT_EQ(xJSPropertyNameArrayGetCount(names), 1u);
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 0), "plain"));
+  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 0), "plain"));
   xJSPropertyNameArrayRelease(names);
   xjs_slot_release((xJSValueRef)o);
 }
 
 TEST_F(XjsObjectTest, CopyPropertyNamesOwnOnlyNotInherited) {
   /* Prototype chain keys must not appear. */
-  xJSObjectRef o = evalObj(
-    "(() => { class Parent { p() {} }; class Child extends Parent { "
-    "   constructor() { super(); this.own = 1; } }; return new Child(); })()");
+  xJSObjectRef o =
+    evalObj("(() => { class Parent { p() {} }; class Child extends Parent { "
+            "   constructor() { super(); this.own = 1; } }; return new Child(); })()");
   ASSERT_NE(o, nullptr);
   xJSPropertyNameArrayRef names = xJSObjectCopyPropertyNames(ctx_, o);
   ASSERT_NE(names, nullptr);
   EXPECT_EQ(xJSPropertyNameArrayGetCount(names), 1u);
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 0), "own"));
+  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 0), "own"));
   xJSPropertyNameArrayRelease(names);
   xjs_slot_release((xJSValueRef)o);
 }
@@ -619,17 +595,12 @@ TEST_F(XjsObjectTest, CopyPropertyNamesPreservesInsertionOrderWithIndices) {
   ASSERT_NE(names, nullptr);
   ASSERT_EQ(xJSPropertyNameArrayGetCount(names), 5u);
   /* Indices ascending first. */
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 0), "0"));
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 1), "1"));
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 2), "2"));
+  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 0), "0"));
+  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 1), "1"));
+  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 2), "2"));
   /* Then string keys in insertion order. */
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 3), "foo"));
-  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(
-    xJSPropertyNameArrayGetNameAtIndex(names, 4), "bar"));
+  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 3), "foo"));
+  EXPECT_TRUE(xJSStringIsEqualToUTF8CString(xJSPropertyNameArrayGetNameAtIndex(names, 4), "bar"));
   xJSPropertyNameArrayRelease(names);
   xjs_slot_release((xJSValueRef)o);
 }
@@ -646,7 +617,7 @@ TEST_F(XjsObjectTest, CopyPropertyNamesRetainReleaseLifecycle) {
   ASSERT_NE(a, nullptr);
   xJSPropertyNameArrayRef a2 = xJSPropertyNameArrayRetain(a);
   EXPECT_EQ(a, a2);
-  xJSPropertyNameArrayRelease(a);  /* refcount 2 → 1 */
+  xJSPropertyNameArrayRelease(a); /* refcount 2 → 1 */
   /* Still readable after one release: */
   EXPECT_EQ(xJSPropertyNameArrayGetCount(a2), 1u);
   xJSPropertyNameArrayRelease(a2); /* frees */
@@ -694,50 +665,42 @@ std::atomic<int> g_host_fn_calls{0};
 
 xJSValueRef host_fn_return_42(xJSContextRef ctx, xJSObjectRef /*function*/,
                               xJSObjectRef /*thisObject*/, size_t /*argc*/,
-                              const xJSValueRef /*argv*/[],
-                              xJSValueRef * /*exception*/) {
+                              const xJSValueRef /*argv*/[], xJSValueRef * /*exception*/) {
   g_host_fn_calls.fetch_add(1);
   return xJSValueMakeNumber(ctx, 42);
 }
 
-xJSValueRef host_fn_sum(xJSContextRef ctx, xJSObjectRef /*function*/,
-                        xJSObjectRef /*thisObject*/, size_t argc,
-                        const xJSValueRef argv[], xJSValueRef *exception) {
+xJSValueRef host_fn_sum(xJSContextRef ctx, xJSObjectRef /*function*/, xJSObjectRef /*thisObject*/,
+                        size_t argc, const xJSValueRef argv[], xJSValueRef *exception) {
   double s = 0;
   for (size_t i = 0; i < argc; ++i)
     s += xJSValueToNumber(ctx, argv[i], exception);
   return xJSValueMakeNumber(ctx, s);
 }
 
-xJSValueRef host_fn_throw(xJSContextRef ctx, xJSObjectRef /*function*/,
-                          xJSObjectRef /*thisObject*/, size_t /*argc*/,
-                          const xJSValueRef /*argv*/[],
-                          xJSValueRef *exception) {
+xJSValueRef host_fn_throw(xJSContextRef ctx, xJSObjectRef /*function*/, xJSObjectRef /*thisObject*/,
+                          size_t /*argc*/, const xJSValueRef /*argv*/[], xJSValueRef *exception) {
   if (exception) *exception = xJSValueMakeNumber(ctx, 99);
   return nullptr;
 }
 
-xJSValueRef host_fn_identity_this(xJSContextRef /*ctx*/,
-                                  xJSObjectRef /*function*/,
+xJSValueRef host_fn_identity_this(xJSContextRef /*ctx*/, xJSObjectRef /*function*/,
                                   xJSObjectRef thisObject, size_t /*argc*/,
-                                  const xJSValueRef /*argv*/[],
-                                  xJSValueRef * /*exception*/) {
+                                  const xJSValueRef /*argv*/[], xJSValueRef * /*exception*/) {
   return (xJSValueRef)thisObject;
 }
 
-}  // namespace
+} // namespace
 
 TEST_F(XjsObjectTest, MakeFunctionReturnsCallableObject) {
-  g_host_fn_calls = 0;
+  g_host_fn_calls   = 0;
   xJSStringRef name = xJSStringCreateWithUTF8CString("return42");
-  xJSObjectRef fn = xJSObjectMakeFunctionWithCallback(ctx_, name,
-                                                     host_fn_return_42);
+  xJSObjectRef fn   = xJSObjectMakeFunctionWithCallback(ctx_, name, host_fn_return_42);
   ASSERT_NE(fn, nullptr);
   EXPECT_TRUE(xJSObjectIsFunction(ctx_, fn));
   EXPECT_FALSE(xJSValueIsUndefined(ctx_, (xJSValueRef)fn));
 
-  xJSValueRef r = xJSObjectCallAsFunction(ctx_, fn, nullptr, 0, nullptr,
-                                          nullptr);
+  xJSValueRef r = xJSObjectCallAsFunction(ctx_, fn, nullptr, 0, nullptr, nullptr);
   ASSERT_NE(r, nullptr);
   EXPECT_EQ(xJSValueToNumber(ctx_, r, nullptr), 42.0);
   EXPECT_EQ(g_host_fn_calls.load(), 1);
@@ -749,8 +712,7 @@ TEST_F(XjsObjectTest, MakeFunctionReturnsCallableObject) {
 
 TEST_F(XjsObjectTest, MakeFunctionExposesNameProperty) {
   xJSStringRef name = xJSStringCreateWithUTF8CString("myFunc");
-  xJSObjectRef fn = xJSObjectMakeFunctionWithCallback(ctx_, name,
-                                                     host_fn_return_42);
+  xJSObjectRef fn   = xJSObjectMakeFunctionWithCallback(ctx_, name, host_fn_return_42);
   ASSERT_NE(fn, nullptr);
 
   xJSStringRef nameKey = xJSStringCreateWithUTF8CString("name");
@@ -768,15 +730,14 @@ TEST_F(XjsObjectTest, MakeFunctionExposesNameProperty) {
 }
 
 TEST_F(XjsObjectTest, MakeFunctionForwardsArguments) {
-  xJSObjectRef fn = xJSObjectMakeFunctionWithCallback(ctx_, nullptr,
-                                                     host_fn_sum);
+  xJSObjectRef fn = xJSObjectMakeFunctionWithCallback(ctx_, nullptr, host_fn_sum);
   ASSERT_NE(fn, nullptr);
 
-  xJSValueRef a = xJSValueMakeNumber(ctx_, 10);
-  xJSValueRef b = xJSValueMakeNumber(ctx_, 20);
-  xJSValueRef c = xJSValueMakeNumber(ctx_, 5);
+  xJSValueRef a      = xJSValueMakeNumber(ctx_, 10);
+  xJSValueRef b      = xJSValueMakeNumber(ctx_, 20);
+  xJSValueRef c      = xJSValueMakeNumber(ctx_, 5);
   xJSValueRef args[] = {a, b, c};
-  xJSValueRef r = xJSObjectCallAsFunction(ctx_, fn, nullptr, 3, args, nullptr);
+  xJSValueRef r      = xJSObjectCallAsFunction(ctx_, fn, nullptr, 3, args, nullptr);
   ASSERT_NE(r, nullptr);
   EXPECT_EQ(xJSValueToNumber(ctx_, r, nullptr), 35.0);
 
@@ -788,12 +749,11 @@ TEST_F(XjsObjectTest, MakeFunctionForwardsArguments) {
 }
 
 TEST_F(XjsObjectTest, MakeFunctionPropagatesException) {
-  xJSObjectRef fn = xJSObjectMakeFunctionWithCallback(ctx_, nullptr,
-                                                     host_fn_throw);
+  xJSObjectRef fn = xJSObjectMakeFunctionWithCallback(ctx_, nullptr, host_fn_throw);
   ASSERT_NE(fn, nullptr);
 
   xJSValueRef exc = nullptr;
-  xJSValueRef r = xJSObjectCallAsFunction(ctx_, fn, nullptr, 0, nullptr, &exc);
+  xJSValueRef r   = xJSObjectCallAsFunction(ctx_, fn, nullptr, 0, nullptr, &exc);
   EXPECT_EQ(r, nullptr);
   ASSERT_NE(exc, nullptr);
   EXPECT_EQ(xJSValueToNumber(ctx_, exc, nullptr), 99.0);
@@ -803,14 +763,12 @@ TEST_F(XjsObjectTest, MakeFunctionPropagatesException) {
 }
 
 TEST_F(XjsObjectTest, MakeFunctionForwardsThis) {
-  xJSObjectRef fn = xJSObjectMakeFunctionWithCallback(ctx_, nullptr,
-                                                     host_fn_identity_this);
+  xJSObjectRef fn = xJSObjectMakeFunctionWithCallback(ctx_, nullptr, host_fn_identity_this);
   ASSERT_NE(fn, nullptr);
   xJSObjectRef thisObj = xJSObjectMake(ctx_, nullptr, nullptr);
   ASSERT_NE(thisObj, nullptr);
 
-  xJSValueRef r = xJSObjectCallAsFunction(ctx_, fn, thisObj, 0, nullptr,
-                                          nullptr);
+  xJSValueRef r = xJSObjectCallAsFunction(ctx_, fn, thisObj, 0, nullptr, nullptr);
   ASSERT_NE(r, nullptr);
   /* The callback returned thisObject directly; QuickJS should have
    * received the same underlying object and round-tripped it back. */
@@ -823,15 +781,13 @@ TEST_F(XjsObjectTest, MakeFunctionForwardsThis) {
 
 TEST_F(XjsObjectTest, MakeFunctionCallableFromScript) {
   /* Wire our C callback into JS and invoke it from source code. */
-  g_host_fn_calls = 0;
+  g_host_fn_calls   = 0;
   xJSStringRef name = xJSStringCreateWithUTF8CString("nativeReturn42");
-  xJSObjectRef fn = xJSObjectMakeFunctionWithCallback(ctx_, name,
-                                                     host_fn_return_42);
+  xJSObjectRef fn   = xJSObjectMakeFunctionWithCallback(ctx_, name, host_fn_return_42);
   ASSERT_NE(fn, nullptr);
 
   xJSObjectRef g = xJSContextGetGlobalObject(ctx_);
-  xJSObjectSetProperty(ctx_, g, name, (xJSValueRef)fn,
-                       kXJSPropertyAttributeNone, nullptr);
+  xJSObjectSetProperty(ctx_, g, name, (xJSValueRef)fn, kXJSPropertyAttributeNone, nullptr);
 
   xJSStringRef src = xJSStringCreateWithUTF8CString("nativeReturn42()");
   xJSValueRef  r   = xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
@@ -849,8 +805,7 @@ TEST_F(XjsObjectTest, MakeFunctionCallableFromScript) {
 TEST_F(XjsObjectTest, MakeFunctionRejectsNullCallback) {
   xJSStringRef name = xJSStringCreateWithUTF8CString("x");
   EXPECT_EQ(xJSObjectMakeFunctionWithCallback(ctx_, name, nullptr), nullptr);
-  EXPECT_EQ(xJSObjectMakeFunctionWithCallback(ctx_, nullptr, nullptr),
-            nullptr);
+  EXPECT_EQ(xJSObjectMakeFunctionWithCallback(ctx_, nullptr, nullptr), nullptr);
   xJSStringRelease(name);
 }
 
@@ -862,10 +817,8 @@ namespace {
 
 std::atomic<int> g_host_ctor_calls{0};
 
-xJSObjectRef host_ctor_make_point(xJSContextRef ctx,
-                                  xJSObjectRef /*constructor*/, size_t argc,
-                                  const xJSValueRef argv[],
-                                  xJSValueRef *exception) {
+xJSObjectRef host_ctor_make_point(xJSContextRef ctx, xJSObjectRef /*constructor*/, size_t argc,
+                                  const xJSValueRef argv[], xJSValueRef *exception) {
   g_host_ctor_calls.fetch_add(1);
   xJSObjectRef o = xJSObjectMake(ctx, nullptr, nullptr);
   if (!o) return nullptr;
@@ -886,36 +839,30 @@ xJSObjectRef host_ctor_make_point(xJSContextRef ctx,
   return o;
 }
 
-xJSObjectRef host_ctor_throw(xJSContextRef ctx,
-                             xJSObjectRef /*constructor*/, size_t /*argc*/,
-                             const xJSValueRef /*argv*/[],
-                             xJSValueRef *exception) {
+xJSObjectRef host_ctor_throw(xJSContextRef ctx, xJSObjectRef /*constructor*/, size_t /*argc*/,
+                             const xJSValueRef /*argv*/[], xJSValueRef *exception) {
   if (exception) *exception = xJSValueMakeNumber(ctx, 77);
   return nullptr;
 }
 
-xJSObjectRef host_ctor_returns_null(xJSContextRef /*ctx*/,
-                                    xJSObjectRef /*constructor*/,
-                                    size_t /*argc*/,
-                                    const xJSValueRef /*argv*/[],
+xJSObjectRef host_ctor_returns_null(xJSContextRef /*ctx*/, xJSObjectRef /*constructor*/,
+                                    size_t /*argc*/, const xJSValueRef /*argv*/[],
                                     xJSValueRef * /*exception*/) {
   return nullptr;
 }
 
-}  // namespace
+} // namespace
 
 TEST_F(XjsObjectTest, MakeConstructorReturnsCallableCtor) {
   g_host_ctor_calls = 0;
-  xJSObjectRef ctor =
-    xJSObjectMakeConstructor(ctx_, nullptr, host_ctor_make_point);
+  xJSObjectRef ctor = xJSObjectMakeConstructor(ctx_, nullptr, host_ctor_make_point);
   ASSERT_NE(ctor, nullptr);
   EXPECT_TRUE(xJSObjectIsConstructor(ctx_, ctor));
 
-  xJSValueRef a = xJSValueMakeNumber(ctx_, 3);
-  xJSValueRef b = xJSValueMakeNumber(ctx_, 4);
-  xJSValueRef args[] = {a, b};
-  xJSObjectRef inst =
-    xJSObjectCallAsConstructor(ctx_, ctor, 2, args, nullptr);
+  xJSValueRef  a      = xJSValueMakeNumber(ctx_, 3);
+  xJSValueRef  b      = xJSValueMakeNumber(ctx_, 4);
+  xJSValueRef  args[] = {a, b};
+  xJSObjectRef inst   = xJSObjectCallAsConstructor(ctx_, ctor, 2, args, nullptr);
   ASSERT_NE(inst, nullptr);
   EXPECT_EQ(g_host_ctor_calls.load(), 1);
 
@@ -937,13 +884,11 @@ TEST_F(XjsObjectTest, MakeConstructorReturnsCallableCtor) {
 }
 
 TEST_F(XjsObjectTest, MakeConstructorPropagatesException) {
-  xJSObjectRef ctor =
-    xJSObjectMakeConstructor(ctx_, nullptr, host_ctor_throw);
+  xJSObjectRef ctor = xJSObjectMakeConstructor(ctx_, nullptr, host_ctor_throw);
   ASSERT_NE(ctor, nullptr);
 
-  xJSValueRef exc = nullptr;
-  xJSObjectRef r =
-    xJSObjectCallAsConstructor(ctx_, ctor, 0, nullptr, &exc);
+  xJSValueRef  exc = nullptr;
+  xJSObjectRef r   = xJSObjectCallAsConstructor(ctx_, ctor, 0, nullptr, &exc);
   EXPECT_EQ(r, nullptr);
   ASSERT_NE(exc, nullptr);
   EXPECT_EQ(xJSValueToNumber(ctx_, exc, nullptr), 77.0);
@@ -953,13 +898,11 @@ TEST_F(XjsObjectTest, MakeConstructorPropagatesException) {
 }
 
 TEST_F(XjsObjectTest, MakeConstructorNullReturnBecomesTypeError) {
-  xJSObjectRef ctor =
-    xJSObjectMakeConstructor(ctx_, nullptr, host_ctor_returns_null);
+  xJSObjectRef ctor = xJSObjectMakeConstructor(ctx_, nullptr, host_ctor_returns_null);
   ASSERT_NE(ctor, nullptr);
 
-  xJSValueRef exc = nullptr;
-  xJSObjectRef r =
-    xJSObjectCallAsConstructor(ctx_, ctor, 0, nullptr, &exc);
+  xJSValueRef  exc = nullptr;
+  xJSObjectRef r   = xJSObjectCallAsConstructor(ctx_, ctor, 0, nullptr, &exc);
   EXPECT_EQ(r, nullptr);
   EXPECT_NE(exc, nullptr);
   if (exc) xjs_slot_release(exc);
@@ -969,18 +912,15 @@ TEST_F(XjsObjectTest, MakeConstructorNullReturnBecomesTypeError) {
 TEST_F(XjsObjectTest, MakeConstructorCallableFromScriptWithNew) {
   /* Expose the native constructor to JS and invoke it with `new`. */
   g_host_ctor_calls = 0;
-  xJSObjectRef ctor =
-    xJSObjectMakeConstructor(ctx_, nullptr, host_ctor_make_point);
+  xJSObjectRef ctor = xJSObjectMakeConstructor(ctx_, nullptr, host_ctor_make_point);
   ASSERT_NE(ctor, nullptr);
 
   xJSStringRef name = xJSStringCreateWithUTF8CString("Point");
   xJSObjectRef g    = xJSContextGetGlobalObject(ctx_);
-  xJSObjectSetProperty(ctx_, g, name, (xJSValueRef)ctor,
-                       kXJSPropertyAttributeNone, nullptr);
+  xJSObjectSetProperty(ctx_, g, name, (xJSValueRef)ctor, kXJSPropertyAttributeNone, nullptr);
 
-  xJSStringRef src =
-    xJSStringCreateWithUTF8CString("(new Point(7,8)).x + (new Point(7,8)).y");
-  xJSValueRef r = xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
+  xJSStringRef src = xJSStringCreateWithUTF8CString("(new Point(7,8)).x + (new Point(7,8)).y");
+  xJSValueRef  r   = xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(r, nullptr);
   EXPECT_EQ(xJSValueToNumber(ctx_, r, nullptr), 15.0);
   EXPECT_EQ(g_host_ctor_calls.load(), 2);
@@ -1002,16 +942,14 @@ TEST_F(XjsObjectTest, MakeConstructorRetainsJsClass) {
   xJSClassRef k          = xJSClassCreate(&def);
   ASSERT_NE(k, nullptr);
 
-  xJSObjectRef ctor =
-    xJSObjectMakeConstructor(ctx_, k, host_ctor_make_point);
+  xJSObjectRef ctor = xJSObjectMakeConstructor(ctx_, k, host_ctor_make_point);
   ASSERT_NE(ctor, nullptr);
   EXPECT_TRUE(xJSObjectIsConstructor(ctx_, ctor));
 
   /* Release our own ref; the ctor's retained ref keeps it alive. */
   xJSClassRelease(k);
 
-  xJSObjectRef inst =
-    xJSObjectCallAsConstructor(ctx_, ctor, 0, nullptr, nullptr);
+  xJSObjectRef inst = xJSObjectCallAsConstructor(ctx_, ctor, 0, nullptr, nullptr);
   ASSERT_NE(inst, nullptr);
 
   xjs_slot_release((xJSValueRef)inst);
@@ -1032,11 +970,10 @@ TEST_F(XjsObjectTest, MakeDateNoArgsIsDateInstance) {
   /* `d instanceof Date` — easiest way: expose to JS and eval. */
   xJSStringRef name = xJSStringCreateWithUTF8CString("__d");
   xJSObjectRef g    = xJSContextGetGlobalObject(ctx_);
-  xJSObjectSetProperty(ctx_, g, name, (xJSValueRef)d,
-                       kXJSPropertyAttributeNone, nullptr);
+  xJSObjectSetProperty(ctx_, g, name, (xJSValueRef)d, kXJSPropertyAttributeNone, nullptr);
 
   xJSStringRef src = xJSStringCreateWithUTF8CString("__d instanceof Date");
-  xJSValueRef r = xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
+  xJSValueRef  r   = xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(r, nullptr);
   EXPECT_TRUE(xJSValueToBoolean(ctx_, r));
 
@@ -1049,9 +986,9 @@ TEST_F(XjsObjectTest, MakeDateNoArgsIsDateInstance) {
 
 TEST_F(XjsObjectTest, MakeDateFromEpochMs) {
   /* new Date(1700000000000) → getTime() returns the same ms. */
-  xJSValueRef  ms      = xJSValueMakeNumber(ctx_, 1700000000000.0);
-  xJSValueRef  args[]  = {ms};
-  xJSObjectRef d       = xJSObjectMakeDate(ctx_, 1, args, nullptr);
+  xJSValueRef  ms     = xJSValueMakeNumber(ctx_, 1700000000000.0);
+  xJSValueRef  args[] = {ms};
+  xJSObjectRef d      = xJSObjectMakeDate(ctx_, 1, args, nullptr);
   ASSERT_NE(d, nullptr);
 
   /* Call getTime() on the instance. */
@@ -1060,8 +997,7 @@ TEST_F(XjsObjectTest, MakeDateFromEpochMs) {
   ASSERT_NE(fn, nullptr);
   ASSERT_TRUE(xJSValueIsObject(ctx_, fn));
   xJSObjectRef fobj = xJSValueToObject(ctx_, fn, nullptr);
-  xJSValueRef  rv =
-    xJSObjectCallAsFunction(ctx_, fobj, d, 0, nullptr, nullptr);
+  xJSValueRef  rv   = xJSObjectCallAsFunction(ctx_, fobj, d, 0, nullptr, nullptr);
   ASSERT_NE(rv, nullptr);
   EXPECT_EQ(xJSValueToNumber(ctx_, rv, nullptr), 1700000000000.0);
 
@@ -1084,10 +1020,9 @@ TEST_F(XjsObjectTest, MakeRegExpNoArgsIsEmptyRegExp) {
   /* Expose to JS and verify `instanceof RegExp` + `.source`. */
   xJSStringRef name = xJSStringCreateWithUTF8CString("__r");
   xJSObjectRef g    = xJSContextGetGlobalObject(ctx_);
-  xJSObjectSetProperty(ctx_, g, name, (xJSValueRef)r,
-                       kXJSPropertyAttributeNone, nullptr);
+  xJSObjectSetProperty(ctx_, g, name, (xJSValueRef)r, kXJSPropertyAttributeNone, nullptr);
   xJSStringRef src = xJSStringCreateWithUTF8CString("__r instanceof RegExp");
-  xJSValueRef v = xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
+  xJSValueRef  v   = xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(v, nullptr);
   EXPECT_TRUE(xJSValueToBoolean(ctx_, v));
 
@@ -1104,7 +1039,7 @@ TEST_F(XjsObjectTest, MakeRegExpWithPatternAndFlagsTestsMatch) {
   xJSValueRef  vp     = xJSValueMakeString(ctx_, sp);
   xJSValueRef  vf     = xJSValueMakeString(ctx_, sf);
   xJSValueRef  args[] = {vp, vf};
-  xJSObjectRef r = xJSObjectMakeRegExp(ctx_, 2, args, nullptr);
+  xJSObjectRef r      = xJSObjectMakeRegExp(ctx_, 2, args, nullptr);
   ASSERT_NE(r, nullptr);
 
   /* r.test("FOObar") === true */
@@ -1113,10 +1048,10 @@ TEST_F(XjsObjectTest, MakeRegExpWithPatternAndFlagsTestsMatch) {
   ASSERT_TRUE(xJSValueIsObject(ctx_, fn));
   xJSObjectRef fobj = xJSValueToObject(ctx_, fn, nullptr);
 
-  xJSStringRef ss    = xJSStringCreateWithUTF8CString("FOObar");
-  xJSValueRef  inp   = xJSValueMakeString(ctx_, ss);
+  xJSStringRef ss          = xJSStringCreateWithUTF8CString("FOObar");
+  xJSValueRef  inp         = xJSValueMakeString(ctx_, ss);
   xJSValueRef  call_args[] = {inp};
-  xJSValueRef  rv = xJSObjectCallAsFunction(ctx_, fobj, r, 1, call_args, nullptr);
+  xJSValueRef  rv          = xJSObjectCallAsFunction(ctx_, fobj, r, 1, call_args, nullptr);
   ASSERT_NE(rv, nullptr);
   EXPECT_TRUE(xJSValueToBoolean(ctx_, rv));
 
@@ -1134,11 +1069,11 @@ TEST_F(XjsObjectTest, MakeRegExpWithPatternAndFlagsTestsMatch) {
 }
 
 TEST_F(XjsObjectTest, MakeRegExpInvalidPatternRaisesException) {
-  xJSStringRef sp     = xJSStringCreateWithUTF8CString("(");  /* unbalanced */
+  xJSStringRef sp     = xJSStringCreateWithUTF8CString("("); /* unbalanced */
   xJSValueRef  vp     = xJSValueMakeString(ctx_, sp);
   xJSValueRef  args[] = {vp};
   xJSValueRef  exc    = nullptr;
-  xJSObjectRef r = xJSObjectMakeRegExp(ctx_, 1, args, &exc);
+  xJSObjectRef r      = xJSObjectMakeRegExp(ctx_, 1, args, &exc);
   EXPECT_EQ(r, nullptr);
   EXPECT_NE(exc, nullptr);
   if (exc) xjs_slot_release(exc);
@@ -1153,8 +1088,7 @@ TEST_F(XjsObjectTest, MakeRegExpInvalidPatternRaisesException) {
 TEST_F(XjsObjectTest, MakeDeferredPromiseReturnsPromise) {
   xJSObjectRef resolve = nullptr;
   xJSObjectRef reject  = nullptr;
-  xJSObjectRef p =
-    xJSObjectMakeDeferredPromise(ctx_, &resolve, &reject, nullptr);
+  xJSObjectRef p       = xJSObjectMakeDeferredPromise(ctx_, &resolve, &reject, nullptr);
   ASSERT_NE(p, nullptr);
   ASSERT_NE(resolve, nullptr);
   ASSERT_NE(reject, nullptr);
@@ -1164,16 +1098,13 @@ TEST_F(XjsObjectTest, MakeDeferredPromiseReturnsPromise) {
   xJSStringRef kR = xJSStringCreateWithUTF8CString("__r");
   xJSStringRef kJ = xJSStringCreateWithUTF8CString("__j");
   xJSObjectRef g  = xJSContextGetGlobalObject(ctx_);
-  xJSObjectSetProperty(ctx_, g, kP, (xJSValueRef)p,
-                       kXJSPropertyAttributeNone, nullptr);
-  xJSObjectSetProperty(ctx_, g, kR, (xJSValueRef)resolve,
-                       kXJSPropertyAttributeNone, nullptr);
-  xJSObjectSetProperty(ctx_, g, kJ, (xJSValueRef)reject,
-                       kXJSPropertyAttributeNone, nullptr);
+  xJSObjectSetProperty(ctx_, g, kP, (xJSValueRef)p, kXJSPropertyAttributeNone, nullptr);
+  xJSObjectSetProperty(ctx_, g, kR, (xJSValueRef)resolve, kXJSPropertyAttributeNone, nullptr);
+  xJSObjectSetProperty(ctx_, g, kJ, (xJSValueRef)reject, kXJSPropertyAttributeNone, nullptr);
 
-  xJSStringRef src = xJSStringCreateWithUTF8CString(
-    "(__p instanceof Promise) && (typeof __r === 'function') && "
-    "(typeof __j === 'function')");
+  xJSStringRef src =
+    xJSStringCreateWithUTF8CString("(__p instanceof Promise) && (typeof __r === 'function') && "
+                                   "(typeof __j === 'function')");
   xJSValueRef r = xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(r, nullptr);
   EXPECT_TRUE(xJSValueToBoolean(ctx_, r));
@@ -1192,8 +1123,7 @@ TEST_F(XjsObjectTest, MakeDeferredPromiseReturnsPromise) {
 TEST_F(XjsObjectTest, MakeDeferredPromiseResolveIsCallable) {
   xJSObjectRef resolve = nullptr;
   xJSObjectRef reject  = nullptr;
-  xJSObjectRef p =
-    xJSObjectMakeDeferredPromise(ctx_, &resolve, &reject, nullptr);
+  xJSObjectRef p       = xJSObjectMakeDeferredPromise(ctx_, &resolve, &reject, nullptr);
   ASSERT_NE(p, nullptr);
   ASSERT_NE(resolve, nullptr);
 
@@ -1201,8 +1131,7 @@ TEST_F(XjsObjectTest, MakeDeferredPromiseResolveIsCallable) {
    * return undefined per spec. */
   xJSValueRef arg42  = xJSValueMakeNumber(ctx_, 42);
   xJSValueRef args[] = {arg42};
-  xJSValueRef rv =
-    xJSObjectCallAsFunction(ctx_, resolve, nullptr, 1, args, nullptr);
+  xJSValueRef rv     = xJSObjectCallAsFunction(ctx_, resolve, nullptr, 1, args, nullptr);
   ASSERT_NE(rv, nullptr);
   EXPECT_TRUE(xJSValueIsUndefined(ctx_, rv));
 
@@ -1216,15 +1145,13 @@ TEST_F(XjsObjectTest, MakeDeferredPromiseResolveIsCallable) {
 TEST_F(XjsObjectTest, MakeDeferredPromiseRejectIsCallable) {
   xJSObjectRef resolve = nullptr;
   xJSObjectRef reject  = nullptr;
-  xJSObjectRef p =
-    xJSObjectMakeDeferredPromise(ctx_, &resolve, &reject, nullptr);
+  xJSObjectRef p       = xJSObjectMakeDeferredPromise(ctx_, &resolve, &reject, nullptr);
   ASSERT_NE(p, nullptr);
   ASSERT_NE(reject, nullptr);
 
   xJSValueRef err    = xJSValueMakeNumber(ctx_, -1);
   xJSValueRef args[] = {err};
-  xJSValueRef rv =
-    xJSObjectCallAsFunction(ctx_, reject, nullptr, 1, args, nullptr);
+  xJSValueRef rv     = xJSObjectCallAsFunction(ctx_, reject, nullptr, 1, args, nullptr);
   ASSERT_NE(rv, nullptr);
   EXPECT_TRUE(xJSValueIsUndefined(ctx_, rv));
 
@@ -1238,20 +1165,17 @@ TEST_F(XjsObjectTest, MakeDeferredPromiseRejectIsCallable) {
 TEST_F(XjsObjectTest, MakeDeferredPromiseResolveDeliversValue) {
   xJSObjectRef resolve = nullptr;
   xJSObjectRef reject  = nullptr;
-  xJSObjectRef p =
-    xJSObjectMakeDeferredPromise(ctx_, &resolve, &reject, nullptr);
+  xJSObjectRef p       = xJSObjectMakeDeferredPromise(ctx_, &resolve, &reject, nullptr);
   ASSERT_NE(p, nullptr);
 
   /* Expose the promise to JS and register a .then handler that
    * stashes the resolved value on a global. */
   xJSStringRef kP = xJSStringCreateWithUTF8CString("__p");
   xJSObjectRef g  = xJSContextGetGlobalObject(ctx_);
-  xJSObjectSetProperty(ctx_, g, kP, (xJSValueRef)p,
-                       kXJSPropertyAttributeNone, nullptr);
+  xJSObjectSetProperty(ctx_, g, kP, (xJSValueRef)p, kXJSPropertyAttributeNone, nullptr);
   xJSStringRef setup = xJSStringCreateWithUTF8CString(
     "globalThis.__out = null; __p.then(v => { globalThis.__out = v; });");
-  xJSValueRef r0 =
-    xJSEvaluateScript(ctx_, setup, nullptr, nullptr, 0, nullptr);
+  xJSValueRef r0 = xJSEvaluateScript(ctx_, setup, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(r0, nullptr);
   xjs_slot_release(r0);
   xJSStringRelease(setup);
@@ -1259,8 +1183,7 @@ TEST_F(XjsObjectTest, MakeDeferredPromiseResolveDeliversValue) {
   /* Fire resolve(42) from the host side. */
   xJSValueRef arg42  = xJSValueMakeNumber(ctx_, 42);
   xJSValueRef args[] = {arg42};
-  xJSValueRef rv =
-    xJSObjectCallAsFunction(ctx_, resolve, nullptr, 1, args, nullptr);
+  xJSValueRef rv     = xJSObjectCallAsFunction(ctx_, resolve, nullptr, 1, args, nullptr);
   ASSERT_NE(rv, nullptr);
   xjs_slot_release(rv);
   xjs_slot_release(arg42);
@@ -1268,10 +1191,8 @@ TEST_F(XjsObjectTest, MakeDeferredPromiseResolveDeliversValue) {
   /* Drain the microtask queue to run the .then callback. */
   xJSContextDrainPendingJobs(ctx_, nullptr);
 
-  xJSStringRef probe =
-    xJSStringCreateWithUTF8CString("globalThis.__out");
-  xJSValueRef out =
-    xJSEvaluateScript(ctx_, probe, nullptr, nullptr, 0, nullptr);
+  xJSStringRef probe = xJSStringCreateWithUTF8CString("globalThis.__out");
+  xJSValueRef  out   = xJSEvaluateScript(ctx_, probe, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(out, nullptr);
   EXPECT_EQ(xJSValueToNumber(ctx_, out, nullptr), 42.0);
   xjs_slot_release(out);
@@ -1287,36 +1208,30 @@ TEST_F(XjsObjectTest, MakeDeferredPromiseResolveDeliversValue) {
 TEST_F(XjsObjectTest, MakeDeferredPromiseRejectDeliversReason) {
   xJSObjectRef resolve = nullptr;
   xJSObjectRef reject  = nullptr;
-  xJSObjectRef p =
-    xJSObjectMakeDeferredPromise(ctx_, &resolve, &reject, nullptr);
+  xJSObjectRef p       = xJSObjectMakeDeferredPromise(ctx_, &resolve, &reject, nullptr);
   ASSERT_NE(p, nullptr);
 
   xJSStringRef kP = xJSStringCreateWithUTF8CString("__p");
   xJSObjectRef g  = xJSContextGetGlobalObject(ctx_);
-  xJSObjectSetProperty(ctx_, g, kP, (xJSValueRef)p,
-                       kXJSPropertyAttributeNone, nullptr);
+  xJSObjectSetProperty(ctx_, g, kP, (xJSValueRef)p, kXJSPropertyAttributeNone, nullptr);
   xJSStringRef setup = xJSStringCreateWithUTF8CString(
     "globalThis.__why = null; __p.catch(e => { globalThis.__why = e; });");
-  xJSValueRef r0 =
-    xJSEvaluateScript(ctx_, setup, nullptr, nullptr, 0, nullptr);
+  xJSValueRef r0 = xJSEvaluateScript(ctx_, setup, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(r0, nullptr);
   xjs_slot_release(r0);
   xJSStringRelease(setup);
 
   xJSValueRef neg7   = xJSValueMakeNumber(ctx_, -7);
   xJSValueRef args[] = {neg7};
-  xJSValueRef rv =
-    xJSObjectCallAsFunction(ctx_, reject, nullptr, 1, args, nullptr);
+  xJSValueRef rv     = xJSObjectCallAsFunction(ctx_, reject, nullptr, 1, args, nullptr);
   ASSERT_NE(rv, nullptr);
   xjs_slot_release(rv);
   xjs_slot_release(neg7);
 
   xJSContextDrainPendingJobs(ctx_, nullptr);
 
-  xJSStringRef probe =
-    xJSStringCreateWithUTF8CString("globalThis.__why");
-  xJSValueRef out =
-    xJSEvaluateScript(ctx_, probe, nullptr, nullptr, 0, nullptr);
+  xJSStringRef probe = xJSStringCreateWithUTF8CString("globalThis.__why");
+  xJSValueRef  out   = xJSEvaluateScript(ctx_, probe, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(out, nullptr);
   EXPECT_EQ(xJSValueToNumber(ctx_, out, nullptr), -7.0);
   xjs_slot_release(out);
@@ -1332,8 +1247,7 @@ TEST_F(XjsObjectTest, MakeDeferredPromiseRejectDeliversReason) {
 TEST_F(XjsObjectTest, MakeDeferredPromiseNullOutParamsAreSafe) {
   /* If the caller doesn't ask for resolve/reject, the slots should
    * still be released (no leak, no crash).  */
-  xJSObjectRef p =
-    xJSObjectMakeDeferredPromise(ctx_, nullptr, nullptr, nullptr);
+  xJSObjectRef p = xJSObjectMakeDeferredPromise(ctx_, nullptr, nullptr, nullptr);
   ASSERT_NE(p, nullptr);
   xjs_slot_release((xJSValueRef)p);
 }
@@ -1344,12 +1258,10 @@ TEST_F(XjsObjectTest, MakeDeferredPromiseNullOutParamsAreSafe) {
 
 TEST_F(XjsObjectTest, MakeFunctionZeroArgsBody) {
   xJSStringRef body = xJSStringCreateWithUTF8CString("return 7;");
-  xJSObjectRef fn =
-    xJSObjectMakeFunction(ctx_, nullptr, 0, nullptr, body, nullptr, 0, nullptr);
+  xJSObjectRef fn   = xJSObjectMakeFunction(ctx_, nullptr, 0, nullptr, body, nullptr, 0, nullptr);
   ASSERT_NE(fn, nullptr);
 
-  xJSValueRef rv =
-    xJSObjectCallAsFunction(ctx_, fn, nullptr, 0, nullptr, nullptr);
+  xJSValueRef rv = xJSObjectCallAsFunction(ctx_, fn, nullptr, 0, nullptr, nullptr);
   ASSERT_NE(rv, nullptr);
   EXPECT_EQ(xJSValueToNumber(ctx_, rv, nullptr), 7.0);
 
@@ -1359,22 +1271,20 @@ TEST_F(XjsObjectTest, MakeFunctionZeroArgsBody) {
 }
 
 TEST_F(XjsObjectTest, MakeFunctionWithNameAndParams) {
-  xJSStringRef name = xJSStringCreateWithUTF8CString("add");
-  xJSStringRef a    = xJSStringCreateWithUTF8CString("a");
-  xJSStringRef b    = xJSStringCreateWithUTF8CString("b");
-  xJSStringRef body = xJSStringCreateWithUTF8CString("return a + b;");
+  xJSStringRef       name = xJSStringCreateWithUTF8CString("add");
+  xJSStringRef       a    = xJSStringCreateWithUTF8CString("a");
+  xJSStringRef       b    = xJSStringCreateWithUTF8CString("b");
+  xJSStringRef       body = xJSStringCreateWithUTF8CString("return a + b;");
   const xJSStringRef ps[] = {a, b};
 
-  xJSObjectRef fn =
-    xJSObjectMakeFunction(ctx_, name, 2, ps, body, nullptr, 0, nullptr);
+  xJSObjectRef fn = xJSObjectMakeFunction(ctx_, name, 2, ps, body, nullptr, 0, nullptr);
   ASSERT_NE(fn, nullptr);
 
   /* Call add(3, 4) → 7. */
-  xJSValueRef v3 = xJSValueMakeNumber(ctx_, 3);
-  xJSValueRef v4 = xJSValueMakeNumber(ctx_, 4);
+  xJSValueRef v3     = xJSValueMakeNumber(ctx_, 3);
+  xJSValueRef v4     = xJSValueMakeNumber(ctx_, 4);
   xJSValueRef args[] = {v3, v4};
-  xJSValueRef rv =
-    xJSObjectCallAsFunction(ctx_, fn, nullptr, 2, args, nullptr);
+  xJSValueRef rv     = xJSObjectCallAsFunction(ctx_, fn, nullptr, 2, args, nullptr);
   ASSERT_NE(rv, nullptr);
   EXPECT_EQ(xJSValueToNumber(ctx_, rv, nullptr), 7.0);
   xjs_slot_release(rv);
@@ -1383,9 +1293,9 @@ TEST_F(XjsObjectTest, MakeFunctionWithNameAndParams) {
 
   /* .name should be "add" */
   xJSStringRef kName = xJSStringCreateWithUTF8CString("name");
-  xJSValueRef  nv = xJSObjectGetProperty(ctx_, fn, kName, nullptr);
+  xJSValueRef  nv    = xJSObjectGetProperty(ctx_, fn, kName, nullptr);
   ASSERT_NE(nv, nullptr);
-  xJSStringRef ns = xJSValueToStringCopy(ctx_, nv, nullptr);
+  xJSStringRef ns      = xJSValueToStringCopy(ctx_, nv, nullptr);
   char         buf[16] = {0};
   xJSStringGetUTF8CString(ns, buf, sizeof(buf));
   EXPECT_STREQ(buf, "add");
@@ -1403,8 +1313,7 @@ TEST_F(XjsObjectTest, MakeFunctionWithNameAndParams) {
 TEST_F(XjsObjectTest, MakeFunctionSyntaxErrorPropagates) {
   xJSStringRef body = xJSStringCreateWithUTF8CString("return @@@;");
   xJSValueRef  exc  = nullptr;
-  xJSObjectRef fn =
-    xJSObjectMakeFunction(ctx_, nullptr, 0, nullptr, body, nullptr, 0, &exc);
+  xJSObjectRef fn   = xJSObjectMakeFunction(ctx_, nullptr, 0, nullptr, body, nullptr, 0, &exc);
   EXPECT_EQ(fn, nullptr);
   EXPECT_NE(exc, nullptr);
   if (exc) xjs_slot_release(exc);
@@ -1412,8 +1321,6 @@ TEST_F(XjsObjectTest, MakeFunctionSyntaxErrorPropagates) {
 }
 
 TEST_F(XjsObjectTest, MakeFunctionNullBodyReturnsNull) {
-  EXPECT_EQ(
-    xJSObjectMakeFunction(ctx_, nullptr, 0, nullptr, nullptr, nullptr, 0,
-                          nullptr),
-    nullptr);
+  EXPECT_EQ(xJSObjectMakeFunction(ctx_, nullptr, 0, nullptr, nullptr, nullptr, 0, nullptr),
+            nullptr);
 }

@@ -20,6 +20,9 @@
 #include <gtest/gtest.h>
 
 extern "C" {
+#include "agent_private.h"
+#include "provider_private.h"
+#include "session_private.h"
 #include <x/agent/agent.h>
 #include <x/agent/memory.h>
 #include <x/agent/provider.h>
@@ -27,9 +30,6 @@ extern "C" {
 #include <x/agent/tool.h>
 #include <x/base/array.h>
 #include <x/base/event.h>
-#include "agent_private.h"
-#include "provider_private.h"
-#include "session_private.h"
 }
 
 #include <cstdlib>
@@ -46,7 +46,9 @@ static void noop_cancel(void *) {}
 static void noop_destroy(void *) {}
 
 static const xAgentProviderVtable kNoopVtable = {
-  noop_submit, noop_cancel, noop_destroy,
+  noop_submit,
+  noop_cancel,
+  noop_destroy,
 };
 
 static xAgentProvider make_noop_provider() {
@@ -66,7 +68,7 @@ static xErrno noop_tool_handler(xAgentQuery, const xAgentContent *, xAgentConten
 
 class AgentTest : public ::testing::Test {
 protected:
-  xEventLoop  loop = nullptr;
+  xEventLoop     loop = nullptr;
   xAgentProvider pvd  = nullptr;
 
   void SetUp() override {
@@ -77,7 +79,7 @@ protected:
   }
 
   void TearDown() override {
-    if (pvd)  xAgentProviderDestroy(pvd);
+    if (pvd) xAgentProviderDestroy(pvd);
     if (loop) xEventLoopDestroy(loop);
   }
 };
@@ -90,23 +92,23 @@ TEST_F(AgentTest, CreateRejectsNullConf) {
 
 TEST_F(AgentTest, CreateRejectsMissingLoop) {
   xAgentConf conf = {};
-  conf.provider = pvd;
+  conf.provider   = pvd;
   EXPECT_EQ(xAgentCreate(&conf), nullptr);
 }
 
 TEST_F(AgentTest, CreateRejectsMissingProvider) {
   xAgentConf conf = {};
-  conf.loop = loop;
+  conf.loop       = loop;
   EXPECT_EQ(xAgentCreate(&conf), nullptr);
 }
 
 TEST_F(AgentTest, CreateRejectsNonZeroToolsWithNullArray) {
   /* tools_count > 0 with tools == NULL is a caller bug; catch it at the
    * door so session.c never has to guard. */
-  xAgentConf conf = {};
-  conf.loop     = loop;
-  conf.provider = pvd;
-  conf.tools    = nullptr;
+  xAgentConf conf  = {};
+  conf.loop        = loop;
+  conf.provider    = pvd;
+  conf.tools       = nullptr;
   conf.tools_count = 3;
   EXPECT_EQ(xAgentCreate(&conf), nullptr);
 }
@@ -115,22 +117,22 @@ TEST_F(AgentTest, CreateRejectsNonZeroToolsWithNullArray) {
 
 TEST_F(AgentTest, CreateWithMinimalConfSucceedsAndZerosOptionals) {
   xAgentConf conf = {};
-  conf.loop     = loop;
-  conf.provider = pvd;
+  conf.loop       = loop;
+  conf.provider   = pvd;
 
   xAgent ag = xAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);
 
   auto *a = reinterpret_cast<struct xAgent_ *>(ag);
-  EXPECT_EQ(a->loop,           loop);
-  EXPECT_EQ(a->provider,       pvd);
-  EXPECT_EQ(a->model,          nullptr);
-  EXPECT_EQ(a->system_prompt,  nullptr);
-  EXPECT_EQ(a->tools,          nullptr);
-  EXPECT_EQ(a->tools_count,    0u);
-  EXPECT_EQ(a->task_group,     nullptr);
-  EXPECT_EQ(a->max_turns,      0);
-  EXPECT_EQ(a->max_tokens,     0);
+  EXPECT_EQ(a->loop, loop);
+  EXPECT_EQ(a->provider, pvd);
+  EXPECT_EQ(a->model, nullptr);
+  EXPECT_EQ(a->system_prompt, nullptr);
+  EXPECT_EQ(a->tools, nullptr);
+  EXPECT_EQ(a->tools_count, 0u);
+  EXPECT_EQ(a->task_group, nullptr);
+  EXPECT_EQ(a->max_turns, 0);
+  EXPECT_EQ(a->max_tokens, 0);
 
   xAgentDestroy(ag);
 }
@@ -141,24 +143,24 @@ TEST_F(AgentTest, CreateCapturesEveryField) {
   /* One real tool is enough to pin the "tools array is borrowed and
    * tools_count mirrors the count" contract. */
   xAgentToolConf tconf = {};
-  tconf.name        = "noop";
-  tconf.description = "does nothing";
-  tconf.handler     = noop_tool_handler;
-  xAgentTool t = xAgentToolCreate(&tconf);
+  tconf.name           = "noop";
+  tconf.description    = "does nothing";
+  tconf.handler        = noop_tool_handler;
+  xAgentTool t         = xAgentToolCreate(&tconf);
   ASSERT_NE(t, nullptr);
 
   const xAgentTool *tools[] = {&t};
 
-  xAgentConf conf = {};
-  conf.loop           = loop;
-  conf.provider       = pvd;
-  conf.model          = "kimi-k2.6";
-  conf.system_prompt  = "be concise";
-  conf.tools          = tools;
-  conf.tools_count    = 1;
-  conf.task_group     = nullptr;   /* can't cheaply construct one here */
-  conf.max_turns      = 7;
-  conf.max_tokens     = 512;
+  xAgentConf conf    = {};
+  conf.loop          = loop;
+  conf.provider      = pvd;
+  conf.model         = "kimi-k2.6";
+  conf.system_prompt = "be concise";
+  conf.tools         = tools;
+  conf.tools_count   = 1;
+  conf.task_group    = nullptr; /* can't cheaply construct one here */
+  conf.max_turns     = 7;
+  conf.max_tokens    = 512;
 
   xAgent ag = xAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);
@@ -166,16 +168,16 @@ TEST_F(AgentTest, CreateCapturesEveryField) {
   auto *a = reinterpret_cast<struct xAgent_ *>(ag);
 
   /* Pointers are borrowed — check identity, not content. */
-  EXPECT_EQ(a->loop,          loop);
-  EXPECT_EQ(a->provider,      pvd);
-  EXPECT_EQ(a->model,         conf.model);
+  EXPECT_EQ(a->loop, loop);
+  EXPECT_EQ(a->provider, pvd);
+  EXPECT_EQ(a->model, conf.model);
   EXPECT_EQ(a->system_prompt, conf.system_prompt);
-  EXPECT_EQ(a->tools,         tools);
-  EXPECT_EQ(a->tools_count,   1u);
+  EXPECT_EQ(a->tools, tools);
+  EXPECT_EQ(a->tools_count, 1u);
 
   /* Scalars round-trip. */
-  EXPECT_EQ(a->max_turns,      7);
-  EXPECT_EQ(a->max_tokens,     512);
+  EXPECT_EQ(a->max_turns, 7);
+  EXPECT_EQ(a->max_tokens, 512);
 
   /* Destroying the agent must not touch borrowed dependencies —
    * the tool still works afterwards. */
@@ -197,8 +199,8 @@ TEST_F(AgentTest, DefaultSessionOnNullAgentReturnsNull) {
 
 TEST_F(AgentTest, DefaultSessionIsNullWhenConfIsNull) {
   xAgentConf conf = {};
-  conf.loop     = loop;
-  conf.provider = pvd;
+  conf.loop       = loop;
+  conf.provider   = pvd;
   /* default_session_conf left NULL */
 
   xAgent ag = xAgentCreate(&conf);
@@ -208,10 +210,10 @@ TEST_F(AgentTest, DefaultSessionIsNullWhenConfIsNull) {
 }
 
 TEST_F(AgentTest, DefaultSessionCreatedWhenConfProvided) {
-  xAgentSessionConf sc = {};  /* zero-init: all fields inherited, origin=User */
-  xAgentConf conf = {};
-  conf.loop                = loop;
-  conf.provider            = pvd;
+  xAgentSessionConf sc      = {}; /* zero-init: all fields inherited, origin=User */
+  xAgentConf        conf    = {};
+  conf.loop                 = loop;
+  conf.provider             = pvd;
   conf.default_session_conf = &sc;
 
   xAgent ag = xAgentCreate(&conf);
@@ -234,11 +236,11 @@ TEST_F(AgentTest, DefaultSessionOriginHonoursCallerSetting) {
    * primary conversation entry, so origin=User is the natural
    * default (zero-init). The caller may override it if desired. */
   xAgentSessionConf sc = {};
-  sc.origin = xAgentInputOrigin_User;
+  sc.origin            = xAgentInputOrigin_User;
 
-  xAgentConf conf = {};
-  conf.loop                = loop;
-  conf.provider            = pvd;
+  xAgentConf conf           = {};
+  conf.loop                 = loop;
+  conf.provider             = pvd;
   conf.default_session_conf = &sc;
 
   xAgent ag = xAgentCreate(&conf);
@@ -256,10 +258,10 @@ TEST_F(AgentTest, DefaultSessionDestroyedWithAgent) {
    * session. We cannot directly observe the free, but we can
    * confirm the API does not crash and the session pointer is
    * internally NULLed (checked via private access). */
-  xAgentSessionConf sc = {};
-  xAgentConf conf = {};
-  conf.loop                = loop;
-  conf.provider            = pvd;
+  xAgentSessionConf sc      = {};
+  xAgentConf        conf    = {};
+  conf.loop                 = loop;
+  conf.provider             = pvd;
   conf.default_session_conf = &sc;
 
   xAgent ag = xAgentCreate(&conf);
@@ -273,14 +275,14 @@ TEST_F(AgentTest, DefaultSessionDestroyedWithAgent) {
 }
 
 TEST_F(AgentTest, DefaultSessionInheritsAgentDefaults) {
-  xAgentSessionConf sc = {};  /* all fields zero → inherit from agent */
-  xAgentConf conf = {};
-  conf.loop                = loop;
-  conf.provider            = pvd;
-  conf.model               = "kimi-k2.6";
-  conf.system_prompt       = "be helpful";
-  conf.max_turns           = 10;
-  conf.max_tokens          = 2048;
+  xAgentSessionConf sc      = {}; /* all fields zero → inherit from agent */
+  xAgentConf        conf    = {};
+  conf.loop                 = loop;
+  conf.provider             = pvd;
+  conf.model                = "kimi-k2.6";
+  conf.system_prompt        = "be helpful";
+  conf.max_turns            = 10;
+  conf.max_tokens           = 2048;
   conf.default_session_conf = &sc;
 
   xAgent ag = xAgentCreate(&conf);
@@ -294,8 +296,8 @@ TEST_F(AgentTest, DefaultSessionInheritsAgentDefaults) {
    * model is strdup'd so the session owns its copy — compare
    * by content, not by pointer identity. */
   auto *s = reinterpret_cast<struct xAgentSession_ *>(ds);
-  EXPECT_STREQ(s->model,  conf.model);
-  EXPECT_EQ(s->max_turns,  conf.max_turns);
+  EXPECT_STREQ(s->model, conf.model);
+  EXPECT_EQ(s->max_turns, conf.max_turns);
   EXPECT_EQ(s->max_tokens, conf.max_tokens);
 
   xAgentDestroy(ag);
@@ -309,34 +311,29 @@ TEST_F(AgentTest, DefaultSessionInheritsAgentDefaults) {
  * hook manually and then consulting the store. */
 TEST_F(AgentTest, MemoryStoreWiredIntoSession) {
   /* JSONL backend pointed at a per-test temp root. */
-  std::string root = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR")
-                                                        : "/tmp") +
-                     "/xagent_memwire_" +
-                     std::to_string(::testing::UnitTest::GetInstance()
-                                      ->current_test_info()
-                                      ->name()
-                                      ? 0
-                                      : 0);
+  std::string root =
+    std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") + "/xagent_memwire_" +
+    std::to_string(::testing::UnitTest::GetInstance()->current_test_info()->name() ? 0 : 0);
   /* Flatten any stale state so each run is fresh. */
   std::string rm = "rm -rf '" + root + "'";
   (void)std::system(rm.c_str());
 
   xAgentMemoryJsonlConf mc = {};
-  mc.root_dir = root.c_str();
-  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  mc.root_dir              = root.c_str();
+  xAgentMemory store       = xAgentMemoryJsonlCreate(&mc);
   ASSERT_NE(store, nullptr);
 
   xAgentConf conf = {};
-  conf.loop     = loop;
-  conf.provider = pvd;
-  conf.memory   = store;
+  conf.loop       = loop;
+  conf.provider   = pvd;
+  conf.memory     = store;
 
   xAgent ag = xAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);
 
   xAgentSessionConf sc = {};
-  sc.session_id      = "sess_a";
-  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  sc.session_id        = "sess_a";
+  xAgentSession sess   = xAgentCreateSession(ag, &sc);
   ASSERT_NE(sess, nullptr);
 
   auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
@@ -352,16 +349,15 @@ TEST_F(AgentTest, MemoryStoreWiredIntoSession) {
   msg0.text     = "first turn";
   msg0.text_len = std::strlen("first turn");
   xAgentSessionMsg msg1{};
-  msg1.role     = xAgentRole_Assistant;
-  msg1.kind     = xAgentSessionEntryKind_Text;
-  msg1.text     = "first reply";
-  msg1.text_len = std::strlen("first reply");
+  msg1.role                = xAgentRole_Assistant;
+  msg1.kind                = xAgentSessionEntryKind_Text;
+  msg1.text                = "first reply";
+  msg1.text_len            = std::strlen("first reply");
   xAgentSessionMsg batch[] = {msg0, msg1};
 
   xAgentMemoryQuery q{};
   q.session_id = "sess_a";
-  xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Truncated,
-                     batch, 2);
+  xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Truncated, batch, 2);
 
   /* Retrieve from the store and assert the two entries round-tripped. */
   xAgentMemoryQuery rq{};
@@ -369,8 +365,7 @@ TEST_F(AgentTest, MemoryStoreWiredIntoSession) {
   xAgentMemoryHits hits{};
   ASSERT_EQ(xAgentMemoryRetrieve(store, &rq, &hits), xErrno_Ok);
   ASSERT_EQ(hits.n_entries, size_t{2});
-  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len),
-            std::string("first turn"));
+  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len), std::string("first turn"));
   EXPECT_EQ(std::string(hits.entries[1].text, hits.entries[1].text_len),
             std::string("first reply"));
   xAgentMemoryReleaseHits(store, &hits);
@@ -387,16 +382,16 @@ TEST_F(AgentTest, MemoryStoreWiredIntoSession) {
  * when they opt out of persistence. */
 TEST_F(AgentTest, WithoutMemoryStoreNoMemoryWiring) {
   xAgentConf conf = {};
-  conf.loop     = loop;
-  conf.provider = pvd;
+  conf.loop       = loop;
+  conf.provider   = pvd;
   /* conf.memory stays NULL */
 
   xAgent ag = xAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);
 
   xAgentSessionConf sc = {};
-  sc.session_id      = "sess_no_mem";
-  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  sc.session_id        = "sess_no_mem";
+  xAgentSession sess   = xAgentCreateSession(ag, &sc);
   ASSERT_NE(sess, nullptr);
 
   auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
@@ -416,8 +411,8 @@ TEST_F(AgentTest, MemoryPrimesHistoryOnCreateSession) {
   (void)std::system(rm.c_str());
 
   xAgentMemoryJsonlConf mc = {};
-  mc.root_dir = root;
-  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  mc.root_dir              = root;
+  xAgentMemory store       = xAgentMemoryJsonlCreate(&mc);
   ASSERT_NE(store, nullptr);
 
   /* Pre-seed the store directly — simpler than running a full
@@ -431,36 +426,32 @@ TEST_F(AgentTest, MemoryPrimesHistoryOnCreateSession) {
   seed0.text     = "what is 2+2?";
   seed0.text_len = std::strlen("what is 2+2?");
   xAgentSessionMsg seed1{};
-  seed1.role     = xAgentRole_Assistant;
-  seed1.kind     = xAgentSessionEntryKind_Text;
-  seed1.text     = "four";
-  seed1.text_len = 4;
+  seed1.role               = xAgentRole_Assistant;
+  seed1.kind               = xAgentSessionEntryKind_Text;
+  seed1.text               = "four";
+  seed1.text_len           = 4;
   xAgentSessionMsg seeds[] = {seed0, seed1};
-  ASSERT_EQ(xAgentMemoryAppend(store, &wq, xAgentMemoryAppendReason_Explicit,
-                               seeds, 2),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &wq, xAgentMemoryAppendReason_Explicit, seeds, 2), xErrno_Ok);
 
   xAgentConf conf = {};
-  conf.loop     = loop;
-  conf.provider = pvd;
-  conf.memory   = store;
+  conf.loop       = loop;
+  conf.provider   = pvd;
+  conf.memory     = store;
 
   xAgent ag = xAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);
 
   xAgentSessionConf sc = {};
-  sc.session_id      = "resumed";
-  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  sc.session_id        = "resumed";
+  xAgentSession sess   = xAgentCreateSession(ag, &sc);
   ASSERT_NE(sess, nullptr);
 
   /* History should already be primed with the two seed entries. */
   auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
   ASSERT_EQ(xArrayLen(s->history_arr), size_t{2});
 
-  auto *h0 = reinterpret_cast<struct xAgentSessionMsg_ *>(
-    xArrayAt(s->history_arr, 0));
-  auto *h1 = reinterpret_cast<struct xAgentSessionMsg_ *>(
-    xArrayAt(s->history_arr, 1));
+  auto *h0 = reinterpret_cast<struct xAgentSessionMsg_ *>(xArrayAt(s->history_arr, 0));
+  auto *h1 = reinterpret_cast<struct xAgentSessionMsg_ *>(xArrayAt(s->history_arr, 1));
   EXPECT_EQ(h0->role, xAgentRole_User);
   EXPECT_EQ(std::string(h0->text, h0->text_len), std::string("what is 2+2?"));
   EXPECT_EQ(h1->role, xAgentRole_Assistant);
@@ -476,15 +467,15 @@ TEST_F(AgentTest, MemoryPrimesHistoryOnCreateSession) {
  * history_arr — prime is a memory-store-only feature. */
 TEST_F(AgentTest, NoPrimeWithoutMemoryStore) {
   xAgentConf conf = {};
-  conf.loop     = loop;
-  conf.provider = pvd;
+  conf.loop       = loop;
+  conf.provider   = pvd;
 
   xAgent ag = xAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);
 
   xAgentSessionConf sc = {};
-  sc.session_id      = "any";
-  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  sc.session_id        = "any";
+  xAgentSession sess   = xAgentCreateSession(ag, &sc);
   ASSERT_NE(sess, nullptr);
 
   auto *s = reinterpret_cast<struct xAgentSession_ *>(sess);
@@ -503,8 +494,8 @@ TEST_F(AgentTest, PrimedPrefixIsSkippedOnFinalizing) {
   (void)std::system(rm.c_str());
 
   xAgentMemoryJsonlConf mc = {};
-  mc.root_dir = root;
-  xAgentMemory store = xAgentMemoryJsonlCreate(&mc);
+  mc.root_dir              = root;
+  xAgentMemory store       = xAgentMemoryJsonlCreate(&mc);
   ASSERT_NE(store, nullptr);
 
   /* Seed two rows into the store. */
@@ -516,25 +507,23 @@ TEST_F(AgentTest, PrimedPrefixIsSkippedOnFinalizing) {
   s0.text     = "seed0";
   s0.text_len = 5;
   xAgentSessionMsg s1{};
-  s1.role     = xAgentRole_Assistant;
-  s1.kind     = xAgentSessionEntryKind_Text;
-  s1.text     = "seed1";
-  s1.text_len = 5;
+  s1.role                  = xAgentRole_Assistant;
+  s1.kind                  = xAgentSessionEntryKind_Text;
+  s1.text                  = "seed1";
+  s1.text_len              = 5;
   xAgentSessionMsg seeds[] = {s0, s1};
-  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                               seeds, 2),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, seeds, 2), xErrno_Ok);
 
   xAgentConf conf = {};
-  conf.loop     = loop;
-  conf.provider = pvd;
-  conf.memory   = store;
-  xAgent ag = xAgentCreate(&conf);
+  conf.loop       = loop;
+  conf.provider   = pvd;
+  conf.memory     = store;
+  xAgent ag       = xAgentCreate(&conf);
   ASSERT_NE(ag, nullptr);
 
   xAgentSessionConf sc = {};
-  sc.session_id      = "resume";
-  xAgentSession sess = xAgentCreateSession(ag, &sc);
+  sc.session_id        = "resume";
+  xAgentSession sess   = xAgentCreateSession(ag, &sc);
   ASSERT_NE(sess, nullptr);
 
   auto *ss = reinterpret_cast<struct xAgentSession_ *>(sess);

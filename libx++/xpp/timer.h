@@ -9,8 +9,8 @@
 #ifndef XPP_TIMER_H
 #define XPP_TIMER_H
 
-#include "handle.h"
-#include "result.h"
+#include <xpp/handle.h>
+#include <xpp/result.h>
 
 #include <x/base/timer.h>
 

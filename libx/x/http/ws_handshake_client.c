@@ -36,9 +36,8 @@ static void ws_client_random(uint8_t *buf, size_t len) {
 
 /* ─────────────────── Build Upgrade request ─────────────────── */
 
-int xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url,
-                                 const char *headers, char *accept_out,
-                                 size_t accept_sz) {
+int xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url, const char *headers,
+                                 char *accept_out, size_t accept_sz) {
   if (!io || !url || !accept_out) return -1;
 
   /* Generate random 16-byte nonce and Base64-encode it */
@@ -60,8 +59,7 @@ int xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url,
   unsigned char sha1[XWS_SHA1_DIGEST_SIZE];
   xWsSHA1((const unsigned char *)concat, kl + sizeof(WS_GUID) - 1, sha1);
 
-  if (xWsBase64Encode(sha1, XWS_SHA1_DIGEST_SIZE, accept_out, accept_sz) < 0)
-    return -1;
+  if (xWsBase64Encode(sha1, XWS_SHA1_DIGEST_SIZE, accept_out, accept_sz) < 0) return -1;
 
   /* Build request path */
   const char *path     = "/";
@@ -75,12 +73,10 @@ int xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url,
   char host_buf[512];
   int  host_len;
   if (url->port && url->port_len > 0) {
-    host_len =
-      snprintf(host_buf, sizeof(host_buf), "%.*s:%.*s", (int)url->host_len,
-               url->host, (int)url->port_len, url->port);
+    host_len = snprintf(host_buf, sizeof(host_buf), "%.*s:%.*s", (int)url->host_len, url->host,
+                        (int)url->port_len, url->port);
   } else {
-    host_len = snprintf(host_buf, sizeof(host_buf), "%.*s", (int)url->host_len,
-                        url->host);
+    host_len = snprintf(host_buf, sizeof(host_buf), "%.*s", (int)url->host_len, url->host);
   }
   if (host_len < 0 || (size_t)host_len >= sizeof(host_buf)) return -1;
 
@@ -93,8 +89,7 @@ int xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url,
   char ext_offer[128];
   xWsDeflateBuildClientOffer(ext_offer, sizeof(ext_offer));
   char ext_hdr[192];
-  snprintf(ext_hdr, sizeof(ext_hdr), "Sec-WebSocket-Extensions: %s\r\n",
-           ext_offer);
+  snprintf(ext_hdr, sizeof(ext_hdr), "Sec-WebSocket-Extensions: %s\r\n", ext_offer);
 #else
   const char *ext_hdr = "";
 #endif
@@ -111,8 +106,8 @@ int xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url,
                        "%s"
                        "%s"
                        "\r\n",
-                       (int)path_len, path, (int)url->query_len, url->query,
-                       host_buf, ws_key, ext_hdr, headers ? headers : "");
+                       (int)path_len, path, (int)url->query_len, url->query, host_buf, ws_key,
+                       ext_hdr, headers ? headers : "");
   } else {
     req_len = snprintf(req, sizeof(req),
                        "GET %.*s HTTP/1.1\r\n"
@@ -124,8 +119,7 @@ int xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url,
                        "%s"
                        "%s"
                        "\r\n",
-                       (int)path_len, path, host_buf, ws_key, ext_hdr,
-                       headers ? headers : "");
+                       (int)path_len, path, host_buf, ws_key, ext_hdr, headers ? headers : "");
   }
 
   if (req_len < 0 || (size_t)req_len >= sizeof(req)) return -1;
@@ -141,8 +135,8 @@ int xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url,
  * Simple header finder for response headers.
  * Case-insensitive key match.
  */
-static const char *find_resp_header(const char *data, size_t len,
-                                    const char *key, size_t *val_len) {
+static const char *find_resp_header(const char *data, size_t len, const char *key,
+                                    size_t *val_len) {
   size_t      key_len = strlen(key);
   const char *p       = data;
   const char *end     = data + len;
@@ -152,8 +146,7 @@ static const char *find_resp_header(const char *data, size_t len,
     if (!eol) eol = end;
 
     size_t line_len = (size_t)(eol - p);
-    if (line_len > key_len + 1 && strncasecmp(p, key, key_len) == 0 &&
-        p[key_len] == ':') {
+    if (line_len > key_len + 1 && strncasecmp(p, key, key_len) == 0 && p[key_len] == ':') {
       const char *val = p + key_len + 1;
       while (val < eol && *val == ' ')
         val++;
@@ -168,8 +161,7 @@ static const char *find_resp_header(const char *data, size_t len,
   return NULL;
 }
 
-static int header_token_match(const char *value, size_t vlen,
-                              const char *token) {
+static int header_token_match(const char *value, size_t vlen, const char *token) {
   size_t      tlen = strlen(token);
   const char *p    = value;
   const char *end  = value + vlen;
@@ -190,14 +182,11 @@ static int header_token_match(const char *value, size_t vlen,
   return 0;
 }
 
-int xWsClientValidateUpgradeResponse(const char *data, size_t len,
-                                     const char *expected_accept) {
+int xWsClientValidateUpgradeResponse(const char *data, size_t len, const char *expected_accept) {
   if (!data || len < 12) return -1;
 
   /* Check "HTTP/1.1 101" status line */
-  if (strncmp(data, "HTTP/1.1 101", 12) != 0 &&
-      strncmp(data, "HTTP/1.0 101", 12) != 0)
-    return -1;
+  if (strncmp(data, "HTTP/1.1 101", 12) != 0 && strncmp(data, "HTTP/1.0 101", 12) != 0) return -1;
 
   /* Find end of status line */
   const char *hdr_start = (const char *)memmem(data, len, "\r\n", 2);
@@ -215,13 +204,11 @@ int xWsClientValidateUpgradeResponse(const char *data, size_t len,
   if (!conn || !header_token_match(conn, vlen, "Upgrade")) return -1;
 
   /* Check Sec-WebSocket-Accept */
-  const char *accept =
-    find_resp_header(hdr_start, hdr_len, "Sec-WebSocket-Accept", &vlen);
+  const char *accept = find_resp_header(hdr_start, hdr_len, "Sec-WebSocket-Accept", &vlen);
   if (!accept) return -1;
 
   size_t expect_len = strlen(expected_accept);
-  if (vlen != expect_len || memcmp(accept, expected_accept, expect_len) != 0)
-    return -1;
+  if (vlen != expect_len || memcmp(accept, expected_accept, expect_len) != 0) return -1;
 
   return 0;
 }
@@ -229,8 +216,7 @@ int xWsClientValidateUpgradeResponse(const char *data, size_t len,
 /* ─────────────────── Parse deflate from response ─────────────────── */
 
 #ifdef XHTTP_WS_DEFLATE
-int xWsClientParseDeflateResponse(const char *data, size_t len,
-                                  xWsDeflateParams *params) {
+int xWsClientParseDeflateResponse(const char *data, size_t len, xWsDeflateParams *params) {
   if (!data || !params) return -1;
 
   /* Find end of status line */
@@ -241,8 +227,7 @@ int xWsClientParseDeflateResponse(const char *data, size_t len,
 
   /* Look for Sec-WebSocket-Extensions header */
   size_t      vlen;
-  const char *ext =
-    find_resp_header(hdr_start, hdr_len, "Sec-WebSocket-Extensions", &vlen);
+  const char *ext = find_resp_header(hdr_start, hdr_len, "Sec-WebSocket-Extensions", &vlen);
   if (!ext || vlen == 0) return -1;
 
   return xWsDeflateParseOffer(ext, vlen, params);

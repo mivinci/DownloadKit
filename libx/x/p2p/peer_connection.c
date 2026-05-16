@@ -22,8 +22,8 @@
 /* ───────────────────── Internal Structure ───────────────────── */
 
 XDEF_STRUCT(xPeerConnection_) {
-  xPeerConnectionConf conf;
-  xEventLoop          loop;
+  xPeerConnectionConf  conf;
+  xEventLoop           loop;
   xPeerConnectionState state;
 
   /* Protocol stack (owned) */
@@ -33,13 +33,13 @@ XDEF_STRUCT(xPeerConnection_) {
   xDataChannelMgr dc_mgr;
 
   /* Negotiation state */
-  bool     is_offerer;       /**< true if we created the offer.        */
-  bool     gathering_started;
-  bool     remote_set;
+  bool is_offerer; /**< true if we created the offer.        */
+  bool gathering_started;
+  bool remote_set;
 
   /* Remote DTLS parameters (parsed from remote SDP) */
   char     remote_fingerprint[XSDP_MAX_FINGERPRINT_LEN];
-  int      remote_setup;     /**< xIceSdpSetup value from remote SDP.  */
+  int      remote_setup; /**< xIceSdpSetup value from remote SDP.  */
   uint16_t remote_sctp_port;
 
   /* Local DTLS role (derived from negotiation) */
@@ -69,29 +69,24 @@ static void set_state(xPeerConnection_ *pc, xPeerConnectionState new_state) {
 /* ───────────────────── Forward Declarations ───────────────────── */
 
 /* DTLS ↔ ICE glue */
-static void   pc_ice_dtls_input(const uint8_t *data, size_t len,
-                                const struct sockaddr *from, void *arg);
+static void   pc_ice_dtls_input(const uint8_t *data, size_t len, const struct sockaddr *from,
+                                void *arg);
 static xErrno pc_dtls_send(const uint8_t *data, size_t len, void *arg);
 
 /* DTLS callbacks */
-static void pc_dtls_state_changed(xDtlsTransport transport, xDtlsState state,
+static void pc_dtls_state_changed(xDtlsTransport transport, xDtlsState state, void *arg);
+static void pc_dtls_data_received(xDtlsTransport transport, const uint8_t *data, size_t len,
                                   void *arg);
-static void pc_dtls_data_received(xDtlsTransport transport,
-                                  const uint8_t *data, size_t len, void *arg);
 
 /* SCTP callbacks */
-static void pc_sctp_state_changed(xSctpTransport transport, bool connected,
-                                  void *arg);
-static void pc_sctp_data_received(xSctpTransport transport, uint16_t stream_id,
-                                  uint32_t ppid, const uint8_t *data,
-                                  size_t len, void *arg);
-static void pc_sctp_stream_closed(xSctpTransport transport,
-                                  uint16_t stream_id, void *arg);
+static void pc_sctp_state_changed(xSctpTransport transport, bool connected, void *arg);
+static void pc_sctp_data_received(xSctpTransport transport, uint16_t stream_id, uint32_t ppid,
+                                  const uint8_t *data, size_t len, void *arg);
+static void pc_sctp_stream_closed(xSctpTransport transport, uint16_t stream_id, void *arg);
 static void pc_sctp_buffered_amount_low(xSctpTransport transport, void *arg);
 
 /* DataChannel callback */
-static void pc_on_remote_datachannel(xDataChannelMgr mgr,
-                                     xDataChannel channel, void *arg);
+static void pc_on_remote_datachannel(xDataChannelMgr mgr, xDataChannel channel, void *arg);
 static void pc_dc_open_wrapper(xDataChannel channel, void *ctx);
 static void pc_dc_message_wrapper(xDataChannel channel, xDataChannelMsgType type,
                                   const uint8_t *data, size_t len, void *ctx);
@@ -122,8 +117,7 @@ static void on_ice_state_change(xIceAgent agent, xIceState state, void *arg) {
 
     {
       xDtlsRole role = xDtlsTransportGetRole(pc->dtls);
-      XDEBUG("[dtls] starting handshake role=%s",
-             role == xDtlsRole_Active ? "active" : "passive");
+      XDEBUG("[dtls] starting handshake role=%s", role == xDtlsRole_Active ? "active" : "passive");
       (void)role;
     }
 
@@ -145,8 +139,7 @@ static void on_ice_state_change(xIceAgent agent, xIceState state, void *arg) {
   }
 }
 
-static void on_ice_candidate(xIceAgent agent, const char *candidate_sdp,
-                             void *arg) {
+static void on_ice_candidate(xIceAgent agent, const char *candidate_sdp, void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)agent;
 
@@ -160,8 +153,8 @@ static void on_ice_candidate(xIceAgent agent, const char *candidate_sdp,
 /**
  * @brief ICE demux feeds DTLS packets into the DTLS transport.
  */
-static void pc_ice_dtls_input(const uint8_t *data, size_t len,
-                              const struct sockaddr *from, void *arg) {
+static void pc_ice_dtls_input(const uint8_t *data, size_t len, const struct sockaddr *from,
+                              void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)from;
   XDEBUG("[dtls] received %zu bytes from ICE", len);
@@ -174,17 +167,15 @@ static void pc_ice_dtls_input(const uint8_t *data, size_t len,
  * @brief DTLS transport sends encrypted records through ICE.
  */
 static xErrno pc_dtls_send(const uint8_t *data, size_t len, void *arg) {
-  xPeerConnection_ *pc = (xPeerConnection_ *)arg;
-  xErrno err = xIceAgentSend(pc->ice, data, len);
-  XDEBUG("[dtls] sending %zu bytes via ICE -> %s", len,
-         err == xErrno_Ok ? "ok" : "FAIL");
+  xPeerConnection_ *pc  = (xPeerConnection_ *)arg;
+  xErrno            err = xIceAgentSend(pc->ice, data, len);
+  XDEBUG("[dtls] sending %zu bytes via ICE -> %s", len, err == xErrno_Ok ? "ok" : "FAIL");
   return err;
 }
 
 /* ───────────────────── DTLS Callbacks ───────────────────── */
 
-static void pc_dtls_state_changed(xDtlsTransport transport, xDtlsState state,
-                                  void *arg) {
+static void pc_dtls_state_changed(xDtlsTransport transport, xDtlsState state, void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)transport;
 
@@ -192,17 +183,17 @@ static void pc_dtls_state_changed(xDtlsTransport transport, xDtlsState state,
 
   if (state == xDtlsState_Connected) {
     /* DTLS connected — start SCTP */
-    uint16_t local_port  = pc->local_sctp_port  ? pc->local_sctp_port  : XSCTP_DEFAULT_PORT;
+    uint16_t local_port  = pc->local_sctp_port ? pc->local_sctp_port : XSCTP_DEFAULT_PORT;
     uint16_t remote_port = pc->remote_sctp_port ? pc->remote_sctp_port : XSCTP_DEFAULT_PORT;
 
     xSctpTransportConf sctp_conf;
     memset(&sctp_conf, 0, sizeof(sctp_conf));
-    sctp_conf.loop        = pc->loop;
-    sctp_conf.dtls        = pc->dtls;
-    sctp_conf.is_client   = (pc->dtls_role == xDtlsRole_Active);
-    sctp_conf.local_port  = local_port;
-    sctp_conf.remote_port = remote_port;
-    sctp_conf.on_state_change       = pc_sctp_state_changed;
+    sctp_conf.loop                   = pc->loop;
+    sctp_conf.dtls                   = pc->dtls;
+    sctp_conf.is_client              = (pc->dtls_role == xDtlsRole_Active);
+    sctp_conf.local_port             = local_port;
+    sctp_conf.remote_port            = remote_port;
+    sctp_conf.on_state_change        = pc_sctp_state_changed;
     sctp_conf.on_data                = pc_sctp_data_received;
     sctp_conf.on_stream_close        = pc_sctp_stream_closed;
     sctp_conf.on_buffered_amount_low = pc_sctp_buffered_amount_low;
@@ -219,8 +210,8 @@ static void pc_dtls_state_changed(xDtlsTransport transport, xDtlsState state,
   }
 }
 
-static void pc_dtls_data_received(xDtlsTransport transport,
-                                  const uint8_t *data, size_t len, void *arg) {
+static void pc_dtls_data_received(xDtlsTransport transport, const uint8_t *data, size_t len,
+                                  void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)transport;
   XDEBUG("[sctp] feeding %zu bytes from DTLS, sctp=%p", len, (void *)pc->sctp);
@@ -231,8 +222,7 @@ static void pc_dtls_data_received(xDtlsTransport transport,
 
 /* ───────────────────── SCTP Callbacks ───────────────────── */
 
-static void pc_sctp_state_changed(xSctpTransport transport, bool connected,
-                                  void *arg) {
+static void pc_sctp_state_changed(xSctpTransport transport, bool connected, void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)transport;
 
@@ -240,12 +230,12 @@ static void pc_sctp_state_changed(xSctpTransport transport, bool connected,
     /* SCTP connected — create DataChannel manager */
     xDataChannelMgrConf dc_conf;
     memset(&dc_conf, 0, sizeof(dc_conf));
-    dc_conf.sctp       = pc->sctp;
+    dc_conf.sctp           = pc->sctp;
     dc_conf.on_remote_open = pc_on_remote_datachannel;
-    dc_conf.on_open    = pc_dc_open_wrapper;
-    dc_conf.on_message = pc_dc_message_wrapper;
-    dc_conf.on_close   = pc_dc_close_wrapper;
-    dc_conf.ctx        = pc;
+    dc_conf.on_open        = pc_dc_open_wrapper;
+    dc_conf.on_message     = pc_dc_message_wrapper;
+    dc_conf.on_close       = pc_dc_close_wrapper;
+    dc_conf.ctx            = pc;
 
     pc->dc_mgr = xDataChannelMgrCreate(&dc_conf);
 
@@ -259,9 +249,8 @@ static void pc_sctp_state_changed(xSctpTransport transport, bool connected,
   }
 }
 
-static void pc_sctp_data_received(xSctpTransport transport, uint16_t stream_id,
-                                  uint32_t ppid, const uint8_t *data,
-                                  size_t len, void *arg) {
+static void pc_sctp_data_received(xSctpTransport transport, uint16_t stream_id, uint32_t ppid,
+                                  const uint8_t *data, size_t len, void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)transport;
   if (pc->dc_mgr) {
@@ -269,8 +258,7 @@ static void pc_sctp_data_received(xSctpTransport transport, uint16_t stream_id,
   }
 }
 
-static void pc_sctp_stream_closed(xSctpTransport transport,
-                                  uint16_t stream_id, void *arg) {
+static void pc_sctp_stream_closed(xSctpTransport transport, uint16_t stream_id, void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)transport;
   if (pc->dc_mgr) {
@@ -314,8 +302,7 @@ static void pc_dc_close_wrapper(xDataChannel channel, void *ctx) {
   }
 }
 
-static void pc_on_remote_datachannel(xDataChannelMgr mgr,
-                                     xDataChannel channel, void *arg) {
+static void pc_on_remote_datachannel(xDataChannelMgr mgr, xDataChannel channel, void *arg) {
   xPeerConnection_ *pc = (xPeerConnection_ *)arg;
   (void)mgr;
   if (pc->conf.on_datachannel) {
@@ -325,16 +312,15 @@ static void pc_on_remote_datachannel(xDataChannelMgr mgr,
 
 /* ───────────────────── Public API ───────────────────── */
 
-xPeerConnection xPeerConnectionCreate(xEventLoop                 loop,
-                                      const xPeerConnectionConf *conf) {
+xPeerConnection xPeerConnectionCreate(xEventLoop loop, const xPeerConnectionConf *conf) {
   if (!loop || !conf) return NULL;
 
   xPeerConnection_ *pc = (xPeerConnection_ *)calloc(1, sizeof(xPeerConnection_));
   if (!pc) return NULL;
 
-  pc->conf  = *conf;
-  pc->loop  = loop;
-  pc->state = xPeerConnectionState_New;
+  pc->conf            = *conf;
+  pc->loop            = loop;
+  pc->state           = xPeerConnectionState_New;
   pc->local_sctp_port = conf->sctp_port ? conf->sctp_port : XSCTP_DEFAULT_PORT;
 
   /* Create ICE agent — pure ICE, no DTLS pollution */
@@ -422,12 +408,11 @@ char *xPeerConnectionCreateOffer(xPeerConnection handle) {
      * they arrive before ICE transitions to Connected. */
     xIceAgentSetDtlsInputCallback(pc->ice, pc_ice_dtls_input, pc);
 
-    char fp_str[XDTLS_FINGERPRINT_STR_SIZE];
+    char   fp_str[XDTLS_FINGERPRINT_STR_SIZE];
     xErrno fp_err = xDtlsTransportGetFingerprintStr(pc->dtls, fp_str);
     if (fp_err != xErrno_Ok) return NULL;
 
-    snprintf(pc->local_fingerprint_str, sizeof(pc->local_fingerprint_str),
-             "sha-256 %s", fp_str);
+    snprintf(pc->local_fingerprint_str, sizeof(pc->local_fingerprint_str), "sha-256 %s", fp_str);
   }
 
   const char *fp_full = pc->local_fingerprint_str;
@@ -436,17 +421,14 @@ char *xPeerConnectionCreateOffer(xPeerConnection handle) {
   const char *ufrag = xIceAgentGetUfrag(pc->ice);
   const char *pwd   = xIceAgentGetPwd(pc->ice);
 
-  int cand_count = 0;
-  const xIceCandidate *candidates =
-    xIceAgentGetLocalCandidates(pc->ice, &cand_count);
+  int                  cand_count = 0;
+  const xIceCandidate *candidates = xIceAgentGetLocalCandidates(pc->ice, &cand_count);
 
   char *sdp = (char *)malloc(XSDP_MAX_SIZE);
   if (!sdp) return NULL;
 
-  int len = xIceSdpEncodeWebRTC(
-    ufrag, pwd, candidates, cand_count, true,
-    fp_full, xIceSdpSetup_Actpass, "0", pc->local_sctp_port,
-    sdp, XSDP_MAX_SIZE);
+  int len = xIceSdpEncodeWebRTC(ufrag, pwd, candidates, cand_count, true, fp_full,
+                                xIceSdpSetup_Actpass, "0", pc->local_sctp_port, sdp, XSDP_MAX_SIZE);
   if (len < 0) {
     free(sdp);
     return NULL;
@@ -496,12 +478,11 @@ char *xPeerConnectionCreateAnswer(xPeerConnection handle) {
      * are not dropped if they arrive before ICE transitions to Connected. */
     xIceAgentSetDtlsInputCallback(pc->ice, pc_ice_dtls_input, pc);
 
-    char fp_str[XDTLS_FINGERPRINT_STR_SIZE];
+    char   fp_str[XDTLS_FINGERPRINT_STR_SIZE];
     xErrno fp_err = xDtlsTransportGetFingerprintStr(pc->dtls, fp_str);
     if (fp_err != xErrno_Ok) return NULL;
 
-    snprintf(pc->local_fingerprint_str, sizeof(pc->local_fingerprint_str),
-             "sha-256 %s", fp_str);
+    snprintf(pc->local_fingerprint_str, sizeof(pc->local_fingerprint_str), "sha-256 %s", fp_str);
   }
 
   const char *fp_full = pc->local_fingerprint_str;
@@ -509,9 +490,8 @@ char *xPeerConnectionCreateAnswer(xPeerConnection handle) {
   const char *ufrag = xIceAgentGetUfrag(pc->ice);
   const char *pwd   = xIceAgentGetPwd(pc->ice);
 
-  int cand_count = 0;
-  const xIceCandidate *candidates =
-    xIceAgentGetLocalCandidates(pc->ice, &cand_count);
+  int                  cand_count = 0;
+  const xIceCandidate *candidates = xIceAgentGetLocalCandidates(pc->ice, &cand_count);
 
   /* Answer setup role */
   xIceSdpSetup setup;
@@ -524,10 +504,8 @@ char *xPeerConnectionCreateAnswer(xPeerConnection handle) {
   char *sdp = (char *)malloc(XSDP_MAX_SIZE);
   if (!sdp) return NULL;
 
-  int len = xIceSdpEncodeWebRTC(
-    ufrag, pwd, candidates, cand_count, true,
-    fp_full, setup, "0", pc->local_sctp_port,
-    sdp, XSDP_MAX_SIZE);
+  int len = xIceSdpEncodeWebRTC(ufrag, pwd, candidates, cand_count, true, fp_full, setup, "0",
+                                pc->local_sctp_port, sdp, XSDP_MAX_SIZE);
   if (len < 0) {
     free(sdp);
     return NULL;
@@ -536,8 +514,7 @@ char *xPeerConnectionCreateAnswer(xPeerConnection handle) {
   return sdp;
 }
 
-xErrno xPeerConnectionSetLocalDescription(xPeerConnection handle,
-                                          const char     *sdp) {
+xErrno xPeerConnectionSetLocalDescription(xPeerConnection handle, const char *sdp) {
   if (!handle || !sdp) return xErrno_InvalidArg;
   xPeerConnection_ *pc = (xPeerConnection_ *)handle;
 
@@ -550,8 +527,7 @@ xErrno xPeerConnectionSetLocalDescription(xPeerConnection handle,
   return xErrno_Ok;
 }
 
-xErrno xPeerConnectionSetRemoteDescription(xPeerConnection handle,
-                                           const char     *sdp) {
+xErrno xPeerConnectionSetRemoteDescription(xPeerConnection handle, const char *sdp) {
   if (!handle || !sdp) return xErrno_InvalidArg;
   xPeerConnection_ *pc = (xPeerConnection_ *)handle;
 
@@ -563,8 +539,7 @@ xErrno xPeerConnectionSetRemoteDescription(xPeerConnection handle,
   /* Store remote DTLS parameters */
   if (parsed.is_webrtc) {
     if (parsed.fingerprint[0] != '\0') {
-      strncpy(pc->remote_fingerprint, parsed.fingerprint,
-              XSDP_MAX_FINGERPRINT_LEN - 1);
+      strncpy(pc->remote_fingerprint, parsed.fingerprint, XSDP_MAX_FINGERPRINT_LEN - 1);
     }
     pc->remote_setup     = (int)parsed.setup;
     pc->remote_sctp_port = parsed.sctp_port;
@@ -585,8 +560,7 @@ xErrno xPeerConnectionSetRemoteDescription(xPeerConnection handle,
       }
     } else {
       /* We are answerer */
-      if (parsed.setup == xIceSdpSetup_Actpass ||
-          parsed.setup == xIceSdpSetup_Active) {
+      if (parsed.setup == xIceSdpSetup_Actpass || parsed.setup == xIceSdpSetup_Active) {
         pc->dtls_role = xDtlsRole_Passive;
       } else {
         pc->dtls_role = xDtlsRole_Active;
@@ -607,8 +581,7 @@ xErrno xPeerConnectionSetRemoteDescription(xPeerConnection handle,
   return xIceAgentSetRemoteDescription(pc->ice, sdp);
 }
 
-xErrno xPeerConnectionAddIceCandidate(xPeerConnection handle,
-                                      const char     *candidate_sdp) {
+xErrno xPeerConnectionAddIceCandidate(xPeerConnection handle, const char *candidate_sdp) {
   if (!handle || !candidate_sdp) return xErrno_InvalidArg;
   xPeerConnection_ *pc = (xPeerConnection_ *)handle;
   return xIceAgentAddRemoteCandidate(pc->ice, candidate_sdp);
@@ -623,23 +596,23 @@ xDataChannel xPeerConnectionCreateDataChannel(xPeerConnection         handle,
   if (pc->dc_mgr) {
     /* Fill in default callbacks from PeerConnection config.
        Only override ctx if the user didn't set any callbacks at all. */
-    xDataChannelConf filled = *conf;
-    bool any_user_cb = filled.on_open || filled.on_message || filled.on_close;
-    if (!filled.on_open)    filled.on_open    = pc_dc_open_wrapper;
+    xDataChannelConf filled      = *conf;
+    bool             any_user_cb = filled.on_open || filled.on_message || filled.on_close;
+    if (!filled.on_open) filled.on_open = pc_dc_open_wrapper;
     if (!filled.on_message) filled.on_message = pc_dc_message_wrapper;
-    if (!filled.on_close)   filled.on_close   = pc_dc_close_wrapper;
-    if (!any_user_cb)       filled.ctx        = pc;
+    if (!filled.on_close) filled.on_close = pc_dc_close_wrapper;
+    if (!any_user_cb) filled.ctx = pc;
     return xDataChannelCreate(pc->dc_mgr, &filled);
   }
 
   /* Otherwise queue for later */
   if (pc->pending_channel_count >= XDC_MAX_CHANNELS) return NULL;
-  xDataChannelConf filled = *conf;
-  bool any_user_cb = filled.on_open || filled.on_message || filled.on_close;
-  if (!filled.on_open)    filled.on_open    = pc_dc_open_wrapper;
+  xDataChannelConf filled      = *conf;
+  bool             any_user_cb = filled.on_open || filled.on_message || filled.on_close;
+  if (!filled.on_open) filled.on_open = pc_dc_open_wrapper;
   if (!filled.on_message) filled.on_message = pc_dc_message_wrapper;
-  if (!filled.on_close)   filled.on_close   = pc_dc_close_wrapper;
-  if (!any_user_cb)       filled.ctx        = pc;
+  if (!filled.on_close) filled.on_close = pc_dc_close_wrapper;
+  if (!any_user_cb) filled.ctx = pc;
   pc->pending_channels[pc->pending_channel_count++] = filled;
   return NULL; /* Will be created when SCTP connects */
 }

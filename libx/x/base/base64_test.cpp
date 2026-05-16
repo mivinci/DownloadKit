@@ -12,8 +12,8 @@
 /* ---- Encode tests ---- */
 
 TEST(Base64, Empty) {
-  char    buf[8]  = {0};
-  size_t  buf_len = sizeof(buf);
+  char   buf[8]  = {0};
+  size_t buf_len = sizeof(buf);
 
   int rc = xBase64Encode(NULL, 0, buf, &buf_len);
   EXPECT_EQ(rc, 0);
@@ -180,8 +180,7 @@ TEST(Base64, InvalidChar) {
   size_t  buf_len = sizeof(buf);
 
   EXPECT_EQ(xBase64Decode("AB!C", 4, buf, &buf_len), -1);
-  EXPECT_EQ(xBase64Decode("A B", 3, buf, &buf_len),
-            -1); /* space invalid unless accepted */
+  EXPECT_EQ(xBase64Decode("A B", 3, buf, &buf_len), -1); /* space invalid unless accepted */
 }
 
 TEST(Base64, InvalidLengthMod4Eq1) {

@@ -43,9 +43,8 @@ static inline size_t bucket_idx(xMapHash *h, const void *key) {
 }
 
 static xErrno hash_resize(xMapHash *h) {
-  size_t          new_cap = h->cap * 2;
-  xMapHashEntry **new_buckets =
-    (xMapHashEntry **)calloc(new_cap, sizeof(xMapHashEntry *));
+  size_t          new_cap     = h->cap * 2;
+  xMapHashEntry **new_buckets = (xMapHashEntry **)calloc(new_cap, sizeof(xMapHashEntry *));
   if (!new_buckets) return xErrno_NoMemory;
 
   /* Rehash all entries into the new bucket array */
@@ -53,10 +52,10 @@ static xErrno hash_resize(xMapHash *h) {
     xMapHashEntry *e = h->buckets[i];
     while (e) {
       xMapHashEntry *next = e->next;
-      size_t idx = (size_t)(h->base.hash(e->key) & (uint64_t)(new_cap - 1));
-      e->next    = new_buckets[idx];
-      new_buckets[idx] = e;
-      e                = next;
+      size_t         idx  = (size_t)(h->base.hash(e->key) & (uint64_t)(new_cap - 1));
+      e->next             = new_buckets[idx];
+      new_buckets[idx]    = e;
+      e                   = next;
     }
   }
 
@@ -173,8 +172,7 @@ static const xMapVTable hash_vtable = {
 
 xMap xMapHashCreate(size_t cap, xMapHashFunc hash, xMapEqFunc eq) {
   /* Single allocation: struct + initial bucket array in contiguous memory */
-  xMapHash *h =
-    (xMapHash *)calloc(1, sizeof(xMapHash) + cap * sizeof(xMapHashEntry *));
+  xMapHash *h = (xMapHash *)calloc(1, sizeof(xMapHash) + cap * sizeof(xMapHashEntry *));
   if (!h) return NULL;
 
   /* Per-map slab: single-threaded, no atomics overhead.

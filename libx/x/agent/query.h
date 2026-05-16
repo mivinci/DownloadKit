@@ -58,8 +58,8 @@
 #define XAGENT_QUERY_H
 
 #include <stddef.h>
-#include <x/agent/agent.h>    /* xAgent, xAgentTool, xAgentProvider, xAgentUsage */
-#include <x/agent/message.h>  /* xAgentMessage                               */
+#include <x/agent/agent.h>   /* xAgent, xAgentTool, xAgentProvider, xAgentUsage */
+#include <x/agent/message.h> /* xAgentMessage                               */
 #include <x/base/base.h>
 #include <x/base/error.h>
 
@@ -85,7 +85,7 @@ XDEF_HANDLE(xAgentSession);
  */
 XDEF_ENUM(xAgentToolDecision){
   /** Run the tool handler as usual. */
-  xAgentToolDecision_Allow  = 0,
+  xAgentToolDecision_Allow = 0,
   /** Refuse the tool call. The agent fabricates an is_error=1
    *  tool_result carrying @p reason (or a default message when NULL)
    *  and feeds it back to the model, so the model knows the user
@@ -126,9 +126,8 @@ XDEF_HANDLE(xAgentToolConfirmResolver);
  *                  synthetic tool_result delivered to the model.
  *                  May be NULL (default: "rejected by user").
  */
-XCAPI(void) xAgentToolConfirmResolve(xAgentToolConfirmResolver r,
-                                     xAgentToolDecision        decision,
-                                     const char               *reason);
+XCAPI(void) xAgentToolConfirmResolve(xAgentToolConfirmResolver r, xAgentToolDecision decision,
+                                     const char *reason);
 
 /**
  * @brief Why the Query's current run stopped.
@@ -208,8 +207,7 @@ XDEF_STRUCT(xAgentQueryCallbacks) {
    *                of the callback.
    * @param ud      The user_data pointer from this struct.
    */
-  void (*on_done)(xAgentQuery q, xAgentDoneReason reason, const xAgentUsage *usage,
-                  void *ud);
+  void (*on_done)(xAgentQuery q, xAgentDoneReason reason, const xAgentUsage *usage, void *ud);
 
   /**
    * @brief Fired as a diagnostic precursor before a failure on_done.
@@ -251,9 +249,8 @@ XDEF_STRUCT(xAgentQueryCallbacks) {
    * @param len         Length of @p data in bytes.
    * @param ud          The user_data pointer from this struct.
    */
-  void (*on_tool_output)(xAgentQuery q, const char *tool_use_id,
-                         const char *tool_name, const char *data, size_t len,
-                         void *ud);
+  void (*on_tool_output)(xAgentQuery q, const char *tool_use_id, const char *tool_name,
+                         const char *data, size_t len, void *ud);
 
   /**
    * @brief Optional: user-confirmation gate for tools flagged as
@@ -292,9 +289,8 @@ XDEF_STRUCT(xAgentQueryCallbacks) {
    * @param resolver     Opaque handle; pass to xAgentToolConfirmResolve.
    * @param ud           The user_data pointer from this struct.
    */
-  void (*on_tool_confirm)(xAgentQuery q, const char *tool_name,
-                          const char *tool_use_id, const char *args_json,
-                          xAgentToolConfirmResolver resolver, void *ud);
+  void (*on_tool_confirm)(xAgentQuery q, const char *tool_name, const char *tool_use_id,
+                          const char *args_json, xAgentToolConfirmResolver resolver, void *ud);
 
   /** Forwarded to every callback in this struct. */
   void *user_data;
@@ -333,7 +329,7 @@ XDEF_STRUCT(xAgentQueryConf) {
    * May be NULL / tools_count == 0 when no tools are configured.
    */
   const xAgentTool **tools;
-  size_t          tools_count;
+  size_t             tools_count;
 
   /**
    * @brief Model identifier sent to the provider.

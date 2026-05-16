@@ -77,13 +77,10 @@ bool xJSValueIsObjectOfClass(xJSContextRef c, xJSValueRef v, xJSClassRef k) {
 bool xJSValueIsStrictEqual(xJSContextRef c, xJSValueRef a, xJSValueRef b) {
   if (a == b) return true;
   if (!a || !b) return false;
-  return JS_IsStrictEqual(xjs_ctx_of(c), xjs_slot_qv(a), xjs_slot_qv(b))
-           ? true
-           : false;
+  return JS_IsStrictEqual(xjs_ctx_of(c), xjs_slot_qv(a), xjs_slot_qv(b)) ? true : false;
 }
 
-bool xJSValueIsEqual(xJSContextRef c, xJSValueRef a, xJSValueRef b,
-                     xJSValueRef *exception) {
+bool xJSValueIsEqual(xJSContextRef c, xJSValueRef a, xJSValueRef b, xJSValueRef *exception) {
   /* quickjs-ng exposes the full abstract-equality operator (== per
    * ECMA-262 7.2.15), including type coercion.  It returns -1 on
    * exception (e.g. a throwing @@toPrimitive), else 0/1. */
@@ -98,8 +95,8 @@ bool xJSValueIsEqual(xJSContextRef c, xJSValueRef a, xJSValueRef b,
   return r == 1;
 }
 
-bool xJSValueIsInstanceOfConstructor(xJSContextRef c, xJSValueRef v,
-                                     xJSObjectRef ctor, xJSValueRef *exc) {
+bool xJSValueIsInstanceOfConstructor(xJSContextRef c, xJSValueRef v, xJSObjectRef ctor,
+                                     xJSValueRef *exc) {
   JSContext *q = xjs_ctx_of(c);
   if (!v || !ctor) return false;
   int r = JS_IsInstanceOf(q, xjs_slot_qv(v), xjs_slot_qv((xJSValueRef)ctor));
@@ -188,8 +185,8 @@ xJSValueRef xJSValueMakeFromJSONString(xJSContextRef c, xJSStringRef json) {
   return xjs_slot_make(q, v);
 }
 
-xJSStringRef xJSValueCreateJSONString(xJSContextRef c, xJSValueRef v,
-                                      unsigned indent, xJSValueRef *exc) {
+xJSStringRef xJSValueCreateJSONString(xJSContextRef c, xJSValueRef v, unsigned indent,
+                                      xJSValueRef *exc) {
   JSContext *q = xjs_ctx_of(c);
   if (!v) return NULL;
   JSValue spc = JS_NewInt32(q, (int32_t)indent);
@@ -227,8 +224,7 @@ double xJSValueToNumber(xJSContextRef c, xJSValueRef v, xJSValueRef *exc) {
   return d;
 }
 
-xJSStringRef xJSValueToStringCopy(xJSContextRef c, xJSValueRef v,
-                                  xJSValueRef *exc) {
+xJSStringRef xJSValueToStringCopy(xJSContextRef c, xJSValueRef v, xJSValueRef *exc) {
   JSContext *q = xjs_ctx_of(c);
   if (!v) return NULL;
   JSValue s = JS_ToString(q, xjs_slot_qv(v));
@@ -248,8 +244,7 @@ xJSStringRef xJSValueToStringCopy(xJSContextRef c, xJSValueRef v,
   return out;
 }
 
-xJSObjectRef xJSValueToObject(xJSContextRef c, xJSValueRef v,
-                              xJSValueRef *exc) {
+xJSObjectRef xJSValueToObject(xJSContextRef c, xJSValueRef v, xJSValueRef *exc) {
   JSContext *q = xjs_ctx_of(c);
   if (!v) return NULL;
   JSValue qv = xjs_slot_qv(v);

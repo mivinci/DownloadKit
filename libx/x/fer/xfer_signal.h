@@ -47,8 +47,7 @@ XDEF_STRUCT(xSignalServerConf) {
  * @param conf  Server configuration (must not be NULL).
  * @return      Server handle, or NULL on failure.
  */
-XCAPI(xSignalServer) xSignalServerCreate(xEventLoop loop,
-                                         const xSignalServerConf *conf);
+XCAPI(xSignalServer) xSignalServerCreate(xEventLoop loop, const xSignalServerConf *conf);
 
 /**
  * @brief Destroy the signaling server and free all resources.
@@ -84,8 +83,7 @@ typedef void (*xSignalOnConnected)(xSignalClient client, void *ctx);
 /**
  * @brief Called when the sender receives a code from the server.
  */
-typedef void (*xSignalOnCode)(xSignalClient client, const char *code,
-                              void *ctx);
+typedef void (*xSignalOnCode)(xSignalClient client, const char *code, void *ctx);
 
 /**
  * @brief Called when the peer has joined the session.
@@ -95,26 +93,22 @@ typedef void (*xSignalOnPeerJoined)(xSignalClient client, void *ctx);
 /**
  * @brief Called when an SDP offer is received from the peer.
  */
-typedef void (*xSignalOnOffer)(xSignalClient client, const char *sdp,
-                               void *ctx);
+typedef void (*xSignalOnOffer)(xSignalClient client, const char *sdp, void *ctx);
 
 /**
  * @brief Called when an SDP answer is received from the peer.
  */
-typedef void (*xSignalOnAnswer)(xSignalClient client, const char *sdp,
-                                void *ctx);
+typedef void (*xSignalOnAnswer)(xSignalClient client, const char *sdp, void *ctx);
 
 /**
  * @brief Called when an ICE candidate is received from the peer.
  */
-typedef void (*xSignalOnCandidate)(xSignalClient client,
-                                   const char *candidate, void *ctx);
+typedef void (*xSignalOnCandidate)(xSignalClient client, const char *candidate, void *ctx);
 
 /**
  * @brief Called when the signaling connection encounters an error.
  */
-typedef void (*xSignalOnError)(xSignalClient client, xErrno err,
-                               const char *msg, void *ctx);
+typedef void (*xSignalOnError)(xSignalClient client, xErrno err, const char *msg, void *ctx);
 
 /**
  * @brief Configuration for the signaling client.
@@ -134,13 +128,13 @@ XDEF_STRUCT(xSignalClientConf) {
 
   /** Callbacks. */
   xSignalOnConnected  on_connected;
-  xSignalOnCode       on_code;         /**< Sender only.   */
-  xSignalOnPeerJoined on_peer_joined;  /**< Sender only.   */
-  xSignalOnOffer      on_offer;        /**< Receiver only. */
-  xSignalOnAnswer     on_answer;       /**< Sender only.   */
-  xSignalOnCandidate  on_candidate;    /**< Both.          */
-  xSignalOnError      on_error;        /**< Both.          */
-  void               *ctx;             /**< User context.  */
+  xSignalOnCode       on_code;        /**< Sender only.   */
+  xSignalOnPeerJoined on_peer_joined; /**< Sender only.   */
+  xSignalOnOffer      on_offer;       /**< Receiver only. */
+  xSignalOnAnswer     on_answer;      /**< Sender only.   */
+  xSignalOnCandidate  on_candidate;   /**< Both.          */
+  xSignalOnError      on_error;       /**< Both.          */
+  void               *ctx;            /**< User context.  */
 };
 
 /**
@@ -154,8 +148,7 @@ XDEF_STRUCT(xSignalClientConf) {
  * @param conf  Client configuration (must not be NULL).
  * @return      Client handle, or NULL on failure.
  */
-XCAPI(xSignalClient) xSignalClientCreate(xEventLoop loop,
-                                         const xSignalClientConf *conf);
+XCAPI(xSignalClient) xSignalClientCreate(xEventLoop loop, const xSignalClientConf *conf);
 
 /**
  * @brief Destroy the signaling client and close the connection.
@@ -189,7 +182,6 @@ XCAPI(xErrno) xSignalClientSendAnswer(xSignalClient client, const char *sdp);
  * @param candidate  ICE candidate string (must not be NULL).
  * @return           xErrno_Ok on success.
  */
-XCAPI(xErrno) xSignalClientSendCandidate(xSignalClient client,
-                                         const char *candidate);
+XCAPI(xErrno) xSignalClientSendCandidate(xSignalClient client, const char *candidate);
 
 #endif /* XFER_XFER_SIGNAL_H */

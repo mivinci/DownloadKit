@@ -16,7 +16,7 @@
 
 typedef struct {
   uint32_t state[5];
-  uint64_t count;          /**< Total bits processed. */
+  uint64_t count; /**< Total bits processed. */
   uint8_t  buffer[64];
 } xSha1Builtin_;
 
@@ -37,8 +37,7 @@ static inline void put_be32(uint8_t *p, uint32_t v) {
 }
 
 static inline uint32_t get_be32(const uint8_t *p) {
-  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-         ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 }
 
 static void sha1_transform(uint32_t state[5], const uint8_t block[64]) {
@@ -74,11 +73,11 @@ static void sha1_transform(uint32_t state[5], const uint8_t block[64]) {
     }
 
     uint32_t temp = rotl32(a, 5) + f + e + k + w[i];
-    e = d;
-    d = c;
-    c = rotl32(b, 30);
-    b = a;
-    a = temp;
+    e             = d;
+    d             = c;
+    c             = rotl32(b, 30);
+    b             = a;
+    a             = temp;
   }
 
   state[0] += a;
@@ -108,8 +107,8 @@ xErrno xSha1Init(xSha1Ctx *ctx) {
 xErrno xSha1Update(xSha1Ctx *ctx, const uint8_t *data, size_t len) {
   if (!ctx || !data) return xErrno_InvalidArg;
 
-  xSha1Builtin_ *impl = (xSha1Builtin_ *)ctx->opaque;
-  size_t buf_used = (size_t)((impl->count / 8) % 64);
+  xSha1Builtin_ *impl     = (xSha1Builtin_ *)ctx->opaque;
+  size_t         buf_used = (size_t)((impl->count / 8) % 64);
 
   impl->count += (uint64_t)len * 8;
 
@@ -144,8 +143,8 @@ xErrno xSha1Update(xSha1Ctx *ctx, const uint8_t *data, size_t len) {
 xErrno xSha1Final(xSha1Ctx *ctx, uint8_t *digest) {
   if (!ctx || !digest) return xErrno_InvalidArg;
 
-  xSha1Builtin_ *impl = (xSha1Builtin_ *)ctx->opaque;
-  size_t buf_used = (size_t)((impl->count / 8) % 64);
+  xSha1Builtin_ *impl     = (xSha1Builtin_ *)ctx->opaque;
+  size_t         buf_used = (size_t)((impl->count / 8) % 64);
 
   /* Padding: append 0x80, then zeros, then 8-byte big-endian bit count */
   impl->buffer[buf_used++] = 0x80;
@@ -159,7 +158,7 @@ xErrno xSha1Final(xSha1Ctx *ctx, uint8_t *digest) {
   memset(impl->buffer + buf_used, 0, 56 - buf_used);
 
   /* Append bit count (big-endian) */
-  uint64_t bits = impl->count;
+  uint64_t bits    = impl->count;
   impl->buffer[56] = (uint8_t)(bits >> 56);
   impl->buffer[57] = (uint8_t)(bits >> 48);
   impl->buffer[58] = (uint8_t)(bits >> 40);
@@ -183,7 +182,7 @@ xErrno xSha1(const uint8_t *data, size_t len, uint8_t *digest) {
   if (!data || !digest) return xErrno_InvalidArg;
 
   xSha1Ctx ctx;
-  xErrno err = xSha1Init(&ctx);
+  xErrno   err = xSha1Init(&ctx);
   if (err != xErrno_Ok) return err;
 
   err = xSha1Update(&ctx, data, len);

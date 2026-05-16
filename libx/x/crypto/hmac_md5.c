@@ -7,8 +7,8 @@
  */
 
 #include "hmac_md5.h"
-#include "hmac.h"
 #include "hash_private.h"
+#include "hmac.h"
 #include "md5.h"
 
 /* ── MD5 vtable shims (void* → xMd5Ctx*) ───────────────── */
@@ -36,8 +36,7 @@ const xHashVtable xHashVtableMd5 = {
 
 /* ── Convenience wrapper ────────────────────────────────── */
 
-xErrno xHmacMd5(const uint8_t *key, size_t key_len,
-                 const uint8_t *data, size_t data_len,
-                 uint8_t *digest) {
+xErrno xHmacMd5(const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len,
+                uint8_t *digest) {
   return xHmac(&xHashVtableMd5, key, key_len, data, data_len, digest);
 }

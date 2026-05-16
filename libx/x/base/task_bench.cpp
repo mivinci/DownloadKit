@@ -121,7 +121,7 @@ BENCHMARK(BM_Task_SubmitWaitBatch)->Arg(10)->Arg(100)->Arg(1000);
  *  submission from N producer threads.
  * ═══════════════════════════════════════════════════════════════════ */
 static void BM_Task_ConcurrentSubmit(benchmark::State &state) {
-  const int num_producers = state.range(0);
+  const int         num_producers    = state.range(0);
   constexpr int64_t OPS_PER_PRODUCER = 1000;
 
   xTaskGroupConf conf = {.nthreads = 4, .queue_cap = 0};
@@ -147,13 +147,13 @@ static void BM_Task_ConcurrentSubmit(benchmark::State &state) {
     while (ready.load(std::memory_order_relaxed) < num_producers) {}
     go.store(true, std::memory_order_release);
 
-    for (auto &th : threads) th.join();
+    for (auto &th : threads)
+      th.join();
     xTaskGroupWait(g);
   }
 
   xTaskGroupDestroy(g);
-  state.SetItemsProcessed(state.iterations() * num_producers *
-                           OPS_PER_PRODUCER);
+  state.SetItemsProcessed(state.iterations() * num_producers * OPS_PER_PRODUCER);
 }
 BENCHMARK(BM_Task_ConcurrentSubmit)->Arg(1)->Arg(2)->Arg(4)->Arg(8);
 
@@ -163,8 +163,8 @@ BENCHMARK(BM_Task_ConcurrentSubmit)->Arg(1)->Arg(2)->Arg(4)->Arg(8);
  *  Measures how throughput scales with the number of worker threads.
  * ═══════════════════════════════════════════════════════════════════ */
 static void BM_Task_WorkerScaling(benchmark::State &state) {
-  const size_t nworkers = static_cast<size_t>(state.range(0));
-  constexpr int64_t TASKS = 10000;
+  const size_t      nworkers = static_cast<size_t>(state.range(0));
+  constexpr int64_t TASKS    = 10000;
 
   xTaskGroupConf conf = {.nthreads = nworkers, .queue_cap = 0};
   xTaskGroup     g    = xTaskGroupCreate(&conf);
@@ -210,15 +210,14 @@ static void BM_Libuv_SubmitWait(benchmark::State &state) {
   uv_loop_init(&loop);
 
   for (auto _ : state) {
-    uv_work_t req;
+    uv_work_t         req;
     std::atomic<bool> done{false};
 
     req.data = &done;
-    uv_queue_work(&loop, &req, uv_noop_work,
-                  [](uv_work_t *r, int) {
-                    auto *d = static_cast<std::atomic<bool> *>(r->data);
-                    d->store(true, std::memory_order_release);
-                  });
+    uv_queue_work(&loop, &req, uv_noop_work, [](uv_work_t *r, int) {
+      auto *d = static_cast<std::atomic<bool> *>(r->data);
+      d->store(true, std::memory_order_release);
+    });
     /* Drive the loop until the after_work_cb fires. */
     while (!done.load(std::memory_order_acquire)) {
       uv_run(&loop, UV_RUN_ONCE);
@@ -241,7 +240,7 @@ static void BM_Libuv_FanOut(benchmark::State &state) {
   uv_loop_t loop;
   uv_loop_init(&loop);
 
-  std::atomic<int64_t> counter{0};
+  std::atomic<int64_t>   counter{0};
   std::vector<uv_work_t> reqs(fan_out);
 
   struct FanOutCtx {
@@ -250,7 +249,7 @@ static void BM_Libuv_FanOut(benchmark::State &state) {
   };
 
   std::atomic<int64_t> remaining{0};
-  FanOutCtx ctx = {&counter, &remaining};
+  FanOutCtx            ctx = {&counter, &remaining};
 
   for (auto _ : state) {
     counter.store(0, std::memory_order_relaxed);
@@ -258,15 +257,16 @@ static void BM_Libuv_FanOut(benchmark::State &state) {
 
     for (int64_t i = 0; i < fan_out; i++) {
       reqs[i].data = &ctx;
-      uv_queue_work(&loop, &reqs[i],
-                    [](uv_work_t *r) {
-                      auto *c = static_cast<FanOutCtx *>(r->data);
-                      c->counter->fetch_add(1, std::memory_order_relaxed);
-                    },
-                    [](uv_work_t *r, int) {
-                      auto *c = static_cast<FanOutCtx *>(r->data);
-                      c->remaining->fetch_sub(1, std::memory_order_release);
-                    });
+      uv_queue_work(
+        &loop, &reqs[i],
+        [](uv_work_t *r) {
+          auto *c = static_cast<FanOutCtx *>(r->data);
+          c->counter->fetch_add(1, std::memory_order_relaxed);
+        },
+        [](uv_work_t *r, int) {
+          auto *c = static_cast<FanOutCtx *>(r->data);
+          c->remaining->fetch_sub(1, std::memory_order_release);
+        });
     }
 
     while (remaining.load(std::memory_order_acquire) > 0) {
@@ -291,18 +291,17 @@ static void BM_Libuv_SubmitWaitBatch(benchmark::State &state) {
   uv_loop_init(&loop);
 
   std::vector<uv_work_t> reqs(batch);
-  std::atomic<int64_t> remaining{0};
+  std::atomic<int64_t>   remaining{0};
 
   for (auto _ : state) {
     remaining.store(batch, std::memory_order_relaxed);
 
     for (int64_t i = 0; i < batch; i++) {
       reqs[i].data = &remaining;
-      uv_queue_work(&loop, &reqs[i], uv_noop_work,
-                    [](uv_work_t *r, int) {
-                      auto *rem = static_cast<std::atomic<int64_t> *>(r->data);
-                      rem->fetch_sub(1, std::memory_order_release);
-                    });
+      uv_queue_work(&loop, &reqs[i], uv_noop_work, [](uv_work_t *r, int) {
+        auto *rem = static_cast<std::atomic<int64_t> *>(r->data);
+        rem->fetch_sub(1, std::memory_order_release);
+      });
     }
 
     while (remaining.load(std::memory_order_acquire) > 0) {

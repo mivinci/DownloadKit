@@ -44,8 +44,7 @@ XDEF_STRUCT(xSctpTransport_) {
  * @brief Called by usrsctp when it has SCTP packets to send.
  *        We encrypt them via DTLS and send through ICE.
  */
-static int sctp_output_cb(void *addr, void *buf, size_t len,
-                          uint8_t tos __attribute__((unused)),
+static int sctp_output_cb(void *addr, void *buf, size_t len, uint8_t tos __attribute__((unused)),
                           uint8_t set_df __attribute__((unused))) {
   xSctpTransport_ *t = (xSctpTransport_ *)addr;
   if (!t || !t->conf.dtls || !t->sock) {
@@ -60,10 +59,9 @@ static int sctp_output_cb(void *addr, void *buf, size_t len,
 
 /* ───────────────────── usrsctp Receive Callback ───────────────────── */
 
-static int sctp_recv_cb(struct socket *sock __attribute__((unused)),
-                        union sctp_sockstore addr __attribute__((unused)),
-                        void *data, size_t datalen,
-                        struct sctp_rcvinfo rcv, int flags, void *ulp_info) {
+static int sctp_recv_cb(struct socket       *sock __attribute__((unused)),
+                        union sctp_sockstore addr __attribute__((unused)), void *data,
+                        size_t datalen, struct sctp_rcvinfo rcv, int flags, void *ulp_info) {
   xSctpTransport_ *t = (xSctpTransport_ *)ulp_info;
 
   XDEBUG("[sctp] recv_cb: datalen=%zu flags=0x%x", datalen, flags);
@@ -85,8 +83,7 @@ static int sctp_recv_cb(struct socket *sock __attribute__((unused)),
           if (t->conf.on_state_change) {
             t->conf.on_state_change((xSctpTransport)t, true, t->conf.ctx);
           }
-        } else if (sac->sac_state == SCTP_COMM_LOST ||
-                   sac->sac_state == SCTP_SHUTDOWN_COMP) {
+        } else if (sac->sac_state == SCTP_COMM_LOST || sac->sac_state == SCTP_SHUTDOWN_COMP) {
           t->connected = false;
           if (t->conf.on_state_change) {
             t->conf.on_state_change((xSctpTransport)t, false, t->conf.ctx);
@@ -100,14 +97,12 @@ static int sctp_recv_cb(struct socket *sock __attribute__((unused)),
         }
       } else if (notif->sn_header.sn_type == SCTP_STREAM_RESET_EVENT) {
         struct sctp_stream_reset_event *ssr = &notif->sn_strreset_event;
-        uint16_t num_streams =
-          (uint16_t)((ssr->strreset_length -
-                      sizeof(struct sctp_stream_reset_event)) /
+        uint16_t                        num_streams =
+          (uint16_t)((ssr->strreset_length - sizeof(struct sctp_stream_reset_event)) /
                      sizeof(uint16_t));
         for (uint16_t i = 0; i < num_streams; i++) {
           if (t->conf.on_stream_close) {
-            t->conf.on_stream_close((xSctpTransport)t,
-                                    ssr->strreset_stream_list[i], t->conf.ctx);
+            t->conf.on_stream_close((xSctpTransport)t, ssr->strreset_stream_list[i], t->conf.ctx);
           }
         }
       }
@@ -126,8 +121,8 @@ static int sctp_recv_cb(struct socket *sock __attribute__((unused)),
   uint32_t ppid      = ntohl(rcv.rcv_ppid);
 
   if (t->conf.on_data) {
-    t->conf.on_data((xSctpTransport)t, stream_id, ppid,
-                    (const uint8_t *)data, datalen, t->conf.ctx);
+    t->conf.on_data((xSctpTransport)t, stream_id, ppid, (const uint8_t *)data, datalen,
+                    t->conf.ctx);
   }
 
   free(data);
@@ -138,7 +133,7 @@ static int sctp_recv_cb(struct socket *sock __attribute__((unused)),
 
 static void assoc_timeout_cb(void *arg) {
   xSctpTransport_ *t = (xSctpTransport_ *)arg;
-  t->assoc_timer      = NULL;
+  t->assoc_timer     = NULL;
 
   if (!t->connected) {
     if (t->conf.on_state_change) {
@@ -160,8 +155,7 @@ xSctpTransport xSctpTransportCreate(const xSctpTransportConf *conf) {
     g_usrsctp_initialized = 1;
   }
 
-  xSctpTransport_ *t =
-    (xSctpTransport_ *)calloc(1, sizeof(xSctpTransport_));
+  xSctpTransport_ *t = (xSctpTransport_ *)calloc(1, sizeof(xSctpTransport_));
   if (!t) return NULL;
 
   t->conf = *conf;
@@ -172,8 +166,7 @@ xSctpTransport xSctpTransportCreate(const xSctpTransportConf *conf) {
   }
 
   /* Create usrsctp socket */
-  t->sock = usrsctp_socket(AF_CONN, SOCK_STREAM, IPPROTO_SCTP,
-                           sctp_recv_cb, NULL, 0, t);
+  t->sock = usrsctp_socket(AF_CONN, SOCK_STREAM, IPPROTO_SCTP, sctp_recv_cb, NULL, 0, t);
   if (!t->sock) {
     free(t);
     return NULL;
@@ -186,8 +179,7 @@ xSctpTransport xSctpTransportCreate(const xSctpTransportConf *conf) {
   struct sctp_assoc_value av;
   av.assoc_id    = SCTP_ALL_ASSOC;
   av.assoc_value = SCTP_ENABLE_RESET_STREAM_REQ | SCTP_ENABLE_CHANGE_ASSOC_REQ;
-  usrsctp_setsockopt(t->sock, IPPROTO_SCTP, SCTP_ENABLE_STREAM_RESET, &av,
-                     sizeof(av));
+  usrsctp_setsockopt(t->sock, IPPROTO_SCTP, SCTP_ENABLE_STREAM_RESET, &av, sizeof(av));
 
   /* Enable SCTP notifications */
   struct sctp_event event;
@@ -195,12 +187,11 @@ xSctpTransport xSctpTransportCreate(const xSctpTransportConf *conf) {
   event.se_assoc_id = SCTP_ALL_ASSOC;
   event.se_on       = 1;
 
-  uint16_t event_types[] = {SCTP_ASSOC_CHANGE, SCTP_STREAM_RESET_EVENT,
-                            SCTP_SEND_FAILED_EVENT, SCTP_SENDER_DRY_EVENT};
+  uint16_t event_types[] = {SCTP_ASSOC_CHANGE, SCTP_STREAM_RESET_EVENT, SCTP_SEND_FAILED_EVENT,
+                            SCTP_SENDER_DRY_EVENT};
   for (size_t i = 0; i < sizeof(event_types) / sizeof(event_types[0]); i++) {
     event.se_type = event_types[i];
-    usrsctp_setsockopt(t->sock, IPPROTO_SCTP, SCTP_EVENT, &event,
-                       sizeof(event));
+    usrsctp_setsockopt(t->sock, IPPROTO_SCTP, SCTP_EVENT, &event, sizeof(event));
   }
 
   /* Set non-blocking */
@@ -208,8 +199,7 @@ xSctpTransport xSctpTransportCreate(const xSctpTransportConf *conf) {
 
   /* Set nodelay */
   uint32_t nodelay = 1;
-  usrsctp_setsockopt(t->sock, IPPROTO_SCTP, SCTP_NODELAY, &nodelay,
-                     sizeof(nodelay));
+  usrsctp_setsockopt(t->sock, IPPROTO_SCTP, SCTP_NODELAY, &nodelay, sizeof(nodelay));
 
   return (xSctpTransport)t;
 }
@@ -269,8 +259,7 @@ xErrno xSctpTransportStart(xSctpTransport transport) {
     rconn.sconn_len = sizeof(rconn);
 #endif
 
-    int ret =
-      usrsctp_connect(t->sock, (struct sockaddr *)&rconn, sizeof(rconn));
+    int ret = usrsctp_connect(t->sock, (struct sockaddr *)&rconn, sizeof(rconn));
     if (ret < 0 && errno != EINPROGRESS) {
       return xErrno_SysError;
     }
@@ -287,23 +276,21 @@ xErrno xSctpTransportStart(xSctpTransport transport) {
     rconn.sconn_len = sizeof(rconn);
 #endif
 
-    int ret =
-      usrsctp_connect(t->sock, (struct sockaddr *)&rconn, sizeof(rconn));
+    int ret = usrsctp_connect(t->sock, (struct sockaddr *)&rconn, sizeof(rconn));
     if (ret < 0 && errno != EINPROGRESS) {
       return xErrno_SysError;
     }
   }
 
   /* Start association timeout */
-  t->assoc_timer = xEventLoopTimerAfter(t->conf.loop, assoc_timeout_cb, t,
-                                        t->conf.assoc_timeout_ms);
+  t->assoc_timer =
+    xEventLoopTimerAfter(t->conf.loop, assoc_timeout_cb, t, t->conf.assoc_timeout_ms);
 
   return xErrno_Ok;
 }
 
-xErrno xSctpTransportSend(xSctpTransport transport, uint16_t stream_id,
-                           uint32_t ppid, const uint8_t *data, size_t len,
-                           bool ordered) {
+xErrno xSctpTransportSend(xSctpTransport transport, uint16_t stream_id, uint32_t ppid,
+                          const uint8_t *data, size_t len, bool ordered) {
   if (!transport || !data) return xErrno_InvalidArg;
   xSctpTransport_ *t = (xSctpTransport_ *)transport;
 
@@ -311,7 +298,7 @@ xErrno xSctpTransportSend(xSctpTransport transport, uint16_t stream_id,
 
   struct sctp_sendv_spa spa;
   memset(&spa, 0, sizeof(spa));
-  spa.sendv_flags         = SCTP_SEND_SNDINFO_VALID;
+  spa.sendv_flags             = SCTP_SEND_SNDINFO_VALID;
   spa.sendv_sndinfo.snd_sid   = stream_id;
   spa.sendv_sndinfo.snd_ppid  = htonl(ppid);
   spa.sendv_sndinfo.snd_flags = 0;
@@ -319,8 +306,7 @@ xErrno xSctpTransportSend(xSctpTransport transport, uint16_t stream_id,
     spa.sendv_sndinfo.snd_flags |= SCTP_UNORDERED;
   }
 
-  ssize_t sent = usrsctp_sendv(t->sock, data, len, NULL, 0, &spa,
-                                sizeof(spa), SCTP_SENDV_SPA, 0);
+  ssize_t sent = usrsctp_sendv(t->sock, data, len, NULL, 0, &spa, sizeof(spa), SCTP_SENDV_SPA, 0);
   XDEBUG("[sctp] sendv: len=%zu sent=%zd errno=%d", len, sent, (sent < 0) ? errno : 0);
   if (sent >= 0) {
     t->buffered_amount += (size_t)sent;
@@ -332,8 +318,7 @@ xErrno xSctpTransportSend(xSctpTransport transport, uint16_t stream_id,
   return xErrno_SysError;
 }
 
-xErrno xSctpTransportFeedInput(xSctpTransport transport, const uint8_t *data,
-                                size_t len) {
+xErrno xSctpTransportFeedInput(xSctpTransport transport, const uint8_t *data, size_t len) {
   if (!transport || !data || len == 0) return xErrno_InvalidArg;
   xSctpTransport_ *t = (xSctpTransport_ *)transport;
 
@@ -341,8 +326,7 @@ xErrno xSctpTransportFeedInput(xSctpTransport transport, const uint8_t *data,
   return xErrno_Ok;
 }
 
-xErrno xSctpTransportCloseStream(xSctpTransport transport,
-                                  uint16_t       stream_id) {
+xErrno xSctpTransportCloseStream(xSctpTransport transport, uint16_t stream_id) {
   if (!transport) return xErrno_InvalidArg;
   xSctpTransport_ *t = (xSctpTransport_ *)transport;
 
@@ -351,17 +335,15 @@ xErrno xSctpTransportCloseStream(xSctpTransport transport,
 
   /* sctp_reset_streams uses a flexible array member for srs_stream_list[],
    * so we must allocate enough space for the base struct + 1 stream ID. */
-  size_t srs_size = sizeof(struct sctp_reset_streams) + sizeof(uint16_t);
-  struct sctp_reset_streams *srs =
-    (struct sctp_reset_streams *)calloc(1, srs_size);
+  size_t                     srs_size = sizeof(struct sctp_reset_streams) + sizeof(uint16_t);
+  struct sctp_reset_streams *srs      = (struct sctp_reset_streams *)calloc(1, srs_size);
   if (!srs) return xErrno_NoMemory;
 
   srs->srs_flags          = SCTP_STREAM_RESET_OUTGOING;
   srs->srs_number_streams = 1;
   srs->srs_stream_list[0] = stream_id;
 
-  int ret = usrsctp_setsockopt(t->sock, IPPROTO_SCTP, SCTP_RESET_STREAMS,
-                                srs, (socklen_t)srs_size);
+  int ret = usrsctp_setsockopt(t->sock, IPPROTO_SCTP, SCTP_RESET_STREAMS, srs, (socklen_t)srs_size);
   free(srs);
   return (ret == 0) ? xErrno_Ok : xErrno_SysError;
 }

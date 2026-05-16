@@ -41,8 +41,7 @@ static void generate_txn_id(uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
 static void txn_retransmit(void *arg);
 
 static void txn_schedule_retransmit(xStunTxn *txn) {
-  txn->timer =
-    xEventLoopTimerAfter(txn->loop, txn_retransmit, txn, txn->rto_ms);
+  txn->timer = xEventLoopTimerAfter(txn->loop, txn_retransmit, txn, txn->rto_ms);
 }
 
 static void txn_retransmit(void *arg) {
@@ -61,8 +60,7 @@ static void txn_retransmit(void *arg) {
   }
 
   /* Retransmit */
-  txn->send_fn(txn->msg_buf, txn->msg_len, (const struct sockaddr *)&txn->dest,
-               txn->send_arg);
+  txn->send_fn(txn->msg_buf, txn->msg_len, (const struct sockaddr *)&txn->dest, txn->send_arg);
   txn->retransmit_count++;
   txn->rto_ms *= 2; /* Exponential backoff */
   txn_schedule_retransmit(txn);
@@ -117,9 +115,8 @@ static int txn_find(xStunTxnMgr *mgr, const uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
 
 /* ───────────────────── Send ───────────────────── */
 
-xErrno xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type,
-                       const uint8_t *attrs, uint16_t attrs_len,
-                       const struct sockaddr *dest, xStunTxnSendFunc send_fn,
+xErrno xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type, const uint8_t *attrs,
+                       uint16_t attrs_len, const struct sockaddr *dest, xStunTxnSendFunc send_fn,
                        void *send_arg, xStunTxnFunc on_complete, void *cb_arg) {
   if (!mgr || !dest || !send_fn) return xErrno_InvalidArg;
   if (mgr->count >= XSTUN_TXN_MAX) return xErrno_NoMemory;
@@ -173,9 +170,8 @@ xErrno xStunTxnMgrSend(xStunTxnMgr *mgr, xStunMsgType msg_type,
   return xErrno_Ok;
 }
 
-xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf,
-                          size_t msg_len, const struct sockaddr *dest,
-                          xStunTxnSendFunc send_fn, void *send_arg,
+xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf, size_t msg_len,
+                          const struct sockaddr *dest, xStunTxnSendFunc send_fn, void *send_arg,
                           xStunTxnFunc on_complete, void *cb_arg) {
   if (!mgr || !msg_buf || !dest || !send_fn) return xErrno_InvalidArg;
   if (msg_len < XSTUN_HEADER_SIZE || msg_len > XSTUN_MAX_MSG_SIZE) {
@@ -222,8 +218,7 @@ xErrno xStunTxnMgrSendRaw(xStunTxnMgr *mgr, const uint8_t *msg_buf,
 
 bool xStunTxnMgrOnResponse(xStunTxnMgr *mgr, const xStunMsg *msg,
                            const uint8_t *raw_buf __attribute__((unused)),
-                           size_t         raw_len __attribute__((unused)),
-                           const struct sockaddr *from) {
+                           size_t raw_len __attribute__((unused)), const struct sockaddr *from) {
   if (!mgr || !msg) return false;
 
   int idx = txn_find(mgr, msg->txn_id);

@@ -64,14 +64,12 @@ XDEF_ENUM(xTransferRole){
 /**
  * @brief Called when the transfer state changes.
  */
-typedef void (*xTransferOnStateChange)(xTransfer xfer, xTransferState state,
-                                       void *ctx);
+typedef void (*xTransferOnStateChange)(xTransfer xfer, xTransferState state, void *ctx);
 
 /**
  * @brief Called periodically to report transfer progress.
  */
-typedef void (*xTransferOnProgress)(xTransfer xfer,
-                                    uint64_t bytes_transferred,
+typedef void (*xTransferOnProgress)(xTransfer xfer, uint64_t bytes_transferred,
                                     uint64_t bytes_total, void *ctx);
 
 /**
@@ -84,22 +82,20 @@ typedef void (*xTransferOnCode)(xTransfer xfer, const char *code, void *ctx);
  * @brief Called when the receiver learns the file metadata from the
  *        sender (file name, size, etc.) before data transfer begins.
  */
-typedef void (*xTransferOnFileMeta)(xTransfer xfer, const char *filename,
-                                    uint64_t filesize, void *ctx);
+typedef void (*xTransferOnFileMeta)(xTransfer xfer, const char *filename, uint64_t filesize,
+                                    void *ctx);
 
 /**
  * @brief Called when the transfer encounters an error.
  */
-typedef void (*xTransferOnError)(xTransfer xfer, xErrno err, const char *msg,
-                                 void *ctx);
+typedef void (*xTransferOnError)(xTransfer xfer, xErrno err, const char *msg, void *ctx);
 
 /**
  * @brief Called when a new local ICE candidate is gathered.
  *
  * When @p candidate is NULL, gathering is complete.
  */
-typedef void (*xTransferOnIceCandidate)(xTransfer xfer, const char *candidate,
-                                        void *ctx);
+typedef void (*xTransferOnIceCandidate)(xTransfer xfer, const char *candidate, void *ctx);
 
 /* ───────────────────── Virtual File System ───────────────────── */
 
@@ -123,13 +119,13 @@ XDEF_STRUCT(xTransferConf) {
   const xTransferVfs *vfs;
 
   /** Callbacks. */
-  xTransferOnStateChange on_state_change;
-  xTransferOnProgress    on_progress;
-  xTransferOnCode        on_code;      /**< Sender only.                 */
-  xTransferOnFileMeta    on_file_meta; /**< Receiver only.               */
-  xTransferOnError       on_error;
+  xTransferOnStateChange  on_state_change;
+  xTransferOnProgress     on_progress;
+  xTransferOnCode         on_code;      /**< Sender only.                 */
+  xTransferOnFileMeta     on_file_meta; /**< Receiver only.               */
+  xTransferOnError        on_error;
   xTransferOnIceCandidate on_ice_candidate; /**< ICE candidate callback. */
-  void                  *ctx; /**< Forwarded to all callbacks.            */
+  void                   *ctx;              /**< Forwarded to all callbacks.            */
 };
 
 /* ───────────────────── Lifecycle ───────────────────── */
@@ -141,8 +137,7 @@ XDEF_STRUCT(xTransferConf) {
  * @param conf  Configuration (required).
  * @return      Transfer handle, or NULL on failure.
  */
-XCAPI(xTransfer) xTransferCreate(xEventLoop loop,
-                                 const xTransferConf *conf);
+XCAPI(xTransfer) xTransferCreate(xEventLoop loop, const xTransferConf *conf);
 
 /**
  * @brief Destroy a transfer session and free all resources.
@@ -178,8 +173,7 @@ XCAPI(xErrno) xTransferSendFile(xTransfer xfer, const char *filepath);
  *                  original filename from the sender).
  * @return          xErrno_Ok on success.
  */
-XCAPI(xErrno) xTransferRecvFile(xTransfer xfer, const char *code,
-                                const char *dest_dir);
+XCAPI(xErrno) xTransferRecvFile(xTransfer xfer, const char *code, const char *dest_dir);
 
 /* ───────────────────── Accessors ───────────────────── */
 

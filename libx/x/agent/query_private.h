@@ -73,14 +73,14 @@ struct xAgentQueryPending_ {
  * pending calls remain, the tool-loop continuation can proceed.
  */
 struct xAgentQueryAsyncTool_ {
-  xAgentTool          tool;      /* the tool handle (borrowed from tools[]) */
-  xAgentToolDoneFunc  done_fn;   /* tool's on_done_fn (may be NULL)         */
-  void            *done_ud;   /* tool's on_done_ud (may be NULL)        */
+  xAgentTool           tool;      /* the tool handle (borrowed from tools[]) */
+  xAgentToolDoneFunc   done_fn;   /* tool's on_done_fn (may be NULL)         */
+  void                *done_ud;   /* tool's on_done_ud (may be NULL)        */
   xAgentToolCancelFunc cancel_fn; /* tool's on_cancel_fn (may be NULL)     */
-  void            *cancel_ud; /* tool's on_cancel_ud (may be NULL)      */
-  char            *id;        /* tool_use_id (owned copy)                */
-  char            *name;      /* tool name (owned copy)                  */
-  char            *args_json; /* arguments JSON (owned copy)              */
+  void                *cancel_ud; /* tool's on_cancel_ud (may be NULL)      */
+  char                *id;        /* tool_use_id (owned copy)                */
+  char                *name;      /* tool name (owned copy)                  */
+  char                *args_json; /* arguments JSON (owned copy)              */
 
   /* Stage — distinguishes entries still waiting for a user
    * confirmation decision from ones whose handler is actually in
@@ -131,13 +131,13 @@ struct xAgentQuery_ {
    * any of this — it is fully standalone. The only use for the
    * @c session pointer is the observational xAgentQuerySession() API;
    * it is never dereferenced for configuration. */
-  xAgentProvider     provider;    /* borrowed, never NULL for a functional Query */
-  const xAgentTool **tools;       /* borrowed array, may be NULL               */
-  size_t          tools_count; /* number of entries in tools                */
-  const char     *model;       /* borrowed, may be NULL                     */
-  int             max_tokens;  /* per-round cap, 0 = provider default       */
-  int             max_turns;   /* tool-loop cap, 0 = library default        */
-  struct xAgentSession_ *session; /* optional, for xAgentQuerySession() only      */
+  xAgentProvider         provider;    /* borrowed, never NULL for a functional Query */
+  const xAgentTool     **tools;       /* borrowed array, may be NULL               */
+  size_t                 tools_count; /* number of entries in tools                */
+  const char            *model;       /* borrowed, may be NULL                     */
+  int                    max_tokens;  /* per-round cap, 0 = provider default       */
+  int                    max_turns;   /* tool-loop cap, 0 = library default        */
+  struct xAgentSession_ *session;     /* optional, for xAgentQuerySession() only      */
 
   /* Streaming callbacks for this Query. Captured by value at
    * xAgentQueryCreate; callbacks fire with the Query handle (not the
@@ -193,7 +193,7 @@ struct xAgentQuery_ {
    * round reports the full input size the provider saw (not a delta),
    * so the maximum across rounds is the total input. completion_tokens
    * and total_tokens are additive (per-round deltas). */
-  int      saw_usage; /* 1 once any round reported usage           */
+  int         saw_usage; /* 1 once any round reported usage           */
   xAgentUsage usage;     /* running totals (prompt=max, others=add)   */
 
   /* The prompt_tokens reported by the provider on the FIRST round
@@ -253,8 +253,7 @@ void ai_query_cancel_mark(struct xAgentQuery_ *q);
  *               produced nothing).
  * @param n_out  Receives the number of entries.
  */
-void ai_query_take_produced(struct xAgentQuery_ *q, struct xAgentSessionMsg_ **out,
-                            size_t *n_out);
+void ai_query_take_produced(struct xAgentQuery_ *q, struct xAgentSessionMsg_ **out, size_t *n_out);
 
 /**
  * @brief Resolve one asynchronously executing tool invocation.

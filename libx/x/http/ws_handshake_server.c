@@ -27,8 +27,8 @@ static const char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
  * (within the headers string) and sets *len to the value length.
  * Returns NULL if not found.
  */
-static const char *find_header(const char *headers, size_t headers_len,
-                               const char *key, size_t *len) {
+static const char *find_header(const char *headers, size_t headers_len, const char *key,
+                               size_t *len) {
   size_t      key_len = strlen(key);
   const char *p       = headers;
   const char *end     = headers + headers_len;
@@ -40,8 +40,7 @@ static const char *find_header(const char *headers, size_t headers_len,
 
     /* Check if this line starts with "key: " */
     size_t line_len = (size_t)(eol - p);
-    if (line_len > key_len + 2 && strncasecmp(p, key, key_len) == 0 &&
-        p[key_len] == ':') {
+    if (line_len > key_len + 2 && strncasecmp(p, key, key_len) == 0 && p[key_len] == ':') {
       /* Skip ": " */
       const char *val = p + key_len + 1;
       while (val < eol && *val == ' ')
@@ -61,8 +60,7 @@ static const char *find_header(const char *headers, size_t headers_len,
  * Check if a header value contains a token (case-insensitive).
  * Handles comma-separated lists like "keep-alive, Upgrade".
  */
-static int header_contains_token(const char *value, size_t value_len,
-                                 const char *token) {
+static int header_contains_token(const char *value, size_t value_len, const char *token) {
   size_t      token_len = strlen(token);
   const char *p         = value;
   const char *end       = value + value_len;
@@ -119,24 +117,22 @@ xErrno xWsUpgrade(xHttpResponseWriter writer, const xHttpRequest *req,
   size_t val_len;
 
   /* Upgrade: websocket */
-  const char *upgrade =
-    find_header(req->headers, req->headers_len, "Upgrade", &val_len);
+  const char *upgrade = find_header(req->headers, req->headers_len, "Upgrade", &val_len);
   if (!upgrade || !header_contains_token(upgrade, val_len, "websocket")) {
     xHttpConnSendError(conn, 400, "Missing Upgrade: websocket");
     return xErrno_InvalidArg;
   }
 
   /* Connection: Upgrade */
-  const char *connection =
-    find_header(req->headers, req->headers_len, "Connection", &val_len);
+  const char *connection = find_header(req->headers, req->headers_len, "Connection", &val_len);
   if (!connection || !header_contains_token(connection, val_len, "Upgrade")) {
     xHttpConnSendError(conn, 400, "Missing Connection: Upgrade");
     return xErrno_InvalidArg;
   }
 
   /* Sec-WebSocket-Version: 13 */
-  const char *version = find_header(req->headers, req->headers_len,
-                                    "Sec-WebSocket-Version", &val_len);
+  const char *version =
+    find_header(req->headers, req->headers_len, "Sec-WebSocket-Version", &val_len);
   if (!version || val_len != 2 || version[0] != '1' || version[1] != '3') {
     xHttpConnSendError(conn, 400, "Unsupported WebSocket version");
     return xErrno_InvalidArg;
@@ -144,8 +140,7 @@ xErrno xWsUpgrade(xHttpResponseWriter writer, const xHttpRequest *req,
 
   /* Sec-WebSocket-Key */
   size_t      key_len;
-  const char *ws_key =
-    find_header(req->headers, req->headers_len, "Sec-WebSocket-Key", &key_len);
+  const char *ws_key = find_header(req->headers, req->headers_len, "Sec-WebSocket-Key", &key_len);
   if (!ws_key || key_len == 0 || key_len > 128) {
     xHttpConnSendError(conn, 400, "Missing Sec-WebSocket-Key");
     return xErrno_InvalidArg;
@@ -162,12 +157,10 @@ xErrno xWsUpgrade(xHttpResponseWriter writer, const xHttpRequest *req,
   memcpy(concat + key_len, WS_GUID, sizeof(WS_GUID)); /* includes NUL */
 
   unsigned char sha1_digest[XWS_SHA1_DIGEST_SIZE];
-  xWsSHA1((const unsigned char *)concat, key_len + sizeof(WS_GUID) - 1,
-          sha1_digest);
+  xWsSHA1((const unsigned char *)concat, key_len + sizeof(WS_GUID) - 1, sha1_digest);
 
   char accept_value[64];
-  xWsBase64Encode(sha1_digest, XWS_SHA1_DIGEST_SIZE, accept_value,
-                  sizeof(accept_value));
+  xWsBase64Encode(sha1_digest, XWS_SHA1_DIGEST_SIZE, accept_value, sizeof(accept_value));
 
 #ifdef XHTTP_WS_DEFLATE
   /* 3b. Check for permessage-deflate extension offer */
@@ -176,11 +169,10 @@ xErrno xWsUpgrade(xHttpResponseWriter writer, const xHttpRequest *req,
   int has_deflate = 0;
   {
     size_t      ext_len;
-    const char *ext_val = find_header(req->headers, req->headers_len,
-                                      "Sec-WebSocket-Extensions", &ext_len);
+    const char *ext_val =
+      find_header(req->headers, req->headers_len, "Sec-WebSocket-Extensions", &ext_len);
     if (ext_val && ext_len > 0) {
-      has_deflate =
-        (xWsDeflateParseOffer(ext_val, ext_len, &deflate_params) == 0);
+      has_deflate = (xWsDeflateParseOffer(ext_val, ext_len, &deflate_params) == 0);
     }
   }
 #endif
@@ -191,10 +183,8 @@ xErrno xWsUpgrade(xHttpResponseWriter writer, const xHttpRequest *req,
 #ifdef XHTTP_WS_DEFLATE
   if (has_deflate) {
     char ext_val[192];
-    if (xWsDeflateBuildServerResponse(&deflate_params, ext_val,
-                                      sizeof(ext_val)) > 0) {
-      snprintf(ext_resp_hdr, sizeof(ext_resp_hdr),
-               "Sec-WebSocket-Extensions: %s\r\n", ext_val);
+    if (xWsDeflateBuildServerResponse(&deflate_params, ext_val, sizeof(ext_val)) > 0) {
+      snprintf(ext_resp_hdr, sizeof(ext_resp_hdr), "Sec-WebSocket-Extensions: %s\r\n", ext_val);
     }
   }
 #endif
@@ -230,9 +220,8 @@ xErrno xWsUpgrade(xHttpResponseWriter writer, const xHttpRequest *req,
   xHttpConnHijack(conn);
 
   /* 6. Create WebSocket connection */
-  struct xWsConn_ *ws =
-    xWsConnCreate(s, s->loop, hijacked_sock, hijacked_transport, callbacks, arg,
-                  s->idle_timeout_ms);
+  struct xWsConn_ *ws = xWsConnCreate(s, s->loop, hijacked_sock, hijacked_transport, callbacks, arg,
+                                      s->idle_timeout_ms);
 
   if (!ws) {
     /* Failed to create WS conn: clean up */

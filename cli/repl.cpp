@@ -45,14 +45,12 @@ static int  repl_refresh_confirm_editor(ReplCtx *ctx);
 int repl_open_line_with_prompt(ReplCtx *ctx, const char *prompt) {
   ctx->line = xLineBegin(prompt ? prompt : "");
   if (!ctx->line) {
-    std::fprintf(stderr,
-                 "xLineBegin failed (dumb tty? another session live?)\n");
+    std::fprintf(stderr, "xLineBegin failed (dumb tty? another session live?)\n");
     return -1;
   }
   int fd = xLineFd(ctx->line);
   if (fd < 0) {
-    std::fprintf(stderr,
-                 "xLineFd returned %d — not pollable on this platform\n", fd);
+    std::fprintf(stderr, "xLineFd returned %d — not pollable on this platform\n", fd);
     xLineEnd(ctx->line);
     ctx->line = nullptr;
     return -1;
@@ -118,8 +116,7 @@ static void repl_update_confirm_panel(ReplCtx *ctx) {
   body.append(pc.args_json);
   if (ctx->confirm_queue.size() > 1) {
     char qtail[64];
-    std::snprintf(qtail, sizeof(qtail), "\n(+%zu more queued)",
-                  ctx->confirm_queue.size() - 1);
+    std::snprintf(qtail, sizeof(qtail), "\n(+%zu more queued)", ctx->confirm_queue.size() - 1);
     body.append(qtail);
   }
   body.append("\n\n  [y] allow   [n] reject   [r <reason>] reject w/ reason");
@@ -143,8 +140,7 @@ static void repl_enter_confirm_mode(ReplCtx *ctx) {
      * back to Reject so the run doesn't hang forever. */
     xLineSetPromptMarker(NULL, NULL);
     while (!ctx->confirm_queue.empty()) {
-      xAgentToolConfirmResolve(ctx->confirm_queue.front().resolver,
-                               xAgentToolDecision_Reject,
+      xAgentToolConfirmResolve(ctx->confirm_queue.front().resolver, xAgentToolDecision_Reject,
                                "tty unavailable for confirm");
       ctx->confirm_queue.pop_front();
     }
@@ -153,8 +149,7 @@ static void repl_enter_confirm_mode(ReplCtx *ctx) {
     return;
   }
   ctx->confirm_active = true;
-  above_printf(ctx->line,
-               "\x1b[1;33m[confirm] tool '%s' wants to run — approve?\x1b[0m",
+  above_printf(ctx->line, "\x1b[1;33m[confirm] tool '%s' wants to run — approve?\x1b[0m",
                ctx->confirm_queue.front().tool_name.c_str());
   repl_update_confirm_panel(ctx);
 }
@@ -212,8 +207,7 @@ static int repl_refresh_confirm_editor(ReplCtx *ctx) {
  * teardown. */
 void repl_drain_confirms_rejected(ReplCtx *ctx, const char *reason) {
   while (!ctx->confirm_queue.empty()) {
-    xAgentToolConfirmResolve(ctx->confirm_queue.front().resolver,
-                             xAgentToolDecision_Reject,
+    xAgentToolConfirmResolve(ctx->confirm_queue.front().resolver, xAgentToolDecision_Reject,
                              reason ? reason : "cancelled");
     ctx->confirm_queue.pop_front();
   }
@@ -264,9 +258,8 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
      * close+reopen it before we can read the next keystroke. */
     ctx->confirm_queue.push_front(std::move(head));
     if (repl_refresh_confirm_editor(ctx) != 0) return;
-    above_printf(ctx->line,
-                 "\x1b[2m(type y to allow, n to reject, r <reason> "
-                 "to reject with reason)\x1b[0m");
+    above_printf(ctx->line, "\x1b[2m(type y to allow, n to reject, r <reason> "
+                            "to reject with reason)\x1b[0m");
     repl_update_confirm_panel(ctx);
     return;
   } else if (*s == 'n' || *s == 'N') {
@@ -290,8 +283,7 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
      * we print/repaint so the new session owns the below panel. */
     ctx->confirm_queue.push_front(std::move(head));
     if (repl_refresh_confirm_editor(ctx) != 0) return;
-    above_printf(ctx->line,
-                 "\x1b[33m(unrecognised; use y / n / r <reason>)\x1b[0m");
+    above_printf(ctx->line, "\x1b[33m(unrecognised; use y / n / r <reason>)\x1b[0m");
     repl_update_confirm_panel(ctx);
     return;
   }
@@ -337,12 +329,11 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
   if (repl_refresh_confirm_editor(ctx) != 0) return;
 
   if (decision == xAgentToolDecision_Allow) {
-    above_printf(ctx->line, "\x1b[2m[confirm] %s → allowed (%s)\x1b[0m",
-                 head.tool_name.c_str(), echo);
+    above_printf(ctx->line, "\x1b[2m[confirm] %s → allowed (%s)\x1b[0m", head.tool_name.c_str(),
+                 echo);
   } else {
     above_printf(ctx->line, "\x1b[2m[confirm] %s → rejected (%s): %s\x1b[0m",
-                 head.tool_name.c_str(), echo,
-                 reason ? reason : "(none)");
+                 head.tool_name.c_str(), echo, reason ? reason : "(none)");
   }
 
   /* Resolve is synchronous and drives the tool handler's on_tool /
@@ -362,10 +353,8 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
      * panel), so we just need to refresh the decision panel to
      * show the new head and nudge the user with a banner. */
     repl_update_confirm_panel(ctx);
-    above_printf(
-      ctx->line,
-      "\x1b[1;33m[confirm] next: tool '%s' wants to run — approve?\x1b[0m",
-      ctx->confirm_queue.front().tool_name.c_str());
+    above_printf(ctx->line, "\x1b[1;33m[confirm] next: tool '%s' wants to run — approve?\x1b[0m",
+                 ctx->confirm_queue.front().tool_name.c_str());
     return;
   }
 
@@ -383,9 +372,8 @@ static void repl_handle_confirm_line(ReplCtx *ctx, const char *raw) {
 }
 
 /* Session callback: a needs_confirm tool wants to run. */
-void on_tool_confirm(xAgentSession sess, const char *tool_name,
-                     const char *tool_use_id, const char *args_json,
-                     xAgentToolConfirmResolver resolver, void *ud) {
+void on_tool_confirm(xAgentSession sess, const char *tool_name, const char *tool_use_id,
+                     const char *args_json, xAgentToolConfirmResolver resolver, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
@@ -400,8 +388,7 @@ void on_tool_confirm(xAgentSession sess, const char *tool_name,
    * documented as valid from the callback until Resolve is called,
    * so calling it synchronously here is safe. */
   if (ctx->bypass_confirm) {
-    above_printf(ctx->line,
-                 "\x1b[2m[bypass] %s \u2192 auto-allow\x1b[0m",
+    above_printf(ctx->line, "\x1b[2m[bypass] %s \u2192 auto-allow\x1b[0m",
                  tool_name ? tool_name : "(null)");
     xAgentToolConfirmResolve(resolver, xAgentToolDecision_Allow, nullptr);
     return;
@@ -448,10 +435,9 @@ xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
    * models.json from here because every downstream object (agent,
    * session, tool handlers) was sized against the config at boot. */
   if (!ctx->sess) {
-    above_printf(ctx->line,
-                 "\x1b[1;33m[no model]\x1b[22;39m chat is disabled \u2014 "
-                 "edit models.json in your data_dir and restart "
-                 "(see /help).");
+    above_printf(ctx->line, "\x1b[1;33m[no model]\x1b[22;39m chat is disabled \u2014 "
+                            "edit models.json in your data_dir and restart "
+                            "(see /help).");
     return xErrno_InvalidArg;
   }
 
@@ -469,14 +455,11 @@ xErrno repl_submit_text(ReplCtx *ctx, const char *text) {
   if (err == xErrno_Busy) {
     /* A budget compact is in flight. The session will auto-retry
      * the pending message when compact completes — just notify. */
-    above_printf(ctx->line,
-      "\x1b[2m(session busy — compact in progress, will auto-retry)\x1b[0m");
+    above_printf(ctx->line, "\x1b[2m(session busy — compact in progress, will auto-retry)\x1b[0m");
     return xErrno_Busy;
   }
   if (err != xErrno_Ok) {
-    above_printf(ctx->line,
-                 "\x1b[1;31m[error] input rejected (errno=%d)\x1b[0m",
-                 (int)err);
+    above_printf(ctx->line, "\x1b[1;31m[error] input rejected (errno=%d)\x1b[0m", (int)err);
     if (err == xErrno_PromptTooLong) {
       above_printf(ctx->line, "\x1b[1;31m        hit budget cap — raise "
                               "sconf.budget.context_window or lower "
@@ -512,9 +495,8 @@ static int repl_handle_line(ReplCtx *ctx, char *line) {
     /* The AI is still working; reject the submit but keep the
      * entry in history so the user can Up-arrow and resend once
      * /cancel (or on_done) clears the flag. */
-    above_printf(ctx->line,
-                 "\x1b[33m(AI is busy \u2014 use /cancel to interrupt, then "
-                 "resend with Up-arrow)\x1b[0m");
+    above_printf(ctx->line, "\x1b[33m(AI is busy \u2014 use /cancel to interrupt, then "
+                            "resend with Up-arrow)\x1b[0m");
     return 0;
   }
 

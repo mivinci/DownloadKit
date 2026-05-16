@@ -72,8 +72,7 @@ xJSValueRef xjs_slot_make(JSContext *qctx, JSValue qv) {
   if (tag == JS_TAG_UNDEFINED) return (xJSValueRef)XJS_SINGLETON_UNDEFINED;
   if (tag == JS_TAG_NULL) return (xJSValueRef)XJS_SINGLETON_NULL;
   if (tag == JS_TAG_BOOL) {
-    return (xJSValueRef)(JS_VALUE_GET_BOOL(qv) ? XJS_SINGLETON_TRUE
-                                               : XJS_SINGLETON_FALSE);
+    return (xJSValueRef)(JS_VALUE_GET_BOOL(qv) ? XJS_SINGLETON_TRUE : XJS_SINGLETON_FALSE);
   }
   if (tag == JS_TAG_INT) {
     int32_t i = JS_VALUE_GET_INT(qv);
@@ -91,8 +90,7 @@ xJSValueRef xjs_slot_make(JSContext *qctx, JSValue qv) {
     JS_FreeValue(qctx, qv);
     return NULL;
   }
-  struct OpaqueXJSValue *s =
-    (struct OpaqueXJSValue *)xSlabAlloc(owner->slot_pool);
+  struct OpaqueXJSValue *s = (struct OpaqueXJSValue *)xSlabAlloc(owner->slot_pool);
   if (!s) {
     JS_FreeValue(qctx, qv);
     return NULL;
@@ -150,8 +148,7 @@ void xjs_propagate_exception(JSContext *qctx, xJSValueRef *exception) {
 
 /* ─── UTF-8 / UTF-16 conversion ───────────────────────────────────── */
 
-size_t xjs_utf8_to_utf16(const char *src, size_t srclen, uint16_t *dst,
-                         size_t dstcap) {
+size_t xjs_utf8_to_utf16(const char *src, size_t srclen, uint16_t *dst, size_t dstcap) {
   size_t i = 0, o = 0;
   while (i < srclen) {
     unsigned char c = (unsigned char)src[i];
@@ -201,8 +198,7 @@ size_t xjs_utf8_to_utf16(const char *src, size_t srclen, uint16_t *dst,
   return o;
 }
 
-size_t xjs_utf16_to_utf8(const uint16_t *src, size_t srclen, char *dst,
-                         size_t dstcap) {
+size_t xjs_utf16_to_utf8(const uint16_t *src, size_t srclen, char *dst, size_t dstcap) {
   size_t o = 0;
   for (size_t i = 0; i < srclen; ++i) {
     uint32_t cp = src[i];

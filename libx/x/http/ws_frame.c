@@ -39,20 +39,18 @@ static int io_peek(xIOBuffer *io, void *out, size_t n) {
   /* Copy without consuming */
   size_t copied = 0;
   for (size_t i = 0; i < io->nrefs && copied < n; i++) {
-    xIOBufferRef *ref = &io->refs[i];
-    size_t avail = ref->length;
-    size_t want  = n - copied;
-    size_t take  = (avail < want) ? avail : want;
-    memcpy((uint8_t *)out + copied,
-           ref->block->data + ref->offset, take);
+    xIOBufferRef *ref   = &io->refs[i];
+    size_t        avail = ref->length;
+    size_t        want  = n - copied;
+    size_t        take  = (avail < want) ? avail : want;
+    memcpy((uint8_t *)out + copied, ref->block->data + ref->offset, take);
     copied += take;
   }
   return 1;
 }
 
 /** Unmask payload in-place. */
-static void unmask_payload(uint8_t *data, size_t len,
-                           const uint8_t key[4]) {
+static void unmask_payload(uint8_t *data, size_t len, const uint8_t key[4]) {
   /* Process 4 bytes at a time for performance */
   size_t i = 0;
   for (; i + 4 <= len; i += 4) {
@@ -72,10 +70,9 @@ static int is_control_opcode(uint8_t opcode) {
 
 /* ───────────────────── Parser ───────────────────── */
 
-void xWsFrameParserInit(xWsFrameParser *parser,
-                        int expect_masked) {
+void xWsFrameParserInit(xWsFrameParser *parser, int expect_masked) {
   memset(parser, 0, sizeof(*parser));
-  parser->phase = xWsFrameParserPhase_Header;
+  parser->phase         = xWsFrameParserPhase_Header;
   parser->expect_masked = expect_masked;
 }
 
@@ -85,8 +82,7 @@ void xWsFrameParserReset(xWsFrameParser *parser) {
   memset(&parser->frame, 0, sizeof(parser->frame));
 }
 
-xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
-                              xIOBuffer *io) {
+xWsFrameResult xWsFrameParse(xWsFrameParser *parser, xIOBuffer *io) {
   xWsFrame *f = &parser->frame;
 
   /* Phase: HEADER — read 2-byte base header */
@@ -105,23 +101,20 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
     /* RSV1 is only allowed when permessage-deflate is active,
      * and only on data frames (not control frames). */
     if (f->rsv1) {
-      if (!parser->allow_rsv1 || is_control_opcode(f->opcode))
-        return xWsFrameResult_Error;
+      if (!parser->allow_rsv1 || is_control_opcode(f->opcode)) return xWsFrameResult_Error;
     }
 
     /* Validate mask bit against expected mode (RFC 6455 §5.1):
      * Server mode: client frames MUST be masked.
      * Client mode: server frames MUST NOT be masked. */
-    if ((int)f->masked != parser->expect_masked)
-      return xWsFrameResult_Error;
+    if ((int)f->masked != parser->expect_masked) return xWsFrameResult_Error;
 
     uint8_t len7 = hdr[1] & 0x7F;
 
     if (len7 < 126) {
       f->payload_len = len7;
       xIOBufferConsume(io, 2);
-      parser->phase = f->masked ? xWsFrameParserPhase_Mask
-                                : xWsFrameParserPhase_Payload;
+      parser->phase = f->masked ? xWsFrameParserPhase_Mask : xWsFrameParserPhase_Payload;
     } else if (len7 == 126) {
       xIOBufferConsume(io, 2);
       parser->phase = xWsFrameParserPhase_Len16;
@@ -144,8 +137,7 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
     if (!io_peek(io, buf, 2)) return xWsFrameResult_NeedMore;
     f->payload_len = ((uint64_t)buf[0] << 8) | buf[1];
     xIOBufferConsume(io, 2);
-    parser->phase = f->masked ? xWsFrameParserPhase_Mask
-                              : xWsFrameParserPhase_Payload;
+    parser->phase = f->masked ? xWsFrameParserPhase_Mask : xWsFrameParserPhase_Payload;
   }
 
   /* Phase: LEN64 — read 8-byte extended length */
@@ -159,14 +151,12 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
     /* MSB must be 0 (RFC 6455 §5.2) */
     if (f->payload_len >> 63) return xWsFrameResult_Error;
     xIOBufferConsume(io, 8);
-    parser->phase = f->masked ? xWsFrameParserPhase_Mask
-                              : xWsFrameParserPhase_Payload;
+    parser->phase = f->masked ? xWsFrameParserPhase_Mask : xWsFrameParserPhase_Payload;
   }
 
   /* Phase: MASK — read 4-byte masking key */
   if (parser->phase == xWsFrameParserPhase_Mask) {
-    if (!io_peek(io, f->masking_key, 4))
-      return xWsFrameResult_NeedMore;
+    if (!io_peek(io, f->masking_key, 4)) return xWsFrameResult_NeedMore;
     xIOBufferConsume(io, 4);
     parser->phase = xWsFrameParserPhase_Payload;
   }
@@ -181,32 +171,27 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser,
     /* Allocate payload buffer on first entry */
     if (!f->payload) {
       /* Limit single frame to 16 MB to prevent OOM */
-      if (f->payload_len > (16 * 1024 * 1024))
-        return xWsFrameResult_Error;
+      if (f->payload_len > (16 * 1024 * 1024)) return xWsFrameResult_Error;
       f->payload = (uint8_t *)malloc((size_t)f->payload_len);
       if (!f->payload) return xWsFrameResult_Error;
       parser->payload_read = 0;
     }
 
     /* Read as much payload as available */
-    size_t remaining = (size_t)f->payload_len
-                       - parser->payload_read;
-    size_t avail = xIOBufferLen(io);
-    size_t take  = (avail < remaining) ? avail : remaining;
+    size_t remaining = (size_t)f->payload_len - parser->payload_read;
+    size_t avail     = xIOBufferLen(io);
+    size_t take      = (avail < remaining) ? avail : remaining;
 
     if (take > 0) {
-      xIOBufferRead(io, f->payload + parser->payload_read,
-                    take);
+      xIOBufferRead(io, f->payload + parser->payload_read, take);
       parser->payload_read += take;
     }
 
-    if (parser->payload_read < (size_t)f->payload_len)
-      return xWsFrameResult_NeedMore;
+    if (parser->payload_read < (size_t)f->payload_len) return xWsFrameResult_NeedMore;
 
     /* Unmask if needed */
     if (f->masked) {
-      unmask_payload(f->payload, (size_t)f->payload_len,
-                     f->masking_key);
+      unmask_payload(f->payload, (size_t)f->payload_len, f->masking_key);
     }
 
     goto done;
@@ -227,23 +212,18 @@ done:
 
 /* ───────────────────── Encoder ───────────────────── */
 
-int xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode,
-                   const void *payload, size_t payload_len,
-                   int masked) {
-  return xWsFrameEncodeEx(io, fin, 0, opcode, payload,
-                          payload_len, masked);
+int xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode, const void *payload,
+                   size_t payload_len, int masked) {
+  return xWsFrameEncodeEx(io, fin, 0, opcode, payload, payload_len, masked);
 }
 
-int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1,
-                     uint8_t opcode, const void *payload,
+int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1, uint8_t opcode, const void *payload,
                      size_t payload_len, int masked) {
   /* Build header (max 14 bytes: 10 header + 4 mask key) */
   uint8_t hdr[14];
   size_t  hdr_len = 0;
 
-  hdr[0] = (uint8_t)((fin ? 0x80 : 0x00) |
-                     (rsv1 ? 0x40 : 0x00) |
-                     (opcode & 0x0F));
+  hdr[0] = (uint8_t)((fin ? 0x80 : 0x00) | (rsv1 ? 0x40 : 0x00) | (opcode & 0x0F));
 
   uint8_t mask_bit = masked ? 0x80 : 0x00;
 
@@ -271,8 +251,7 @@ int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1,
     hdr_len += 4;
   }
 
-  if (xIOBufferAppend(io, hdr, hdr_len) != xErrno_Ok)
-    return -1;
+  if (xIOBufferAppend(io, hdr, hdr_len) != xErrno_Ok) return -1;
 
   if (payload_len > 0 && payload) {
     if (masked) {
@@ -281,26 +260,21 @@ int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1,
       if (!tmp) return -1;
       memcpy(tmp, payload, payload_len);
       unmask_payload(tmp, payload_len, masking_key);
-      int rc = (xIOBufferAppend(io, tmp, payload_len)
-                != xErrno_Ok) ? -1 : 0;
+      int rc = (xIOBufferAppend(io, tmp, payload_len) != xErrno_Ok) ? -1 : 0;
       free(tmp);
       if (rc < 0) return -1;
     } else {
-      if (xIOBufferAppend(io, payload, payload_len)
-          != xErrno_Ok)
-        return -1;
+      if (xIOBufferAppend(io, payload, payload_len) != xErrno_Ok) return -1;
     }
   }
 
   return 0;
 }
 
-int xWsFrameEncodeClose(xIOBuffer *io, uint16_t code,
-                        const char *reason, size_t len,
-                        int masked) {
+int xWsFrameEncodeClose(xIOBuffer *io, uint16_t code, const char *reason, size_t len, int masked) {
   /* Close frame payload: 2-byte status code + optional reason */
-  size_t payload_len = 2 + len;
-  uint8_t *payload = (uint8_t *)malloc(payload_len);
+  size_t   payload_len = 2 + len;
+  uint8_t *payload     = (uint8_t *)malloc(payload_len);
   if (!payload) return -1;
 
   payload[0] = (uint8_t)(code >> 8);
@@ -309,8 +283,7 @@ int xWsFrameEncodeClose(xIOBuffer *io, uint16_t code,
     memcpy(payload + 2, reason, len);
   }
 
-  int ret = xWsFrameEncode(io, 1, XWS_OPCODE_CLOSE,
-                           payload, payload_len, masked);
+  int ret = xWsFrameEncode(io, 1, XWS_OPCODE_CLOSE, payload, payload_len, masked);
   free(payload);
   return ret;
 }

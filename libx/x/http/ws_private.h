@@ -9,7 +9,6 @@
 #ifndef XHTTP_WS_PRIVATE_H
 #define XHTTP_WS_PRIVATE_H
 
-#include <x/net/transport.h>
 #include "ws_deflate.h"
 #include "ws_frame.h"
 #include <x/base/base.h>
@@ -18,6 +17,7 @@
 #include <x/buf/io.h>
 #include <x/http/server.h>
 #include <x/http/ws.h>
+#include <x/net/transport.h>
 
 /* Forward declaration */
 struct xHttpServer_;
@@ -25,18 +25,18 @@ struct xHttpServer_;
 /* ───────────────────── Close state machine ───────────────────── */
 
 XDEF_ENUM(xWsCloseState){
-  xWsCloseState_Open          = 0, /**< Normal operating state          */
-  xWsCloseState_CloseSent,         /**< We sent Close, waiting for peer */
-  xWsCloseState_CloseReceived,     /**< Peer sent Close, we replied     */
-  xWsCloseState_Closed,            /**< Connection fully closed         */
+  xWsCloseState_Open = 0,      /**< Normal operating state          */
+  xWsCloseState_CloseSent,     /**< We sent Close, waiting for peer */
+  xWsCloseState_CloseReceived, /**< Peer sent Close, we replied     */
+  xWsCloseState_Closed,        /**< Connection fully closed         */
 };
 
 /* ───────────────────── WebSocket connection ───────────────────── */
 
 XDEF_STRUCT(xWsConn_) {
-  struct xHttpServer_ *server; /**< Back-pointer to the server       */
-  xEventLoop           loop;   /**< Event loop                       */
-  xSocket              sock;   /**< Async socket handle               */
+  struct xHttpServer_ *server;    /**< Back-pointer to the server       */
+  xEventLoop           loop;      /**< Event loop                       */
+  xSocket              sock;      /**< Async socket handle               */
   xIOBuffer            read_buf;  /**< Incoming data buffer           */
   xIOBuffer            write_buf; /**< Outgoing data buffer           */
 
@@ -47,9 +47,9 @@ XDEF_STRUCT(xWsConn_) {
   xWsFrameParser parser;
 
   /* Fragment reassembly */
-  xIOBuffer frag_buf;     /**< Accumulated fragment payload      */
-  uint8_t   frag_opcode;  /**< Opcode of the first fragment      */
-  int       in_fragment;  /**< Whether we are mid-fragmented msg */
+  xIOBuffer frag_buf;        /**< Accumulated fragment payload      */
+  uint8_t   frag_opcode;     /**< Opcode of the first fragment      */
+  int       in_fragment;     /**< Whether we are mid-fragmented msg */
   int       frag_compressed; /**< RSV1 was set on first fragment */
 
   /* Close handshake state */
@@ -98,13 +98,9 @@ XDEF_STRUCT(xWsConn_) {
  * @param timeout_ms  Idle timeout in milliseconds.
  * @return            New xWsConn, or NULL on failure.
  */
-struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server,
-                                xEventLoop loop,
-                                xSocket sock,
-                                xTransport transport,
-                                const xWsCallbacks *callbacks,
-                                void *arg,
-                                int timeout_ms);
+struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server, xEventLoop loop, xSocket sock,
+                               xTransport transport, const xWsCallbacks *callbacks, void *arg,
+                               int timeout_ms);
 
 /**
  * Destroy a WebSocket connection and free all resources.
@@ -124,7 +120,6 @@ void xWsConnDestroy(struct xWsConn_ *conn);
  * @param reason  Optional reason string.
  * @param len     Length of reason.
  */
-void xWsConnClose(struct xWsConn_ *conn, uint16_t code,
-                  const char *reason, size_t len);
+void xWsConnClose(struct xWsConn_ *conn, uint16_t code, const char *reason, size_t len);
 
 #endif /* XHTTP_WS_PRIVATE_H */

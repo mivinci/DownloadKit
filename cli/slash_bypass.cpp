@@ -90,9 +90,8 @@ void slash_cmd_bypass(ReplCtx *ctx, const char *args) {
       return;
     }
     ctx->bypass_confirm = false;
-    above_printf(ctx->line,
-                 "\x1b[2m[bypass] disabled \u2014 tool confirms restored"
-                 "\x1b[0m");
+    above_printf(ctx->line, "\x1b[2m[bypass] disabled \u2014 tool confirms restored"
+                            "\x1b[0m");
     return;
   }
 
@@ -103,13 +102,10 @@ void slash_cmd_bypass(ReplCtx *ctx, const char *args) {
      * ENABLED-and-persisting case below, so the two don't visually
      * collapse into one wall of red. Matches the palette of the
      * `confirm>` prompt. */
-    above_printf(
-      ctx->line,
-      "\x1b[33m[bypass] refusing: this disables ALL tool confirms."
-      "\x1b[0m");
-    above_printf(ctx->line,
-                 "\x1b[33m         to proceed, run: /bypass on --yes"
-                 "\x1b[0m");
+    above_printf(ctx->line, "\x1b[33m[bypass] refusing: this disables ALL tool confirms."
+                            "\x1b[0m");
+    above_printf(ctx->line, "\x1b[33m         to proceed, run: /bypass on --yes"
+                            "\x1b[0m");
     return;
   }
 
@@ -121,8 +117,7 @@ void slash_cmd_bypass(ReplCtx *ctx, const char *args) {
     const char *on_pos = std::strstr(args, "on");
     bool        on_ok  = false;
     if (on_pos) {
-      bool        left_ok  = (on_pos == args) || on_pos[-1] == ' ' ||
-                             on_pos[-1] == '\t';
+      bool        left_ok  = (on_pos == args) || on_pos[-1] == ' ' || on_pos[-1] == '\t';
       const char *after    = on_pos + 2;
       bool        right_ok = *after == '\0' || *after == ' ' || *after == '\t';
       on_ok                = left_ok && right_ok;
@@ -133,29 +128,24 @@ void slash_cmd_bypass(ReplCtx *ctx, const char *args) {
         return;
       }
       ctx->bypass_confirm = true;
-      above_printf(ctx->line,
-                   "\x1b[1;31m[bypass] ENABLED \u2014 tool confirms are now"
-                   " skipped for this session.\x1b[0m");
-      above_printf(ctx->line,
-                   "\x1b[1;31m         run /bypass off to restore.\x1b[0m");
+      above_printf(ctx->line, "\x1b[1;31m[bypass] ENABLED \u2014 tool confirms are now"
+                              " skipped for this session.\x1b[0m");
+      above_printf(ctx->line, "\x1b[1;31m         run /bypass off to restore.\x1b[0m");
       return;
     }
   }
 
   /* Fall-through: unknown tail. Don't guess the intent — surface
    * the usage hint and leave state untouched. */
-  above_printf(ctx->line,
-               "\x1b[2m[bypass] unrecognised args: %s\x1b[0m", args);
-  above_printf(ctx->line,
-               "\x1b[2m         usage: /bypass [on --yes | off]\x1b[0m");
+  above_printf(ctx->line, "\x1b[2m[bypass] unrecognised args: %s\x1b[0m", args);
+  above_printf(ctx->line, "\x1b[2m         usage: /bypass [on --yes | off]\x1b[0m");
 }
 
 /* Arg completer for /bypass. Candidates depend on what's been typed
  * so far: an empty token (or partial of `on`/`off`) gets the verbs;
  * if `on` is already there, the `--yes` flag is offered. Keeps the
  * menu minimal so the user isn't wading through noise. */
-void slash_argc_bypass(xLineCompletionEnv cenv, ReplCtx *ctx,
-                       const char *token) {
+void slash_argc_bypass(xLineCompletionEnv cenv, ReplCtx *ctx, const char *token) {
   (void)ctx;
   /* xLineCompleteWord extracts only the word at the cursor, so here
    * `token` is the CURRENT partial word, not the whole arg string.
@@ -168,8 +158,8 @@ void slash_argc_bypass(xLineCompletionEnv cenv, ReplCtx *ctx,
     const char *name;
     const char *help;
   } cands[] = {
-    {"on",    "enable bypass (requires --yes)"},
-    {"off",   "disable bypass"},
+    {"on", "enable bypass (requires --yes)"},
+    {"off", "disable bypass"},
     {"--yes", "confirm enabling bypass"},
   };
   for (const auto &c : cands) {

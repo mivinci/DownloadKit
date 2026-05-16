@@ -78,7 +78,7 @@ XDEF_STRUCT(InvokeCtx) {
   xAgentShellOnCommandFunc on_command;
   xAgentShellOnResultFunc  on_result;
   xAgentShellOnOutputFunc  on_stream;
-  void                 *callback_ud;
+  void                    *callback_ud;
 
   /* Config */
   size_t stdout_cap;
@@ -97,7 +97,7 @@ XDEF_STRUCT(ShellCtx) {
   xAgentShellOnCommandFunc on_command;
   xAgentShellOnResultFunc  on_result;
   xAgentShellOnOutputFunc  on_stream;
-  void                 *callback_ud;
+  void                    *callback_ud;
 
   /* Mapping from tool_use_id → InvokeCtx for running commands.
    * Used by shell_stdin to locate a running command by its tool_use_id
@@ -165,8 +165,7 @@ static void invoke_ctx_destroy(InvokeCtx *ictx) {
 
 /* ───────────────────── Helper: build JSON result ───────────────────── */
 
-static void build_json_result(InvokeCtx *ictx, const xCommandResult *r,
-                              int completed) {
+static void build_json_result(InvokeCtx *ictx, const xCommandResult *r, int completed) {
   xStringClear(ictx->result_buf);
   xStringAppend(&ictx->result_buf, "{");
 
@@ -195,18 +194,16 @@ static void build_json_result(InvokeCtx *ictx, const xCommandResult *r,
       xStringAppend(&ictx->result_buf, "\"stderr\":\"\",");
     }
 
-    xStringAppendFormat(&ictx->result_buf, "\"timed_out\":%s,",
-                        r->timed_out ? "true" : "false");
+    xStringAppendFormat(&ictx->result_buf, "\"timed_out\":%s,", r->timed_out ? "true" : "false");
     xStringAppendFormat(&ictx->result_buf, "\"elapsed_ms\":%llu",
                         (unsigned long long)r->elapsed_ms);
   } else {
     /* Command did not complete (cancelled or other) */
-    xStringAppend(&ictx->result_buf,
-                  "\"exit_code\":-1,"
-                  "\"stdout\":\"\","
-                  "\"stderr\":\"command was cancelled or failed to start\","
-                  "\"timed_out\":false,"
-                  "\"elapsed_ms\":0");
+    xStringAppend(&ictx->result_buf, "\"exit_code\":-1,"
+                                     "\"stdout\":\"\","
+                                     "\"stderr\":\"command was cancelled or failed to start\","
+                                     "\"timed_out\":false,"
+                                     "\"elapsed_ms\":0");
   }
 
   xStringAppend(&ictx->result_buf, "}");
@@ -214,14 +211,12 @@ static void build_json_result(InvokeCtx *ictx, const xCommandResult *r,
 
 /* ───────────────────── xCommandExecutor callbacks ───────────────────── */
 
-static void on_cmd_stdout(xCommandExecutor exec, const char *data, size_t len,
-                          void *ud) {
+static void on_cmd_stdout(xCommandExecutor exec, const char *data, size_t len, void *ud) {
   (void)exec;
   InvokeCtx *ictx = (InvokeCtx *)ud;
 
   /* Accumulate for final result */
-  if (ictx->stdout_cap == 0 ||
-      xStringLen(ictx->stdout_buf) + len <= ictx->stdout_cap) {
+  if (ictx->stdout_cap == 0 || xStringLen(ictx->stdout_buf) + len <= ictx->stdout_cap) {
     xStringAppendLen(&ictx->stdout_buf, data, len);
   } else if (xStringLen(ictx->stdout_buf) < ictx->stdout_cap) {
     size_t remain = ictx->stdout_cap - xStringLen(ictx->stdout_buf);
@@ -237,20 +232,18 @@ static void on_cmd_stdout(xCommandExecutor exec, const char *data, size_t len,
   if (ictx->query) {
     struct xAgentQuery_ *q = (struct xAgentQuery_ *)ictx->query;
     if (q->cbs.on_tool_output) {
-      q->cbs.on_tool_output(ictx->query, ictx->tool_use_id, ictx->tool_use_name,
-                            data, len, q->cbs.user_data);
+      q->cbs.on_tool_output(ictx->query, ictx->tool_use_id, ictx->tool_use_name, data, len,
+                            q->cbs.user_data);
     }
   }
 }
 
-static void on_cmd_stderr(xCommandExecutor exec, const char *data, size_t len,
-                          void *ud) {
+static void on_cmd_stderr(xCommandExecutor exec, const char *data, size_t len, void *ud) {
   (void)exec;
   InvokeCtx *ictx = (InvokeCtx *)ud;
 
   /* Accumulate for final result */
-  if (ictx->stderr_cap == 0 ||
-      xStringLen(ictx->stderr_buf) + len <= ictx->stderr_cap) {
+  if (ictx->stderr_cap == 0 || xStringLen(ictx->stderr_buf) + len <= ictx->stderr_cap) {
     xStringAppendLen(&ictx->stderr_buf, data, len);
   } else if (xStringLen(ictx->stderr_buf) < ictx->stderr_cap) {
     size_t remain = ictx->stderr_cap - xStringLen(ictx->stderr_buf);
@@ -266,14 +259,13 @@ static void on_cmd_stderr(xCommandExecutor exec, const char *data, size_t len,
   if (ictx->query) {
     struct xAgentQuery_ *q = (struct xAgentQuery_ *)ictx->query;
     if (q->cbs.on_tool_output) {
-      q->cbs.on_tool_output(ictx->query, ictx->tool_use_id, ictx->tool_use_name,
-                            data, len, q->cbs.user_data);
+      q->cbs.on_tool_output(ictx->query, ictx->tool_use_id, ictx->tool_use_name, data, len,
+                            q->cbs.user_data);
     }
   }
 }
 
-static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result,
-                        void *ud) {
+static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
   (void)exec;
   InvokeCtx *ictx = (InvokeCtx *)ud;
 
@@ -286,8 +278,7 @@ static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result,
   final_result.stderr_buf     = ictx->stderr_buf;
   final_result.stderr_len     = xStringLen(ictx->stderr_buf);
 
-  int completed =
-    (result->exit_code >= 0 || result->timed_out || result->signaled);
+  int completed = (result->exit_code >= 0 || result->timed_out || result->signaled);
 
   build_json_result(ictx, &final_result, completed);
 
@@ -299,13 +290,12 @@ static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result,
 
   /* Notify shell-level result callback */
   if (ictx->on_result) {
-    ictx->on_result(final_result.exit_code, final_result.stdout_len,
-                    final_result.stderr_len, final_result.timed_out,
-                    ictx->callback_ud);
+    ictx->on_result(final_result.exit_code, final_result.stdout_len, final_result.stderr_len,
+                    final_result.timed_out, ictx->callback_ud);
   }
 
   /* Build the xAgentContent result for ai_query_async_tool_complete */
-  xAgentContent result_content               = {0};
+  xAgentContent result_content            = {0};
   result_content.type                     = xAgentContentType_ToolResult;
   result_content.u.tool_result.id         = ictx->tool_use_id;
   result_content.u.tool_result.output     = ictx->result_buf;
@@ -315,8 +305,8 @@ static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result,
   }
 
   /* Deliver result to the Query */
-  ai_query_async_tool_complete((struct xAgentQuery_ *)ictx->query,
-                               ictx->tool_use_id, &result_content);
+  ai_query_async_tool_complete((struct xAgentQuery_ *)ictx->query, ictx->tool_use_id,
+                               &result_content);
 
   /* Free the per-invocation context */
   invoke_ctx_destroy(ictx);
@@ -324,8 +314,7 @@ static void on_cmd_done(xCommandExecutor exec, const xCommandResult *result,
 
 /* ───────────────────── Cancel callback ───────────────────── */
 
-static void shell_on_cancel(xAgentQuery q, const char *tool_use_id, xAgentTool tool,
-                            void *ud) {
+static void shell_on_cancel(xAgentQuery q, const char *tool_use_id, xAgentTool tool, void *ud) {
   (void)q;
   (void)tool_use_id;
   (void)tool;
@@ -337,8 +326,7 @@ static void shell_on_cancel(xAgentQuery q, const char *tool_use_id, xAgentTool t
 
 /* ───────────────────── Handler (Plan B: async) ───────────────────── */
 
-static xErrno shell_handler(xAgentQuery q, const xAgentContent *in, xAgentContent *out,
-                            void *ud) {
+static xErrno shell_handler(xAgentQuery q, const xAgentContent *in, xAgentContent *out, void *ud) {
   (void)out; /* async mode: result delivered via ai_query_async_tool_complete */
   ShellCtx *ctx = (ShellCtx *)ud;
 
@@ -359,12 +347,9 @@ static xErrno shell_handler(xAgentQuery q, const xAgentContent *in, xAgentConten
   }
 
   char    *command = strdup(cmd_node->valuestring);
-  char    *cwd     = (cwd_node && cJSON_IsString(cwd_node))
-                       ? strdup(cwd_node->valuestring)
-                       : NULL;
-  uint64_t tmo     = (tmo_node && cJSON_IsNumber(tmo_node))
-                       ? (uint64_t)tmo_node->valuedouble
-                       : ctx->timeout_ms;
+  char    *cwd     = (cwd_node && cJSON_IsString(cwd_node)) ? strdup(cwd_node->valuestring) : NULL;
+  uint64_t tmo =
+    (tmo_node && cJSON_IsNumber(tmo_node)) ? (uint64_t)tmo_node->valuedouble : ctx->timeout_ms;
 
   /* cJSON tree no longer needed — command, cwd & tmo are now owned copies. */
   cJSON_Delete(root);
@@ -433,8 +418,8 @@ static xErrno shell_handler(xAgentQuery q, const xAgentContent *in, xAgentConten
   if (ctx->on_command) ctx->on_command(command, cwd, ctx->callback_ud);
 
   /* ── Submit ───────────────────────────────────────────── */
-  xErrno rc = xCommandExecutorSubmit(ctx->exec, &conf, on_cmd_stdout,
-                                     on_cmd_stderr, on_cmd_done, ictx);
+  xErrno rc =
+    xCommandExecutorSubmit(ctx->exec, &conf, on_cmd_stdout, on_cmd_stderr, on_cmd_done, ictx);
 
   /* command & cwd are no longer needed — the child process has its own
    * copy after fork() inside Submit. */
@@ -475,8 +460,8 @@ static xErrno shell_handler(xAgentQuery q, const xAgentContent *in, xAgentConten
  * Returns a JSON result: { "written": <bytes_written> }
  * On error: { "error": "<message>" }
  */
-static xErrno shell_stdin_handler(xAgentQuery q, const xAgentContent *in,
-                                  xAgentContent *out, void *ud) {
+static xErrno shell_stdin_handler(xAgentQuery q, const xAgentContent *in, xAgentContent *out,
+                                  void *ud) {
   (void)q;
   ShellCtx *ctx = (ShellCtx *)ud;
 
@@ -490,8 +475,7 @@ static xErrno shell_stdin_handler(xAgentQuery q, const xAgentContent *in,
   cJSON *input_node = cJSON_GetObjectItemCaseSensitive(root, "input");
   cJSON *id_node    = cJSON_GetObjectItemCaseSensitive(root, "tool_use_id");
 
-  if (!input_node || !cJSON_IsString(input_node) || !id_node ||
-      !cJSON_IsString(id_node)) {
+  if (!input_node || !cJSON_IsString(input_node) || !id_node || !cJSON_IsString(id_node)) {
     cJSON_Delete(root);
     return xErrno_InvalidArg;
   }
@@ -515,9 +499,8 @@ static xErrno shell_stdin_handler(xAgentQuery q, const xAgentContent *in,
   if (!ictx) {
     /* No running command with this tool_use_id */
     xStringClear(ctx->stdin_result_buf);
-    xStringAppend(
-      &ctx->stdin_result_buf,
-      "{\"error\":\"No running shell command with this tool_use_id\"}");
+    xStringAppend(&ctx->stdin_result_buf,
+                  "{\"error\":\"No running shell command with this tool_use_id\"}");
     out->u.tool_result.output     = ctx->stdin_result_buf;
     out->u.tool_result.output_len = xStringLen(ctx->stdin_result_buf);
     out->u.tool_result.is_error   = 1;
@@ -541,8 +524,8 @@ static xErrno shell_stdin_handler(xAgentQuery q, const xAgentContent *in,
 
   if (written < 0) {
     xStringClear(ctx->stdin_result_buf);
-    xStringAppendFormat(&ctx->stdin_result_buf,
-                        "{\"error\":\"write failed: %s\"}", strerror(errno));
+    xStringAppendFormat(&ctx->stdin_result_buf, "{\"error\":\"write failed: %s\"}",
+                        strerror(errno));
     out->u.tool_result.output     = ctx->stdin_result_buf;
     out->u.tool_result.output_len = xStringLen(ctx->stdin_result_buf);
     out->u.tool_result.is_error   = 1;
@@ -579,9 +562,8 @@ XCAPI(xAgentTool) xAgentToolShellCreate(xEventLoop loop, const xAgentShellConf *
   ShellCtx *ctx = (ShellCtx *)calloc(1, sizeof(ShellCtx));
   if (!ctx) return NULL;
 
-  ctx->loop = loop;
-  ctx->timeout_ms =
-    (conf && conf->timeout_ms) ? conf->timeout_ms : DEFAULT_TIMEOUT_MS;
+  ctx->loop       = loop;
+  ctx->timeout_ms = (conf && conf->timeout_ms) ? conf->timeout_ms : DEFAULT_TIMEOUT_MS;
   ctx->stdout_cap = (conf && conf->stdout_cap) ? conf->stdout_cap : DEFAULT_CAP;
   ctx->stderr_cap = (conf && conf->stderr_cap) ? conf->stderr_cap : DEFAULT_CAP;
 
@@ -611,17 +593,16 @@ XCAPI(xAgentTool) xAgentToolShellCreate(xEventLoop loop, const xAgentShellConf *
     return NULL;
   }
 
-  xAgentToolConf tconf = {};
-  tconf.name        = "shell";
-  tconf.description =
-    "Execute a shell command via /bin/sh -c and return the output. "
-    "Output is streamed in real-time while the command runs. "
-    "IMPORTANT: If the command is interactive and waits for input "
-    "(e.g. prompts like 'Name:', 'Press Y/N:', a REPL, or a password), "
-    "you MUST call the shell_stdin tool to send input to it — "
-    "do NOT wait or assume it will time out. "
-    "When calling shell_stdin, pass the tool_use_id of THIS shell "
-    "invocation (the id assigned to the tool_use block you sent).";
+  xAgentToolConf tconf    = {};
+  tconf.name              = "shell";
+  tconf.description       = "Execute a shell command via /bin/sh -c and return the output. "
+                            "Output is streamed in real-time while the command runs. "
+                            "IMPORTANT: If the command is interactive and waits for input "
+                            "(e.g. prompts like 'Name:', 'Press Y/N:', a REPL, or a password), "
+                            "you MUST call the shell_stdin tool to send input to it — "
+                            "do NOT wait or assume it will time out. "
+                            "When calling shell_stdin, pass the tool_use_id of THIS shell "
+                            "invocation (the id assigned to the tool_use block you sent).";
   tconf.json_schema       = kSchema;
   tconf.handler           = shell_handler;
   tconf.user_data         = ctx;
@@ -649,17 +630,16 @@ XCAPI(xAgentTool) xAgentToolShellStdinCreate(xAgentTool shell_tool) {
   ShellCtx *ctx = (ShellCtx *)xAgentToolUserData(shell_tool);
   if (!ctx) return NULL;
 
-  xAgentToolConf tconf = {};
-  tconf.name        = "shell_stdin";
-  tconf.description =
-    "Send input text to a running shell command's stdin. "
-    "Use this when the shell command is waiting for input "
-    "(e.g. a prompt, a confirmation question, a REPL, or a password). "
-    "You MUST provide: (1) tool_use_id — the id from the tool_use block "
-    "of the running shell invocation, and (2) input — the text to write. "
-    "If the command expects Enter to be pressed, include a trailing "
-    "newline (\\n) in the input text. "
-    "You can call this tool multiple times for multi-step interactions.";
+  xAgentToolConf tconf    = {};
+  tconf.name              = "shell_stdin";
+  tconf.description       = "Send input text to a running shell command's stdin. "
+                            "Use this when the shell command is waiting for input "
+                            "(e.g. a prompt, a confirmation question, a REPL, or a password). "
+                            "You MUST provide: (1) tool_use_id — the id from the tool_use block "
+                            "of the running shell invocation, and (2) input — the text to write. "
+                            "If the command expects Enter to be pressed, include a trailing "
+                            "newline (\\n) in the input text. "
+                            "You can call this tool multiple times for multi-step interactions.";
   tconf.json_schema       = kStdinSchema;
   tconf.handler           = shell_stdin_handler;
   tconf.user_data         = ctx;

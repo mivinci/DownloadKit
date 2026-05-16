@@ -11,7 +11,9 @@
 #include <gtest/gtest.h>
 
 #ifdef _WIN32
-TEST(Timer, SkipOnWindows) { GTEST_SKIP() << "Timer tests need POSIX adapter"; }
+TEST(Timer, SkipOnWindows) {
+  GTEST_SKIP() << "Timer tests need POSIX adapter";
+}
 #else
 #include <x/base/timer.h>
 
@@ -77,7 +79,7 @@ TEST(TimerSubmitAfter, FiresAfterDelay) {
   xTimerSubmitAfter(
     t,
     [](void *arg) {
-      auto *p = static_cast<std::pair<std::atomic<int> *, uint64_t *> *>(arg);
+      auto *p      = static_cast<std::pair<std::atomic<int> *, uint64_t *> *>(arg);
       p->second[0] = xTimerNowMs();
       p->first->store(1);
       delete p;
@@ -100,8 +102,7 @@ TEST(TimerSubmitAfter, ZeroDelayFiresImmediately) {
 
   std::atomic<int> fired{0};
   xTimerSubmitAfter(
-    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); },
-    &fired, 0);
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); }, &fired, 0);
 
   for (int i = 0; i < 20 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -155,8 +156,7 @@ TEST(TimerSubmitAt, FiresAtAbsoluteTime) {
   uint64_t         target = xTimerNowMs() + 80;
 
   xTimerSubmitAt(
-    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); },
-    &fired, target);
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); }, &fired, target);
 
   for (int i = 0; i < 50 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -175,8 +175,7 @@ TEST(TimerSubmitAt, PastDeadlineFiresImmediately) {
   uint64_t         past = xTimerNowMs() - 1000; /* 1 s in the past */
 
   xTimerSubmitAt(
-    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); },
-    &fired, past);
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); }, &fired, past);
 
   for (int i = 0; i < 20 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -193,8 +192,7 @@ TEST(TimerCancel, CancelBeforeFire) {
 
   std::atomic<int> fired{0};
   xTimerTask       task = xTimerSubmitAfter(
-    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); },
-    &fired, 200);
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->store(1); }, &fired, 200);
 
   ASSERT_NE(task, nullptr);
   xErrno err = xTimerCancel(t, task);
@@ -222,8 +220,7 @@ TEST(TimerWithGroup, CallbackRunsOnWorkerThread) {
 
   std::atomic<int> fired{0};
   xTimerSubmitAfter(
-    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 50);
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 50);
 
   sleep_ms(300);
   EXPECT_EQ(fired.load(), 1);
@@ -244,8 +241,8 @@ TEST(TimerWithGroup, ManyTasksWithGroup) {
 
   for (int i = 0; i < N; i++) {
     xTimerSubmitAfter(
-      t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-      &counter, (uint64_t)(i * 10));
+      t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &counter,
+      (uint64_t)(i * 10));
   }
 
   sleep_ms(500);
@@ -263,8 +260,7 @@ TEST(TimerPoll, PollModeFiresOnCallerThread) {
 
   std::atomic<int> fired{0};
   xTimerSubmitAfter(
-    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 100);
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 100);
 
   /* Before deadline: poll returns 0 */
   int n = xTimerPoll(t);
@@ -331,8 +327,7 @@ TEST(TimerPoll, PollModeDestroyDrainsQueue) {
 
   std::atomic<int> fired{0};
   xTimerSubmitAfter(
-    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 30);
+    t, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 30);
 
   sleep_ms(100); /* let it expire into the queue */
 

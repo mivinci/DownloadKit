@@ -103,7 +103,7 @@ typedef xTlsConf xHttpTlsClientConf;
  */
 XDEF_STRUCT(xHttpClientConf) {
   const xTlsConf *tls;          /**< TLS config, or NULL         */
-  xHttpVersion          http_version; /**< Default HTTP version (0=H1) */
+  xHttpVersion    http_version; /**< Default HTTP version (0=H1) */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
@@ -119,8 +119,7 @@ XDEF_STRUCT(xHttpClientConf) {
  * @param conf  Client configuration, or NULL for defaults.
  * @return      A new client handle, or NULL on failure.
  */
-XCAPI(xHttpClient) xHttpClientCreate(xEventLoop loop,
-                                     const xHttpClientConf *conf);
+XCAPI(xHttpClient) xHttpClientCreate(xEventLoop loop, const xHttpClientConf *conf);
 
 /**
  * @brief Destroy an HTTP client and release all resources.
@@ -131,8 +130,6 @@ XCAPI(xHttpClient) xHttpClientCreate(xEventLoop loop,
  * @param client  The client to destroy.
  */
 XCAPI(void) xHttpClientDestroy(xHttpClient client);
-
-
 
 /* ── Convenience request helpers ───────────────────────────────────────── */
 
@@ -145,8 +142,8 @@ XCAPI(void) xHttpClientDestroy(xHttpClient client);
  * @param arg          User argument forwarded to @p on_response.
  * @return             xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpClientGet(xHttpClient client, const char *url,
-                             xHttpResponseFunc on_response, void *arg);
+XCAPI(xErrno) xHttpClientGet(xHttpClient client, const char *url, xHttpResponseFunc on_response,
+                             void *arg);
 
 /**
  * @brief Submit an asynchronous HTTP POST request.
@@ -159,9 +156,8 @@ XCAPI(xErrno) xHttpClientGet(xHttpClient client, const char *url,
  * @param arg          User argument forwarded to @p on_response.
  * @return             xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpClientPost(xHttpClient client, const char *url,
-                              const char *body, size_t body_len,
-                              xHttpResponseFunc on_response, void *arg);
+XCAPI(xErrno) xHttpClientPost(xHttpClient client, const char *url, const char *body,
+                              size_t body_len, xHttpResponseFunc on_response, void *arg);
 
 /* ── Generic request ───────────────────────────────────────────────────── */
 
@@ -222,9 +218,8 @@ typedef void (*xSseDoneFunc)(int curl_code, void *arg);
  * @param arg       User argument forwarded to callbacks.
  * @return          xErrno_Ok on success.
  */
-XCAPI(xErrno) xHttpClientGetSse(xHttpClient client, const char *url,
-                                xSseEventFunc on_event, xSseDoneFunc on_done,
-                                void *arg);
+XCAPI(xErrno) xHttpClientGetSse(xHttpClient client, const char *url, xSseEventFunc on_event,
+                                xSseDoneFunc on_done, void *arg);
 
 /**
  * @brief Submit a fully-configured SSE request.
@@ -243,9 +238,7 @@ XCAPI(xErrno) xHttpClientGetSse(xHttpClient client, const char *url,
  * @param arg       User argument forwarded to callbacks.
  * @return          xErrno_Ok on success.
  */
-XCAPI(xErrno) xHttpClientDoSse(xHttpClient             client,
-                               const xHttpRequestConf *config,
-                               xSseEventFunc on_event, xSseDoneFunc on_done,
-                               void *arg);
+XCAPI(xErrno) xHttpClientDoSse(xHttpClient client, const xHttpRequestConf *config,
+                               xSseEventFunc on_event, xSseDoneFunc on_done, void *arg);
 
 #endif /* XHTTP_CLIENT_H */

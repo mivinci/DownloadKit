@@ -31,7 +31,7 @@
 typedef char *xString;
 
 /** Sentinel value returned by xStringFind / xStringFindStr when not found. */
-#define XSTRING_NONE ((size_t)-1)
+#define XSTRING_NONE ((size_t) - 1)
 
 /* ───────────────────── Lifecycle ───────────────────── */
 
@@ -171,8 +171,7 @@ XCAPI(xString) xStringShrinkToFit(xString s);
  * @param needle_len  Length of @p needle in bytes.
  * @return Byte index of first match, or XSTRING_NONE if not found.
  */
-XCAPI(size_t) xStringFind(const xString haystack, const char *needle,
-                          size_t needle_len);
+XCAPI(size_t) xStringFind(const xString haystack, const char *needle, size_t needle_len);
 
 /**
  * @brief Find first occurrence of a C string in @p haystack.

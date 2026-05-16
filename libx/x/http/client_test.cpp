@@ -35,19 +35,15 @@ using ms = std::chrono::milliseconds;
 /**
  * @brief Pump the event loop until a flag becomes true or timeout.
  */
-static void pump_until(xEventLoop loop, std::atomic<bool> &flag,
-                       int max_ms = 5000) {
-  for (int elapsed = 0;
-       elapsed < max_ms && !flag.load(std::memory_order_acquire);
-       elapsed += 10) {
+static void pump_until(xEventLoop loop, std::atomic<bool> &flag, int max_ms = 5000) {
+  for (int elapsed = 0; elapsed < max_ms && !flag.load(std::memory_order_acquire); elapsed += 10) {
     xEventWait(loop, 10);
   }
 }
 
-static void pump_until_count(xEventLoop loop, std::atomic<int> &count,
-                             int target, int max_ms = 10000) {
-  for (int elapsed = 0;
-       elapsed < max_ms && count.load(std::memory_order_acquire) < target;
+static void pump_until_count(xEventLoop loop, std::atomic<int> &count, int target,
+                             int max_ms = 10000) {
+  for (int elapsed = 0; elapsed < max_ms && count.load(std::memory_order_acquire) < target;
        elapsed += 10) {
     xEventWait(loop, 10);
   }
@@ -108,10 +104,8 @@ static void on_response(const xHttpResponse *resp, void *arg) {
   auto *ctx        = static_cast<ResponseCtx *>(arg);
   ctx->status_code = resp->status_code;
   ctx->curl_code   = resp->curl_code;
-  if (resp->body && resp->body_len > 0)
-    ctx->body.assign(resp->body, resp->body_len);
-  if (resp->headers && resp->headers_len > 0)
-    ctx->headers.assign(resp->headers, resp->headers_len);
+  if (resp->body && resp->body_len > 0) ctx->body.assign(resp->body, resp->body_len);
+  if (resp->headers && resp->headers_len > 0) ctx->headers.assign(resp->headers, resp->headers_len);
   if (resp->curl_error) ctx->curl_error = resp->curl_error;
   ctx->done.store(true, std::memory_order_release);
 }
@@ -120,8 +114,7 @@ TEST_F(HttpClientTest, GetRequest) {
   SKIP_IF_NO_NETWORK();
   ResponseCtx ctx;
 
-  xErrno err =
-    xHttpClientGet(client, "https://httpbin.org/get", on_response, &ctx);
+  xErrno err = xHttpClientGet(client, "https://httpbin.org/get", on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 10000);
@@ -146,8 +139,8 @@ TEST_F(HttpClientTest, PostRequest) {
   ResponseCtx ctx;
   const char *body = "{\"hello\":\"world\"}";
 
-  xErrno err = xHttpClientPost(client, "https://httpbin.org/post", body,
-                               strlen(body), on_response, &ctx);
+  xErrno err =
+    xHttpClientPost(client, "https://httpbin.org/post", body, strlen(body), on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 10000);
@@ -185,8 +178,7 @@ TEST_F(HttpClientTest, ConcurrentRequests) {
   };
 
   for (int i = 0; i < N; i++) {
-    xErrno err =
-      xHttpClientGet(client, "https://httpbin.org/get", multi_cb, &ctxs[i]);
+    xErrno err = xHttpClientGet(client, "https://httpbin.org/get", multi_cb, &ctxs[i]);
     ASSERT_EQ(err, xErrno_Ok);
   }
 
@@ -213,8 +205,7 @@ TEST_F(HttpClientTest, InvalidUrlFails) {
   ResponseCtx ctx;
 
   xErrno err =
-    xHttpClientGet(client, "http://invalid.host.that.does.not.exist.example/",
-                   on_response, &ctx);
+    xHttpClientGet(client, "http://invalid.host.that.does.not.exist.example/", on_response, &ctx);
   ASSERT_EQ(err, xErrno_Ok); /* submission succeeds, failure is async */
 
   pump_until(loop, ctx.done, 15000);
@@ -246,8 +237,7 @@ TEST(HttpClientLifecycle, DestroyWithInflightRequests) {
   };
 
   /* Submit a request to a slow endpoint */
-  xErrno err =
-    xHttpClientGet(c, "https://httpbin.org/delay/10", cb, &cb_called);
+  xErrno err = xHttpClientGet(c, "https://httpbin.org/delay/10", cb, &cb_called);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Pump briefly to let curl start the connection */
@@ -266,19 +256,15 @@ TEST(HttpClientLifecycle, DestroyWithInflightRequests) {
 /* ───────────────────── Parameter validation ───────────────────── */
 
 TEST_F(HttpClientTest, GetNullUrlReturnsError) {
-  EXPECT_EQ(xHttpClientGet(client, nullptr, on_response, nullptr),
-            xErrno_Unknown);
+  EXPECT_EQ(xHttpClientGet(client, nullptr, on_response, nullptr), xErrno_Unknown);
 }
 
 TEST_F(HttpClientTest, GetNullClientReturnsError) {
-  EXPECT_EQ(
-    xHttpClientGet(nullptr, "https://example.com", on_response, nullptr),
-    xErrno_Unknown);
+  EXPECT_EQ(xHttpClientGet(nullptr, "https://example.com", on_response, nullptr), xErrno_Unknown);
 }
 
 TEST_F(HttpClientTest, PostNullUrlReturnsError) {
-  EXPECT_EQ(xHttpClientPost(client, nullptr, "body", 4, on_response, nullptr),
-            xErrno_Unknown);
+  EXPECT_EQ(xHttpClientPost(client, nullptr, "body", 4, on_response, nullptr), xErrno_Unknown);
 }
 
 /* ───────────────────── Generic Do request ───────────────────── */
@@ -355,6 +341,5 @@ TEST_F(HttpClientTest, DoWithTimeout) {
 }
 
 TEST_F(HttpClientTest, DoNullConfigReturnsError) {
-  EXPECT_EQ(xHttpClientDo(client, nullptr, on_response, nullptr),
-            xErrno_Unknown);
+  EXPECT_EQ(xHttpClientDo(client, nullptr, on_response, nullptr), xErrno_Unknown);
 }

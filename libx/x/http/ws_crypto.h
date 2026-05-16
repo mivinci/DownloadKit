@@ -28,8 +28,7 @@
  * @param len     Length of input in bytes.
  * @param output  Output buffer (must be >= XWS_SHA1_DIGEST_SIZE).
  */
-void xWsSHA1(const unsigned char *input, size_t len,
-             unsigned char *output);
+void xWsSHA1(const unsigned char *input, size_t len, unsigned char *output);
 
 /**
  * Base64-encode the input data.
@@ -42,7 +41,6 @@ void xWsSHA1(const unsigned char *input, size_t len,
  * @return         Number of characters written (excluding NUL),
  *                 or -1 on error (buffer too small).
  */
-int xWsBase64Encode(const unsigned char *input, size_t in_len,
-                    char *output, size_t out_len);
+int xWsBase64Encode(const unsigned char *input, size_t in_len, char *output, size_t out_len);
 
 #endif /* XHTTP_WS_CRYPTO_H */

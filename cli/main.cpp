@@ -93,14 +93,14 @@ int main(int argc, char *argv[]) {
   /* Owned resources; each assigned to non-null on successful
    * acquire. Cleanup labels at the bottom release them in reverse
    * order. Keep this table and the label ladder in sync. */
-  xFlagSet      fset        = nullptr;
-  xEventLoop    loop        = nullptr;
-  xHttpClient   http        = nullptr;
-  xAgentTool    shell_tool  = nullptr;
-  xAgentMemory  memory_store = nullptr;
-  xAgent        agent       = nullptr;
-  bool          repl_open   = false;
-  bool          sig_armed   = false;
+  xFlagSet     fset         = nullptr;
+  xEventLoop   loop         = nullptr;
+  xHttpClient  http         = nullptr;
+  xAgentTool   shell_tool   = nullptr;
+  xAgentMemory memory_store = nullptr;
+  xAgent       agent        = nullptr;
+  bool         repl_open    = false;
+  bool         sig_armed    = false;
 
   /* ── Parse command-line options ───────────────────────────────────
    *
@@ -112,7 +112,7 @@ int main(int argc, char *argv[]) {
    * into argv on success (zero-copy, same convention as optarg); we
    * copy into `cwd_buf` only on the fallback path. */
   const char *data_dir_arg = nullptr;
-  fset = xFlagSetCreate("moo", "moo command-line tool");
+  fset                     = xFlagSetCreate("moo", "moo command-line tool");
   if (!fset) {
     std::fprintf(stderr, "failed to create flag set\n");
     rc = 1;
@@ -122,9 +122,8 @@ int main(int argc, char *argv[]) {
    * `moo --version` stays in lockstep with the banner. xFlagParse
    * prints and returns xErrno_Again (handled below). */
   xFlagSetVersion(fset, MOO_VERSION);
-  xFlagAddString(fset, "data-dir", 'd', "PATH",
-                 "data directory (history, agent state)", &data_dir_arg,
-                 nullptr, xFlagAttr_None);
+  xFlagAddString(fset, "data-dir", 'd', "PATH", "data directory (history, agent state)",
+                 &data_dir_arg, nullptr, xFlagAttr_None);
 
   {
     char  *flag_err = nullptr;
@@ -190,8 +189,7 @@ int main(int argc, char *argv[]) {
      * at the end of main. */
     {
       std::string cfg_err;
-      if (cli_model_config_load(data_dir, loop, http, &model_cfg, &cfg_err) !=
-          0) {
+      if (cli_model_config_load(data_dir, loop, http, &model_cfg, &cfg_err) != 0) {
         std::fprintf(stderr, "config: %s\n", cfg_err.c_str());
         rc = 1;
         goto out_http;
@@ -232,8 +230,7 @@ int main(int argc, char *argv[]) {
       &ctx);
     {
       const char *term = std::getenv("TERM");
-      bool is_tty = ::isatty(STDOUT_FILENO) != 0 &&
-                    !(term && std::strcmp(term, "dumb") == 0);
+      bool is_tty      = ::isatty(STDOUT_FILENO) != 0 && !(term && std::strcmp(term, "dumb") == 0);
       if (is_tty) {
         renderer_use_md(&ctx);
       } else {
@@ -242,8 +239,7 @@ int main(int argc, char *argv[]) {
     }
 
     shell_conf.callback_ud = &ctx;
-    shell_conf.on_command  = [](const char *command, const char *cwd,
-                               void       *ud) {
+    shell_conf.on_command  = [](const char *command, const char *cwd, void *ud) {
       auto *c = static_cast<ReplCtx *>(ud);
       if (cwd && cwd[0]) {
         above_printf(c->line, "\x1b[2m  $ (cd %s && %s)\x1b[0m", cwd, command);
@@ -251,12 +247,11 @@ int main(int argc, char *argv[]) {
         above_printf(c->line, "\x1b[2m  $ %s\x1b[0m", command);
       }
     };
-    shell_conf.on_result = [](int exit_code, size_t stdout_len,
-                              size_t stderr_len, int timed_out, void *ud) {
+    shell_conf.on_result = [](int exit_code, size_t stdout_len, size_t stderr_len, int timed_out,
+                              void *ud) {
       auto *c = static_cast<ReplCtx *>(ud);
-      above_printf(c->line, "\x1b[2m  exit=%d stdout=%zu stderr=%zu%s\x1b[0m",
-                   exit_code, stdout_len, stderr_len,
-                   timed_out ? " (timed out)" : "");
+      above_printf(c->line, "\x1b[2m  exit=%d stdout=%zu stderr=%zu%s\x1b[0m", exit_code,
+                   stdout_len, stderr_len, timed_out ? " (timed out)" : "");
     };
     shell_tool = xAgentToolShellCreate(loop, &shell_conf);
     if (!shell_tool) {
@@ -312,8 +307,7 @@ int main(int argc, char *argv[]) {
      * of the threshold fields. */
     xAgentBudgetConf merged = {};
     if (!no_models) {
-      merged = cli_model_config_resolve_budget(&model_cfg,
-                                               model_cfg.default_id.c_str());
+      merged = cli_model_config_resolve_budget(&model_cfg, model_cfg.default_id.c_str());
     }
     if (merged.context_window == 0) merged.context_window = kDefaultContextWindow;
     ctx.default_budget = merged;
@@ -337,21 +331,20 @@ int main(int argc, char *argv[]) {
      * specs without tearing the agent down. */
     aconf.model_registry   = model_cfg.registry;
     aconf.default_model_id = model_cfg.default_id.c_str();
-    aconf.system_prompt =
-      "You are MOO, a concise AI assistant that lives in the user's "
-      "terminal. You have access to a shell tool that runs commands "
-      "via /bin/sh -c and returns stdout, stderr, and the exit code; "
-      "use it whenever you need to run commands, inspect the system, "
-      "or compute something. You may chain multiple tool calls in a "
-      "single turn. Keep replies short.";
-    aconf.tools                = tool_ptrs;
-    aconf.tools_count          = TOTAL_TOOLS;
+    aconf.system_prompt    = "You are MOO, a concise AI assistant that lives in the user's "
+                             "terminal. You have access to a shell tool that runs commands "
+                             "via /bin/sh -c and returns stdout, stderr, and the exit code; "
+                             "use it whenever you need to run commands, inspect the system, "
+                             "or compute something. You may chain multiple tool calls in a "
+                             "single turn. Keep replies short.";
+    aconf.tools            = tool_ptrs;
+    aconf.tools_count      = TOTAL_TOOLS;
     /* Tool-loop cap: models.json's top-level "max_turns" wins; if
      * the key is absent or non-positive (encoded as 0 by the loader)
      * we fall back to the built-in 64, which is generous enough for
      * most agentic tasks without letting a runaway loop burn through
      * quota on its own. */
-    aconf.max_turns            = model_cfg.max_turns > 0 ? model_cfg.max_turns : 64;
+    aconf.max_turns = model_cfg.max_turns > 0 ? model_cfg.max_turns : 64;
     /* ── Pluggable long-term memory ──────────────────────────────
      *
      * The built-in JSONL backend lays out one file per session
@@ -416,11 +409,10 @@ int main(int argc, char *argv[]) {
       char label[192];
       label[0] = 0;
       if (!no_models) {
-        const xAgentModelSpec *dspec = xAgentModelRegistryGet(
-          model_cfg.registry, model_cfg.default_id.c_str());
+        const xAgentModelSpec *dspec =
+          xAgentModelRegistryGet(model_cfg.registry, model_cfg.default_id.c_str());
         const char *dmodel = dspec && dspec->model ? dspec->model : "?";
-        std::snprintf(label, sizeof(label), "%s (id=%s)", dmodel,
-                      model_cfg.default_id.c_str());
+        std::snprintf(label, sizeof(label), "%s (id=%s)", dmodel, model_cfg.default_id.c_str());
       }
       banner_print(MOO_VERSION, label, "shell", data_dir, no_models ? 1 : 0);
     }
@@ -439,8 +431,7 @@ int main(int argc, char *argv[]) {
      * isocline's internal \xHH-escaped format and not directly
      * printable). */
     char hist_path[4096];
-    std::snprintf(hist_path, sizeof(hist_path), "%s/.ai_session_history",
-                  data_dir);
+    std::snprintf(hist_path, sizeof(hist_path), "%s/.ai_session_history", data_dir);
     xLineSetHistory(hist_path, 1000);
 
     /* Slash-command completion. isocline calls slash_completer on Tab;

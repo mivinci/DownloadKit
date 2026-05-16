@@ -23,7 +23,7 @@
 #ifndef XPP_PANIC_H
 #define XPP_PANIC_H
 
-#include "compiler.h"
+#include <xpp/compiler.h>
 
 #include <cstdarg>
 #include <cstdlib>
@@ -51,7 +51,8 @@ XPP_NORETURN
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((format(printf, 1, 2)))
 #endif
-inline void doPanic(const char *fmt, ...) {
+inline void
+doPanic(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   xLogV(/*fatal=*/true, fmt, ap);
@@ -75,9 +76,8 @@ inline void doPanic(const char *fmt, ...) {
  *   if (bad_state) XPP_PANIC("invariant X violated");
  *   XPP_PANIC("idx %zu out of range (size=%zu)", idx, size);
  */
-#define XPP_PANIC(fmt, ...)                                         \
-  ::xpp::_::doPanic("panic at %s:%d: " fmt, __FILE__, __LINE__,     \
-                    ##__VA_ARGS__)
+#define XPP_PANIC(fmt, ...) \
+  ::xpp::_::doPanic("panic at %s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 
 /**
  * @brief Runtime assertion. Panics if @p cond is false.
@@ -93,12 +93,11 @@ inline void doPanic(const char *fmt, ...) {
  *   XPP_ASSERT(idx < size, "index out of range");
  *   XPP_ASSERT(idx < size, "idx=%zu size=%zu", idx, size);
  */
-#define XPP_ASSERT(cond, fmt, ...)                                          \
-  do {                                                                      \
-    if (XPP_UNLIKELY(!(cond)))                                              \
-      ::xpp::_::doPanic("panic at %s:%d: assertion failed: " #cond          \
-                        " \u2014 " fmt,                                     \
-                        __FILE__, __LINE__, ##__VA_ARGS__);                 \
+#define XPP_ASSERT(cond, fmt, ...)                                                           \
+  do {                                                                                       \
+    if (XPP_UNLIKELY(!(cond)))                                                               \
+      ::xpp::_::doPanic("panic at %s:%d: assertion failed: " #cond " \u2014 " fmt, __FILE__, \
+                        __LINE__, ##__VA_ARGS__);                                            \
   } while (0)
 
 /**

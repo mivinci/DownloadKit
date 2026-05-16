@@ -66,8 +66,7 @@ static void on_state_change(xTransfer xfer, xTransferState state, void *ctx) {
   printf("[Send] State: %s\n", s);
 }
 
-static void on_progress(xTransfer xfer, uint64_t transferred, uint64_t total,
-                        void *ctx) {
+static void on_progress(xTransfer xfer, uint64_t transferred, uint64_t total, void *ctx) {
   (void)xfer;
   (void)ctx;
   char speed_buf[32];
@@ -75,9 +74,8 @@ static void on_progress(xTransfer xfer, uint64_t transferred, uint64_t total,
   xSpeedTrackerUpdate(&spd, transferred);
   xSpeedTrackerFormat(&spd, speed_buf, sizeof(speed_buf));
 
-  printf("\r[Send] Progress: %llu / %llu bytes (%.1f%%)%s   ",
-         (unsigned long long)transferred, (unsigned long long)total,
-         total > 0 ? 100.0 * transferred / total : 0.0, speed_buf);
+  printf("\r[Send] Progress: %llu / %llu bytes (%.1f%%)%s   ", (unsigned long long)transferred,
+         (unsigned long long)total, total > 0 ? 100.0 * transferred / total : 0.0, speed_buf);
   fflush(stdout);
 }
 

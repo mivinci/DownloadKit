@@ -46,9 +46,8 @@ XDEF_STRUCT(xHmacCtx) {
  * @param key_len  Length of key in bytes.
  * @return         xErrno_Ok on success.
  */
-XCAPI(xErrno) xHmacInit(xHmacCtx *ctx,
-                         const struct xHashVtable *hash,
-                         const uint8_t *key, size_t key_len);
+XCAPI(xErrno) xHmacInit(xHmacCtx *ctx, const struct xHashVtable *hash, const uint8_t *key,
+                        size_t key_len);
 
 /**
  * @brief Feed data into the HMAC context.
@@ -60,8 +59,7 @@ XCAPI(xErrno) xHmacInit(xHmacCtx *ctx,
  * @param len   Length of data in bytes.
  * @return      xErrno_Ok on success.
  */
-XCAPI(xErrno) xHmacUpdate(xHmacCtx *ctx,
-                           const uint8_t *data, size_t len);
+XCAPI(xErrno) xHmacUpdate(xHmacCtx *ctx, const uint8_t *data, size_t len);
 
 /**
  * @brief Finalize the HMAC and produce the digest.
@@ -89,9 +87,7 @@ XCAPI(xErrno) xHmacFinal(xHmacCtx *ctx, uint8_t *digest);
  * @param digest   Output buffer (must be at least hash->digest_size).
  * @return         xErrno_Ok on success.
  */
-XCAPI(xErrno) xHmac(const struct xHashVtable *hash,
-                     const uint8_t *key, size_t key_len,
-                     const uint8_t *data, size_t data_len,
-                     uint8_t *digest);
+XCAPI(xErrno) xHmac(const struct xHashVtable *hash, const uint8_t *key, size_t key_len,
+                    const uint8_t *data, size_t data_len, uint8_t *digest);
 
 #endif /* XCRYPTO_HMAC_H */

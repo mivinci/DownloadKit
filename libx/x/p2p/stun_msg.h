@@ -36,8 +36,7 @@ XDEF_STRUCT(xStunMsg) {
  * @param type    Message type.
  * @param txn_id  12-byte transaction ID (copied in).
  */
-void xStunMsgInit(xStunMsg *msg, xStunMsgType type,
-                  const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
+void xStunMsgInit(xStunMsg *msg, xStunMsgType type, const uint8_t txn_id[XSTUN_TXN_ID_SIZE]);
 
 /**
  * @brief Encode a STUN message into a byte buffer.

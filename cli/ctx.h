@@ -70,32 +70,32 @@ struct PendingConfirm {
 };
 
 struct ReplCtx {
-  xEventLoop    loop             = nullptr;
-  xAgentSession sess             = nullptr;
-  xLineHandle   line             = nullptr; /* current async editor */
-  xEventSource  src              = nullptr; /* loop fd registration */
-  bool          busy             = false;   /* AI run in flight */
-  bool          saw_first_delta  = false;
-  bool          in_thinking      = false; /* currently streaming thinking? */
-  size_t        reply_bytes      = 0;
-  int           total_tokens     = 0;   /* cumulative across all rounds */
+  xEventLoop    loop            = nullptr;
+  xAgentSession sess            = nullptr;
+  xLineHandle   line            = nullptr; /* current async editor */
+  xEventSource  src             = nullptr; /* loop fd registration */
+  bool          busy            = false;   /* AI run in flight */
+  bool          saw_first_delta = false;
+  bool          in_thinking     = false; /* currently streaming thinking? */
+  size_t        reply_bytes     = 0;
+  int           total_tokens    = 0; /* cumulative across all rounds */
   /* Streaming markdown -> ANSI translator. Embedded by value -
    * the renderer is a tiny plain-data struct (~32 bytes, fixed
    * 4-byte pending buffer) so we keep it inline. xMdReset() is
    * called between runs so state doesn't bleed across turns. */
-  xMd           md_renderer       = {};
+  xMd md_renderer = {};
   /* Active rendering pipeline. Switched at runtime by /md and /raw
    * commands. The vtable routes feed/flush/reset to either the
    * md_renderer above or the raw above_chunk path. Initialised in
    * main.cpp based on isatty(stdout) / $TERM. */
-  Renderer      renderer          = {};
-  const char   *renderer_name     = nullptr; /* "md" or "raw" */
-  size_t        budget_limit     = 0;   /* from last GatePassed event */
-  size_t        budget_remaining = 0;   /* from last GatePassed event */
-  size_t        budget_estimated = 0;   /* pre-submit estimate (tokens) */
-  int last_actual_prompt = -1; /* provider-reported first-round prompt_tokens */
-  uint64_t    input_ms   = 0;  /* monotonic timestamp (ms) at user input */
-  bool        should_exit = false;   /* set by /exit handler */
+  Renderer    renderer           = {};
+  const char *renderer_name      = nullptr; /* "md" or "raw" */
+  size_t      budget_limit       = 0;       /* from last GatePassed event */
+  size_t      budget_remaining   = 0;       /* from last GatePassed event */
+  size_t      budget_estimated   = 0;       /* pre-submit estimate (tokens) */
+  int         last_actual_prompt = -1;      /* provider-reported first-round prompt_tokens */
+  uint64_t    input_ms           = 0;       /* monotonic timestamp (ms) at user input */
+  bool        should_exit        = false;   /* set by /exit handler */
 
   /* ── Model registry + current selection ────────────────────────
    * The registry is borrowed from the CliModelConfig owned by main;
@@ -104,7 +104,7 @@ struct ReplCtx {
    * initial "default" id loaded from models.json). Used by /model
    * to display and switch, and by the banner to show the active
    * backend. */
-  xAgentModelRegistry model_registry  = nullptr;
+  xAgentModelRegistry model_registry = nullptr;
   std::string         current_model_id;
 
   /* Borrowed pointer to the parsed models.json. Used by /model on

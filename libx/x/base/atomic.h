@@ -36,8 +36,7 @@
 #define xAtomicXchg(p, v, o)         __atomic_exchange_n(p, v, _XAO(o))
 #define xAtomicCasWeak(p, e, d, o)   xAtomicCas(p, e, d, true, o)
 #define xAtomicCasStrong(p, e, d, o) xAtomicCas(p, e, d, false, o)
-#define xAtomicCas(p, e, d, w, o) \
-  __atomic_compare_exchange_n(p, e, d, w, _XAO(o), __ATOMIC_RELAXED)
+#define xAtomicCas(p, e, d, w, o)    __atomic_compare_exchange_n(p, e, d, w, _XAO(o), __ATOMIC_RELAXED)
 
 #define xAtomicAdd(p, v, o)      __atomic_add_fetch(p, v, _XAO(o))
 #define xAtomicSub(p, v, o)      __atomic_sub_fetch(p, v, _XAO(o))
@@ -72,51 +71,51 @@
  * LONG (32-bit) or __int64 (64-bit) values.
  */
 
-#define xAtomicLoad(p, o)     (*(p))
-#define xAtomicStore(p, v, o) (*(p) = (v))
+#define xAtomicLoad(p, o)            (*(p))
+#define xAtomicStore(p, v, o)        (*(p) = (v))
 
 static inline long _xInterlockedXchg(volatile long *p, long v) {
   return _InterlockedExchange(p, v);
 }
-#define xAtomicXchg(p, v, o)  _xInterlockedXchg((volatile long *)(p), (long)(v))
+#define xAtomicXchg(p, v, o)         _xInterlockedXchg((volatile long *)(p), (long)(v))
 
 static inline long _xInterlockedCas(volatile long *p, long *e, long d) {
   long comparand = *e;
-  long old = _InterlockedCompareExchange(p, d, comparand);
-  if (old != comparand) { *e = old; return 0; }
+  long old       = _InterlockedCompareExchange(p, d, comparand);
+  if (old != comparand) {
+    *e = old;
+    return 0;
+  }
   return 1;
 }
-#define xAtomicCasWeak(p, e, d, o) \
-  _xInterlockedCas((volatile long *)(p), (long *)(e), (long)(d))
-#define xAtomicCasStrong(p, e, d, o) \
-  _xInterlockedCas((volatile long *)(p), (long *)(e), (long)(d))
-#define xAtomicCas(p, e, d, w, o) \
-  _xInterlockedCas((volatile long *)(p), (long *)(e), (long)(d))
+#define xAtomicCasWeak(p, e, d, o)   _xInterlockedCas((volatile long *)(p), (long *)(e), (long)(d))
+#define xAtomicCasStrong(p, e, d, o) _xInterlockedCas((volatile long *)(p), (long *)(e), (long)(d))
+#define xAtomicCas(p, e, d, w, o)    _xInterlockedCas((volatile long *)(p), (long *)(e), (long)(d))
 
 static inline long _xInterlockedAdd(volatile long *p, long v) {
   return _InterlockedExchangeAdd(p, v) + v;
 }
-#define xAtomicAdd(p, v, o)  _xInterlockedAdd((volatile long *)(p), (long)(v))
+#define xAtomicAdd(p, v, o)          _xInterlockedAdd((volatile long *)(p), (long)(v))
 
 static inline long _xInterlockedSub(volatile long *p, long v) {
   return _InterlockedExchangeAdd(p, -(long)(v)) - v;
 }
-#define xAtomicSub(p, v, o)  _xInterlockedSub((volatile long *)(p), (long)(v))
+#define xAtomicSub(p, v, o)          _xInterlockedSub((volatile long *)(p), (long)(v))
 
 static inline long _xInterlockedAnd(volatile long *p, long v) {
   return _InterlockedAnd(p, v) & v;
 }
-#define xAtomicAnd(p, v, o)  _xInterlockedAnd((volatile long *)(p), (long)(v))
+#define xAtomicAnd(p, v, o)          _xInterlockedAnd((volatile long *)(p), (long)(v))
 
 static inline long _xInterlockedOr(volatile long *p, long v) {
   return _InterlockedOr(p, v) | v;
 }
-#define xAtomicOr(p, v, o)   _xInterlockedOr((volatile long *)(p), (long)(v))
+#define xAtomicOr(p, v, o)           _xInterlockedOr((volatile long *)(p), (long)(v))
 
 static inline long _xInterlockedXor(volatile long *p, long v) {
   return _InterlockedXor(p, v) ^ v;
 }
-#define xAtomicXor(p, v, o)  _xInterlockedXor((volatile long *)(p), (long)(v))
+#define xAtomicXor(p, v, o)          _xInterlockedXor((volatile long *)(p), (long)(v))
 
 /* NAND: ~(old & v).  Interlocked NAND not available on Win7, compose it. */
 static inline long _xInterlockedNand(volatile long *p, long v) {
@@ -127,30 +126,28 @@ static inline long _xInterlockedNand(volatile long *p, long v) {
   } while (_InterlockedCompareExchange(p, next, old) != old);
   return ~next;
 }
-#define xAtomicNand(p, v, o) _xInterlockedNand((volatile long *)(p), (long)(v))
+#define xAtomicNand(p, v, o)         _xInterlockedNand((volatile long *)(p), (long)(v))
 
-#define xAtomicFetchAdd(p, v, o) \
-  _InterlockedExchangeAdd((volatile long *)(p), (long)(v))
-#define xAtomicFetchSub(p, v, o) \
-  _InterlockedExchangeAdd((volatile long *)(p), -(long)(v))
-#define xAtomicFetchAnd(p, v, o) \
-  _InterlockedAnd((volatile long *)(p), (long)(v))
-#define xAtomicFetchOr(p, v, o) _InterlockedOr((volatile long *)(p), (long)(v))
-#define xAtomicFetchXor(p, v, o) \
-  _InterlockedXor((volatile long *)(p), (long)(v))
+#define xAtomicFetchAdd(p, v, o) _InterlockedExchangeAdd((volatile long *)(p), (long)(v))
+#define xAtomicFetchSub(p, v, o) _InterlockedExchangeAdd((volatile long *)(p), -(long)(v))
+#define xAtomicFetchAnd(p, v, o) _InterlockedAnd((volatile long *)(p), (long)(v))
+#define xAtomicFetchOr(p, v, o)  _InterlockedOr((volatile long *)(p), (long)(v))
+#define xAtomicFetchXor(p, v, o) _InterlockedXor((volatile long *)(p), (long)(v))
 
 /* ──────── Pointer-sized atomics (for void*, struct*, etc.) ──────── */
 
 static inline void *_xInterlockedXchgPtr(void *volatile *p, void *v) {
   return _InterlockedExchangePointer(p, v);
 }
-#define xAtomicXchgPtr(p, v, o) \
-  _xInterlockedXchgPtr((void *volatile *)(p), (void *)(v))
+#define xAtomicXchgPtr(p, v, o)  _xInterlockedXchgPtr((void *volatile *)(p), (void *)(v))
 
 static inline int _xInterlockedCasPtr(void *volatile *p, void **e, void *d) {
   void *comparand = *e;
-  void *old = _InterlockedCompareExchangePointer(p, d, comparand);
-  if (old != comparand) { *e = old; return 0; }
+  void *old       = _InterlockedCompareExchangePointer(p, d, comparand);
+  if (old != comparand) {
+    *e = old;
+    return 0;
+  }
   return 1;
 }
 #define xAtomicCasPtrWeak(p, e, d, o) \

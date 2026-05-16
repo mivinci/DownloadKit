@@ -15,17 +15,17 @@
 /* ───────────────────── Types ───────────────────── */
 
 XDEF_STRUCT(xArray_) {
-  size_t            elem_size;
-  size_t            len;
-  size_t            cap;
-  xArrayCallbacks   cbs;
-  char              data[];
+  size_t          elem_size;
+  size_t          len;
+  size_t          cap;
+  xArrayCallbacks cbs;
+  char            data[];
 };
 
 /* ───────────────────── Internal ───────────────────── */
 
 #define ARRAY_DEFAULT_CAP 8
-#define ARRAY_NPOS       ((size_t)-1)
+#define ARRAY_NPOS        ((size_t) - 1)
 
 static inline struct xArray_ *ar(xArray a) {
   return (struct xArray_ *)a;
@@ -53,14 +53,14 @@ static void arr_call_release(struct xArray_ *a, void *elem) {
  * pointer is updated via arrp.
  */
 static xErrno arr_grow(struct xArray_ **arrp, size_t needed) {
-  struct xArray_ *a    = *arrp;
+  struct xArray_ *a = *arrp;
   size_t          newcap;
   struct xArray_ *newarr;
 
   if (needed <= a->cap) return xErrno_Ok;
 
-  newcap  = arr_next_cap(a->cap, needed);
-  newarr  = (struct xArray_ *)realloc(a, sizeof(struct xArray_) + newcap * a->elem_size);
+  newcap = arr_next_cap(a->cap, needed);
+  newarr = (struct xArray_ *)realloc(a, sizeof(struct xArray_) + newcap * a->elem_size);
   if (!newarr) return xErrno_NoMemory;
 
   newarr->cap = newcap;
@@ -70,8 +70,7 @@ static xErrno arr_grow(struct xArray_ **arrp, size_t needed) {
 
 /* ───────────────────── Lifecycle ───────────────────── */
 
-xArray xArrayCreate(size_t elem_size, size_t initial_cap,
-                    const xArrayCallbacks *cbs) {
+xArray xArrayCreate(size_t elem_size, size_t initial_cap, const xArrayCallbacks *cbs) {
   struct xArray_ *a;
 
   if (elem_size == 0) return NULL;
@@ -166,8 +165,7 @@ xErrno xArrayResize(xArray *arrp, size_t new_len) {
   /* Zero-initialize and retain the newly added slots */
   if (new_len > a->len) {
     size_t old_len = a->len;
-    memset(a->data + old_len * a->elem_size, 0,
-           (new_len - old_len) * a->elem_size);
+    memset(a->data + old_len * a->elem_size, 0, (new_len - old_len) * a->elem_size);
     a->len = new_len;
     for (size_t i = old_len; i < new_len; i++) {
       arr_call_retain(a, a->data + i * a->elem_size);
@@ -189,8 +187,7 @@ xErrno xArrayRemoveRange(xArray arr, size_t start, size_t count) {
 
   /* Shift surviving elements left. */
   if (start + count < a->len) {
-    memmove(a->data + start * a->elem_size,
-            a->data + (start + count) * a->elem_size,
+    memmove(a->data + start * a->elem_size, a->data + (start + count) * a->elem_size,
             (a->len - start - count) * a->elem_size);
   }
   a->len -= count;
@@ -215,8 +212,7 @@ xErrno xArrayInsert(xArray *arrp, size_t idx, const void *elem) {
 
   /* Shift elements right to make room at idx. */
   if (idx < a->len) {
-    memmove(a->data + (idx + 1) * a->elem_size,
-            a->data + idx * a->elem_size,
+    memmove(a->data + (idx + 1) * a->elem_size, a->data + idx * a->elem_size,
             (a->len - idx) * a->elem_size);
   }
 
@@ -263,8 +259,7 @@ size_t xArrayFind(xArray arr, const void *key) {
   if (!a || !a->cbs.equal || !key) return ARRAY_NPOS;
 
   for (size_t i = 0; i < a->len; i++) {
-    if (a->cbs.equal(a->data + i * a->elem_size, key))
-      return i;
+    if (a->cbs.equal(a->data + i * a->elem_size, key)) return i;
   }
   return ARRAY_NPOS;
 }

@@ -45,11 +45,12 @@ XDEF_STRUCT(xIceSdp) {
   int           candidate_count;
 
   /* WebRTC extensions (populated when media line is UDP/DTLS/SCTP) */
-  bool          is_webrtc;  /**< true if WebRTC SDP format detected.     */
-  char          fingerprint[XSDP_MAX_FINGERPRINT_LEN]; /**< a=fingerprint value (e.g. "sha-256 AA:BB:..."). */
-  xIceSdpSetup  setup;      /**< a=setup role.                           */
-  char          mid[XSDP_MAX_MID_LEN]; /**< a=mid value.                  */
-  uint16_t      sctp_port;  /**< a=sctp-port value (default 5000).       */
+  bool is_webrtc; /**< true if WebRTC SDP format detected.     */
+  char
+    fingerprint[XSDP_MAX_FINGERPRINT_LEN]; /**< a=fingerprint value (e.g. "sha-256 AA:BB:..."). */
+  xIceSdpSetup setup;                      /**< a=setup role.                           */
+  char         mid[XSDP_MAX_MID_LEN];      /**< a=mid value.                  */
+  uint16_t     sctp_port;                  /**< a=sctp-port value (default 5000).       */
 };
 
 /**
@@ -64,9 +65,8 @@ XDEF_STRUCT(xIceSdp) {
  * @param out_cap     Output buffer capacity.
  * @return            Length of encoded SDP, or -1 on error.
  */
-int xIceSdpEncode(const char *ufrag, const char *pwd,
-                  const xIceCandidate *candidates, int cand_count, bool trickle,
-                  char *out, size_t out_cap);
+int xIceSdpEncode(const char *ufrag, const char *pwd, const xIceCandidate *candidates,
+                  int cand_count, bool trickle, char *out, size_t out_cap);
 
 /**
  * @brief Decode an SDP string.
@@ -116,10 +116,8 @@ xErrno xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand);
  * @param out_cap      Output buffer capacity.
  * @return             Length of encoded SDP, or -1 on error.
  */
-int xIceSdpEncodeWebRTC(const char *ufrag, const char *pwd,
-                        const xIceCandidate *candidates, int cand_count,
-                        bool trickle, const char *fingerprint,
-                        xIceSdpSetup setup, const char *mid,
-                        uint16_t sctp_port, char *out, size_t out_cap);
+int xIceSdpEncodeWebRTC(const char *ufrag, const char *pwd, const xIceCandidate *candidates,
+                        int cand_count, bool trickle, const char *fingerprint, xIceSdpSetup setup,
+                        const char *mid, uint16_t sctp_port, char *out, size_t out_cap);
 
 #endif /* XP2P_SDP_H */

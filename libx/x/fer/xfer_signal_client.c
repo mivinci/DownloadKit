@@ -55,8 +55,8 @@ static void report_error(xSignalClient_ *impl, xErrno err, const char *msg) {
 static void heartbeat_timer_cb(void *arg);
 
 static void schedule_heartbeat(xSignalClient_ *impl) {
-  impl->heartbeat_timer = xEventLoopTimerAfter(
-      impl->loop, heartbeat_timer_cb, impl, SIGNAL_HEARTBEAT_INTERVAL_MS);
+  impl->heartbeat_timer =
+    xEventLoopTimerAfter(impl->loop, heartbeat_timer_cb, impl, SIGNAL_HEARTBEAT_INTERVAL_MS);
 }
 
 static void cancel_heartbeat(xSignalClient_ *impl) {
@@ -67,7 +67,7 @@ static void cancel_heartbeat(xSignalClient_ *impl) {
 }
 
 static void heartbeat_timer_cb(void *arg) {
-  xSignalClient_ *impl = (xSignalClient_ *)arg;
+  xSignalClient_ *impl  = (xSignalClient_ *)arg;
   impl->heartbeat_timer = NULL;
 
   if (!impl->ws || !impl->connected) return;
@@ -85,8 +85,8 @@ static void heartbeat_timer_cb(void *arg) {
 
 static void on_ws_open(xWsConn conn, void *arg) {
   xSignalClient_ *impl = (xSignalClient_ *)arg;
-  impl->ws = conn;
-  impl->connected = true;
+  impl->ws             = conn;
+  impl->connected      = true;
 
   XDEBUG("[signal-client] connected to signaling server");
 
@@ -100,8 +100,7 @@ static void on_ws_open(xWsConn conn, void *arg) {
     /* Send "join" message with code */
     cJSON *msg = cJSON_CreateObject();
     cJSON_AddStringToObject(msg, "type", "join");
-    cJSON_AddStringToObject(msg, "code",
-                            impl->conf.code ? impl->conf.code : "");
+    cJSON_AddStringToObject(msg, "code", impl->conf.code ? impl->conf.code : "");
     send_json(conn, msg);
     cJSON_Delete(msg);
   }
@@ -110,8 +109,8 @@ static void on_ws_open(xWsConn conn, void *arg) {
   schedule_heartbeat(impl);
 }
 
-static void on_ws_message(xWsConn conn, xWsOpcode opcode,
-                          const void *payload, size_t len, void *arg) {
+static void on_ws_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len,
+                          void *arg) {
   xSignalClient_ *impl = (xSignalClient_ *)arg;
   (void)conn;
   (void)opcode;
@@ -134,8 +133,7 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
     /* Sender received a code */
     cJSON *code_item = cJSON_GetObjectItemCaseSensitive(json, "code");
     if (cJSON_IsString(code_item) && impl->conf.on_code) {
-      impl->conf.on_code((xSignalClient)impl, code_item->valuestring,
-                         impl->conf.ctx);
+      impl->conf.on_code((xSignalClient)impl, code_item->valuestring, impl->conf.ctx);
     }
     if (impl->conf.on_connected) {
       impl->conf.on_connected((xSignalClient)impl, impl->conf.ctx);
@@ -156,31 +154,27 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
   } else if (strcmp(type, "offer") == 0) {
     cJSON *sdp_item = cJSON_GetObjectItemCaseSensitive(json, "sdp");
     if (cJSON_IsString(sdp_item) && impl->conf.on_offer) {
-      impl->conf.on_offer((xSignalClient)impl, sdp_item->valuestring,
-                          impl->conf.ctx);
+      impl->conf.on_offer((xSignalClient)impl, sdp_item->valuestring, impl->conf.ctx);
     }
 
   } else if (strcmp(type, "answer") == 0) {
     cJSON *sdp_item = cJSON_GetObjectItemCaseSensitive(json, "sdp");
     if (cJSON_IsString(sdp_item) && impl->conf.on_answer) {
-      impl->conf.on_answer((xSignalClient)impl, sdp_item->valuestring,
-                           impl->conf.ctx);
+      impl->conf.on_answer((xSignalClient)impl, sdp_item->valuestring, impl->conf.ctx);
     }
 
   } else if (strcmp(type, "candidate") == 0) {
     cJSON *cand_item = cJSON_GetObjectItemCaseSensitive(json, "candidate");
     if (cJSON_IsString(cand_item) && impl->conf.on_candidate) {
-      impl->conf.on_candidate((xSignalClient)impl, cand_item->valuestring,
-                              impl->conf.ctx);
+      impl->conf.on_candidate((xSignalClient)impl, cand_item->valuestring, impl->conf.ctx);
     }
 
   } else if (strcmp(type, "heartbeat") == 0) {
     /* Server heartbeat response — nothing to do */
 
   } else if (strcmp(type, "error") == 0) {
-    cJSON *msg_item = cJSON_GetObjectItemCaseSensitive(json, "message");
-    const char *msg = cJSON_IsString(msg_item) ? msg_item->valuestring
-                                               : "unknown error";
+    cJSON      *msg_item = cJSON_GetObjectItemCaseSensitive(json, "message");
+    const char *msg      = cJSON_IsString(msg_item) ? msg_item->valuestring : "unknown error";
     report_error(impl, xErrno_Unknown, msg);
 
   } else {
@@ -190,8 +184,7 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
   cJSON_Delete(json);
 }
 
-static void on_ws_close(xWsConn conn, uint16_t code, const char *reason,
-                        size_t len, void *arg) {
+static void on_ws_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) {
   xSignalClient_ *impl = (xSignalClient_ *)arg;
   (void)conn;
   (void)code;
@@ -200,14 +193,13 @@ static void on_ws_close(xWsConn conn, uint16_t code, const char *reason,
 
   XDEBUG("[signal-client] WebSocket closed");
   cancel_heartbeat(impl);
-  impl->ws = NULL;
+  impl->ws        = NULL;
   impl->connected = false;
 }
 
 /* ── Public API ────────────────────────────────────────── */
 
-xSignalClient xSignalClientCreate(xEventLoop loop,
-                                  const xSignalClientConf *conf) {
+xSignalClient xSignalClientCreate(xEventLoop loop, const xSignalClientConf *conf) {
   if (!loop || !conf || !conf->url) return NULL;
 
   xSignalClient_ *impl = (xSignalClient_ *)calloc(1, sizeof(xSignalClient_));
@@ -276,8 +268,7 @@ xErrno xSignalClientSendAnswer(xSignalClient client, const char *sdp) {
   return xErrno_Ok;
 }
 
-xErrno xSignalClientSendCandidate(xSignalClient client,
-                                  const char *candidate) {
+xErrno xSignalClientSendCandidate(xSignalClient client, const char *candidate) {
   if (!client || !candidate) return xErrno_InvalidArg;
   xSignalClient_ *impl = (xSignalClient_ *)client;
   if (!impl->ws) return xErrno_InvalidState;

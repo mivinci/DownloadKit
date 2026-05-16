@@ -37,7 +37,9 @@ xOff xSeek(xSeeker s, xOff offset, int whence) {
   return s.seek(s.ctx, offset, whence);
 }
 
-int xClose(xCloser c) { return c.close(c.ctx); }
+int xClose(xCloser c) {
+  return c.close(c.ctx);
+}
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Advanced helper functions
@@ -67,9 +69,9 @@ xSsize xReadFull(xReader r, void *buf, size_t len) {
 #define XREAD_ALL_INIT_CAP 4096
 
 int xReadAll(xReader r, void **out, size_t *out_len) {
-  size_t cap  = XREAD_ALL_INIT_CAP;
+  size_t cap   = XREAD_ALL_INIT_CAP;
   size_t total = 0;
-  char  *buf  = (char *)malloc(cap);
+  char  *buf   = (char *)malloc(cap);
   if (!buf) goto fail;
 
   for (;;) {

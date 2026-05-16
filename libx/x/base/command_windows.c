@@ -34,15 +34,13 @@
 
 /* ConPTY API — available on Windows 10 1809+ (build 17763).
  * We resolve at runtime so the binary still loads on older Windows. */
-typedef HRESULT(WINAPI *pfn_CreatePseudoConsole)(COORD size, HANDLE hInput,
-                                                 HANDLE hOutput, DWORD dwFlags,
-                                                 HPCON *phPC);
+typedef HRESULT(WINAPI *pfn_CreatePseudoConsole)(COORD size, HANDLE hInput, HANDLE hOutput,
+                                                 DWORD dwFlags, HPCON *phPC);
 typedef void(WINAPI *pfn_ClosePseudoConsole)(HPCON hPC);
 
 /* These may not be defined in older SDKs */
 #ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
-#define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE \
-  ProcThreadAttributeValue(22, FALSE, TRUE, FALSE)
+#define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE ProcThreadAttributeValue(22, FALSE, TRUE, FALSE)
 #endif
 
 static pfn_CreatePseudoConsole fn_CreatePseudoConsole = NULL;
@@ -54,10 +52,8 @@ static int conpty_resolve(void) {
   conpty_resolved = 1;
   HMODULE h       = GetModuleHandleW(L"kernel32.dll");
   if (!h) return 0;
-  fn_CreatePseudoConsole =
-    (pfn_CreatePseudoConsole)GetProcAddress(h, "CreatePseudoConsole");
-  fn_ClosePseudoConsole =
-    (pfn_ClosePseudoConsole)GetProcAddress(h, "ClosePseudoConsole");
+  fn_CreatePseudoConsole = (pfn_CreatePseudoConsole)GetProcAddress(h, "CreatePseudoConsole");
+  fn_ClosePseudoConsole  = (pfn_ClosePseudoConsole)GetProcAddress(h, "ClosePseudoConsole");
   return (fn_CreatePseudoConsole != NULL);
 }
 
@@ -175,8 +171,7 @@ static void          on_process_exit_posted(void *arg);
 static void CALLBACK on_process_exit(PVOID param, BOOLEAN fired);
 static DWORD WINAPI  pipe_reader_thread(LPVOID param);
 static wchar_t      *build_command_line(const char *cmd, const char **argv);
-static xErrno        xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
-                                               const xCommandConf       *conf);
+static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec, const xCommandConf *conf);
 
 /* ═══════════════════════════════════════════════════════════════════
  * Pipe chunk callback — runs on the event loop thread
@@ -209,8 +204,7 @@ static void on_pipe_chunk(void *arg) {
       if (cap == 0 || xStringLen(exec->stderr_buf) + chunk->len <= cap)
         xStringAppendLen(&exec->stderr_buf, chunk->data, chunk->len);
     } else if (exec->stderr_mode == xCommandOutput_Stream && exec->on_stderr) {
-      exec->on_stderr((xCommandExecutor)exec, chunk->data, chunk->len,
-                      exec->ud);
+      exec->on_stderr((xCommandExecutor)exec, chunk->data, chunk->len, exec->ud);
     }
   } else {
     if (exec->stdout_mode == xCommandOutput_Capture) {
@@ -218,8 +212,7 @@ static void on_pipe_chunk(void *arg) {
       if (cap == 0 || xStringLen(exec->stdout_buf) + chunk->len <= cap)
         xStringAppendLen(&exec->stdout_buf, chunk->data, chunk->len);
     } else if (exec->stdout_mode == xCommandOutput_Stream && exec->on_stdout) {
-      exec->on_stdout((xCommandExecutor)exec, chunk->data, chunk->len,
-                      exec->ud);
+      exec->on_stdout((xCommandExecutor)exec, chunk->data, chunk->len, exec->ud);
     }
   }
 
@@ -256,8 +249,7 @@ static DWORD WINAPI pipe_reader_thread(LPVOID param) {
   }
 
   /* Post EOF marker */
-  struct PipeChunk_ *eof_chunk =
-    (struct PipeChunk_ *)calloc(1, sizeof(*eof_chunk));
+  struct PipeChunk_ *eof_chunk = (struct PipeChunk_ *)calloc(1, sizeof(*eof_chunk));
   if (eof_chunk) {
     eof_chunk->exec      = ctx->exec;
     eof_chunk->is_stderr = ctx->is_stderr;
@@ -281,8 +273,7 @@ static void CALLBACK on_process_exit(PVOID param, BOOLEAN fired) {
   DWORD exitCode = 0;
   GetExitCodeProcess(exec->hProcess, &exitCode);
 
-  struct ProcessExitInfo_ *info =
-    (struct ProcessExitInfo_ *)malloc(sizeof(*info));
+  struct ProcessExitInfo_ *info = (struct ProcessExitInfo_ *)malloc(sizeof(*info));
   if (!info) return;
   info->exec      = exec;
   info->exit_code = exitCode;
@@ -320,8 +311,7 @@ static void cmd_check_completion(struct xCommandExecutor_ *exec) {
    * output reader thread unblocks (ConPTY may keep the output pipe open
    * until ClosePseudoConsole is called, causing a deadlock: we wait for
    * stdout_eof which never arrives because the pipe never closes). */
-  if (exec->child_exited && exec->input_mode == xCommandInput_Pty &&
-      exec->hConPty) {
+  if (exec->child_exited && exec->input_mode == xCommandInput_Pty && exec->hConPty) {
     fn_ClosePseudoConsole(exec->hConPty);
     exec->hConPty = NULL;
   }
@@ -354,8 +344,8 @@ static void cmd_fire_done(struct xCommandExecutor_ *exec) {
     exec->result.stdout_buf = exec->stdout_buf;
     exec->result.stdout_len = xStringLen(exec->stdout_buf);
   }
-  if (exec->stderr_mode == xCommandOutput_Capture &&
-      exec->input_mode != xCommandInput_Pty && exec->stderr_buf) {
+  if (exec->stderr_mode == xCommandOutput_Capture && exec->input_mode != xCommandInput_Pty &&
+      exec->stderr_buf) {
     exec->result.stderr_buf = exec->stderr_buf;
     exec->result.stderr_len = xStringLen(exec->stderr_buf);
   }
@@ -444,8 +434,7 @@ static void on_timeout(void *arg) {
   if (exec->hProcess) TerminateProcess(exec->hProcess, 1);
 
   /* Grace timer: retry TerminateProcess if the first one didn't work */
-  exec->cancel_timer = xEventLoopTimerAfter(exec->loop, on_cancel_grace, exec,
-                                            CMD_CANCEL_GRACE_MS);
+  exec->cancel_timer = xEventLoopTimerAfter(exec->loop, on_cancel_grace, exec, CMD_CANCEL_GRACE_MS);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -513,8 +502,7 @@ static wchar_t *build_command_line(const char *cmd, const char **argv) {
 xCommandExecutor xCommandExecutorCreate(xEventLoop loop) {
   if (!loop) return NULL;
 
-  struct xCommandExecutor_ *exec =
-    (struct xCommandExecutor_ *)calloc(1, sizeof(*exec));
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)calloc(1, sizeof(*exec));
   if (!exec) return NULL;
 
   exec->loop           = loop;
@@ -698,8 +686,7 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
   exec->ud        = ud;
 
   /* ── PTY mode: delegate to ConPTY implementation ── */
-  if (conf->input_mode == xCommandInput_Pty)
-    return xCommandExecutorSubmitPty(exec, conf);
+  if (conf->input_mode == xCommandInput_Pty) return xCommandExecutorSubmitPty(exec, conf);
 
   /* ── Create pipes ── */
   SECURITY_ATTRIBUTES sa = {sizeof(SECURITY_ATTRIBUTES), NULL, TRUE};
@@ -719,8 +706,7 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
     if (!CreatePipe(&exec->hStdoutRead, &hStdoutWrite, &sa, 0)) goto fail;
     SetHandleInformation(exec->hStdoutRead, HANDLE_FLAG_INHERIT, 0);
   } else {
-    hNulStdout =
-      CreateFileW(L"NUL", GENERIC_WRITE, 0, &sa, OPEN_EXISTING, 0, NULL);
+    hNulStdout = CreateFileW(L"NUL", GENERIC_WRITE, 0, &sa, OPEN_EXISTING, 0, NULL);
     if (hNulStdout == INVALID_HANDLE_VALUE) goto fail;
   }
 
@@ -729,8 +715,7 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
     if (!CreatePipe(&exec->hStderrRead, &hStderrWrite, &sa, 0)) goto fail;
     SetHandleInformation(exec->hStderrRead, HANDLE_FLAG_INHERIT, 0);
   } else {
-    hNulStderr =
-      CreateFileW(L"NUL", GENERIC_WRITE, 0, &sa, OPEN_EXISTING, 0, NULL);
+    hNulStderr = CreateFileW(L"NUL", GENERIC_WRITE, 0, &sa, OPEN_EXISTING, 0, NULL);
     if (hNulStderr == INVALID_HANDLE_VALUE) goto fail;
   }
 
@@ -741,13 +726,11 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
   /* ── Set up startup info ── */
   STARTUPINFOW si;
   memset(&si, 0, sizeof(si));
-  si.cb        = sizeof(si);
-  si.dwFlags   = STARTF_USESTDHANDLES;
-  si.hStdInput = hStdinRead;
-  si.hStdOutput =
-    (conf->stdout_mode != xCommandOutput_Discard) ? hStdoutWrite : hNulStdout;
-  si.hStdError =
-    (conf->stderr_mode != xCommandOutput_Discard) ? hStderrWrite : hNulStderr;
+  si.cb         = sizeof(si);
+  si.dwFlags    = STARTF_USESTDHANDLES;
+  si.hStdInput  = hStdinRead;
+  si.hStdOutput = (conf->stdout_mode != xCommandOutput_Discard) ? hStdoutWrite : hNulStdout;
+  si.hStdError  = (conf->stderr_mode != xCommandOutput_Discard) ? hStderrWrite : hNulStderr;
 
   /* ── Working directory ── */
   wchar_t *wcwd = NULL;
@@ -763,18 +746,17 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
 
   exec->start_ms = xMonoMs();
 
-  BOOL ok =
-    CreateProcessW(NULL,     /* lpApplicationName — search PATH via cmdline */
-                   wcmdline, /* lpCommandLine     */
-                   NULL,     /* lpProcessAttributes */
-                   NULL,     /* lpThreadAttributes  */
-                   TRUE,     /* bInheritHandles     */
-                   CREATE_NEW_PROCESS_GROUP, /* dwCreationFlags */
-                   NULL, /* lpEnvironment — inherit parent's */
-                   wcwd, /* lpCurrentDirectory */
-                   &si,  /* lpStartupInfo */
-                   &pi   /* lpProcessInformation */
-    );
+  BOOL ok = CreateProcessW(NULL,     /* lpApplicationName — search PATH via cmdline */
+                           wcmdline, /* lpCommandLine     */
+                           NULL,     /* lpProcessAttributes */
+                           NULL,     /* lpThreadAttributes  */
+                           TRUE,     /* bInheritHandles     */
+                           CREATE_NEW_PROCESS_GROUP, /* dwCreationFlags */
+                           NULL,                     /* lpEnvironment — inherit parent's */
+                           wcwd,                     /* lpCurrentDirectory */
+                           &si,                      /* lpStartupInfo */
+                           &pi                       /* lpProcessInformation */
+  );
 
   free(wcmdline);
   free(wcwd);
@@ -802,15 +784,13 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
   }
 
   /* Convert stdin write HANDLE to CRT fd */
-  exec->stdin_fd =
-    _open_osfhandle((intptr_t)exec->hStdinWrite, _O_WRONLY | _O_BINARY);
+  exec->stdin_fd = _open_osfhandle((intptr_t)exec->hStdinWrite, _O_WRONLY | _O_BINARY);
   /* After _open_osfhandle, CRT owns the HANDLE.
    * Close it via _close(stdin_fd), NOT CloseHandle. */
   if (exec->stdin_fd >= 0) exec->hStdinWrite = NULL; /* CRT owns it now */
 
   /* ── Register process exit wait ── */
-  if (!RegisterWaitForSingleObject(&exec->hWait, exec->hProcess,
-                                   on_process_exit, exec, INFINITE,
+  if (!RegisterWaitForSingleObject(&exec->hWait, exec->hProcess, on_process_exit, exec, INFINITE,
                                    WT_EXECUTEONLYONCE)) {
     exec->hWait = NULL; /* proceed without wait — probe below may catch it */
   }
@@ -819,11 +799,10 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
   if (exec->hStdoutRead) {
     struct PipeReaderCtx_ *ctx = (struct PipeReaderCtx_ *)malloc(sizeof(*ctx));
     if (!ctx) goto fail_process;
-    ctx->hRead     = exec->hStdoutRead;
-    ctx->exec      = exec;
-    ctx->is_stderr = 0;
-    exec->hStdoutThread =
-      CreateThread(NULL, 0, pipe_reader_thread, ctx, 0, NULL);
+    ctx->hRead          = exec->hStdoutRead;
+    ctx->exec           = exec;
+    ctx->is_stderr      = 0;
+    exec->hStdoutThread = CreateThread(NULL, 0, pipe_reader_thread, ctx, 0, NULL);
     if (!exec->hStdoutThread) {
       free(ctx);
       goto fail_process;
@@ -835,11 +814,10 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
   if (exec->hStderrRead) {
     struct PipeReaderCtx_ *ctx = (struct PipeReaderCtx_ *)malloc(sizeof(*ctx));
     if (!ctx) goto fail_process;
-    ctx->hRead     = exec->hStderrRead;
-    ctx->exec      = exec;
-    ctx->is_stderr = 1;
-    exec->hStderrThread =
-      CreateThread(NULL, 0, pipe_reader_thread, ctx, 0, NULL);
+    ctx->hRead          = exec->hStderrRead;
+    ctx->exec           = exec;
+    ctx->is_stderr      = 1;
+    exec->hStderrThread = CreateThread(NULL, 0, pipe_reader_thread, ctx, 0, NULL);
     if (!exec->hStderrThread) {
       free(ctx);
       goto fail_process;
@@ -850,15 +828,13 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
 
   /* ── Start timeout timer ── */
   if (conf->timeout_ms > 0) {
-    exec->timeout_timer =
-      xEventLoopTimerAfter(exec->loop, on_timeout, exec, conf->timeout_ms);
+    exec->timeout_timer = xEventLoopTimerAfter(exec->loop, on_timeout, exec, conf->timeout_ms);
   }
 
   /* ── Probe: child may have already exited ── */
   {
     DWORD exitCode;
-    if (GetExitCodeProcess(exec->hProcess, &exitCode) &&
-        exitCode != STILL_ACTIVE) {
+    if (GetExitCodeProcess(exec->hProcess, &exitCode) && exitCode != STILL_ACTIVE) {
       exec->child_exited     = 1;
       exec->result.exit_code = (int)exitCode;
       exec->result.signaled  = 0;
@@ -949,8 +925,7 @@ fail:
  * PTY mode execution via ConPTY
  * ═══════════════════════════════════════════════════════════════════ */
 
-static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
-                                        const xCommandConf       *conf) {
+static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec, const xCommandConf *conf) {
   /* ── Resolve ConPTY functions ── */
   if (!conpty_resolve()) return xErrno_NotSupported;
 
@@ -1017,8 +992,7 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
   /* ── Create pseudo console ── */
   COORD   conSize = {120, 30};
   HPCON   hPC     = NULL;
-  HRESULT hr =
-    fn_CreatePseudoConsole(conSize, hConPtyInRead, hConPtyOutWrite, 0, &hPC);
+  HRESULT hr      = fn_CreatePseudoConsole(conSize, hConPtyInRead, hConPtyOutWrite, 0, &hPC);
   /* After CreatePseudoConsole, the child-side handles belong to ConPTY.
    * Close our references — ConPTY has its own duplicates. */
   CloseHandle(hConPtyInRead);
@@ -1040,8 +1014,7 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
     goto fail_conpty;
   }
 
-  if (!UpdateProcThreadAttribute(attrList, 0,
-                                 PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hPC,
+  if (!UpdateProcThreadAttribute(attrList, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hPC,
                                  sizeof(HPCON), NULL, NULL)) {
     DeleteProcThreadAttributeList(attrList);
     HeapFree(GetProcessHeap(), 0, attrList);
@@ -1079,18 +1052,17 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
 
   exec->start_ms = xMonoMs();
 
-  BOOL ok =
-    CreateProcessW(NULL,     /* lpApplicationName */
-                   wcmdline, /* lpCommandLine */
-                   NULL,     /* lpProcessAttributes */
-                   NULL,     /* lpThreadAttributes */
-                   FALSE,    /* bInheritHandles — FALSE for ConPTY */
-                   CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT,
-                   NULL,              /* lpEnvironment */
-                   wcwd,              /* lpCurrentDirectory */
-                   &siex.StartupInfo, /* lpStartupInfo */
-                   &pi                /* lpProcessInformation */
-    );
+  BOOL ok = CreateProcessW(NULL,     /* lpApplicationName */
+                           wcmdline, /* lpCommandLine */
+                           NULL,     /* lpProcessAttributes */
+                           NULL,     /* lpThreadAttributes */
+                           FALSE,    /* bInheritHandles — FALSE for ConPTY */
+                           CREATE_NEW_PROCESS_GROUP | EXTENDED_STARTUPINFO_PRESENT,
+                           NULL,              /* lpEnvironment */
+                           wcwd,              /* lpCurrentDirectory */
+                           &siex.StartupInfo, /* lpStartupInfo */
+                           &pi                /* lpProcessInformation */
+  );
 
   free(wcmdline);
   free(wcwd);
@@ -1104,16 +1076,14 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
   exec->child_pid      = pi.dwProcessId;
 
   /* Convert ConPTY input write handle to CRT fd (for PtyFd / StdinFd) */
-  exec->pty_fd =
-    _open_osfhandle((intptr_t)exec->hPtyConInWrite, _O_WRONLY | _O_BINARY);
+  exec->pty_fd = _open_osfhandle((intptr_t)exec->hPtyConInWrite, _O_WRONLY | _O_BINARY);
   if (exec->pty_fd >= 0) {
     exec->hPtyConInWrite = NULL; /* CRT owns it now */
     exec->result.pty_fd  = exec->pty_fd;
   }
 
   /* ── Register process exit wait ── */
-  if (!RegisterWaitForSingleObject(&exec->hWait, exec->hProcess,
-                                   on_process_exit, exec, INFINITE,
+  if (!RegisterWaitForSingleObject(&exec->hWait, exec->hProcess, on_process_exit, exec, INFINITE,
                                    WT_EXECUTEONLYONCE)) {
     exec->hWait = NULL;
   }
@@ -1122,11 +1092,10 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
   if (conf->stdout_mode != xCommandOutput_Discard) {
     struct PipeReaderCtx_ *ctx = (struct PipeReaderCtx_ *)malloc(sizeof(*ctx));
     if (!ctx) goto fail_process;
-    ctx->hRead     = exec->hPtyConOutRead;
-    ctx->exec      = exec;
-    ctx->is_stderr = 0; /* all output is merged through ConPTY */
-    exec->hStdoutThread =
-      CreateThread(NULL, 0, pipe_reader_thread, ctx, 0, NULL);
+    ctx->hRead          = exec->hPtyConOutRead;
+    ctx->exec           = exec;
+    ctx->is_stderr      = 0; /* all output is merged through ConPTY */
+    exec->hStdoutThread = CreateThread(NULL, 0, pipe_reader_thread, ctx, 0, NULL);
     if (!exec->hStdoutThread) {
       free(ctx);
       goto fail_process;
@@ -1136,11 +1105,10 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
      * the child from blocking on write.  Start a reader that discards. */
     struct PipeReaderCtx_ *ctx = (struct PipeReaderCtx_ *)malloc(sizeof(*ctx));
     if (!ctx) goto fail_process;
-    ctx->hRead     = exec->hPtyConOutRead;
-    ctx->exec      = exec;
-    ctx->is_stderr = 0;
-    exec->hStdoutThread =
-      CreateThread(NULL, 0, pipe_reader_thread, ctx, 0, NULL);
+    ctx->hRead          = exec->hPtyConOutRead;
+    ctx->exec           = exec;
+    ctx->is_stderr      = 0;
+    exec->hStdoutThread = CreateThread(NULL, 0, pipe_reader_thread, ctx, 0, NULL);
     if (!exec->hStdoutThread) {
       free(ctx);
       goto fail_process;
@@ -1149,15 +1117,13 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
 
   /* ── Start timeout timer ── */
   if (conf->timeout_ms > 0) {
-    exec->timeout_timer =
-      xEventLoopTimerAfter(exec->loop, on_timeout, exec, conf->timeout_ms);
+    exec->timeout_timer = xEventLoopTimerAfter(exec->loop, on_timeout, exec, conf->timeout_ms);
   }
 
   /* ── Probe: child may have already exited ── */
   {
     DWORD exitCode;
-    if (GetExitCodeProcess(exec->hProcess, &exitCode) &&
-        exitCode != STILL_ACTIVE) {
+    if (GetExitCodeProcess(exec->hProcess, &exitCode) && exitCode != STILL_ACTIVE) {
       exec->child_exited     = 1;
       exec->result.exit_code = (int)exitCode;
       exec->result.signaled  = 0;
@@ -1251,8 +1217,7 @@ xErrno xCommandExecutorCancel(xCommandExecutor exec_) {
   if (exec->hProcess) TerminateProcess(exec->hProcess, 1);
 
   /* Grace timer: retry if the first TerminateProcess didn't take effect */
-  exec->cancel_timer = xEventLoopTimerAfter(exec->loop, on_cancel_grace, exec,
-                                            CMD_CANCEL_GRACE_MS);
+  exec->cancel_timer = xEventLoopTimerAfter(exec->loop, on_cancel_grace, exec, CMD_CANCEL_GRACE_MS);
   return xErrno_Ok;
 }
 
@@ -1263,14 +1228,12 @@ xErrno xCommandExecutorCancel(xCommandExecutor exec_) {
 int xCommandExecutorPid(xCommandExecutor exec_) {
   if (!exec_) return -1;
   struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
-  return (exec->state != xCommandExecutorState_Idle) ? (int)exec->child_pid
-                                                     : -1;
+  return (exec->state != xCommandExecutorState_Idle) ? (int)exec->child_pid : -1;
 }
 
 int xCommandExecutorIsRunning(xCommandExecutor exec_) {
   if (!exec_) return 0;
-  return ((struct xCommandExecutor_ *)exec_)->state !=
-         xCommandExecutorState_Idle;
+  return ((struct xCommandExecutor_ *)exec_)->state != xCommandExecutorState_Idle;
 }
 
 int xCommandExecutorPtyFd(xCommandExecutor exec_) {
@@ -1278,8 +1241,7 @@ int xCommandExecutorPtyFd(xCommandExecutor exec_) {
   struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
   if (exec->state == xCommandExecutorState_Idle) return -1;
   /* PTY mode: return the ConPTY input write fd */
-  if (exec->input_mode == xCommandInput_Pty && exec->pty_fd >= 0)
-    return exec->pty_fd;
+  if (exec->input_mode == xCommandInput_Pty && exec->pty_fd >= 0) return exec->pty_fd;
   return -1;
 }
 
@@ -1288,8 +1250,7 @@ int xCommandExecutorStdinFd(xCommandExecutor exec_) {
   struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
   if (exec->state == xCommandExecutorState_Idle) return -1;
   /* PTY mode: write to the ConPTY input (same as PtyFd) */
-  if (exec->input_mode == xCommandInput_Pty && exec->pty_fd >= 0)
-    return exec->pty_fd;
+  if (exec->input_mode == xCommandInput_Pty && exec->pty_fd >= 0) return exec->pty_fd;
   /* Pipe mode: write to the stdin pipe write end */
   return exec->stdin_fd;
 }

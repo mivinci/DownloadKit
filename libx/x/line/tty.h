@@ -24,9 +24,8 @@ typedef struct tty_s tty_t;
 ic_private tty_t *tty_new(int fd_in);
 ic_private void   tty_free(tty_t *tty);
 
-ic_private bool tty_is_utf8(const tty_t *tty);
-ic_private int
-tty_fd(const tty_t *tty); // POSIX input fd (for use with select/poll)
+ic_private bool   tty_is_utf8(const tty_t *tty);
+ic_private int    tty_fd(const tty_t *tty); // POSIX input fd (for use with select/poll)
 ic_private bool   tty_start_raw(tty_t *tty);
 ic_private void   tty_end_raw(tty_t *tty);
 ic_private code_t tty_read(tty_t *tty);
@@ -38,10 +37,8 @@ ic_private bool code_is_unicode(code_t c, unicode_t *uchr);
 ic_private bool code_is_virt_key(code_t c);
 
 ic_private bool tty_term_resize_event(tty_t *tty); // did the terminal resize?
-ic_private bool
-tty_async_stop(const tty_t *tty); // unblock the read asynchronously
-ic_private void tty_set_esc_delay(tty_t *tty, long initial_delay_ms,
-                                  long followup_delay_ms);
+ic_private bool tty_async_stop(const tty_t *tty);  // unblock the read asynchronously
+ic_private void tty_set_esc_delay(tty_t *tty, long initial_delay_ms, long followup_delay_ms);
 
 // shared between tty.c and tty_esc.c: low level character push
 ic_private void   tty_cpush_char(tty_t *tty, uint8_t c);
@@ -51,8 +48,8 @@ ic_private code_t tty_read_esc(tty_t *tty, long esc_initial_timeout,
                                long esc_timeout); // in tty_esc.c
 
 // used by term.c to read back ANSI escape responses
-ic_private bool tty_read_esc_response(tty_t *tty, char esc_start, bool final_st,
-                                      char *buf, ssize_t buflen);
+ic_private bool tty_read_esc_response(tty_t *tty, char esc_start, bool final_st, char *buf,
+                                      ssize_t buflen);
 
 //-------------------------------------------------------------
 // Key codes: a code_t is 32 bits.
@@ -140,10 +137,10 @@ static inline code_t key_unicode(unicode_t u) {
 #define KEY_F12  (KEY_VIRT + 22)
 #define KEY_F(n) (KEY_F1 + (n) - 1)
 
-#define KEY_EVENT_BASE        (0x02000000U)
-#define KEY_EVENT_RESIZE      (KEY_EVENT_BASE + 1)
-#define KEY_EVENT_AUTOTAB     (KEY_EVENT_BASE + 2)
-#define KEY_EVENT_STOP        (KEY_EVENT_BASE + 3)
+#define KEY_EVENT_BASE    (0x02000000U)
+#define KEY_EVENT_RESIZE  (KEY_EVENT_BASE + 1)
+#define KEY_EVENT_AUTOTAB (KEY_EVENT_BASE + 2)
+#define KEY_EVENT_STOP    (KEY_EVENT_BASE + 3)
 // Bracketed paste boundary markers. Emitted by tty_esc.c when it
 // decodes CSI 200 ~ / CSI 201 ~ — i.e. the DECSET ?2004 wrapper that
 // xterm-compatible terminals put around pasted text. Higher layers

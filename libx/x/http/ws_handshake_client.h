@@ -33,11 +33,8 @@
  * @param accept_sz   Size of accept_out buffer.
  * @return 0 on success, -1 on error.
  */
-int xWsClientBuildUpgradeRequest(xIOBuffer *io,
-                                 const xUrl *url,
-                                 const char *headers,
-                                 char *accept_out,
-                                 size_t accept_sz);
+int xWsClientBuildUpgradeRequest(xIOBuffer *io, const xUrl *url, const char *headers,
+                                 char *accept_out, size_t accept_sz);
 
 /**
  * Validate a 101 Switching Protocols response.
@@ -50,9 +47,7 @@ int xWsClientBuildUpgradeRequest(xIOBuffer *io,
  * @param expected_accept Expected Sec-WebSocket-Accept value.
  * @return 0 if valid, -1 on protocol error.
  */
-int xWsClientValidateUpgradeResponse(const char *data,
-                                     size_t len,
-                                     const char *expected_accept);
+int xWsClientValidateUpgradeResponse(const char *data, size_t len, const char *expected_accept);
 
 #ifdef XHTTP_WS_DEFLATE
 /**
@@ -63,9 +58,7 @@ int xWsClientValidateUpgradeResponse(const char *data,
  * @param params Output deflate parameters.
  * @return 0 if extension was negotiated, -1 otherwise.
  */
-int xWsClientParseDeflateResponse(const char *data,
-                                  size_t len,
-                                  xWsDeflateParams *params);
+int xWsClientParseDeflateResponse(const char *data, size_t len, xWsDeflateParams *params);
 #endif
 
 #endif /* XHTTP_WS_HANDSHAKE_CLIENT_H */

@@ -221,13 +221,11 @@ static const struct xHttpReqVtable sse_vtable = {
 
 /* ── curl write callback ── */
 
-static size_t sse_write_callback(char *ptr, size_t size, size_t nmemb,
-                                 void *userdata) {
+static size_t sse_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
   struct xSseReq_ *req   = (struct xSseReq_ *)userdata;
   size_t           total = size * nmemb;
 
-  int r =
-    sse_parser_feed(&req->parser, ptr, total, req->on_event, req->base.arg);
+  int r = sse_parser_feed(&req->parser, ptr, total, req->on_event, req->base.arg);
   if (r != 0) {
     /* User requested close — return 0 to signal error to curl */
     return 0;
@@ -257,9 +255,8 @@ static void sse_on_cleanup(struct xHttpReq_ *req_) {
 
 /* ── Public API ── */
 
-xErrno xHttpClientGetSse(xHttpClient client_, const char *url,
-                         xSseEventFunc on_event, xSseDoneFunc on_done,
-                         void *arg) {
+xErrno xHttpClientGetSse(xHttpClient client_, const char *url, xSseEventFunc on_event,
+                         xSseDoneFunc on_done, void *arg) {
   xHttpRequestConf config;
   memset(&config, 0, sizeof(config));
   config.url    = url;
@@ -269,11 +266,9 @@ xErrno xHttpClientGetSse(xHttpClient client_, const char *url,
 
 /* ── Public API: DoSse (generic SSE request) ─────────────────────────── */
 
-xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
-                        xSseEventFunc on_event, xSseDoneFunc on_done,
-                        void *arg) {
-  if (!client_ || !config || !config->url || !on_event)
-    return xErrno_InvalidArg;
+xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config, xSseEventFunc on_event,
+                        xSseDoneFunc on_done, void *arg) {
+  if (!client_ || !config || !config->url || !on_event) return xErrno_InvalidArg;
 
   struct xHttpClient_ *c = (struct xHttpClient_ *)client_;
 
@@ -293,8 +288,7 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
 
   /* SSE-specific headers */
   req->sse_headers = curl_slist_append(NULL, "Accept: text/event-stream");
-  req->sse_headers =
-    curl_slist_append(req->sse_headers, "Cache-Control: no-cache");
+  req->sse_headers = curl_slist_append(req->sse_headers, "Cache-Control: no-cache");
   if (!req->sse_headers) goto fail_easy;
 
   /* Merge user-provided headers */
@@ -401,12 +395,9 @@ xErrno xHttpClientDoSse(xHttpClient client_, const xHttpRequestConf *config,
     curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
   }
   if (c->tls_ca) curl_easy_setopt(easy, CURLOPT_CAINFO, c->tls_ca);
-  if (c->tls_cert)
-    curl_easy_setopt(easy, CURLOPT_SSLCERT, c->tls_cert);
-  if (c->tls_key)
-    curl_easy_setopt(easy, CURLOPT_SSLKEY, c->tls_key);
-  if (c->tls_key_password)
-    curl_easy_setopt(easy, CURLOPT_KEYPASSWD, c->tls_key_password);
+  if (c->tls_cert) curl_easy_setopt(easy, CURLOPT_SSLCERT, c->tls_cert);
+  if (c->tls_key) curl_easy_setopt(easy, CURLOPT_SSLKEY, c->tls_key);
+  if (c->tls_key_password) curl_easy_setopt(easy, CURLOPT_KEYPASSWD, c->tls_key_password);
 
   CURLMcode mc = curl_multi_add_handle(c->multi, easy);
   if (mc != CURLM_OK) goto fail_easy;

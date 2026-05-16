@@ -62,8 +62,7 @@ static inline void source_array_init(struct xEventSourceArray_ *s) {
   s->cap   = 0;
 }
 
-static inline int source_array_remove(struct xEventSourceArray_ *s,
-                                      struct xEventSource_      *src) {
+static inline int source_array_remove(struct xEventSourceArray_ *s, struct xEventSource_ *src) {
   (void)s;
   /* Mark for deferred removal — the source may still be referenced
    * by pending events in the current dispatch batch. */
@@ -72,14 +71,12 @@ static inline int source_array_remove(struct xEventSourceArray_ *s,
 }
 
 /* Non-inline implementations — see event_private.c */
-void source_array_free(struct xEventSourceArray_ *s);
-struct xEventSource_ *source_array_add(struct xEventSourceArray_ *s, int fd,
-                                       xEventMask mask, xEventFunc fn,
-                                       void *arg);
-void source_array_sweep(struct xEventSourceArray_ *s);
+void                  source_array_free(struct xEventSourceArray_ *s);
+struct xEventSource_ *source_array_add(struct xEventSourceArray_ *s, int fd, xEventMask mask,
+                                       xEventFunc fn, void *arg);
+void                  source_array_sweep(struct xEventSourceArray_ *s);
 
-static inline struct xEventSource_ *
-source_array_find_fd(struct xEventSourceArray_ *s, int fd) {
+static inline struct xEventSource_ *source_array_find_fd(struct xEventSourceArray_ *s, int fd) {
   for (size_t i = 0; i < s->len; i++) {
     if (s->items[i]->fd == fd) return s->items[i];
   }
@@ -88,7 +85,7 @@ source_array_find_fd(struct xEventSourceArray_ *s, int fd) {
 
 /* ───────────────────── Builtin timer entry ───────────────────── */
 
-#define EVENT_TIMER_INVALID_IDX ((size_t)-1)
+#define EVENT_TIMER_INVALID_IDX ((size_t) - 1)
 
 struct xEventTimer_ {
   uint64_t             deadline; /* absolute ms, CLOCK_MONOTONIC */
@@ -134,8 +131,8 @@ struct xEventLoop_ {
 #ifdef _WIN32
   HANDLE wake_event; /* manual-reset event for loop wakeup */
 #else
-  int    wake_rfd;   /* read end of wake pipe  */
-  int    wake_wfd;   /* write end of wake pipe */
+  int wake_rfd; /* read end of wake pipe  */
+  int wake_wfd; /* write end of wake pipe */
 #endif
 
   /* Offload done queue (lock-free MPSC) */
@@ -216,8 +213,7 @@ static inline struct xEventTimer_ *event_timer_alloc(struct xEventLoop_ *loop) {
  * Return a timer struct to the freelist (or free it if pool is full).
  * Must be called with timer_mu held.
  */
-static inline void event_timer_free(struct xEventLoop_  *loop,
-                                    struct xEventTimer_ *t) {
+static inline void event_timer_free(struct xEventLoop_ *loop, struct xEventTimer_ *t) {
   if (loop->timer_nfree < EVENT_TIMER_POOL_MAX) {
     t->next_free     = loop->timer_free;
     loop->timer_free = t;
@@ -281,14 +277,12 @@ static inline void loop_clear_wake_pending(struct xEventLoop_ *loop) {
  *   - alloc: from the submitting thread (xEventLoopSubmit)
  *   - free:  from the event-loop thread  (loop_dispatch_done)
  */
-static inline struct xEventWork_ *
-event_work_alloc(struct xEventLoop_ *loop) {
+static inline struct xEventWork_ *event_work_alloc(struct xEventLoop_ *loop) {
   struct xEventWork_ *w;
   for (;;) {
     w = xAtomicLoad(&loop->work_freelist, xAtomicAcquire);
     if (!w) break; /* empty — fall back to calloc */
-    if (xAtomicCasPtrWeak(&loop->work_freelist, &w, w->next_free, xAtomicAcqRel))
-      break;
+    if (xAtomicCasPtrWeak(&loop->work_freelist, &w, w->next_free, xAtomicAcqRel)) break;
   }
   if (w) {
     memset(w, 0, sizeof(*w));
@@ -297,15 +291,13 @@ event_work_alloc(struct xEventLoop_ *loop) {
   return (struct xEventWork_ *)calloc(1, sizeof(struct xEventWork_));
 }
 
-static inline void event_work_free(struct xEventLoop_ *loop,
-                                   struct xEventWork_ *w) {
+static inline void event_work_free(struct xEventLoop_ *loop, struct xEventWork_ *w) {
   struct xEventWork_ *head;
   w->next_free = NULL;
   do {
     head         = xAtomicLoad(&loop->work_freelist, xAtomicRelaxed);
     w->next_free = head;
-  } while (
-    !xAtomicCasPtrWeak(&loop->work_freelist, &head, w, xAtomicRelease));
+  } while (!xAtomicCasPtrWeak(&loop->work_freelist, &head, w, xAtomicRelease));
 }
 
 static inline void event_work_pool_destroy(struct xEventLoop_ *loop) {

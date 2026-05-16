@@ -17,9 +17,9 @@
 #include <x/base/note.h>
 #include <x/base/slab.h>
 
+#include "thread_private.h"
 #include <stdlib.h>
 #include <string.h>
-#include "thread_private.h"
 
 /* ───────────────────── Internal types ───────────────────── */
 
@@ -28,8 +28,8 @@ struct xTask_ {
   void     *arg;
 
   /* Completion notification — lightweight one-shot (4 bytes, no destroy). */
-  xNote  note;
-  void  *result;
+  xNote note;
+  void *result;
 
   /* Back-pointer to owning group */
   struct xTaskGroup_ *group;
@@ -47,16 +47,16 @@ struct xTask_ {
 
 struct xTaskGroup_ {
   xThread *workers;
-  size_t     max_threads;
-  size_t     nthreads;
+  size_t   max_threads;
+  size_t   nthreads;
 
   /* Task queue (protected by qlock) */
-  xMutex        qlock;
-  xCond         qcond;
-  struct xTask_  *qhead;
-  struct xTask_  *qtail;
-  size_t          qsize;
-  size_t          qcap;
+  xMutex         qlock;
+  xCond          qcond;
+  struct xTask_ *qhead;
+  struct xTask_ *qtail;
+  size_t         qsize;
+  size_t         qcap;
 
   /* Completed tasks — lock-free MPSC queue.
    * Workers push via xMpscPush (multi-producer), drain happens on a
@@ -148,8 +148,7 @@ static void *worker_loop(void *arg) {
     /* Try to transition QUEUED → RUNNING.  If the task was cancelled
      * between enqueue and here, the CAS fails and we skip execution. */
     long expected = TASK_QUEUED;
-    if (xAtomicCasStrong(&task->state, &expected, TASK_RUNNING,
-                         xAtomicAcqRel)) {
+    if (xAtomicCasStrong(&task->state, &expected, TASK_RUNNING, xAtomicAcqRel)) {
       /* Execute the task */
       void *result = task->fn(task->arg);
       task->result = result;
@@ -195,8 +194,7 @@ static bool spawn_one_worker(struct xTaskGroup_ *g) {
 
   if (g->nthreads >= g->max_threads) return false;
 
-  new_workers =
-    (xThread *)realloc(g->workers, (g->nthreads + 1) * sizeof(xThread));
+  new_workers = (xThread *)realloc(g->workers, (g->nthreads + 1) * sizeof(xThread));
   if (!new_workers) return false;
 
   if (xThreadCreate(&new_workers[g->nthreads], worker_loop, g) != 0) {
@@ -364,8 +362,7 @@ xErrno xTaskCancel(xTask t_) {
    * return xErrno_Busy so the caller knows fn() is (or was) in
    * flight and must xTaskWait() before releasing the arg. */
   long expected = TASK_QUEUED;
-  if (xAtomicCasStrong(&t->state, &expected, TASK_CANCELLED,
-                        xAtomicAcqRel)) {
+  if (xAtomicCasStrong(&t->state, &expected, TASK_CANCELLED, xAtomicAcqRel)) {
     return xErrno_Ok;
   }
 
@@ -404,7 +401,7 @@ size_t xTaskGroupPending(xTaskGroup g_) {
 /* ───────────────────── Global task group ───────────────────── */
 
 static xTaskGroup g_global_group = NULL;
-static xOnce    g_global_once  = X_ONCE_INIT;
+static xOnce      g_global_once  = X_ONCE_INIT;
 
 static void global_group_destroy(void) {
   if (g_global_group) {

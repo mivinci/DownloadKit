@@ -52,8 +52,7 @@ void slash_cmd_verbose(ReplCtx *ctx, const char *args) {
       return;
     }
     ctx->verbose_tool_output = true;
-    above_printf(ctx->line,
-                 "\x1b[2m[verbose] on \u2014 full tool output shown\x1b[0m");
+    above_printf(ctx->line, "\x1b[2m[verbose] on \u2014 full tool output shown\x1b[0m");
     return;
   }
 
@@ -63,28 +62,24 @@ void slash_cmd_verbose(ReplCtx *ctx, const char *args) {
       return;
     }
     ctx->verbose_tool_output = false;
-    above_printf(ctx->line,
-                 "\x1b[2m[verbose] off \u2014 tool data suppressed"
-                 " (summary only)\x1b[0m");
+    above_printf(ctx->line, "\x1b[2m[verbose] off \u2014 tool data suppressed"
+                            " (summary only)\x1b[0m");
     return;
   }
 
   /* Fall-through: unknown tail. */
-  above_printf(ctx->line,
-               "\x1b[2m[verbose] unrecognised args: %s\x1b[0m", args);
-  above_printf(ctx->line,
-               "\x1b[2m         usage: /verbose [on | off]\x1b[0m");
+  above_printf(ctx->line, "\x1b[2m[verbose] unrecognised args: %s\x1b[0m", args);
+  above_printf(ctx->line, "\x1b[2m         usage: /verbose [on | off]\x1b[0m");
 }
 
 /* Arg completer for /verbose. Offers "on" and "off". */
-void slash_argc_verbose(xLineCompletionEnv cenv, ReplCtx *ctx,
-                        const char *token) {
+void slash_argc_verbose(xLineCompletionEnv cenv, ReplCtx *ctx, const char *token) {
   (void)ctx;
   static const struct {
     const char *name;
     const char *help;
   } cands[] = {
-    {"on",  "show full tool output"},
+    {"on", "show full tool output"},
     {"off", "suppress tool data output (show summary only)"},
   };
   for (const auto &c : cands) {

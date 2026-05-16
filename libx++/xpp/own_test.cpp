@@ -20,21 +20,17 @@
 #include <type_traits>
 #include <utility>
 
-#include "own.h"
+#include <xpp/own.h>
 
 /* ── Compile-time guarantees ─────────────────────────────────────────── */
 
 static_assert(sizeof(xpp::Own<int>) == sizeof(int *),
               "Own<int> must be sizeof(int*) via niche-optimized Option<NonNullOwn> storage");
 
-static_assert(!std::is_copy_constructible<xpp::Own<int>>::value,
-              "Own must not be copyable");
-static_assert(!std::is_copy_assignable<xpp::Own<int>>::value,
-              "Own must not be copy-assignable");
-static_assert(std::is_move_constructible<xpp::Own<int>>::value,
-              "Own must be movable");
-static_assert(std::is_move_assignable<xpp::Own<int>>::value,
-              "Own must be move-assignable");
+static_assert(!std::is_copy_constructible<xpp::Own<int>>::value, "Own must not be copyable");
+static_assert(!std::is_copy_assignable<xpp::Own<int>>::value, "Own must not be copy-assignable");
+static_assert(std::is_move_constructible<xpp::Own<int>>::value, "Own must be movable");
+static_assert(std::is_move_assignable<xpp::Own<int>>::value, "Own must be move-assignable");
 static_assert(std::is_default_constructible<xpp::Own<int>>::value,
               "Own must be default-constructible (yields empty)");
 static_assert(std::is_nothrow_destructible<xpp::Own<int>>::value,
@@ -44,8 +40,7 @@ namespace {
 
 /* SFINAE detector: Own<void> must have no operator*. */
 template <class, class = void> struct has_op_star : std::false_type {};
-template <class T>
-struct has_op_star<T, decltype(void(*std::declval<T &>()))> : std::true_type {};
+template <class T> struct has_op_star<T, decltype(void(*std::declval<T &>()))> : std::true_type {};
 
 static_assert(has_op_star<xpp::Own<int>>::value, "Own<int> must have operator*");
 static_assert(!has_op_star<xpp::Own<void>>::value, "Own<void> must not have operator*");
@@ -57,19 +52,27 @@ struct Tracker {
   static int alive;
   int        value;
 
-  Tracker() : value(0) { ++alive; }
-  explicit Tracker(int v) : value(v) { ++alive; }
+  Tracker() : value(0) {
+    ++alive;
+  }
+  explicit Tracker(int v) : value(v) {
+    ++alive;
+  }
   Tracker(const Tracker &)            = delete;
   Tracker(Tracker &&)                 = delete;
   Tracker &operator=(const Tracker &) = delete;
   Tracker &operator=(Tracker &&)      = delete;
-  ~Tracker() { --alive; }
+  ~Tracker() {
+    --alive;
+  }
 };
 int Tracker::alive = 0;
 
 class OwnTrackerTest : public ::testing::Test {
 protected:
-  void SetUp() override { Tracker::alive = 0; }
+  void SetUp() override {
+    Tracker::alive = 0;
+  }
   void TearDown() override {
     EXPECT_EQ(Tracker::alive, 0) << "leak: " << Tracker::alive << " Trackers still alive";
   }
@@ -133,7 +136,7 @@ TEST_F(OwnTrackerTest, FromNonNullOwn) {
 
 TEST_F(OwnTrackerTest, FromOptionNonNullOwnSome) {
   {
-    auto opt = xpp::NonNullOwn<Tracker>::from(new Tracker(4));
+    auto              opt = xpp::NonNullOwn<Tracker>::from(new Tracker(4));
     xpp::Own<Tracker> o(std::move(opt));
     EXPECT_TRUE(static_cast<bool>(o));
     EXPECT_EQ(o->value, 4);
@@ -271,7 +274,9 @@ TEST(OwnDeathTest, DerefStarOnEmpty) {
 
 TEST(OwnDeathTest, DerefArrowOnEmpty) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
-  struct S { int v; };
+  struct S {
+    int v;
+  };
   EXPECT_DEATH(([] {
                  xpp::Own<S> o;
                  (void)o->v;
@@ -284,7 +289,7 @@ TEST(OwnDeathTest, DerefArrowOnEmpty) {
 
 TEST_F(OwnTrackerTest, IntoNonNullSomeWhenNonEmpty) {
   {
-    xpp::Own<Tracker> o(new Tracker(11));
+    xpp::Own<Tracker>                     o(new Tracker(11));
     xpp::Option<xpp::NonNullOwn<Tracker>> opt = std::move(o).intoNonNull();
     EXPECT_TRUE(opt.isSome());
     EXPECT_EQ(opt.unwrap()->value, 11);
@@ -294,8 +299,8 @@ TEST_F(OwnTrackerTest, IntoNonNullSomeWhenNonEmpty) {
 }
 
 TEST(OwnTest, IntoNonNullNoneWhenEmpty) {
-  xpp::Own<int>                            o;
-  xpp::Option<xpp::NonNullOwn<int>>        opt = std::move(o).intoNonNull();
+  xpp::Own<int>                     o;
+  xpp::Option<xpp::NonNullOwn<int>> opt = std::move(o).intoNonNull();
   EXPECT_TRUE(opt.isNone());
 }
 
@@ -340,26 +345,38 @@ namespace {
 struct Base {
   static int alive;
   int        base_value;
-  Base() : base_value(0) { ++alive; }
-  explicit Base(int v) : base_value(v) { ++alive; }
+  Base() : base_value(0) {
+    ++alive;
+  }
+  explicit Base(int v) : base_value(v) {
+    ++alive;
+  }
   Base(const Base &)            = delete;
   Base(Base &&)                 = delete;
   Base &operator=(const Base &) = delete;
   Base &operator=(Base &&)      = delete;
-  virtual ~Base() { --alive; } // virtual: required for delete-through-Base*
-  virtual int kind() const { return 1; }
+  virtual ~Base() {
+    --alive;
+  } // virtual: required for delete-through-Base*
+  virtual int kind() const {
+    return 1;
+  }
 };
 int Base::alive = 0;
 
 struct Derived : Base {
   int derived_value;
   explicit Derived(int b, int d) : Base(b), derived_value(d) {}
-  int kind() const override { return 2; }
+  int kind() const override {
+    return 2;
+  }
 };
 
 class CovarianceTest : public ::testing::Test {
 protected:
-  void SetUp() override { Base::alive = 0; }
+  void SetUp() override {
+    Base::alive = 0;
+  }
   void TearDown() override {
     EXPECT_EQ(Base::alive, 0) << "leak: " << Base::alive << " Bases still alive";
   }
@@ -371,7 +388,7 @@ TEST_F(CovarianceTest, NonNullOwnDerivedToBase) {
   {
     auto                  d = xpp::NonNullOwn<Derived>::newUnchecked(new Derived(1, 2));
     xpp::NonNullOwn<Base> b(std::move(d));
-    EXPECT_EQ(b->kind(), 2);          // virtual dispatch → Derived
+    EXPECT_EQ(b->kind(), 2); // virtual dispatch → Derived
     EXPECT_EQ(b->base_value, 1);
     EXPECT_EQ(Base::alive, 1);
   }
@@ -380,8 +397,8 @@ TEST_F(CovarianceTest, NonNullOwnDerivedToBase) {
 
 TEST_F(CovarianceTest, OptionNonNullOwnDerivedToBase) {
   {
-    auto                                  d_opt = xpp::NonNullOwn<Derived>::from(new Derived(3, 4));
-    xpp::Option<xpp::NonNullOwn<Base>>    b_opt(std::move(d_opt));
+    auto                               d_opt = xpp::NonNullOwn<Derived>::from(new Derived(3, 4));
+    xpp::Option<xpp::NonNullOwn<Base>> b_opt(std::move(d_opt));
     ASSERT_TRUE(b_opt.isSome());
     EXPECT_EQ(b_opt.unwrap()->kind(), 2);
     EXPECT_EQ(Base::alive, 1);
@@ -392,7 +409,7 @@ TEST_F(CovarianceTest, OptionNonNullOwnDerivedToBase) {
 TEST_F(CovarianceTest, OptionNonNullOwnFromDerivedNonNull) {
   // Construct Option<NonNullOwn<Base>> directly from NonNullOwn<Derived>.
   {
-    auto                               d = xpp::NonNullOwn<Derived>::newUnchecked(new Derived(5, 6));
+    auto d = xpp::NonNullOwn<Derived>::newUnchecked(new Derived(5, 6));
     xpp::Option<xpp::NonNullOwn<Base>> b_opt(std::move(d));
     ASSERT_TRUE(b_opt.isSome());
     EXPECT_EQ(b_opt.unwrap()->kind(), 2);
@@ -438,19 +455,14 @@ TEST_F(CovarianceTest, OwnFromDerivedOptionNonNullOwn) {
 namespace {
 struct Unrelated {};
 
-template <class From, class To, class = void>
-struct can_convert_own : std::false_type {};
+template <class From, class To, class = void> struct can_convert_own : std::false_type {};
 template <class From, class To>
-struct can_convert_own<
-    From, To,
-    decltype(void(xpp::Own<To>(std::declval<xpp::Own<From>>())))>
+struct can_convert_own<From, To, decltype(void(xpp::Own<To>(std::declval<xpp::Own<From>>())))>
     : std::true_type {};
 } // namespace
 
-static_assert(can_convert_own<Derived, Base>::value,
-              "Own<Derived> → Own<Base> must be allowed");
+static_assert(can_convert_own<Derived, Base>::value, "Own<Derived> → Own<Base> must be allowed");
 static_assert(!can_convert_own<Unrelated, Base>::value,
               "Own<Unrelated> → Own<Base> must NOT be allowed");
 static_assert(!can_convert_own<Base, Derived>::value,
               "Own<Base> → Own<Derived> must NOT be allowed (only up-conversion)");
-

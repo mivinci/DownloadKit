@@ -259,8 +259,7 @@ typedef ssize_t (*xIOBufferReadFunc)(void *ctx, void *buf, size_t len);
  * @param iovcnt  Number of iovec entries.
  * @return Bytes written, or -1 on error.
  */
-typedef ssize_t (*xIOBufferWritevFunc)(void *ctx, const struct iovec *iov,
-                                       int iovcnt);
+typedef ssize_t (*xIOBufferWritevFunc)(void *ctx, const struct iovec *iov, int iovcnt);
 
 /* ───────────────────── I/O helpers ───────────────────── */
 
@@ -272,8 +271,7 @@ typedef ssize_t (*xIOBufferWritevFunc)(void *ctx, const struct iovec *iov,
  * @param max_iov Maximum number of iovec entries to fill.
  * @return Number of iovec entries filled.
  */
-XCAPI(int) xIOBufferReadIov(const xIOBuffer *io, struct iovec *iov,
-                            int max_iov);
+XCAPI(int) xIOBufferReadIov(const xIOBuffer *io, struct iovec *iov, int max_iov);
 
 /**
  * @brief Read from a file descriptor into the IOBuf.
@@ -309,8 +307,7 @@ XCAPI(ssize_t) xIOBufferWriteFd(xIOBuffer *io, int fd);
  * @param ctx  Context passed to fn.
  * @return Bytes read, 0 on EOF, -1 on error.
  */
-XCAPI(ssize_t) xIOBufferReadWith(xIOBuffer *io, xIOBufferReadFunc fn,
-                                 void *ctx);
+XCAPI(ssize_t) xIOBufferReadWith(xIOBuffer *io, xIOBufferReadFunc fn, void *ctx);
 
 /**
  * @brief Write IOBuf data using a custom writev function.
@@ -323,8 +320,7 @@ XCAPI(ssize_t) xIOBufferReadWith(xIOBuffer *io, xIOBufferReadFunc fn,
  * @param ctx  Context passed to fn.
  * @return Bytes written, or -1 on error.
  */
-XCAPI(ssize_t) xIOBufferWriteWith(xIOBuffer *io, xIOBufferWritevFunc fn,
-                                  void *ctx);
+XCAPI(ssize_t) xIOBufferWriteWith(xIOBuffer *io, xIOBufferWritevFunc fn, void *ctx);
 
 /* ───────────────────── Block pool ───────────────────── */
 

@@ -23,18 +23,18 @@
 #include <string.h>
 
 struct xAgentTool_ {
-  char              *name;
-  char              *description; /* may be NULL            */
-  char              *json_schema; /* may be NULL            */
-  xAgentToolHandlerFunc handler;
-  void              *user_data;
+  char                         *name;
+  char                         *description; /* may be NULL            */
+  char                         *json_schema; /* may be NULL            */
+  xAgentToolHandlerFunc         handler;
+  void                         *user_data;
   xAgentToolUserDataDestroyFunc user_data_destroy; /* may be NULL */
-  int                concurrent_safe;
-  int                needs_confirm;
-  xAgentToolDoneFunc    on_done_fn;  /* may be NULL = synchronous tool   */
-  void              *on_done_ud;  /* forwarded to on_done_fn          */
-  xAgentToolCancelFunc  on_cancel_fn; /* may be NULL = no cancel support  */
-  void              *on_cancel_ud; /* forwarded to on_cancel_fn        */
+  int                           concurrent_safe;
+  int                           needs_confirm;
+  xAgentToolDoneFunc            on_done_fn;   /* may be NULL = synchronous tool   */
+  void                         *on_done_ud;   /* forwarded to on_done_fn          */
+  xAgentToolCancelFunc          on_cancel_fn; /* may be NULL = no cancel support  */
+  void                         *on_cancel_ud; /* forwarded to on_cancel_fn        */
 };
 
 static char *tool_strdup(const char *s) {
@@ -52,9 +52,9 @@ xAgentTool xAgentToolCreate(const xAgentToolConf *conf) {
   struct xAgentTool_ *t = (struct xAgentTool_ *)calloc(1, sizeof(*t));
   if (!t) return NULL;
 
-  t->name            = tool_strdup(conf->name);
-  t->description     = tool_strdup(conf->description);
-  t->json_schema     = tool_strdup(conf->json_schema);
+  t->name              = tool_strdup(conf->name);
+  t->description       = tool_strdup(conf->description);
+  t->json_schema       = tool_strdup(conf->json_schema);
   t->handler           = conf->handler;
   t->user_data         = conf->user_data;
   t->user_data_destroy = conf->user_data_destroy;
@@ -77,8 +77,7 @@ xAgentTool xAgentToolCreate(const xAgentToolConf *conf) {
 void xAgentToolDestroy(xAgentTool tool) {
   struct xAgentTool_ *t = (struct xAgentTool_ *)tool;
   if (!t) return;
-  if (t->user_data_destroy && t->user_data)
-    t->user_data_destroy(t->user_data);
+  if (t->user_data_destroy && t->user_data) t->user_data_destroy(t->user_data);
   free(t->name);
   free(t->description);
   free(t->json_schema);
@@ -103,8 +102,7 @@ const char *ai_tool_json_schema(xAgentTool tool) {
   return tool ? ((struct xAgentTool_ *)tool)->json_schema : NULL;
 }
 
-xErrno ai_tool_invoke(xAgentTool tool, xAgentQuery q, const xAgentContent *in,
-                      xAgentContent *out) {
+xErrno ai_tool_invoke(xAgentTool tool, xAgentQuery q, const xAgentContent *in, xAgentContent *out) {
   struct xAgentTool_ *t = (struct xAgentTool_ *)tool;
   if (!t || !t->handler) return xErrno_InvalidArg;
   return t->handler(q, in, out, t->user_data);

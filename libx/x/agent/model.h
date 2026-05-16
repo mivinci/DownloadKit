@@ -120,8 +120,7 @@ XCAPI(void) xAgentModelRegistryDestroy(xAgentModelRegistry reg);
  *              xErrno_AlreadyExists when @p spec->id already lives
  *              in the registry; xErrno_NoMemory on allocation failure.
  */
-XCAPI(xErrno) xAgentModelRegistryAdd(xAgentModelRegistry    reg,
-                                     const xAgentModelSpec *spec);
+XCAPI(xErrno) xAgentModelRegistryAdd(xAgentModelRegistry reg, const xAgentModelSpec *spec);
 
 /**
  * @brief Look up a spec by id.

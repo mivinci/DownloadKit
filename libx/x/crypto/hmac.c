@@ -25,8 +25,8 @@
 
 XDEF_STRUCT(xHmacState_) {
   const xHashVtable *hash;
-  uint8_t opad[HMAC_MAX_BLOCK_SIZE];    /**< Pre-computed opad.          */
-  uint8_t inner_ctx[HMAC_MAX_CTX_SIZE]; /**< Inner hash context buffer. */
+  uint8_t            opad[HMAC_MAX_BLOCK_SIZE];    /**< Pre-computed opad.          */
+  uint8_t            inner_ctx[HMAC_MAX_CTX_SIZE]; /**< Inner hash context buffer. */
 };
 
 _Static_assert(sizeof(xHmacState_) <= sizeof(((xHmacCtx *)0)->opaque),
@@ -43,8 +43,8 @@ static void hmac_cleanup_(xHmacState_ *st) {
 
 /* ───────────────────── Streaming API ───────────────────── */
 
-xErrno xHmacInit(xHmacCtx *ctx, const struct xHashVtable *hash,
-                 const uint8_t *key, size_t key_len) {
+xErrno xHmacInit(xHmacCtx *ctx, const struct xHashVtable *hash, const uint8_t *key,
+                 size_t key_len) {
   if (!ctx || !hash || !key) return xErrno_InvalidArg;
   if (hash->block_size > HMAC_MAX_BLOCK_SIZE) return xErrno_InvalidArg;
   if (hash->digest_size > HMAC_MAX_DIGEST_SIZE) return xErrno_InvalidArg;
@@ -55,7 +55,7 @@ xErrno xHmacInit(xHmacCtx *ctx, const struct xHashVtable *hash,
   st->hash = hash;
 
   const size_t block_size = hash->block_size;
-  xErrno err;
+  xErrno       err;
 
   /* Normalize key: if longer than block size, hash it first. */
   uint8_t k[HMAC_MAX_BLOCK_SIZE];
@@ -65,9 +65,15 @@ xErrno xHmacInit(xHmacCtx *ctx, const struct xHashVtable *hash,
     err = hash->init(st->inner_ctx);
     if (err != xErrno_Ok) return err;
     err = hash->update(st->inner_ctx, key, key_len);
-    if (err != xErrno_Ok) { hmac_cleanup_(st); return err; }
+    if (err != xErrno_Ok) {
+      hmac_cleanup_(st);
+      return err;
+    }
     err = hash->final(st->inner_ctx, k);
-    if (err != xErrno_Ok) { hmac_cleanup_(st); return err; }
+    if (err != xErrno_Ok) {
+      hmac_cleanup_(st);
+      return err;
+    }
   } else {
     memcpy(k, key, key_len);
   }
@@ -84,7 +90,10 @@ xErrno xHmacInit(xHmacCtx *ctx, const struct xHashVtable *hash,
   if (err != xErrno_Ok) return err;
 
   err = hash->update(st->inner_ctx, ipad, block_size);
-  if (err != xErrno_Ok) { hmac_cleanup_(st); return err; }
+  if (err != xErrno_Ok) {
+    hmac_cleanup_(st);
+    return err;
+  }
   return xErrno_Ok;
 }
 
@@ -121,9 +130,15 @@ xErrno xHmacFinal(xHmacCtx *ctx, uint8_t *digest) {
   err = hash->init(st->inner_ctx); /* Reuse the context buffer */
   if (err != xErrno_Ok) return err;
   err = hash->update(st->inner_ctx, st->opad, hash->block_size);
-  if (err != xErrno_Ok) { hmac_cleanup_(st); return err; }
+  if (err != xErrno_Ok) {
+    hmac_cleanup_(st);
+    return err;
+  }
   err = hash->update(st->inner_ctx, inner_digest, hash->digest_size);
-  if (err != xErrno_Ok) { hmac_cleanup_(st); return err; }
+  if (err != xErrno_Ok) {
+    hmac_cleanup_(st);
+    return err;
+  }
 
   err = hash->final(st->inner_ctx, digest);
 

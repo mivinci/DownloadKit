@@ -45,8 +45,7 @@ static void xjs_class_finalize(JSRuntime *rt, JSValue val) {
   JSClassID id = JS_GetClassID(val);
   if (id == JS_INVALID_CLASS_ID) return;
 
-  struct xjs_native_priv *priv =
-    (struct xjs_native_priv *)JS_GetOpaque(val, id);
+  struct xjs_native_priv *priv = (struct xjs_native_priv *)JS_GetOpaque(val, id);
   if (!priv) return;
 
   if (priv->jsclass && priv->jsclass->def.finalize) {
@@ -99,8 +98,7 @@ int xjs_class_ensure_registered(xJSClassRef cls, JSRuntime *rt) {
 xJSClassRef xJSClassCreate(const xJSClassDefinition *def) {
   if (!def) return NULL;
 
-  struct OpaqueXJSClass *k =
-    (struct OpaqueXJSClass *)calloc(1, sizeof(*k));
+  struct OpaqueXJSClass *k = (struct OpaqueXJSClass *)calloc(1, sizeof(*k));
   if (!k) return NULL;
 
   k->refcount = 1;

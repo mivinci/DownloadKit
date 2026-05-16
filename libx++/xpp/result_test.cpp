@@ -17,7 +17,7 @@
 #include <string>
 #include <utility>
 
-#include "result.h"
+#include <xpp/result.h>
 
 namespace {
 
@@ -108,7 +108,7 @@ TEST(ResultTest, ConstructOkAndErrSameTypeAreDistinct) {
 }
 
 TEST(ResultTest, LvalueConstructOk) {
-  std::string s = "ok-value";
+  std::string                   s = "ok-value";
   xpp::Result<std::string, int> r(xpp::ok, s);
   EXPECT_TRUE(r.isOk());
   EXPECT_EQ(r.unwrap(), "ok-value");
@@ -122,7 +122,7 @@ TEST(ResultTest, RvalueConstructOk) {
 }
 
 TEST(ResultTest, LvalueConstructErr) {
-  std::string e = "err-msg";
+  std::string                   e = "err-msg";
   xpp::Result<int, std::string> r(xpp::err, e);
   EXPECT_TRUE(r.isErr());
   EXPECT_EQ(r.unwrapErr(), "err-msg");
@@ -187,7 +187,7 @@ TEST_F(TrackerResultTest, UnwrapRvalueOverloadMoves) {
   xpp::Result<Tracker, int> r(xpp::ok, Tracker(15));
   Tracker::copies = 0;
   Tracker::moves  = 0;
-  Tracker t = std::move(r).unwrap();
+  Tracker t       = std::move(r).unwrap();
   EXPECT_EQ(t.value, 15);
   EXPECT_EQ(Tracker::copies, 0);
   EXPECT_GE(Tracker::moves, 1);
@@ -211,7 +211,7 @@ TEST_F(TrackerResultTest, UnwrapErrRvalueOverloadMoves) {
   xpp::Result<int, Tracker> r(xpp::err, Tracker(33));
   Tracker::copies = 0;
   Tracker::moves  = 0;
-  Tracker t = std::move(r).unwrapErr();
+  Tracker t       = std::move(r).unwrapErr();
   EXPECT_EQ(t.value, 33);
   EXPECT_EQ(Tracker::copies, 0);
   EXPECT_GE(Tracker::moves, 1);
@@ -298,7 +298,7 @@ TEST_F(TrackerResultTest, DereferenceRvalueOverloadMoves) {
   xpp::Result<Tracker, int> r(xpp::ok, Tracker(50));
   Tracker::copies = 0;
   Tracker::moves  = 0;
-  Tracker t = *std::move(r);
+  Tracker t       = *std::move(r);
   EXPECT_EQ(t.value, 50);
   EXPECT_EQ(Tracker::copies, 0);
   EXPECT_GE(Tracker::moves, 1);
@@ -319,7 +319,7 @@ TEST(ResultTest, ArrowOperatorAccessesMember) {
 
 TEST_F(TrackerResultTest, OkOnOkReturnsSome) {
   xpp::Result<Tracker, int> r(xpp::ok, Tracker(60));
-  Tracker::copies      = 0;
+  Tracker::copies        = 0;
   xpp::Option<Tracker> o = std::move(r).ok();
   EXPECT_TRUE(o.isSome());
   EXPECT_EQ(o.unwrap().value, 60);
@@ -334,7 +334,7 @@ TEST(ResultTest, OkOnErrReturnsNone) {
 
 TEST_F(TrackerResultTest, ErrOnErrReturnsSome) {
   xpp::Result<int, Tracker> r(xpp::err, Tracker(70));
-  Tracker::copies      = 0;
+  Tracker::copies        = 0;
   xpp::Option<Tracker> o = std::move(r).err();
   EXPECT_TRUE(o.isSome());
   EXPECT_EQ(o.unwrap().value, 70);
@@ -351,7 +351,7 @@ TEST(ResultTest, ErrOnOkReturnsNone) {
 
 TEST(ResultTransposeTest, OkSomeBecomesSomeOk) {
   xpp::Result<xpp::Option<int>, std::string> r(xpp::ok, xpp::Some(7));
-  auto out = std::move(r).transpose();
+  auto                                       out = std::move(r).transpose();
   ASSERT_TRUE(out.isSome());
   EXPECT_TRUE(out.unwrap().isOk());
   EXPECT_EQ(out.unwrap().unwrap(), 7);
@@ -359,13 +359,13 @@ TEST(ResultTransposeTest, OkSomeBecomesSomeOk) {
 
 TEST(ResultTransposeTest, OkNoneBecomesNone) {
   xpp::Result<xpp::Option<int>, std::string> r(xpp::ok, xpp::Option<int>(xpp::none));
-  auto out = std::move(r).transpose();
+  auto                                       out = std::move(r).transpose();
   EXPECT_TRUE(out.isNone());
 }
 
 TEST(ResultTransposeTest, ErrBecomesSomeErr) {
   xpp::Result<xpp::Option<int>, std::string> r(xpp::err, std::string("boom"));
-  auto out = std::move(r).transpose();
+  auto                                       out = std::move(r).transpose();
   ASSERT_TRUE(out.isSome());
   EXPECT_TRUE(out.unwrap().isErr());
   EXPECT_EQ(out.unwrap().unwrapErr(), "boom");
@@ -386,8 +386,8 @@ TEST_F(TrackerResultTest, TransposeMovesValueZeroCopies) {
  * leaks onto a non-Option payload, this static_assert breaks the build.
  */
 namespace {
-template <typename, typename = void> struct has_transpose : std::false_type {};
-template <typename R>
+template <class, typename = void> struct has_transpose : std::false_type {};
+template <class R>
 struct has_transpose<R, decltype(void(std::declval<R>().transpose()))> : std::true_type {};
 
 static_assert(has_transpose<xpp::Result<xpp::Option<int>, std::string>>::value,
@@ -423,9 +423,7 @@ TEST_F(TrackerResultTest, MapRvalueOnOkMovesValue) {
   xpp::Result<Tracker, int> r(xpp::ok, Tracker(80));
   Tracker::copies = 0;
   Tracker::moves  = 0;
-  auto s = std::move(r).map([](Tracker &&t) {
-    return Tracker(t.value + 1);
-  });
+  auto s          = std::move(r).map([](Tracker &&t) { return Tracker(t.value + 1); });
   EXPECT_TRUE(s.isOk());
   EXPECT_EQ(s.unwrap().value, 81);
   EXPECT_EQ(Tracker::copies, 0);
@@ -434,7 +432,7 @@ TEST_F(TrackerResultTest, MapRvalueOnOkMovesValue) {
 TEST_F(TrackerResultTest, MapRvalueOnErrMovesError) {
   xpp::Result<int, Tracker> r(xpp::err, Tracker(90));
   Tracker::copies = 0;
-  auto s = std::move(r).map([](int x) { return x + 1; });
+  auto s          = std::move(r).map([](int x) { return x + 1; });
   EXPECT_TRUE(s.isErr());
   EXPECT_EQ(s.unwrapErr().value, 90);
   EXPECT_EQ(Tracker::copies, 0);
@@ -442,7 +440,7 @@ TEST_F(TrackerResultTest, MapRvalueOnErrMovesError) {
 
 TEST(ResultTest, MapTypeChange) {
   xpp::Result<int, std::string> r(xpp::ok, 5);
-  auto s = r.map([](int x) { return std::string(x, 'a'); });
+  auto                          s = r.map([](int x) { return std::string(x, 'a'); });
   static_assert(std::is_same<decltype(s), xpp::Result<std::string, std::string>>::value,
                 "map must allow changing T");
   EXPECT_TRUE(s.isOk());
@@ -481,7 +479,7 @@ TEST_F(TrackerResultTest, UnwrapErrRvalueVoidMoves) {
   xpp::Result<void, Tracker> r(xpp::err, Tracker(101));
   Tracker::copies = 0;
   Tracker::moves  = 0;
-  Tracker t = std::move(r).unwrapErr();
+  Tracker t       = std::move(r).unwrapErr();
   EXPECT_EQ(t.value, 101);
   EXPECT_EQ(Tracker::copies, 0);
   EXPECT_GE(Tracker::moves, 1);
@@ -514,7 +512,7 @@ TEST(ResultVoidDeathTest, UnwrapErrUncheckedOnOkInDebug) {
 
 TEST_F(TrackerResultTest, ErrOnVoidErr) {
   xpp::Result<void, Tracker> r(xpp::err, Tracker(110));
-  Tracker::copies      = 0;
+  Tracker::copies        = 0;
   xpp::Option<Tracker> o = std::move(r).err();
   EXPECT_TRUE(o.isSome());
   EXPECT_EQ(o.unwrap().value, 110);
@@ -647,7 +645,7 @@ TEST_F(TrackerResultTest, MapErrRvalueMovesErr) {
   {
     xpp::Result<int, Tracker> r(xpp::err, Tracker(5));
     Tracker::copies = 0;
-    auto s = std::move(r).mapErr([](Tracker &&t) { return Tracker(t.value + 1); });
+    auto s          = std::move(r).mapErr([](Tracker &&t) { return Tracker(t.value + 1); });
     EXPECT_EQ(Tracker::copies, 0);
     EXPECT_EQ(s.unwrapErr().value, 6);
   }
@@ -666,7 +664,7 @@ TEST(ResultTest, AndThenChainsOk) {
 TEST(ResultTest, AndThenPassesThroughErr) {
   xpp::Result<int, std::string> r(xpp::err, std::string("nope"));
   bool                          called = false;
-  auto s = r.andThen([&](int x) {
+  auto                          s      = r.andThen([&](int x) {
     called = true;
     return xpp::Result<int, std::string>(xpp::ok, x);
   });
@@ -684,16 +682,15 @@ TEST(ResultTest, AndThenFnCanReturnErr) {
 
 TEST(ResultTest, AndThenChangesOkType) {
   xpp::Result<int, std::string> r(xpp::ok, 7);
-  auto                          s = r.andThen([](int x) {
-    return xpp::Result<std::string, std::string>(xpp::ok, std::to_string(x));
-  });
+  auto                          s = r.andThen(
+    [](int x) { return xpp::Result<std::string, std::string>(xpp::ok, std::to_string(x)); });
   static_assert(std::is_same<decltype(s), xpp::Result<std::string, std::string>>::value, "");
   EXPECT_EQ(s.unwrap(), "7");
 }
 
 TEST(ResultVoidTest, AndThenOnVoidOk) {
   xpp::Result<void, std::string> r(xpp::ok);
-  auto                           s = r.andThen([] { return xpp::Result<int, std::string>(xpp::ok, 9); });
+  auto s = r.andThen([] { return xpp::Result<int, std::string>(xpp::ok, 9); });
   EXPECT_TRUE(s.isOk());
   EXPECT_EQ(s.unwrap(), 9);
 }
@@ -701,7 +698,7 @@ TEST(ResultVoidTest, AndThenOnVoidOk) {
 TEST(ResultVoidTest, AndThenOnVoidErrPropagates) {
   xpp::Result<void, std::string> r(xpp::err, std::string("nope"));
   bool                           called = false;
-  auto s = r.andThen([&] {
+  auto                           s      = r.andThen([&] {
     called = true;
     return xpp::Result<int, std::string>(xpp::ok, 9);
   });
@@ -714,7 +711,7 @@ TEST(ResultVoidTest, AndThenOnVoidErrPropagates) {
 TEST(ResultTest, OrElsePassesThroughOk) {
   xpp::Result<int, std::string> r(xpp::ok, 7);
   bool                          called = false;
-  auto s = r.orElse([&](const std::string &) {
+  auto                          s      = r.orElse([&](const std::string &) {
     called = true;
     return xpp::Result<int, int>(xpp::err, 99);
   });
@@ -725,7 +722,7 @@ TEST(ResultTest, OrElsePassesThroughOk) {
 
 TEST(ResultTest, OrElseRecoversFromErr) {
   xpp::Result<int, std::string> r(xpp::err, std::string("bad"));
-  auto s = r.orElse([](const std::string &e) {
+  auto                          s = r.orElse([](const std::string &e) {
     return xpp::Result<int, int>(xpp::ok, static_cast<int>(e.size()));
   });
   EXPECT_TRUE(s.isOk());
@@ -780,9 +777,7 @@ TEST(ResultTest, InspectSkipsWhenErr) {
 TEST(ResultTest, InspectIsChainable) {
   xpp::Result<int, std::string> r(xpp::ok, 1);
   int                           seen = 0;
-  auto s = std::move(r).inspect([&](const int &x) { seen = x; }).map([](int x) {
-    return x + 10;
-  });
+  auto s = std::move(r).inspect([&](const int &x) { seen = x; }).map([](int x) { return x + 10; });
   EXPECT_EQ(seen, 1);
   EXPECT_EQ(s.unwrap(), 11);
 }
@@ -807,8 +802,10 @@ TEST(ResultTest, InspectErrSkipsWhenOk) {
 TEST(ResultTest, InspectErrIsChainable) {
   xpp::Result<int, std::string> r(xpp::err, std::string("bad"));
   std::string                   seen;
-  auto s = std::move(r).inspectErr([&](const std::string &e) { seen = e; }).mapErr(
-      [](std::string &&e) { return e + "!"; });
+  auto                          s =
+    std::move(r).inspectErr([&](const std::string &e) { seen = e; }).mapErr([](std::string &&e) {
+      return e + "!";
+    });
   EXPECT_EQ(seen, "bad");
   EXPECT_EQ(s.unwrapErr(), "bad!");
 }

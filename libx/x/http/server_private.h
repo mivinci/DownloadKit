@@ -9,15 +9,16 @@
 #ifndef XHTTP_SERVER_PRIVATE_H
 #define XHTTP_SERVER_PRIVATE_H
 
-#include <x/net/transport.h>
 #include <stddef.h>
 #include <stdint.h>
+
 #include <x/base/base.h>
 #include <x/base/event.h>
 #include <x/base/socket.h>
 #include <x/buf/buf.h>
 #include <x/buf/io.h>
 #include <x/http/server.h>
+#include <x/net/transport.h>
 
 /* ───────────────────── Default configuration ───────────────────── */
 
@@ -44,13 +45,13 @@ XDEF_STRUCT(xHttpRouteSegment_) {
 /* ───────────────────── Route entry ───────────────────── */
 
 XDEF_STRUCT(xHttpRoute_) {
-  const char                *method; /**< HTTP method, or NULL for any method */
-  const char                *path;   /**< Original pattern string             */
-  struct xHttpRouteSegment_ *segments; /**< Pre-parsed segments             */
-  int                 segment_count;   /**< Number of segments               */
-  xHttpHandlerFunc    handler; /**< Handler callback                    */
-  void               *arg;     /**< User argument for handler           */
-  struct xHttpRoute_ *next;    /**< Next route in the linked list       */
+  const char                *method;        /**< HTTP method, or NULL for any method */
+  const char                *path;          /**< Original pattern string             */
+  struct xHttpRouteSegment_ *segments;      /**< Pre-parsed segments             */
+  int                        segment_count; /**< Number of segments               */
+  xHttpHandlerFunc           handler;       /**< Handler callback                    */
+  void                      *arg;           /**< User argument for handler           */
+  struct xHttpRoute_        *next;          /**< Next route in the linked list       */
 };
 
 /* ───────────────────── Route param entry (matched) ───────────────────── */
@@ -103,9 +104,8 @@ XDEF_STRUCT(xHttpProto) {
   const char *(*method)(struct xHttpStream_ *stream);
   int (*should_keep_alive)(struct xHttpConn_ *conn);
   /* Response serialization (protocol-specific) */
-  int (*send_response)(struct xHttpStream_ *stream, int status,
-                       struct xHttpHeader_ *headers, const char *body,
-                       size_t body_len);
+  int (*send_response)(struct xHttpStream_ *stream, int status, struct xHttpHeader_ *headers,
+                       const char *body, size_t body_len);
   int (*write_data)(struct xHttpStream_ *stream, const char *data, size_t len);
   int (*end_stream)(struct xHttpStream_ *stream);
   void *state; /**< Opaque protocol state (e.g. xHttpProtoH1*) */
@@ -148,8 +148,8 @@ XDEF_STRUCT(xHttpConn_) {
   xIOBuffer            write_buf; /**< Write buffer                     */
 
   /* Transport layer (vtable) */
-  xTransport transport;          /**< Transport I/O interface          */
-  int            handshake_done; /**< Whether TLS handshake is complete */
+  xTransport transport;      /**< Transport I/O interface          */
+  int        handshake_done; /**< Whether TLS handshake is complete */
 
   /* Protocol handler (vtable) */
   xHttpProto proto; /**< Protocol handler interface       */
@@ -196,15 +196,14 @@ XDEF_STRUCT(xHttpServer_) {
   size_t max_body_size;
 
   /* Auxiliary data (set by convenience wrappers like xWsServe) */
-  void  *aux_data;
+  void *aux_data;
   void (*aux_free)(void *);
 };
 
 /* ───────────────────── Internal functions ───────────────────── */
 
 /* Stream lifecycle (server.c) */
-struct xHttpStream_ *xHttpStreamCreate(struct xHttpConn_ *conn,
-                                       int32_t            stream_id);
+struct xHttpStream_ *xHttpStreamCreate(struct xHttpConn_ *conn, int32_t stream_id);
 void                 xHttpStreamDestroy(struct xHttpStream_ *stream);
 void                 xHttpStreamReset(struct xHttpStream_ *stream);
 
@@ -214,8 +213,7 @@ void xHttpConnResetParser(struct xHttpConn_ *conn);
 void xHttpConnDispatchRequest(struct xHttpConn_ *conn);
 
 /* Response helpers (server.c) */
-void xHttpConnSendError(struct xHttpConn_ *conn, int status_code,
-                        const char *reason);
+void xHttpConnSendError(struct xHttpConn_ *conn, int status_code, const char *reason);
 void xHttpConnFlushWrite(struct xHttpConn_ *conn);
 void xHttpConnTryFlush(struct xHttpConn_ *conn);
 

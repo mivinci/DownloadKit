@@ -10,13 +10,13 @@
 
 #include "color.h"
 #include "completions.h"
-#include <x/base/log.h>
 #include "env.h"
 #include "line.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
 #include "unicode.h"
+#include <x/base/log.h>
 
 //-------------------------------------------------------------
 // Completions
@@ -39,8 +39,7 @@ struct completions_s {
   completion_t       *elems;
 };
 
-static void default_filename_completer(xLineCompletionEnv cenv,
-                                       const char        *prefix);
+static void default_filename_completer(xLineCompletionEnv cenv, const char *prefix);
 
 ic_private completions_t *completions_new(void) {
   completions_t *cms = (completions_t *)calloc(1, sizeof(completions_t));
@@ -72,13 +71,12 @@ ic_private void completions_clear(completions_t *cms) {
   }
 }
 
-static void completions_push(completions_t *cms, const char *replacement,
-                             const char *display, const char *help,
-                             ssize_t delete_before, ssize_t delete_after) {
+static void completions_push(completions_t *cms, const char *replacement, const char *display,
+                             const char *help, ssize_t delete_before, ssize_t delete_after) {
   if (cms->count >= cms->len) {
-    ssize_t       newlen   = (cms->len <= 0 ? 32 : cms->len * 2);
-    completion_t *newelems = (completion_t *)realloc(
-      cms->elems, to_size_t(newlen) * sizeof(completion_t));
+    ssize_t       newlen = (cms->len <= 0 ? 32 : cms->len * 2);
+    completion_t *newelems =
+      (completion_t *)realloc(cms->elems, to_size_t(newlen) * sizeof(completion_t));
     if (newelems == NULL) return;
     cms->elems = newelems;
     cms->len   = newlen;
@@ -107,16 +105,14 @@ static bool completions_contains(completions_t *cms, const char *replacement) {
   return false;
 }
 
-ic_private bool completions_add(completions_t *cms, const char *replacement,
-                                const char *display, const char *help,
-                                ssize_t delete_before, ssize_t delete_after) {
+ic_private bool completions_add(completions_t *cms, const char *replacement, const char *display,
+                                const char *help, ssize_t delete_before, ssize_t delete_after) {
   if (cms->completer_max <= 0) return false;
   cms->completer_max--;
   // XDEBUG("completion: add: %d,%d, %s\n", delete_before, delete_after,
   // replacement);
   if (!completions_contains(cms, replacement)) {
-    completions_push(cms, replacement, display, help, delete_before,
-                     delete_after);
+    completions_push(cms, replacement, display, help, delete_before, delete_after);
   }
   return true;
 }
@@ -126,8 +122,8 @@ static completion_t *completions_get(completions_t *cms, ssize_t index) {
   return &cms->elems[index];
 }
 
-ic_private const char *
-completions_get_display(completions_t *cms, ssize_t index, const char **help) {
+ic_private const char *completions_get_display(completions_t *cms, ssize_t index,
+                                               const char **help) {
   if (help != NULL) {
     *help = NULL;
   }
@@ -145,8 +141,7 @@ ic_private const char *completions_get_help(completions_t *cms, ssize_t index) {
   return cm->help;
 }
 
-ic_private const char *completions_get_hint(completions_t *cms, ssize_t index,
-                                            const char **help) {
+ic_private const char *completions_get_hint(completions_t *cms, ssize_t index, const char **help) {
   if (help != NULL) {
     *help = NULL;
   }
@@ -155,24 +150,21 @@ ic_private const char *completions_get_hint(completions_t *cms, ssize_t index,
   ssize_t len = ic_strlen(cm->replacement);
   if (len < cm->delete_before) return NULL;
   const char *hint = (cm->replacement + cm->delete_before);
-  if (*hint == 0 || utf8_is_cont((uint8_t)(*hint)))
-    return NULL; // utf8 boundary?
+  if (*hint == 0 || utf8_is_cont((uint8_t)(*hint))) return NULL; // utf8 boundary?
   if (help != NULL) {
     *help = cm->help;
   }
   return hint;
 }
 
-ic_private void completions_set_completer(completions_t      *cms,
-                                          xLineCompleterFunc *completer,
-                                          void               *arg) {
+ic_private void completions_set_completer(completions_t *cms, xLineCompleterFunc *completer,
+                                          void *arg) {
   cms->completer     = completer;
   cms->completer_arg = arg;
 }
 
-ic_private void completions_get_completer(completions_t       *cms,
-                                          xLineCompleterFunc **completer,
-                                          void               **arg) {
+ic_private void completions_get_completer(completions_t *cms, xLineCompleterFunc **completer,
+                                          void **arg) {
   *completer = cms->completer;
   *arg       = cms->completer_arg;
 }
@@ -192,16 +184,14 @@ ic_public bool xLineStopCompleting(xLineCompletionEnv cenv_arg) {
   return (cenv == NULL ? true : cenv->env->completions->completer_max <= 0);
 }
 
-static ssize_t completion_apply(completion_t *cm, stringbuf_t *sbuf,
-                                ssize_t pos) {
+static ssize_t completion_apply(completion_t *cm, stringbuf_t *sbuf, ssize_t pos) {
   if (cm == NULL) return -1;
   XDEBUG("completion: apply: %s at %zd\n", cm->replacement, pos);
   ssize_t start = pos - cm->delete_before;
   if (start < 0) start = 0;
   ssize_t n = cm->delete_before + cm->delete_after;
   if (ic_strlen(cm->replacement) == n &&
-      strncmp(sbuf_string_at(sbuf, start), cm->replacement, to_size_t(n)) ==
-        0) {
+      strncmp(sbuf_string_at(sbuf, start), cm->replacement, to_size_t(n)) == 0) {
     // no changes
     return start + n;
   } else {
@@ -210,8 +200,8 @@ static ssize_t completion_apply(completion_t *cm, stringbuf_t *sbuf,
   }
 }
 
-ic_private ssize_t completions_apply(completions_t *cms, ssize_t index,
-                                     stringbuf_t *sbuf, ssize_t pos) {
+ic_private ssize_t completions_apply(completions_t *cms, ssize_t index, stringbuf_t *sbuf,
+                                     ssize_t pos) {
   completion_t *cm = completions_get(cms, index);
   return completion_apply(cm, sbuf, pos);
 }
@@ -225,16 +215,14 @@ static int completion_compare(const void *p1, const void *p2) {
 
 ic_private void completions_sort(completions_t *cms) {
   if (cms->count <= 0) return;
-  qsort(cms->elems, to_size_t(cms->count), sizeof(cms->elems[0]),
-        &completion_compare);
+  qsort(cms->elems, to_size_t(cms->count), sizeof(cms->elems[0]), &completion_compare);
 }
 
 #define IC_MAX_PREFIX (256)
 
 // find longest common prefix and complete with that.
-ic_private ssize_t completions_apply_longest_prefix(completions_t *cms,
-                                                    stringbuf_t   *sbuf,
-                                                    ssize_t        pos) {
+ic_private ssize_t completions_apply_longest_prefix(completions_t *cms, stringbuf_t *sbuf,
+                                                    ssize_t pos) {
   if (cms->count <= 1) {
     return completions_apply(cms, 0, sbuf, pos);
   }
@@ -251,8 +239,7 @@ ic_private ssize_t completions_apply_longest_prefix(completions_t *cms,
   // and visit all others to find the longest common prefix
   for (ssize_t i = 1; i < cms->count; i++) {
     cm = completions_get(cms, i);
-    if (cm->delete_before !=
-        delete_before) { // deletions must match delete_before
+    if (cm->delete_before != delete_before) { // deletions must match delete_before
       prefix[0] = 0;
       break;
     }
@@ -275,9 +262,8 @@ ic_private ssize_t completions_apply_longest_prefix(completions_t *cms,
   memset(&cprefix, 0, sizeof(cprefix));
   cprefix.delete_before = delete_before;
   cprefix.replacement   = prefix;
-  cprefix.delete_after =
-    ic_count_end_overlap(prefix, sbuf_string_at(sbuf, pos));
-  ssize_t newpos = completion_apply(&cprefix, sbuf, pos);
+  cprefix.delete_after  = ic_count_end_overlap(prefix, sbuf_string_at(sbuf, pos));
+  ssize_t newpos        = completion_apply(&cprefix, sbuf, pos);
   if (newpos < 0) return newpos;
 
   // adjust all delete_before for the new replacement
@@ -303,48 +289,40 @@ ic_public bool xLineAddCompletions(xLineCompletionEnv cenv, const char *prefix,
   return true;
 }
 
-ic_public bool xLineAddCompletion(xLineCompletionEnv cenv,
-                                  const char        *replacement) {
+ic_public bool xLineAddCompletion(xLineCompletionEnv cenv, const char *replacement) {
   return xLineAddCompletionEx(cenv, replacement, NULL, NULL);
 }
 
-ic_public bool xLineAddCompletionEx(xLineCompletionEnv cenv,
-                                    const char        *replacement,
+ic_public bool xLineAddCompletionEx(xLineCompletionEnv cenv, const char *replacement,
                                     const char *display, const char *help) {
   return xLineAddCompletionPrim(cenv, replacement, display, help, 0, 0);
 }
 
-ic_public bool xLineAddCompletionPrim(xLineCompletionEnv cenv_arg,
-                                      const char        *replacement,
-                                      const char *display, const char *help,
-                                      long delete_before, long delete_after) {
+ic_public bool xLineAddCompletionPrim(xLineCompletionEnv cenv_arg, const char *replacement,
+                                      const char *display, const char *help, long delete_before,
+                                      long delete_after) {
   xLineCompletionEnv_ *cenv = (xLineCompletionEnv_ *)cenv_arg;
-  return (*cenv->complete)(cenv->env, cenv->closure, replacement, display, help,
-                           delete_before, delete_after);
+  return (*cenv->complete)(cenv->env, cenv->closure, replacement, display, help, delete_before,
+                           delete_after);
 }
 
-static bool prim_add_completion(ic_env_t *env, void *funenv,
-                                const char *replacement, const char *display,
-                                const char *help, long delete_before,
+static bool prim_add_completion(ic_env_t *env, void *funenv, const char *replacement,
+                                const char *display, const char *help, long delete_before,
                                 long delete_after) {
   ic_unused(funenv);
-  return completions_add(env->completions, replacement, display, help,
-                         delete_before, delete_after);
+  return completions_add(env->completions, replacement, display, help, delete_before, delete_after);
 }
 
-ic_public void xLineSetDefaultCompleter(xLineCompleterFunc *completer,
-                                        void               *arg) {
+ic_public void xLineSetDefaultCompleter(xLineCompleterFunc *completer, void *arg) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return;
   completions_set_completer(env->completions, completer, arg);
 }
 
-ic_private ssize_t completions_generate(struct ic_env_s *env,
-                                        completions_t *cms, const char *input,
+ic_private ssize_t completions_generate(struct ic_env_s *env, completions_t *cms, const char *input,
                                         ssize_t pos, ssize_t max) {
   completions_clear(cms);
-  if (cms->completer == NULL || input == NULL || ic_strlen(input) < pos)
-    return 0;
+  if (cms->completer == NULL || input == NULL || ic_strlen(input) < pos) return 0;
 
   // set up env
   xLineCompletionEnv_ cenv;
@@ -365,8 +343,7 @@ ic_private ssize_t completions_generate(struct ic_env_s *env,
 }
 
 // The default completer is no completion is set
-static void default_filename_completer(xLineCompletionEnv cenv,
-                                       const char        *prefix) {
+static void default_filename_completer(xLineCompletionEnv cenv, const char *prefix) {
 #ifdef _WIN32
   const char sep = '\\';
 #else

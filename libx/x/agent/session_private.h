@@ -116,19 +116,19 @@ struct xAgentSession_ {
    * launches an internal summary Query that compresses old history
    * into one System entry. During this compaction:
    *   - compacting == 1 signals "compact query in flight";
-  *   - compact_start_idx records the inclusive start of the
-  *     range that will be replaced by one summary;
-  *   - compact_end_idx records the exclusive end of the range
-  *     [compact_start_idx..compact_end_idx) that will be
-  *     replaced by one summary;
+   *   - compact_start_idx records the inclusive start of the
+   *     range that will be replaced by one summary;
+   *   - compact_end_idx records the exclusive end of the range
+   *     [compact_start_idx..compact_end_idx) that will be
+   *     replaced by one summary;
    *   - budget enforcement is implicitly disabled because the
    *     compact Query is driven by session_enforce_budget_ which
    *     gates on s->compacting, preventing recursive budget checks.
    *
    * All are zero when no compact is in progress. */
-  int    compacting;          /* 1 = compact query in flight              */
-  size_t compact_start_idx;   /* inclusive start of range to replace      */
-  size_t compact_end_idx;     /* exclusive end of range to replace        */
+  int    compacting;        /* 1 = compact query in flight              */
+  size_t compact_start_idx; /* inclusive start of range to replace      */
+  size_t compact_end_idx;   /* exclusive end of range to replace        */
 
   /* ── Compact anti-loop guard ─────────────────────────────────────
    *
@@ -211,12 +211,12 @@ struct xAgentSession_ {
    * it and does NOT occupy @c query. At most one sidecar is alive
    * at a time (sidecar != NULL acts as the re-entrancy guard). */
 
-  struct xAgentQuery_ *sidecar;       /* NULL = no sidecar active            */
-  xEventTimer sidecar_idle_timer;     /* idle-detection timer handle         */
-  uint64_t    sidecar_idle_ms;        /* 0 = disabled (from session conf)    */
-  char       *sidecar_tool_use_id;    /* async tool that triggered sidecar   */
-  xArray      sidecar_output;         /* accumulated tool output chunks      */
-  uint64_t    sidecar_last_output_ms; /* monotonic ms of last chunk        */
+  struct xAgentQuery_ *sidecar;                /* NULL = no sidecar active            */
+  xEventTimer          sidecar_idle_timer;     /* idle-detection timer handle         */
+  uint64_t             sidecar_idle_ms;        /* 0 = disabled (from session conf)    */
+  char                *sidecar_tool_use_id;    /* async tool that triggered sidecar   */
+  xArray               sidecar_output;         /* accumulated tool output chunks      */
+  uint64_t             sidecar_last_output_ms; /* monotonic ms of last chunk        */
 };
 
 /* Fallback cap if neither the caller nor the agent set max_turns.
@@ -228,12 +228,12 @@ struct xAgentSession_ {
  * produce a concise summary of the conversation segment it receives.
  * The placeholder [N] will be replaced with the number of messages
  * being summarised. */
-#define XAGENT_SUMMARY_INSTRUCT_PROMPT                                   \
-  "The conversation above has grown too long and must be compressed. "   \
-  "Please summarise the %zu messages above so that the conversation "    \
+#define XAGENT_SUMMARY_INSTRUCT_PROMPT                                  \
+  "The conversation above has grown too long and must be compressed. "  \
+  "Please summarise the %zu messages above so that the conversation "   \
   "can continue with this summary in place of the originals. Be as "    \
-  "concise as possible while preserving all names, numbers, decisions "  \
-  "and key facts. Do NOT add any information that was not in the "       \
+  "concise as possible while preserving all names, numbers, decisions " \
+  "and key facts. Do NOT add any information that was not in the "      \
   "original messages."
 
 /* ── Cross-TU helpers (session.c implementers, query.c consumers) ── */
@@ -241,26 +241,24 @@ struct xAgentSession_ {
 /**
  * @brief Append a (role, text) history entry. @p text is duplicated.
  */
-xErrno ai_history_append_text(struct xAgentSession_ *s, xAgentRole role,
-                              const char *text, size_t len);
+xErrno ai_history_append_text(struct xAgentSession_ *s, xAgentRole role, const char *text,
+                              size_t len);
 
 /**
  * @brief Append an Assistant chain-of-thought entry. @p text is duplicated.
  */
-xErrno ai_history_append_thinking(struct xAgentSession_ *s, const char *text,
-                                  size_t len);
+xErrno ai_history_append_thinking(struct xAgentSession_ *s, const char *text, size_t len);
 
 /**
  * @brief Append an Assistant tool_use entry. Every string is duplicated.
  */
-xErrno ai_history_append_tool_use(struct xAgentSession_ *s, const char *id,
-                                  const char *name, const char *args);
+xErrno ai_history_append_tool_use(struct xAgentSession_ *s, const char *id, const char *name,
+                                  const char *args);
 
 /**
  * @brief Append a Tool tool_result entry. Every string is duplicated.
  */
-xErrno ai_history_append_tool_result(struct xAgentSession_ *s, const char *id,
-                                     const char *output, size_t output_len,
-                                     int is_error);
+xErrno ai_history_append_tool_result(struct xAgentSession_ *s, const char *id, const char *output,
+                                     size_t output_len, int is_error);
 
 #endif /* XAGENT_SESSION_PRIVATE_H */

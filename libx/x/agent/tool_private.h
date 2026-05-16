@@ -32,10 +32,10 @@ int ai_tool_concurrent_safe(xAgentTool tool);
 int ai_tool_needs_confirm(xAgentTool tool);
 
 xAgentToolDoneFunc ai_tool_on_done_fn(xAgentTool tool);
-void *ai_tool_on_done_ud(xAgentTool tool);
+void              *ai_tool_on_done_ud(xAgentTool tool);
 
 xAgentToolCancelFunc ai_tool_on_cancel_fn(xAgentTool tool);
-void *ai_tool_on_cancel_ud(xAgentTool tool);
+void                *ai_tool_on_cancel_ud(xAgentTool tool);
 
 /**
  * @brief Run the tool's handler.
@@ -54,8 +54,7 @@ void *ai_tool_on_cancel_ud(xAgentTool tool);
  *   tool_result via the completion path instead.
  * - Any other xErrno: tool error, surfaced to the model.
  */
-xErrno ai_tool_invoke(xAgentTool tool, xAgentQuery q, const xAgentContent *in,
-                      xAgentContent *out);
+xErrno ai_tool_invoke(xAgentTool tool, xAgentQuery q, const xAgentContent *in, xAgentContent *out);
 
 #ifdef __cplusplus
 }

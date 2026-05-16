@@ -8,7 +8,6 @@
 #include "attr.h"
 #include "bbcode.h"
 #include "color.h"
-#include <x/base/log.h>
 #include "line.h"
 #include "platform.h"
 #include "str.h"
@@ -16,6 +15,7 @@
 #include "term.h"
 #include "unicode.h"
 #include <string.h>
+#include <x/base/log.h>
 
 //-------------------------------------------------------------
 // Syntax highlighting
@@ -30,9 +30,8 @@ XDEF_STRUCT(xLineHighlightEnv_) {
   ssize_t     cached_cpos; // corresponding utf-8 byte position
 };
 
-ic_private void highlight(bbcode_t *bb, const char *s,
-                          attrbuf_t *attrs, xLineHighlightFunc *highlighter,
-                          void *arg) {
+ic_private void highlight(bbcode_t *bb, const char *s, attrbuf_t *attrs,
+                          xLineHighlightFunc *highlighter, void *arg) {
   const ssize_t len = ic_strlen(s);
   if (len <= 0) return;
   attrbuf_set_at(attrs, 0, len, attr_none()); // fill to length of s
@@ -65,8 +64,7 @@ static void pos_adjust(xLineHighlightEnv_ *henv, ssize_t *ppos, ssize_t *plen) {
     ssize_t upos   = -pos;
     ssize_t cpos   = 0;
     ssize_t ucount = 0;
-    if (henv->cached_upos <=
-        upos) { // if we have a cached position, start from there
+    if (henv->cached_upos <= upos) { // if we have a cached position, start from there
       ucount = henv->cached_upos;
       cpos   = henv->cached_cpos;
     }
@@ -87,8 +85,7 @@ static void pos_adjust(xLineHighlightEnv_ *henv, ssize_t *ppos, ssize_t *plen) {
     ssize_t ucount = 0;
     ssize_t clen   = 0;
     while (ucount < len) {
-      ssize_t next =
-        str_next_ofs(henv->input, henv->input_len, pos + clen, NULL);
+      ssize_t next = str_next_ofs(henv->input, henv->input_len, pos + clen, NULL);
       if (next <= 0) return;
       ucount++;
       clen += next;
@@ -102,23 +99,20 @@ static void pos_adjust(xLineHighlightEnv_ *henv, ssize_t *ppos, ssize_t *plen) {
   }
 }
 
-static void highlight_attr(xLineHighlightEnv_ *henv, ssize_t pos, ssize_t count,
-                           attr_t attr) {
+static void highlight_attr(xLineHighlightEnv_ *henv, ssize_t pos, ssize_t count, attr_t attr) {
   if (henv == NULL) return;
   pos_adjust(henv, &pos, &count);
   if (pos < 0 || count <= 0) return;
   attrbuf_update_at(henv->attrs, pos, count, attr);
 }
 
-ic_public void xLineHighlight(xLineHighlightEnv henv_arg, long pos, long count,
-                              const char *style) {
+ic_public void xLineHighlight(xLineHighlightEnv henv_arg, long pos, long count, const char *style) {
   xLineHighlightEnv_ *henv = (xLineHighlightEnv_ *)henv_arg;
   if (henv == NULL || style == NULL || style[0] == 0 || pos < 0) return;
   highlight_attr(henv, pos, count, bbcode_style(henv->bbcode, style));
 }
 
-ic_public void xLineHighlightFormatted(xLineHighlightEnv henv_arg, const char *s,
-                                       const char *fmt) {
+ic_public void xLineHighlightFormatted(xLineHighlightEnv henv_arg, const char *s, const char *fmt) {
   xLineHighlightEnv_ *henv = (xLineHighlightEnv_ *)henv_arg;
   if (s == NULL || s[0] == 0 || fmt == NULL) return;
   attrbuf_t   *attrs = attrbuf_new();
@@ -128,8 +122,8 @@ ic_public void xLineHighlightFormatted(xLineHighlightEnv henv_arg, const char *s
     const ssize_t len = ic_strlen(s);
     if (sbuf_len(out) != len) {
       XDEBUG("highlight: formatted string content differs from the original "
-                "input:\n  original: %s\n  formatted: %s\n",
-                s, fmt);
+             "input:\n  original: %s\n  formatted: %s\n",
+             s, fmt);
     }
     for (ssize_t i = 0; i < len; i++) {
       attrbuf_update_at(henv->attrs, i, 1, attrbuf_attr_at(attrs, i));
@@ -150,9 +144,8 @@ typedef struct brace_s {
   ssize_t pos;
 } brace_t;
 
-ic_private void highlight_match_braces(const char *s, attrbuf_t *attrs,
-                                       ssize_t cursor_pos, const char *braces,
-                                       attr_t match_attr, attr_t error_attr) {
+ic_private void highlight_match_braces(const char *s, attrbuf_t *attrs, ssize_t cursor_pos,
+                                       const char *braces, attr_t match_attr, attr_t error_attr) {
   brace_t       open[MAX_NESTING + 1];
   ssize_t       nesting   = 0;
   const ssize_t brace_len = ic_strlen(braces);
@@ -185,8 +178,7 @@ ic_private void highlight_match_braces(const char *s, attrbuf_t *attrs,
         } else {
           // can we fix an unmatched brace where we can match by popping just
           // one?
-          if (open[nesting - 1].close != c && nesting > 1 &&
-              open[nesting - 2].close == c) {
+          if (open[nesting - 1].close != c && nesting > 1 && open[nesting - 2].close == c) {
             // assume previous open brace was wrong
             attrbuf_update_at(attrs, open[nesting - 1].pos, 1, error_attr);
             nesting--;
@@ -197,8 +189,7 @@ ic_private void highlight_match_braces(const char *s, attrbuf_t *attrs,
           } else {
             // matching brace
             nesting--;
-            if (i == cursor_pos - 1 ||
-                (open[nesting].at_cursor && open[nesting].pos != i - 1)) {
+            if (i == cursor_pos - 1 || (open[nesting].at_cursor && open[nesting].pos != i - 1)) {
               // highlight matching brace
               attrbuf_update_at(attrs, open[nesting].pos, 1, match_attr);
               attrbuf_update_at(attrs, i, 1, match_attr);
@@ -212,8 +203,8 @@ ic_private void highlight_match_braces(const char *s, attrbuf_t *attrs,
   // note: don't mark further unmatched open braces as in error
 }
 
-ic_private ssize_t find_matching_brace(const char *s, ssize_t cursor_pos,
-                                       const char *braces, bool *is_balanced) {
+ic_private ssize_t find_matching_brace(const char *s, ssize_t cursor_pos, const char *braces,
+                                       bool *is_balanced) {
   if (is_balanced != NULL) {
     *is_balanced = false;
   }

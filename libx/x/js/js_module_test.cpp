@@ -53,7 +53,7 @@ protected:
     return r;
   }
 
-  xJSGlobalContextRef                        ctx_ = nullptr;
+  xJSGlobalContextRef                          ctx_ = nullptr;
   std::unordered_map<std::string, std::string> sources_;
   std::vector<std::string>                     fetched_;
 };
@@ -125,10 +125,9 @@ TEST_F(XjsModuleTest, EvaluateModuleCompileErrorSurfacesOnException) {
 TEST_F(XjsModuleTest, ImportFromLoadedModule) {
   sources_["util.js"] = "export const FOUR = 4;";
 
-  xJSValueRef p = EvalModule(
-    "import { FOUR } from './util.js';\n"
-    "globalThis.__four = FOUR + 38;",
-    "entry.js");
+  xJSValueRef p = EvalModule("import { FOUR } from './util.js';\n"
+                             "globalThis.__four = FOUR + 38;",
+                             "entry.js");
   ASSERT_NE(p, nullptr);
   xJSValueRef v = xJSAwaitPromise(ctx_, p, nullptr);
   ASSERT_NE(v, nullptr);
@@ -149,8 +148,7 @@ TEST_F(XjsModuleTest, LoaderSeesNormalizedName) {
    * loader should see the *resolved* path, never "./util.js". */
   sources_["./pkg/util.js"] = "export const X = 1;";
   xJSValueRef p =
-    EvalModule("import { X } from './util.js'; globalThis.__x = X;",
-               "./pkg/entry.js");
+    EvalModule("import { X } from './util.js'; globalThis.__x = X;", "./pkg/entry.js");
   ASSERT_NE(p, nullptr);
   xJSValueRef v = xJSAwaitPromise(ctx_, p, nullptr);
   ASSERT_NE(v, nullptr);
@@ -165,14 +163,13 @@ TEST_F(XjsModuleTest, LoaderCalledOnceEvenWithMultipleImports) {
   /* Two importers referencing the same module must only fetch once
    * — QuickJS caches compiled modules by normalised name. */
   sources_["shared.js"] = "export const S = 7;";
-  sources_["a.js"] = "import { S } from './shared.js'; export const A = S+1;";
-  sources_["b.js"] = "import { S } from './shared.js'; export const B = S+2;";
+  sources_["a.js"]      = "import { S } from './shared.js'; export const A = S+1;";
+  sources_["b.js"]      = "import { S } from './shared.js'; export const B = S+2;";
 
-  xJSValueRef p = EvalModule(
-    "import { A } from './a.js';\n"
-    "import { B } from './b.js';\n"
-    "globalThis.__ab = A + B;",
-    "entry.js");
+  xJSValueRef p = EvalModule("import { A } from './a.js';\n"
+                             "import { B } from './b.js';\n"
+                             "globalThis.__ab = A + B;",
+                             "entry.js");
   ASSERT_NE(p, nullptr);
   xJSValueRef v = xJSAwaitPromise(ctx_, p, nullptr);
   ASSERT_NE(v, nullptr);
@@ -181,7 +178,8 @@ TEST_F(XjsModuleTest, LoaderCalledOnceEvenWithMultipleImports) {
 
   /* shared.js should appear exactly once in the fetch log. */
   size_t shared_hits = 0;
-  for (auto &n : fetched_) if (n == "shared.js") ++shared_hits;
+  for (auto &n : fetched_)
+    if (n == "shared.js") ++shared_hits;
   EXPECT_EQ(shared_hits, 1u);
 }
 
@@ -190,15 +188,13 @@ TEST_F(XjsModuleTest, LoaderReturningNullRejectsWithReferenceError) {
    * a *compile-phase* failure: the returned promise is NULL and the
    * ReferenceError lands in the exception out-param instead. */
   xJSValueRef exc = nullptr;
-  xJSValueRef p =
-    EvalModule("import x from './missing.js'; globalThis.__x = x;",
-               "entry.js", &exc);
+  xJSValueRef p = EvalModule("import x from './missing.js'; globalThis.__x = x;", "entry.js", &exc);
   EXPECT_EQ(p, nullptr);
   ASSERT_NE(exc, nullptr);
 
   /* Sanity: it should mention the failing specifier. */
-  xJSStringRef s   = xJSValueToStringCopy(ctx_, exc, nullptr);
-  size_t       sz  = xJSStringGetMaximumUTF8CStringSize(s);
+  xJSStringRef s  = xJSValueToStringCopy(ctx_, exc, nullptr);
+  size_t       sz = xJSStringGetMaximumUTF8CStringSize(s);
   std::string  buf(sz, 0);
   xJSStringGetUTF8CString(s, &buf[0], sz);
   EXPECT_NE(buf.find("missing.js"), std::string::npos);
@@ -214,8 +210,7 @@ TEST_F(XjsModuleTest, UnsetLoaderRejectsEveryImport) {
   xJSContextSetModuleLoader(ctx_, nullptr, nullptr);
 
   xJSValueRef exc = nullptr;
-  xJSValueRef p =
-    EvalModule("import x from './anything.js';", "entry.js", &exc);
+  xJSValueRef p   = EvalModule("import x from './anything.js';", "entry.js", &exc);
   EXPECT_EQ(p, nullptr);
   ASSERT_NE(exc, nullptr);
   xjs_slot_release(exc);
@@ -223,8 +218,7 @@ TEST_F(XjsModuleTest, UnsetLoaderRejectsEveryImport) {
 
 TEST_F(XjsModuleTest, ImportedModuleTopLevelThrowRejects) {
   sources_["bad.js"] = "throw new Error('boom');";
-  xJSValueRef p =
-    EvalModule("import './bad.js'; globalThis.__never = 1;", "entry.js");
+  xJSValueRef p      = EvalModule("import './bad.js'; globalThis.__never = 1;", "entry.js");
   ASSERT_NE(p, nullptr);
 
   xJSValueRef exc = nullptr;
@@ -233,8 +227,7 @@ TEST_F(XjsModuleTest, ImportedModuleTopLevelThrowRejects) {
   ASSERT_NE(exc, nullptr);
 
   xJSStringRef mkey = xJSStringCreateWithUTF8CString("message");
-  xJSValueRef  msg =
-    xJSObjectGetProperty(ctx_, (xJSObjectRef)exc, mkey, nullptr);
+  xJSValueRef  msg  = xJSObjectGetProperty(ctx_, (xJSObjectRef)exc, mkey, nullptr);
   xJSStringRef mstr = xJSValueToStringCopy(ctx_, msg, nullptr);
   EXPECT_TRUE(xJSStringIsEqualToUTF8CString(mstr, "boom"));
   xJSStringRelease(mstr);
@@ -256,9 +249,8 @@ TEST_F(XjsModuleTest, AwaitNonPromiseReturnsValueAsIs) {
 }
 
 TEST_F(XjsModuleTest, AwaitResolvedPromiseReturnsFulfillmentValue) {
-  xJSStringRef s =
-    xJSStringCreateWithUTF8CString("Promise.resolve(41 + 1)");
-  xJSValueRef p = xJSEvaluateScript(ctx_, s, nullptr, nullptr, 0, nullptr);
+  xJSStringRef s = xJSStringCreateWithUTF8CString("Promise.resolve(41 + 1)");
+  xJSValueRef  p = xJSEvaluateScript(ctx_, s, nullptr, nullptr, 0, nullptr);
   xJSStringRelease(s);
   ASSERT_NE(p, nullptr);
 
@@ -270,9 +262,8 @@ TEST_F(XjsModuleTest, AwaitResolvedPromiseReturnsFulfillmentValue) {
 }
 
 TEST_F(XjsModuleTest, AwaitRejectedPromiseReportsException) {
-  xJSStringRef s = xJSStringCreateWithUTF8CString(
-    "Promise.reject(new Error('nope'))");
-  xJSValueRef p = xJSEvaluateScript(ctx_, s, nullptr, nullptr, 0, nullptr);
+  xJSStringRef s = xJSStringCreateWithUTF8CString("Promise.reject(new Error('nope'))");
+  xJSValueRef  p = xJSEvaluateScript(ctx_, s, nullptr, nullptr, 0, nullptr);
   xJSStringRelease(s);
   ASSERT_NE(p, nullptr);
 
@@ -282,8 +273,7 @@ TEST_F(XjsModuleTest, AwaitRejectedPromiseReportsException) {
   ASSERT_NE(exc, nullptr);
 
   xJSStringRef mkey = xJSStringCreateWithUTF8CString("message");
-  xJSValueRef  msg =
-    xJSObjectGetProperty(ctx_, (xJSObjectRef)exc, mkey, nullptr);
+  xJSValueRef  msg  = xJSObjectGetProperty(ctx_, (xJSObjectRef)exc, mkey, nullptr);
   xJSStringRef mstr = xJSValueToStringCopy(ctx_, msg, nullptr);
   EXPECT_TRUE(xJSStringIsEqualToUTF8CString(mstr, "nope"));
   xJSStringRelease(mstr);

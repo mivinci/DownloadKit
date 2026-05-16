@@ -37,8 +37,7 @@
  *       the per-thread recursion guard, which aborts immediately and
  *       skips the callback to prevent unbounded recursion.
  */
-typedef void (*xLogCallback)(const char *msg, const char *backtrace,
-                             void *userdata);
+typedef void (*xLogCallback)(const char *msg, const char *backtrace, void *userdata);
 
 /**
  * @brief Register (or clear) the current thread's log callback.

@@ -42,12 +42,12 @@ XDEF_STRUCT(xHttpReqVtable) {
 /* ───────────────────── Per-request context ───────────────────── */
 
 XDEF_STRUCT(xHttpReq_) {
-  const struct xHttpReqVtable *vt;     /**< vtable for polymorphism      */
-  CURL                        *easy;   /* curl easy handle            */
-  struct xHttpClient_         *client; /* back-pointer to client      */
-  void                        *arg;    /* user argument               */
+  const struct xHttpReqVtable *vt;                      /**< vtable for polymorphism      */
+  CURL                        *easy;                    /* curl easy handle            */
+  struct xHttpClient_         *client;                  /* back-pointer to client      */
+  void                        *arg;                     /* user argument               */
   char                         errbuf[CURL_ERROR_SIZE]; /* curl error   */
-  int                          cleaned; /* cleanup already done flag   */
+  int                          cleaned;                 /* cleanup already done flag   */
 
   /* For oneshot HTTP requests */
   xHttpResponseFunc  on_response; /* completion callback         */

@@ -18,10 +18,10 @@
  *   hey -n 100000 -c 50 http://127.0.0.1:8080/ping
  */
 
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <csignal>
 #include <vector>
 
 extern "C" {
@@ -32,8 +32,7 @@ extern "C" {
 static xEventLoop g_loop = nullptr;
 
 // GET /ping → "pong"
-static void handle_ping(xHttpResponseWriter writer, const xHttpRequest *req,
-                        void *arg) {
+static void handle_ping(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   (void)req;
   (void)arg;
   xHttpResponseSetHeader(writer, "Content-Type", "text/plain");
@@ -42,8 +41,7 @@ static void handle_ping(xHttpResponseWriter writer, const xHttpRequest *req,
 
 // GET /echo?size=N → N bytes of 'x'
 // POST /echo → echo request body
-static void handle_echo(xHttpResponseWriter writer, const xHttpRequest *req,
-                        void *arg) {
+static void handle_echo(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   (void)arg;
 
   if (strcmp(req->method, "POST") == 0) {
@@ -54,8 +52,8 @@ static void handle_echo(xHttpResponseWriter writer, const xHttpRequest *req,
   }
 
   // GET: parse ?size=N from URL
-  size_t size = 64; // default
-  const char *q = strchr(req->url, '?');
+  size_t      size = 64; // default
+  const char *q    = strchr(req->url, '?');
   if (q) {
     const char *sp = strstr(q, "size=");
     if (sp) {
@@ -81,8 +79,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Watch SIGINT to stop gracefully
-  xEventLoopSignalWatch(g_loop, SIGINT,
-                        [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
+  xEventLoopSignalWatch(g_loop, SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
 
   xHttpServer server = xHttpServerCreate(g_loop);
   if (!server) {

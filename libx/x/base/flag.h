@@ -86,12 +86,11 @@ XDEF_HANDLE(xFlagSet);
  * xFlagAdd* function.
  */
 XDEF_ENUM(xFlagAttr){
-  xFlagAttr_None     = 0,
-  xFlagAttr_Required = 1 << 0, /**< Parse fails if the flag is absent  */
-  xFlagAttr_Hidden   = 1 << 1, /**< Omit from --help output            */
-  xFlagAttr_Multi    = 1 << 2, /**< Allow repetition; collect into an
-                                    internal NUL-terminated array; only
-                                    meaningful for string flags        */
+  xFlagAttr_None = 0, xFlagAttr_Required = 1 << 0, /**< Parse fails if the flag is absent  */
+  xFlagAttr_Hidden = 1 << 1,                       /**< Omit from --help output            */
+  xFlagAttr_Multi  = 1 << 2,                       /**< Allow repetition; collect into an
+                                                        internal NUL-terminated array; only
+                                                        meaningful for string flags        */
 };
 
 /* ───────────────────── Lifecycle ───────────────────── */
@@ -153,47 +152,41 @@ XCAPI(void) xFlagSetVersion(xFlagSet set, const char *version);
 /**
  * @brief Register a string flag. e.g. `--url ws://...` / `-u ws://...`.
  */
-XCAPI(xErrno) xFlagAddString(xFlagSet set, const char *name, char shortc,
-                             const char *meta, const char *help,
-                             const char **storage, const char *def,
-                             int attrs);
+XCAPI(xErrno) xFlagAddString(xFlagSet set, const char *name, char shortc, const char *meta,
+                             const char *help, const char **storage, const char *def, int attrs);
 
 /**
  * @brief Register a boolean switch. Present → true; takes no argument.
  *        The @c meta parameter does not apply.
  */
-XCAPI(xErrno) xFlagAddBool(xFlagSet set, const char *name, char shortc,
-                           const char *help, bool *storage, int attrs);
+XCAPI(xErrno) xFlagAddBool(xFlagSet set, const char *name, char shortc, const char *help,
+                           bool *storage, int attrs);
 
 /**
  * @brief Register a signed 32-bit integer flag.
  *
  * Accepts decimal, 0x hex, 0b binary, and 0-prefixed octal.
  */
-XCAPI(xErrno) xFlagAddInt(xFlagSet set, const char *name, char shortc,
-                          const char *meta, const char *help,
-                          int *storage, int def, int attrs);
+XCAPI(xErrno) xFlagAddInt(xFlagSet set, const char *name, char shortc, const char *meta,
+                          const char *help, int *storage, int def, int attrs);
 
 /**
  * @brief Register a signed 64-bit integer flag.
  */
-XCAPI(xErrno) xFlagAddI64(xFlagSet set, const char *name, char shortc,
-                          const char *meta, const char *help,
-                          int64_t *storage, int64_t def, int attrs);
+XCAPI(xErrno) xFlagAddI64(xFlagSet set, const char *name, char shortc, const char *meta,
+                          const char *help, int64_t *storage, int64_t def, int attrs);
 
 /**
  * @brief Register an unsigned 64-bit integer flag.
  */
-XCAPI(xErrno) xFlagAddU64(xFlagSet set, const char *name, char shortc,
-                          const char *meta, const char *help,
-                          uint64_t *storage, uint64_t def, int attrs);
+XCAPI(xErrno) xFlagAddU64(xFlagSet set, const char *name, char shortc, const char *meta,
+                          const char *help, uint64_t *storage, uint64_t def, int attrs);
 
 /**
  * @brief Register a double-precision floating-point flag.
  */
-XCAPI(xErrno) xFlagAddDouble(xFlagSet set, const char *name, char shortc,
-                             const char *meta, const char *help,
-                             double *storage, double def, int attrs);
+XCAPI(xErrno) xFlagAddDouble(xFlagSet set, const char *name, char shortc, const char *meta,
+                             const char *help, double *storage, double def, int attrs);
 
 /**
  * @brief Register a choice flag whose value must match one of
@@ -203,11 +196,9 @@ XCAPI(xErrno) xFlagAddDouble(xFlagSet set, const char *name, char shortc,
  * On mismatch, xFlagParse fails with xErrno_InvalidArg and fills
  * @c err_out with a list of valid choices.
  */
-XCAPI(xErrno) xFlagAddChoice(xFlagSet set, const char *name, char shortc,
-                             const char *meta, const char *help,
-                             const char *const *choices,
-                             const char **storage, const char *def,
-                             int attrs);
+XCAPI(xErrno) xFlagAddChoice(xFlagSet set, const char *name, char shortc, const char *meta,
+                             const char *help, const char *const *choices, const char **storage,
+                             const char *def, int attrs);
 
 /**
  * @brief Register a counter flag. Each occurrence increments
@@ -216,8 +207,8 @@ XCAPI(xErrno) xFlagAddChoice(xFlagSet set, const char *name, char shortc,
  * Takes no argument. @c *storage is initialised to 0 by xFlagParse
  * before processing argv.
  */
-XCAPI(xErrno) xFlagAddCounter(xFlagSet set, const char *name, char shortc,
-                              const char *help, int *storage, int attrs);
+XCAPI(xErrno) xFlagAddCounter(xFlagSet set, const char *name, char shortc, const char *help,
+                              int *storage, int attrs);
 
 /* ───────────────────── Add: positional ───────────────────── */
 
@@ -231,9 +222,8 @@ XCAPI(xErrno) xFlagAddCounter(xFlagSet set, const char *name, char shortc,
  * @param help     One-line description (may be NULL).
  * @param storage  Receives the raw argv pointer (zero-copy).
  */
-XCAPI(xErrno) xFlagAddPositional(xFlagSet set, const char *name,
-                                 const char *help, const char **storage,
-                                 int attrs);
+XCAPI(xErrno) xFlagAddPositional(xFlagSet set, const char *name, const char *help,
+                                 const char **storage, int attrs);
 
 /**
  * @brief Register a tail positional that captures all remaining
@@ -247,10 +237,8 @@ XCAPI(xErrno) xFlagAddPositional(xFlagSet set, const char *name,
  *                 @c const char * pointing into argv.
  * @param count    Optional out-parameter for element count; may be NULL.
  */
-XCAPI(xErrno) xFlagAddPositionalTail(xFlagSet set, const char *name,
-                                     const char *help,
-                                     const char ***storage, size_t *count,
-                                     int attrs);
+XCAPI(xErrno) xFlagAddPositionalTail(xFlagSet set, const char *name, const char *help,
+                                     const char ***storage, size_t *count, int attrs);
 
 /* ───────────────────── Parse ───────────────────── */
 
@@ -275,8 +263,7 @@ XCAPI(xErrno) xFlagAddPositionalTail(xFlagSet set, const char *name,
  *
  * xFlagParse never calls exit(); the caller decides.
  */
-XCAPI(xErrno) xFlagParse(xFlagSet set, int argc, char *const argv[],
-                         char **err_out);
+XCAPI(xErrno) xFlagParse(xFlagSet set, int argc, char *const argv[], char **err_out);
 
 /* ───────────────────── Output ───────────────────── */
 

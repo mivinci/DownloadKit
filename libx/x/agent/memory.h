@@ -174,8 +174,7 @@ XDEF_STRUCT(xAgentMemoryVTable) {
    *                 through logs.
    */
   xErrno (*append)(xAgentMemory store, const xAgentMemoryQuery *query,
-                   xAgentMemoryAppendReason reason,
-                   const xAgentSessionMsg *msgs, size_t n_msgs);
+                   xAgentMemoryAppendReason reason, const xAgentSessionMsg *msgs, size_t n_msgs);
 
   /**
    * @brief Fetch relevant context for the upcoming turn.
@@ -190,8 +189,7 @@ XDEF_STRUCT(xAgentMemoryVTable) {
    *               case); xErrno_NotSupported if this backend does
    *               not implement retrieval.
    */
-  xErrno (*retrieve)(xAgentMemory store, const xAgentMemoryQuery *query,
-                     xAgentMemoryHits *out);
+  xErrno (*retrieve)(xAgentMemory store, const xAgentMemoryQuery *query, xAgentMemoryHits *out);
 
   /**
    * @brief Release a result previously returned by @ref retrieve.
@@ -238,10 +236,9 @@ XDEF_STRUCT(xAgentMemoryVTable) {
  * call with NULL @p store (no-op, returns xErrno_Ok) so callers can
  * treat "no memory configured" uniformly.
  */
-XCAPI(xErrno) xAgentMemoryAppend(xAgentMemory             store,
-                                 const xAgentMemoryQuery *query,
-                                 xAgentMemoryAppendReason reason,
-                                 const xAgentSessionMsg *msgs, size_t n_msgs);
+XCAPI(xErrno) xAgentMemoryAppend(xAgentMemory store, const xAgentMemoryQuery *query,
+                                 xAgentMemoryAppendReason reason, const xAgentSessionMsg *msgs,
+                                 size_t n_msgs);
 
 /**
  * @brief Retrieve relevant context.
@@ -250,9 +247,8 @@ XCAPI(xErrno) xAgentMemoryAppend(xAgentMemory             store,
  * eventually call xAgentMemoryReleaseHits to free the result.
  * With NULL @p store the call succeeds with an empty result.
  */
-XCAPI(xErrno) xAgentMemoryRetrieve(xAgentMemory             store,
-                                   const xAgentMemoryQuery *query,
-                                   xAgentMemoryHits        *out);
+XCAPI(xErrno) xAgentMemoryRetrieve(xAgentMemory store, const xAgentMemoryQuery *query,
+                                   xAgentMemoryHits *out);
 
 /**
  * @brief Release a previously-retrieved hit set. Zeroes @p hits.
@@ -264,14 +260,12 @@ XCAPI(void) xAgentMemoryReleaseHits(xAgentMemory store, xAgentMemoryHits *hits);
  *        against it. No-op when either the store or its vtable
  *        does not implement on_session_open.
  */
-XCAPI(xErrno) xAgentMemoryOpenSession(xAgentMemory store,
-                                      const char  *session_id);
+XCAPI(xErrno) xAgentMemoryOpenSession(xAgentMemory store, const char *session_id);
 
 /**
  * @brief Notify the store that a session has just torn down.
  */
-XCAPI(xErrno) xAgentMemoryCloseSession(xAgentMemory store,
-                                       const char  *session_id);
+XCAPI(xErrno) xAgentMemoryCloseSession(xAgentMemory store, const char *session_id);
 
 /**
  * @brief Destroy a memory store. NULL is a no-op.

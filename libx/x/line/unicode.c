@@ -58,8 +58,7 @@ ic_private bool utf8_is_cont(uint8_t c) {
   return ((c & 0xC0) == 0x80);
 }
 
-ic_private unicode_t unicode_from_qutf8(const uint8_t *s, ssize_t len,
-                                        ssize_t *count) {
+ic_private unicode_t unicode_from_qutf8(const uint8_t *s, ssize_t len, ssize_t *count) {
   unicode_t c0 = 0;
   if (len <= 0 || s == NULL) {
     goto fail;
@@ -79,23 +78,20 @@ ic_private unicode_t unicode_from_qutf8(const uint8_t *s, ssize_t len,
   }
   // 3 byte encoding; reject overlong and utf-16 surrogate halves (0xD800 -
   // 0xDFFF)
-  else if (len >= 3 && ((c0 == 0xE0 && s[1] >= 0xA0 && s[1] <= 0xBF &&
-                         utf8_is_cont(s[2])) ||
-                        (c0 >= 0xE1 && c0 <= 0xEF && c0 != 0xED &&
-                         utf8_is_cont(s[1]) && utf8_is_cont(s[2])) ||
-                        (c0 == 0xED && s[1] > 0x80 && s[1] <= 0x9F &&
-                         utf8_is_cont(s[2])))) {
+  else if (len >= 3 &&
+           ((c0 == 0xE0 && s[1] >= 0xA0 && s[1] <= 0xBF && utf8_is_cont(s[2])) ||
+            (c0 >= 0xE1 && c0 <= 0xEF && c0 != 0xED && utf8_is_cont(s[1]) && utf8_is_cont(s[2])) ||
+            (c0 == 0xED && s[1] > 0x80 && s[1] <= 0x9F && utf8_is_cont(s[2])))) {
     if (count != NULL) *count = 3;
-    return (((c0 & 0x0F) << 12) | ((unicode_t)(s[1] & 0x3F) << 6) |
-            (s[2] & 0x3F));
+    return (((c0 & 0x0F) << 12) | ((unicode_t)(s[1] & 0x3F) << 6) | (s[2] & 0x3F));
   }
   // 4 bytes: reject overlong
-  else if (len >= 4 && (((c0 == 0xF0 && s[1] >= 0x90 && s[1] <= 0xBF &&
-                          utf8_is_cont(s[2]) && utf8_is_cont(s[3])) ||
-                         (c0 >= 0xF1 && c0 <= 0xF3 && utf8_is_cont(s[1]) &&
-                          utf8_is_cont(s[2]) && utf8_is_cont(s[3])) ||
-                         (c0 == 0xF4 && s[1] >= 0x80 && s[1] <= 0x8F &&
-                          utf8_is_cont(s[2]) && utf8_is_cont(s[3]))))) {
+  else if (len >= 4 && (((c0 == 0xF0 && s[1] >= 0x90 && s[1] <= 0xBF && utf8_is_cont(s[2]) &&
+                          utf8_is_cont(s[3])) ||
+                         (c0 >= 0xF1 && c0 <= 0xF3 && utf8_is_cont(s[1]) && utf8_is_cont(s[2]) &&
+                          utf8_is_cont(s[3])) ||
+                         (c0 == 0xF4 && s[1] >= 0x80 && s[1] <= 0x8F && utf8_is_cont(s[2]) &&
+                          utf8_is_cont(s[3]))))) {
     if (count != NULL) *count = 4;
     return (((c0 & 0x07) << 18) | ((unicode_t)(s[1] & 0x3F) << 12) |
             ((unicode_t)(s[2] & 0x3F) << 6) | (s[3] & 0x3F));

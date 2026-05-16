@@ -63,9 +63,8 @@ XDEF_STRUCT(xSignalServer_) {
 /* ── Helpers ───────────────────────────────────────────── */
 
 static void generate_code(char *buf, int len) {
-  static const char charset[] =
-    "abcdefghijklmnopqrstuvwxyz0123456789";
-  static bool seeded = false;
+  static const char charset[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+  static bool       seeded    = false;
   if (!seeded) {
     srand((unsigned)time(NULL));
     seeded = true;
@@ -76,23 +75,19 @@ static void generate_code(char *buf, int len) {
   buf[len] = '\0';
 }
 
-static xSignalSession *find_session_by_code(xSignalServer_ *srv,
-                                            const char *code) {
+static xSignalSession *find_session_by_code(xSignalServer_ *srv, const char *code) {
   for (int i = 0; i < srv->session_count; i++) {
-    if (srv->sessions[i].active &&
-        strcmp(srv->sessions[i].code, code) == 0) {
+    if (srv->sessions[i].active && strcmp(srv->sessions[i].code, code) == 0) {
       return &srv->sessions[i];
     }
   }
   return NULL;
 }
 
-static xSignalSession *find_session_by_conn(xSignalServer_ *srv,
-                                            xWsConn conn) {
+static xSignalSession *find_session_by_conn(xSignalServer_ *srv, xWsConn conn) {
   for (int i = 0; i < srv->session_count; i++) {
     if (srv->sessions[i].active &&
-        (srv->sessions[i].sender == conn ||
-         srv->sessions[i].receiver == conn)) {
+        (srv->sessions[i].sender == conn || srv->sessions[i].receiver == conn)) {
       return &srv->sessions[i];
     }
   }
@@ -121,8 +116,8 @@ static void on_ws_open(xWsConn conn, void *arg) {
   XDEBUG("[signal-server] new WebSocket connection");
 }
 
-static void on_ws_message(xWsConn conn, xWsOpcode opcode,
-                          const void *payload, size_t len, void *arg) {
+static void on_ws_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len,
+                          void *arg) {
   xSignalServer_ *srv = (xSignalServer_ *)arg;
   (void)opcode;
 
@@ -167,8 +162,7 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
     do {
       generate_code(session->code, SIGNAL_CODE_LEN);
       attempts++;
-    } while (find_session_by_code(srv, session->code) != NULL &&
-             attempts < 100);
+    } while (find_session_by_code(srv, session->code) != NULL && attempts < 100);
 
     session->active = true;
 
@@ -191,8 +185,7 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
 
     xSignalSession *session = find_session_by_code(srv, code_item->valuestring);
     if (!session) {
-      XDEBUG("[signal-server] join: session not found for code=%s",
-             code_item->valuestring);
+      XDEBUG("[signal-server] join: session not found for code=%s", code_item->valuestring);
       cJSON *resp = cJSON_CreateObject();
       cJSON_AddStringToObject(resp, "type", "error");
       cJSON_AddStringToObject(resp, "message", "session not found");
@@ -237,8 +230,7 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
     send_json(conn, resp);
     cJSON_Delete(resp);
 
-  } else if (strcmp(type, "offer") == 0 ||
-             strcmp(type, "answer") == 0 ||
+  } else if (strcmp(type, "offer") == 0 || strcmp(type, "answer") == 0 ||
              strcmp(type, "candidate") == 0) {
     /* Relay message to the peer */
     xSignalSession *session = find_session_by_conn(srv, conn);
@@ -265,8 +257,7 @@ static void on_ws_message(xWsConn conn, xWsOpcode opcode,
   cJSON_Delete(json);
 }
 
-static void on_ws_close(xWsConn conn, uint16_t code, const char *reason,
-                        size_t len, void *arg) {
+static void on_ws_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) {
   xSignalServer_ *srv = (xSignalServer_ *)arg;
   (void)code;
   (void)reason;
@@ -275,18 +266,16 @@ static void on_ws_close(xWsConn conn, uint16_t code, const char *reason,
   /* Clean up session if this connection was part of one */
   xSignalSession *session = find_session_by_conn(srv, conn);
   if (session) {
-    XDEBUG("[signal-server] connection closed for session: code=%s",
-           session->code);
-    session->active = false;
-    session->sender = NULL;
+    XDEBUG("[signal-server] connection closed for session: code=%s", session->code);
+    session->active   = false;
+    session->sender   = NULL;
     session->receiver = NULL;
   }
 }
 
 /* ── HTTP handler for WebSocket upgrade ────────────────── */
 
-static void ws_handler(xHttpResponseWriter writer, const xHttpRequest *req,
-                       void *arg) {
+static void ws_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   xSignalServer_ *srv = (xSignalServer_ *)arg;
 
   xWsCallbacks cbs;
@@ -303,8 +292,7 @@ static void ws_handler(xHttpResponseWriter writer, const xHttpRequest *req,
 
 /* ── Public API ────────────────────────────────────────── */
 
-xSignalServer xSignalServerCreate(xEventLoop loop,
-                                  const xSignalServerConf *conf) {
+xSignalServer xSignalServerCreate(xEventLoop loop, const xSignalServerConf *conf) {
   if (!loop || !conf) return NULL;
 
   xSignalServer_ *srv = (xSignalServer_ *)calloc(1, sizeof(xSignalServer_));
@@ -330,8 +318,8 @@ xSignalServer xSignalServerCreate(xEventLoop loop,
     return NULL;
   }
 
-  xLog(false, "[signal-server] listening on %s:%u",
-       conf->host ? conf->host : "0.0.0.0", conf->port);
+  xLog(false, "[signal-server] listening on %s:%u", conf->host ? conf->host : "0.0.0.0",
+       conf->port);
 
   return (xSignalServer)srv;
 }

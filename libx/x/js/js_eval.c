@@ -13,9 +13,8 @@
 
 #include "quickjs.h"
 
-bool xJSCheckScriptSyntax(xJSContextRef c, xJSStringRef script,
-                          xJSStringRef sourceURL, int startingLineNumber,
-                          xJSValueRef *exc) {
+bool xJSCheckScriptSyntax(xJSContextRef c, xJSStringRef script, xJSStringRef sourceURL,
+                          int startingLineNumber, xJSValueRef *exc) {
   (void)startingLineNumber;
   if (!script) return false;
   JSContext *q     = xjs_ctx_of(c);
@@ -26,16 +25,15 @@ bool xJSCheckScriptSyntax(xJSContextRef c, xJSStringRef script,
   buf[bytes] = 0;
   char *url  = NULL;
   if (sourceURL) {
-    size_t urlBytes =
-      xjs_utf16_to_utf8(sourceURL->data, sourceURL->length, NULL, 0);
-    url = (char *)malloc(urlBytes + 1);
+    size_t urlBytes = xjs_utf16_to_utf8(sourceURL->data, sourceURL->length, NULL, 0);
+    url             = (char *)malloc(urlBytes + 1);
     if (url) {
       xjs_utf16_to_utf8(sourceURL->data, sourceURL->length, url, urlBytes);
       url[urlBytes] = 0;
     }
   }
-  JSValue v = JS_Eval(q, buf, bytes, url ? url : "<xjs>",
-                      JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_COMPILE_ONLY);
+  JSValue v =
+    JS_Eval(q, buf, bytes, url ? url : "<xjs>", JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_COMPILE_ONLY);
   free(buf);
   free(url);
   if (JS_IsException(v)) {
@@ -46,9 +44,8 @@ bool xJSCheckScriptSyntax(xJSContextRef c, xJSStringRef script,
   return true;
 }
 
-xJSValueRef xJSEvaluateScript(xJSContextRef c, xJSStringRef script,
-                              xJSObjectRef thisObject, xJSStringRef sourceURL,
-                              int startingLineNumber, xJSValueRef *exc) {
+xJSValueRef xJSEvaluateScript(xJSContextRef c, xJSStringRef script, xJSObjectRef thisObject,
+                              xJSStringRef sourceURL, int startingLineNumber, xJSValueRef *exc) {
   (void)startingLineNumber;
   if (!script) return NULL;
   JSContext *q     = xjs_ctx_of(c);
@@ -59,9 +56,8 @@ xJSValueRef xJSEvaluateScript(xJSContextRef c, xJSStringRef script,
   buf[bytes] = 0;
   char *url  = NULL;
   if (sourceURL) {
-    size_t urlBytes =
-      xjs_utf16_to_utf8(sourceURL->data, sourceURL->length, NULL, 0);
-    url = (char *)malloc(urlBytes + 1);
+    size_t urlBytes = xjs_utf16_to_utf8(sourceURL->data, sourceURL->length, NULL, 0);
+    url             = (char *)malloc(urlBytes + 1);
     if (url) {
       xjs_utf16_to_utf8(sourceURL->data, sourceURL->length, url, urlBytes);
       url[urlBytes] = 0;
@@ -72,10 +68,8 @@ xJSValueRef xJSEvaluateScript(xJSContextRef c, xJSStringRef script,
    * plain JS_Eval semantics (this == globalThis).  We borrow the qv
    * from the slot — JS_EvalThis takes JSValueConst and does not
    * consume the reference. */
-  JSValueConst this_obj =
-    thisObject ? xjs_slot_qv((xJSValueRef)thisObject) : JS_UNDEFINED;
-  JSValue v = JS_EvalThis(q, this_obj, buf, bytes, url ? url : "<xjs>",
-                          JS_EVAL_TYPE_GLOBAL);
+  JSValueConst this_obj = thisObject ? xjs_slot_qv((xJSValueRef)thisObject) : JS_UNDEFINED;
+  JSValue      v = JS_EvalThis(q, this_obj, buf, bytes, url ? url : "<xjs>", JS_EVAL_TYPE_GLOBAL);
   free(buf);
   free(url);
   if (JS_IsException(v)) {
@@ -96,7 +90,7 @@ int xJSContextDrainPendingJobs(xJSContextRef c, xJSValueRef *exception) {
   for (;;) {
     JSContext *jctx = NULL;
     int        r    = JS_ExecutePendingJob(rt, &jctx);
-    if (r == 0) break;           /* no more jobs */
+    if (r == 0) break; /* no more jobs */
     if (r < 0) {
       /* A job returned JSException.  Defensive: QuickJS's standard
        * promise_reaction_job internally catches throws and turns

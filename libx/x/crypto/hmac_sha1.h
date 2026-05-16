@@ -30,8 +30,7 @@ extern const xHashVtable xHashVtableSha1;
  * @param digest   Output buffer (must be at least 20 bytes).
  * @return         xErrno_Ok on success.
  */
-XCAPI(xErrno) xHmacSha1(const uint8_t *key, size_t key_len,
-                         const uint8_t *data, size_t data_len,
-                         uint8_t *digest);
+XCAPI(xErrno) xHmacSha1(const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len,
+                        uint8_t *digest);
 
 #endif /* XCRYPTO_HMAC_SHA1_H */

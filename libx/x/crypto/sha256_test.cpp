@@ -44,9 +44,8 @@ TEST(Sha256, Abc) {
 }
 
 TEST(Sha256, TwoBlocks) {
-  const char *input =
-      "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
-  uint8_t digest[XCRYPTO_SHA256_DIGEST_SIZE];
+  const char *input = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+  uint8_t     digest[XCRYPTO_SHA256_DIGEST_SIZE];
   ASSERT_EQ(xSha256((const uint8_t *)input, strlen(input), digest), xErrno_Ok);
   EXPECT_EQ(hex(digest, XCRYPTO_SHA256_DIGEST_SIZE),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
@@ -56,8 +55,7 @@ TEST(Sha256, MillionAs) {
   /* 1,000,000 repetitions of 'a' */
   std::string input(1000000, 'a');
   uint8_t     digest[XCRYPTO_SHA256_DIGEST_SIZE];
-  ASSERT_EQ(xSha256((const uint8_t *)input.data(), input.size(), digest),
-            xErrno_Ok);
+  ASSERT_EQ(xSha256((const uint8_t *)input.data(), input.size(), digest), xErrno_Ok);
   EXPECT_EQ(hex(digest, XCRYPTO_SHA256_DIGEST_SIZE),
             "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
 }
@@ -66,20 +64,18 @@ TEST(Sha256, MillionAs) {
 
 TEST(Sha256, StreamingMatchesOneShot) {
   const char *parts[] = {"Hello, ", "World!"};
-  const char *full = "Hello, World!";
+  const char *full    = "Hello, World!";
 
   /* One-shot */
   uint8_t digest1[XCRYPTO_SHA256_DIGEST_SIZE];
   ASSERT_EQ(xSha256((const uint8_t *)full, strlen(full), digest1), xErrno_Ok);
 
   /* Streaming */
-  uint8_t     digest2[XCRYPTO_SHA256_DIGEST_SIZE];
+  uint8_t    digest2[XCRYPTO_SHA256_DIGEST_SIZE];
   xSha256Ctx ctx;
   ASSERT_EQ(xSha256Init(&ctx), xErrno_Ok);
-  ASSERT_EQ(xSha256Update(&ctx, (const uint8_t *)parts[0], strlen(parts[0])),
-            xErrno_Ok);
-  ASSERT_EQ(xSha256Update(&ctx, (const uint8_t *)parts[1], strlen(parts[1])),
-            xErrno_Ok);
+  ASSERT_EQ(xSha256Update(&ctx, (const uint8_t *)parts[0], strlen(parts[0])), xErrno_Ok);
+  ASSERT_EQ(xSha256Update(&ctx, (const uint8_t *)parts[1], strlen(parts[1])), xErrno_Ok);
   ASSERT_EQ(xSha256Final(&ctx, digest2), xErrno_Ok);
 
   EXPECT_EQ(memcmp(digest1, digest2, XCRYPTO_SHA256_DIGEST_SIZE), 0);

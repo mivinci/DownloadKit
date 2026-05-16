@@ -24,14 +24,17 @@ struct ParseResult {
   xErrno rc;
   char  *err;
 
-  ~ParseResult() { free(err); }
+  ~ParseResult() {
+    free(err);
+  }
 };
 
 static ParseResult Parse(xFlagSet set, std::initializer_list<const char *> args) {
   /* argv must be char *const []; copy into a mutable buffer.   */
   std::vector<char *> argv;
   argv.reserve(args.size() + 1);
-  for (const char *a : args) argv.push_back(const_cast<char *>(a));
+  for (const char *a : args)
+    argv.push_back(const_cast<char *>(a));
   argv.push_back(nullptr);
   ParseResult r{xErrno_Ok, nullptr};
   r.rc = xFlagParse(set, (int)args.size(), argv.data(), &r.err);
@@ -60,10 +63,8 @@ TEST(Flag, DuplicateLongRejected) {
   xFlagSet set = xFlagSetCreate("prog", nullptr);
   bool     b1  = false;
   bool     b2  = false;
-  ASSERT_EQ(xFlagAddBool(set, "verbose", 'v', "", &b1, xFlagAttr_None),
-            xErrno_Ok);
-  ASSERT_EQ(xFlagAddBool(set, "verbose", 'V', "", &b2, xFlagAttr_None),
-            xErrno_AlreadyExists);
+  ASSERT_EQ(xFlagAddBool(set, "verbose", 'v', "", &b1, xFlagAttr_None), xErrno_Ok);
+  ASSERT_EQ(xFlagAddBool(set, "verbose", 'V', "", &b2, xFlagAttr_None), xErrno_AlreadyExists);
   xFlagSetDestroy(set);
 }
 
@@ -71,10 +72,8 @@ TEST(Flag, DuplicateShortRejected) {
   xFlagSet set = xFlagSetCreate("prog", nullptr);
   bool     b1  = false;
   bool     b2  = false;
-  ASSERT_EQ(xFlagAddBool(set, "alpha", 'x', "", &b1, xFlagAttr_None),
-            xErrno_Ok);
-  ASSERT_EQ(xFlagAddBool(set, "beta", 'x', "", &b2, xFlagAttr_None),
-            xErrno_AlreadyExists);
+  ASSERT_EQ(xFlagAddBool(set, "alpha", 'x', "", &b1, xFlagAttr_None), xErrno_Ok);
+  ASSERT_EQ(xFlagAddBool(set, "beta", 'x', "", &b2, xFlagAttr_None), xErrno_AlreadyExists);
   xFlagSetDestroy(set);
 }
 
@@ -85,16 +84,11 @@ TEST(Flag, DefaultsApplied) {
   int64_t     big  = 0;
   bool        ipv6 = true; /* should be reset to false         */
 
-  ASSERT_EQ(xFlagAddString(set, "url", 'u', "URL", "", &url,
-                           "ws://127.0.0.1", xFlagAttr_None),
+  ASSERT_EQ(xFlagAddString(set, "url", 'u', "URL", "", &url, "ws://127.0.0.1", xFlagAttr_None),
             xErrno_Ok);
-  ASSERT_EQ(xFlagAddInt(set, "port", 'p', "N", "", &port, 8080,
-                        xFlagAttr_None),
-            xErrno_Ok);
-  ASSERT_EQ(xFlagAddI64(set, "big", 0, "N", "", &big, 12345, xFlagAttr_None),
-            xErrno_Ok);
-  ASSERT_EQ(xFlagAddBool(set, "ipv6", '6', "", &ipv6, xFlagAttr_None),
-            xErrno_Ok);
+  ASSERT_EQ(xFlagAddInt(set, "port", 'p', "N", "", &port, 8080, xFlagAttr_None), xErrno_Ok);
+  ASSERT_EQ(xFlagAddI64(set, "big", 0, "N", "", &big, 12345, xFlagAttr_None), xErrno_Ok);
+  ASSERT_EQ(xFlagAddBool(set, "ipv6", '6', "", &ipv6, xFlagAttr_None), xErrno_Ok);
 
   ASSERT_STREQ(url, "ws://127.0.0.1");
   ASSERT_EQ(port, 8080);
@@ -273,8 +267,7 @@ TEST(Flag, ParseChoiceValid) {
   xFlagSet    set       = xFlagSetCreate("prog", nullptr);
   const char *choices[] = {"tcp", "udp", "quic", nullptr};
   const char *proto     = nullptr;
-  xFlagAddChoice(set, "proto", 'p', "PROTO", "", choices, &proto, "tcp",
-                 xFlagAttr_None);
+  xFlagAddChoice(set, "proto", 'p', "PROTO", "", choices, &proto, "tcp", xFlagAttr_None);
 
   auto r = Parse(set, {"prog", "-p", "quic"});
   ASSERT_EQ(r.rc, xErrno_Ok);
@@ -287,8 +280,7 @@ TEST(Flag, ParseChoiceInvalidReportsOptions) {
   xFlagSet    set       = xFlagSetCreate("prog", nullptr);
   const char *choices[] = {"tcp", "udp", nullptr};
   const char *proto     = nullptr;
-  xFlagAddChoice(set, "proto", 'p', "PROTO", "", choices, &proto, "tcp",
-                 xFlagAttr_None);
+  xFlagAddChoice(set, "proto", 'p', "PROTO", "", choices, &proto, "tcp", xFlagAttr_None);
 
   auto r = Parse(set, {"prog", "-p", "sctp"});
   ASSERT_EQ(r.rc, xErrno_InvalidArg);
@@ -404,9 +396,9 @@ TEST(Flag, MissingRequiredPositional) {
 }
 
 TEST(Flag, PositionalTailCollectsRemaining) {
-  xFlagSet    set = xFlagSetCreate("prog", nullptr);
-  bool        v   = false;
-  const char *in  = nullptr;
+  xFlagSet     set  = xFlagSetCreate("prog", nullptr);
+  bool         v    = false;
+  const char  *in   = nullptr;
   const char **tail = nullptr;
   size_t       cnt  = 0;
   xFlagAddBool(set, "verbose", 'v', "", &v, xFlagAttr_None);
@@ -426,8 +418,8 @@ TEST(Flag, PositionalTailCollectsRemaining) {
 }
 
 TEST(Flag, DoubleDashEndsOptions) {
-  xFlagSet    set = xFlagSetCreate("prog", nullptr);
-  bool        v   = false;
+  xFlagSet     set  = xFlagSetCreate("prog", nullptr);
+  bool         v    = false;
   const char **tail = nullptr;
   size_t       cnt  = 0;
   xFlagAddBool(set, "verbose", 'v', "", &v, xFlagAttr_None);
@@ -469,10 +461,9 @@ TEST(Flag, UnexpectedExtraPositional) {
 /* ───────────────────── Multi flag ───────────────────── */
 
 TEST(Flag, MultiStringCollectsAllOccurrences) {
-  xFlagSet    set = xFlagSetCreate("prog", nullptr);
+  xFlagSet    set  = xFlagSetCreate("prog", nullptr);
   const char *last = nullptr;
-  xFlagAddString(set, "include", 'I', "DIR", "", &last, nullptr,
-                 xFlagAttr_Multi);
+  xFlagAddString(set, "include", 'I', "DIR", "", &last, nullptr, xFlagAttr_Multi);
 
   /* Multi still writes last occurrence into *storage; the rest */
   /* live inside the xFlagSet (not exposed in v1 besides that).*/
@@ -499,7 +490,7 @@ TEST(Flag, HelpReturnsAgain) {
   FILE *saved = stdout;
   stdout      = fopen("/dev/null", "w");
 #endif
-  auto r      = Parse(set, {"prog", "--help"});
+  auto r = Parse(set, {"prog", "--help"});
   fclose(stdout);
 #ifdef _WIN32
   freopen(tmpnam(NULL), "w", stdout);
@@ -525,7 +516,7 @@ TEST(Flag, VersionReturnsAgainWhenSet) {
   FILE *saved2 = stdout;
   stdout       = fopen("/dev/null", "w");
 #endif
-  auto r2      = Parse(set, {"prog", "--version"});
+  auto r2 = Parse(set, {"prog", "--version"});
   fclose(stdout);
 #ifdef _WIN32
   freopen(tmpnam(NULL), "w", stdout);
@@ -551,19 +542,17 @@ TEST(Flag, VersionNotRecognisedWhenUnset) {
 /* ───────────────────── Print helpers don't crash ───────────────────── */
 
 TEST(Flag, PrintUsageAndHelp) {
-  xFlagSet    set = xFlagSetCreate("prog", "a test");
-  bool        v   = false;
-  const char *url = nullptr;
-  const char *in  = nullptr;
-  int         n   = 0;
+  xFlagSet    set       = xFlagSetCreate("prog", "a test");
+  bool        v         = false;
+  const char *url       = nullptr;
+  const char *in        = nullptr;
+  int         n         = 0;
   const char *choices[] = {"tcp", "udp", nullptr};
   const char *proto     = nullptr;
   xFlagAddBool(set, "verbose", 'v', "be loud", &v, xFlagAttr_None);
-  xFlagAddString(set, "url", 'u', "URL", "endpoint", &url, "ws://x",
-                 xFlagAttr_Required);
+  xFlagAddString(set, "url", 'u', "URL", "endpoint", &url, "ws://x", xFlagAttr_Required);
   xFlagAddInt(set, "count", 'n', "N", "number", &n, 3, xFlagAttr_None);
-  xFlagAddChoice(set, "proto", 'p', "PROTO", "transport", choices, &proto,
-                 "tcp", xFlagAttr_None);
+  xFlagAddChoice(set, "proto", 'p', "PROTO", "transport", choices, &proto, "tcp", xFlagAttr_None);
   xFlagAddPositional(set, "INPUT", "input file", &in, xFlagAttr_Required);
   xFlagSetEpilog(set, "see also: moo(1)");
   xFlagSetVersion(set, "0.1.0");

@@ -33,7 +33,7 @@
 /* ───────────────────── SCTP PPID Values (RFC 8831) ───────────────────── */
 
 /** PPID for WebRTC DataChannel Control (DCEP). */
-#define XSCTP_PPID_DCEP   50
+#define XSCTP_PPID_DCEP 50
 
 /** PPID for WebRTC String (UTF-8). */
 #define XSCTP_PPID_STRING 51
@@ -56,8 +56,7 @@ XDEF_HANDLE(xSctpTransport);
 /**
  * @brief Called when the SCTP association state changes.
  */
-typedef void (*xSctpOnStateChange)(xSctpTransport transport, bool connected,
-                                   void *arg);
+typedef void (*xSctpOnStateChange)(xSctpTransport transport, bool connected, void *arg);
 
 /**
  * @brief Called when data is received on an SCTP stream.
@@ -69,21 +68,18 @@ typedef void (*xSctpOnStateChange)(xSctpTransport transport, bool connected,
  * @param len        Length of data.
  * @param arg        User-provided context.
  */
-typedef void (*xSctpOnData)(xSctpTransport transport, uint16_t stream_id,
-                            uint32_t ppid, const uint8_t *data, size_t len,
-                            void *arg);
+typedef void (*xSctpOnData)(xSctpTransport transport, uint16_t stream_id, uint32_t ppid,
+                            const uint8_t *data, size_t len, void *arg);
 
 /**
  * @brief Called when a new SCTP stream is opened by the remote peer.
  */
-typedef void (*xSctpOnStreamOpen)(xSctpTransport transport, uint16_t stream_id,
-                                  void *arg);
+typedef void (*xSctpOnStreamOpen)(xSctpTransport transport, uint16_t stream_id, void *arg);
 
 /**
  * @brief Called when an SCTP stream is closed.
  */
-typedef void (*xSctpOnStreamClose)(xSctpTransport transport,
-                                   uint16_t stream_id, void *arg);
+typedef void (*xSctpOnStreamClose)(xSctpTransport transport, uint16_t stream_id, void *arg);
 
 /**
  * @brief Called when the SCTP send buffer has been fully drained.
@@ -96,9 +92,9 @@ typedef void (*xSctpOnBufferedAmountLow)(xSctpTransport transport, void *arg);
 /* ───────────────────── Configuration ───────────────────── */
 
 XDEF_STRUCT(xSctpTransportConf) {
-  xEventLoop     loop;      /**< Event loop for timers.                  */
-  xDtlsTransport dtls;      /**< DTLS transport for encrypted I/O.      */
-  bool           is_client; /**< true = initiate SCTP, false = accept.   */
+  xEventLoop     loop;        /**< Event loop for timers.                  */
+  xDtlsTransport dtls;        /**< DTLS transport for encrypted I/O.      */
+  bool           is_client;   /**< true = initiate SCTP, false = accept.   */
   uint16_t       local_port;  /**< Local SCTP port (0 = default 5000).  */
   uint16_t       remote_port; /**< Remote SCTP port (0 = default 5000). */
 
@@ -156,9 +152,8 @@ XCAPI(xErrno) xSctpTransportStart(xSctpTransport transport);
  * @param ordered    Whether to send ordered.
  * @return           xErrno_Ok on success.
  */
-XCAPI(xErrno) xSctpTransportSend(xSctpTransport transport, uint16_t stream_id,
-                                  uint32_t ppid, const uint8_t *data,
-                                  size_t len, bool ordered);
+XCAPI(xErrno) xSctpTransportSend(xSctpTransport transport, uint16_t stream_id, uint32_t ppid,
+                                 const uint8_t *data, size_t len, bool ordered);
 
 /**
  * @brief Feed decrypted SCTP data from DTLS into usrsctp.
@@ -170,8 +165,7 @@ XCAPI(xErrno) xSctpTransportSend(xSctpTransport transport, uint16_t stream_id,
  * @param len        Length of data.
  * @return           xErrno_Ok on success.
  */
-XCAPI(xErrno) xSctpTransportFeedInput(xSctpTransport transport,
-                                       const uint8_t *data, size_t len);
+XCAPI(xErrno) xSctpTransportFeedInput(xSctpTransport transport, const uint8_t *data, size_t len);
 
 /**
  * @brief Close an SCTP stream (reset).
@@ -180,8 +174,7 @@ XCAPI(xErrno) xSctpTransportFeedInput(xSctpTransport transport,
  * @param stream_id  Stream to close.
  * @return           xErrno_Ok on success.
  */
-XCAPI(xErrno) xSctpTransportCloseStream(xSctpTransport transport,
-                                         uint16_t       stream_id);
+XCAPI(xErrno) xSctpTransportCloseStream(xSctpTransport transport, uint16_t stream_id);
 
 /**
  * @brief Get the amount of data buffered in the SCTP send queue.

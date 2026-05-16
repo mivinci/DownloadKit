@@ -96,8 +96,7 @@ XDEF_ENUM(xStunMsgType){
   (((type) & 0x000F) | (((type) & 0x00E0) >> 1) | (((type) & 0x3E00) >> 2))
 
 /** Extract the STUN class from a message type. */
-#define XSTUN_MSG_CLASS(type) \
-  ((((type) & 0x0010) >> 4) | (((type) & 0x0100) >> 7))
+#define XSTUN_MSG_CLASS(type) ((((type) & 0x0010) >> 4) | (((type) & 0x0100) >> 7))
 
 /** STUN message class values. */
 #define XSTUN_CLASS_REQUEST      0x00
@@ -158,17 +157,15 @@ XDEF_ENUM(xIceCandidateType){
 /* ───────────────────── ICE Candidate Pair States ───────────────────── */
 
 XDEF_ENUM(xIcePairState){
-  xIcePairState_Frozen = 0,     xIcePairState_Waiting = 1,
-  xIcePairState_InProgress = 2, xIcePairState_Succeeded = 3,
-  xIcePairState_Failed = 4,
+  xIcePairState_Frozen = 0,    xIcePairState_Waiting = 1, xIcePairState_InProgress = 2,
+  xIcePairState_Succeeded = 3, xIcePairState_Failed = 4,
 };
 
 /* ───────────────────── ICE Agent States ───────────────────── */
 
 XDEF_ENUM(xIceAgentState){
-  xIceAgentState_New = 0,       xIceAgentState_Gathering = 1,
-  xIceAgentState_Checking = 2,  xIceAgentState_Connected = 3,
-  xIceAgentState_Completed = 4, xIceAgentState_Failed = 5,
+  xIceAgentState_New = 0,       xIceAgentState_Gathering = 1, xIceAgentState_Checking = 2,
+  xIceAgentState_Connected = 3, xIceAgentState_Completed = 4, xIceAgentState_Failed = 5,
   xIceAgentState_Closed = 6,
 };
 
@@ -273,8 +270,7 @@ static inline uint16_t xReadU16BE(const uint8_t *p) {
 
 /** Read a 32-bit big-endian value from a byte pointer. */
 static inline uint32_t xReadU32BE(const uint8_t *p) {
-  return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 |
-         (uint32_t)p[3];
+  return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | (uint32_t)p[3];
 }
 
 /** Read a 64-bit big-endian value from a byte pointer. */
@@ -315,16 +311,16 @@ static inline void xWriteU64BE(uint8_t *p, uint64_t v) {
  *  -1 = Unknown / discard
  */
 static inline int xIceDemuxClassify(uint8_t first_byte) {
-  if (first_byte <= 3) return 0;                              /* STUN */
-  if (first_byte >= 20 && first_byte <= 63) return 1;         /* DTLS */
-  if (first_byte >= 64 && first_byte <= 79) return 2;         /* TURN ChannelData */
-  if (first_byte >= 128 && first_byte <= 191) return 3;       /* RTP/RTCP (reserved) */
-  return -1;                                                  /* Unknown */
+  if (first_byte <= 3) return 0;                        /* STUN */
+  if (first_byte >= 20 && first_byte <= 63) return 1;   /* DTLS */
+  if (first_byte >= 64 && first_byte <= 79) return 2;   /* TURN ChannelData */
+  if (first_byte >= 128 && first_byte <= 191) return 3; /* RTP/RTCP (reserved) */
+  return -1;                                            /* Unknown */
 }
 
-#define XICE_DEMUX_STUN          0
-#define XICE_DEMUX_DTLS          1
-#define XICE_DEMUX_TURN_CHANNEL  2
-#define XICE_DEMUX_RTP           3
+#define XICE_DEMUX_STUN         0
+#define XICE_DEMUX_DTLS         1
+#define XICE_DEMUX_TURN_CHANNEL 2
+#define XICE_DEMUX_RTP          3
 
 #endif /* XP2P_ICE_PRIVATE_H */

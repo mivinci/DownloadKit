@@ -48,8 +48,7 @@ typedef void (*xSocketFunc)(xSocket sock, xEventMask mask, void *arg);
  * @param userp     User data forwarded to @p callback.
  * @return          A new xSocket handle, or NULL on failure.
  */
-XCAPI(xSocket) xSocketCreate(xEventLoop loop, int family, int type,
-                             int protocol, xEventMask mask,
+XCAPI(xSocket) xSocketCreate(xEventLoop loop, int family, int type, int protocol, xEventMask mask,
                              xSocketFunc callback, void *userp);
 
 /**
@@ -67,8 +66,8 @@ XCAPI(xSocket) xSocketCreate(xEventLoop loop, int family, int type,
  * @param userp     User data forwarded to @p callback.
  * @return          A new xSocket handle, or NULL on failure.
  */
-XCAPI(xSocket) xSocketCreateFromFd(xEventLoop loop, int fd, xEventMask mask,
-                                   xSocketFunc callback, void *userp);
+XCAPI(xSocket) xSocketCreateFromFd(xEventLoop loop, int fd, xEventMask mask, xSocketFunc callback,
+                                   void *userp);
 
 /**
  * @brief Destroy a socket, removing it from the event loop.
@@ -113,8 +112,7 @@ XCAPI(xErrno) xSocketSetMask(xEventLoop loop, xSocket sock, xEventMask mask);
  * @return                  xErrno_Ok on success, xErrno_InvalidArg if sock
  *                          is NULL.
  */
-XCAPI(xErrno) xSocketSetTimeout(xSocket sock, int read_timeout_ms,
-                                int write_timeout_ms);
+XCAPI(xErrno) xSocketSetTimeout(xSocket sock, int read_timeout_ms, int write_timeout_ms);
 
 /**
  * @brief Replace the callback and user data for a socket.
@@ -127,8 +125,7 @@ XCAPI(xErrno) xSocketSetTimeout(xSocket sock, int read_timeout_ms,
  * @param userp     New user data.
  * @return          xErrno_Ok on success.
  */
-XCAPI(xErrno) xSocketSetCallback(xSocket sock, xSocketFunc callback,
-                                 void *userp);
+XCAPI(xErrno) xSocketSetCallback(xSocket sock, xSocketFunc callback, void *userp);
 
 /* ───────────────────── Query ───────────────────── */
 

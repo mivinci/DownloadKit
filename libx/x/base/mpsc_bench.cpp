@@ -26,7 +26,7 @@ struct MpscNode {
 
 // BM_Mpsc_SingleProducer: Single-thread push/pop throughput
 static void BM_Mpsc_SingleProducer(benchmark::State &state) {
-  constexpr int64_t BATCH = 1024;
+  constexpr int64_t     BATCH = 1024;
   std::vector<MpscNode> nodes(BATCH);
 
   for (auto _ : state) {
@@ -48,13 +48,13 @@ BENCHMARK(BM_Mpsc_SingleProducer);
 
 // BM_Mpsc_MultiProducer: Multi-thread push, single-thread pop
 static void BM_Mpsc_MultiProducer(benchmark::State &state) {
-  const int num_threads = state.range(0);
+  const int         num_threads    = state.range(0);
   constexpr int64_t OPS_PER_THREAD = 10000;
 
   for (auto _ : state) {
-    xMpsc *head = nullptr;
-    xMpsc *tail = nullptr;
-    std::atomic<int> ready{0};
+    xMpsc            *head = nullptr;
+    xMpsc            *tail = nullptr;
+    std::atomic<int>  ready{0};
     std::atomic<bool> go{false};
 
     // Allocate nodes for all threads
@@ -82,7 +82,8 @@ static void BM_Mpsc_MultiProducer(benchmark::State &state) {
     go.store(true, std::memory_order_release);
 
     // Wait for all producers to finish
-    for (auto &th : threads) th.join();
+    for (auto &th : threads)
+      th.join();
 
     // Consumer: pop all
     int64_t popped = 0;

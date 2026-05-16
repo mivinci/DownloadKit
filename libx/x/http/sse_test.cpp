@@ -28,19 +28,15 @@ extern "C" {
 
 using ms = std::chrono::milliseconds;
 
-static void pump_until(xEventLoop loop, std::atomic<bool> &flag,
-                       int max_ms = 5000) {
-  for (int elapsed = 0;
-       elapsed < max_ms && !flag.load(std::memory_order_acquire);
-       elapsed += 10) {
+static void pump_until(xEventLoop loop, std::atomic<bool> &flag, int max_ms = 5000) {
+  for (int elapsed = 0; elapsed < max_ms && !flag.load(std::memory_order_acquire); elapsed += 10) {
     xEventWait(loop, 10);
   }
 }
 
-static void pump_until_count(xEventLoop loop, std::atomic<int> &count,
-                             int target, int max_ms = 10000) {
-  for (int elapsed = 0;
-       elapsed < max_ms && count.load(std::memory_order_acquire) < target;
+static void pump_until_count(xEventLoop loop, std::atomic<int> &count, int target,
+                             int max_ms = 10000) {
+  for (int elapsed = 0; elapsed < max_ms && count.load(std::memory_order_acquire) < target;
        elapsed += 10) {
     xEventWait(loop, 10);
   }
@@ -162,20 +158,16 @@ protected:
 
 TEST_F(SseClientTest, NullClientReturnsError) {
   auto cb = [](const xSseEvent *, void *) -> int { return 0; };
-  EXPECT_NE(
-    xHttpClientGetSse(nullptr, "http://localhost/events", cb, nullptr, nullptr),
-    xErrno_Ok);
+  EXPECT_NE(xHttpClientGetSse(nullptr, "http://localhost/events", cb, nullptr, nullptr), xErrno_Ok);
 }
 
 TEST_F(SseClientTest, NullUrlReturnsError) {
   auto cb = [](const xSseEvent *, void *) -> int { return 0; };
-  EXPECT_NE(xHttpClientGetSse(client, nullptr, cb, nullptr, nullptr),
-            xErrno_Ok);
+  EXPECT_NE(xHttpClientGetSse(client, nullptr, cb, nullptr, nullptr), xErrno_Ok);
 }
 
 TEST_F(SseClientTest, NullOnEventReturnsError) {
-  EXPECT_NE(xHttpClientGetSse(client, "http://localhost/events", nullptr,
-                              nullptr, nullptr),
+  EXPECT_NE(xHttpClientGetSse(client, "http://localhost/events", nullptr, nullptr, nullptr),
             xErrno_Ok);
 }
 
@@ -213,8 +205,7 @@ TEST_F(SseClientTest, ReceiveSingleEvent) {
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
-                                 on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -237,8 +228,7 @@ TEST_F(SseClientTest, ReceiveMultipleEvents) {
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
-                                 on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -259,8 +249,7 @@ TEST_F(SseClientTest, CustomEventType) {
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
-                                 on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -281,8 +270,7 @@ TEST_F(SseClientTest, MultilineData) {
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
-                                 on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -301,8 +289,7 @@ TEST_F(SseClientTest, EventWithId) {
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
-                                 on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -321,8 +308,7 @@ TEST_F(SseClientTest, CommentLinesIgnored) {
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
-                                 on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -353,8 +339,8 @@ TEST_F(SseClientTest, UserCloseStopsStream) {
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(),
-                                 on_sse_event_close_after_2, on_sse_done, &ctx);
+  xErrno err =
+    xHttpClientGetSse(client, srv.url().c_str(), on_sse_event_close_after_2, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -374,8 +360,7 @@ TEST_F(SseClientTest, OnDoneCalledOnStreamEnd) {
   srv.start();
 
   SseCtx ctx;
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event,
-                                 on_sse_done, &ctx);
+  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 5000);
@@ -399,8 +384,8 @@ TEST_F(SseClientTest, OnDoneNullDoesNotCrash) {
     return 0;
   };
 
-  xErrno err = xHttpClientGetSse(client, srv.url().c_str(), cb,
-                                 nullptr /* on_done = NULL */, &event_count);
+  xErrno err =
+    xHttpClientGetSse(client, srv.url().c_str(), cb, nullptr /* on_done = NULL */, &event_count);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_count(loop, event_count, 1, 5000);
@@ -447,14 +432,13 @@ TEST_F(SseClientTest, ConnectionFailureCallsDone) {
   SseCtx ctx;
 
   /* Connect to a port that nobody is listening on */
-  xErrno err = xHttpClientGetSse(client, "http://127.0.0.1:1/events",
-                                 on_sse_event, on_sse_done, &ctx);
+  xErrno err =
+    xHttpClientGetSse(client, "http://127.0.0.1:1/events", on_sse_event, on_sse_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until(loop, ctx.done, 10000);
 
-  ASSERT_TRUE(ctx.done.load())
-    << "on_done was not called on connection failure";
+  ASSERT_TRUE(ctx.done.load()) << "on_done was not called on connection failure";
   EXPECT_NE(ctx.done_curl_code, 0);     /* should be a curl error */
   EXPECT_EQ(ctx.event_count.load(), 0); /* no events received */
 }

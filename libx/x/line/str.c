@@ -36,8 +36,7 @@ ic_private void ic_memset(void *dest, uint8_t value, ssize_t n) {
   memset(dest, (int8_t)value, to_size_t(n));
 }
 
-ic_private bool ic_memnmove(void *dest, ssize_t dest_size, const void *src,
-                            ssize_t n) {
+ic_private bool ic_memnmove(void *dest, ssize_t dest_size, const void *src, ssize_t n) {
   assert(dest != NULL && src != NULL);
   if (n <= 0) return true;
   if (dest_size < n) {
@@ -48,8 +47,7 @@ ic_private bool ic_memnmove(void *dest, ssize_t dest_size, const void *src,
   return true;
 }
 
-ic_private bool ic_strcpy(char *dest, ssize_t dest_size /* including 0 */,
-                          const char *src) {
+ic_private bool ic_strcpy(char *dest, ssize_t dest_size /* including 0 */, const char *src) {
   assert(dest != NULL && src != NULL);
   if (dest == NULL || dest_size <= 0) return false;
   ssize_t slen = ic_strlen(src);
@@ -59,8 +57,8 @@ ic_private bool ic_strcpy(char *dest, ssize_t dest_size /* including 0 */,
   return true;
 }
 
-ic_private bool ic_strncpy(char *dest, ssize_t dest_size /* including 0 */,
-                           const char *src, ssize_t n) {
+ic_private bool ic_strncpy(char *dest, ssize_t dest_size /* including 0 */, const char *src,
+                           ssize_t n) {
   assert(dest != NULL && n < dest_size);
   if (dest == NULL || dest_size <= 0) return false;
   if (n >= dest_size) return false;
@@ -139,8 +137,7 @@ ic_private int ic_strnicmp(const char *s1, const char *s2, ssize_t n) {
   if (s1 == NULL) return -1;
   if (s2 == NULL) return 1;
   ssize_t i;
-  for (i = 0; s1[i] != 0 && i < n;
-       i++) { // note: if s2[i] == 0 the loop will stop as c1 != c2
+  for (i = 0; s1[i] != 0 && i < n; i++) { // note: if s2[i] == 0 the loop will stop as c1 != c2
     char c1 = ic_tolower(s1[i]);
     char c2 = ic_tolower(s2[i]);
     if (c1 < c2) return -1;

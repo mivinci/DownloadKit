@@ -22,11 +22,11 @@
  * @brief An ICE candidate.
  */
 XDEF_STRUCT(xIceCandidate) {
-  char     foundation[XICE_FOUNDATION_MAX_LEN]; /**< Foundation string.     */
-  int      component_id;                        /**< Component ID (1-256). */
-  int      transport;                           /**< 0 = UDP.              */
-  uint32_t priority;                            /**< Computed priority.    */
-  xIceCandidateType type;                       /**< host/srflx/prflx/relay */
+  char              foundation[XICE_FOUNDATION_MAX_LEN]; /**< Foundation string.     */
+  int               component_id;                        /**< Component ID (1-256). */
+  int               transport;                           /**< 0 = UDP.              */
+  uint32_t          priority;                            /**< Computed priority.    */
+  xIceCandidateType type;                                /**< host/srflx/prflx/relay */
 
   struct sockaddr_storage addr;      /**< Candidate address.                  */
   struct sockaddr_storage base_addr; /**< Base address (for srflx/prflx).    */
@@ -45,8 +45,7 @@ XDEF_STRUCT(xIceCandidate) {
  * @param component_id  Component ID (1-256).
  * @return              Computed priority.
  */
-uint32_t xIceCandidatePriority(xIceCandidateType type, uint16_t local_pref,
-                               int component_id);
+uint32_t xIceCandidatePriority(xIceCandidateType type, uint16_t local_pref, int component_id);
 
 /**
  * @brief Get the type preference for a candidate type.
@@ -61,8 +60,7 @@ int xIceCandidateTypePref(xIceCandidateType type);
  * @param cand         Candidate to generate foundation for.
  * @param stun_server  STUN server address (may be NULL for host candidates).
  */
-void xIceCandidateFoundation(xIceCandidate         *cand,
-                             const struct sockaddr *stun_server);
+void xIceCandidateFoundation(xIceCandidate *cand, const struct sockaddr *stun_server);
 
 /**
  * @brief Get the candidate type as a string (for SDP).

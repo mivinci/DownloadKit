@@ -13,8 +13,8 @@
 
 #include <cstddef>
 
-#include "panic.h"
-#include "variant.h"
+#include <xpp/panic.h>
+#include <xpp/variant.h>
 
 extern "C" {
 #include <x/base/log.h>
@@ -35,8 +35,8 @@ TEST(PanicDeathTest, PanicMessageIncludesFileAndLine) {
 
 TEST(PanicDeathTest, PanicFormatsArguments) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
-  EXPECT_DEATH({ XPP_PANIC("idx %d out of range (size=%d)", 7, 4); },
-               "idx 7 out of range \\(size=4\\)");
+  EXPECT_DEATH(
+    { XPP_PANIC("idx %d out of range (size=%d)", 7, 4); }, "idx 7 out of range \\(size=4\\)");
 }
 
 /* ── XPP_ASSERT ── */
@@ -62,8 +62,8 @@ TEST(PanicDeathTest, AssertFormatsArguments) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   std::size_t idx = 7, size = 4;
   EXPECT_DEATH(
-      { XPP_ASSERT(idx < size, "idx=%zu size=%zu", idx, size); },
-      "assertion failed: idx < size .* idx=7 size=4");
+    { XPP_ASSERT(idx < size, "idx=%zu size=%zu", idx, size); },
+    "assertion failed: idx < size .* idx=7 size=4");
 }
 
 /* ── XPP_DEBUG_ASSERT ── */

@@ -46,7 +46,10 @@ xErrno xUrlParse(const char *raw, xUrl *url) {
 
   /* ── scheme ── */
   const char *colon = strstr(p, "://");
-  if (!colon || colon == p) { xUrlFree(url); return xErrno_InvalidArg; }
+  if (!colon || colon == p) {
+    xUrlFree(url);
+    return xErrno_InvalidArg;
+  }
 
   url->scheme     = p;
   url->scheme_len = (size_t)(colon - p);
@@ -56,12 +59,14 @@ xErrno xUrlParse(const char *raw, xUrl *url) {
   /* Find the end of the authority section */
   const char *authority = p;
   const char *auth_end  = p;
-  while (*auth_end && *auth_end != '/' && *auth_end != '?' &&
-         *auth_end != '#') {
+  while (*auth_end && *auth_end != '/' && *auth_end != '?' && *auth_end != '#') {
     auth_end++;
   }
 
-  if (authority == auth_end) { xUrlFree(url); return xErrno_InvalidArg; }
+  if (authority == auth_end) {
+    xUrlFree(url);
+    return xErrno_InvalidArg;
+  }
 
   /* Check for userinfo */
   const char *at = NULL;
@@ -85,9 +90,11 @@ xErrno xUrlParse(const char *raw, xUrl *url) {
   const char *port_colon = NULL;
   if (*host_start == '[') {
     /* IPv6 literal: [::1]:8080 */
-    const char *bracket =
-      memchr(host_start, ']', (size_t)(auth_end - host_start));
-    if (!bracket) { xUrlFree(url); return xErrno_InvalidArg; }
+    const char *bracket = memchr(host_start, ']', (size_t)(auth_end - host_start));
+    if (!bracket) {
+      xUrlFree(url);
+      return xErrno_InvalidArg;
+    }
     url->host     = host_start + 1; /* skip '[' */
     url->host_len = (size_t)(bracket - host_start - 1);
     if (bracket + 1 < auth_end && bracket[1] == ':') {
@@ -110,7 +117,10 @@ xErrno xUrlParse(const char *raw, xUrl *url) {
     }
   }
 
-  if (url->host_len == 0) { xUrlFree(url); return xErrno_InvalidArg; }
+  if (url->host_len == 0) {
+    xUrlFree(url);
+    return xErrno_InvalidArg;
+  }
 
   if (port_colon) {
     url->port     = port_colon + 1;

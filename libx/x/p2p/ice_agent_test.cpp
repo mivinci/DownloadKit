@@ -25,9 +25,8 @@ using ms = std::chrono::milliseconds;
 static void pump_loop(xEventLoop loop, int total_ms) {
   auto deadline = std::chrono::steady_clock::now() + ms(total_ms);
   while (std::chrono::steady_clock::now() < deadline) {
-    auto remaining = std::chrono::duration_cast<ms>(
-                       deadline - std::chrono::steady_clock::now())
-                       .count();
+    auto remaining =
+      std::chrono::duration_cast<ms>(deadline - std::chrono::steady_clock::now()).count();
     if (remaining <= 0) break;
     xEventWait(loop, (int)remaining);
   }
@@ -41,14 +40,12 @@ static void pump_loop(xEventLoop loop, int total_ms) {
  * criterion is an async state change (e.g. gathering completed). It avoids
  * both flakiness on slow CI runners AND wasted wall-clock time on fast ones.
  */
-template <typename Pred>
-static bool pump_until(xEventLoop loop, Pred pred, int total_ms) {
+template <class Pred> static bool pump_until(xEventLoop loop, Pred pred, int total_ms) {
   auto deadline = std::chrono::steady_clock::now() + ms(total_ms);
   while (std::chrono::steady_clock::now() < deadline) {
     if (pred()) return true;
-    auto remaining = std::chrono::duration_cast<ms>(
-                       deadline - std::chrono::steady_clock::now())
-                       .count();
+    auto remaining =
+      std::chrono::duration_cast<ms>(deadline - std::chrono::steady_clock::now()).count();
     if (remaining <= 0) break;
     /* Wake up at least every 50ms so we can re-check the predicate even
      * if no event fires (e.g. waiting on a timer that hasn't fired yet). */
@@ -226,16 +223,15 @@ TEST(IceAgentTest, SetRemoteDescriptionParsesCredentials) {
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
 
-  const char *remote_sdp =
-    "v=0\r\n"
-    "o=- 0 0 IN IP4 0.0.0.0\r\n"
-    "s=-\r\n"
-    "t=0 0\r\n"
-    "m=application 9 UDP/ICE 0\r\n"
-    "a=ice-ufrag:remoteufrag\r\n"
-    "a=ice-pwd:remotepassword1234567890\r\n"
-    "a=ice-options:trickle\r\n"
-    "a=candidate:1 1 UDP 2130706431 127.0.0.1 5000 typ host\r\n";
+  const char *remote_sdp = "v=0\r\n"
+                           "o=- 0 0 IN IP4 0.0.0.0\r\n"
+                           "s=-\r\n"
+                           "t=0 0\r\n"
+                           "m=application 9 UDP/ICE 0\r\n"
+                           "a=ice-ufrag:remoteufrag\r\n"
+                           "a=ice-pwd:remotepassword1234567890\r\n"
+                           "a=ice-options:trickle\r\n"
+                           "a=candidate:1 1 UDP 2130706431 127.0.0.1 5000 typ host\r\n";
 
   xErrno err = xIceAgentSetRemoteDescription(agent, remote_sdp);
   EXPECT_EQ(err, xErrno_Ok);
@@ -276,8 +272,8 @@ TEST(IceAgentTest, AddRemoteCandidateWorks) {
   xIceAgent agent = xIceAgentCreate(loop, &config);
   ASSERT_NE(agent, nullptr);
 
-  xErrno err = xIceAgentAddRemoteCandidate(
-    agent, "candidate:1 1 UDP 2130706431 127.0.0.1 5000 typ host");
+  xErrno err =
+    xIceAgentAddRemoteCandidate(agent, "candidate:1 1 UDP 2130706431 127.0.0.1 5000 typ host");
   EXPECT_EQ(err, xErrno_Ok);
 
   xIceAgentDestroy(agent);
@@ -438,9 +434,9 @@ TEST(IceAgentTest, TrickleIceAddCandidate) {
   EXPECT_EQ(xIceAgentSetRemoteDescription(agent, remote_sdp), xErrno_Ok);
 
   /* Now trickle in a candidate */
-  EXPECT_EQ(xIceAgentAddRemoteCandidate(
-              agent, "candidate:1 1 UDP 2130706431 127.0.0.1 9999 typ host"),
-            xErrno_Ok);
+  EXPECT_EQ(
+    xIceAgentAddRemoteCandidate(agent, "candidate:1 1 UDP 2130706431 127.0.0.1 9999 typ host"),
+    xErrno_Ok);
 
   /* Pump to allow checks */
   pump_loop(loop, 2000);

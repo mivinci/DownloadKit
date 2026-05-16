@@ -6,8 +6,8 @@
  * ws.c - WebSocket connection implementation
  */
 
-#include "ws_private.h"
 #include "server_private.h"
+#include "ws_private.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -27,8 +27,7 @@
 static void ws_on_event(xSocket sock, xEventMask mask, void *arg);
 static void ws_try_flush(struct xWsConn_ *conn);
 static void ws_process_frame(struct xWsConn_ *conn, xWsFrame *frame);
-static void ws_fire_close(struct xWsConn_ *conn, uint16_t code,
-                          const char *reason, size_t len);
+static void ws_fire_close(struct xWsConn_ *conn, uint16_t code, const char *reason, size_t len);
 static void ws_idle_timeout(void *arg);
 static void ws_reset_idle_timer(struct xWsConn_ *conn);
 
@@ -37,15 +36,10 @@ static void ws_reset_idle_timer(struct xWsConn_ *conn);
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server,
-                                xEventLoop loop,
-                                xSocket sock,
-                                xTransport transport,
-                                const xWsCallbacks *callbacks,
-                                void *arg,
-                                int timeout_ms) {
-  struct xWsConn_ *conn =
-    (struct xWsConn_ *)calloc(1, sizeof(struct xWsConn_));
+struct xWsConn_ *xWsConnCreate(struct xHttpServer_ *server, xEventLoop loop, xSocket sock,
+                               xTransport transport, const xWsCallbacks *callbacks, void *arg,
+                               int timeout_ms) {
+  struct xWsConn_ *conn = (struct xWsConn_ *)calloc(1, sizeof(struct xWsConn_));
   if (!conn) return NULL;
 
   conn->server    = server;
@@ -150,23 +144,20 @@ void xWsConnDestroy(struct xWsConn_ *conn) {
   free(conn);
 }
 
-void xWsConnClose(struct xWsConn_ *conn, uint16_t code,
-                  const char *reason, size_t len) {
+void xWsConnClose(struct xWsConn_ *conn, uint16_t code, const char *reason, size_t len) {
   if (conn->close_state != xWsCloseState_Open) return;
 
   conn->close_state = xWsCloseState_CloseSent;
   conn->close_code  = code;
 
-  xWsFrameEncodeClose(&conn->write_buf, code, reason, len,
-                      conn->is_client);
+  xWsFrameEncodeClose(&conn->write_buf, code, reason, len, conn->is_client);
   ws_try_flush(conn);
 
   /* Set a timeout for the peer's Close response */
   if (conn->idle_timer) {
     xEventLoopTimerCancel(conn->loop, conn->idle_timer);
   }
-  conn->idle_timer = xEventLoopTimerAfter(
-    conn->loop, ws_idle_timeout, conn, 5000);
+  conn->idle_timer = xEventLoopTimerAfter(conn->loop, ws_idle_timeout, conn, 5000);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -174,26 +165,21 @@ void xWsConnClose(struct xWsConn_ *conn, uint16_t code,
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-xErrno xWsSend(xWsConn handle, xWsOpcode opcode,
-               const void *payload, size_t len) {
+xErrno xWsSend(xWsConn handle, xWsOpcode opcode, const void *payload, size_t len) {
   struct xWsConn_ *conn = (struct xWsConn_ *)handle;
   if (!conn) return xErrno_InvalidArg;
   if (conn->close_state != xWsCloseState_Open) return xErrno_InvalidState;
 
-  uint8_t op = (opcode == xWsOpcode_Text)
-                 ? XWS_OPCODE_TEXT : XWS_OPCODE_BINARY;
+  uint8_t op = (opcode == xWsOpcode_Text) ? XWS_OPCODE_TEXT : XWS_OPCODE_BINARY;
 
 #ifdef XHTTP_WS_DEFLATE
   if (conn->deflate_ctx && len > 0) {
-    uint8_t *compressed = NULL;
-    size_t compressed_len = 0;
-    if (xWsDeflateCompress(conn->deflate_ctx,
-                           (const uint8_t *)payload, len,
-                           &compressed,
+    uint8_t *compressed     = NULL;
+    size_t   compressed_len = 0;
+    if (xWsDeflateCompress(conn->deflate_ctx, (const uint8_t *)payload, len, &compressed,
                            &compressed_len) == 0) {
-      int rc = xWsFrameEncodeEx(&conn->write_buf, 1, 1, op,
-                                compressed, compressed_len,
-                                conn->is_client);
+      int rc =
+        xWsFrameEncodeEx(&conn->write_buf, 1, 1, op, compressed, compressed_len, conn->is_client);
       free(compressed);
       if (rc < 0) return xErrno_NoMemory;
       ws_try_flush(conn);
@@ -203,8 +189,7 @@ xErrno xWsSend(xWsConn handle, xWsOpcode opcode,
   }
 #endif
 
-  if (xWsFrameEncode(&conn->write_buf, 1, op, payload, len,
-                     conn->is_client) < 0)
+  if (xWsFrameEncode(&conn->write_buf, 1, op, payload, len, conn->is_client) < 0)
     return xErrno_NoMemory;
 
   ws_try_flush(conn);
@@ -228,17 +213,15 @@ static void ws_try_flush(struct xWsConn_ *conn) {
   if (xIOBufferEmpty(&conn->write_buf)) return;
 
   struct iovec iov[XWS_MAX_IOV];
-  int cnt = xIOBufferReadIov(&conn->write_buf, iov, XWS_MAX_IOV);
+  int          cnt = xIOBufferReadIov(&conn->write_buf, iov, XWS_MAX_IOV);
   if (cnt == 0) return;
 
-  ssize_t n = conn->transport.writev(conn->transport.ctx,
-                                     iov, cnt);
+  ssize_t n = conn->transport.writev(conn->transport.ctx, iov, cnt);
   if (n < 0) {
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
       if (!conn->writing) {
         conn->writing = 1;
-        xSocketSetMask(conn->loop, conn->sock,
-                       xEvent_Read | xEvent_Write);
+        xSocketSetMask(conn->loop, conn->sock, xEvent_Read | xEvent_Write);
       }
       return;
     }
@@ -251,8 +234,7 @@ static void ws_try_flush(struct xWsConn_ *conn) {
   if (!xIOBufferEmpty(&conn->write_buf)) {
     if (!conn->writing) {
       conn->writing = 1;
-      xSocketSetMask(conn->loop, conn->sock,
-                     xEvent_Read | xEvent_Write);
+      xSocketSetMask(conn->loop, conn->sock, xEvent_Read | xEvent_Write);
     }
   } else {
     if (conn->writing) {
@@ -263,9 +245,7 @@ static void ws_try_flush(struct xWsConn_ *conn) {
     /* If we're in CLOSE_RECEIVED state and write buffer is
      * drained, we can destroy the connection */
     if (conn->close_state == xWsCloseState_CloseReceived) {
-      ws_fire_close(conn, conn->close_code,
-                    conn->close_reason,
-                    conn->close_reason_len);
+      ws_fire_close(conn, conn->close_code, conn->close_reason, conn->close_reason_len);
     }
   }
 }
@@ -275,14 +255,12 @@ static void ws_try_flush(struct xWsConn_ *conn) {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-static void ws_fire_close(struct xWsConn_ *conn, uint16_t code,
-                          const char *reason, size_t len) {
+static void ws_fire_close(struct xWsConn_ *conn, uint16_t code, const char *reason, size_t len) {
   if (conn->close_state == xWsCloseState_Closed) return;
   conn->close_state = xWsCloseState_Closed;
 
   if (conn->callbacks.on_close) {
-    conn->callbacks.on_close((xWsConn)conn, code, reason, len,
-                             conn->user_arg);
+    conn->callbacks.on_close((xWsConn)conn, code, reason, len, conn->user_arg);
   }
 
   /* NOTE: Do NOT call xWsConnDestroy here.
@@ -299,7 +277,7 @@ static void ws_fire_close(struct xWsConn_ *conn, uint16_t code,
 
 static void ws_idle_timeout(void *arg) {
   struct xWsConn_ *conn = (struct xWsConn_ *)arg;
-  conn->idle_timer = NULL;
+  conn->idle_timer      = NULL;
 
   if (conn->close_state == xWsCloseState_Open) {
     /* Send Close frame with 1001 Going Away */
@@ -321,9 +299,8 @@ static void ws_reset_idle_timer(struct xWsConn_ *conn) {
   if (conn->idle_timer) {
     xEventLoopTimerCancel(conn->loop, conn->idle_timer);
   }
-  conn->idle_timer = xEventLoopTimerAfter(
-    conn->loop, ws_idle_timeout, conn,
-    (uint64_t)conn->idle_timeout_ms);
+  conn->idle_timer =
+    xEventLoopTimerAfter(conn->loop, ws_idle_timeout, conn, (uint64_t)conn->idle_timeout_ms);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -331,15 +308,13 @@ static void ws_reset_idle_timer(struct xWsConn_ *conn) {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-static void ws_process_frame(struct xWsConn_ *conn,
-                             xWsFrame *frame) {
+static void ws_process_frame(struct xWsConn_ *conn, xWsFrame *frame) {
   uint8_t opcode = frame->opcode;
 
   switch (opcode) {
   case XWS_OPCODE_PING:
     /* Auto-reply with Pong (same payload) */
-    xWsFrameEncode(&conn->write_buf, 1, XWS_OPCODE_PONG,
-                   frame->payload, (size_t)frame->payload_len,
+    xWsFrameEncode(&conn->write_buf, 1, XWS_OPCODE_PONG, frame->payload, (size_t)frame->payload_len,
                    conn->is_client);
     ws_try_flush(conn);
     break;
@@ -349,15 +324,14 @@ static void ws_process_frame(struct xWsConn_ *conn,
     break;
 
   case XWS_OPCODE_CLOSE: {
-    uint16_t code = XWS_CLOSE_NO_STATUS;
-    const char *reason = NULL;
-    size_t reason_len = 0;
+    uint16_t    code       = XWS_CLOSE_NO_STATUS;
+    const char *reason     = NULL;
+    size_t      reason_len = 0;
 
     if (frame->payload_len >= 2) {
-      code = (uint16_t)((frame->payload[0] << 8) |
-                         frame->payload[1]);
+      code = (uint16_t)((frame->payload[0] << 8) | frame->payload[1]);
       if (frame->payload_len > 2) {
-        reason = (const char *)(frame->payload + 2);
+        reason     = (const char *)(frame->payload + 2);
         reason_len = (size_t)frame->payload_len - 2;
       }
     }
@@ -373,8 +347,7 @@ static void ws_process_frame(struct xWsConn_ *conn,
           conn->close_reason_len = reason_len;
         }
       }
-      xWsFrameEncodeClose(&conn->write_buf, code, reason,
-                          reason_len, conn->is_client);
+      xWsFrameEncodeClose(&conn->write_buf, code, reason, reason_len, conn->is_client);
       ws_try_flush(conn);
       /* Connection will be destroyed after flush completes */
     } else if (conn->close_state == xWsCloseState_CloseSent) {
@@ -396,36 +369,26 @@ static void ws_process_frame(struct xWsConn_ *conn,
 #ifdef XHTTP_WS_DEFLATE
       if (frame->rsv1 && conn->deflate_ctx) {
         /* Decompress the payload */
-        uint8_t *decompressed = NULL;
-        size_t decompressed_len = 0;
-        if (xWsDeflateDecompress(
-              conn->deflate_ctx,
-              frame->payload, (size_t)frame->payload_len,
-              &decompressed, &decompressed_len) < 0) {
-          xWsConnClose(conn, XWS_CLOSE_PROTOCOL_ERR,
-                       NULL, 0);
+        uint8_t *decompressed     = NULL;
+        size_t   decompressed_len = 0;
+        if (xWsDeflateDecompress(conn->deflate_ctx, frame->payload, (size_t)frame->payload_len,
+                                 &decompressed, &decompressed_len) < 0) {
+          xWsConnClose(conn, XWS_CLOSE_PROTOCOL_ERR, NULL, 0);
           break;
         }
         if (conn->callbacks.on_message) {
-          xWsOpcode op = (opcode == XWS_OPCODE_TEXT)
-                           ? xWsOpcode_Text
-                           : xWsOpcode_Binary;
-          conn->callbacks.on_message(
-            (xWsConn)conn, op,
-            decompressed, decompressed_len,
-            conn->user_arg);
+          xWsOpcode op = (opcode == XWS_OPCODE_TEXT) ? xWsOpcode_Text : xWsOpcode_Binary;
+          conn->callbacks.on_message((xWsConn)conn, op, decompressed, decompressed_len,
+                                     conn->user_arg);
         }
         free(decompressed);
         break;
       }
 #endif
       if (conn->callbacks.on_message) {
-        xWsOpcode op = (opcode == XWS_OPCODE_TEXT)
-                         ? xWsOpcode_Text : xWsOpcode_Binary;
-        conn->callbacks.on_message(
-          (xWsConn)conn, op,
-          frame->payload, (size_t)frame->payload_len,
-          conn->user_arg);
+        xWsOpcode op = (opcode == XWS_OPCODE_TEXT) ? xWsOpcode_Text : xWsOpcode_Binary;
+        conn->callbacks.on_message((xWsConn)conn, op, frame->payload, (size_t)frame->payload_len,
+                                   conn->user_arg);
       }
     } else {
       /* First fragment of a fragmented message */
@@ -433,13 +396,12 @@ static void ws_process_frame(struct xWsConn_ *conn,
         xWsConnClose(conn, XWS_CLOSE_PROTOCOL_ERR, NULL, 0);
         break;
       }
-      conn->in_fragment = 1;
-      conn->frag_opcode = opcode;
+      conn->in_fragment     = 1;
+      conn->frag_opcode     = opcode;
       conn->frag_compressed = frame->rsv1 ? 1 : 0;
       xIOBufferReset(&conn->frag_buf);
       if (frame->payload_len > 0) {
-        xIOBufferAppend(&conn->frag_buf, frame->payload,
-                        (size_t)frame->payload_len);
+        xIOBufferAppend(&conn->frag_buf, frame->payload, (size_t)frame->payload_len);
       }
     }
     break;
@@ -451,13 +413,12 @@ static void ws_process_frame(struct xWsConn_ *conn,
       break;
     }
     if (frame->payload_len > 0) {
-      xIOBufferAppend(&conn->frag_buf, frame->payload,
-                      (size_t)frame->payload_len);
+      xIOBufferAppend(&conn->frag_buf, frame->payload, (size_t)frame->payload_len);
     }
     if (frame->fin) {
       /* Final fragment: deliver reassembled message */
-      conn->in_fragment = 0;
-      size_t total = xIOBufferLen(&conn->frag_buf);
+      conn->in_fragment  = 0;
+      size_t   total     = xIOBufferLen(&conn->frag_buf);
       uint8_t *assembled = NULL;
       if (total > 0) {
         assembled = (uint8_t *)malloc(total);
@@ -472,32 +433,25 @@ static void ws_process_frame(struct xWsConn_ *conn,
        * entire reassembled message is compressed. We stored
        * the raw (compressed) fragments; now decompress. */
       if (conn->frag_compressed && conn->deflate_ctx) {
-        uint8_t *decompressed = NULL;
-        size_t decompressed_len = 0;
+        uint8_t *decompressed     = NULL;
+        size_t   decompressed_len = 0;
         if (assembled && total > 0 &&
-            xWsDeflateDecompress(
-              conn->deflate_ctx,
-              assembled, total,
-              &decompressed, &decompressed_len) == 0) {
+            xWsDeflateDecompress(conn->deflate_ctx, assembled, total, &decompressed,
+                                 &decompressed_len) == 0) {
           free(assembled);
           assembled = decompressed;
-          total = decompressed_len;
+          total     = decompressed_len;
         } else {
           free(assembled);
-          xWsConnClose(conn, XWS_CLOSE_PROTOCOL_ERR,
-                       NULL, 0);
+          xWsConnClose(conn, XWS_CLOSE_PROTOCOL_ERR, NULL, 0);
           break;
         }
       }
 #endif
 
       if (conn->callbacks.on_message) {
-        xWsOpcode op =
-          (conn->frag_opcode == XWS_OPCODE_TEXT)
-            ? xWsOpcode_Text : xWsOpcode_Binary;
-        conn->callbacks.on_message(
-          (xWsConn)conn, op,
-          assembled, total, conn->user_arg);
+        xWsOpcode op = (conn->frag_opcode == XWS_OPCODE_TEXT) ? xWsOpcode_Text : xWsOpcode_Binary;
+        conn->callbacks.on_message((xWsConn)conn, op, assembled, total, conn->user_arg);
       }
       free(assembled);
     }
@@ -544,9 +498,7 @@ static void ws_on_event(xSocket sock, xEventMask mask, void *arg) {
    * while the underlying socket has multiple records buffered. */
   if (mask & xEvent_Read) {
     for (;;) {
-      ssize_t n = xIOBufferReadWith(&conn->read_buf,
-                                    conn->transport.read,
-                                    conn->transport.ctx);
+      ssize_t n = xIOBufferReadWith(&conn->read_buf, conn->transport.read, conn->transport.ctx);
       if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
           /* No more data available right now; parse what we have
@@ -567,8 +519,7 @@ static void ws_on_event(xSocket sock, xEventMask mask, void *arg) {
 
     /* Parse frames */
     while (conn->close_state != xWsCloseState_Closed) {
-      xWsFrameResult result = xWsFrameParse(
-        &conn->parser, &conn->read_buf);
+      xWsFrameResult result = xWsFrameParse(&conn->parser, &conn->read_buf);
 
       if (result == xWsFrameResult_Ok) {
         ws_process_frame(conn, &conn->parser.frame);

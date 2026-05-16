@@ -21,8 +21,8 @@
 #ifndef XPP_NONNULL_H
 #define XPP_NONNULL_H
 
-#include "option.h"
-#include "panic.h"
+#include <xpp/option.h>
+#include <xpp/panic.h>
 
 #include <type_traits>
 #include <utility>
@@ -56,8 +56,7 @@ public:
    * SFINAE-removed when T = void (since `void&` is ill-formed). For
    * NonNull<void>, use newUnchecked or from instead.
    */
-  template <class U = T,
-            class   = typename std::enable_if<!std::is_void<U>::value>::type>
+  template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   explicit NonNull(U &ref) noexcept : m_ptr(&ref) {}
 
   NonNull(const NonNull &)            = default;
@@ -93,15 +92,13 @@ public:
   }
 
   /** @brief Dereference. Removed via SFINAE for T = void. */
-  template <class U = T,
-            class   = typename std::enable_if<!std::is_void<U>::value>::type>
+  template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   U &operator*() const noexcept {
     return *m_ptr;
   }
 
   /** @brief Member access. Removed via SFINAE for T = void. */
-  template <class U = T,
-            class   = typename std::enable_if<!std::is_void<U>::value>::type>
+  template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   U *operator->() const noexcept {
     return m_ptr;
   }
@@ -228,8 +225,7 @@ public:
     using U = decltype(fn(std::declval<NonNull<T>>()));
     return m_ptr ? Option<U>(fn(NonNull<T>::newUnchecked(m_ptr))) : Option<U>(none);
   }
-  template <class Func>
-  auto map(Func &&fn) && -> Option<decltype(fn(std::declval<NonNull<T>>()))> {
+  template <class Func> auto map(Func &&fn) && -> Option<decltype(fn(std::declval<NonNull<T>>()))> {
     using U = decltype(fn(std::declval<NonNull<T>>()));
     if (!m_ptr) return Option<U>(none);
     NonNull<T> p = NonNull<T>::newUnchecked(m_ptr);
@@ -242,8 +238,7 @@ public:
     using R = decltype(fn(std::declval<NonNull<T>>()));
     return m_ptr ? fn(NonNull<T>::newUnchecked(m_ptr)) : R(none);
   }
-  template <class Func>
-  auto andThen(Func &&fn) && -> decltype(fn(std::declval<NonNull<T>>())) {
+  template <class Func> auto andThen(Func &&fn) && -> decltype(fn(std::declval<NonNull<T>>())) {
     using R = decltype(fn(std::declval<NonNull<T>>()));
     if (!m_ptr) return R(none);
     NonNull<T> p = NonNull<T>::newUnchecked(m_ptr);
@@ -301,16 +296,13 @@ private:
 
 /* ── NonNull<T>::from definition (Option<NonNull<T>> now complete) ── */
 
-template <class T>
-inline Option<NonNull<T>> NonNull<T>::from(T *p) noexcept {
-  return p ? Option<NonNull<T>>(NonNull<T>(p, _PrivateTag{}))
-           : Option<NonNull<T>>(none);
+template <class T> inline Option<NonNull<T>> NonNull<T>::from(T *p) noexcept {
+  return p ? Option<NonNull<T>>(NonNull<T>(p, _PrivateTag{})) : Option<NonNull<T>>(none);
 }
 
 /* ── Compile-time size guarantees ───────────────────────────────────── */
 
-static_assert(sizeof(NonNull<int>) == sizeof(int *),
-              "NonNull<T> must be sizeof(T*)");
+static_assert(sizeof(NonNull<int>) == sizeof(int *), "NonNull<T> must be sizeof(T*)");
 static_assert(sizeof(Option<NonNull<int>>) == sizeof(int *),
               "Option<NonNull<T>> niche optimization broken");
 

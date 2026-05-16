@@ -45,7 +45,8 @@ std::string RenderByteByByte(const std::string &md) {
   std::string out;
   xMd         r;
   xMdInit(&r, CollectSink, &out);
-  for (char c : md) xMdFeed(&r, &c, 1);
+  for (char c : md)
+    xMdFeed(&r, &c, 1);
   xMdFlush(&r);
   return out;
 }
@@ -210,13 +211,14 @@ TEST(MdTest, Utf8MixedContentAcrossChunks) {
 
 TEST(MdTest, Utf8AcrossChunksByteByByte) {
   /* 你 byte-by-byte: same as RenderByteByByte but for a Chinese char. */
-  std::string chi = "\xE4\xBD\xA0";  /* 你 */
+  std::string chi = "\xE4\xBD\xA0"; /* 你 */
   EXPECT_EQ(Render(chi), chi) << "whole-chunk baseline";
 
   std::string out;
   xMd         r;
   xMdInit(&r, CollectSink, &out);
-  for (char c : chi) xMdFeed(&r, &c, 1);
+  for (char c : chi)
+    xMdFeed(&r, &c, 1);
   xMdFlush(&r);
   EXPECT_EQ(out, chi) << "byte-by-byte must reconstruct the same character";
 }

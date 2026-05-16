@@ -175,8 +175,7 @@ static void cmd_fire_done(struct xCommandExecutor_ *exec);
 static void cmd_cleanup(struct xCommandExecutor_ *exec);
 static void cmd_kill_pg(struct xCommandExecutor_ *exec, int sig);
 #ifdef X_HAS_PTY
-static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
-                                        const xCommandConf       *conf);
+static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec, const xCommandConf *conf);
 #endif
 
 /* ───────────────────── Pipe helpers ───────────────────── */
@@ -188,7 +187,7 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
 static int pipe_cloexec_nonblock(int fds[2]) {
 #if defined(__linux__) && defined(__NR_pipe2)
   if (pipe2(fds, O_CLOEXEC | O_NONBLOCK) == 0) return 0;
-  /* Fall through to manual approach on pipe2 failure */
+    /* Fall through to manual approach on pipe2 failure */
 #endif
 
   if (pipe(fds) != 0) return -1;
@@ -197,8 +196,7 @@ static int pipe_cloexec_nonblock(int fds[2]) {
     int flags = fcntl(fds[i], F_GETFL, 0);
     if (flags < 0 || fcntl(fds[i], F_SETFL, flags | O_NONBLOCK) < 0) goto fail;
     int fdflags = fcntl(fds[i], F_GETFD, 0);
-    if (fdflags < 0 || fcntl(fds[i], F_SETFD, fdflags | FD_CLOEXEC) < 0)
-      goto fail;
+    if (fdflags < 0 || fcntl(fds[i], F_SETFD, fdflags | FD_CLOEXEC) < 0) goto fail;
   }
   return 0;
 
@@ -229,8 +227,7 @@ static int fd_set_nonblock(int fd) {
 xCommandExecutor xCommandExecutorCreate(xEventLoop loop) {
   if (!loop) return NULL;
 
-  struct xCommandExecutor_ *exec =
-    (struct xCommandExecutor_ *)calloc(1, sizeof(*exec));
+  struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)calloc(1, sizeof(*exec));
   if (!exec) return NULL;
 
   exec->loop           = loop;
@@ -288,8 +285,7 @@ static const char **build_exec_argv(const char *cmd, const char **user_argv) {
     while (user_argv[argc - 1])
       argc++;
   }
-  const char **exec_argv =
-    (const char **)malloc((argc + 1) * sizeof(const char *));
+  const char **exec_argv = (const char **)malloc((argc + 1) * sizeof(const char *));
   if (!exec_argv) return NULL;
   exec_argv[0] = cmd;
   if (user_argv) {
@@ -329,8 +325,7 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
     exec->stdout_buf = xStringCreate(NULL);
     if (!exec->stdout_buf) goto fail;
   }
-  if (conf->stderr_mode == xCommandOutput_Capture &&
-      conf->input_mode != xCommandInput_Pty) {
+  if (conf->stderr_mode == xCommandOutput_Capture && conf->input_mode != xCommandInput_Pty) {
     exec->stderr_buf = xStringCreate(NULL);
     if (!exec->stderr_buf) goto fail;
   }
@@ -504,19 +499,17 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
   }
 
   /* Watch read ends for output */
-  if (conf->stdout_mode != xCommandOutput_Discard &&
-      exec->stdout_pipe[0] >= 0) {
-    exec->stdout_src = xEventAdd(exec->loop, exec->stdout_pipe[0], xEvent_Read,
-                                 on_stdout_readable, exec);
+  if (conf->stdout_mode != xCommandOutput_Discard && exec->stdout_pipe[0] >= 0) {
+    exec->stdout_src =
+      xEventAdd(exec->loop, exec->stdout_pipe[0], xEvent_Read, on_stdout_readable, exec);
     if (!exec->stdout_src) goto fail_sigchld;
   } else {
     exec->stdout_eof = 1;
   }
 
-  if (conf->stderr_mode != xCommandOutput_Discard &&
-      exec->stderr_pipe[0] >= 0) {
-    exec->stderr_src = xEventAdd(exec->loop, exec->stderr_pipe[0], xEvent_Read,
-                                 on_stderr_readable, exec);
+  if (conf->stderr_mode != xCommandOutput_Discard && exec->stderr_pipe[0] >= 0) {
+    exec->stderr_src =
+      xEventAdd(exec->loop, exec->stderr_pipe[0], xEvent_Read, on_stderr_readable, exec);
     if (!exec->stderr_src) goto fail_sigchld;
   } else {
     exec->stderr_eof = 1;
@@ -524,8 +517,7 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
 
   /* Start timeout timer */
   if (conf->timeout_ms > 0) {
-    exec->timeout_timer =
-      xEventLoopTimerAfter(exec->loop, on_timeout, exec, conf->timeout_ms);
+    exec->timeout_timer = xEventLoopTimerAfter(exec->loop, on_timeout, exec, conf->timeout_ms);
   }
 
   exec->state = xCommandExecutorState_Running;
@@ -558,8 +550,7 @@ fail:
 
 #ifdef X_HAS_PTY
 
-static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
-                                        const xCommandConf       *conf) {
+static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec, const xCommandConf *conf) {
   /* In PTY mode:
    * - We use forkpty() to create a PTY master/slave pair and fork.
    * - The child gets the slave side as its controlling terminal.
@@ -660,8 +651,7 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
    * We must register even in Discard mode: reading from the master fd
    * drains the PTY buffer and ensures the child doesn't block on write.
    * The data is simply discarded in on_pty_readable when mode == Discard. */
-  exec->stdout_src =
-    xEventAdd(exec->loop, master_fd, xEvent_Read, on_pty_readable, exec);
+  exec->stdout_src = xEventAdd(exec->loop, master_fd, xEvent_Read, on_pty_readable, exec);
   if (!exec->stdout_src) goto fail_sigchld;
 
   /* Probe: the child may have already exited */
@@ -687,8 +677,7 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
           if (n > 0) {
             if (exec->stdout_mode == xCommandOutput_Capture) {
               xStringAppendLen(&exec->stdout_buf, buf, (size_t)n);
-            } else if (exec->stdout_mode == xCommandOutput_Stream &&
-                       exec->on_stdout) {
+            } else if (exec->stdout_mode == xCommandOutput_Stream && exec->on_stdout) {
               exec->on_stdout((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
             }
           } else if (n == 0) {
@@ -723,8 +712,7 @@ static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
 
   /* Start timeout timer */
   if (conf->timeout_ms > 0) {
-    exec->timeout_timer =
-      xEventLoopTimerAfter(exec->loop, on_timeout, exec, conf->timeout_ms);
+    exec->timeout_timer = xEventLoopTimerAfter(exec->loop, on_timeout, exec, conf->timeout_ms);
   }
 
   exec->state = xCommandExecutorState_Running;
@@ -761,8 +749,7 @@ xErrno xCommandExecutorCancel(xCommandExecutor exec_) {
   exec->state            = xCommandExecutorState_Cancelling;
 
   /* Start grace timer for SIGKILL */
-  exec->cancel_timer = xEventLoopTimerAfter(exec->loop, on_cancel_grace, exec,
-                                            CMD_CANCEL_GRACE_MS);
+  exec->cancel_timer = xEventLoopTimerAfter(exec->loop, on_cancel_grace, exec, CMD_CANCEL_GRACE_MS);
   return xErrno_Ok;
 }
 
@@ -771,14 +758,12 @@ xErrno xCommandExecutorCancel(xCommandExecutor exec_) {
 int xCommandExecutorPid(xCommandExecutor exec_) {
   if (!exec_) return -1;
   struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
-  return (exec->state != xCommandExecutorState_Idle) ? (int)exec->child_pid
-                                                     : -1;
+  return (exec->state != xCommandExecutorState_Idle) ? (int)exec->child_pid : -1;
 }
 
 int xCommandExecutorIsRunning(xCommandExecutor exec_) {
   if (!exec_) return 0;
-  return ((struct xCommandExecutor_ *)exec_)->state !=
-         xCommandExecutorState_Idle;
+  return ((struct xCommandExecutor_ *)exec_)->state != xCommandExecutorState_Idle;
 }
 
 int xCommandExecutorPtyFd(xCommandExecutor exec_) {
@@ -793,8 +778,7 @@ int xCommandExecutorStdinFd(xCommandExecutor exec_) {
   struct xCommandExecutor_ *exec = (struct xCommandExecutor_ *)exec_;
   if (exec->state == xCommandExecutorState_Idle) return -1;
   /* PTY mode: write to the master fd */
-  if (exec->input_mode == xCommandInput_Pty && exec->pty_master_fd >= 0)
-    return exec->pty_master_fd;
+  if (exec->input_mode == xCommandInput_Pty && exec->pty_master_fd >= 0) return exec->pty_master_fd;
   /* Pipe mode: write to the stdin pipe write end */
   if (exec->stdin_pipe[1] >= 0) return exec->stdin_pipe[1];
   return -1;
@@ -812,8 +796,7 @@ static void on_stdout_readable(int fd, xEventMask mask, void *arg) {
     if (n > 0) {
       if (exec->stdout_mode == xCommandOutput_Capture) {
         xStringAppendLen(&exec->stdout_buf, buf, (size_t)n);
-      } else if (exec->stdout_mode == xCommandOutput_Stream &&
-                 exec->on_stdout) {
+      } else if (exec->stdout_mode == xCommandOutput_Stream && exec->on_stdout) {
         exec->on_stdout((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
       }
     } else if (n == 0) {
@@ -849,8 +832,7 @@ static void on_stderr_readable(int fd, xEventMask mask, void *arg) {
     if (n > 0) {
       if (exec->stderr_mode == xCommandOutput_Capture) {
         xStringAppendLen(&exec->stderr_buf, buf, (size_t)n);
-      } else if (exec->stderr_mode == xCommandOutput_Stream &&
-                 exec->on_stderr) {
+      } else if (exec->stderr_mode == xCommandOutput_Stream && exec->on_stderr) {
         exec->on_stderr((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
       }
     } else if (n == 0) {
@@ -889,8 +871,7 @@ static void on_pty_readable(int fd, xEventMask mask, void *arg) {
       /* In PTY mode, all output is merged and treated as stdout */
       if (exec->stdout_mode == xCommandOutput_Capture) {
         xStringAppendLen(&exec->stdout_buf, buf, (size_t)n);
-      } else if (exec->stdout_mode == xCommandOutput_Stream &&
-                 exec->on_stdout) {
+      } else if (exec->stdout_mode == xCommandOutput_Stream && exec->on_stdout) {
         exec->on_stdout((xCommandExecutor)exec, buf, (size_t)n, exec->ud);
       }
       /* Discard mode: read and discard to drain the PTY buffer */
@@ -938,8 +919,7 @@ static void on_timeout(void *arg) {
   cmd_kill_pg(exec, SIGTERM);
   exec->result.timed_out = 1;
   exec->state            = xCommandExecutorState_Cancelling;
-  exec->cancel_timer = xEventLoopTimerAfter(exec->loop, on_cancel_grace, exec,
-                                            CMD_CANCEL_GRACE_MS);
+  exec->cancel_timer = xEventLoopTimerAfter(exec->loop, on_cancel_grace, exec, CMD_CANCEL_GRACE_MS);
 }
 
 /* ───────────────────── Cancel grace period ───────────────────── */
@@ -1016,8 +996,8 @@ static void cmd_fire_done(struct xCommandExecutor_ *exec) {
     exec->result.stdout_buf = exec->stdout_buf;
     exec->result.stdout_len = xStringLen(exec->stdout_buf);
   }
-  if (exec->stderr_mode == xCommandOutput_Capture &&
-      exec->input_mode != xCommandInput_Pty && exec->stderr_buf) {
+  if (exec->stderr_mode == xCommandOutput_Capture && exec->input_mode != xCommandInput_Pty &&
+      exec->stderr_buf) {
     exec->result.stderr_buf = exec->stderr_buf;
     exec->result.stderr_len = xStringLen(exec->stderr_buf);
   }

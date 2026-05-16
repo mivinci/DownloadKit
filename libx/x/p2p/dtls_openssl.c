@@ -60,8 +60,7 @@ static bool generate_self_signed_cert(xDtlsBackendCtx *ctx) {
   EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL);
   if (!pctx) goto fail;
   if (EVP_PKEY_keygen_init(pctx) <= 0) goto fail;
-  if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) <=
-      0) {
+  if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) <= 0) {
     goto fail;
   }
   if (EVP_PKEY_keygen(pctx, &pkey) <= 0) goto fail;
@@ -79,8 +78,8 @@ static bool generate_self_signed_cert(xDtlsBackendCtx *ctx) {
   X509_set_pubkey(cert, pkey);
 
   X509_NAME *name = X509_get_subject_name(cert);
-  X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-                             (const unsigned char *)"moo WebRTC", -1, -1, 0);
+  X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, (const unsigned char *)"moo WebRTC", -1, -1,
+                             0);
   X509_set_issuer_name(cert, name);
 
   if (X509_sign(cert, pkey, EVP_sha256()) <= 0) goto fail;
@@ -109,10 +108,8 @@ static int dtls_verify_callback(int preverify_ok, X509_STORE_CTX *store_ctx) {
   return 1;
 }
 
-static xDtlsBackendCtx *openssl_create(xDtlsRole role, xDtlsSendFn send_fn,
-                                        void *send_arg) {
-  xDtlsBackendCtx *ctx =
-    (xDtlsBackendCtx *)calloc(1, sizeof(xDtlsBackendCtx));
+static xDtlsBackendCtx *openssl_create(xDtlsRole role, xDtlsSendFn send_fn, void *send_arg) {
+  xDtlsBackendCtx *ctx = (xDtlsBackendCtx *)calloc(1, sizeof(xDtlsBackendCtx));
   if (!ctx) return NULL;
 
   ctx->role     = role;
@@ -145,17 +142,15 @@ static xDtlsBackendCtx *openssl_create(xDtlsRole role, xDtlsSendFn send_fn,
   if (SSL_CTX_use_PrivateKey(ctx->ssl_ctx, ctx->pkey) != 1) goto fail;
 
   /* For WebRTC, we use SRTP-compatible cipher suites */
-  SSL_CTX_set_cipher_list(ctx->ssl_ctx,
-                          "ECDHE-ECDSA-AES128-GCM-SHA256:"
-                          "ECDHE-ECDSA-AES256-GCM-SHA384:"
-                          "ECDHE-ECDSA-CHACHA20-POLY1305");
+  SSL_CTX_set_cipher_list(ctx->ssl_ctx, "ECDHE-ECDSA-AES128-GCM-SHA256:"
+                                        "ECDHE-ECDSA-AES256-GCM-SHA384:"
+                                        "ECDHE-ECDSA-CHACHA20-POLY1305");
 
   /* Verify peer certificate (we do fingerprint check ourselves) */
   /* Use a permissive verify callback that always returns OK.
    * In WebRTC, certificate trust is established via SDP fingerprint
    * comparison, not via a CA chain. */
-  SSL_CTX_set_verify(ctx->ssl_ctx,
-                     SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+  SSL_CTX_set_verify(ctx->ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
                      dtls_verify_callback);
 
   /* Create SSL object */
@@ -186,7 +181,8 @@ static xDtlsBackendCtx *openssl_create(xDtlsRole role, xDtlsSendFn send_fn,
   return ctx;
 
 fail:
-  if (ctx->ssl) SSL_free(ctx->ssl); /* Also frees BIOs attached to SSL */
+  if (ctx->ssl)
+    SSL_free(ctx->ssl); /* Also frees BIOs attached to SSL */
   else {
     if (ctx->bio_in) BIO_free(ctx->bio_in);
     if (ctx->bio_out) BIO_free(ctx->bio_out);
@@ -245,13 +241,11 @@ static xErrno openssl_set_role(xDtlsBackendCtx *ctx, xDtlsRole role) {
   if (SSL_CTX_use_certificate(ctx->ssl_ctx, ctx->cert) != 1) return xErrno_SysError;
   if (SSL_CTX_use_PrivateKey(ctx->ssl_ctx, ctx->pkey) != 1) return xErrno_SysError;
 
-  SSL_CTX_set_cipher_list(ctx->ssl_ctx,
-                          "ECDHE-ECDSA-AES128-GCM-SHA256:"
-                          "ECDHE-ECDSA-AES256-GCM-SHA384:"
-                          "ECDHE-ECDSA-CHACHA20-POLY1305");
+  SSL_CTX_set_cipher_list(ctx->ssl_ctx, "ECDHE-ECDSA-AES128-GCM-SHA256:"
+                                        "ECDHE-ECDSA-AES256-GCM-SHA384:"
+                                        "ECDHE-ECDSA-CHACHA20-POLY1305");
 
-  SSL_CTX_set_verify(ctx->ssl_ctx,
-                     SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+  SSL_CTX_set_verify(ctx->ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
                      dtls_verify_callback);
 
   ctx->ssl = SSL_new(ctx->ssl_ctx);
@@ -313,8 +307,7 @@ static void openssl_flush_output(xDtlsBackendCtx *ctx) {
   flush_bio_out(ctx);
 }
 
-static xErrno openssl_feed_input(xDtlsBackendCtx *ctx, const uint8_t *data,
-                                  size_t len) {
+static xErrno openssl_feed_input(xDtlsBackendCtx *ctx, const uint8_t *data, size_t len) {
   if (!ctx || !data) return xErrno_InvalidArg;
 
   int written = BIO_write(ctx->bio_in, data, (int)len);
@@ -323,8 +316,7 @@ static xErrno openssl_feed_input(xDtlsBackendCtx *ctx, const uint8_t *data,
   return xErrno_Ok;
 }
 
-static xErrno openssl_encrypt_send(xDtlsBackendCtx *ctx, const uint8_t *data,
-                                    size_t len) {
+static xErrno openssl_encrypt_send(xDtlsBackendCtx *ctx, const uint8_t *data, size_t len) {
   if (!ctx || !ctx->ssl || !data) return xErrno_InvalidArg;
 
   int ret = SSL_write(ctx->ssl, data, (int)len);
@@ -339,8 +331,8 @@ static xErrno openssl_encrypt_send(xDtlsBackendCtx *ctx, const uint8_t *data,
   return xErrno_Ok;
 }
 
-static xErrno openssl_decrypt_read(xDtlsBackendCtx *ctx, uint8_t *buf,
-                                    size_t buf_cap, size_t *out_len) {
+static xErrno openssl_decrypt_read(xDtlsBackendCtx *ctx, uint8_t *buf, size_t buf_cap,
+                                   size_t *out_len) {
   if (!ctx || !ctx->ssl || !buf || !out_len) return xErrno_InvalidArg;
 
   int ret = SSL_read(ctx->ssl, buf, (int)buf_cap);
@@ -359,8 +351,7 @@ static xErrno openssl_decrypt_read(xDtlsBackendCtx *ctx, uint8_t *buf,
   return xErrno_SysError;
 }
 
-static xErrno openssl_get_remote_fingerprint(xDtlsBackendCtx *ctx,
-                                              uint8_t         *out) {
+static xErrno openssl_get_remote_fingerprint(xDtlsBackendCtx *ctx, uint8_t *out) {
   if (!ctx || !ctx->ssl || !out) return xErrno_InvalidArg;
 
   X509 *peer_cert = SSL_get_peer_certificate(ctx->ssl);
@@ -399,4 +390,6 @@ static const xDtlsBackend g_openssl_backend = {
   .is_handshake_done      = openssl_is_handshake_done,
 };
 
-const xDtlsBackend *xDtlsBackendGet(void) { return &g_openssl_backend; }
+const xDtlsBackend *xDtlsBackendGet(void) {
+  return &g_openssl_backend;
+}

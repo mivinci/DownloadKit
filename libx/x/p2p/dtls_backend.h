@@ -45,11 +45,11 @@ XDEF_ENUM(xDtlsRole){
 /* ───────────────────── DTLS Handshake State ───────────────────── */
 
 XDEF_ENUM(xDtlsState){
-  xDtlsState_New         = 0, /**< Not started.                       */
-  xDtlsState_Connecting  = 1, /**< Handshake in progress.             */
-  xDtlsState_Connected   = 2, /**< Handshake complete, data flowing.  */
-  xDtlsState_Failed      = 3, /**< Handshake failed or timed out.     */
-  xDtlsState_Closed      = 4, /**< Shut down.                         */
+  xDtlsState_New        = 0, /**< Not started.                       */
+  xDtlsState_Connecting = 1, /**< Handshake in progress.             */
+  xDtlsState_Connected  = 2, /**< Handshake complete, data flowing.  */
+  xDtlsState_Failed     = 3, /**< Handshake failed or timed out.     */
+  xDtlsState_Closed     = 4, /**< Shut down.                         */
 };
 
 /* ───────────────────── Backend Opaque Context ───────────────────── */
@@ -91,8 +91,7 @@ typedef struct xDtlsBackend {
    * @param send_arg Argument forwarded to send_fn.
    * @return         Opaque backend context, or NULL on failure.
    */
-  xDtlsBackendCtx *(*create)(xDtlsRole role, xDtlsSendFn send_fn,
-                              void *send_arg);
+  xDtlsBackendCtx *(*create)(xDtlsRole role, xDtlsSendFn send_fn, void *send_arg);
 
   /**
    * @brief Destroy backend context and free all resources.
@@ -163,8 +162,7 @@ typedef struct xDtlsBackend {
    * @param len   Length of data.
    * @return      xErrno_Ok on success.
    */
-  xErrno (*encrypt_send)(xDtlsBackendCtx *ctx, const uint8_t *data,
-                         size_t len);
+  xErrno (*encrypt_send)(xDtlsBackendCtx *ctx, const uint8_t *data, size_t len);
 
   /**
    * @brief Read decrypted application data from the backend.
@@ -175,8 +173,7 @@ typedef struct xDtlsBackend {
    * @param out_len  Actual bytes read (output).
    * @return         xErrno_Ok on success, xErrno_Again if no data.
    */
-  xErrno (*decrypt_read)(xDtlsBackendCtx *ctx, uint8_t *buf, size_t buf_cap,
-                         size_t *out_len);
+  xErrno (*decrypt_read)(xDtlsBackendCtx *ctx, uint8_t *buf, size_t buf_cap, size_t *out_len);
 
   /**
    * @brief Get the remote peer's certificate SHA-256 fingerprint.

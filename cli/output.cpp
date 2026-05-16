@@ -103,19 +103,18 @@ static void renderer_raw_reset(void *state) {
   (void)state; /* raw has no SGR spans to close */
 }
 
-const Renderer g_renderer_md  = {renderer_md_feed, renderer_md_flush,
-                                 renderer_md_reset, nullptr};
-const Renderer g_renderer_raw = {renderer_raw_feed, renderer_raw_flush,
-                                 renderer_raw_reset, nullptr};
+const Renderer g_renderer_md  = {renderer_md_feed, renderer_md_flush, renderer_md_reset, nullptr};
+const Renderer g_renderer_raw = {renderer_raw_feed, renderer_raw_flush, renderer_raw_reset,
+                                 nullptr};
 
 void renderer_use_md(ReplCtx *ctx) {
-  ctx->renderer = g_renderer_md;
+  ctx->renderer       = g_renderer_md;
   ctx->renderer.state = &ctx->md_renderer;
-  ctx->renderer_name = "md";
+  ctx->renderer_name  = "md";
 }
 
 void renderer_use_raw(ReplCtx *ctx) {
-  ctx->renderer = g_renderer_raw;
+  ctx->renderer       = g_renderer_raw;
   ctx->renderer.state = ctx;
-  ctx->renderer_name = "raw";
+  ctx->renderer_name  = "raw";
 }

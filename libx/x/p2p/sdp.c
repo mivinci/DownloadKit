@@ -19,34 +19,29 @@ int xIceSdpEncodeCandidate(const xIceCandidate *cand, char *out, size_t cap) {
   if (!cand || !out) return -1;
 
   char addr_str[INET6_ADDRSTRLEN];
-  if (!xSockaddrIP((const struct sockaddr *)&cand->addr, addr_str,
-                   sizeof(addr_str))) {
+  if (!xSockaddrIP((const struct sockaddr *)&cand->addr, addr_str, sizeof(addr_str))) {
     return -1;
   }
   uint16_t    port     = xSockaddrPort((const struct sockaddr *)&cand->addr);
   const char *type_str = xIceCandidateTypeStr(cand->type);
 
   int written;
-  if (cand->type == xIceCandidateType_Srflx ||
-      cand->type == xIceCandidateType_Prflx ||
+  if (cand->type == xIceCandidateType_Srflx || cand->type == xIceCandidateType_Prflx ||
       cand->type == xIceCandidateType_Relay) {
     char     raddr_str[INET6_ADDRSTRLEN];
     uint16_t rport = 0;
     if (cand->rel_addr.ss_family != 0) {
-      xSockaddrIP((const struct sockaddr *)&cand->rel_addr, raddr_str,
-                  sizeof(raddr_str));
+      xSockaddrIP((const struct sockaddr *)&cand->rel_addr, raddr_str, sizeof(raddr_str));
       rport = xSockaddrPort((const struct sockaddr *)&cand->rel_addr);
     } else {
       strncpy(raddr_str, "0.0.0.0", sizeof(raddr_str));
     }
-    written = snprintf(
-      out, cap, "a=candidate:%s %d UDP %u %s %u typ %s raddr %s rport %u\r\n",
-      cand->foundation, cand->component_id, cand->priority, addr_str, port,
-      type_str, raddr_str, rport);
+    written = snprintf(out, cap, "a=candidate:%s %d UDP %u %s %u typ %s raddr %s rport %u\r\n",
+                       cand->foundation, cand->component_id, cand->priority, addr_str, port,
+                       type_str, raddr_str, rport);
   } else {
-    written = snprintf(out, cap, "a=candidate:%s %d UDP %u %s %u typ %s\r\n",
-                       cand->foundation, cand->component_id, cand->priority,
-                       addr_str, port, type_str);
+    written = snprintf(out, cap, "a=candidate:%s %d UDP %u %s %u typ %s\r\n", cand->foundation,
+                       cand->component_id, cand->priority, addr_str, port, type_str);
   }
 
   if (written < 0 || (size_t)written >= cap) return -1;
@@ -75,8 +70,8 @@ xErrno xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand) {
   unsigned int port;
 
   int consumed = 0;
-  int n        = sscanf(p, "%31s %d %7s %u %45s %u%n", foundation, &component,
-                        transport, &priority, addr_str, &port, &consumed);
+  int n        = sscanf(p, "%31s %d %7s %u %45s %u%n", foundation, &component, transport, &priority,
+                        addr_str, &port, &consumed);
   if (n < 6) return xErrno_InvalidArg;
 
   strncpy(cand->foundation, foundation, XICE_FOUNDATION_MAX_LEN - 1);
@@ -128,9 +123,8 @@ xErrno xIceSdpDecodeCandidate(const char *line, xIceCandidate *cand) {
 
 /* ───────────────────── Full SDP ───────────────────── */
 
-int xIceSdpEncode(const char *ufrag, const char *pwd,
-                  const xIceCandidate *candidates, int cand_count, bool trickle,
-                  char *out, size_t out_cap) {
+int xIceSdpEncode(const char *ufrag, const char *pwd, const xIceCandidate *candidates,
+                  int cand_count, bool trickle, char *out, size_t out_cap) {
   if (!ufrag || !pwd || !out) return -1;
 
   int pos = 0;
@@ -170,18 +164,20 @@ int xIceSdpEncode(const char *ufrag, const char *pwd,
 
 static const char *setup_to_str(xIceSdpSetup setup) {
   switch (setup) {
-  case xIceSdpSetup_Active:  return "active";
-  case xIceSdpSetup_Passive: return "passive";
-  case xIceSdpSetup_Actpass: return "actpass";
-  default:                   return "actpass";
+  case xIceSdpSetup_Active:
+    return "active";
+  case xIceSdpSetup_Passive:
+    return "passive";
+  case xIceSdpSetup_Actpass:
+    return "actpass";
+  default:
+    return "actpass";
   }
 }
 
-int xIceSdpEncodeWebRTC(const char *ufrag, const char *pwd,
-                        const xIceCandidate *candidates, int cand_count,
-                        bool trickle, const char *fingerprint,
-                        xIceSdpSetup setup, const char *mid,
-                        uint16_t sctp_port, char *out, size_t out_cap) {
+int xIceSdpEncodeWebRTC(const char *ufrag, const char *pwd, const xIceCandidate *candidates,
+                        int cand_count, bool trickle, const char *fingerprint, xIceSdpSetup setup,
+                        const char *mid, uint16_t sctp_port, char *out, size_t out_cap) {
   if (!ufrag || !pwd || !fingerprint || !mid || !out) return -1;
 
   int pos = 0;
@@ -202,8 +198,7 @@ int xIceSdpEncodeWebRTC(const char *ufrag, const char *pwd,
                "a=fingerprint:%s\r\n"
                "a=setup:%s\r\n"
                "a=sctp-port:%u\r\n",
-               mid, mid, ufrag, pwd, fingerprint,
-               setup_to_str(setup), sctp_port);
+               mid, mid, ufrag, pwd, fingerprint, setup_to_str(setup), sctp_port);
   if (n < 0 || pos + n >= (int)out_cap) return -1;
   pos += n;
 

@@ -123,8 +123,7 @@ static bool files_equal(const char *path_a, const char *path_b) {
 
 /* ── Sender callbacks ──────────────────────────────────── */
 
-static void sender_on_state_change(xTransfer xfer, xTransferState state,
-                                   void *ctx) {
+static void sender_on_state_change(xTransfer xfer, xTransferState state, void *ctx) {
   (void)xfer;
   (void)ctx;
   const char *s;
@@ -142,7 +141,7 @@ static void sender_on_state_change(xTransfer xfer, xTransferState state,
     s = "Transferring";
     break;
   case xTransferState_Done:
-    s = "Done";
+    s             = "Done";
     g_sender_done = true;
     if (g_receiver_done) {
       xEventLoopStop(g_loop);
@@ -158,16 +157,14 @@ static void sender_on_state_change(xTransfer xfer, xTransferState state,
   printf("[Sender] State: %s\n", s);
 }
 
-static void sender_on_progress(xTransfer xfer, uint64_t transferred,
-                               uint64_t total, void *ctx) {
+static void sender_on_progress(xTransfer xfer, uint64_t transferred, uint64_t total, void *ctx) {
   (void)xfer;
   (void)ctx;
   g_sender_total    = total;
   g_sender_progress = transferred;
 
-  printf("\r[Sender] Progress: %llu / %llu bytes (%.1f%%)",
-         (unsigned long long)transferred, (unsigned long long)total,
-         total > 0 ? 100.0 * transferred / total : 0.0);
+  printf("\r[Sender] Progress: %llu / %llu bytes (%.1f%%)", (unsigned long long)transferred,
+         (unsigned long long)total, total > 0 ? 100.0 * transferred / total : 0.0);
   fflush(stdout);
 
   /* Resume test: cancel at ~50% in phase 1 */
@@ -178,16 +175,14 @@ static void sender_on_progress(xTransfer xfer, uint64_t transferred,
   }
 }
 
-static void sender_on_error(xTransfer xfer, xErrno err, const char *msg,
-                            void *ctx) {
+static void sender_on_error(xTransfer xfer, xErrno err, const char *msg, void *ctx) {
   (void)xfer;
   (void)err;
   (void)ctx;
   fprintf(stderr, "[Sender] Error: %s\n", msg);
 }
 
-static void sender_on_ice_candidate(xTransfer xfer, const char *candidate,
-                                    void *ctx) {
+static void sender_on_ice_candidate(xTransfer xfer, const char *candidate, void *ctx) {
   (void)xfer;
   (void)ctx;
   if (candidate) {
@@ -203,8 +198,7 @@ static void sender_on_ice_candidate(xTransfer xfer, const char *candidate,
 
 /* ── Receiver callbacks ────────────────────────────────── */
 
-static void receiver_on_state_change(xTransfer xfer, xTransferState state,
-                                     void *ctx) {
+static void receiver_on_state_change(xTransfer xfer, xTransferState state, void *ctx) {
   (void)xfer;
   (void)ctx;
   const char *s;
@@ -254,34 +248,29 @@ static void receiver_on_state_change(xTransfer xfer, xTransferState state,
   printf("[Receiver] State: %s\n", s);
 }
 
-static void receiver_on_progress(xTransfer xfer, uint64_t transferred,
-                                 uint64_t total, void *ctx) {
+static void receiver_on_progress(xTransfer xfer, uint64_t transferred, uint64_t total, void *ctx) {
   (void)xfer;
   (void)ctx;
-  printf("\r[Receiver] Progress: %llu / %llu bytes (%.1f%%)",
-         (unsigned long long)transferred, (unsigned long long)total,
-         total > 0 ? 100.0 * transferred / total : 0.0);
+  printf("\r[Receiver] Progress: %llu / %llu bytes (%.1f%%)", (unsigned long long)transferred,
+         (unsigned long long)total, total > 0 ? 100.0 * transferred / total : 0.0);
   fflush(stdout);
 }
 
-static void receiver_on_file_meta(xTransfer xfer, const char *filename,
-                                  uint64_t filesize, void *ctx) {
+static void receiver_on_file_meta(xTransfer xfer, const char *filename, uint64_t filesize,
+                                  void *ctx) {
   (void)xfer;
   (void)ctx;
-  printf("[Receiver] FILE_META: name=\"%s\" size=%llu\n", filename,
-         (unsigned long long)filesize);
+  printf("[Receiver] FILE_META: name=\"%s\" size=%llu\n", filename, (unsigned long long)filesize);
 }
 
-static void receiver_on_error(xTransfer xfer, xErrno err, const char *msg,
-                              void *ctx) {
+static void receiver_on_error(xTransfer xfer, xErrno err, const char *msg, void *ctx) {
   (void)xfer;
   (void)err;
   (void)ctx;
   fprintf(stderr, "[Receiver] Error: %s\n", msg);
 }
 
-static void receiver_on_ice_candidate(xTransfer xfer, const char *candidate,
-                                      void *ctx) {
+static void receiver_on_ice_candidate(xTransfer xfer, const char *candidate, void *ctx) {
   (void)xfer;
   (void)ctx;
   if (candidate) {
@@ -400,9 +389,7 @@ int main(int argc, char *argv[]) {
       g_enable_ipv6 = true;
       break;
     default:
-      fprintf(stderr,
-              "Usage: %s [-f file] [-d dest_dir] [-r] [-s stun:port] [-6]\n",
-              argv[0]);
+      fprintf(stderr, "Usage: %s [-f file] [-d dest_dir] [-r] [-s stun:port] [-6]\n", argv[0]);
       return 1;
     }
   }
@@ -417,10 +404,8 @@ int main(int argc, char *argv[]) {
 
   /* Generate temp file if none specified */
   if (!g_send_filepath) {
-    snprintf(g_temp_filepath, sizeof(g_temp_filepath),
-             "/tmp/xfer_echo_test_%d.bin", (int)getpid());
-    printf("Generating temp file: %s (%d bytes)\n", g_temp_filepath,
-           DEFAULT_FILE_SIZE);
+    snprintf(g_temp_filepath, sizeof(g_temp_filepath), "/tmp/xfer_echo_test_%d.bin", (int)getpid());
+    printf("Generating temp file: %s (%d bytes)\n", g_temp_filepath, DEFAULT_FILE_SIZE);
     if (generate_temp_file(g_temp_filepath, DEFAULT_FILE_SIZE) != 0) {
       fprintf(stderr, "Failed to generate temp file\n");
       return 1;

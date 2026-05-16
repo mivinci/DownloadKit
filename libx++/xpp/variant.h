@@ -11,8 +11,8 @@
 #ifndef XPP_VARIANT_H
 #define XPP_VARIANT_H
 
-#include "in_place.h"
-#include "panic.h"
+#include <xpp/in_place.h>
+#include <xpp/panic.h>
 
 #include <cstddef>
 #include <tuple>
@@ -34,8 +34,8 @@ template <size_t I, typename T> struct TypeIndex<I, T> {
 
 // Call fn(holder) where holder is a Holder<T> for the active type.
 // fn should return void.
-template <typename Tuple, size_t N> struct VisitByIndex {
-  template <typename Fn, typename Storage> static void run(size_t i, Storage &storage, Fn &&fn) {
+template <class Tuple, size_t N> struct VisitByIndex {
+  template <class Fn, typename Storage> static void run(size_t i, Storage &storage, Fn &&fn) {
     if (i == N - 1) {
       using T = typename std::tuple_element<N - 1, Tuple>::type;
       fn(reinterpret_cast<T *>(&storage));
@@ -44,8 +44,8 @@ template <typename Tuple, size_t N> struct VisitByIndex {
     VisitByIndex<Tuple, N - 1>::run(i, storage, std::forward<Fn>(fn));
   }
 };
-template <typename Tuple> struct VisitByIndex<Tuple, 0> {
-  template <typename Fn, typename Storage> static void run(size_t, Storage &, Fn &&) {}
+template <class Tuple> struct VisitByIndex<Tuple, 0> {
+  template <class Fn, typename Storage> static void run(size_t, Storage &, Fn &&) {}
 };
 
 } // namespace _
@@ -61,14 +61,14 @@ template <typename Tuple> struct VisitByIndex<Tuple, 0> {
  *   a.is<int>();                    // true
  *   a.get<int>();                   // 42
  */
-template <typename... Types> class Variant {
+template <class... Types> class Variant {
   static constexpr size_t kCount = sizeof...(Types);
   static_assert(kCount >= 2, "Variant requires at least two types");
   using Tuple = std::tuple<Types...>;
 
 public:
   /** Construct from a value of one of the Types. */
-  template <typename T, typename = typename std::enable_if<
+  template <class T, typename = typename std::enable_if<
                           !std::is_same<typename std::decay<T>::type, Variant>::value>::type>
   Variant(T &&val) : m_index(indexOf<typename std::decay<T>::type>()) {
     using D = typename std::decay<T>::type;
@@ -125,7 +125,7 @@ public:
   }
 
   /** True if this currently holds type T. */
-  template <typename T> bool is() const noexcept {
+  template <class T> bool is() const noexcept {
     return m_index == indexOf<T>();
   }
 
@@ -141,17 +141,17 @@ public:
    * Panics if !is<T>(). For zero-cost access when the caller has already
    * verified the active alternative, use getUnchecked<T>().
    */
-  template <typename T> T &get() & {
+  template <class T> T &get() & {
     XPP_ASSERT(is<T>(), "get<T>() on Variant holding a different type");
     return *reinterpret_cast<T *>(&m_storage);
   }
 
-  template <typename T> const T &get() const & {
+  template <class T> const T &get() const & {
     XPP_ASSERT(is<T>(), "get<T>() on Variant holding a different type");
     return *reinterpret_cast<const T *>(&m_storage);
   }
 
-  template <typename T> T &&get() && {
+  template <class T> T &&get() && {
     XPP_ASSERT(is<T>(), "get<T>() on Variant holding a different type");
     return std::move(*reinterpret_cast<T *>(&m_storage));
   }
@@ -162,17 +162,17 @@ public:
    * Debug builds assert; release builds elide the check. Caller must
    * ensure is<T>().
    */
-  template <typename T> T &getUnchecked() & noexcept {
+  template <class T> T &getUnchecked() & noexcept {
     XPP_DEBUG_ASSERT(is<T>(), "internal: Variant must hold T");
     return *reinterpret_cast<T *>(&m_storage);
   }
 
-  template <typename T> const T &getUnchecked() const & noexcept {
+  template <class T> const T &getUnchecked() const & noexcept {
     XPP_DEBUG_ASSERT(is<T>(), "internal: Variant must hold T");
     return *reinterpret_cast<const T *>(&m_storage);
   }
 
-  template <typename T> T &&getUnchecked() && noexcept {
+  template <class T> T &&getUnchecked() && noexcept {
     XPP_DEBUG_ASSERT(is<T>(), "internal: Variant must hold T");
     return std::move(*reinterpret_cast<T *>(&m_storage));
   }
@@ -239,7 +239,7 @@ public:
   }
 
 private:
-  template <typename T> static constexpr size_t indexOf() {
+  template <class T> static constexpr size_t indexOf() {
     return _::TypeIndex<0, T, Types...>::kValue;
   }
 

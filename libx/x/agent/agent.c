@@ -115,10 +115,9 @@ xAgent xAgentCreate(const xAgentConf *conf) {
      *   {root_dir}/sessions/default/history.jsonl
      * rather than a random id like "s_0001ab". */
     xAgentSessionConf dsconf = *conf->default_session_conf;
-    dsconf.session_id     = "default";
+    dsconf.session_id        = "default";
 
-    xAgentSession sess =
-      xAgentCreateSession((xAgent)a, &dsconf);
+    xAgentSession sess = xAgentCreateSession((xAgent)a, &dsconf);
     if (sess) {
       a->default_session = (struct xAgentSession_ *)sess;
     }
@@ -211,12 +210,11 @@ xAgentSession xAgentCreateSession(xAgent agent, const xAgentSessionConf *conf) {
 
     xAgentMemoryHits hits;
     memset(&hits, 0, sizeof(hits));
-    if (xAgentMemoryRetrieve(a->memory, &rq, &hits) == xErrno_Ok &&
-        hits.n_entries > 0) {
+    if (xAgentMemoryRetrieve(a->memory, &rq, &hits) == xErrno_Ok && hits.n_entries > 0) {
       size_t primed = 0;
       for (size_t i = 0; i < hits.n_entries; i++) {
-        const xAgentSessionMsg *m = &hits.entries[i];
-        xErrno prc = xErrno_Ok;
+        const xAgentSessionMsg *m   = &hits.entries[i];
+        xErrno                  prc = xErrno_Ok;
         /* Dispatch on kind and copy through the session's normal
          * append helpers so memory ownership and the release
          * callback (ai_session_msg_free) stay uniform with the
@@ -232,15 +230,11 @@ xAgentSession xAgentCreateSession(xAgent agent, const xAgentSessionConf *conf) {
           prc = ai_history_append_thinking(s, m->text, m->text_len);
           break;
         case xAgentSessionEntryKind_ToolUse:
-          prc = ai_history_append_tool_use(s, m->tool_use_id,
-                                           m->tool_use_name,
-                                           m->tool_use_args);
+          prc = ai_history_append_tool_use(s, m->tool_use_id, m->tool_use_name, m->tool_use_args);
           break;
         case xAgentSessionEntryKind_ToolResult:
-          prc = ai_history_append_tool_result(s, m->tool_result_id,
-                                              m->tool_result_output,
-                                              m->tool_result_output_len,
-                                              m->tool_result_is_error);
+          prc = ai_history_append_tool_result(s, m->tool_result_id, m->tool_result_output,
+                                              m->tool_result_output_len, m->tool_result_is_error);
           break;
         }
         if (prc != xErrno_Ok) break;

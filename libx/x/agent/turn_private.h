@@ -67,7 +67,7 @@ enum xAgentSessionEntryKind_ {
    * reasoning models reject tool_calls assistant messages that do
    * not echo the previous round's reasoning.
    */
-  xAgentSessionEntry_Thinking   = 3,
+  xAgentSessionEntry_Thinking = 3,
 };
 
 /**
@@ -80,8 +80,8 @@ enum xAgentSessionEntryKind_ {
  * interior and zeroes the struct.
  */
 struct xAgentSessionMsg_ {
-  xAgentRole                    role;
-  enum xAgentSessionEntryKind_  kind;
+  xAgentRole                   role;
+  enum xAgentSessionEntryKind_ kind;
 
   /* kind == Text / Thinking */
   char  *text;

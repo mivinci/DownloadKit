@@ -32,7 +32,7 @@ XDEF_STRUCT(xDtlsTransport_) {
   uint8_t local_fingerprint[XDTLS_FINGERPRINT_SIZE];
 
   xEventTimer handshake_timer;
-  bool        driving;          /**< Re-entrancy guard for drive_handshake. */
+  bool        driving;            /**< Re-entrancy guard for drive_handshake. */
   bool        feed_while_driving; /**< Data arrived while driving. */
 };
 
@@ -48,7 +48,7 @@ static void set_state(xDtlsTransport_ *t, xDtlsState new_state) {
 
 static void handshake_timeout_cb(void *arg) {
   xDtlsTransport_ *t = (xDtlsTransport_ *)arg;
-  t->handshake_timer  = NULL;
+  t->handshake_timer = NULL;
 
   if (t->state == xDtlsState_Connecting) {
     set_state(t, xDtlsState_Failed);
@@ -63,8 +63,7 @@ static void drain_decrypted(xDtlsTransport_ *t) {
   uint8_t buf[4096];
   size_t  out_len = 0;
 
-  while (t->backend->decrypt_read(t->backend_ctx, buf, sizeof(buf),
-                                  &out_len) == xErrno_Ok &&
+  while (t->backend->decrypt_read(t->backend_ctx, buf, sizeof(buf), &out_len) == xErrno_Ok &&
          out_len > 0) {
     if (t->conf.on_data) {
       t->conf.on_data((xDtlsTransport)t, buf, out_len, t->conf.ctx);
@@ -95,7 +94,7 @@ static void drive_handshake(xDtlsTransport_ *t) {
 
   for (;;) {
     t->feed_while_driving = false;
-    xErrno err = t->backend->handshake(t->backend_ctx);
+    xErrno err            = t->backend->handshake(t->backend_ctx);
 
     /*
      * Flush any buffered output (e.g. OpenSSL memory BIO).  This is
@@ -111,11 +110,9 @@ static void drive_handshake(xDtlsTransport_ *t) {
       /* Handshake complete — verify remote fingerprint if requested */
       if (t->conf.verify_fingerprint) {
         uint8_t remote_fp[XDTLS_FINGERPRINT_SIZE];
-        xErrno  fp_err =
-          t->backend->get_remote_fingerprint(t->backend_ctx, remote_fp);
+        xErrno  fp_err = t->backend->get_remote_fingerprint(t->backend_ctx, remote_fp);
         if (fp_err != xErrno_Ok ||
-            memcmp(remote_fp, t->conf.remote_fingerprint,
-                   XDTLS_FINGERPRINT_SIZE) != 0) {
+            memcmp(remote_fp, t->conf.remote_fingerprint, XDTLS_FINGERPRINT_SIZE) != 0) {
           set_state(t, xDtlsState_Failed);
           t->driving = false;
           return;
@@ -220,16 +217,14 @@ xDtlsTransport xDtlsTransportCreate(const xDtlsTransportConf *conf) {
   t->effective_role = effective_role;
 
   /* Create backend context (generates self-signed cert) */
-  t->backend_ctx =
-    backend->create(effective_role, conf->send_fn, conf->send_arg);
+  t->backend_ctx = backend->create(effective_role, conf->send_fn, conf->send_arg);
   if (!t->backend_ctx) {
     free(t);
     return NULL;
   }
 
   /* Cache local fingerprint */
-  if (backend->get_fingerprint(t->backend_ctx, t->local_fingerprint) !=
-      xErrno_Ok) {
+  if (backend->get_fingerprint(t->backend_ctx, t->local_fingerprint) != xErrno_Ok) {
     backend->destroy(t->backend_ctx);
     free(t);
     return NULL;
@@ -265,8 +260,8 @@ xErrno xDtlsTransportStart(xDtlsTransport transport) {
   set_state(t, xDtlsState_Connecting);
 
   /* Start handshake timeout */
-  t->handshake_timer = xEventLoopTimerAfter(
-    t->conf.loop, handshake_timeout_cb, t, t->conf.handshake_timeout_ms);
+  t->handshake_timer =
+    xEventLoopTimerAfter(t->conf.loop, handshake_timeout_cb, t, t->conf.handshake_timeout_ms);
 
   /* Drive the handshake (for active role, this sends ClientHello) */
   drive_handshake(t);
@@ -274,8 +269,7 @@ xErrno xDtlsTransportStart(xDtlsTransport transport) {
   return xErrno_Ok;
 }
 
-xErrno xDtlsTransportFeedInput(xDtlsTransport transport, const uint8_t *data,
-                                size_t len) {
+xErrno xDtlsTransportFeedInput(xDtlsTransport transport, const uint8_t *data, size_t len) {
   if (!transport || !data || len == 0) return xErrno_InvalidArg;
   xDtlsTransport_ *t = (xDtlsTransport_ *)transport;
 
@@ -301,8 +295,7 @@ xErrno xDtlsTransportFeedInput(xDtlsTransport transport, const uint8_t *data,
   return xErrno_Ok;
 }
 
-xErrno xDtlsTransportSend(xDtlsTransport transport, const uint8_t *data,
-                           size_t len) {
+xErrno xDtlsTransportSend(xDtlsTransport transport, const uint8_t *data, size_t len) {
   if (!transport || !data || len == 0) return xErrno_InvalidArg;
   xDtlsTransport_ *t = (xDtlsTransport_ *)transport;
 
@@ -360,5 +353,3 @@ xErrno xDtlsTransportSetRole(xDtlsTransport transport, xDtlsRole role) {
   t->effective_role = effective;
   return xErrno_Ok;
 }
-
-

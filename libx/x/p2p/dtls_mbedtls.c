@@ -87,18 +87,18 @@ static int iobuf_read(IoBuf *b, uint8_t *out, size_t cap) {
 /* ───────────────────── Internal Context ───────────────────── */
 
 struct xDtlsBackendCtx {
-  mbedtls_ssl_context      ssl;
-  mbedtls_ssl_config       conf;
-  mbedtls_x509_crt         cert;
-  mbedtls_pk_context       pkey;
+  mbedtls_ssl_context ssl;
+  mbedtls_ssl_config  conf;
+  mbedtls_x509_crt    cert;
+  mbedtls_pk_context  pkey;
 #if MBEDTLS_VERSION_NUMBER < 0x04000000
   mbedtls_entropy_context  entropy;
   mbedtls_ctr_drbg_context ctr_drbg;
 #else
-  mbedtls_svc_key_id_t     psa_key_id; /* PSA key handle for 4.x */
+  mbedtls_svc_key_id_t psa_key_id; /* PSA key handle for 4.x */
 #endif
   mbedtls_timing_delay_context timer;
-  mbedtls_ssl_cookie_ctx   cookie;
+  mbedtls_ssl_cookie_ctx       cookie;
 
   IoBuf       recv_buf; /* Network → mbedTLS */
   xDtlsRole   role;
@@ -109,8 +109,7 @@ struct xDtlsBackendCtx {
 
 /* ───────────────────── Custom I/O Callbacks ───────────────────── */
 
-static int mbedtls_send_cb(void *ctx_arg, const unsigned char *buf,
-                           size_t len) {
+static int mbedtls_send_cb(void *ctx_arg, const unsigned char *buf, size_t len) {
   xDtlsBackendCtx *ctx = (xDtlsBackendCtx *)ctx_arg;
   if (ctx->send_fn) {
     xErrno err = ctx->send_fn((const uint8_t *)buf, len, ctx->send_arg);
@@ -132,9 +131,8 @@ static int mbedtls_recv_cb(void *ctx_arg, unsigned char *buf, size_t len) {
 static int xp2p_sha256(const uint8_t *input, size_t len, uint8_t *output) {
 #if MBEDTLS_VERSION_NUMBER >= 0x04000000
   /* mbedTLS 4.x: use PSA Crypto API */
-  size_t hash_len = 0;
-  psa_status_t status = psa_hash_compute(PSA_ALG_SHA_256, input, len,
-                                         output, 32, &hash_len);
+  size_t       hash_len = 0;
+  psa_status_t status   = psa_hash_compute(PSA_ALG_SHA_256, input, len, output, 32, &hash_len);
   return (status == PSA_SUCCESS && hash_len == 32) ? 0 : -1;
 #elif MBEDTLS_VERSION_NUMBER >= 0x03000000
   /* mbedTLS 3.x: mbedtls_sha256 returns int */
@@ -160,12 +158,10 @@ static bool generate_self_signed_cert(xDtlsBackendCtx *ctx) {
 #if MBEDTLS_VERSION_NUMBER >= 0x04000000
   /* mbedTLS 4.x: use PSA Crypto API for key generation */
   psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
-  psa_set_key_usage_flags(&attributes,
-                          PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_SIGN_MESSAGE |
-                          PSA_KEY_USAGE_EXPORT);
+  psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_SIGN_MESSAGE |
+                                         PSA_KEY_USAGE_EXPORT);
   psa_set_key_algorithm(&attributes, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
-  psa_set_key_type(&attributes,
-                   PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+  psa_set_key_type(&attributes, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
   psa_set_key_bits(&attributes, 256);
 
   psa_status_t status = psa_generate_key(&attributes, &ctx->psa_key_id);
@@ -177,12 +173,10 @@ static bool generate_self_signed_cert(xDtlsBackendCtx *ctx) {
   if (ret != 0) return false;
 #else
   /* mbedTLS 2.x/3.x: classic key generation */
-  ret = mbedtls_pk_setup(&ctx->pkey,
-                         mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
+  ret = mbedtls_pk_setup(&ctx->pkey, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
   if (ret != 0) return false;
 
-  ret = mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1,
-                            mbedtls_pk_ec(ctx->pkey),
+  ret = mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(ctx->pkey),
                             mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
   if (ret != 0) return false;
 #endif
@@ -210,9 +204,8 @@ static bool generate_self_signed_cert(xDtlsBackendCtx *ctx) {
 
   /* Serial number */
 #if MBEDTLS_VERSION_NUMBER >= 0x04000000
-  const unsigned char serial_raw[] = { 0x01 };
-  ret = mbedtls_x509write_crt_set_serial_raw(&crt, serial_raw,
-                                              sizeof(serial_raw));
+  const unsigned char serial_raw[] = {0x01};
+  ret = mbedtls_x509write_crt_set_serial_raw(&crt, serial_raw, sizeof(serial_raw));
   if (ret != 0) {
     mbedtls_x509write_crt_free(&crt);
     return false;
@@ -226,8 +219,7 @@ static bool generate_self_signed_cert(xDtlsBackendCtx *ctx) {
 #endif
 
   /* Validity */
-  ret = mbedtls_x509write_crt_set_validity(&crt, "20250101000000",
-                                            "20260101000000");
+  ret = mbedtls_x509write_crt_set_validity(&crt, "20250101000000", "20260101000000");
   if (ret != 0) {
     mbedtls_x509write_crt_free(&crt);
     return false;
@@ -239,8 +231,8 @@ static bool generate_self_signed_cert(xDtlsBackendCtx *ctx) {
   /* mbedTLS 4.x: f_rng/p_rng parameters removed */
   ret = mbedtls_x509write_crt_der(&crt, der_buf, sizeof(der_buf));
 #else
-  ret = mbedtls_x509write_crt_der(&crt, der_buf, sizeof(der_buf),
-                                   mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
+  ret = mbedtls_x509write_crt_der(&crt, der_buf, sizeof(der_buf), mbedtls_ctr_drbg_random,
+                                  &ctx->ctr_drbg);
 #endif
   mbedtls_x509write_crt_free(&crt);
 
@@ -249,18 +241,15 @@ static bool generate_self_signed_cert(xDtlsBackendCtx *ctx) {
   /* Parse the DER certificate back into the cert structure.
    * mbedtls_x509write_crt_der writes from the END of the buffer. */
   int der_len = ret;
-  ret = mbedtls_x509_crt_parse_der(&ctx->cert,
-                                    der_buf + sizeof(der_buf) - der_len,
-                                    (size_t)der_len);
+  ret =
+    mbedtls_x509_crt_parse_der(&ctx->cert, der_buf + sizeof(der_buf) - der_len, (size_t)der_len);
   return (ret == 0);
 }
 
 /* ───────────────────── Backend Interface ───────────────────── */
 
-static xDtlsBackendCtx *mbedtls_create(xDtlsRole role, xDtlsSendFn send_fn,
-                                         void *send_arg) {
-  xDtlsBackendCtx *ctx =
-    (xDtlsBackendCtx *)calloc(1, sizeof(xDtlsBackendCtx));
+static xDtlsBackendCtx *mbedtls_create(xDtlsRole role, xDtlsSendFn send_fn, void *send_arg) {
+  xDtlsBackendCtx *ctx = (xDtlsBackendCtx *)calloc(1, sizeof(xDtlsBackendCtx));
   if (!ctx) return NULL;
 
   ctx->role     = role;
@@ -287,9 +276,8 @@ static xDtlsBackendCtx *mbedtls_create(xDtlsRole role, xDtlsSendFn send_fn,
 
   /* Seed the DRBG */
   {
-    int seed_ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func,
-                                          &ctx->entropy,
-                                          (const unsigned char *)"xp2p_dtls", 9);
+    int seed_ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func, &ctx->entropy,
+                                         (const unsigned char *)"xp2p_dtls", 9);
     if (seed_ret != 0) goto fail;
   }
 #endif
@@ -298,11 +286,9 @@ static xDtlsBackendCtx *mbedtls_create(xDtlsRole role, xDtlsSendFn send_fn,
   if (!generate_self_signed_cert(ctx)) goto fail;
 
   /* Configure SSL */
-  int endpoint = (role == xDtlsRole_Active) ? MBEDTLS_SSL_IS_CLIENT
-                                             : MBEDTLS_SSL_IS_SERVER;
+  int endpoint = (role == xDtlsRole_Active) ? MBEDTLS_SSL_IS_CLIENT : MBEDTLS_SSL_IS_SERVER;
   {
-    int cfg_ret = mbedtls_ssl_config_defaults(&ctx->conf, endpoint,
-                                              MBEDTLS_SSL_TRANSPORT_DATAGRAM,
+    int cfg_ret = mbedtls_ssl_config_defaults(&ctx->conf, endpoint, MBEDTLS_SSL_TRANSPORT_DATAGRAM,
                                               MBEDTLS_SSL_PRESET_DEFAULT);
     if (cfg_ret != 0) goto fail;
   }
@@ -350,9 +336,8 @@ static xDtlsBackendCtx *mbedtls_create(xDtlsRole role, xDtlsSendFn send_fn,
   mbedtls_ssl_set_bio(&ctx->ssl, ctx, mbedtls_send_cb, mbedtls_recv_cb, NULL);
 
   /* Set timer callbacks for DTLS retransmission */
-  mbedtls_ssl_set_timer_cb(&ctx->ssl, &ctx->timer,
-                            mbedtls_timing_set_delay,
-                            mbedtls_timing_get_delay);
+  mbedtls_ssl_set_timer_cb(&ctx->ssl, &ctx->timer, mbedtls_timing_set_delay,
+                           mbedtls_timing_get_delay);
 
   return ctx;
 
@@ -362,8 +347,7 @@ fail:
   mbedtls_x509_crt_free(&ctx->cert);
   mbedtls_pk_free(&ctx->pkey);
 #if MBEDTLS_VERSION_NUMBER >= 0x04000000
-  if (!mbedtls_svc_key_id_is_null(ctx->psa_key_id))
-    psa_destroy_key(ctx->psa_key_id);
+  if (!mbedtls_svc_key_id_is_null(ctx->psa_key_id)) psa_destroy_key(ctx->psa_key_id);
 #else
   mbedtls_ctr_drbg_free(&ctx->ctr_drbg);
   mbedtls_entropy_free(&ctx->entropy);
@@ -388,11 +372,9 @@ static xErrno mbedtls_backend_set_role(xDtlsBackendCtx *ctx, xDtlsRole role) {
   mbedtls_ssl_config_init(&ctx->conf);
   iobuf_init(&ctx->recv_buf);
 
-  int endpoint = (role == xDtlsRole_Active) ? MBEDTLS_SSL_IS_CLIENT
-                                             : MBEDTLS_SSL_IS_SERVER;
-  int cfg_ret = mbedtls_ssl_config_defaults(&ctx->conf, endpoint,
-                                            MBEDTLS_SSL_TRANSPORT_DATAGRAM,
-                                            MBEDTLS_SSL_PRESET_DEFAULT);
+  int endpoint = (role == xDtlsRole_Active) ? MBEDTLS_SSL_IS_CLIENT : MBEDTLS_SSL_IS_SERVER;
+  int cfg_ret  = mbedtls_ssl_config_defaults(&ctx->conf, endpoint, MBEDTLS_SSL_TRANSPORT_DATAGRAM,
+                                             MBEDTLS_SSL_PRESET_DEFAULT);
   if (cfg_ret != 0) return xErrno_SysError;
 
 #if MBEDTLS_VERSION_NUMBER < 0x04000000
@@ -419,9 +401,8 @@ static xErrno mbedtls_backend_set_role(xDtlsBackendCtx *ctx, xDtlsRole role) {
   if (setup_ret != 0) return xErrno_SysError;
 
   mbedtls_ssl_set_bio(&ctx->ssl, ctx, mbedtls_send_cb, mbedtls_recv_cb, NULL);
-  mbedtls_ssl_set_timer_cb(&ctx->ssl, &ctx->timer,
-                            mbedtls_timing_set_delay,
-                            mbedtls_timing_get_delay);
+  mbedtls_ssl_set_timer_cb(&ctx->ssl, &ctx->timer, mbedtls_timing_set_delay,
+                           mbedtls_timing_get_delay);
 
   ctx->handshake_done = false;
   return xErrno_Ok;
@@ -434,8 +415,7 @@ static void mbedtls_backend_destroy(xDtlsBackendCtx *ctx) {
   mbedtls_x509_crt_free(&ctx->cert);
   mbedtls_pk_free(&ctx->pkey);
 #if MBEDTLS_VERSION_NUMBER >= 0x04000000
-  if (!mbedtls_svc_key_id_is_null(ctx->psa_key_id))
-    psa_destroy_key(ctx->psa_key_id);
+  if (!mbedtls_svc_key_id_is_null(ctx->psa_key_id)) psa_destroy_key(ctx->psa_key_id);
 #else
   mbedtls_ctr_drbg_free(&ctx->ctr_drbg);
   mbedtls_entropy_free(&ctx->entropy);
@@ -463,8 +443,7 @@ static xErrno mbedtls_backend_handshake(xDtlsBackendCtx *ctx) {
     return xErrno_Ok;
   }
 
-  if (ret == MBEDTLS_ERR_SSL_WANT_READ ||
-      ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+  if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
     return xErrno_Again;
   }
 
@@ -477,16 +456,14 @@ static xErrno mbedtls_backend_handshake(xDtlsBackendCtx *ctx) {
   return xErrno_SysError;
 }
 
-static xErrno mbedtls_backend_feed_input(xDtlsBackendCtx *ctx,
-                                          const uint8_t *data, size_t len) {
+static xErrno mbedtls_backend_feed_input(xDtlsBackendCtx *ctx, const uint8_t *data, size_t len) {
   if (!ctx || !data) return xErrno_InvalidArg;
 
   int written = iobuf_write(&ctx->recv_buf, data, len);
   return (written > 0) ? xErrno_Ok : xErrno_SysError;
 }
 
-static xErrno mbedtls_backend_encrypt_send(xDtlsBackendCtx *ctx,
-                                            const uint8_t *data, size_t len) {
+static xErrno mbedtls_backend_encrypt_send(xDtlsBackendCtx *ctx, const uint8_t *data, size_t len) {
   if (!ctx || !data) return xErrno_InvalidArg;
 
   int ret = mbedtls_ssl_write(&ctx->ssl, data, len);
@@ -495,8 +472,8 @@ static xErrno mbedtls_backend_encrypt_send(xDtlsBackendCtx *ctx,
   return xErrno_SysError;
 }
 
-static xErrno mbedtls_backend_decrypt_read(xDtlsBackendCtx *ctx, uint8_t *buf,
-                                            size_t buf_cap, size_t *out_len) {
+static xErrno mbedtls_backend_decrypt_read(xDtlsBackendCtx *ctx, uint8_t *buf, size_t buf_cap,
+                                           size_t *out_len) {
   if (!ctx || !buf || !out_len) return xErrno_InvalidArg;
 
   int ret = mbedtls_ssl_read(&ctx->ssl, buf, buf_cap);
@@ -514,8 +491,7 @@ static xErrno mbedtls_backend_decrypt_read(xDtlsBackendCtx *ctx, uint8_t *buf,
   return xErrno_SysError;
 }
 
-static xErrno mbedtls_backend_get_remote_fingerprint(xDtlsBackendCtx *ctx,
-                                                      uint8_t         *out) {
+static xErrno mbedtls_backend_get_remote_fingerprint(xDtlsBackendCtx *ctx, uint8_t *out) {
   if (!ctx || !out) return xErrno_InvalidArg;
 
   const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&ctx->ssl);
@@ -547,4 +523,6 @@ static const xDtlsBackend g_mbedtls_backend = {
   .is_handshake_done      = mbedtls_backend_is_handshake_done,
 };
 
-const xDtlsBackend *xDtlsBackendGet(void) { return &g_mbedtls_backend; }
+const xDtlsBackend *xDtlsBackendGet(void) {
+  return &g_mbedtls_backend;
+}

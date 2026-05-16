@@ -39,11 +39,8 @@ TEST(HmacSha1, Rfc2202_1) {
   const char *data = "Hi There";
   uint8_t     digest[XCRYPTO_SHA1_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha1(key, sizeof(key), (const uint8_t *)data, strlen(data),
-                       digest),
-            xErrno_Ok);
-  EXPECT_EQ(hex(digest, XCRYPTO_SHA1_DIGEST_SIZE),
-            "b617318655057264e28bc0b6fb378c8ef146be00");
+  ASSERT_EQ(xHmacSha1(key, sizeof(key), (const uint8_t *)data, strlen(data), digest), xErrno_Ok);
+  EXPECT_EQ(hex(digest, XCRYPTO_SHA1_DIGEST_SIZE), "b617318655057264e28bc0b6fb378c8ef146be00");
 }
 
 TEST(HmacSha1, Rfc2202_2) {
@@ -52,11 +49,10 @@ TEST(HmacSha1, Rfc2202_2) {
   const char *data = "what do ya want for nothing?";
   uint8_t     digest[XCRYPTO_SHA1_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha1((const uint8_t *)key, strlen(key),
-                       (const uint8_t *)data, strlen(data), digest),
-            xErrno_Ok);
-  EXPECT_EQ(hex(digest, XCRYPTO_SHA1_DIGEST_SIZE),
-            "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79");
+  ASSERT_EQ(
+    xHmacSha1((const uint8_t *)key, strlen(key), (const uint8_t *)data, strlen(data), digest),
+    xErrno_Ok);
+  EXPECT_EQ(hex(digest, XCRYPTO_SHA1_DIGEST_SIZE), "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79");
 }
 
 TEST(HmacSha1, Rfc2202_3) {
@@ -67,20 +63,15 @@ TEST(HmacSha1, Rfc2202_3) {
   memset(data, 0xdd, sizeof(data));
   uint8_t digest[XCRYPTO_SHA1_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha1(key, sizeof(key), data, sizeof(data), digest),
-            xErrno_Ok);
-  EXPECT_EQ(hex(digest, XCRYPTO_SHA1_DIGEST_SIZE),
-            "125d7342b9ac11cd91a39af48aa17b4f63f175d3");
+  ASSERT_EQ(xHmacSha1(key, sizeof(key), data, sizeof(data), digest), xErrno_Ok);
+  EXPECT_EQ(hex(digest, XCRYPTO_SHA1_DIGEST_SIZE), "125d7342b9ac11cd91a39af48aa17b4f63f175d3");
 }
 
 TEST(HmacSha1, NullArgs) {
   uint8_t digest[XCRYPTO_SHA1_DIGEST_SIZE];
-  EXPECT_EQ(xHmacSha1(NULL, 4, (const uint8_t *)"x", 1, digest),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xHmacSha1((const uint8_t *)"k", 1, NULL, 0, digest),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xHmacSha1((const uint8_t *)"k", 1, (const uint8_t *)"x", 1, NULL),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xHmacSha1(NULL, 4, (const uint8_t *)"x", 1, digest), xErrno_InvalidArg);
+  EXPECT_EQ(xHmacSha1((const uint8_t *)"k", 1, NULL, 0, digest), xErrno_InvalidArg);
+  EXPECT_EQ(xHmacSha1((const uint8_t *)"k", 1, (const uint8_t *)"x", 1, NULL), xErrno_InvalidArg);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -94,11 +85,10 @@ TEST(HmacSha1, GenericMatchesWrapper) {
   uint8_t     d1[XCRYPTO_SHA1_DIGEST_SIZE];
   uint8_t     d2[XCRYPTO_SHA1_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha1((const uint8_t *)key, strlen(key),
-                       (const uint8_t *)data, strlen(data), d1),
+  ASSERT_EQ(xHmacSha1((const uint8_t *)key, strlen(key), (const uint8_t *)data, strlen(data), d1),
             xErrno_Ok);
-  ASSERT_EQ(xHmac(&xHashVtableSha1, (const uint8_t *)key, strlen(key),
-                   (const uint8_t *)data, strlen(data), d2),
+  ASSERT_EQ(xHmac(&xHashVtableSha1, (const uint8_t *)key, strlen(key), (const uint8_t *)data,
+                  strlen(data), d2),
             xErrno_Ok);
   EXPECT_EQ(memcmp(d1, d2, XCRYPTO_SHA1_DIGEST_SIZE), 0);
 }
@@ -109,8 +99,7 @@ TEST(HmacSha1, GenericMatchesWrapper) {
 
 TEST(Hmac, NullHash) {
   uint8_t digest[20];
-  EXPECT_EQ(xHmac(NULL, (const uint8_t *)"k", 1,
-                   (const uint8_t *)"d", 1, digest),
+  EXPECT_EQ(xHmac(NULL, (const uint8_t *)"k", 1, (const uint8_t *)"d", 1, digest),
             xErrno_InvalidArg);
 }
 
@@ -125,16 +114,13 @@ TEST(HmacSha1Streaming, MatchesOneShot) {
   uint8_t     d_oneshot[XCRYPTO_SHA1_DIGEST_SIZE];
   uint8_t     d_stream[XCRYPTO_SHA1_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha1((const uint8_t *)key, strlen(key),
-                       (const uint8_t *)data, strlen(data), d_oneshot),
-            xErrno_Ok);
+  ASSERT_EQ(
+    xHmacSha1((const uint8_t *)key, strlen(key), (const uint8_t *)data, strlen(data), d_oneshot),
+    xErrno_Ok);
 
   xHmacCtx ctx;
-  ASSERT_EQ(xHmacInit(&ctx, &xHashVtableSha1,
-                       (const uint8_t *)key, strlen(key)),
-            xErrno_Ok);
-  ASSERT_EQ(xHmacUpdate(&ctx, (const uint8_t *)data, strlen(data)),
-            xErrno_Ok);
+  ASSERT_EQ(xHmacInit(&ctx, &xHashVtableSha1, (const uint8_t *)key, strlen(key)), xErrno_Ok);
+  ASSERT_EQ(xHmacUpdate(&ctx, (const uint8_t *)data, strlen(data)), xErrno_Ok);
   ASSERT_EQ(xHmacFinal(&ctx, d_stream), xErrno_Ok);
 
   EXPECT_EQ(memcmp(d_oneshot, d_stream, XCRYPTO_SHA1_DIGEST_SIZE), 0);
@@ -148,9 +134,7 @@ TEST(HmacSha1Streaming, MultipleUpdates) {
   uint8_t     d_oneshot[XCRYPTO_SHA1_DIGEST_SIZE];
   uint8_t     d_stream[XCRYPTO_SHA1_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha1(key, sizeof(key), (const uint8_t *)data, strlen(data),
-                       d_oneshot),
-            xErrno_Ok);
+  ASSERT_EQ(xHmacSha1(key, sizeof(key), (const uint8_t *)data, strlen(data), d_oneshot), xErrno_Ok);
 
   xHmacCtx ctx;
   ASSERT_EQ(xHmacInit(&ctx, &xHashVtableSha1, key, sizeof(key)), xErrno_Ok);
@@ -167,15 +151,10 @@ TEST(HmacStreaming, NullArgs) {
   xHmacCtx ctx;
   uint8_t  digest[20];
 
-  EXPECT_EQ(xHmacInit(NULL, &xHashVtableSha1, (const uint8_t *)"k", 1),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xHmacInit(&ctx, NULL, (const uint8_t *)"k", 1),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xHmacInit(&ctx, &xHashVtableSha1, NULL, 1),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xHmacInit(NULL, &xHashVtableSha1, (const uint8_t *)"k", 1), xErrno_InvalidArg);
+  EXPECT_EQ(xHmacInit(&ctx, NULL, (const uint8_t *)"k", 1), xErrno_InvalidArg);
+  EXPECT_EQ(xHmacInit(&ctx, &xHashVtableSha1, NULL, 1), xErrno_InvalidArg);
 
-  EXPECT_EQ(xHmacUpdate(NULL, (const uint8_t *)"d", 1),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xHmacFinal(NULL, digest),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xHmacUpdate(NULL, (const uint8_t *)"d", 1), xErrno_InvalidArg);
+  EXPECT_EQ(xHmacFinal(NULL, digest), xErrno_InvalidArg);
 }

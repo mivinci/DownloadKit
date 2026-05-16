@@ -30,8 +30,7 @@ extern const xHashVtable xHashVtableMd5;
  * @param digest   Output buffer (must be at least 16 bytes).
  * @return         xErrno_Ok on success.
  */
-XCAPI(xErrno) xHmacMd5(const uint8_t *key, size_t key_len,
-                        const uint8_t *data, size_t data_len,
-                        uint8_t *digest);
+XCAPI(xErrno) xHmacMd5(const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len,
+                       uint8_t *digest);
 
 #endif /* XCRYPTO_HMAC_MD5_H */

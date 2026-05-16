@@ -20,9 +20,9 @@
 /* ── Thread-local scratch for xAgentMessageFromText ──────────────────────── */
 
 #if defined(_MSC_VER)
-  #define XAGENT_TLS __declspec(thread)
+#define XAGENT_TLS __declspec(thread)
 #else
-  #define XAGENT_TLS __thread
+#define XAGENT_TLS __thread
 #endif
 
 static XAGENT_TLS xAgentContent tls_text_slot_;
@@ -32,14 +32,13 @@ static XAGENT_TLS xAgentContent tls_text_slot_;
 xAgentContent xAgentContentText(const char *text) {
   xAgentContent c;
   memset(&c, 0, sizeof(c));
-  c.type       = xAgentContentType_Text;
+  c.type        = xAgentContentType_Text;
   c.u.text.text = text;
   c.u.text.len  = text ? strlen(text) : 0;
   return c;
 }
 
-xAgentMessage xAgentMessageFromContent(xAgentRole role, const xAgentContent *contents,
-                                 size_t n) {
+xAgentMessage xAgentMessageFromContent(xAgentRole role, const xAgentContent *contents, size_t n) {
   xAgentMessage m;
   memset(&m, 0, sizeof(m));
   m.role     = role;

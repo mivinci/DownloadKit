@@ -15,7 +15,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "nonnull.h"
+#include <xpp/nonnull.h>
 
 /* ── Compile-time guarantees ─────────────────────────────────────────── */
 
@@ -34,8 +34,7 @@ namespace {
 
 /* SFINAE detector for operator*. Used to verify NonNull<void> SFINAEs out. */
 template <class, class = void> struct has_op_star : std::false_type {};
-template <class T>
-struct has_op_star<T, decltype(void(*std::declval<T &>()))> : std::true_type {};
+template <class T> struct has_op_star<T, decltype(void(*std::declval<T &>()))> : std::true_type {};
 
 static_assert(has_op_star<xpp::NonNull<int>>::value, "NonNull<int> must have operator*");
 static_assert(!has_op_star<xpp::NonNull<void>>::value, "NonNull<void> must not have operator*");

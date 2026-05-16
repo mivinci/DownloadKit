@@ -16,7 +16,7 @@ extern "C" {
 
 // BM_Buffer_Append: Measure append throughput at different chunk sizes
 static void BM_Buffer_Append(benchmark::State &state) {
-  const int64_t chunk_size = state.range(0);
+  const int64_t     chunk_size = state.range(0);
   std::vector<char> data(chunk_size, 'x');
 
   for (auto _ : state) {
@@ -32,7 +32,7 @@ BENCHMARK(BM_Buffer_Append)->Arg(16)->Arg(64)->Arg(256)->Arg(1024)->Arg(4096);
 
 // BM_Buffer_AppendConsume: Measure interleaved append + consume
 static void BM_Buffer_AppendConsume(benchmark::State &state) {
-  const int64_t chunk_size = state.range(0);
+  const int64_t     chunk_size = state.range(0);
   std::vector<char> data(chunk_size, 'x');
 
   for (auto _ : state) {

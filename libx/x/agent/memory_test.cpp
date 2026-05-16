@@ -25,10 +25,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cctype>
 #include <fstream>
 #include <string>
 
@@ -63,12 +63,10 @@ static void RmRf(const std::string &path) {
 
 /* Helper: allocate a temp directory unique to this test instance. */
 static std::string TempRoot(const std::string &name) {
-  const char *tmp = std::getenv("TMPDIR");
-  std::string root =
-    std::string(tmp && *tmp ? tmp : "/tmp") + "/xagent_memory_test_" + name;
+  const char *tmp  = std::getenv("TMPDIR");
+  std::string root = std::string(tmp && *tmp ? tmp : "/tmp") + "/xagent_memory_test_" + name;
   /* Trim any trailing slash that TMPDIR might carry. */
-  if (!root.empty() && root[root.size() - 1] == '/')
-    root.erase(root.size() - 1);
+  if (!root.empty() && root[root.size() - 1] == '/') root.erase(root.size() - 1);
   /* Clean up any previous run so each invocation starts fresh. */
   RmRf(root);
   MkdirsP(root);
@@ -93,8 +91,7 @@ TEST(xAgentMemory, NullStoreIsNoOp) {
   xAgentMemoryQuery q{};
   q.session_id = "s";
 
-  EXPECT_EQ(xAgentMemoryAppend(nullptr, &q,
-                               xAgentMemoryAppendReason_Explicit, nullptr, 0),
+  EXPECT_EQ(xAgentMemoryAppend(nullptr, &q, xAgentMemoryAppendReason_Explicit, nullptr, 0),
             xErrno_Ok);
 
   xAgentMemoryHits hits{};
@@ -129,9 +126,9 @@ TEST(xAgentMemoryJsonl, FactoryRejectsBadConf) {
 }
 
 TEST(xAgentMemoryJsonl, CreateDestroy) {
-  const std::string root = TempRoot("create_destroy");
+  const std::string     root = TempRoot("create_destroy");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
   xAgentMemoryDestroy(store);
@@ -140,9 +137,9 @@ TEST(xAgentMemoryJsonl, CreateDestroy) {
 /* ── Append + Retrieve round trips ────────────────────────────────── */
 
 TEST(xAgentMemoryJsonl, AppendThenRetrieveText) {
-  const std::string root = TempRoot("append_retrieve_text");
+  const std::string     root = TempRoot("append_retrieve_text");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
@@ -153,9 +150,7 @@ TEST(xAgentMemoryJsonl, AppendThenRetrieveText) {
     MakeText(xAgentRole_User, "hello, world"),
     MakeText(xAgentRole_Assistant, "hi there"),
   };
-  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                               msgs, 2),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, msgs, 2), xErrno_Ok);
 
   /* The file should now exist on disk. */
   std::string path = root + "/sessions/sess1/history.jsonl";
@@ -172,8 +167,7 @@ TEST(xAgentMemoryJsonl, AppendThenRetrieveText) {
             std::string("hello, world"));
 
   EXPECT_EQ(hits.entries[1].role, xAgentRole_Assistant);
-  EXPECT_EQ(std::string(hits.entries[1].text, hits.entries[1].text_len),
-            std::string("hi there"));
+  EXPECT_EQ(std::string(hits.entries[1].text, hits.entries[1].text_len), std::string("hi there"));
 
   xAgentMemoryReleaseHits(store, &hits);
   EXPECT_EQ(hits.entries, nullptr);
@@ -183,35 +177,32 @@ TEST(xAgentMemoryJsonl, AppendThenRetrieveText) {
 }
 
 TEST(xAgentMemoryJsonl, EscapesSpecialCharactersRoundTrip) {
-  const std::string root = TempRoot("escape_round_trip");
+  const std::string     root = TempRoot("escape_round_trip");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
   q.session_id = "s";
 
-  const char *tricky = "line1\nline2\twith\"quotes\"and\\backslashes";
-  xAgentSessionMsg m = MakeText(xAgentRole_User, tricky);
-  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                               &m, 1),
-            xErrno_Ok);
+  const char      *tricky = "line1\nline2\twith\"quotes\"and\\backslashes";
+  xAgentSessionMsg m      = MakeText(xAgentRole_User, tricky);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, &m, 1), xErrno_Ok);
 
   xAgentMemoryHits hits{};
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
   ASSERT_EQ(hits.n_entries, size_t{1});
-  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len),
-            std::string(tricky));
+  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len), std::string(tricky));
   xAgentMemoryReleaseHits(store, &hits);
 
   xAgentMemoryDestroy(store);
 }
 
 TEST(xAgentMemoryJsonl, ToolUseAndToolResultRoundTrip) {
-  const std::string root = TempRoot("tool_round_trip");
+  const std::string     root = TempRoot("tool_round_trip");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
@@ -226,17 +217,15 @@ TEST(xAgentMemoryJsonl, ToolUseAndToolResultRoundTrip) {
   tool_use.tool_use_args = "{\"cmd\":\"ls\"}";
 
   xAgentSessionMsg tool_result{};
-  tool_result.role                  = xAgentRole_Tool;
-  tool_result.kind                  = xAgentSessionEntryKind_ToolResult;
-  tool_result.tool_result_id        = "call_1";
-  tool_result.tool_result_output    = "file1\nfile2";
+  tool_result.role                   = xAgentRole_Tool;
+  tool_result.kind                   = xAgentSessionEntryKind_ToolResult;
+  tool_result.tool_result_id         = "call_1";
+  tool_result.tool_result_output     = "file1\nfile2";
   tool_result.tool_result_output_len = std::strlen("file1\nfile2");
-  tool_result.tool_result_is_error  = 0;
+  tool_result.tool_result_is_error   = 0;
 
   xAgentSessionMsg batch[] = {tool_use, tool_result};
-  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                               batch, 2),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, batch, 2), xErrno_Ok);
 
   xAgentMemoryHits hits{};
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
@@ -247,14 +236,12 @@ TEST(xAgentMemoryJsonl, ToolUseAndToolResultRoundTrip) {
   EXPECT_STREQ(hits.entries[0].tool_use_id, "call_1");
   EXPECT_STREQ(hits.entries[0].tool_use_name, "shell");
   ASSERT_NE(hits.entries[0].tool_use_args, nullptr);
-  EXPECT_EQ(std::string(hits.entries[0].tool_use_args),
-            std::string("{\"cmd\":\"ls\"}"));
+  EXPECT_EQ(std::string(hits.entries[0].tool_use_args), std::string("{\"cmd\":\"ls\"}"));
 
   EXPECT_EQ(hits.entries[1].kind, xAgentSessionEntryKind_ToolResult);
   EXPECT_STREQ(hits.entries[1].tool_result_id, "call_1");
   EXPECT_EQ(hits.entries[1].tool_result_is_error, 0);
-  EXPECT_EQ(std::string(hits.entries[1].tool_result_output,
-                        hits.entries[1].tool_result_output_len),
+  EXPECT_EQ(std::string(hits.entries[1].tool_result_output, hits.entries[1].tool_result_output_len),
             std::string("file1\nfile2"));
 
   xAgentMemoryReleaseHits(store, &hits);
@@ -262,9 +249,9 @@ TEST(xAgentMemoryJsonl, ToolUseAndToolResultRoundTrip) {
 }
 
 TEST(xAgentMemoryJsonl, ToolResultIsErrorFlag) {
-  const std::string root = TempRoot("tool_is_error");
+  const std::string     root = TempRoot("tool_is_error");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
@@ -278,9 +265,7 @@ TEST(xAgentMemoryJsonl, ToolResultIsErrorFlag) {
   m.tool_result_output     = "boom";
   m.tool_result_output_len = 4;
   m.tool_result_is_error   = 1;
-  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                               &m, 1),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, &m, 1), xErrno_Ok);
 
   xAgentMemoryHits hits{};
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
@@ -291,7 +276,7 @@ TEST(xAgentMemoryJsonl, ToolResultIsErrorFlag) {
 }
 
 TEST(xAgentMemoryJsonl, MaxEntriesWindowKeepsTail) {
-  const std::string root = TempRoot("max_entries_window");
+  const std::string     root = TempRoot("max_entries_window");
   xAgentMemoryJsonlConf c{};
   c.root_dir            = root.c_str();
   c.default_max_entries = 100;
@@ -306,9 +291,7 @@ TEST(xAgentMemoryJsonl, MaxEntriesWindowKeepsTail) {
     char buf[32];
     std::snprintf(buf, sizeof(buf), "msg_%d", i);
     xAgentSessionMsg m = MakeText(xAgentRole_User, buf);
-    ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                                 &m, 1),
-              xErrno_Ok);
+    ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, &m, 1), xErrno_Ok);
   }
 
   /* Ask for only the last 3. */
@@ -316,12 +299,9 @@ TEST(xAgentMemoryJsonl, MaxEntriesWindowKeepsTail) {
   xAgentMemoryHits hits{};
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
   ASSERT_EQ(hits.n_entries, size_t{3});
-  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len),
-            std::string("msg_7"));
-  EXPECT_EQ(std::string(hits.entries[1].text, hits.entries[1].text_len),
-            std::string("msg_8"));
-  EXPECT_EQ(std::string(hits.entries[2].text, hits.entries[2].text_len),
-            std::string("msg_9"));
+  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len), std::string("msg_7"));
+  EXPECT_EQ(std::string(hits.entries[1].text, hits.entries[1].text_len), std::string("msg_8"));
+  EXPECT_EQ(std::string(hits.entries[2].text, hits.entries[2].text_len), std::string("msg_9"));
 
   xAgentMemoryReleaseHits(store, &hits);
   xAgentMemoryDestroy(store);
@@ -333,7 +313,7 @@ TEST(xAgentMemoryJsonl, PerTurnRetrievalShortCircuits) {
    * empty set. The tail would otherwise duplicate what the
    * Create-time prime path already injected into history and
    * silently double-bill tokens on every user input. */
-  const std::string root = TempRoot("per_turn_shortcircuit");
+  const std::string     root = TempRoot("per_turn_shortcircuit");
   xAgentMemoryJsonlConf c{};
   c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
@@ -344,9 +324,7 @@ TEST(xAgentMemoryJsonl, PerTurnRetrievalShortCircuits) {
 
   /* Seed the store with something we'd normally get back. */
   xAgentSessionMsg seed = MakeText(xAgentRole_User, "past-turn");
-  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                               &seed, 1),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, &seed, 1), xErrno_Ok);
 
   /* Sanity: prime-style retrieve (recent_turn == NULL) still
    * returns the seeded entry. */
@@ -358,9 +336,9 @@ TEST(xAgentMemoryJsonl, PerTurnRetrievalShortCircuits) {
   /* Per-turn retrieve (recent_turn != NULL) must be an empty
    * no-op for this backend. */
   xAgentContent cb{};
-  cb.type          = xAgentContentType_Text;
-  cb.u.text.text   = "new user turn";
-  cb.u.text.len    = std::strlen("new user turn");
+  cb.type        = xAgentContentType_Text;
+  cb.u.text.text = "new user turn";
+  cb.u.text.len  = std::strlen("new user turn");
   xAgentMessage recent{};
   recent.role     = xAgentRole_User;
   recent.contents = &cb;
@@ -377,9 +355,9 @@ TEST(xAgentMemoryJsonl, PerTurnRetrievalShortCircuits) {
 }
 
 TEST(xAgentMemoryJsonl, RetrieveOnMissingFileIsEmpty) {
-  const std::string root = TempRoot("missing_file");
+  const std::string     root = TempRoot("missing_file");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
@@ -396,9 +374,9 @@ TEST(xAgentMemoryJsonl, RetrieveOnMissingFileIsEmpty) {
 }
 
 TEST(xAgentMemoryJsonl, MalformedLinesAreSkipped) {
-  const std::string root = TempRoot("malformed_lines");
+  const std::string     root = TempRoot("malformed_lines");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
@@ -418,61 +396,53 @@ TEST(xAgentMemoryJsonl, MalformedLinesAreSkipped) {
   xAgentMemoryHits hits{};
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
   ASSERT_EQ(hits.n_entries, size_t{1});
-  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len),
-            std::string("valid"));
+  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len), std::string("valid"));
   xAgentMemoryReleaseHits(store, &hits);
 
   xAgentMemoryDestroy(store);
 }
 
 TEST(xAgentMemoryJsonl, SeparateSessionsDoNotBleed) {
-  const std::string root = TempRoot("separate_sessions");
+  const std::string     root = TempRoot("separate_sessions");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q1{};
-  q1.session_id = "s1";
+  q1.session_id       = "s1";
   xAgentSessionMsg m1 = MakeText(xAgentRole_User, "in_s1");
-  ASSERT_EQ(xAgentMemoryAppend(store, &q1, xAgentMemoryAppendReason_Explicit,
-                               &m1, 1),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q1, xAgentMemoryAppendReason_Explicit, &m1, 1), xErrno_Ok);
 
   xAgentMemoryQuery q2{};
-  q2.session_id = "s2";
+  q2.session_id       = "s2";
   xAgentSessionMsg m2 = MakeText(xAgentRole_User, "in_s2");
-  ASSERT_EQ(xAgentMemoryAppend(store, &q2, xAgentMemoryAppendReason_Explicit,
-                               &m2, 1),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q2, xAgentMemoryAppendReason_Explicit, &m2, 1), xErrno_Ok);
 
   xAgentMemoryHits hits{};
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q1, &hits), xErrno_Ok);
   ASSERT_EQ(hits.n_entries, size_t{1});
-  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len),
-            std::string("in_s1"));
+  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len), std::string("in_s1"));
   xAgentMemoryReleaseHits(store, &hits);
 
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q2, &hits), xErrno_Ok);
   ASSERT_EQ(hits.n_entries, size_t{1});
-  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len),
-            std::string("in_s2"));
+  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len), std::string("in_s2"));
   xAgentMemoryReleaseHits(store, &hits);
 
   xAgentMemoryDestroy(store);
 }
 
 TEST(xAgentMemoryJsonl, AppendRejectsMissingIds) {
-  const std::string root = TempRoot("missing_ids");
+  const std::string     root = TempRoot("missing_ids");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{}; /* session_id missing */
-  xAgentSessionMsg m = MakeText(xAgentRole_User, "x");
-  EXPECT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                               &m, 1),
+  xAgentSessionMsg  m = MakeText(xAgentRole_User, "x");
+  EXPECT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, &m, 1),
             xErrno_InvalidArg);
 
   xAgentMemoryDestroy(store);
@@ -486,24 +456,22 @@ TEST(xAgentMemoryJsonl, AppendRejectsMissingIds) {
  * either shape off disk, and legacy files without "ts" keep
  * parsing fine (see ReadsLegacyLinesWithoutTs below). */
 TEST(xAgentMemoryJsonl, AppendPersistsExplicitCreatedAtMs) {
-  const std::string root = TempRoot("ts_field_explicit");
+  const std::string     root = TempRoot("ts_field_explicit");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
-  q.session_id = "s";
+  q.session_id       = "s";
   xAgentSessionMsg m = MakeText(xAgentRole_User, "hi");
   /* A distinctive value that wall-clock can't realistically produce
    * on the same machine at the same instant, so we can prove the
    * backend used our stamp rather than a fresh read. */
   m.created_at_ms = 1700000000001ULL;
-  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                               &m, 1),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, &m, 1), xErrno_Ok);
 
-  std::string path = root + "/sessions/s/history.jsonl";
+  std::string   path = root + "/sessions/s/history.jsonl";
   std::ifstream f(path);
   ASSERT_TRUE(f.is_open());
   std::string line;
@@ -518,23 +486,21 @@ TEST(xAgentMemoryJsonl, AppendPersistsExplicitCreatedAtMs) {
  * backend falls back to the current wall-clock so every persisted
  * line still ends up with a value. */
 TEST(xAgentMemoryJsonl, AppendFallsBackToWallClockWhenUnset) {
-  const std::string root = TempRoot("ts_field_fallback");
+  const std::string     root = TempRoot("ts_field_fallback");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
-  q.session_id = "s";
+  q.session_id       = "s";
   xAgentSessionMsg m = MakeText(xAgentRole_User, "hi");
   /* MakeText already leaves created_at_ms == 0; assert it for
    * the record in case MakeText ever changes. */
   ASSERT_EQ(m.created_at_ms, 0ULL);
-  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit,
-                               &m, 1),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, &m, 1), xErrno_Ok);
 
-  std::string path = root + "/sessions/s/history.jsonl";
+  std::string   path = root + "/sessions/s/history.jsonl";
   std::ifstream f(path);
   ASSERT_TRUE(f.is_open());
   std::string line;
@@ -556,9 +522,9 @@ TEST(xAgentMemoryJsonl, AppendFallsBackToWallClockWhenUnset) {
 /* Legacy files (pre-timestamp) still parse: write a line by hand
  * without "ts" and make sure retrieve hands it back intact. */
 TEST(xAgentMemoryJsonl, ReadsLegacyLinesWithoutTs) {
-  const std::string root = TempRoot("legacy_no_ts");
+  const std::string     root = TempRoot("legacy_no_ts");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
@@ -576,8 +542,7 @@ TEST(xAgentMemoryJsonl, ReadsLegacyLinesWithoutTs) {
   ASSERT_EQ(xAgentMemoryRetrieve(store, &q, &hits), xErrno_Ok);
   ASSERT_EQ(hits.n_entries, size_t{1});
   EXPECT_EQ(hits.entries[0].role, xAgentRole_User);
-  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len),
-            std::string("legacy"));
+  EXPECT_EQ(std::string(hits.entries[0].text, hits.entries[0].text_len), std::string("legacy"));
   xAgentMemoryReleaseHits(store, &hits);
 
   xAgentMemoryDestroy(store);
@@ -589,38 +554,32 @@ TEST(xAgentMemoryJsonl, ReadsLegacyLinesWithoutTs) {
  * pre-summary entries, a summary, and post-summary entries, and
  * verifies that only the summary + post-summary entries come back. */
 TEST(xAgentMemoryJsonl, RetrieveStartsFromLastSummary) {
-  const std::string root = TempRoot("summary_start");
+  const std::string     root = TempRoot("summary_start");
   xAgentMemoryJsonlConf c{};
-  c.root_dir = root.c_str();
+  c.root_dir         = root.c_str();
   xAgentMemory store = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
   /* Append pre-summary entries. */
   xAgentMemoryQuery q{};
-  q.session_id = "s";
+  q.session_id         = "s";
   xAgentSessionMsg pre = MakeText(xAgentRole_User, "old_message");
-  ASSERT_EQ(xAgentMemoryAppend(store, &q,
-                               xAgentMemoryAppendReason_Compacted, &pre, 1),
-            xErrno_Ok);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Compacted, &pre, 1), xErrno_Ok);
 
   /* Append the summary entry. */
   xAgentSessionMsg summary{};
-  summary.role        = xAgentRole_Summary;
-  summary.kind        = xAgentSessionEntryKind_Text;
-  summary.text        = "[summary] conversation so far";
-  summary.text_len    = std::strlen(summary.text);
-  ASSERT_EQ(xAgentMemoryAppend(store, &q,
-                               xAgentMemoryAppendReason_Compacted,
-                               &summary, 1),
+  summary.role     = xAgentRole_Summary;
+  summary.kind     = xAgentSessionEntryKind_Text;
+  summary.text     = "[summary] conversation so far";
+  summary.text_len = std::strlen(summary.text);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Compacted, &summary, 1),
             xErrno_Ok);
 
   /* Append post-summary entries. */
-  xAgentSessionMsg post1 = MakeText(xAgentRole_User, "new_question");
-  xAgentSessionMsg post2 = MakeText(xAgentRole_Assistant, "new_answer");
+  xAgentSessionMsg post1      = MakeText(xAgentRole_User, "new_question");
+  xAgentSessionMsg post2      = MakeText(xAgentRole_Assistant, "new_answer");
   xAgentSessionMsg post_arr[] = {post1, post2};
-  ASSERT_EQ(xAgentMemoryAppend(store, &q,
-                               xAgentMemoryAppendReason_Explicit,
-                               post_arr, 2),
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, post_arr, 2),
             xErrno_Ok);
 
   /* Retrieve: should get summary + 2 post entries = 3. */
@@ -630,16 +589,14 @@ TEST(xAgentMemoryJsonl, RetrieveStartsFromLastSummary) {
 
   /* First entry must be the summary. */
   EXPECT_EQ(hits.entries[0].role, xAgentRole_Summary);
-  EXPECT_NE(std::string(hits.entries[0].text, hits.entries[0].text_len)
-              .find("[summary]"),
+  EXPECT_NE(std::string(hits.entries[0].text, hits.entries[0].text_len).find("[summary]"),
             std::string::npos);
 
   /* Pre-summary entry must not appear anywhere. */
   for (size_t i = 0; i < hits.n_entries; i++) {
     if (hits.entries[i].text) {
       std::string t(hits.entries[i].text, hits.entries[i].text_len);
-      EXPECT_EQ(t.find("old_message"), std::string::npos)
-          << "pre-summary entry must not be loaded";
+      EXPECT_EQ(t.find("old_message"), std::string::npos) << "pre-summary entry must not be loaded";
     }
   }
 
@@ -651,12 +608,12 @@ TEST(xAgentMemoryJsonl, RetrieveStartsFromLastSummary) {
  * summary is beyond the cap boundary, we still start from the
  * summary — even if it means returning fewer entries than @p cap. */
 TEST(xAgentMemoryJsonl, SummaryOverridesCapBoundary) {
-  const std::string root = TempRoot("summary_overrides_cap");
+  const std::string     root = TempRoot("summary_overrides_cap");
   xAgentMemoryJsonlConf c{};
   c.root_dir = root.c_str();
   /* Set a small default_max_entries so the cap window is tight. */
   c.default_max_entries = 4;
-  xAgentMemory store = xAgentMemoryJsonlCreate(&c);
+  xAgentMemory store    = xAgentMemoryJsonlCreate(&c);
   ASSERT_NE(store, nullptr);
 
   xAgentMemoryQuery q{};
@@ -664,31 +621,25 @@ TEST(xAgentMemoryJsonl, SummaryOverridesCapBoundary) {
 
   /* Write 5 pre-summary entries (more than the cap of 4). */
   for (int i = 0; i < 5; i++) {
-    std::string text = "pre_" + std::to_string(i);
-    xAgentSessionMsg m = MakeText(xAgentRole_User, text.c_str());
-    ASSERT_EQ(xAgentMemoryAppend(store, &q,
-                                 xAgentMemoryAppendReason_Compacted, &m, 1),
-              xErrno_Ok);
+    std::string      text = "pre_" + std::to_string(i);
+    xAgentSessionMsg m    = MakeText(xAgentRole_User, text.c_str());
+    ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Compacted, &m, 1), xErrno_Ok);
   }
 
   /* Write the summary. */
   xAgentSessionMsg summary{};
-  summary.role        = xAgentRole_Summary;
-  summary.kind        = xAgentSessionEntryKind_Text;
-  summary.text        = "[summary] compacted history";
-  summary.text_len    = std::strlen(summary.text);
-  ASSERT_EQ(xAgentMemoryAppend(store, &q,
-                               xAgentMemoryAppendReason_Compacted,
-                               &summary, 1),
+  summary.role     = xAgentRole_Summary;
+  summary.kind     = xAgentSessionEntryKind_Text;
+  summary.text     = "[summary] compacted history";
+  summary.text_len = std::strlen(summary.text);
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Compacted, &summary, 1),
             xErrno_Ok);
 
   /* Write 2 post-summary entries. */
-  xAgentSessionMsg post1 = MakeText(xAgentRole_User, "after_summary");
-  xAgentSessionMsg post2 = MakeText(xAgentRole_Assistant, "response");
+  xAgentSessionMsg post1      = MakeText(xAgentRole_User, "after_summary");
+  xAgentSessionMsg post2      = MakeText(xAgentRole_Assistant, "response");
   xAgentSessionMsg post_arr[] = {post1, post2};
-  ASSERT_EQ(xAgentMemoryAppend(store, &q,
-                               xAgentMemoryAppendReason_Explicit,
-                               post_arr, 2),
+  ASSERT_EQ(xAgentMemoryAppend(store, &q, xAgentMemoryAppendReason_Explicit, post_arr, 2),
             xErrno_Ok);
 
   /* With cap=4, the tail window would normally be entries 4-7

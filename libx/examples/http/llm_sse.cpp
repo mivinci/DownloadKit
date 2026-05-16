@@ -30,24 +30,24 @@ static std::string json_escape(const char *s) {
   std::string out;
   for (; *s; ++s) {
     switch (*s) {
-      case '\\':
-        out += "\\\\";
-        break;
-      case '"':
-        out += "\\\"";
-        break;
-      case '\n':
-        out += "\\n";
-        break;
-      case '\r':
-        out += "\\r";
-        break;
-      case '\t':
-        out += "\\t";
-        break;
-      default:
-        out += *s;
-        break;
+    case '\\':
+      out += "\\\\";
+      break;
+    case '"':
+      out += "\\\"";
+      break;
+    case '\n':
+      out += "\\n";
+      break;
+    case '\r':
+      out += "\\r";
+      break;
+    case '\t':
+      out += "\\t";
+      break;
+    default:
+      out += *s;
+      break;
     }
   }
   return out;
@@ -65,9 +65,7 @@ struct ChatMessage {
  * Build an OpenAI-compatible chat completion request body
  * from the full conversation history.
  */
-static std::string
-build_request_body(const char                     *model,
-                   const std::vector<ChatMessage> &messages) {
+static std::string build_request_body(const char *model, const std::vector<ChatMessage> &messages) {
   std::string body;
   body += "{\"model\":\"";
   body += json_escape(model);
@@ -101,25 +99,25 @@ static std::string json_extract_string(const char *json, const char *key) {
     if (*p == '\\' && *(p + 1)) {
       ++p;
       switch (*p) {
-        case 'n':
-          result += '\n';
-          break;
-        case 'r':
-          result += '\r';
-          break;
-        case 't':
-          result += '\t';
-          break;
-        case '\\':
-          result += '\\';
-          break;
-        case '"':
-          result += '"';
-          break;
-        default:
-          result += '\\';
-          result += *p;
-          break;
+      case 'n':
+        result += '\n';
+        break;
+      case 'r':
+        result += '\r';
+        break;
+      case 't':
+        result += '\t';
+        break;
+      case '\\':
+        result += '\\';
+        break;
+      case '"':
+        result += '"';
+        break;
+      default:
+        result += '\\';
+        result += *p;
+        break;
       }
     } else {
       result += *p;
@@ -220,8 +218,7 @@ int main() {
 
   /* Build Authorization header once */
   std::string auth_header = std::string("Authorization: Bearer ") + api_key;
-  const char *headers[]   = {auth_header.c_str(),
-                             "Content-Type: application/json", nullptr};
+  const char *headers[]   = {auth_header.c_str(), "Content-Type: application/json", nullptr};
 
   ReplCtx ctx;
   ctx.loop = loop;
@@ -264,8 +261,7 @@ int main() {
     ctx.got_done = false;
     ctx.reply.clear();
 
-    xErrno err =
-      xHttpClientDoSse(client, &config, on_sse_event, on_sse_done, &ctx);
+    xErrno err = xHttpClientDoSse(client, &config, on_sse_event, on_sse_done, &ctx);
     if (err != xErrno_Ok) {
       fprintf(stderr, "[error] failed to send request (errno=%d)\n", err);
       messages.pop_back(); /* remove the failed user message */
@@ -276,8 +272,7 @@ int main() {
     xEventLoopRun(loop);
 
     /* Append assistant reply to history */
-    if (!ctx.reply.empty())
-      messages.push_back({"assistant", std::move(ctx.reply)});
+    if (!ctx.reply.empty()) messages.push_back({"assistant", std::move(ctx.reply)});
   }
 
   printf("\nBye!\n");

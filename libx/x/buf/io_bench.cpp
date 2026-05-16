@@ -16,7 +16,7 @@ extern "C" {
 
 // BM_IOBuffer_Append: Measure append throughput (block-chain allocation)
 static void BM_IOBuffer_Append(benchmark::State &state) {
-  const int64_t chunk_size = state.range(0);
+  const int64_t     chunk_size = state.range(0);
   std::vector<char> data(chunk_size, 'x');
 
   for (auto _ : state) {
@@ -33,7 +33,7 @@ BENCHMARK(BM_IOBuffer_Append)->Arg(64)->Arg(256)->Arg(1024)->Arg(4096)->Arg(8192
 
 // BM_IOBuffer_AppendConsume: Measure interleaved append + consume
 static void BM_IOBuffer_AppendConsume(benchmark::State &state) {
-  const int64_t chunk_size = state.range(0);
+  const int64_t     chunk_size = state.range(0);
   std::vector<char> data(chunk_size, 'x');
 
   for (auto _ : state) {
@@ -51,8 +51,8 @@ BENCHMARK(BM_IOBuffer_AppendConsume)->Arg(64)->Arg(256)->Arg(1024);
 
 // BM_IOBuffer_Cut: Measure zero-copy cut throughput
 static void BM_IOBuffer_Cut(benchmark::State &state) {
-  const int64_t total = state.range(0);
-  const int64_t cut_size = 1024;
+  const int64_t     total    = state.range(0);
+  const int64_t     cut_size = 1024;
   std::vector<char> data(total, 'x');
 
   for (auto _ : state) {
@@ -76,7 +76,7 @@ BENCHMARK(BM_IOBuffer_Cut)->Arg(8192)->Arg(65536)->Arg(262144);
 
 // BM_IOBuffer_AppendIOBuffer: Measure zero-copy buffer concatenation
 static void BM_IOBuffer_AppendIOBuffer(benchmark::State &state) {
-  const int64_t chunk_size = state.range(0);
+  const int64_t     chunk_size = state.range(0);
   std::vector<char> data(chunk_size, 'x');
 
   for (auto _ : state) {

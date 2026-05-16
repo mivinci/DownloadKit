@@ -38,8 +38,8 @@ namespace {
  * which we now treat as a soft, non-fatal condition that drops the
  * CLI into a degraded "no model" mode — from genuine I/O errors
  * (permission denied, short read, etc.) that stay fatal. */
-bool read_file_all(const std::string &path, std::string *out,
-                   std::string *err_out, bool *not_found = nullptr) {
+bool read_file_all(const std::string &path, std::string *out, std::string *err_out,
+                   bool *not_found = nullptr) {
   if (not_found) *not_found = false;
   FILE *fp = std::fopen(path.c_str(), "rb");
   if (!fp) {
@@ -109,8 +109,8 @@ long json_nonneg_int(const cJSON *obj, const char *key) {
  * Returns false if the key was present but not an object, so the
  * caller can surface a pointed error. */
 bool parse_budget_block(const cJSON *obj, CliBudgetConf *out) {
-  if (!obj) return true;                /* absent: leave defaults */
-  if (cJSON_IsNull(obj)) return true;   /* explicit null: same   */
+  if (!obj) return true;              /* absent: leave defaults */
+  if (cJSON_IsNull(obj)) return true; /* explicit null: same   */
   if (!cJSON_IsObject(obj)) return false;
 
   long v;
@@ -147,27 +147,26 @@ bool is_placeholder(const std::string &s) {
  * angle-bracket placeholders ("<your-api-key>" etc.). Kept as a
  * raw string literal so the on-disk file matches byte-for-byte
  * what a user would see in the docs. */
-constexpr const char *kModelsJsonTemplate =
-  "{\n"
-  "  \"default\": \"my-model\",\n"
-  "  \"max_turns\": 64,\n"
-  "  \"budget\": {\n"
-  "    \"context_window\": 8192\n"
-  "  },\n"
-  "  \"models\": [\n"
-  "    {\n"
-  "      \"id\": \"my-model\",\n"
-  "      \"provider\": \"openai\",\n"
-  "      \"model\": \"<model-name>\",\n"
-  "      \"api_key\": \"<your-api-key>\",\n"
-  "      \"base_url\": \"<provider-base-url>\",\n"
-  "      \"organization\": \"<your-organization>\",\n"
-  "      \"budget\": {\n"
-  "        \"context_window\": 8192\n"
-  "      }\n"
-  "    }\n"
-  "  ]\n"
-  "}\n";
+constexpr const char *kModelsJsonTemplate = "{\n"
+                                            "  \"default\": \"my-model\",\n"
+                                            "  \"max_turns\": 64,\n"
+                                            "  \"budget\": {\n"
+                                            "    \"context_window\": 8192\n"
+                                            "  },\n"
+                                            "  \"models\": [\n"
+                                            "    {\n"
+                                            "      \"id\": \"my-model\",\n"
+                                            "      \"provider\": \"openai\",\n"
+                                            "      \"model\": \"<model-name>\",\n"
+                                            "      \"api_key\": \"<your-api-key>\",\n"
+                                            "      \"base_url\": \"<provider-base-url>\",\n"
+                                            "      \"organization\": \"<your-organization>\",\n"
+                                            "      \"budget\": {\n"
+                                            "        \"context_window\": 8192\n"
+                                            "      }\n"
+                                            "    }\n"
+                                            "  ]\n"
+                                            "}\n";
 
 /* Best-effort: write kModelsJsonTemplate to @p path if we can. Any
  * failure is swallowed on purpose — the template is a convenience,
@@ -185,11 +184,8 @@ void try_write_template(const std::string &path) {
 
 } /* anonymous namespace */
 
-int cli_model_config_load(const char     *data_dir,
-                          xEventLoop      loop,
-                          xHttpClient     http,
-                          CliModelConfig *out,
-                          std::string    *err_out) {
+int cli_model_config_load(const char *data_dir, xEventLoop loop, xHttpClient http,
+                          CliModelConfig *out, std::string *err_out) {
   if (!data_dir || !loop || !http || !out) {
     if (err_out) *err_out = "cli_model_config_load: invalid arguments";
     return -1;
@@ -238,7 +234,7 @@ int cli_model_config_load(const char     *data_dir,
   cJSON *root = cJSON_ParseWithLength(text.c_str(), text.size());
   if (!root) {
     if (err_out) {
-      *err_out = "malformed JSON in " + path;
+      *err_out         = "malformed JSON in " + path;
       const char *tail = cJSON_GetErrorPtr();
       if (tail) {
         err_out->append(" (near: ");
@@ -334,10 +330,8 @@ int cli_model_config_load(const char     *data_dir,
     std::string provider_kind = json_string(item, "provider");
     std::string model         = json_string(item, "model");
     if (id.empty()) return bail(path + ": model entry missing \"id\"");
-    if (provider_kind.empty())
-      return bail(path + ": model \"" + id + "\" missing \"provider\"");
-    if (model.empty())
-      return bail(path + ": model \"" + id + "\" missing \"model\"");
+    if (provider_kind.empty()) return bail(path + ": model \"" + id + "\" missing \"provider\"");
+    if (model.empty()) return bail(path + ": model \"" + id + "\" missing \"model\"");
     if (is_placeholder(model)) has_placeholder = true;
 
     xAgentProvider pvd = nullptr;
@@ -346,10 +340,8 @@ int cli_model_config_load(const char     *data_dir,
       std::string api_key  = json_string(item, "api_key");
       std::string base_url = json_string(item, "base_url");
       std::string org      = json_string(item, "organization");
-      if (api_key.empty())
-        return bail(path + ": model \"" + id + "\" missing \"api_key\"");
-      if (is_placeholder(api_key) || is_placeholder(base_url))
-        has_placeholder = true;
+      if (api_key.empty()) return bail(path + ": model \"" + id + "\" missing \"api_key\"");
+      if (is_placeholder(api_key) || is_placeholder(base_url)) has_placeholder = true;
 
       xAgentOpenAIConf pconf;
       std::memset(&pconf, 0, sizeof(pconf));
@@ -358,14 +350,13 @@ int cli_model_config_load(const char     *data_dir,
       pconf.organization  = org.empty() ? nullptr : org.c_str();
       pconf.default_model = model.c_str();
       pconf.timeout_ms    = 60000;
-      pvd = xAgentProviderOpenAICreate(loop, http, &pconf);
+      pvd                 = xAgentProviderOpenAICreate(loop, http, &pconf);
     } else {
-      return bail(path + ": model \"" + id + "\" has unknown provider \"" +
-                  provider_kind + "\" (known: openai)");
+      return bail(path + ": model \"" + id + "\" has unknown provider \"" + provider_kind +
+                  "\" (known: openai)");
     }
 
-    if (!pvd)
-      return bail(path + ": failed to create provider for \"" + id + "\"");
+    if (!pvd) return bail(path + ": failed to create provider for \"" + id + "\"");
 
     /* Optional per-entry "budget" block: any field set here
      * overrides the same field in the top-level budget for this
@@ -375,8 +366,7 @@ int cli_model_config_load(const char     *data_dir,
     {
       cJSON *bv = cJSON_GetObjectItemCaseSensitive(item, "budget");
       if (!parse_budget_block(bv, &model_budget)) {
-        return bail(path + ": model \"" + id +
-                    "\" \"budget\" must be an object");
+        return bail(path + ": model \"" + id + "\" \"budget\" must be an object");
       }
     }
 
@@ -390,10 +380,10 @@ int cli_model_config_load(const char     *data_dir,
 
     /* Register in the registry — entry index equals registry index. */
     xAgentModelSpec spec = {};
-    spec.id       = entries.back().id.c_str();
-    spec.provider = pvd;
-    spec.model    = entries.back().model.c_str();
-    xErrno rc = xAgentModelRegistryAdd(registry, &spec);
+    spec.id              = entries.back().id.c_str();
+    spec.provider        = pvd;
+    spec.model           = entries.back().model.c_str();
+    xErrno rc            = xAgentModelRegistryAdd(registry, &spec);
     if (rc != xErrno_Ok) {
       /* Most likely AlreadyExists — surface a pointed message. */
       return bail(path + ": duplicate or invalid model id \"" + id + "\"");
@@ -445,8 +435,7 @@ int cli_model_config_load(const char     *data_dir,
   return 0;
 }
 
-xAgentBudgetConf cli_model_config_resolve_budget(const CliModelConfig *cfg,
-                                                 const char           *model_id) {
+xAgentBudgetConf cli_model_config_resolve_budget(const CliModelConfig *cfg, const char *model_id) {
   /* Cascade order: zero-init (= "use built-in defaults"), then
    * top-level "budget" fills in whatever the user set there, then
    * the per-model entry overrides any field its mask claims. The
@@ -471,8 +460,7 @@ xAgentBudgetConf cli_model_config_resolve_budget(const CliModelConfig *cfg,
   return out;
 }
 
-const CliModelEntry *cli_model_config_find(const CliModelConfig *cfg,
-                                           const char           *id) {
+const CliModelEntry *cli_model_config_find(const CliModelConfig *cfg, const char *id) {
   if (!cfg || !id || !*id) return nullptr;
   for (const auto &e : cfg->entries) {
     if (e.id == id) return &e;

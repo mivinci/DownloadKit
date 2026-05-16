@@ -32,8 +32,7 @@ static std::string render_registry_listing(const ReplCtx *ctx) {
     char line[256];
     /* Mark the currently-active spec with "*" so the user can tell
      * which one /model with no args would re-select. */
-    const char *mark =
-      (ctx->current_model_id == s->id) ? "*" : " ";
+    const char *mark = (ctx->current_model_id == s->id) ? "*" : " ";
     std::snprintf(line, sizeof(line), " %s %-12s %s", mark, s->id,
                   s->model ? s->model : "(provider default)");
     if (!body.empty()) body.push_back('\n');
@@ -43,8 +42,7 @@ static std::string render_registry_listing(const ReplCtx *ctx) {
   return body;
 }
 
-void slash_argc_model(xLineCompletionEnv cenv, ReplCtx *ctx,
-                      const char *token) {
+void slash_argc_model(xLineCompletionEnv cenv, ReplCtx *ctx, const char *token) {
   if (!ctx || !ctx->model_registry) return;
   size_t n = xAgentModelRegistryCount(ctx->model_registry);
   for (size_t i = 0; i < n; ++i) {
@@ -73,9 +71,8 @@ void slash_cmd_model(ReplCtx *ctx, const char *args) {
    * single provider per in-flight Query. Ask the user to /cancel
    * first. */
   if (ctx->busy) {
-    above_printf(ctx->line,
-                 "\x1b[2m(cannot switch model while a run is in flight; "
-                 "try /cancel first)\x1b[0m");
+    above_printf(ctx->line, "\x1b[2m(cannot switch model while a run is in flight; "
+                            "try /cancel first)\x1b[0m");
     return;
   }
 
@@ -84,17 +81,14 @@ void slash_cmd_model(ReplCtx *ctx, const char *args) {
    * above so /model with no args keeps working as a discovery tool;
    * only the switch path bails out here. */
   if (!ctx->sess) {
-    above_printf(ctx->line,
-                 "\x1b[1;33m[no model]\x1b[22;39m cannot switch \u2014 "
-                 "edit models.json in your data_dir and restart.");
+    above_printf(ctx->line, "\x1b[1;33m[no model]\x1b[22;39m cannot switch \u2014 "
+                            "edit models.json in your data_dir and restart.");
     return;
   }
 
   xErrno rc = xAgentSessionSetModel(ctx->sess, args);
   if (rc == xErrno_NotFound) {
-    above_printf(ctx->line,
-                 "unknown model id: %s  (try /model to see available ids)",
-                 args);
+    above_printf(ctx->line, "unknown model id: %s  (try /model to see available ids)", args);
     return;
   }
   if (rc != xErrno_Ok) {
@@ -122,10 +116,7 @@ void slash_cmd_model(ReplCtx *ctx, const char *args) {
     xAgentSessionSetBudget(ctx->sess, &b);
   }
 
-  const xAgentModelSpec *spec =
-    xAgentModelRegistryGet(ctx->model_registry, args);
-  const char *wire = spec && spec->model ? spec->model : "(provider default)";
-  above_printf(ctx->line,
-               "\x1b[2m[model] switched to id=%s (wire model=%s)\x1b[0m",
-               args, wire);
+  const xAgentModelSpec *spec = xAgentModelRegistryGet(ctx->model_registry, args);
+  const char            *wire = spec && spec->model ? spec->model : "(provider default)";
+  above_printf(ctx->line, "\x1b[2m[model] switched to id=%s (wire model=%s)\x1b[0m", args, wire);
 }

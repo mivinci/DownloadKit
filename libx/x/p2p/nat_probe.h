@@ -50,8 +50,8 @@ XDEF_ENUM(xNatType){
  * @brief Result of a completed NAT probe.
  */
 XDEF_STRUCT(xNatProbeResult) {
-  xNatType type;         /**< Detected NAT type.                          */
-  int      port_delta;   /**< Port step (>0 only for SymmetricSequential). */
+  xNatType type;            /**< Detected NAT type.                          */
+  int      port_delta;      /**< Port step (>0 only for SymmetricSequential). */
   uint16_t mapped_ports[5]; /**< Phase1: [0..1], Phase2: [2..4].          */
 };
 
@@ -96,10 +96,8 @@ typedef void (*xNatProbeFunc)(const xNatProbeResult *result, void *arg);
  * @return             A probe handle on success, or NULL on failure.
  *                     The handle is automatically freed after @p cb returns.
  */
-XCAPI(xNatProbe) xNatProbeStart(xEventLoop loop,
-                                const char *stun_host1, uint16_t stun_port1,
-                                const char *stun_host2, uint16_t stun_port2,
-                                int timeout_ms,
+XCAPI(xNatProbe) xNatProbeStart(xEventLoop loop, const char *stun_host1, uint16_t stun_port1,
+                                const char *stun_host2, uint16_t stun_port2, int timeout_ms,
                                 xNatProbeFunc cb, void *arg);
 
 /**

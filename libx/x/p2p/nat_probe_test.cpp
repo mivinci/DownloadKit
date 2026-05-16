@@ -39,8 +39,8 @@ using ms = std::chrono::milliseconds;
  * @param buf_size Size of output buffer.
  * @return         Encoded length, or -1 on error.
  */
-static int build_stun_response(const uint8_t txn_id[XSTUN_TXN_ID_SIZE],
-                               uint16_t port, uint8_t *buf, size_t buf_size) {
+static int build_stun_response(const uint8_t txn_id[XSTUN_TXN_ID_SIZE], uint16_t port, uint8_t *buf,
+                               size_t buf_size) {
   xStunMsg msg;
   xStunMsgInit(&msg, xStunMsgType_BindingResponse, txn_id);
 
@@ -55,8 +55,7 @@ static int build_stun_response(const uint8_t txn_id[XSTUN_TXN_ID_SIZE],
   addr.sin_port   = htons(port);
   inet_pton(AF_INET, "203.0.113.1", &addr.sin_addr);
 
-  if (xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr,
-                                     txn_id) != xErrno_Ok) {
+  if (xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr, txn_id) != xErrno_Ok) {
     return -1;
   }
 
@@ -81,10 +80,12 @@ public:
    * @param increment  Port increment per subsequent request (0 = fixed).
    */
   MockStunServer(uint16_t base_port, int increment = 0)
-      : base_port_(base_port), increment_(increment), fd_(-1),
-        wake_rfd_(-1), wake_wfd_(-1), running_(false), request_count_(0) {}
+      : base_port_(base_port), increment_(increment), fd_(-1), wake_rfd_(-1), wake_wfd_(-1),
+        running_(false), request_count_(0) {}
 
-  ~MockStunServer() { Stop(); }
+  ~MockStunServer() {
+    Stop();
+  }
 
   /** Start listening. Returns the local port the server is bound to. */
   uint16_t Start() {
@@ -151,7 +152,9 @@ public:
     }
   }
 
-  int RequestCount() const { return request_count_.load(); }
+  int RequestCount() const {
+    return request_count_.load();
+  }
 
 private:
   void Run() {
@@ -176,9 +179,8 @@ private:
       if (pfds[1].revents & (POLLIN | POLLHUP | POLLERR)) break;
       if (!(pfds[0].revents & POLLIN)) continue;
 
-      from_len = sizeof(from);
-      ssize_t n =
-        recvfrom(fd_, buf, sizeof(buf), 0, (struct sockaddr *)&from, &from_len);
+      from_len  = sizeof(from);
+      ssize_t n = recvfrom(fd_, buf, sizeof(buf), 0, (struct sockaddr *)&from, &from_len);
       if (n <= 0) {
         if (n < 0 && (errno == EAGAIN || errno == EINTR)) continue;
         break;
@@ -194,24 +196,22 @@ private:
       uint16_t port = (uint16_t)(base_port_ + idx * increment_);
 
       uint8_t resp_buf[XSTUN_MAX_MSG_SIZE];
-      int     resp_len =
-        build_stun_response(req.txn_id, port, resp_buf, sizeof(resp_buf));
+      int     resp_len = build_stun_response(req.txn_id, port, resp_buf, sizeof(resp_buf));
       if (resp_len < 0) continue;
 
-      sendto(fd_, resp_buf, (size_t)resp_len, 0, (struct sockaddr *)&from,
-             from_len);
+      sendto(fd_, resp_buf, (size_t)resp_len, 0, (struct sockaddr *)&from, from_len);
     }
   }
 
-  uint16_t             base_port_;
-  int                  increment_;
-  int                  fd_;
-  int                  wake_rfd_;
-  int                  wake_wfd_;
-  uint16_t             local_port_ = 0;
-  std::atomic<bool>    running_;
-  std::atomic<int>     request_count_;
-  std::thread          thread_;
+  uint16_t          base_port_;
+  int               increment_;
+  int               fd_;
+  int               wake_rfd_;
+  int               wake_wfd_;
+  uint16_t          local_port_ = 0;
+  std::atomic<bool> running_;
+  std::atomic<int>  request_count_;
+  std::thread       thread_;
 };
 
 /**
@@ -219,9 +219,10 @@ private:
  */
 class SilentStunServer {
 public:
-  SilentStunServer()
-      : fd_(-1), wake_rfd_(-1), wake_wfd_(-1), running_(false) {}
-  ~SilentStunServer() { Stop(); }
+  SilentStunServer() : fd_(-1), wake_rfd_(-1), wake_wfd_(-1), running_(false) {}
+  ~SilentStunServer() {
+    Stop();
+  }
 
   uint16_t Start() {
     fd_ = socket(AF_INET, SOCK_DGRAM, 0);
@@ -323,9 +324,9 @@ struct ProbeCtx {
 };
 
 static void probe_callback(const xNatProbeResult *result, void *arg) {
-  auto *ctx    = static_cast<ProbeCtx *>(arg);
-  ctx->result  = *result;
-  ctx->done    = true;
+  auto *ctx   = static_cast<ProbeCtx *>(arg);
+  ctx->result = *result;
+  ctx->done   = true;
 }
 
 /** Run the event loop until the probe completes or timeout. */
@@ -333,9 +334,7 @@ static bool wait_for_probe(xEventLoop loop, ProbeCtx &ctx, int max_ms = 8000) {
   auto start = std::chrono::steady_clock::now();
   while (!ctx.done) {
     xEventWait(loop, 50);
-    auto elapsed = std::chrono::duration_cast<ms>(
-                     std::chrono::steady_clock::now() - start)
-                     .count();
+    auto elapsed = std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start).count();
     if (elapsed > max_ms) return false;
   }
   return true;
@@ -350,8 +349,7 @@ TEST(NatProbeTypeStr, AllKnownTypes) {
   EXPECT_STREQ(xNatTypeStr(xNatType_OpenInternet), "OpenInternet");
   EXPECT_STREQ(xNatTypeStr(xNatType_Cone), "Cone");
   EXPECT_STREQ(xNatTypeStr(xNatType_SymmetricRandom), "SymmetricRandom");
-  EXPECT_STREQ(xNatTypeStr(xNatType_SymmetricSequential),
-               "SymmetricSequential");
+  EXPECT_STREQ(xNatTypeStr(xNatType_SymmetricSequential), "SymmetricSequential");
 }
 
 TEST(NatProbeTypeStr, InvalidType) {
@@ -365,9 +363,8 @@ TEST(NatProbeTypeStr, InvalidType) {
 
 TEST(NatProbeAPI, NullLoopReturnsNull) {
   ProbeCtx ctx;
-  EXPECT_EQ(xNatProbeStart(nullptr, "stun.l.google.com", 3478,
-                           "stun1.l.google.com", 3478, 1000, probe_callback,
-                           &ctx),
+  EXPECT_EQ(xNatProbeStart(nullptr, "stun.l.google.com", 3478, "stun1.l.google.com", 3478, 1000,
+                           probe_callback, &ctx),
             nullptr);
 }
 
@@ -376,8 +373,7 @@ TEST(NatProbeAPI, NullHost1ReturnsNull) {
   ASSERT_NE(loop, nullptr);
   ProbeCtx ctx;
   EXPECT_EQ(
-    xNatProbeStart(loop, nullptr, 3478, "stun1.l.google.com", 3478, 1000,
-                   probe_callback, &ctx),
+    xNatProbeStart(loop, nullptr, 3478, "stun1.l.google.com", 3478, 1000, probe_callback, &ctx),
     nullptr);
   xEventLoopDestroy(loop);
 }
@@ -386,17 +382,17 @@ TEST(NatProbeAPI, NullHost2ReturnsNull) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
   ProbeCtx ctx;
-  EXPECT_EQ(xNatProbeStart(loop, "stun.l.google.com", 3478, nullptr, 3478,
-                           1000, probe_callback, &ctx),
-            nullptr);
+  EXPECT_EQ(
+    xNatProbeStart(loop, "stun.l.google.com", 3478, nullptr, 3478, 1000, probe_callback, &ctx),
+    nullptr);
   xEventLoopDestroy(loop);
 }
 
 TEST(NatProbeAPI, NullCallbackReturnsNull) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
-  EXPECT_EQ(xNatProbeStart(loop, "stun.l.google.com", 3478,
-                           "stun1.l.google.com", 3478, 1000, nullptr, nullptr),
+  EXPECT_EQ(xNatProbeStart(loop, "stun.l.google.com", 3478, "stun1.l.google.com", 3478, 1000,
+                           nullptr, nullptr),
             nullptr);
   xEventLoopDestroy(loop);
 }
@@ -416,8 +412,7 @@ TEST(NatProbeCancel, CancelImmediatelyAfterStart) {
   ProbeCtx ctx;
   /* Use a real hostname — the probe will start DNS resolution. */
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", 3478, "127.0.0.1", 3479, 5000,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", 3478, "127.0.0.1", 3479, 5000, probe_callback, &ctx);
   /* Cancel immediately — should not crash. */
   xNatProbeCancel(probe);
 
@@ -451,10 +446,9 @@ TEST(NatProbeIntegration, ConeNat) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  ProbeCtx ctx;
+  ProbeCtx  ctx;
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   ASSERT_TRUE(wait_for_probe(loop, ctx));
@@ -495,10 +489,9 @@ TEST(NatProbeIntegration, SymmetricSequential) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  ProbeCtx ctx;
+  ProbeCtx  ctx;
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   ASSERT_TRUE(wait_for_probe(loop, ctx));
@@ -554,10 +547,9 @@ TEST(NatProbeIntegration, SymmetricRandom) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  ProbeCtx ctx;
+  ProbeCtx  ctx;
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   ASSERT_TRUE(wait_for_probe(loop, ctx));
@@ -591,10 +583,11 @@ TEST(NatProbeIntegration, SymmetricRandom) {
 class ScriptedStunServer {
 public:
   ScriptedStunServer(std::vector<uint16_t> ports)
-      : ports_(std::move(ports)), fd_(-1), running_(false),
-        request_count_(0) {}
+      : ports_(std::move(ports)), fd_(-1), running_(false), request_count_(0) {}
 
-  ~ScriptedStunServer() { Stop(); }
+  ~ScriptedStunServer() {
+    Stop();
+  }
 
   uint16_t Start() {
     fd_ = socket(AF_INET, SOCK_DGRAM, 0);
@@ -638,9 +631,8 @@ private:
     socklen_t               from_len;
 
     while (running_) {
-      from_len = sizeof(from);
-      ssize_t n =
-        recvfrom(fd_, buf, sizeof(buf), 0, (struct sockaddr *)&from, &from_len);
+      from_len  = sizeof(from);
+      ssize_t n = recvfrom(fd_, buf, sizeof(buf), 0, (struct sockaddr *)&from, &from_len);
       if (n <= 0) break;
 
       if (!xStunMsgIsStun(buf, (size_t)n)) continue;
@@ -653,12 +645,10 @@ private:
       uint16_t port = (idx < (int)ports_.size()) ? ports_[idx] : ports_.back();
 
       uint8_t resp_buf[XSTUN_MAX_MSG_SIZE];
-      int     resp_len =
-        build_stun_response(req.txn_id, port, resp_buf, sizeof(resp_buf));
+      int     resp_len = build_stun_response(req.txn_id, port, resp_buf, sizeof(resp_buf));
       if (resp_len < 0) continue;
 
-      sendto(fd_, resp_buf, (size_t)resp_len, 0, (struct sockaddr *)&from,
-             from_len);
+      sendto(fd_, resp_buf, (size_t)resp_len, 0, (struct sockaddr *)&from, from_len);
     }
   }
 
@@ -690,10 +680,9 @@ TEST(NatProbeIntegration, SymmetricRandomNonUniformDeltas) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  ProbeCtx ctx;
+  ProbeCtx  ctx;
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   ASSERT_TRUE(wait_for_probe(loop, ctx));
@@ -736,8 +725,7 @@ TEST(NatProbeIntegration, TimeoutReturnsUnknown) {
   ProbeCtx ctx;
   /* Use a short timeout so the test doesn't take too long. */
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 500,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 500, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   /* Total timeout = 500*2 + 2000 = 3000ms. Wait up to 5s. */
@@ -768,10 +756,9 @@ TEST(NatProbeIntegration, Phase1PartialFailure) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  ProbeCtx ctx;
+  ProbeCtx  ctx;
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 500,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 500, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   ASSERT_TRUE(wait_for_probe(loop, ctx, 5000));
@@ -793,10 +780,9 @@ TEST(NatProbeIntegration, DnsFailure) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  ProbeCtx ctx;
-  xNatProbe probe = xNatProbeStart(
-    loop, "this.host.does.not.exist.invalid", 3478,
-    "also.does.not.exist.invalid", 3478, 1000, probe_callback, &ctx);
+  ProbeCtx  ctx;
+  xNatProbe probe = xNatProbeStart(loop, "this.host.does.not.exist.invalid", 3478,
+                                   "also.does.not.exist.invalid", 3478, 1000, probe_callback, &ctx);
 
   if (probe) {
     /* DNS resolution is async — wait for callback. */
@@ -826,10 +812,9 @@ TEST(NatProbeIntegration, ConeWithHighPort) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  ProbeCtx ctx;
+  ProbeCtx  ctx;
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   ASSERT_TRUE(wait_for_probe(loop, ctx));
@@ -869,10 +854,9 @@ TEST(NatProbeIntegration, SymmetricSequentialDelta1) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  ProbeCtx ctx;
+  ProbeCtx  ctx;
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   ASSERT_TRUE(wait_for_probe(loop, ctx));
@@ -917,10 +901,9 @@ TEST(NatProbeIntegration, SymmetricSequentialNegativeDelta) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  ProbeCtx ctx;
+  ProbeCtx  ctx;
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 3000, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   ASSERT_TRUE(wait_for_probe(loop, ctx));
@@ -954,8 +937,7 @@ TEST(NatProbeIntegration, DefaultTimeout) {
   ProbeCtx ctx;
   /* timeout_ms = 0 → should use default. */
   xNatProbe probe =
-    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 0,
-                   probe_callback, &ctx);
+    xNatProbeStart(loop, "127.0.0.1", port1, "127.0.0.1", port2, 0, probe_callback, &ctx);
   ASSERT_NE(probe, nullptr);
 
   ASSERT_TRUE(wait_for_probe(loop, ctx));

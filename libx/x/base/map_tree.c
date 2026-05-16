@@ -54,7 +54,7 @@ XDEF_STRUCT(xTreeNode) {
 XDEF_STRUCT(xMapTree) {
   xMapBase   base; /* must be first */
   xTreeNode *root;
-  size_t     size; /* total key-value pairs (including overflow) */
+  size_t     size;          /* total key-value pairs (including overflow) */
   xSlab     *node_pool;     /* xTreeNode pool */
   xSlab     *overflow_pool; /* xTreeOverflow pool */
 };
@@ -157,8 +157,7 @@ static void delete_fixup(xMapTree *t, xTreeNode *x, xTreeNode *x_parent) {
         rotate_left(t, x_parent);
         w = x_parent->right;
       }
-      if ((!w->left || w->left->color == RB_BLACK) &&
-          (!w->right || w->right->color == RB_BLACK)) {
+      if ((!w->left || w->left->color == RB_BLACK) && (!w->right || w->right->color == RB_BLACK)) {
         /* Case 2 */
         w->color = RB_RED;
         x        = x_parent;
@@ -187,8 +186,7 @@ static void delete_fixup(xMapTree *t, xTreeNode *x, xTreeNode *x_parent) {
         rotate_right(t, x_parent);
         w = x_parent->left;
       }
-      if ((!w->right || w->right->color == RB_BLACK) &&
-          (!w->left || w->left->color == RB_BLACK)) {
+      if ((!w->right || w->right->color == RB_BLACK) && (!w->left || w->left->color == RB_BLACK)) {
         w->color = RB_RED;
         x        = x_parent;
         x_parent = x->parent;

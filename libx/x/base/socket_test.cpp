@@ -9,7 +9,9 @@
 #include <gtest/gtest.h>
 
 #ifdef _WIN32
-TEST(Socket, SkipOnWindows) { GTEST_SKIP() << "Socket tests need POSIX adapter"; }
+TEST(Socket, SkipOnWindows) {
+  GTEST_SKIP() << "Socket tests need POSIX adapter";
+}
 #else
 #include <x/base/socket.h>
 
@@ -43,9 +45,8 @@ static void drain_fd(int fd) {
 static void pump_loop(xEventLoop loop, int total_ms) {
   auto deadline = std::chrono::steady_clock::now() + ms(total_ms);
   while (std::chrono::steady_clock::now() < deadline) {
-    auto remaining = std::chrono::duration_cast<ms>(
-                       deadline - std::chrono::steady_clock::now())
-                       .count();
+    auto remaining =
+      std::chrono::duration_cast<ms>(deadline - std::chrono::steady_clock::now()).count();
     if (remaining <= 0) break;
     xEventWait(loop, (int)remaining);
   }
@@ -57,8 +58,7 @@ TEST(SocketCreate, Success) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
-                               noop_callback, nullptr);
+  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read, noop_callback, nullptr);
   ASSERT_NE(sock, nullptr);
 
   int fd = xSocketFd(sock);
@@ -77,8 +77,7 @@ TEST(SocketCreate, Success) {
 }
 
 TEST(SocketCreate, NullLoop) {
-  xSocket sock = xSocketCreate(NULL, AF_INET, SOCK_STREAM, 0, xEvent_Read,
-                               noop_callback, nullptr);
+  xSocket sock = xSocketCreate(NULL, AF_INET, SOCK_STREAM, 0, xEvent_Read, noop_callback, nullptr);
   EXPECT_EQ(sock, nullptr);
 }
 
@@ -86,8 +85,7 @@ TEST(SocketCreate, NullCallback) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xSocket sock =
-    xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read, NULL, nullptr);
+  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read, NULL, nullptr);
   EXPECT_EQ(sock, nullptr);
 
   xEventLoopDestroy(loop);
@@ -98,8 +96,7 @@ TEST(SocketCreate, InvalidFamily) {
   ASSERT_NE(loop, nullptr);
 
   /* Use an invalid address family to trigger socket() failure */
-  xSocket sock = xSocketCreate(loop, -1, SOCK_STREAM, 0, xEvent_Read,
-                               noop_callback, nullptr);
+  xSocket sock = xSocketCreate(loop, -1, SOCK_STREAM, 0, xEvent_Read, noop_callback, nullptr);
   EXPECT_EQ(sock, nullptr);
 
   xEventLoopDestroy(loop);
@@ -111,8 +108,7 @@ TEST(SocketDestroy, Normal) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
-                               noop_callback, nullptr);
+  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read, noop_callback, nullptr);
   ASSERT_NE(sock, nullptr);
 
   int fd = xSocketFd(sock);
@@ -142,8 +138,7 @@ TEST(SocketMask, SetAndGet) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
-                               noop_callback, nullptr);
+  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read, noop_callback, nullptr);
   ASSERT_NE(sock, nullptr);
 
   EXPECT_EQ(xSocketMask(sock), xEvent_Read);
@@ -175,8 +170,7 @@ TEST(SocketQuery, Fd) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
-                               noop_callback, nullptr);
+  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read, noop_callback, nullptr);
   ASSERT_NE(sock, nullptr);
 
   int fd = xSocketFd(sock);
@@ -196,8 +190,7 @@ TEST(SocketQuery, Mask) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Write,
-                               noop_callback, nullptr);
+  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Write, noop_callback, nullptr);
   ASSERT_NE(sock, nullptr);
 
   EXPECT_EQ(xSocketMask(sock), xEvent_Write);
@@ -418,8 +411,7 @@ TEST(SocketCallback, HandleMatch) {
 
   xSocket sock = xSocketCreate(
     loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
-    [](xSocket s, xEventMask, void *arg) { *static_cast<xSocket *>(arg) = s; },
-    &received_sock);
+    [](xSocket s, xEventMask, void *arg) { *static_cast<xSocket *>(arg) = s; }, &received_sock);
   ASSERT_NE(sock, nullptr);
 
   /* Use timeout to trigger the callback */
@@ -485,9 +477,7 @@ TEST(SocketCallback, MaskReflectsEvent) {
 
   xSocket sock_read = xSocketCreate(
     loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
-    [](xSocket, xEventMask m, void *arg) {
-      *static_cast<xEventMask *>(arg) = m;
-    },
+    [](xSocket, xEventMask m, void *arg) { *static_cast<xEventMask *>(arg) = m; },
     &read_timeout_mask);
   ASSERT_NE(sock_read, nullptr);
 
@@ -495,8 +485,7 @@ TEST(SocketCallback, MaskReflectsEvent) {
   pump_loop(loop, 200);
 
   EXPECT_TRUE(read_timeout_mask & xEvent_Timeout);
-  EXPECT_TRUE(read_timeout_mask &
-              xEvent_Read); /* Read timeout => includes Read bit */
+  EXPECT_TRUE(read_timeout_mask & xEvent_Read); /* Read timeout => includes Read bit */
   EXPECT_FALSE(read_timeout_mask & xEvent_Write);
 
   xSocketDestroy(loop, sock_read);
@@ -506,9 +495,7 @@ TEST(SocketCallback, MaskReflectsEvent) {
 
   xSocket sock_write = xSocketCreate(
     loop, AF_INET, SOCK_STREAM, 0, xEvent_Write,
-    [](xSocket, xEventMask m, void *arg) {
-      *static_cast<xEventMask *>(arg) = m;
-    },
+    [](xSocket, xEventMask m, void *arg) { *static_cast<xEventMask *>(arg) = m; },
     &write_timeout_mask);
   ASSERT_NE(sock_write, nullptr);
 
@@ -517,8 +504,7 @@ TEST(SocketCallback, MaskReflectsEvent) {
 
   EXPECT_TRUE(write_timeout_mask & xEvent_Timeout);
   EXPECT_FALSE(write_timeout_mask & xEvent_Read);
-  EXPECT_TRUE(write_timeout_mask &
-              xEvent_Write); /* Write timeout => includes Write bit */
+  EXPECT_TRUE(write_timeout_mask & xEvent_Write); /* Write timeout => includes Write bit */
 
   xSocketDestroy(loop, sock_write);
 
@@ -533,8 +519,7 @@ TEST(SocketCallback, MaskReflectsEvent) {
   /* Register fds[0] for write — socketpair fds are always writable initially */
   xEventSource src = xEventAdd(
     loop, fds[0], xEvent_Write,
-    [](int, xEventMask m, void *arg) { *static_cast<xEventMask *>(arg) = m; },
-    &io_mask);
+    [](int, xEventMask m, void *arg) { *static_cast<xEventMask *>(arg) = m; }, &io_mask);
   ASSERT_NE(src, nullptr);
 
   xEventWait(loop, 100);
@@ -573,8 +558,7 @@ TEST(SocketCreateFromFd, Success) {
   int fds[2];
   ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
-  xSocket sock = xSocketCreateFromFd(loop, fds[0], xEvent_Read,
-                                     noop_callback, nullptr);
+  xSocket sock = xSocketCreateFromFd(loop, fds[0], xEvent_Read, noop_callback, nullptr);
   ASSERT_NE(sock, nullptr);
 
   int fd = xSocketFd(sock);
@@ -597,8 +581,7 @@ TEST(SocketCreateFromFd, NullLoop) {
   int fds[2];
   ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
-  xSocket sock = xSocketCreateFromFd(NULL, fds[0], xEvent_Read,
-                                     noop_callback, nullptr);
+  xSocket sock = xSocketCreateFromFd(NULL, fds[0], xEvent_Read, noop_callback, nullptr);
   EXPECT_EQ(sock, nullptr);
 
   close(fds[0]);
@@ -624,8 +607,7 @@ TEST(SocketCreateFromFd, InvalidFd) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xSocket sock = xSocketCreateFromFd(loop, -1, xEvent_Read,
-                                     noop_callback, nullptr);
+  xSocket sock = xSocketCreateFromFd(loop, -1, xEvent_Read, noop_callback, nullptr);
   EXPECT_EQ(sock, nullptr);
 
   xEventLoopDestroy(loop);
@@ -676,15 +658,12 @@ TEST(SocketSetCallback, ReplaceCallback) {
 
   xSocket sock = xSocketCreate(
     loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
-    [](xSocket, xEventMask, void *arg) { (*static_cast<int *>(arg))++; },
-    &original_count);
+    [](xSocket, xEventMask, void *arg) { (*static_cast<int *>(arg))++; }, &original_count);
   ASSERT_NE(sock, nullptr);
 
   /* Replace callback */
   xErrno err = xSocketSetCallback(
-    sock,
-    [](xSocket, xEventMask, void *arg) { (*static_cast<int *>(arg))++; },
-    &new_count);
+    sock, [](xSocket, xEventMask, void *arg) { (*static_cast<int *>(arg))++; }, &new_count);
   EXPECT_EQ(err, xErrno_Ok);
 
   /* Trigger via timeout */
@@ -699,16 +678,14 @@ TEST(SocketSetCallback, ReplaceCallback) {
 }
 
 TEST(SocketSetCallback, NullSocket) {
-  EXPECT_EQ(xSocketSetCallback(NULL, noop_callback, nullptr),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xSocketSetCallback(NULL, noop_callback, nullptr), xErrno_InvalidArg);
 }
 
 TEST(SocketSetCallback, NullCallback) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read,
-                               noop_callback, nullptr);
+  xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0, xEvent_Read, noop_callback, nullptr);
   ASSERT_NE(sock, nullptr);
 
   EXPECT_EQ(xSocketSetCallback(sock, NULL, nullptr), xErrno_InvalidArg);

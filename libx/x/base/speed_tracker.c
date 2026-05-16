@@ -29,11 +29,9 @@ void xSpeedTrackerUpdate(xSpeedTracker *t, uint64_t transferred) {
 char *xSpeedTrackerFormat(const xSpeedTracker *t, char *buf, size_t bufsz) {
   if (t->smooth_bps > 0.0) {
     if (t->smooth_bps >= 1024.0 * 1024.0)
-      snprintf(buf, bufsz, "  %.2f MB/s",
-               t->smooth_bps / (1024.0 * 1024.0));
+      snprintf(buf, bufsz, "  %.2f MB/s", t->smooth_bps / (1024.0 * 1024.0));
     else
-      snprintf(buf, bufsz, "  %.1f KB/s",
-               t->smooth_bps / 1024.0);
+      snprintf(buf, bufsz, "  %.1f KB/s", t->smooth_bps / 1024.0);
   } else {
     buf[0] = '\0';
   }

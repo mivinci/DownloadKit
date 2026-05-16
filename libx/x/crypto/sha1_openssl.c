@@ -59,7 +59,7 @@ xErrno xSha1Final(xSha1Ctx *ctx, uint8_t *digest) {
   if (!impl->mdctx) return xErrno_InvalidState;
 
   unsigned int len = 0;
-  int ok = EVP_DigestFinal_ex(impl->mdctx, digest, &len);
+  int          ok  = EVP_DigestFinal_ex(impl->mdctx, digest, &len);
 
   EVP_MD_CTX_free(impl->mdctx);
   impl->mdctx = NULL;
@@ -73,8 +73,7 @@ xErrno xSha1(const uint8_t *data, size_t len, uint8_t *digest) {
   EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
   if (!mdctx) return xErrno_NoMemory;
 
-  int ok = EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL) &&
-           EVP_DigestUpdate(mdctx, data, len) &&
+  int ok = EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL) && EVP_DigestUpdate(mdctx, data, len) &&
            EVP_DigestFinal_ex(mdctx, digest, NULL);
 
   EVP_MD_CTX_free(mdctx);

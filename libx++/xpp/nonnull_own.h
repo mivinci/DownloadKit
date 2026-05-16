@@ -25,9 +25,9 @@
 #ifndef XPP_NONNULL_OWN_H
 #define XPP_NONNULL_OWN_H
 
-#include "nonnull.h"
-#include "option.h"
-#include "panic.h"
+#include <xpp/nonnull.h>
+#include <xpp/option.h>
+#include <xpp/panic.h>
 
 #include <memory>
 #include <type_traits>
@@ -46,32 +46,36 @@ namespace _ {
  * Mirrors the strategy used by libc++ / libstdc++ / MSVC STL inside
  * std::unique_ptr.
  */
-template <class T, class D,
-          bool Empty = std::is_empty<D>::value && !std::is_final<D>::value>
+template <class T, class D, bool Empty = std::is_empty<D>::value && !std::is_final<D>::value>
 struct CompressedPair {
   T *p;
   D  d;
 
-  CompressedPair() noexcept(std::is_nothrow_default_constructible<D>::value)
-      : p(nullptr), d() {}
+  CompressedPair() noexcept(std::is_nothrow_default_constructible<D>::value) : p(nullptr), d() {}
   CompressedPair(T *p_, D d_) noexcept(std::is_nothrow_move_constructible<D>::value)
       : p(p_), d(std::move(d_)) {}
 
-  D       &deleter() noexcept       { return d; }
-  const D &deleter() const noexcept { return d; }
+  D &deleter() noexcept {
+    return d;
+  }
+  const D &deleter() const noexcept {
+    return d;
+  }
 };
 
-template <class T, class D>
-struct CompressedPair<T, D, true> : private D {
+template <class T, class D> struct CompressedPair<T, D, true> : private D {
   T *p;
 
-  CompressedPair() noexcept(std::is_nothrow_default_constructible<D>::value)
-      : D(), p(nullptr) {}
+  CompressedPair() noexcept(std::is_nothrow_default_constructible<D>::value) : D(), p(nullptr) {}
   CompressedPair(T *p_, D d_) noexcept(std::is_nothrow_move_constructible<D>::value)
       : D(std::move(d_)), p(p_) {}
 
-  D       &deleter() noexcept       { return *this; }
-  const D &deleter() const noexcept { return *this; }
+  D &deleter() noexcept {
+    return *this;
+  }
+  const D &deleter() const noexcept {
+    return *this;
+  }
 };
 
 } // namespace _
@@ -91,8 +95,7 @@ struct CompressedPair<T, D, true> : private D {
  * @tparam Deleter  Function-object-like type called on the held pointer
  *                  in the destructor. Defaults to std::default_delete<T>.
  */
-template <class T, class Deleter = std::default_delete<T>>
-class NonNullOwn {
+template <class T, class Deleter = std::default_delete<T>> class NonNullOwn {
   using Storage = _::CompressedPair<T, Deleter>;
 
 public:
@@ -100,13 +103,12 @@ public:
   using deleter_type = Deleter;
   using pointer      = T *;
 
-  NonNullOwn()                                  = delete;
-  NonNullOwn(const NonNullOwn &)             = delete;
-  NonNullOwn &operator=(const NonNullOwn &)  = delete;
+  NonNullOwn()                              = delete;
+  NonNullOwn(const NonNullOwn &)            = delete;
+  NonNullOwn &operator=(const NonNullOwn &) = delete;
 
   /** @brief Move ctor. Source becomes a "destruction-only" husk. */
-  NonNullOwn(NonNullOwn &&o) noexcept
-      : m_storage(o.m_storage.p, std::move(o.m_storage.deleter())) {
+  NonNullOwn(NonNullOwn &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.deleter())) {
     o.m_storage.p = nullptr;
   }
 
@@ -118,9 +120,9 @@ public:
    * common case `default_delete<Derived>` → `default_delete<Base>`.
    */
   template <class U, class E,
-            class = typename std::enable_if<
-                std::is_convertible<U *, T *>::value && !std::is_same<U, T>::value &&
-                std::is_convertible<E &&, Deleter>::value>::type>
+            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                            !std::is_same<U, T>::value &&
+                                            std::is_convertible<E &&, Deleter>::value>::type>
   NonNullOwn(NonNullOwn<U, E> &&o) noexcept
       : m_storage(static_cast<T *>(o.m_storage.p),
                   static_cast<Deleter>(std::move(o.m_storage.deleter()))) {
@@ -155,14 +157,12 @@ public:
     return m_storage.p;
   }
 
-  template <class U = T,
-            class   = typename std::enable_if<!std::is_void<U>::value>::type>
+  template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   U &operator*() const noexcept {
     return *m_storage.p;
   }
 
-  template <class U = T,
-            class   = typename std::enable_if<!std::is_void<U>::value>::type>
+  template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   U *operator->() const noexcept {
     return m_storage.p;
   }
@@ -186,15 +186,14 @@ public:
    * never leave a NonNullOwn observable in a "null" state.
    */
   T *release() && noexcept {
-    T *r          = m_storage.p;
-    m_storage.p   = nullptr;
+    T *r        = m_storage.p;
+    m_storage.p = nullptr;
     return r;
   }
 
 private:
   struct _PrivateTag {};
-  NonNullOwn(T *p, Deleter d, _PrivateTag) noexcept
-      : m_storage(p, std::move(d)) {}
+  NonNullOwn(T *p, Deleter d, _PrivateTag) noexcept : m_storage(p, std::move(d)) {}
 
   void reset_internal() noexcept {
     if (m_storage.p) {
@@ -231,15 +230,14 @@ private:
  *   - const & overload  → fn receives NonNull<T> (non-owning view)
  *   - && overload       → fn receives NonNullOwn<T, D>&& (consumes)
  */
-template <class T, class Deleter>
-class Option<NonNullOwn<T, Deleter>> {
+template <class T, class Deleter> class Option<NonNullOwn<T, Deleter>> {
   using Storage = _::CompressedPair<T, Deleter>;
 
 public:
   using value_type = NonNullOwn<T, Deleter>;
 
-  Option() noexcept                  : m_storage() {}
-  Option(None) noexcept              : m_storage() {}
+  Option() noexcept : m_storage() {}
+  Option(None) noexcept : m_storage() {}
   Option(NonNullOwn<T, Deleter> &&u) noexcept
       : m_storage(u.m_storage.p, std::move(u.m_storage.deleter())) {
     u.m_storage.p = nullptr;
@@ -247,9 +245,9 @@ public:
 
   /** @brief Covariant: adopt NonNullOwn<Derived, E>. */
   template <class U, class E,
-            class = typename std::enable_if<
-                std::is_convertible<U *, T *>::value && !std::is_same<U, T>::value &&
-                std::is_convertible<E &&, Deleter>::value>::type>
+            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                            !std::is_same<U, T>::value &&
+                                            std::is_convertible<E &&, Deleter>::value>::type>
   Option(NonNullOwn<U, E> &&u) noexcept
       : m_storage(static_cast<T *>(u.m_storage.p),
                   static_cast<Deleter>(std::move(u.m_storage.deleter()))) {
@@ -259,16 +257,15 @@ public:
   Option(const Option &)            = delete;
   Option &operator=(const Option &) = delete;
 
-  Option(Option &&o) noexcept
-      : m_storage(o.m_storage.p, std::move(o.m_storage.deleter())) {
+  Option(Option &&o) noexcept : m_storage(o.m_storage.p, std::move(o.m_storage.deleter())) {
     o.m_storage.p = nullptr;
   }
 
   /** @brief Covariant: adopt Option<NonNullOwn<Derived, E>>. */
   template <class U, class E,
-            class = typename std::enable_if<
-                std::is_convertible<U *, T *>::value && !std::is_same<U, T>::value &&
-                std::is_convertible<E &&, Deleter>::value>::type>
+            class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
+                                            !std::is_same<U, T>::value &&
+                                            std::is_convertible<E &&, Deleter>::value>::type>
   Option(Option<NonNullOwn<U, E>> &&o) noexcept
       : m_storage(static_cast<T *>(o.m_storage.p),
                   static_cast<Deleter>(std::move(o.m_storage.deleter()))) {
@@ -345,8 +342,7 @@ public:
   template <class Func>
   auto map(Func &&fn) const & -> Option<decltype(fn(std::declval<NonNull<T>>()))> {
     using U = decltype(fn(std::declval<NonNull<T>>()));
-    return m_storage.p ? Option<U>(fn(NonNull<T>::newUnchecked(m_storage.p)))
-                       : Option<U>(none);
+    return m_storage.p ? Option<U>(fn(NonNull<T>::newUnchecked(m_storage.p))) : Option<U>(none);
   }
   template <class Func>
   auto map(Func &&fn) && -> Option<decltype(fn(std::declval<NonNullOwn<T, Deleter> &&>()))> {
@@ -401,8 +397,8 @@ private:
 
   /** Move ownership out of storage; storage left empty. Caller has checked p != null. */
   NonNullOwn<T, Deleter> takeOwned() noexcept {
-    NonNullOwn<T, Deleter> r = NonNullOwn<T, Deleter>::newUnchecked(
-        m_storage.p, std::move(m_storage.deleter()));
+    NonNullOwn<T, Deleter> r =
+      NonNullOwn<T, Deleter>::newUnchecked(m_storage.p, std::move(m_storage.deleter()));
     m_storage.p = nullptr;
     return r;
   }
@@ -418,8 +414,7 @@ private:
 template <class T, class D>
 inline Option<NonNullOwn<T, D>> NonNullOwn<T, D>::from(T *p, D d) noexcept {
   if (!p) return Option<NonNullOwn<T, D>>(none);
-  return Option<NonNullOwn<T, D>>(
-      NonNullOwn<T, D>(p, std::move(d), _PrivateTag{}));
+  return Option<NonNullOwn<T, D>>(NonNullOwn<T, D>(p, std::move(d), _PrivateTag{}));
 }
 
 /* ── Compile-time size guarantees ────────────────────────────────────── */

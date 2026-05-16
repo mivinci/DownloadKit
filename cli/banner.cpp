@@ -114,14 +114,14 @@ static const Logo kLogos[] = {
   {kV3, 3, 17},
   {kV4, 4, 19},
 };
-static const int kLogoCount = (int) (sizeof(kLogos) / sizeof(kLogos[0]));
+static const int kLogoCount = (int)(sizeof(kLogos) / sizeof(kLogos[0]));
 
 /* Pick a logo from the table. Seeded once per process with a
  * time^pid mix (non-crypto, fine for a UI flourish). */
 const Logo &pick_logo() {
   static bool seeded = false;
   if (!seeded) {
-    std::srand((unsigned) std::time(nullptr) ^ (unsigned) getpid());
+    std::srand((unsigned)std::time(nullptr) ^ (unsigned)getpid());
     seeded = true;
   }
   return kLogos[std::rand() % kLogoCount];
@@ -162,8 +162,10 @@ std::vector<std::string> wrap(const std::string &text, size_t width) {
     size_t brk_slash = std::string::npos;
     for (size_t j = 0; j < width; j++) {
       char c = text[i + j];
-      if (c == ' ') brk_space = j;
-      else if (c == '/') brk_slash = j;
+      if (c == ' ')
+        brk_space = j;
+      else if (c == '/')
+        brk_slash = j;
     }
     if (brk_space != std::string::npos) {
       out.push_back(text.substr(i, brk_space));
@@ -199,12 +201,14 @@ std::vector<std::string> wrap(const std::string &text, size_t width) {
  * happy path; 0 rows in degraded mode) are anchored to the bottom
  * of that strip, so a tall logo sits above its captions rather
  * than leaving blank space below them. */
-void banner_print(const char *version, const char *model_label,
-                  const char *tools_label, const char *data_dir,
-                  int no_models) {
+void banner_print(const char *version, const char *model_label, const char *tools_label,
+                  const char *data_dir, int no_models) {
   const Logo &logo = pick_logo();
 
-  enum { GAP_W = 2, BOX_INNER = 68 };
+  enum {
+    GAP_W     = 2,
+    BOX_INNER = 68
+  };
   const int LOGO_W  = logo.w;
   const int RIGHT_W = BOX_INNER - GAP_W - LOGO_W;
 
@@ -214,18 +218,15 @@ void banner_print(const char *version, const char *model_label,
   std::vector<std::string> info;
   if (!no_models) {
     char buf[1024];
-    std::snprintf(buf, sizeof(buf), "model=%s, tools=%s",
-                  model_label ? model_label : "?",
+    std::snprintf(buf, sizeof(buf), "model=%s, tools=%s", model_label ? model_label : "?",
                   tools_label ? tools_label : "?");
     info.push_back(buf);
-    std::snprintf(buf, sizeof(buf), "data_dir=%s",
-                  data_dir ? data_dir : "?");
+    std::snprintf(buf, sizeof(buf), "data_dir=%s", data_dir ? data_dir : "?");
     info.push_back(buf);
   }
 
-  const int strip_h    = logo.h > (int) info.size() ? logo.h
-                                                    : (int) info.size();
-  const int info_start = strip_h - (int) info.size(); /* bottom-anchored */
+  const int strip_h    = logo.h > (int)info.size() ? logo.h : (int)info.size();
+  const int info_start = strip_h - (int)info.size(); /* bottom-anchored */
 
   /* Leading blank line: the parent shell's prompt sits right above
    * our first row, so without this gap the top border visually
@@ -238,11 +239,12 @@ void banner_print(const char *version, const char *model_label,
    * so the banner never drifts from the real build. */
   {
     const char *ver    = version ? version : "?";
-    int         ver_w  = (int) std::strlen(ver);
+    int         ver_w  = (int)std::strlen(ver);
     int         dashes = 72 - 3 - 4 - ver_w - 1 - 1;
     if (dashes < 0) dashes = 0;
     std::printf("\x1b[2m┌─ \x1b[22m\x1b[1mMOO %s\x1b[22m\x1b[2m ", ver);
-    for (int i = 0; i < dashes; i++) std::printf("─");
+    for (int i = 0; i < dashes; i++)
+      std::printf("─");
     std::printf("┐\x1b[22m\n");
   }
   /* empty top padding row */
@@ -254,16 +256,15 @@ void banner_print(const char *version, const char *model_label,
    * are truncated to RIGHT_W by snprintf'ing through a fixed-size
    * buffer so a long model id or deep path can't blow the frame. */
   {
-    char *rbuf = (char *) std::malloc((size_t) RIGHT_W + 1);
+    char *rbuf = (char *)std::malloc((size_t)RIGHT_W + 1);
     if (!rbuf) return;
     for (int i = 0; i < strip_h; i++) {
       const char *lrow = (i < logo.h) ? logo.rows[i] : "";
       const char *itxt = "";
-      if (i >= info_start && i - info_start < (int) info.size())
-        itxt = info[i - info_start].c_str();
-      std::snprintf(rbuf, (size_t) RIGHT_W + 1, "%s", itxt);
-      std::printf("\x1b[2m│\x1b[22m %-*s%*s%-*s \x1b[2m│\x1b[22m\n",
-                  LOGO_W, lrow, GAP_W, "", RIGHT_W, rbuf);
+      if (i >= info_start && i - info_start < (int)info.size()) itxt = info[i - info_start].c_str();
+      std::snprintf(rbuf, (size_t)RIGHT_W + 1, "%s", itxt);
+      std::printf("\x1b[2m│\x1b[22m %-*s%*s%-*s \x1b[2m│\x1b[22m\n", LOGO_W, lrow, GAP_W, "",
+                  RIGHT_W, rbuf);
     }
     std::free(rbuf);
   }
@@ -288,22 +289,18 @@ void banner_print(const char *version, const char *model_label,
     char         padded[BOX_INNER + 1];
     for (const auto &ln : hint_lines) {
       std::snprintf(padded, sizeof(padded), "  %s", ln.c_str());
-      std::printf(
-        "\x1b[2m│\x1b[22m \x1b[33m%-*s\x1b[39m \x1b[2m│\x1b[22m\n",
-        BOX_INNER, padded);
+      std::printf("\x1b[2m│\x1b[22m \x1b[33m%-*s\x1b[39m \x1b[2m│\x1b[22m\n", BOX_INNER, padded);
     }
     std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
   }
 
   /* one-line tips strip (indent 2 cols to match logo inset) */
-  std::printf(
-    "\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
-    "  Enter send   / commands   Ctrl-C cancel/exit   /help more");
+  std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER,
+              "  Enter send   / commands   Ctrl-C cancel/exit   /help more");
   /* empty bottom padding row */
   std::printf("\x1b[2m│\x1b[22m %-*s \x1b[2m│\x1b[22m\n", BOX_INNER, "");
   /* bottom: '└' + 70 '─' + '┘' = 72 */
-  std::printf(
-    "\x1b[2m└"
-    "──────────────────────────────────────────────────────────────────────"
-    "┘\x1b[22m\n\n");
+  std::printf("\x1b[2m└"
+              "──────────────────────────────────────────────────────────────────────"
+              "┘\x1b[22m\n\n");
 }

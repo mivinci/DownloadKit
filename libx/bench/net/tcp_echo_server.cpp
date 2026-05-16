@@ -11,11 +11,11 @@
  * Echoes back every byte received on each connection.
  */
 
+#include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <csignal>
-#include <cerrno>
 
 extern "C" {
 #include <x/base/event.h>
@@ -29,7 +29,7 @@ static void on_readable(int fd, xEventMask mask, void *arg) {
   (void)fd;
   (void)mask;
   xTcpConn conn = static_cast<xTcpConn>(arg);
-  char buf[65536];
+  char     buf[65536];
 
   for (;;) {
     ssize_t n = xTcpConnRecv(conn, buf, sizeof(buf));
@@ -54,16 +54,15 @@ static void on_readable(int fd, xEventMask mask, void *arg) {
   }
 }
 
-static void on_accept(xTcpListener listener, xTcpConn conn,
-                      const struct sockaddr *addr, socklen_t addrlen,
-                      void *arg) {
+static void on_accept(xTcpListener listener, xTcpConn conn, const struct sockaddr *addr,
+                      socklen_t addrlen, void *arg) {
   (void)listener;
   (void)addr;
   (void)addrlen;
   (void)arg;
 
   xSocket sock = xTcpConnSocket(conn);
-  int fd = xSocketFd(sock);
+  int     fd   = xSocketFd(sock);
 
   xEventAdd(g_loop, fd, xEvent_Read, on_readable, conn);
 }
@@ -79,15 +78,13 @@ int main(int argc, char *argv[]) {
   }
 
   // Watch SIGINT to stop gracefully
-  xEventLoopSignalWatch(g_loop, SIGINT,
-                        [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
+  xEventLoopSignalWatch(g_loop, SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
 
   xTcpListenerConf conf;
   memset(&conf, 0, sizeof(conf));
   conf.reuseport = 1;
 
-  xTcpListener listener =
-      xTcpListenerCreate(g_loop, "0.0.0.0", port, &conf, on_accept, nullptr);
+  xTcpListener listener = xTcpListenerCreate(g_loop, "0.0.0.0", port, &conf, on_accept, nullptr);
   if (!listener) {
     fprintf(stderr, "Failed to listen on port %u\n", port);
     xEventLoopDestroy(g_loop);

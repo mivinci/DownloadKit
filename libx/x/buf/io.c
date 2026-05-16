@@ -128,8 +128,7 @@ static xErrno iobuf_grow_refs(xIOBuffer *io, size_t needed) {
     /* Transition from inline to heap. */
     newrefs = (xIOBufferRef *)malloc(newcap * sizeof(xIOBufferRef));
     if (!newrefs) return xErrno_NoMemory;
-    if (io->nrefs > 0)
-      memcpy(newrefs, io->inlined, io->nrefs * sizeof(xIOBufferRef));
+    if (io->nrefs > 0) memcpy(newrefs, io->inlined, io->nrefs * sizeof(xIOBufferRef));
   } else {
     newrefs = (xIOBufferRef *)realloc(io->refs, newcap * sizeof(xIOBufferRef));
     if (!newrefs) return xErrno_NoMemory;
@@ -145,8 +144,8 @@ static xErrno iobuf_grow_refs(xIOBuffer *io, size_t needed) {
  * If `adjust_nbytes` is true, io->nbytes is incremented by `length`.
  * Callers that manage nbytes externally (e.g. xIOBufferCut) pass false.
  */
-static xErrno iobuf_push_ref(xIOBuffer *io, xIOBlock *blk, size_t offset,
-                             size_t length, bool adjust_nbytes) {
+static xErrno iobuf_push_ref(xIOBuffer *io, xIOBlock *blk, size_t offset, size_t length,
+                             bool adjust_nbytes) {
   xErrno err;
 
   if (length == 0) return xErrno_Ok;
@@ -169,8 +168,7 @@ static void iobuf_shift_refs(xIOBuffer *io, size_t count) {
     io->nrefs = 0;
     return;
   }
-  memmove(io->refs, io->refs + count,
-          (io->nrefs - count) * sizeof(xIOBufferRef));
+  memmove(io->refs, io->refs + count, (io->nrefs - count) * sizeof(xIOBufferRef));
   io->nrefs -= count;
 }
 

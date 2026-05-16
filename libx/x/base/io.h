@@ -75,13 +75,13 @@
 #include <stddef.h>
 
 #ifdef _WIN32
-typedef long xSsize;
+typedef long    xSsize;
 typedef __int64 xOff;
 #else
 #include <sys/types.h>
 #include <sys/uio.h>
 typedef ssize_t xSsize;
-typedef off_t xOff;
+typedef off_t   xOff;
 #endif
 
 /**
@@ -95,7 +95,7 @@ XDEF_STRUCT(xIovec) {
   size_t iov_len;
 };
 #else
-#define xIovec  struct iovec
+#define xIovec struct iovec
 #endif
 
 /* ═══════════════════════════════════════════════════════════════════

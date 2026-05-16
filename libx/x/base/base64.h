@@ -26,8 +26,7 @@
  * Base64 produces 4 characters per 3 bytes, rounded up, plus
  * '=' padding and a NUL terminator.
  */
-#define XBASE64_ENCODE_MAXLEN(input_len) \
-  ((size_t)(((input_len) + 2) / 3 * 4 + 1))
+#define XBASE64_ENCODE_MAXLEN(input_len) ((size_t)(((input_len) + 2) / 3 * 4 + 1))
 
 /**
  * @brief Compute the maximum decoded length for a given encoded size.
@@ -51,8 +50,7 @@
  *                 the NUL terminator).
  * @return         0 on success, -1 if the output buffer is too small.
  */
-XCAPI(int) xBase64Encode(const uint8_t *src, size_t src_len, char *dst,
-                         size_t *dst_len);
+XCAPI(int) xBase64Encode(const uint8_t *src, size_t src_len, char *dst, size_t *dst_len);
 
 /**
  * @brief Decode a base64 string to binary data.
@@ -71,7 +69,6 @@ XCAPI(int) xBase64Encode(const uint8_t *src, size_t src_len, char *dst,
  *                 or the input contains invalid characters or has an
  *                 invalid length.
  */
-XCAPI(int) xBase64Decode(const char *src, size_t src_len, uint8_t *dst,
-                         size_t *dst_len);
+XCAPI(int) xBase64Decode(const char *src, size_t src_len, uint8_t *dst, size_t *dst_len);
 
 #endif /* XBASE_BASE64_H */

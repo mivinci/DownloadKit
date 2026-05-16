@@ -49,7 +49,7 @@ xJSClassRef make_counting_class(const char *name = "Counter") {
   return xJSClassCreate(&def);
 }
 
-}  // namespace
+} // namespace
 
 /* ═══════════════════════════════════════════════════════════════════
  * Create / Retain / Release
@@ -76,9 +76,9 @@ TEST(XjsClass, CreateAllocatesDistinctClassIDs) {
    * two ids must then be distinct non-zero values. */
   xJSGlobalContextRef ctx = xJSGlobalContextCreate(nullptr);
   ASSERT_NE(ctx, nullptr);
-  int dummy = 0;
-  xJSObjectRef oa = xJSObjectMake(ctx, a, &dummy);
-  xJSObjectRef ob = xJSObjectMake(ctx, b, &dummy);
+  int          dummy = 0;
+  xJSObjectRef oa    = xJSObjectMake(ctx, a, &dummy);
+  xJSObjectRef ob    = xJSObjectMake(ctx, b, &dummy);
   ASSERT_NE(oa, nullptr);
   ASSERT_NE(ob, nullptr);
   EXPECT_NE(a->qclass, 0u);
@@ -94,13 +94,13 @@ TEST(XjsClass, CreateAllocatesDistinctClassIDs) {
 TEST(XjsClass, CreateDuplicatesClassName) {
   /* The JSC contract lets callers pass a stack-owned className; we
    * must not alias it. */
-  char  stackbuf[8];
+  char stackbuf[8];
   std::strcpy(stackbuf, "OnStack");
   xJSClassDefinition def = kXJSClassDefinitionEmpty;
   def.className          = stackbuf;
   xJSClassRef k          = xJSClassCreate(&def);
   ASSERT_NE(k, nullptr);
-  std::memset(stackbuf, 'x', sizeof(stackbuf));  /* clobber caller buffer */
+  std::memset(stackbuf, 'x', sizeof(stackbuf)); /* clobber caller buffer */
   ASSERT_NE(k->class_name, nullptr);
   EXPECT_STREQ(k->class_name, "OnStack");
   xJSClassRelease(k);

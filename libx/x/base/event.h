@@ -119,8 +119,7 @@ XCAPI(void) xEventLoopDestroy(xEventLoop loop);
  * @param arg   Argument forwarded to @p fn.
  * @return      An event source handle, or NULL on failure.
  */
-XCAPI(xEventSource) xEventAdd(xEventLoop loop, int fd, xEventMask mask,
-                              xEventFunc fn, void *arg);
+XCAPI(xEventSource) xEventAdd(xEventLoop loop, int fd, xEventMask mask, xEventFunc fn, void *arg);
 
 /**
  * @brief Modify the watched events for an existing source.
@@ -180,8 +179,8 @@ XCAPI(xErrno) xEventWake(xEventLoop loop);
  * @param delay_ms  Delay in milliseconds from now.
  * @return          A timer handle, or NULL on failure.
  */
-XCAPI(xEventTimer) xEventLoopTimerAfter(xEventLoop loop, xEventTimerFunc fn,
-                                        void *arg, uint64_t delay_ms);
+XCAPI(xEventTimer) xEventLoopTimerAfter(xEventLoop loop, xEventTimerFunc fn, void *arg,
+                                        uint64_t delay_ms);
 
 /**
  * @brief Schedule a callback to fire at an absolute monotonic time.
@@ -194,8 +193,8 @@ XCAPI(xEventTimer) xEventLoopTimerAfter(xEventLoop loop, xEventTimerFunc fn,
  * @param abs_ms  Absolute deadline in milliseconds (CLOCK_MONOTONIC).
  * @return        A timer handle, or NULL on failure.
  */
-XCAPI(xEventTimer) xEventLoopTimerAt(xEventLoop loop, xEventTimerFunc fn,
-                                     void *arg, uint64_t abs_ms);
+XCAPI(xEventTimer) xEventLoopTimerAt(xEventLoop loop, xEventTimerFunc fn, void *arg,
+                                     uint64_t abs_ms);
 
 /**
  * @brief Cancel a pending builtin event timer.
@@ -234,9 +233,8 @@ typedef void (*xEventDoneFunc)(void *arg, void *result);
  *                 passed to xEventLoopWorkCancel(). May be NULL.
  * @return         xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xEventLoopSubmit(xEventLoop loop, xTaskGroup group,
-                               xTaskFunc work_fn, xEventDoneFunc done_fn,
-                               void *arg, xEventWork *out);
+XCAPI(xErrno) xEventLoopSubmit(xEventLoop loop, xTaskGroup group, xTaskFunc work_fn,
+                               xEventDoneFunc done_fn, void *arg, xEventWork *out);
 
 /**
  * @brief Cancel a previously submitted offload work item.
@@ -343,8 +341,7 @@ XCAPI(xErrno) xEventLoopWait(xEventLoop loop, int timeout_ms);
  * @return      xErrno_Ok on success, xErrno_InvalidArg for bad arguments,
  *              xErrno_SysError if the underlying OS call fails.
  */
-XCAPI(xErrno) xEventLoopSignalWatch(xEventLoop loop, int signo,
-                                    xEventSignalFunc fn, void *arg);
+XCAPI(xErrno) xEventLoopSignalWatch(xEventLoop loop, int signo, xEventSignalFunc fn, void *arg);
 
 /**
  * @brief Return the current monotonic time in milliseconds.

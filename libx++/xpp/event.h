@@ -9,8 +9,8 @@
 #ifndef XPP_EVENT_H
 #define XPP_EVENT_H
 
-#include "handle.h"
-#include "result.h"
+#include <xpp/handle.h>
+#include <xpp/result.h>
 
 #include <x/base/event.h>
 

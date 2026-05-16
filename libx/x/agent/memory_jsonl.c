@@ -45,9 +45,9 @@
 #define XAGENT_MEMORY_JSONL_DEFAULT_MAX_ENTRIES 64
 
 struct memory_jsonl_ {
-  struct xAgentMemory_ base; /* MUST be first */
-  char   *root_dir;          /* owned copy                            */
-  size_t  default_max_entries;
+  struct xAgentMemory_ base;     /* MUST be first */
+  char                *root_dir; /* owned copy                            */
+  size_t               default_max_entries;
 };
 
 /* ── Path helpers ─────────────────────────────────────────────────── */
@@ -87,12 +87,11 @@ static int mk_parent_dirs_(const char *path) {
 
 /* Build the per-session JSONL path. Returns a malloc'd string the
  * caller must free, or NULL on OOM / missing id. */
-static char *build_path_(const struct memory_jsonl_ *b,
-                         const char *session_id) {
+static char *build_path_(const struct memory_jsonl_ *b, const char *session_id) {
   if (!b || !b->root_dir || !session_id) return NULL;
 
-  size_t n = strlen(b->root_dir) + strlen("/sessions/") + strlen(session_id) +
-             strlen("/history.jsonl") + 1;
+  size_t n =
+    strlen(b->root_dir) + strlen("/sessions/") + strlen(session_id) + strlen("/history.jsonl") + 1;
   char *p = (char *)malloc(n);
   if (!p) return NULL;
   snprintf(p, n, "%s/sessions/%s/history.jsonl", b->root_dir, session_id);
@@ -107,33 +106,49 @@ static char *build_path_(const struct memory_jsonl_ *b,
 static void write_json_str_(FILE *fp, const char *s, size_t n) {
   for (size_t i = 0; i < n; i++) {
     unsigned char c = (unsigned char)s[i];
-    if (c == '"') fputs("\\\"", fp);
-    else if (c == '\\') fputs("\\\\", fp);
-    else if (c == '\n') fputs("\\n", fp);
-    else if (c == '\r') fputs("\\r", fp);
-    else if (c == '\t') fputs("\\t", fp);
-    else if (c < 0x20) fprintf(fp, "\\u%04x", c);
-    else fputc((int)c, fp);
+    if (c == '"')
+      fputs("\\\"", fp);
+    else if (c == '\\')
+      fputs("\\\\", fp);
+    else if (c == '\n')
+      fputs("\\n", fp);
+    else if (c == '\r')
+      fputs("\\r", fp);
+    else if (c == '\t')
+      fputs("\\t", fp);
+    else if (c < 0x20)
+      fprintf(fp, "\\u%04x", c);
+    else
+      fputc((int)c, fp);
   }
 }
 
 static const char *role_to_str_(xAgentRole r) {
   switch (r) {
-  case xAgentRole_System:    return "system";
-  case xAgentRole_User:      return "user";
-  case xAgentRole_Assistant: return "assistant";
-  case xAgentRole_Tool:      return "tool";
-  case xAgentRole_Summary:   return "summary";
+  case xAgentRole_System:
+    return "system";
+  case xAgentRole_User:
+    return "user";
+  case xAgentRole_Assistant:
+    return "assistant";
+  case xAgentRole_Tool:
+    return "tool";
+  case xAgentRole_Summary:
+    return "summary";
   }
   return "system";
 }
 
 static const char *kind_to_str_(xAgentSessionEntryKind k) {
   switch (k) {
-  case xAgentSessionEntryKind_Text: return "text";
-  case xAgentSessionEntryKind_ToolUse: return "tool_use";
-  case xAgentSessionEntryKind_ToolResult: return "tool_result";
-  case xAgentSessionEntryKind_Thinking: return "thinking";
+  case xAgentSessionEntryKind_Text:
+    return "text";
+  case xAgentSessionEntryKind_ToolUse:
+    return "tool_use";
+  case xAgentSessionEntryKind_ToolResult:
+    return "tool_result";
+  case xAgentSessionEntryKind_Thinking:
+    return "thinking";
   }
   return "text";
 }
@@ -152,29 +167,23 @@ static const char *kind_to_str_(xAgentSessionEntryKind k) {
  */
 static void write_msg_line_(FILE *fp, const xAgentSessionMsg *m) {
   uint64_t ts = m->created_at_ms != 0 ? m->created_at_ms : xWallMs();
-  fprintf(fp, "{\"ts\":%llu,\"role\":\"%s\",\"kind\":\"%s\"",
-          (unsigned long long)ts, role_to_str_(m->role), kind_to_str_(m->kind));
+  fprintf(fp, "{\"ts\":%llu,\"role\":\"%s\",\"kind\":\"%s\"", (unsigned long long)ts,
+          role_to_str_(m->role), kind_to_str_(m->kind));
 
-  if (m->kind == xAgentSessionEntryKind_Text ||
-      m->kind == xAgentSessionEntryKind_Thinking) {
+  if (m->kind == xAgentSessionEntryKind_Text || m->kind == xAgentSessionEntryKind_Thinking) {
     if (m->text && m->text_len > 0) {
       fputs(",\"text\":\"", fp);
       write_json_str_(fp, m->text, m->text_len);
       fputc('"', fp);
     }
   } else if (m->kind == xAgentSessionEntryKind_ToolUse) {
-    if (m->tool_use_id)
-      fprintf(fp, ",\"tool_use_id\":\"%s\"", m->tool_use_id);
-    if (m->tool_use_name)
-      fprintf(fp, ",\"tool_use_name\":\"%s\"", m->tool_use_name);
+    if (m->tool_use_id) fprintf(fp, ",\"tool_use_id\":\"%s\"", m->tool_use_id);
+    if (m->tool_use_name) fprintf(fp, ",\"tool_use_name\":\"%s\"", m->tool_use_name);
     /* tool_use_args is already a JSON object string — emit raw. */
-    if (m->tool_use_args)
-      fprintf(fp, ",\"tool_use_args\":%s", m->tool_use_args);
+    if (m->tool_use_args) fprintf(fp, ",\"tool_use_args\":%s", m->tool_use_args);
   } else if (m->kind == xAgentSessionEntryKind_ToolResult) {
-    if (m->tool_result_id)
-      fprintf(fp, ",\"tool_result_id\":\"%s\"", m->tool_result_id);
-    if (m->tool_result_is_error)
-      fputs(",\"is_error\":true", fp);
+    if (m->tool_result_id) fprintf(fp, ",\"tool_result_id\":\"%s\"", m->tool_result_id);
+    if (m->tool_result_is_error) fputs(",\"is_error\":true", fp);
     if (m->tool_result_output && m->tool_result_output_len > 0) {
       fputs(",\"output\":\"", fp);
       write_json_str_(fp, m->tool_result_output, m->tool_result_output_len);
@@ -196,7 +205,8 @@ static void write_msg_line_(FILE *fp, const xAgentSessionMsg *m) {
 
 /* Skip ASCII whitespace. */
 static const char *skip_ws_(const char *p, const char *end) {
-  while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+  while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n'))
+    p++;
   return p;
 }
 
@@ -213,10 +223,8 @@ static int match_lit_(const char **pp, const char *end, const char *lit) {
  * success *pp is advanced past the closing quote, the unescaped
  * bytes are copied into @p arena at offset *arena_used, and
  * *out_off / *out_len are set to point at the copy. */
-static int parse_string_into_arena_(const char **pp, const char *end,
-                                    char *arena, size_t arena_cap,
-                                    size_t *arena_used, size_t *out_off,
-                                    size_t *out_len) {
+static int parse_string_into_arena_(const char **pp, const char *end, char *arena, size_t arena_cap,
+                                    size_t *arena_used, size_t *out_off, size_t *out_len) {
   const char *p = *pp;
   if (p >= end || *p != '"') return 0;
   p++;
@@ -231,8 +239,8 @@ static int parse_string_into_arena_(const char **pp, const char *end,
        * strings in the same arena don't clobber each other's
        * trailing '\0'. */
       if (off + 1 > arena_cap) return 0;
-      arena[off] = '\0';
-      *pp        = p;
+      arena[off]  = '\0';
+      *pp         = p;
       *arena_used = off + 1;
       *out_off    = start;
       *out_len    = off - start;
@@ -240,17 +248,33 @@ static int parse_string_into_arena_(const char **pp, const char *end,
     }
     if (c == '\\') {
       if (p >= end) return 0;
-      char esc = *p++;
+      char esc         = *p++;
       char replacement = 0;
       switch (esc) {
-      case '"': replacement = '"'; break;
-      case '\\': replacement = '\\'; break;
-      case '/': replacement = '/'; break;
-      case 'n': replacement = '\n'; break;
-      case 'r': replacement = '\r'; break;
-      case 't': replacement = '\t'; break;
-      case 'b': replacement = '\b'; break;
-      case 'f': replacement = '\f'; break;
+      case '"':
+        replacement = '"';
+        break;
+      case '\\':
+        replacement = '\\';
+        break;
+      case '/':
+        replacement = '/';
+        break;
+      case 'n':
+        replacement = '\n';
+        break;
+      case 'r':
+        replacement = '\r';
+        break;
+      case 't':
+        replacement = '\t';
+        break;
+      case 'b':
+        replacement = '\b';
+        break;
+      case 'f':
+        replacement = '\f';
+        break;
       case 'u': {
         /* Accept \uXXXX; for simplicity, only emit the low byte for
          * code points <= 0x7F, else write a '?' placeholder. Real
@@ -259,19 +283,24 @@ static int parse_string_into_arena_(const char **pp, const char *end,
         if (end - p < 4) return 0;
         unsigned v = 0;
         for (int i = 0; i < 4; i++) {
-          char h = p[i];
+          char     h = p[i];
           unsigned digit;
-          if (h >= '0' && h <= '9') digit = (unsigned)(h - '0');
-          else if (h >= 'a' && h <= 'f') digit = (unsigned)(h - 'a' + 10);
-          else if (h >= 'A' && h <= 'F') digit = (unsigned)(h - 'A' + 10);
-          else return 0;
+          if (h >= '0' && h <= '9')
+            digit = (unsigned)(h - '0');
+          else if (h >= 'a' && h <= 'f')
+            digit = (unsigned)(h - 'a' + 10);
+          else if (h >= 'A' && h <= 'F')
+            digit = (unsigned)(h - 'A' + 10);
+          else
+            return 0;
           v = (v << 4) | digit;
         }
         p += 4;
         replacement = (v <= 0x7F) ? (char)v : '?';
         break;
       }
-      default: return 0;
+      default:
+        return 0;
       }
       if (off + 1 > arena_cap) return 0;
       arena[off++] = replacement;
@@ -286,11 +315,10 @@ static int parse_string_into_arena_(const char **pp, const char *end,
 /* Copy a raw JSON value (object / array / primitive) into the arena
  * as-is, NUL-terminated. Used for tool_use_args. Input starts at
  * the first non-ws character of the value. */
-static int parse_raw_value_into_arena_(const char **pp, const char *end,
-                                       char *arena, size_t arena_cap,
-                                       size_t *arena_used, size_t *out_off,
+static int parse_raw_value_into_arena_(const char **pp, const char *end, char *arena,
+                                       size_t arena_cap, size_t *arena_used, size_t *out_off,
                                        size_t *out_len) {
-  const char *p    = *pp;
+  const char *p      = *pp;
   const char *vstart = p;
 
   if (p >= end) return 0;
@@ -298,16 +326,21 @@ static int parse_raw_value_into_arena_(const char **pp, const char *end,
   if (first == '{' || first == '[') {
     char open_ch  = first;
     char close_ch = (first == '{') ? '}' : ']';
-    int depth = 0;
-    int in_str = 0;
+    int  depth    = 0;
+    int  in_str   = 0;
     while (p < end) {
       char c = *p++;
       if (in_str) {
-        if (c == '\\' && p < end) { p++; continue; }
+        if (c == '\\' && p < end) {
+          p++;
+          continue;
+        }
         if (c == '"') in_str = 0;
       } else {
-        if (c == '"') in_str = 1;
-        else if (c == open_ch) depth++;
+        if (c == '"')
+          in_str = 1;
+        else if (c == open_ch)
+          depth++;
         else if (c == close_ch) {
           depth--;
           if (depth == 0) break;
@@ -320,13 +353,16 @@ static int parse_raw_value_into_arena_(const char **pp, const char *end,
     p++;
     while (p < end) {
       char c = *p++;
-      if (c == '\\' && p < end) { p++; continue; }
+      if (c == '\\' && p < end) {
+        p++;
+        continue;
+      }
       if (c == '"') break;
     }
   } else {
     /* Number / true / false / null: read until comma / close / ws. */
-    while (p < end && *p != ',' && *p != '}' && *p != ']' && *p != ' ' &&
-           *p != '\t' && *p != '\n' && *p != '\r') {
+    while (p < end && *p != ',' && *p != '}' && *p != ']' && *p != ' ' && *p != '\t' &&
+           *p != '\n' && *p != '\r') {
       p++;
     }
   }
@@ -347,9 +383,8 @@ static int parse_raw_value_into_arena_(const char **pp, const char *end,
 /* Parse one JSONL line into a pre-zeroed xAgentSessionMsg whose
  * string pointers land inside @p arena. Returns 1 on success, 0
  * on any parse error (caller drops the entry). */
-static int parse_line_(const char *line, size_t line_len, char *arena,
-                       size_t arena_cap, size_t *arena_used,
-                       xAgentSessionMsg *out) {
+static int parse_line_(const char *line, size_t line_len, char *arena, size_t arena_cap,
+                       size_t *arena_used, xAgentSessionMsg *out) {
   const char *p   = line;
   const char *end = line + line_len;
 
@@ -365,7 +400,10 @@ static int parse_line_(const char *line, size_t line_len, char *arena,
   while (1) {
     p = skip_ws_(p, end);
     if (p >= end) return 0;
-    if (*p == '}') { p++; break; }
+    if (*p == '}') {
+      p++;
+      break;
+    }
     if (!first) {
       if (*p != ',') return 0;
       p++;
@@ -375,8 +413,7 @@ static int parse_line_(const char *line, size_t line_len, char *arena,
 
     /* key */
     size_t key_off = 0, key_len = 0;
-    if (!parse_string_into_arena_(&p, end, arena, arena_cap, arena_used,
-                                  &key_off, &key_len))
+    if (!parse_string_into_arena_(&p, end, arena, arena_cap, arena_used, &key_off, &key_len))
       return 0;
     const char *key = arena + key_off;
 
@@ -394,8 +431,7 @@ static int parse_line_(const char *line, size_t line_len, char *arena,
     if (*p == '"') {
       /* Value is a string. */
       size_t v_off = 0, v_len = 0;
-      if (!parse_string_into_arena_(&p, end, arena, arena_cap, arena_used,
-                                    &v_off, &v_len))
+      if (!parse_string_into_arena_(&p, end, arena, arena_cap, arena_used, &v_off, &v_len))
         return 0;
       const char *v = arena + v_off;
 
@@ -449,8 +485,7 @@ static int parse_line_(const char *line, size_t line_len, char *arena,
        * everything else is still parsed (so we advance past it) but
        * the result is only retained for tool_use_args. */
       size_t v_off = 0, v_len = 0;
-      if (!parse_raw_value_into_arena_(&p, end, arena, arena_cap, arena_used,
-                                       &v_off, &v_len))
+      if (!parse_raw_value_into_arena_(&p, end, arena, arena_cap, arena_used, &v_off, &v_len))
         return 0;
       if (strcmp(key, "tool_use_args") == 0) {
         out->tool_use_args = arena + v_off;
@@ -464,8 +499,8 @@ static int parse_line_(const char *line, size_t line_len, char *arena,
 /* ── Vtable implementations ────────────────────────────────────────── */
 
 static xErrno jsonl_append_(xAgentMemory store, const xAgentMemoryQuery *query,
-                            xAgentMemoryAppendReason reason,
-                            const xAgentSessionMsg *msgs, size_t n_msgs) {
+                            xAgentMemoryAppendReason reason, const xAgentSessionMsg *msgs,
+                            size_t n_msgs) {
   (void)reason; /* Append shape is identical for every reason today */
   struct memory_jsonl_ *b = (struct memory_jsonl_ *)store;
 
@@ -485,7 +520,8 @@ static xErrno jsonl_append_(xAgentMemory store, const xAgentMemoryQuery *query,
     return xErrno_SysError;
   }
 
-  for (size_t i = 0; i < n_msgs; i++) write_msg_line_(fp, &msgs[i]);
+  for (size_t i = 0; i < n_msgs; i++)
+    write_msg_line_(fp, &msgs[i]);
 
   fclose(fp);
   free(path);
@@ -515,22 +551,33 @@ static void jsonl_release_(xAgentMemory store, xAgentMemoryHits *hits) {
 static int slurp_(const char *path, char **out, size_t *size) {
   FILE *fp = fopen(path, "r");
   if (!fp) return -1;
-  if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return -1; }
+  if (fseek(fp, 0, SEEK_END) != 0) {
+    fclose(fp);
+    return -1;
+  }
   long sz = ftell(fp);
-  if (sz < 0) { fclose(fp); return -1; }
-  if (fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return -1; }
+  if (sz < 0) {
+    fclose(fp);
+    return -1;
+  }
+  if (fseek(fp, 0, SEEK_SET) != 0) {
+    fclose(fp);
+    return -1;
+  }
   char *buf = (char *)malloc((size_t)sz + 1);
-  if (!buf) { fclose(fp); return -1; }
+  if (!buf) {
+    fclose(fp);
+    return -1;
+  }
   size_t got = fread(buf, 1, (size_t)sz, fp);
   fclose(fp);
   buf[got] = '\0';
-  *out  = buf;
-  *size = got;
+  *out     = buf;
+  *size    = got;
   return 0;
 }
 
-static xErrno jsonl_retrieve_(xAgentMemory store,
-                              const xAgentMemoryQuery *query,
+static xErrno jsonl_retrieve_(xAgentMemory store, const xAgentMemoryQuery *query,
                               xAgentMemoryHits *out) {
   struct memory_jsonl_ *b = (struct memory_jsonl_ *)store;
   if (!query->session_id) return xErrno_InvalidArg;
@@ -579,25 +626,28 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
   /* Walk the buffer, record each line's [start, end) as a span.
    * We keep ALL line spans so we can pick the last @p cap valid
    * ones after parsing. */
-  struct line_span_ { size_t off, len; };
-  struct line_span_ *spans = NULL;
-  size_t n_spans = 0, cap_spans = 0;
+  struct line_span_ {
+    size_t off, len;
+  };
+  struct line_span_ *spans   = NULL;
+  size_t             n_spans = 0, cap_spans = 0;
 
   size_t i = 0;
   while (i < csize) {
     size_t start = i;
-    while (i < csize && content[i] != '\n') i++;
+    while (i < csize && content[i] != '\n')
+      i++;
     size_t end = i;
     if (i < csize) i++; /* skip the '\n' */
 
     /* Trim trailing \r. */
-    while (end > start && content[end - 1] == '\r') end--;
+    while (end > start && content[end - 1] == '\r')
+      end--;
     if (end == start) continue; /* blank line */
 
     if (n_spans == cap_spans) {
-      size_t new_cap = cap_spans ? cap_spans * 2 : 16;
-      struct line_span_ *nn = (struct line_span_ *)realloc(
-        spans, new_cap * sizeof(*spans));
+      size_t             new_cap = cap_spans ? cap_spans * 2 : 16;
+      struct line_span_ *nn      = (struct line_span_ *)realloc(spans, new_cap * sizeof(*spans));
       if (!nn) {
         free(spans);
         free(content);
@@ -630,7 +680,7 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
     for (size_t j = 0; !found && j + 15 <= llen; j++) {
       if (memcmp(line + j, "\"role\":\"summary\"", 16) == 0) {
         summary_span = (size_t)k;
-        found = 1;
+        found        = 1;
       }
     }
     if (found) break;
@@ -657,12 +707,12 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
    * plus some slack for multiple strings per line. We multiply by
    * 2 for safety. */
   size_t arena_cap = 0;
-  for (size_t k = 0; k < window; k++) arena_cap += spans[take_from + k].len;
+  for (size_t k = 0; k < window; k++)
+    arena_cap += spans[take_from + k].len;
   arena_cap = arena_cap * 2 + 32;
 
-  char *arena = (char *)malloc(arena_cap);
-  xAgentSessionMsg *entries =
-    (xAgentSessionMsg *)calloc(window, sizeof(*entries));
+  char             *arena   = (char *)malloc(arena_cap);
+  xAgentSessionMsg *entries = (xAgentSessionMsg *)calloc(window, sizeof(*entries));
   if (!arena || !entries) {
     free(arena);
     free(entries);
@@ -674,8 +724,8 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
   size_t arena_used = 0;
   size_t n_out      = 0;
   for (size_t k = 0; k < window; k++) {
-    const char *line = content + spans[take_from + k].off;
-    size_t      llen = spans[take_from + k].len;
+    const char      *line = content + spans[take_from + k].off;
+    size_t           llen = spans[take_from + k].len;
     xAgentSessionMsg tmp;
     memset(&tmp, 0, sizeof(tmp));
     size_t arena_snapshot = arena_used;
@@ -721,8 +771,7 @@ static xErrno jsonl_retrieve_(xAgentMemory store,
     }
   }
 
-  struct jsonl_hit_cookie_ *cookie =
-    (struct jsonl_hit_cookie_ *)calloc(1, sizeof(*cookie));
+  struct jsonl_hit_cookie_ *cookie = (struct jsonl_hit_cookie_ *)calloc(1, sizeof(*cookie));
   if (!cookie) {
     free(entries);
     free(arena);
@@ -760,15 +809,13 @@ static const xAgentMemoryVTable kJsonlVT = {
 xAgentMemory xAgentMemoryJsonlCreate(const xAgentMemoryJsonlConf *conf) {
   if (!conf || !conf->root_dir || !*conf->root_dir) return NULL;
 
-  struct memory_jsonl_ *b =
-    (struct memory_jsonl_ *)calloc(1, sizeof(*b));
+  struct memory_jsonl_ *b = (struct memory_jsonl_ *)calloc(1, sizeof(*b));
   if (!b) return NULL;
 
-  b->base.vt   = &kJsonlVT;
-  b->root_dir  = strdup(conf->root_dir);
-  b->default_max_entries = conf->default_max_entries
-                             ? conf->default_max_entries
-                             : XAGENT_MEMORY_JSONL_DEFAULT_MAX_ENTRIES;
+  b->base.vt  = &kJsonlVT;
+  b->root_dir = strdup(conf->root_dir);
+  b->default_max_entries =
+    conf->default_max_entries ? conf->default_max_entries : XAGENT_MEMORY_JSONL_DEFAULT_MAX_ENTRIES;
   if (!b->root_dir) {
     free(b);
     return NULL;

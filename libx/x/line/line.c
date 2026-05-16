@@ -24,11 +24,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <x/base/log.h>
 #include "env.h"
 #include "line.h"
 #include "platform.h"
 #include "str.h"
+#include <x/base/log.h>
 
 //-------------------------------------------------------------
 // Readline
@@ -41,14 +41,14 @@ ic_private bool xline_async_is_live(void); // defined in async.c
 ic_public char *xLineReadline(const char *prompt_text) {
   if (xline_async_is_live()) {
     XDEBUG("xline: xLineReadline() called while an async session is live; "
-              "returning NULL (see requirement 4.4)\n");
+           "returning NULL (see requirement 4.4)\n");
     return NULL;
   }
   ic_env_t *env = ic_get_env();
   if (env == NULL) return NULL;
   if (!env->noedit) {
     // terminal editing enabled
-  return ic_editline(env, prompt_text); // in edit.c
+    return ic_editline(env, prompt_text); // in edit.c
   } else {
     // no editing capability (pipe, dumb terminal, etc)
     if (env->tty != NULL && env->term != NULL) {
@@ -166,8 +166,7 @@ ic_public const char *xLineGetContinuationPromptMarker(void) {
   return env->cprompt_marker;
 }
 
-ic_public void xLineSetPromptMarker(const char *prompt_marker,
-                                    const char *cprompt_marker) {
+ic_public void xLineSetPromptMarker(const char *prompt_marker, const char *cprompt_marker) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return;
   set_prompt_marker(env, prompt_marker, cprompt_marker);
@@ -185,9 +184,7 @@ ic_public void xLineSetCompletionTriggers(const char *trigger_chars) {
   if (env == NULL) return;
   free((void *)env->completion_triggers);
   env->completion_triggers =
-    (trigger_chars != NULL && trigger_chars[0] != '\0')
-      ? ic_strdup(trigger_chars)
-      : NULL;
+    (trigger_chars != NULL && trigger_chars[0] != '\0') ? ic_strdup(trigger_chars) : NULL;
 }
 
 ic_public bool xLineEnableMultiline(bool enable) {
@@ -299,8 +296,7 @@ ic_public long xLineSetHintDelay(long delay_ms) {
   return prev;
 }
 
-ic_public void xLineSetTtyEscDelay(long initial_delay_ms,
-                                   long followup_delay_ms) {
+ic_public void xLineSetTtyEscDelay(long initial_delay_ms, long followup_delay_ms) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return;
   if (env->tty == NULL) return;
@@ -373,8 +369,7 @@ ic_private const char *ic_env_get_auto_braces(ic_env_t *env) {
   return (env->auto_braces == NULL ? "()[]{}\"\"''" : env->auto_braces);
 }
 
-ic_public void xLineSetDefaultHighlighter(xLineHighlightFunc *highlighter,
-                                          void               *arg) {
+ic_public void xLineSetDefaultHighlighter(xLineHighlightFunc *highlighter, void *arg) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return;
   env->highlighter     = highlighter;
@@ -516,18 +511,15 @@ ic_public void xLineTermColorRgb(bool foreground, uint32_t hcolor) {
 // Readline with temporary completer and highlighter
 //-------------------------------------------------------------
 
-ic_public char *xLineReadlineEx(const char         *prompt_text,
-                                xLineCompleterFunc *completer,
-                                void               *completer_arg,
-                                xLineHighlightFunc *highlighter,
-                                void               *highlighter_arg) {
+ic_public char *xLineReadlineEx(const char *prompt_text, xLineCompleterFunc *completer,
+                                void *completer_arg, xLineHighlightFunc *highlighter,
+                                void *highlighter_arg) {
   ic_env_t *env = ic_get_env();
   if (env == NULL) return NULL;
   // save previous
   xLineCompleterFunc *prev_completer;
   void               *prev_completer_arg;
-  completions_get_completer(env->completions, &prev_completer,
-                            &prev_completer_arg);
+  completions_get_completer(env->completions, &prev_completer, &prev_completer_arg);
   xLineHighlightFunc *prev_highlighter     = env->highlighter;
   void               *prev_highlighter_arg = env->highlighter_arg;
   // call with current
@@ -581,9 +573,8 @@ static ic_env_t *ic_env_create(void) {
   env->bbcode      = bbcode_new(env->term);
   env->hint_delay  = 400;
 
-  if (env->tty == NULL || env->term == NULL || env->completions == NULL ||
-      env->history == NULL || env->bbcode == NULL ||
-      !term_is_interactive(env->term)) {
+  if (env->tty == NULL || env->term == NULL || env->completions == NULL || env->history == NULL ||
+      env->bbcode == NULL || !term_is_interactive(env->term)) {
     env->noedit = true;
   }
   env->multiline_eol = '\\';

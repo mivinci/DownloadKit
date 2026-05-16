@@ -26,21 +26,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <x/base/log.h>
 #include "line.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
 #include "unicode.h"
 #include "wcwidth.h"
+#include <x/base/log.h>
 //-------------------------------------------------------------
 // In place growable utf-8 strings
 //-------------------------------------------------------------
 
 struct stringbuf_s {
-  char    *buf;
-  ssize_t  buflen;
-  ssize_t  count;
+  char   *buf;
+  ssize_t buflen;
+  ssize_t count;
 };
 
 //-------------------------------------------------------------
@@ -57,9 +57,8 @@ static ssize_t utf8_char_width(const char *s, ssize_t n) {
     return 0;
   } else if (b <= 0x7F) {
     return 1;
-  } else if (b <=
-             0xC1) { // invalid continuation byte or invalid 0xC0, 0xC1 (check
-                     // is strictly not necessary as we don't validate..)
+  } else if (b <= 0xC1) { // invalid continuation byte or invalid 0xC0, 0xC1 (check
+                          // is strictly not necessary as we don't validate..)
     return 1;
   } else if (b <= 0xDF && n >= 2) { // b >= 0xC2  // 2 bytes
     c = (((b & 0x1F) << 6) | (s[1] & 0x3F));
@@ -70,8 +69,7 @@ static ssize_t utf8_char_width(const char *s, ssize_t n) {
     c = (((b & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F));
     return wcwidth(c);
   } else if (b <= 0xF4 && n >= 4) { // b >= 0xF0  // 4 bytes
-    c = (((b & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) |
-         (s[3] & 0x3F));
+    c = (((b & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F));
     return wcwidth(c);
   } else {
     // failed
@@ -168,21 +166,18 @@ ic_private bool skip_esc(const char *s, ssize_t len, ssize_t *esclen) {
   if (strchr("[PX^_]", s[1]) != NULL) {
     // CSI (ESC [), DCS (ESC P), SOS (ESC X), PM (ESC ^), APC (ESC _), and OSC
     // (ESC ]): terminated with a special sequence
-    bool finalCSI =
-      (s[1] ==
-       '['); // CSI terminates with 0x40-0x7F; otherwise ST (bell or ESC \)
-    ssize_t n = 2;
+    bool    finalCSI = (s[1] == '['); // CSI terminates with 0x40-0x7F; otherwise ST (bell or ESC \)
+    ssize_t n        = 2;
     while (len > n) {
       char c = s[n++];
       if ((finalCSI && (uint8_t)c >= 0x40 &&
-           (uint8_t)c <= 0x7F) || // terminating byte: @A–Z[\]^_`a–z{|}~
+           (uint8_t)c <= 0x7F) ||       // terminating byte: @A–Z[\]^_`a–z{|}~
           (!finalCSI && c == '\x07') || // bell
           (c == '\x02'))                // STX terminates as well
       {
         if (esclen != NULL) *esclen = n;
         return true;
-      } else if (!finalCSI && c == '\x1B' && len > n &&
-                 s[n] == '\\') { // ST (ESC \)
+      } else if (!finalCSI && c == '\x1B' && len > n && s[n] == '\\') { // ST (ESC \)
         n++;
         if (esclen != NULL) *esclen = n;
         return true;
@@ -203,8 +198,7 @@ ic_private bool skip_esc(const char *s, ssize_t len, ssize_t *esclen) {
 
 // Offset to the next codepoint, treats CSI escape sequences as a single code
 // point.
-ic_private ssize_t str_next_ofs(const char *s, ssize_t len, ssize_t pos,
-                                ssize_t *cwidth) {
+ic_private ssize_t str_next_ofs(const char *s, ssize_t len, ssize_t pos, ssize_t *cwidth) {
   ssize_t ofs = 0;
   if (s != NULL && len > pos) {
     if (skip_esc(s + pos, len - pos, &ofs)) {
@@ -235,8 +229,7 @@ static ssize_t str_limit_to_length(const char *s, ssize_t n) {
 //-------------------------------------------------------------
 
 static ssize_t str_find_backward(const char *s, ssize_t len, ssize_t pos,
-                                 xLineIsCharClassFunc *match,
-                                 bool                skip_immediate_matches) {
+                                 xLineIsCharClassFunc *match, bool skip_immediate_matches) {
   if (pos > len) pos = len;
   if (pos < 0) pos = 0;
   ssize_t i = pos;
@@ -264,8 +257,7 @@ static ssize_t str_find_backward(const char *s, ssize_t len, ssize_t pos,
 }
 
 static ssize_t str_find_forward(const char *s, ssize_t len, ssize_t pos,
-                                xLineIsCharClassFunc *match,
-                                bool                skip_immediate_matches) {
+                                xLineIsCharClassFunc *match, bool skip_immediate_matches) {
   if (s == NULL || len < 0) return -1;
   if (pos > len) pos = len;
   if (pos < 0) pos = 0;
@@ -299,8 +291,8 @@ static bool char_is_linefeed(const char *s, long n) {
 }
 
 static ssize_t str_find_line_start(const char *s, ssize_t len, ssize_t pos) {
-  ssize_t start = str_find_backward(s, len, pos, &char_is_linefeed,
-                                    false /* don't skip immediate matches */);
+  ssize_t start =
+    str_find_backward(s, len, pos, &char_is_linefeed, false /* don't skip immediate matches */);
   return (start < 0 ? 0 : start);
 }
 
@@ -310,26 +302,25 @@ static ssize_t str_find_line_end(const char *s, ssize_t len, ssize_t pos) {
 }
 
 static ssize_t str_find_word_start(const char *s, ssize_t len, ssize_t pos) {
-  ssize_t start = str_find_backward(s, len, pos, &xLineCharIsIdletter,
-                                    true /* skip immediate matches */);
+  ssize_t start =
+    str_find_backward(s, len, pos, &xLineCharIsIdletter, true /* skip immediate matches */);
   return (start < 0 ? 0 : start);
 }
 
 static ssize_t str_find_word_end(const char *s, ssize_t len, ssize_t pos) {
-  ssize_t end = str_find_forward(s, len, pos, &xLineCharIsIdletter,
-                                 true /* skip immediate matches */);
+  ssize_t end =
+    str_find_forward(s, len, pos, &xLineCharIsIdletter, true /* skip immediate matches */);
   return (end < 0 ? len : end);
 }
 
 static ssize_t str_find_ws_word_start(const char *s, ssize_t len, ssize_t pos) {
-  ssize_t start = str_find_backward(s, len, pos, &xLineCharIsWhite,
-                                    true /* skip immediate matches */);
+  ssize_t start =
+    str_find_backward(s, len, pos, &xLineCharIsWhite, true /* skip immediate matches */);
   return (start < 0 ? 0 : start);
 }
 
 static ssize_t str_find_ws_word_end(const char *s, ssize_t len, ssize_t pos) {
-  ssize_t end = str_find_forward(s, len, pos, &xLineCharIsWhite,
-                                 true /* skip immediate matches */);
+  ssize_t end = str_find_forward(s, len, pos, &xLineCharIsWhite, true /* skip immediate matches */);
   return (end < 0 ? len : end);
 }
 
@@ -338,9 +329,8 @@ static ssize_t str_find_ws_word_end(const char *s, ssize_t len, ssize_t pos) {
 //-------------------------------------------------------------
 
 // invoke a function for each terminal row; returns total row count.
-static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw,
-                                ssize_t promptw, ssize_t cpromptw,
-                                row_fun_t *fun, const void *arg, void *res) {
+static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw, ssize_t promptw,
+                                ssize_t cpromptw, row_fun_t *fun, const void *arg, void *res) {
   if (s == NULL) s = "";
   ssize_t i;
   ssize_t rcount = 0;
@@ -351,12 +341,11 @@ static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw,
     ssize_t w;
     ssize_t next = str_next_ofs(s, len, i, &w);
     if (next <= 0) {
-      XDEBUG("str: foreach row: next<=0: len %zd, i %zd, w %zd, buf %s\n",
-                len, i, w, s);
+      XDEBUG("str: foreach row: next<=0: len %zd, i %zd, w %zd, buf %s\n", len, i, w, s);
       assert(false);
       break;
     }
-    startw          = (rcount == 0 ? promptw : cpromptw);
+    startw = (rcount == 0 ? promptw : cpromptw);
     // NOTE: editor-geometry. The `+ 1` reserves one column for the
     // cursor that the line editor parks at the end of `input`, and the
     // `>= termw` (rather than `> termw`) consequently wraps one glyph
@@ -368,8 +357,7 @@ static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw,
     if (termw != 0 && i != 0 && termcol >= termw) {
       // wrap
       if (fun != NULL) {
-        if (fun(s, rcount, rstart, i - rstart, startw, true, arg, res))
-          return rcount;
+        if (fun(s, rcount, rstart, i - rstart, startw, true, arg, res)) return rcount;
       }
       rcount++;
       rstart = i;
@@ -378,8 +366,7 @@ static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw,
     if (s[i] == '\n') {
       // newline
       if (fun != NULL) {
-        if (fun(s, rcount, rstart, i - rstart, startw, false, arg, res))
-          return rcount;
+        if (fun(s, rcount, rstart, i - rstart, startw, false, arg, res)) return rcount;
       }
       rcount++;
       rstart = i + 1;
@@ -390,8 +377,7 @@ static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw,
     rcol += w;
   }
   if (fun != NULL) {
-    if (fun(s, rcount, rstart, i - rstart, startw, false, arg, res))
-      return rcount;
+    if (fun(s, rcount, rstart, i - rstart, startw, false, arg, res)) return rcount;
   }
   return rcount + 1;
 }
@@ -400,10 +386,8 @@ static ssize_t str_for_each_row(const char *s, ssize_t len, ssize_t termw,
 // String: get row/column position
 //-------------------------------------------------------------
 
-static bool str_get_current_pos_iter(const char *s, ssize_t row,
-                                     ssize_t row_start, ssize_t row_len,
-                                     ssize_t startw, bool is_wrap,
-                                     const void *arg, void *res) {
+static bool str_get_current_pos_iter(const char *s, ssize_t row, ssize_t row_start, ssize_t row_len,
+                                     ssize_t startw, bool is_wrap, const void *arg, void *res) {
   ic_unused(is_wrap);
   ic_unused(startw);
   rowcol_t *rc  = (rowcol_t *)res;
@@ -430,12 +414,11 @@ static bool str_get_current_pos_iter(const char *s, ssize_t row,
   return false; // always continue to count all rows
 }
 
-static ssize_t str_get_rc_at_pos(const char *s, ssize_t len, ssize_t termw,
-                                 ssize_t promptw, ssize_t cpromptw, ssize_t pos,
-                                 rowcol_t *rc) {
+static ssize_t str_get_rc_at_pos(const char *s, ssize_t len, ssize_t termw, ssize_t promptw,
+                                 ssize_t cpromptw, ssize_t pos, rowcol_t *rc) {
   memset(rc, 0, sizeof(*rc));
-  ssize_t rows = str_for_each_row(s, len, termw, promptw, cpromptw,
-                                  &str_get_current_pos_iter, &pos, rc);
+  ssize_t rows =
+    str_for_each_row(s, len, termw, promptw, cpromptw, &str_get_current_pos_iter, &pos, rc);
   // XDEBUG("edit: current pos: (%d, %d) %s %s\n", rc->row, rc->col,
   // rc->first_on_row ? "first" : "", rc->last_on_row ? "last" : "");
   return rows;
@@ -455,9 +438,8 @@ typedef struct wrowcol_s {
   ssize_t  hrows; // count of hard-wrapped extra rows
 } wrowcol_t;
 
-static bool str_get_current_wrapped_pos_iter(const char *s, ssize_t row,
-                                             ssize_t row_start, ssize_t row_len,
-                                             ssize_t startw, bool is_wrap,
+static bool str_get_current_wrapped_pos_iter(const char *s, ssize_t row, ssize_t row_start,
+                                             ssize_t row_len, ssize_t startw, bool is_wrap,
                                              const void *arg, void *res) {
   ic_unused(is_wrap);
   wrowcol_t           *wrc  = (wrowcol_t *)res;
@@ -487,8 +469,7 @@ static bool str_get_current_wrapped_pos_iter(const char *s, ssize_t row,
         // hardwrap
         hwidth = 0;
         wrc->hrows++;
-        XDEBUG("str: found hardwrap: row: %zd, hrows: %zd\n", row,
-                  wrc->hrows);
+        XDEBUG("str: found hardwrap: row: %zd, hrows: %zd\n", row, wrc->hrows);
       }
     } else {
       next++; // ensure we terminate (as we go up to rowlen)
@@ -512,21 +493,18 @@ static bool str_get_current_wrapped_pos_iter(const char *s, ssize_t row,
   return false; // always continue to count all rows
 }
 
-static ssize_t str_get_wrapped_rc_at_pos(const char *s, ssize_t len,
-                                         ssize_t termw, ssize_t newtermw,
-                                         ssize_t promptw, ssize_t cpromptw,
+static ssize_t str_get_wrapped_rc_at_pos(const char *s, ssize_t len, ssize_t termw,
+                                         ssize_t newtermw, ssize_t promptw, ssize_t cpromptw,
                                          ssize_t pos, rowcol_t *rc) {
   wrapped_arg_t warg;
   warg.pos      = pos;
   warg.newtermw = newtermw;
   wrowcol_t wrc;
   memset(&wrc, 0, sizeof(wrc));
-  ssize_t rows =
-    str_for_each_row(s, len, termw, promptw, cpromptw,
-                     &str_get_current_wrapped_pos_iter, &warg, &wrc);
-  XDEBUG("edit: wrapped pos: (%zd,%zd) rows %zd %s %s, hrows: %zd\n",
-            wrc.rc.row, wrc.rc.col, rows, wrc.rc.first_on_row ? "first" : "",
-            wrc.rc.last_on_row ? "last" : "", wrc.hrows);
+  ssize_t rows = str_for_each_row(s, len, termw, promptw, cpromptw,
+                                  &str_get_current_wrapped_pos_iter, &warg, &wrc);
+  XDEBUG("edit: wrapped pos: (%zd,%zd) rows %zd %s %s, hrows: %zd\n", wrc.rc.row, wrc.rc.col, rows,
+         wrc.rc.first_on_row ? "first" : "", wrc.rc.last_on_row ? "last" : "", wrc.hrows);
   *rc = wrc.rc;
   return (rows + wrc.hrows);
 }
@@ -535,9 +513,8 @@ static ssize_t str_get_wrapped_rc_at_pos(const char *s, ssize_t len,
 // Set position
 //-------------------------------------------------------------
 
-static bool str_set_pos_iter(const char *s, ssize_t row, ssize_t row_start,
-                             ssize_t row_len, ssize_t startw, bool is_wrap,
-                             const void *arg, void *res) {
+static bool str_set_pos_iter(const char *s, ssize_t row, ssize_t row_start, ssize_t row_len,
+                             ssize_t startw, bool is_wrap, const void *arg, void *res) {
   ic_unused(arg);
   ic_unused(is_wrap);
   ic_unused(startw);
@@ -558,16 +535,14 @@ static bool str_set_pos_iter(const char *s, ssize_t row, ssize_t row_start,
   return true; // stop iteration
 }
 
-static ssize_t str_get_pos_at_rc(const char *s, ssize_t len, ssize_t termw,
-                                 ssize_t promptw, ssize_t cpromptw, ssize_t row,
-                                 ssize_t col /* without prompt */) {
+static ssize_t str_get_pos_at_rc(const char *s, ssize_t len, ssize_t termw, ssize_t promptw,
+                                 ssize_t cpromptw, ssize_t row, ssize_t col /* without prompt */) {
   rowcol_t rc;
   memset(&rc, 0, ssizeof(rc));
   rc.row      = row;
   rc.col      = col;
   ssize_t pos = -1;
-  str_for_each_row(s, len, termw, promptw, cpromptw, &str_set_pos_iter, &rc,
-                   &pos);
+  str_for_each_row(s, len, termw, promptw, cpromptw, &str_set_pos_iter, &rc, &pos);
   return pos;
 }
 
@@ -578,16 +553,13 @@ static bool sbuf_ensure_extra(stringbuf_t *s, ssize_t extra) {
   if (s->buflen >= s->count + extra) return true;
   // reallocate; pick good initial size and multiples to increase reuse on
   // allocation
-  ssize_t newlen =
-    (s->buflen <= 0 ? 120
-                    : (s->buflen > 1000 ? s->buflen + 1000 : 2 * s->buflen));
+  ssize_t newlen = (s->buflen <= 0 ? 120 : (s->buflen > 1000 ? s->buflen + 1000 : 2 * s->buflen));
   if (newlen < s->count + extra) newlen = s->count + extra;
   if (s->buflen > 0) {
     XDEBUG("stringbuf: reallocate: old %zd, new %zd\n", s->buflen, newlen);
   }
-  char *newbuf =
-    (char *)realloc(s->buf,
-                    to_size_t(newlen + 1)); // one more for terminating zero
+  char *newbuf = (char *)realloc(s->buf,
+                                 to_size_t(newlen + 1)); // one more for terminating zero
   if (newbuf == NULL) {
     assert(false);
     return false;
@@ -671,8 +643,7 @@ ic_private ssize_t sbuf_len(const stringbuf_t *s) {
   return s->count;
 }
 
-ic_private ssize_t sbuf_append_vprintf(stringbuf_t *sb, const char *fmt,
-                                       va_list args) {
+ic_private ssize_t sbuf_append_vprintf(stringbuf_t *sb, const char *fmt, va_list args) {
   const ssize_t min_needed = ic_strlen(fmt);
   if (!sbuf_ensure_extra(sb, min_needed + 16)) return sb->count;
   ssize_t avail = sb->buflen - sb->count;
@@ -700,8 +671,7 @@ ic_private ssize_t sbuf_appendf(stringbuf_t *sb, const char *fmt, ...) {
   return res;
 }
 
-ic_private ssize_t sbuf_insert_at_n(stringbuf_t *sbuf, const char *s, ssize_t n,
-                                    ssize_t pos) {
+ic_private ssize_t sbuf_insert_at_n(stringbuf_t *sbuf, const char *s, ssize_t n, ssize_t pos) {
   if (pos < 0 || pos > sbuf->count || s == NULL) return pos;
   n = str_limit_to_length(s, n);
   if (n <= 0 || !sbuf_ensure_extra(sbuf, n)) return pos;
@@ -723,8 +693,7 @@ ic_private stringbuf_t *sbuf_split_at(stringbuf_t *sb, ssize_t pos) {
   return res;
 }
 
-ic_private ssize_t sbuf_insert_at(stringbuf_t *sbuf, const char *s,
-                                  ssize_t pos) {
+ic_private ssize_t sbuf_insert_at(stringbuf_t *sbuf, const char *s, ssize_t pos) {
   return sbuf_insert_at_n(sbuf, s, ic_strlen(s), pos);
 }
 
@@ -735,8 +704,7 @@ ic_private ssize_t sbuf_insert_char_at(stringbuf_t *sbuf, char c, ssize_t pos) {
   return sbuf_insert_at_n(sbuf, s, 1, pos);
 }
 
-ic_private ssize_t sbuf_insert_unicode_at(stringbuf_t *sbuf, unicode_t u,
-                                          ssize_t pos) {
+ic_private ssize_t sbuf_insert_unicode_at(stringbuf_t *sbuf, unicode_t u, ssize_t pos) {
   uint8_t s[5];
   unicode_to_qutf8(u, s);
   return sbuf_insert_at(sbuf, (const char *)s, pos);
@@ -745,14 +713,12 @@ ic_private ssize_t sbuf_insert_unicode_at(stringbuf_t *sbuf, unicode_t u,
 ic_private void sbuf_delete_at(stringbuf_t *sbuf, ssize_t pos, ssize_t count) {
   if (pos < 0 || pos >= sbuf->count) return;
   if (pos + count > sbuf->count) count = sbuf->count - pos;
-  ic_memmove(sbuf->buf + pos, sbuf->buf + pos + count,
-             sbuf->count - pos - count);
+  ic_memmove(sbuf->buf + pos, sbuf->buf + pos + count, sbuf->count - pos - count);
   sbuf->count -= count;
   sbuf->buf[sbuf->count] = 0;
 }
 
-ic_private void sbuf_delete_from_to(stringbuf_t *sbuf, ssize_t pos,
-                                    ssize_t end) {
+ic_private void sbuf_delete_from_to(stringbuf_t *sbuf, ssize_t pos, ssize_t end) {
   if (end <= pos) return;
   sbuf_delete_at(sbuf, pos, end - pos);
 }
@@ -785,13 +751,11 @@ ic_private void sbuf_replace(stringbuf_t *sbuf, const char *s) {
   sbuf_append(sbuf, s);
 }
 
-ic_private ssize_t sbuf_next_ofs(stringbuf_t *sbuf, ssize_t pos,
-                                 ssize_t *cwidth) {
+ic_private ssize_t sbuf_next_ofs(stringbuf_t *sbuf, ssize_t pos, ssize_t *cwidth) {
   return str_next_ofs(sbuf->buf, sbuf->count, pos, cwidth);
 }
 
-ic_private ssize_t sbuf_prev_ofs(stringbuf_t *sbuf, ssize_t pos,
-                                 ssize_t *cwidth) {
+ic_private ssize_t sbuf_prev_ofs(stringbuf_t *sbuf, ssize_t pos, ssize_t *cwidth) {
   return str_prev_ofs(sbuf->buf, pos, cwidth);
 }
 
@@ -863,35 +827,28 @@ ic_private ssize_t sbuf_find_ws_word_end(stringbuf_t *sbuf, ssize_t pos) {
 }
 
 // find row/col position
-ic_private ssize_t sbuf_get_pos_at_rc(stringbuf_t *sbuf, ssize_t termw,
-                                      ssize_t promptw, ssize_t cpromptw,
-                                      ssize_t row, ssize_t col) {
-  return str_get_pos_at_rc(sbuf->buf, sbuf->count, termw, promptw, cpromptw,
-                           row, col);
+ic_private ssize_t sbuf_get_pos_at_rc(stringbuf_t *sbuf, ssize_t termw, ssize_t promptw,
+                                      ssize_t cpromptw, ssize_t row, ssize_t col) {
+  return str_get_pos_at_rc(sbuf->buf, sbuf->count, termw, promptw, cpromptw, row, col);
 }
 
 // get row/col for a given position
-ic_private ssize_t sbuf_get_rc_at_pos(stringbuf_t *sbuf, ssize_t termw,
-                                      ssize_t promptw, ssize_t cpromptw,
-                                      ssize_t pos, rowcol_t *rc) {
-  return str_get_rc_at_pos(sbuf->buf, sbuf->count, termw, promptw, cpromptw,
-                           pos, rc);
+ic_private ssize_t sbuf_get_rc_at_pos(stringbuf_t *sbuf, ssize_t termw, ssize_t promptw,
+                                      ssize_t cpromptw, ssize_t pos, rowcol_t *rc) {
+  return str_get_rc_at_pos(sbuf->buf, sbuf->count, termw, promptw, cpromptw, pos, rc);
 }
 
-ic_private ssize_t sbuf_get_wrapped_rc_at_pos(stringbuf_t *sbuf, ssize_t termw,
-                                              ssize_t newtermw, ssize_t promptw,
-                                              ssize_t cpromptw, ssize_t pos,
+ic_private ssize_t sbuf_get_wrapped_rc_at_pos(stringbuf_t *sbuf, ssize_t termw, ssize_t newtermw,
+                                              ssize_t promptw, ssize_t cpromptw, ssize_t pos,
                                               rowcol_t *rc) {
-  return str_get_wrapped_rc_at_pos(sbuf->buf, sbuf->count, termw, newtermw,
-                                   promptw, cpromptw, pos, rc);
+  return str_get_wrapped_rc_at_pos(sbuf->buf, sbuf->count, termw, newtermw, promptw, cpromptw, pos,
+                                   rc);
 }
 
-ic_private ssize_t sbuf_for_each_row(stringbuf_t *sbuf, ssize_t termw,
-                                     ssize_t promptw, ssize_t cpromptw,
-                                     row_fun_t *fun, void *arg, void *res) {
+ic_private ssize_t sbuf_for_each_row(stringbuf_t *sbuf, ssize_t termw, ssize_t promptw,
+                                     ssize_t cpromptw, row_fun_t *fun, void *arg, void *res) {
   if (sbuf == NULL) return 0;
-  return str_for_each_row(sbuf->buf, sbuf->count, termw, promptw, cpromptw, fun,
-                          arg, res);
+  return str_for_each_row(sbuf->buf, sbuf->count, termw, promptw, cpromptw, fun, arg, res);
 }
 
 // Duplicate and decode from utf-8 (for non-utf8 terminals)
@@ -914,9 +871,8 @@ ic_private char *sbuf_strdup_from_utf8(stringbuf_t *sbuf) {
     } else {
       // decode unicode
       ssize_t   nread;
-      unicode_t uchr =
-        unicode_from_qutf8((const uint8_t *)(sbuf->buf + i), ofs, &nread);
-      uint8_t c;
+      unicode_t uchr = unicode_from_qutf8((const uint8_t *)(sbuf->buf + i), ofs, &nread);
+      uint8_t   c;
       if (unicode_is_raw(uchr, &c)) {
         // raw byte, output as is (this will take care of locale specific input)
         s[dest++] = (char)c;
@@ -1022,16 +978,14 @@ ic_public bool xLineCharIsDigit(const char *s, long len) {
 ic_public bool xLineCharIsHexdigit(const char *s, long len) {
   if (s == NULL || len != 1) return false;
   const char c = *s;
-  return ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-          (c >= 'A' && c <= 'F'));
+  return ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
 }
 
 // Convenience: character class for letters (`[A-Za-z]` and any unicode > 0x80).
 ic_public bool xLineCharIsLetter(const char *s, long len) {
   if (s == NULL || len <= 0) return false;
   const char c = *s;
-  return ((uint8_t)c >= 0x80 || (c >= 'A' && c <= 'Z') ||
-          (c >= 'a' && c <= 'z'));
+  return ((uint8_t)c >= 0x80 || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
 }
 
 // Convenience: character class for identifier letters (`[A-Za-z0-9_-]` and any
@@ -1039,9 +993,8 @@ ic_public bool xLineCharIsLetter(const char *s, long len) {
 ic_public bool xLineCharIsIdletter(const char *s, long len) {
   if (s == NULL || len <= 0) return false;
   const char c = *s;
-  return ((uint8_t)c >= 0x80 || (c >= 'A' && c <= 'Z') ||
-          (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '_') ||
-          (c == '-'));
+  return ((uint8_t)c >= 0x80 || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+          (c >= '0' && c <= '9') || (c == '_') || (c == '-'));
 }
 
 // Convenience: character class for filename letters (`[^ \t\r\n`@$><=;|&{(]`).
@@ -1053,8 +1006,7 @@ ic_public bool xLineCharIsFilenameLetter(const char *s, long len) {
 
 // Convenience: If this is a token start, returns the length (or <= 0 if not
 // found).
-ic_public long xLineIsToken(const char *s, long pos,
-                            xLineIsCharClassFunc *is_token_char) {
+ic_public long xLineIsToken(const char *s, long pos, xLineIsCharClassFunc *is_token_char) {
   if (s == NULL || pos < 0 || is_token_char == NULL) return -1;
   ssize_t len = ic_strlen(s);
   if (pos >= len) return -1;
@@ -1073,12 +1025,10 @@ ic_public long xLineIsToken(const char *s, long pos,
 // Ensures not to match prefixes or suffixes, and returns the length of the
 // match (in bytes). E.g.
 // `xLineMatchToken("function",0,&xLineCharIsLetter,"fun")` returns 0.
-ic_public long xLineMatchToken(const char *s, long pos,
-                               xLineIsCharClassFunc *is_token_char,
-                               const char         *token) {
+ic_public long xLineMatchToken(const char *s, long pos, xLineIsCharClassFunc *is_token_char,
+                               const char *token) {
   long n = xLineIsToken(s, pos, is_token_char);
-  if (n > 0 && token != NULL && n == ic_strlen(token) &&
-      ic_strncmp(s + pos, token, n) == 0) {
+  if (n > 0 && token != NULL && n == ic_strlen(token) && ic_strncmp(s + pos, token, n) == 0) {
     return n;
   } else {
     return 0;
@@ -1090,9 +1040,8 @@ ic_public long xLineMatchToken(const char *s, long pos,
 // match (in bytes). Ensures not to match prefixes or suffixes. E.g.
 // `xLineMatchAnyToken("function",0,&xLineCharIsLetter,{"fun","func",NULL})`
 // returns 0.
-ic_public long xLineMatchAnyToken(const char *s, long pos,
-                                  xLineIsCharClassFunc *is_token_char,
-                                  const char        **tokens) {
+ic_public long xLineMatchAnyToken(const char *s, long pos, xLineIsCharClassFunc *is_token_char,
+                                  const char **tokens) {
   long n = xLineIsToken(s, pos, is_token_char);
   if (n <= 0 || tokens == NULL) return 0;
   for (const char **token = tokens; *token != NULL; token++) {

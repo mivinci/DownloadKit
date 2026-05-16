@@ -20,8 +20,7 @@ XDEF_STRUCT(Header) {
   xVTable    *vtab;
 };
 
-void *xAlloc(const char *name, const size_t size, const size_t count,
-             xVTable *vtab) {
+void *xAlloc(const char *name, const size_t size, const size_t count, xVTable *vtab) {
   Header *hdr;
   void   *ptr;
 

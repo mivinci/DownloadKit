@@ -27,8 +27,7 @@ ic_private ic_color_t ic_rgb(uint32_t hex);
 ic_private ic_color_t ic_rgbx(ssize_t r, ssize_t g, ssize_t b);
 
 #define IC_COLOR_NONE (0)
-#define IC_RGB(rgb) \
-  (0x1000000 | (uint32_t)(rgb)) // ic_rgb(rgb) -- usable as a constant
+#define IC_RGB(rgb)   (0x1000000 | (uint32_t)(rgb)) // ic_rgb(rgb) -- usable as a constant
 
 // ANSI colors.
 // See <https://en.wikipedia.org/wiki/ANSI_escape_code#3-bit_and_4-bit>

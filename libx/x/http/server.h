@@ -56,8 +56,7 @@ XDEF_STRUCT(xHttpRequest) {
  * @param writer  Response writer for building and sending the response.
  * @param arg     User-provided argument from xHttpServerRoute().
  */
-typedef void (*xHttpHandlerFunc)(xHttpResponseWriter writer,
-                                 const xHttpRequest *req, void *arg);
+typedef void (*xHttpHandlerFunc)(xHttpResponseWriter writer, const xHttpRequest *req, void *arg);
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
 
@@ -83,8 +82,7 @@ XCAPI(xHttpServer) xHttpServerCreate(xEventLoop loop);
  * @param port    Port number to listen on.
  * @return        xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpServerListen(xHttpServer server, const char *host,
-                                uint16_t port);
+XCAPI(xErrno) xHttpServerListen(xHttpServer server, const char *host, uint16_t port);
 
 /**
  * @brief Destroy an HTTP server and release all resources.
@@ -121,8 +119,8 @@ XCAPI(void) xHttpServerDestroy(xHttpServer server);
  * @param arg      User argument forwarded to @p handler.
  * @return         xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpServerRoute(xHttpServer server, const char *pattern,
-                               xHttpHandlerFunc handler, void *arg);
+XCAPI(xErrno) xHttpServerRoute(xHttpServer server, const char *pattern, xHttpHandlerFunc handler,
+                               void *arg);
 
 /**
  * @brief Look up a path parameter by name.
@@ -136,8 +134,7 @@ XCAPI(xErrno) xHttpServerRoute(xHttpServer server, const char *pattern,
  * @return      Pointer to the parameter value (NOT NUL-terminated), or
  *              NULL if the parameter was not found.
  */
-XCAPI(const char *) xHttpRequestParam(const xHttpRequest *req, const char *name,
-                                      size_t *len);
+XCAPI(const char *) xHttpRequestParam(const xHttpRequest *req, const char *name, size_t *len);
 
 /* ── Response ──────────────────────────────────────────────────────────── */
 
@@ -162,8 +159,8 @@ XCAPI(void) xHttpResponseSetStatus(xHttpResponseWriter writer, int code);
  * @param value   Header value (must not be NULL).
  * @return        xErrno_Ok on success, xErrno_NoMemory on failure.
  */
-XCAPI(xErrno) xHttpResponseSetHeader(xHttpResponseWriter writer,
-                                     const char *key, const char *value);
+XCAPI(xErrno) xHttpResponseSetHeader(xHttpResponseWriter writer, const char *key,
+                                     const char *value);
 
 /**
  * @brief Send the HTTP response.
@@ -180,8 +177,7 @@ XCAPI(xErrno) xHttpResponseSetHeader(xHttpResponseWriter writer,
  * @param body_len  Length of body in bytes.
  * @return          xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpResponseSend(xHttpResponseWriter writer, const char *body,
-                                size_t body_len);
+XCAPI(xErrno) xHttpResponseSend(xHttpResponseWriter writer, const char *body, size_t body_len);
 
 /**
  * @brief Write data to a streaming response.
@@ -197,8 +193,7 @@ XCAPI(xErrno) xHttpResponseSend(xHttpResponseWriter writer, const char *body,
  * @param len     Length of data in bytes.
  * @return        xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpResponseWrite(xHttpResponseWriter writer, const char *data,
-                                 size_t len);
+XCAPI(xErrno) xHttpResponseWrite(xHttpResponseWriter writer, const char *data, size_t len);
 
 /**
  * @brief End a streaming response.
@@ -280,8 +275,7 @@ typedef xTlsConf xHttpTlsServerConf;
  *                key must not be NULL).
  * @return        xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xHttpServerListenTls(xHttpServer server, const char *host,
-                                   uint16_t                  port,
+XCAPI(xErrno) xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
                                    const xTlsConf *config);
 
 #endif /* XHTTP_SERVER_H */

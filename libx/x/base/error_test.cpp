@@ -81,8 +81,7 @@ TEST(ErrorTest, BusyReturnsCorrectString) {
 }
 
 TEST(ErrorTest, PromptTooLongReturnsCorrectString) {
-  EXPECT_STREQ(xstrerror(xErrno_PromptTooLong),
-               "prompt exceeds context budget");
+  EXPECT_STREQ(xstrerror(xErrno_PromptTooLong), "prompt exceeds context budget");
 }
 
 /* ── Out-of-range error codes return "unknown error" ── */

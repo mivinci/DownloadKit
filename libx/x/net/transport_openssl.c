@@ -198,8 +198,7 @@ void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx,
-                            const char *hostname, int fd) {
+int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx, const char *hostname, int fd) {
   if (!transport || !tls_ctx) return -1;
 
   SSL_CTX *ssl_ctx = (SSL_CTX *)xTlsCtxGetNative(tls_ctx);

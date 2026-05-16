@@ -9,12 +9,12 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <x/agent/tool_shell.h>
-#include <x/agent/tool.h>
-#include <x/agent/message.h>
-#include <x/base/event.h>
-#include <x/base/error.h>
 #include "tool_private.h"
+#include <x/agent/message.h>
+#include <x/agent/tool.h>
+#include <x/agent/tool_shell.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 }
 
 #include <cstring>
@@ -43,9 +43,9 @@ TEST(ShellTool, CreateWithConf) {
   ASSERT_NE(loop, nullptr);
 
   xAgentShellConf conf = {};
-  conf.timeout_ms  = 5000;
-  conf.stdout_cap  = 1024;
-  conf.stderr_cap  = 1024;
+  conf.timeout_ms      = 5000;
+  conf.stdout_cap      = 1024;
+  conf.stderr_cap      = 1024;
 
   xAgentTool tool = xAgentToolShellCreate(loop, &conf);
   ASSERT_NE(tool, nullptr);
@@ -155,14 +155,14 @@ TEST(ShellStdinTool, HandlerNoRunningCommand) {
   ASSERT_NE(stdin_tool, nullptr);
 
   /* Invoke the stdin handler with a tool_use for a nonexistent command */
-  xAgentContent in = {};
-  in.type                   = xAgentContentType_ToolUse;
-  in.u.tool_use.id          = "call_stdin_1";
-  in.u.tool_use.name        = "shell_stdin";
-  in.u.tool_use.args_json   = R"({"input":"hello\n","tool_use_id":"call_shell_1"})";
+  xAgentContent in        = {};
+  in.type                 = xAgentContentType_ToolUse;
+  in.u.tool_use.id        = "call_stdin_1";
+  in.u.tool_use.name      = "shell_stdin";
+  in.u.tool_use.args_json = R"({"input":"hello\n","tool_use_id":"call_shell_1"})";
 
   xAgentContent out = {};
-  xErrno err = ai_tool_invoke(stdin_tool, nullptr, &in, &out);
+  xErrno        err = ai_tool_invoke(stdin_tool, nullptr, &in, &out);
   EXPECT_EQ(err, xErrno_Ok);
   EXPECT_EQ(out.type, xAgentContentType_ToolResult);
   EXPECT_NE(out.u.tool_result.output, nullptr);
@@ -187,7 +187,7 @@ TEST(ShellStdinTool, HandlerInvalidArgs) {
   ASSERT_NE(stdin_tool, nullptr);
 
   /* NULL args_json */
-  xAgentContent in1 = {};
+  xAgentContent in1        = {};
   in1.type                 = xAgentContentType_ToolUse;
   in1.u.tool_use.id        = "call_1";
   in1.u.tool_use.name      = "shell_stdin";
@@ -197,7 +197,7 @@ TEST(ShellStdinTool, HandlerInvalidArgs) {
   EXPECT_EQ(ai_tool_invoke(stdin_tool, nullptr, &in1, &out1), xErrno_InvalidArg);
 
   /* Missing required fields */
-  xAgentContent in2 = {};
+  xAgentContent in2        = {};
   in2.type                 = xAgentContentType_ToolUse;
   in2.u.tool_use.id        = "call_2";
   in2.u.tool_use.name      = "shell_stdin";
@@ -207,7 +207,7 @@ TEST(ShellStdinTool, HandlerInvalidArgs) {
   EXPECT_EQ(ai_tool_invoke(stdin_tool, nullptr, &in2, &out2), xErrno_InvalidArg);
 
   /* Empty input string */
-  xAgentContent in3 = {};
+  xAgentContent in3        = {};
   in3.type                 = xAgentContentType_ToolUse;
   in3.u.tool_use.id        = "call_3";
   in3.u.tool_use.name      = "shell_stdin";
@@ -217,7 +217,7 @@ TEST(ShellStdinTool, HandlerInvalidArgs) {
   EXPECT_EQ(ai_tool_invoke(stdin_tool, nullptr, &in3, &out3), xErrno_InvalidArg);
 
   /* Malformed JSON */
-  xAgentContent in4 = {};
+  xAgentContent in4        = {};
   in4.type                 = xAgentContentType_ToolUse;
   in4.u.tool_use.id        = "call_4";
   in4.u.tool_use.name      = "shell_stdin";

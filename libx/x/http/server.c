@@ -157,8 +157,7 @@ xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port) {
   }
 
   /* Wrap in xSocket (sets non-blocking + registers with event loop) */
-  xSocket sock =
-    xSocketCreateFromFd(s->loop, fd, xEvent_Read, on_listen_event, s);
+  xSocket sock = xSocketCreateFromFd(s->loop, fd, xEvent_Read, on_listen_event, s);
   if (!sock) {
     close(fd);
     return xErrno_SysError;
@@ -178,9 +177,8 @@ void xHttpServerDestroy(xHttpServer server) {
   {
     /* Include ws_private.h types via forward decl;
      * xWsConnClose / xWsConnDestroy are linked from ws.c */
-    extern void xWsConnClose(struct xWsConn_ *conn, uint16_t code,
-                             const char *reason, size_t len);
-    extern void xWsConnDestroy(struct xWsConn_ *conn);
+    extern void xWsConnClose(struct xWsConn_ * conn, uint16_t code, const char *reason, size_t len);
+    extern void xWsConnDestroy(struct xWsConn_ * conn);
     while (s->ws_conns) {
       xWsConnClose(s->ws_conns, 1001 /* Going Away */, NULL, 0);
       xWsConnDestroy(s->ws_conns);
@@ -274,15 +272,13 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
   /* Accept in a loop to drain all pending connections (edge-triggered) */
   for (;;) {
     struct sockaddr_in client_addr;
-    socklen_t          addr_len = sizeof(client_addr);
-    int                client_fd =
-      accept(s->listen_fd, (struct sockaddr *)&client_addr, &addr_len);
+    socklen_t          addr_len  = sizeof(client_addr);
+    int                client_fd = accept(s->listen_fd, (struct sockaddr *)&client_addr, &addr_len);
     if (client_fd < 0) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) break;
       if (errno == EMFILE || errno == ENFILE) {
         /* fd exhaustion: log warning and continue */
-        xLog(false, "xhttp: accept() failed: %s (fd exhaustion)",
-             strerror(errno));
+        xLog(false, "xhttp: accept() failed: %s (fd exhaustion)", strerror(errno));
         break;
       }
       /* Other errors: stop accepting this round */
@@ -290,8 +286,7 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
     }
 
     /* Create connection */
-    struct xHttpConn_ *conn =
-      (struct xHttpConn_ *)calloc(1, sizeof(struct xHttpConn_));
+    struct xHttpConn_ *conn = (struct xHttpConn_ *)calloc(1, sizeof(struct xHttpConn_));
     if (!conn) {
       close(client_fd);
       continue;
@@ -311,8 +306,7 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
     conn_init_parser(conn);
 
     /* Wrap accepted fd in xSocket */
-    xSocket client_sock =
-      xSocketCreateFromFd(s->loop, client_fd, xEvent_Read, on_conn_event, conn);
+    xSocket client_sock = xSocketCreateFromFd(s->loop, client_fd, xEvent_Read, on_conn_event, conn);
     if (!client_sock) {
       xIOBufferDeinit(&conn->read_buf);
       xIOBufferDeinit(&conn->write_buf);
@@ -340,10 +334,8 @@ static void on_listen_event(xSocket sock, xEventMask mask, void *arg) {
  * For H1, stream_id is always 0 (implicit stream).
  * For H2, stream_id is assigned by nghttp2.
  */
-struct xHttpStream_ *xHttpStreamCreate(struct xHttpConn_ *conn,
-                                       int32_t            stream_id) {
-  struct xHttpStream_ *stream =
-    (struct xHttpStream_ *)calloc(1, sizeof(struct xHttpStream_));
+struct xHttpStream_ *xHttpStreamCreate(struct xHttpConn_ *conn, int32_t stream_id) {
+  struct xHttpStream_ *stream = (struct xHttpStream_ *)calloc(1, sizeof(struct xHttpStream_));
   if (!stream) return NULL;
 
   stream->conn      = conn;
@@ -562,8 +554,7 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
       xSocketSetMask(conn->server->loop, conn->sock, xEvent_Read);
       return;
     case xTransportResult_WantWrite:
-      xSocketSetMask(conn->server->loop, conn->sock,
-                     xEvent_Read | xEvent_Write);
+      xSocketSetMask(conn->server->loop, conn->sock, xEvent_Read | xEvent_Write);
       return;
     case xTransportResult_Error:
     default:
@@ -589,8 +580,7 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
        * xIOBufferReadWith reuses tail-block space or acquires a new block,
        * then invokes the transport read callback with the block's data
        * pointer — no intermediate stack buffer needed. */
-      ssize_t n = xIOBufferReadWith(&conn->read_buf, conn->transport.read,
-                                    conn->transport.ctx);
+      ssize_t n = xIOBufferReadWith(&conn->read_buf, conn->transport.read, conn->transport.ctx);
       if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         /* Read error: close connection */
         xHttpConnClose(conn);
@@ -675,9 +665,9 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
       if (rc < 0) {
         /* Parse error or deferred error from callbacks */
         if (conn->stream && conn->stream->pending_error) {
-          int         code            = conn->stream->pending_error;
-          const char *reason          = conn->stream->pending_error_reason;
-          conn->stream->pending_error = 0;
+          int         code                   = conn->stream->pending_error;
+          const char *reason                 = conn->stream->pending_error_reason;
+          conn->stream->pending_error        = 0;
           conn->stream->pending_error_reason = NULL;
           xHttpConnSendError(conn, code, reason);
         } else {
@@ -723,8 +713,7 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
  * Returns the number of segments, or -1 on error.
  * Caller must free the returned array (each segment's text/param is strdup'd).
  */
-static int route_parse_segments(const char                 *path,
-                                struct xHttpRouteSegment_ **out) {
+static int route_parse_segments(const char *path, struct xHttpRouteSegment_ **out) {
   /* Count segments first */
   int         count = 0;
   const char *p     = path;
@@ -744,8 +733,8 @@ static int route_parse_segments(const char                 *path,
     return 0;
   }
 
-  struct xHttpRouteSegment_ *segs = (struct xHttpRouteSegment_ *)calloc(
-    (size_t)count, sizeof(struct xHttpRouteSegment_));
+  struct xHttpRouteSegment_ *segs =
+    (struct xHttpRouteSegment_ *)calloc((size_t)count, sizeof(struct xHttpRouteSegment_));
   if (!segs) return -1;
 
   int i = 0;
@@ -799,8 +788,8 @@ static void route_free_segments(struct xHttpRouteSegment_ *segs, int count) {
  * Match a request URL against a route's pre-parsed segments.
  * On success, fills params[] and returns 1.  On failure returns 0.
  */
-static int route_match(const struct xHttpRoute_ *route, const char *url,
-                       struct xHttpParam_ *params, int *param_count) {
+static int route_match(const struct xHttpRoute_ *route, const char *url, struct xHttpParam_ *params,
+                       int *param_count) {
   *param_count = 0;
 
   /* Split URL into segments and compare with route segments */
@@ -829,8 +818,7 @@ static int route_match(const struct xHttpRoute_ *route, const char *url,
       (*param_count)++;
     } else {
       /* Static segment: exact match */
-      if (seg_len != strlen(rs->text) ||
-          memcmp(seg_start, rs->text, seg_len) != 0) {
+      if (seg_len != strlen(rs->text) || memcmp(seg_start, rs->text, seg_len) != 0) {
         return 0;
       }
     }
@@ -845,8 +833,8 @@ static int route_match(const struct xHttpRoute_ *route, const char *url,
   return 1;
 }
 
-xErrno xHttpServerRoute(xHttpServer server, const char *pattern,
-                        xHttpHandlerFunc handler, void *arg) {
+xErrno xHttpServerRoute(xHttpServer server, const char *pattern, xHttpHandlerFunc handler,
+                        void *arg) {
   if (!server || !pattern || !handler) return xErrno_InvalidArg;
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
 
@@ -868,8 +856,7 @@ xErrno xHttpServerRoute(xHttpServer server, const char *pattern,
     path          = space + 1;
   }
 
-  struct xHttpRoute_ *route =
-    (struct xHttpRoute_ *)calloc(1, sizeof(struct xHttpRoute_));
+  struct xHttpRoute_ *route = (struct xHttpRoute_ *)calloc(1, sizeof(struct xHttpRoute_));
   if (!route) {
     free((void *)method_str);
     return xErrno_NoMemory;
@@ -910,8 +897,7 @@ xErrno xHttpServerRoute(xHttpServer server, const char *pattern,
 
 /* ── xHttpRequestParam ─────────────────────────────────────────────────── */
 
-const char *xHttpRequestParam(const xHttpRequest *req, const char *name,
-                              size_t *len) {
+const char *xHttpRequestParam(const xHttpRequest *req, const char *name, size_t *len) {
   if (!req || !name || !req->params_) return NULL;
 
   const struct xHttpParam_ *params = (const struct xHttpParam_ *)req->params_;
@@ -944,15 +930,13 @@ static void conn_dispatch_request(struct xHttpConn_ *conn) {
 
   /* Build the xHttpRequest from stream state */
   xHttpRequest req;
-  req.method = method_str;
-  req.url    = stream->url ? (const char *)xBufferData(stream->url) : "/";
-  req.headers =
-    stream->headers_raw ? (const char *)xBufferData(stream->headers_raw) : "";
-  req.headers_len =
-    stream->headers_raw ? xBufferLen(stream->headers_raw) - 1 : 0;
-  req.body     = stream->body ? (const char *)xBufferData(stream->body) : NULL;
-  req.body_len = stream->body ? xBufferLen(stream->body) - 1 : 0;
-  req.params_  = NULL;
+  req.method      = method_str;
+  req.url         = stream->url ? (const char *)xBufferData(stream->url) : "/";
+  req.headers     = stream->headers_raw ? (const char *)xBufferData(stream->headers_raw) : "";
+  req.headers_len = stream->headers_raw ? xBufferLen(stream->headers_raw) - 1 : 0;
+  req.body        = stream->body ? (const char *)xBufferData(stream->body) : NULL;
+  req.body_len    = stream->body ? xBufferLen(stream->body) - 1 : 0;
+  req.params_     = NULL;
 
   /* Search for matching route (segment-by-segment) */
   int                 path_matched = 0;
@@ -1026,13 +1010,11 @@ void xHttpResponseSetStatus(xHttpResponseWriter writer, int code) {
   w->status_code                 = code;
 }
 
-xErrno xHttpResponseSetHeader(xHttpResponseWriter writer, const char *key,
-                              const char *value) {
+xErrno xHttpResponseSetHeader(xHttpResponseWriter writer, const char *key, const char *value) {
   if (!writer || !key || !value) return xErrno_InvalidArg;
   struct xHttpResponseWriter_ *w = (struct xHttpResponseWriter_ *)writer;
 
-  struct xHttpHeader_ *h =
-    (struct xHttpHeader_ *)calloc(1, sizeof(struct xHttpHeader_));
+  struct xHttpHeader_ *h = (struct xHttpHeader_ *)calloc(1, sizeof(struct xHttpHeader_));
   if (!h) return xErrno_NoMemory;
 
   h->key   = strdup(key);
@@ -1057,8 +1039,7 @@ xErrno xHttpResponseSetHeader(xHttpResponseWriter writer, const char *key,
   return xErrno_Ok;
 }
 
-xErrno xHttpResponseSend(xHttpResponseWriter writer, const char *body,
-                         size_t body_len) {
+xErrno xHttpResponseSend(xHttpResponseWriter writer, const char *body, size_t body_len) {
   if (!writer) return xErrno_InvalidArg;
   struct xHttpResponseWriter_ *w = (struct xHttpResponseWriter_ *)writer;
 
@@ -1079,8 +1060,7 @@ xErrno xHttpResponseSend(xHttpResponseWriter writer, const char *body,
   return xErrno_Ok;
 }
 
-xErrno xHttpResponseWrite(xHttpResponseWriter writer, const char *data,
-                          size_t len) {
+xErrno xHttpResponseWrite(xHttpResponseWriter writer, const char *data, size_t len) {
   if (!writer) return xErrno_InvalidArg;
   struct xHttpResponseWriter_ *w = (struct xHttpResponseWriter_ *)writer;
 
@@ -1145,8 +1125,7 @@ static void conn_try_flush(struct xHttpConn_ *conn) {
       /* Register for write events (backpressure) */
       if (!conn->writing) {
         conn->writing = 1;
-        xSocketSetMask(conn->server->loop, conn->sock,
-                       xEvent_Read | xEvent_Write);
+        xSocketSetMask(conn->server->loop, conn->sock, xEvent_Read | xEvent_Write);
       }
       return;
     }
@@ -1160,8 +1139,7 @@ static void conn_try_flush(struct xHttpConn_ *conn) {
   if (!xIOBufferEmpty(&conn->write_buf)) {
     if (!conn->writing) {
       conn->writing = 1;
-      xSocketSetMask(conn->server->loop, conn->sock,
-                     xEvent_Read | xEvent_Write);
+      xSocketSetMask(conn->server->loop, conn->sock, xEvent_Read | xEvent_Write);
     }
   } else {
     if (conn->writing) {
@@ -1174,8 +1152,7 @@ static void conn_try_flush(struct xHttpConn_ *conn) {
 /**
  * Send a simple error response (used internally for 400, 404, 405, etc.)
  */
-void xHttpConnSendError(struct xHttpConn_ *conn, int status_code,
-                        const char *reason) {
+void xHttpConnSendError(struct xHttpConn_ *conn, int status_code, const char *reason) {
   struct xHttpStream_ *stream = conn->stream;
 
   /* If response already sent, just close */
@@ -1186,9 +1163,8 @@ void xHttpConnSendError(struct xHttpConn_ *conn, int status_code,
 
   /* Build a simple HTML error body */
   char body[256];
-  int  body_len =
-    snprintf(body, sizeof(body), "<html><body><h1>%d %s</h1></body></html>\r\n",
-             status_code, reason);
+  int  body_len = snprintf(body, sizeof(body), "<html><body><h1>%d %s</h1></body></html>\r\n",
+                           status_code, reason);
 
   stream->writer.status_code = status_code;
 
@@ -1198,10 +1174,8 @@ void xHttpConnSendError(struct xHttpConn_ *conn, int status_code,
     conn->keep_alive = 0; /* H1: close after error */
   }
 
-  xHttpResponseSetHeader((xHttpResponseWriter)&stream->writer, "Content-Type",
-                         "text/html");
-  xHttpResponseSend((xHttpResponseWriter)&stream->writer, body,
-                    (size_t)body_len);
+  xHttpResponseSetHeader((xHttpResponseWriter)&stream->writer, "Content-Type", "text/html");
+  xHttpResponseSend((xHttpResponseWriter)&stream->writer, body, (size_t)body_len);
 }
 
 /**
@@ -1253,8 +1227,7 @@ static void conn_after_response(struct xHttpConn_ *conn) {
     /* Check if this is H2 by testing if should_keep_alive always returns 1
      * (H2 connections are always persistent). A cleaner approach would be
      * a protocol type flag, but this works for now. */
-    if (conn->proto.should_keep_alive && conn->proto.should_keep_alive(conn) &&
-        conn->keep_alive) {
+    if (conn->proto.should_keep_alive && conn->proto.should_keep_alive(conn) && conn->keep_alive) {
       /* Could be H1 keep-alive or H2. Distinguish by checking if
        * conn->stream was created by H2 (stream_id > 0). */
       if (conn->stream && conn->stream->stream_id > 0) {
@@ -1326,7 +1299,7 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
 
   /* Create TLS context with HTTP ALPN */
   static const char *http_alpn[] = {"h2", "http/1.1", NULL};
-  xTlsConf tls_conf = *config;
+  xTlsConf           tls_conf    = *config;
   if (!tls_conf.alpn) tls_conf.alpn = http_alpn;
   xTlsCtx tls_ctx = xTlsCtxCreate(&tls_conf);
   if (!tls_ctx) return xErrno_SysError;
@@ -1371,8 +1344,7 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
   }
 
   /* Wrap in xSocket */
-  xSocket sock =
-    xSocketCreateFromFd(s->loop, fd, xEvent_Read, on_tls_listen_event, s);
+  xSocket sock = xSocketCreateFromFd(s->loop, fd, xEvent_Read, on_tls_listen_event, s);
   if (!sock) {
     close(fd);
     xTlsCtxDestroy(tls_ctx);
@@ -1401,21 +1373,18 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg) {
   for (;;) {
     struct sockaddr_in client_addr;
     socklen_t          addr_len = sizeof(client_addr);
-    int                client_fd =
-      accept(s->tls_listen_fd, (struct sockaddr *)&client_addr, &addr_len);
+    int client_fd = accept(s->tls_listen_fd, (struct sockaddr *)&client_addr, &addr_len);
     if (client_fd < 0) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) break;
       if (errno == EMFILE || errno == ENFILE) {
-        xLog(false, "xhttp: TLS accept() failed: %s (fd exhaustion)",
-             strerror(errno));
+        xLog(false, "xhttp: TLS accept() failed: %s (fd exhaustion)", strerror(errno));
         break;
       }
       break;
     }
 
     /* Create connection */
-    struct xHttpConn_ *conn =
-      (struct xHttpConn_ *)calloc(1, sizeof(struct xHttpConn_));
+    struct xHttpConn_ *conn = (struct xHttpConn_ *)calloc(1, sizeof(struct xHttpConn_));
     if (!conn) {
       close(client_fd);
       continue;
@@ -1435,8 +1404,7 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg) {
     conn_init_parser(conn);
 
     /* Wrap accepted fd in xSocket */
-    xSocket client_sock =
-      xSocketCreateFromFd(s->loop, client_fd, xEvent_Read, on_conn_event, conn);
+    xSocket client_sock = xSocketCreateFromFd(s->loop, client_fd, xEvent_Read, on_conn_event, conn);
     if (!client_sock) {
       if (conn->transport.destroy) {
         conn->transport.destroy(conn->transport.ctx);

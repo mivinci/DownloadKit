@@ -28,8 +28,8 @@ XDEF_ENUM(xErrno){
   xErrno_Timeout,       /**< Operation timed out                        */
   xErrno_Again,         /**< Operation would block, try again later     */
   xErrno_Busy,          /**< Object is already handling a prior request */
-  xErrno_Pending,      /**< Operation submitted asynchronously; completion
-                            will be signalled via callback later            */
+  xErrno_Pending,       /**< Operation submitted asynchronously; completion
+                             will be signalled via callback later            */
   xErrno_PromptTooLong, /**< Estimated prompt exceeds configured budget */
 };
 

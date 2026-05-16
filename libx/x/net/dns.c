@@ -123,8 +123,7 @@ static xDnsResult *result_error(xErrno err) {
 static void detect_ip_literal(const char *hostname, struct addrinfo *hints) {
   unsigned char buf[sizeof(struct in6_addr)];
 
-  if (inet_pton(AF_INET, hostname, buf) == 1 ||
-      inet_pton(AF_INET6, hostname, buf) == 1) {
+  if (inet_pton(AF_INET, hostname, buf) == 1 || inet_pton(AF_INET6, hostname, buf) == 1) {
     hints->ai_flags |= AI_NUMERICHOST;
   }
 }
@@ -144,7 +143,7 @@ static void *dns_work_fn(void *arg) {
   detect_ip_literal(req->hostname, &req->hints);
 
   struct addrinfo *res = NULL;
-  int eai = getaddrinfo(req->hostname, req->service, &req->hints, &res);
+  int              eai = getaddrinfo(req->hostname, req->service, &req->hints, &res);
 
   xDnsResult *result;
   if (eai != 0) {
@@ -190,9 +189,8 @@ static void dns_done_fn(void *arg, void *work_result) {
 
 /* ───────────────────── Public API ───────────────────── */
 
-xDnsQuery xDnsResolve(xEventLoop loop, const char *hostname,
-                      const char *service, const struct addrinfo *hints,
-                      xDnsCallback callback, void *arg) {
+xDnsQuery xDnsResolve(xEventLoop loop, const char *hostname, const char *service,
+                      const struct addrinfo *hints, xDnsCallback callback, void *arg) {
   if (!loop || !hostname || !hostname[0] || !callback) {
     return NULL;
   }

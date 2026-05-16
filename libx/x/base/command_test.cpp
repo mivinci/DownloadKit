@@ -30,8 +30,7 @@ static void on_done(xCommandExecutor, const xCommandResult *result, void *ud) {
   xEventLoopStop(ctx->loop);
 }
 
-static void on_stdout_stream(xCommandExecutor, const char *, size_t len,
-                             void *ud) {
+static void on_stdout_stream(xCommandExecutor, const char *, size_t len, void *ud) {
   struct TestCtx *ctx = (struct TestCtx *)ud;
   ctx->stdout_chunks++;
   ctx->total_stdout += len;
@@ -227,8 +226,7 @@ TEST(Command, StreamStdout) {
   conf.stdout_mode = xCommandOutput_Stream;
   conf.stderr_mode = xCommandOutput_Discard;
 
-  xErrno err =
-    xCommandExecutorSubmit(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   xEventLoopWait(loop, 10000);
@@ -309,7 +307,7 @@ TEST(Command, Timeout) {
   conf.stderr_mode = xCommandOutput_Discard;
 
   uint64_t start = xMonoMs();
-  xErrno   err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno   err   = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   xEventLoopWait(loop, 10000);
@@ -462,7 +460,7 @@ TEST(Command, WorkingDirectory) {
   const char *argv[] = {"/C", "cd", nullptr};
   conf.cmd           = shell_cmd();
   conf.argv          = argv;
-  conf.cwd = getenv("TEMP"); /* e.g. C:\Users\...\AppData\Local\Temp */
+  conf.cwd           = getenv("TEMP"); /* e.g. C:\Users\...\AppData\Local\Temp */
   if (!conf.cwd) conf.cwd = "C:\\";
 #else
   const char *argv[] = {nullptr};
@@ -555,8 +553,7 @@ TEST(Command, SequentialRuns) {
 TEST(Command, NullArgs) {
   EXPECT_EQ(xCommandExecutorCreate(NULL), nullptr);
   xCommandExecutorDestroy(NULL); /* should not crash */
-  EXPECT_EQ(xCommandExecutorSubmit(NULL, NULL, NULL, NULL, NULL, NULL),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xCommandExecutorSubmit(NULL, NULL, NULL, NULL, NULL, NULL), xErrno_InvalidArg);
   EXPECT_EQ(xCommandExecutorCancel(NULL), xErrno_InvalidArg);
   EXPECT_EQ(xCommandExecutorPid(NULL), -1);
   EXPECT_EQ(xCommandExecutorIsRunning(NULL), 0);
@@ -618,8 +615,7 @@ TEST(Command, PtyStreamStdout) {
   conf.stderr_mode    = xCommandOutput_Discard; /* ignored in PTY mode */
   conf.input_mode     = xCommandInput_Pty;
 
-  xErrno err =
-    xCommandExecutorSubmit(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   xEventLoopWait(loop, 10000);
@@ -784,7 +780,7 @@ TEST(Command, PtyTimeout) {
   conf.input_mode     = xCommandInput_Pty;
 
   uint64_t start = xMonoMs();
-  xErrno   err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno   err   = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   xEventLoopWait(loop, 10000);
@@ -919,8 +915,7 @@ TEST(Command, PtyStreamStdout) {
   conf.stderr_mode    = xCommandOutput_Discard; /* ignored in PTY mode */
   conf.input_mode     = xCommandInput_Pty;
 
-  xErrno err =
-    xCommandExecutorSubmit(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
+  xErrno err = xCommandExecutorSubmit(exec, &conf, on_stdout_stream, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   xEventLoopWait(loop, 10000);
@@ -1057,7 +1052,7 @@ TEST(Command, PtyTimeout) {
   conf.input_mode     = xCommandInput_Pty;
 
   uint64_t start = xMonoMs();
-  xErrno   err = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
+  xErrno   err   = xCommandExecutorSubmit(exec, &conf, NULL, NULL, on_done, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   xEventLoopWait(loop, 10000);

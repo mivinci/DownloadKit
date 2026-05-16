@@ -28,12 +28,12 @@
 
 /* ───────────────────── Close status codes ───────────────────── */
 
-#define XWS_CLOSE_NORMAL        1000
-#define XWS_CLOSE_GOING_AWAY    1001
-#define XWS_CLOSE_PROTOCOL_ERR  1002
-#define XWS_CLOSE_UNSUPPORTED   1003
-#define XWS_CLOSE_NO_STATUS     1005
-#define XWS_CLOSE_ABNORMAL      1006
+#define XWS_CLOSE_NORMAL       1000
+#define XWS_CLOSE_GOING_AWAY   1001
+#define XWS_CLOSE_PROTOCOL_ERR 1002
+#define XWS_CLOSE_UNSUPPORTED  1003
+#define XWS_CLOSE_NO_STATUS    1005
+#define XWS_CLOSE_ABNORMAL     1006
 
 /* ───────────────────── Parse result ───────────────────── */
 
@@ -73,11 +73,11 @@ XDEF_STRUCT(xWsFrame) {
  * Internal parsing phase for the frame parser.
  */
 XDEF_ENUM(xWsFrameParserPhase){
-  xWsFrameParserPhase_Header  = 0, /**< Reading 2-byte base header    */
-  xWsFrameParserPhase_Len16,       /**< Reading 2-byte extended length*/
-  xWsFrameParserPhase_Len64,       /**< Reading 8-byte extended length*/
-  xWsFrameParserPhase_Mask,        /**< Reading 4-byte masking key    */
-  xWsFrameParserPhase_Payload,     /**< Reading payload data          */
+  xWsFrameParserPhase_Header = 0, /**< Reading 2-byte base header    */
+  xWsFrameParserPhase_Len16,      /**< Reading 2-byte extended length*/
+  xWsFrameParserPhase_Len64,      /**< Reading 8-byte extended length*/
+  xWsFrameParserPhase_Mask,       /**< Reading 4-byte masking key    */
+  xWsFrameParserPhase_Payload,    /**< Reading payload data          */
 };
 
 /**
@@ -87,10 +87,10 @@ XDEF_ENUM(xWsFrameParserPhase){
  * Initialize with xWsFrameParserInit() before first use.
  */
 XDEF_STRUCT(xWsFrameParser) {
-  xWsFrameParserPhase phase;       /**< Internal parsing phase        */
+  xWsFrameParserPhase phase; /**< Internal parsing phase        */
 
-  xWsFrame frame;           /**< Frame being assembled            */
-  size_t   payload_read;    /**< Bytes of payload read so far     */
+  xWsFrame frame;        /**< Frame being assembled            */
+  size_t   payload_read; /**< Bytes of payload read so far     */
 
   /**
    * Whether incoming frames are expected to be masked.
@@ -116,8 +116,7 @@ XDEF_STRUCT(xWsFrameParser) {
  * @param expect_masked  1 for server mode (expect masked frames),
  *                       0 for client mode (expect unmasked).
  */
-void xWsFrameParserInit(xWsFrameParser *parser,
-                        int expect_masked);
+void xWsFrameParserInit(xWsFrameParser *parser, int expect_masked);
 
 /**
  * Reset the parser for the next frame (after a successful parse).
@@ -162,9 +161,8 @@ xWsFrameResult xWsFrameParse(xWsFrameParser *parser, xIOBuffer *io);
  * @param masked       Non-zero to mask the frame (client mode).
  * @return 0 on success, -1 on error (OOM).
  */
-int xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode,
-                   const void *payload, size_t payload_len,
-                   int masked);
+int xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode, const void *payload,
+                   size_t payload_len, int masked);
 
 /**
  * Encode a WebSocket frame with RSV1 bit set (compressed).
@@ -181,8 +179,7 @@ int xWsFrameEncode(xIOBuffer *io, uint8_t fin, uint8_t opcode,
  * @param masked       Non-zero to mask the frame.
  * @return 0 on success, -1 on error.
  */
-int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1,
-                     uint8_t opcode, const void *payload,
+int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1, uint8_t opcode, const void *payload,
                      size_t payload_len, int masked);
 
 /**
@@ -196,8 +193,6 @@ int xWsFrameEncodeEx(xIOBuffer *io, uint8_t fin, uint8_t rsv1,
  * @param masked  Non-zero to mask the frame (client mode).
  * @return 0 on success, -1 on error.
  */
-int xWsFrameEncodeClose(xIOBuffer *io, uint16_t code,
-                        const char *reason, size_t len,
-                        int masked);
+int xWsFrameEncodeClose(xIOBuffer *io, uint16_t code, const char *reason, size_t len, int masked);
 
 #endif /* XHTTP_WS_FRAME_H */

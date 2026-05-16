@@ -97,15 +97,15 @@ TEST(SlabTest, AllocAcrossChunks) {
   }
   EXPECT_EQ(xSlabInUse(s), (size_t)N);
 
-  for (void *p : ptrs) xSlabFree(s, p);
+  for (void *p : ptrs)
+    xSlabFree(s, p);
   EXPECT_EQ(xSlabInUse(s), 0u);
 
   xSlabDestroy(s);
 }
 
 TEST(SlabTest, AlignmentRespected) {
-  for (size_t a : {size_t{8}, size_t{16}, size_t{32}, size_t{64},
-                   size_t{128}}) {
+  for (size_t a : {size_t{8}, size_t{16}, size_t{32}, size_t{64}, size_t{128}}) {
     xSlab *s = xSlabCreate(sizeof(Small), a, 0);
     ASSERT_NE(s, nullptr) << "align=" << a;
     for (int i = 0; i < 64; i++) {
@@ -132,7 +132,8 @@ TEST(SlabTest, Reset) {
   ASSERT_NE(s, nullptr);
 
   std::vector<void *> ptrs;
-  for (int i = 0; i < 50; i++) ptrs.push_back(xSlabAlloc(s));
+  for (int i = 0; i < 50; i++)
+    ptrs.push_back(xSlabAlloc(s));
   EXPECT_EQ(xSlabInUse(s), 50u);
 
   xSlabReset(s);
@@ -214,7 +215,8 @@ TEST(SlabMtTest, ConcurrentAllocFreeDistinct) {
 
   for (int t = 0; t < kThreads; t++) {
     ts.emplace_back([&, t] {
-      while (!go.load(std::memory_order_acquire)) { /* spin */ }
+      while (!go.load(std::memory_order_acquire)) { /* spin */
+      }
       auto &local = out[t];
       local.reserve(kPerThread);
       for (int i = 0; i < kPerThread; i++) {
@@ -227,7 +229,8 @@ TEST(SlabMtTest, ConcurrentAllocFreeDistinct) {
   }
 
   go.store(true, std::memory_order_release);
-  for (auto &t : ts) t.join();
+  for (auto &t : ts)
+    t.join();
 
   std::unordered_set<void *> all;
   for (auto &v : out) {
@@ -240,10 +243,12 @@ TEST(SlabMtTest, ConcurrentAllocFreeDistinct) {
   std::vector<std::thread> freers;
   for (int t = 0; t < kThreads; t++) {
     freers.emplace_back([&, t] {
-      for (void *p : out[t]) xSlabMtFree(s, p);
+      for (void *p : out[t])
+        xSlabMtFree(s, p);
     });
   }
-  for (auto &t : freers) t.join();
+  for (auto &t : freers)
+    t.join();
 
   xSlabMtDestroy(s);
 }
@@ -266,6 +271,7 @@ TEST(SlabMtTest, CrossThreadAllocFreeChurn) {
       }
     });
   }
-  for (auto &t : ts) t.join();
+  for (auto &t : ts)
+    t.join();
   xSlabMtDestroy(s);
 }

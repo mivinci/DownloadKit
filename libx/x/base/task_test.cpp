@@ -291,7 +291,7 @@ TEST_F(TaskTest, CancelNullReturnsError) {
 TEST_F(TaskTest, CancelQueuedTask) {
   /* Use a single-threaded group and block the worker so tasks queue up. */
   std::atomic<bool> unblock{false};
-  auto              block_fn = [](void *arg) -> void * {
+  auto              block_fn = [](void *arg) -> void              *{
     auto *flag = static_cast<std::atomic<bool> *>(arg);
     while (!flag->load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -383,7 +383,7 @@ TEST_F(TaskTest, CancelSafeArgRelease) {
    * cancel succeeds → free arg immediately;
    * cancel fails    → wait, then free. */
   std::atomic<bool> unblock{false};
-  auto              block_fn = [](void *arg) -> void * {
+  auto              block_fn = [](void *arg) -> void              *{
     auto *flag = static_cast<std::atomic<bool> *>(arg);
     while (!flag->load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -416,7 +416,7 @@ TEST_F(TaskTest, CancelSafeArgRelease) {
 
 TEST_F(TaskTest, CancelMultipleQueuedTasks) {
   std::atomic<bool> unblock{false};
-  auto              block_fn = [](void *arg) -> void * {
+  auto              block_fn = [](void *arg) -> void              *{
     auto *flag = static_cast<std::atomic<bool> *>(arg);
     while (!flag->load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -432,9 +432,9 @@ TEST_F(TaskTest, CancelMultipleQueuedTasks) {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   /* Submit several tasks and cancel them all */
-  constexpr int          N = 10;
-  Counter                counter;
-  std::vector<xTask>     tasks(N);
+  constexpr int      N = 10;
+  Counter            counter;
+  std::vector<xTask> tasks(N);
 
   for (int i = 0; i < N; i++) {
     tasks[i] = xTaskSubmit(single, increment, &counter);

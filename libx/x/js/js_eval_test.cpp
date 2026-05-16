@@ -11,7 +11,6 @@
 
 #include <gtest/gtest.h>
 
-
 namespace {
 class XjsEvalTest : public ::testing::Test {
 protected:
@@ -112,8 +111,7 @@ TEST_F(XjsEvalTest, EvaluateSyntaxErrorPropagates) {
 }
 
 TEST_F(XjsEvalTest, EvaluateNullScript) {
-  EXPECT_EQ(xJSEvaluateScript(ctx_, nullptr, nullptr, nullptr, 0, nullptr),
-            nullptr);
+  EXPECT_EQ(xJSEvaluateScript(ctx_, nullptr, nullptr, nullptr, 0, nullptr), nullptr);
 }
 
 TEST_F(XjsEvalTest, EvaluateWithSourceUrl) {
@@ -149,8 +147,7 @@ TEST_F(XjsEvalTest, EvaluateWithThisObjectBindsThis) {
   xJSStringRef kTag = xJSStringCreateWithUTF8CString("tag");
   xJSStringRef sTag = xJSStringCreateWithUTF8CString("hello");
   xJSValueRef  vTag = xJSValueMakeString(ctx_, sTag);
-  xJSObjectSetProperty(ctx_, thiz, kTag, vTag, kXJSPropertyAttributeNone,
-                       nullptr);
+  xJSObjectSetProperty(ctx_, thiz, kTag, vTag, kXJSPropertyAttributeNone, nullptr);
   xjs_slot_release(vTag);
   xJSStringRelease(sTag);
   xJSStringRelease(kTag);
@@ -222,11 +219,10 @@ TEST_F(XjsEvalTest, DrainPendingJobsNoneQueuedReturnsZero) {
 
 TEST_F(XjsEvalTest, DrainPendingJobsRunsPromiseThenCallbacks) {
   /* Queue a microtask via Promise.resolve().then(…). */
-  xJSStringRef src = xJSStringCreateWithUTF8CString(
-    "globalThis.__hit = 0; "
-    "Promise.resolve(41).then(v => { globalThis.__hit = v + 1; });");
-  xJSValueRef r =
-    xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
+  xJSStringRef src =
+    xJSStringCreateWithUTF8CString("globalThis.__hit = 0; "
+                                   "Promise.resolve(41).then(v => { globalThis.__hit = v + 1; });");
+  xJSValueRef r = xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(r, nullptr);
   xjs_slot_release(r);
   xJSStringRelease(src);
@@ -253,8 +249,7 @@ TEST_F(XjsEvalTest, DrainPendingJobsRunsAsyncAwaitContinuation) {
   xJSStringRef src = xJSStringCreateWithUTF8CString(
     "globalThis.__x = 0; "
     "(async () => { globalThis.__x = await Promise.resolve(99); })();");
-  xJSValueRef r =
-    xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
+  xJSValueRef r = xJSEvaluateScript(ctx_, src, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(r, nullptr);
   xjs_slot_release(r);
   xJSStringRelease(src);

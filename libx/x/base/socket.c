@@ -93,15 +93,14 @@ static void cancel_write_timer(struct xSocket_ *s) {
 static void reset_read_timer(struct xSocket_ *s) {
   if (s->read_timeout_ms <= 0) return;
   cancel_read_timer(s);
-  s->read_timer = xEventLoopTimerAfter(s->loop, read_timeout_cb, s,
-                                       (uint64_t)s->read_timeout_ms);
+  s->read_timer = xEventLoopTimerAfter(s->loop, read_timeout_cb, s, (uint64_t)s->read_timeout_ms);
 }
 
 static void reset_write_timer(struct xSocket_ *s) {
   if (s->write_timeout_ms <= 0) return;
   cancel_write_timer(s);
-  s->write_timer = xEventLoopTimerAfter(s->loop, write_timeout_cb, s,
-                                        (uint64_t)s->write_timeout_ms);
+  s->write_timer =
+    xEventLoopTimerAfter(s->loop, write_timeout_cb, s, (uint64_t)s->write_timeout_ms);
 }
 
 /* ───────────────────── Lifecycle ───────────────────── */
@@ -121,8 +120,8 @@ static int socket_open(int family, int type, int protocol) {
    * non-blocking-capable socket in one call.  WSA_FLAG_NO_HANDLE_INHERIT
    * (Windows 8+) makes the handle non-inheritable; we fall back to
    * SetHandleInformation on older systems. */
-  SOCKET sock = WSASocketW(family, type, protocol, NULL, 0,
-                           WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+  SOCKET sock =
+    WSASocketW(family, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
   /* If WSA_FLAG_NO_HANDLE_INHERIT failed (older Windows), retry without it */
   if (sock == INVALID_SOCKET) {
     sock = WSASocketW(family, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
@@ -152,8 +151,8 @@ fail:
 #endif
 }
 
-xSocket xSocketCreate(xEventLoop loop, int family, int type, int protocol,
-                      xEventMask mask, xSocketFunc callback, void *userp) {
+xSocket xSocketCreate(xEventLoop loop, int family, int type, int protocol, xEventMask mask,
+                      xSocketFunc callback, void *userp) {
   if (!loop || !callback) return NULL;
 
   struct xSocket_ *s = (struct xSocket_ *)calloc(1, sizeof(*s));
@@ -185,11 +184,11 @@ fail:
   return NULL;
 }
 
-xSocket xSocketCreateFromFd(xEventLoop loop, int fd, xEventMask mask,
-                            xSocketFunc callback, void *userp) {
+xSocket xSocketCreateFromFd(xEventLoop loop, int fd, xEventMask mask, xSocketFunc callback,
+                            void *userp) {
   if (!loop || !callback || fd < 0) return NULL;
 
-  /* Ensure non-blocking + close-on-exec */
+    /* Ensure non-blocking + close-on-exec */
 #ifdef _WIN32
   {
     u_long mode = 1;
@@ -252,8 +251,7 @@ xErrno xSocketSetMask(xEventLoop loop, xSocket sock, xEventMask mask) {
 
 /* ───────────────────── Timeout ───────────────────── */
 
-xErrno xSocketSetTimeout(xSocket sock, int read_timeout_ms,
-                         int write_timeout_ms) {
+xErrno xSocketSetTimeout(xSocket sock, int read_timeout_ms, int write_timeout_ms) {
   if (!sock) return xErrno_InvalidArg;
   struct xSocket_ *s = (struct xSocket_ *)sock;
 
@@ -261,8 +259,7 @@ xErrno xSocketSetTimeout(xSocket sock, int read_timeout_ms,
   s->read_timeout_ms = read_timeout_ms;
   if (read_timeout_ms > 0) {
     cancel_read_timer(s);
-    s->read_timer = xEventLoopTimerAfter(s->loop, read_timeout_cb, s,
-                                         (uint64_t)read_timeout_ms);
+    s->read_timer = xEventLoopTimerAfter(s->loop, read_timeout_cb, s, (uint64_t)read_timeout_ms);
   } else {
     cancel_read_timer(s);
   }
@@ -271,8 +268,7 @@ xErrno xSocketSetTimeout(xSocket sock, int read_timeout_ms,
   s->write_timeout_ms = write_timeout_ms;
   if (write_timeout_ms > 0) {
     cancel_write_timer(s);
-    s->write_timer = xEventLoopTimerAfter(s->loop, write_timeout_cb, s,
-                                          (uint64_t)write_timeout_ms);
+    s->write_timer = xEventLoopTimerAfter(s->loop, write_timeout_cb, s, (uint64_t)write_timeout_ms);
   } else {
     cancel_write_timer(s);
   }

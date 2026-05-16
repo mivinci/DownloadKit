@@ -35,8 +35,8 @@
 #if defined(_WIN32)
 #include <windows.h>
 #define XSLAB_USE_VIRTUALALLOC 1
-#elif defined(__linux__) || defined(__APPLE__) || defined(__unix__) || \
-  defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+#elif defined(__linux__) || defined(__APPLE__) || defined(__unix__) || defined(__FreeBSD__) || \
+  defined(__NetBSD__) || defined(__OpenBSD__)
 #include <sys/mman.h>
 #include <unistd.h>
 #define XSLAB_USE_MMAP 1
@@ -58,8 +58,7 @@ static void *xslab_map(size_t bytes) {
   void *p = VirtualAlloc(NULL, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
   return p;
 #elif defined(XSLAB_USE_MMAP)
-  void *p =
-    mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+  void *p = mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
   if (p == MAP_FAILED) return NULL;
   return p;
 #else
@@ -108,9 +107,8 @@ struct xSlabFreeNode_ {
  *   slots that fit in *out_nslots and the offset of slot 0 in
  *   *out_offset.  Guarantees at least 1 slot per chunk.
  */
-static void xslab_layout(size_t slot_size, size_t align, size_t chunk_bytes,
-                         size_t *out_bytes, size_t *out_offset,
-                         size_t *out_nslots) {
+static void xslab_layout(size_t slot_size, size_t align, size_t chunk_bytes, size_t *out_bytes,
+                         size_t *out_offset, size_t *out_nslots) {
   size_t hdr    = xslab_round_up(sizeof(xSlabChunk), align);
   size_t wanted = chunk_bytes ? chunk_bytes : XSLAB_DEFAULT_CHUNK_BYTES;
   if (wanted < hdr + slot_size) wanted = hdr + slot_size;
@@ -137,8 +135,7 @@ struct xSlab_ {
 
 static int xslab_grow(struct xSlab_ *s) {
   size_t bytes, offset, nslots;
-  xslab_layout(s->slot_size, s->align, s->chunk_bytes, &bytes, &offset,
-               &nslots);
+  xslab_layout(s->slot_size, s->align, s->chunk_bytes, &bytes, &offset, &nslots);
 
   xSlabChunk *c = (xSlabChunk *)xslab_map(bytes);
   if (!c) return -1;
@@ -297,8 +294,7 @@ static void xslabmt_unlock(struct xSlabMt_ *s) {
 /* Caller must hold s->lock. */
 static int xslabmt_grow_locked(struct xSlabMt_ *s) {
   size_t bytes, offset, nslots;
-  xslab_layout(s->slot_size, s->align, s->chunk_bytes, &bytes, &offset,
-               &nslots);
+  xslab_layout(s->slot_size, s->align, s->chunk_bytes, &bytes, &offset, &nslots);
 
   xSlabChunk *c = (xSlabChunk *)xslab_map(bytes);
   if (!c) return -1;

@@ -65,15 +65,15 @@ XDEF_ENUM(xAgentProviderStopReason){
  * provider's own max_tokens, no stop sequences).
  */
 XDEF_STRUCT(xAgentProviderSubmitConf) {
-  const char        *model;        /**< Model id (may be NULL = provider
-                                        default)                          */
-  const xAgentMessage  *messages;     /**< Ordered conversation history      */
-  size_t             n_messages;
-  const xAgentTool    **tools;        /**< Advertised tools (may be NULL)    */
-  size_t             tools_count;
-  double             temperature;  /**< <0 means "not set"                */
-  int                max_tokens;   /**< 0 means "not set"                 */
-  const char       **stop;         /**< NULL-terminated stop sequences    */
+  const char *model;             /**< Model id (may be NULL = provider
+                                      default)                          */
+  const xAgentMessage *messages; /**< Ordered conversation history      */
+  size_t               n_messages;
+  const xAgentTool   **tools; /**< Advertised tools (may be NULL)    */
+  size_t               tools_count;
+  double               temperature; /**< <0 means "not set"                */
+  int                  max_tokens;  /**< 0 means "not set"                 */
+  const char         **stop;        /**< NULL-terminated stop sequences    */
 };
 
 /* ── Provider ↔ Session streaming callbacks (internal contract) ─────── */
@@ -85,8 +85,7 @@ XDEF_STRUCT(xAgentProviderSubmitConf) {
  * @param len    Length of @p chunk in bytes.
  * @param arg    Opaque pointer supplied in xAgentProviderStreamCallbacks.
  */
-typedef void (*xAgentProviderTextDeltaFunc)(const char *chunk, size_t len,
-                                         void *arg);
+typedef void (*xAgentProviderTextDeltaFunc)(const char *chunk, size_t len, void *arg);
 
 /**
  * @brief Delivered when the provider surfaces an in-progress tool call.
@@ -117,8 +116,7 @@ typedef void (*xAgentProviderToolCallFunc)(const xAgentContent *call, void *arg)
  * @param len    Length of @p chunk in bytes.
  * @param arg    Opaque pointer supplied in xAgentProviderStreamCallbacks.
  */
-typedef void (*xAgentProviderThinkingDeltaFunc)(const char *chunk, size_t len,
-                                             void *arg);
+typedef void (*xAgentProviderThinkingDeltaFunc)(const char *chunk, size_t len, void *arg);
 
 /**
  * @brief Delivered once when the submit() call terminates.
@@ -136,8 +134,7 @@ typedef void (*xAgentProviderThinkingDeltaFunc)(const char *chunk, size_t len,
  * @param arg     Opaque pointer supplied in xAgentProviderStreamCallbacks.
  */
 typedef void (*xAgentProviderDoneFunc)(xAgentProviderStopReason reason, xErrno err,
-                                    const xAgentUsage *usage, const char *errmsg,
-                                    void *arg);
+                                       const xAgentUsage *usage, const char *errmsg, void *arg);
 
 /**
  * @brief Streaming callbacks passed to vtable->submit().

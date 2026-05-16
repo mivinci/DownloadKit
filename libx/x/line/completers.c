@@ -29,28 +29,24 @@ typedef struct word_closure_s {
 } word_closure_t;
 
 // word completion callback
-static bool token_add_completion_ex(ic_env_t *env, void *closure,
-                                    const char *replacement,
-                                    const char *display, const char *help,
-                                    long delete_before, long delete_after) {
+static bool token_add_completion_ex(ic_env_t *env, void *closure, const char *replacement,
+                                    const char *display, const char *help, long delete_before,
+                                    long delete_after) {
   word_closure_t *wenv = (word_closure_t *)(closure);
   // call the previous completer with an adjusted delete-before
-  const long delete_after_adjust =
-    (long)ic_count_end_overlap(replacement, wenv->postfix);
+  const long delete_after_adjust = (long)ic_count_end_overlap(replacement, wenv->postfix);
   return (*wenv->prev_complete)(env, wenv->prev_env, replacement, display, help,
                                 wenv->delete_before_adjust + delete_before,
                                 delete_after_adjust + delete_after);
 }
 
 ic_public void xLineCompleteWord(xLineCompletionEnv cenv_arg, const char *prefix,
-                                 xLineCompleterFunc   *fun,
-                                 xLineIsCharClassFunc *is_word_char) {
+                                 xLineCompleterFunc *fun, xLineIsCharClassFunc *is_word_char) {
   xLineCompletionEnv_ *cenv = (xLineCompletionEnv_ *)cenv_arg;
   if (is_word_char == NULL) is_word_char = &xLineCharIsNonseparator;
 
   ssize_t len = ic_strlen(prefix);
-  ssize_t pos =
-    len; // will be start of the 'word' (excluding a potential start quote)
+  ssize_t pos = len; // will be start of the 'word' (excluding a potential start quote)
   while (pos > 0) {
     // go back one code point
     ssize_t ofs = str_prev_ofs(prefix, pos, NULL);
@@ -101,10 +97,9 @@ typedef struct qword_closure_s {
 } qword_closure_t;
 
 // word completion callback
-static bool qword_add_completion_ex(ic_env_t *env, void *closure,
-                                    const char *replacement,
-                                    const char *display, const char *help,
-                                    long delete_before, long delete_after) {
+static bool qword_add_completion_ex(ic_env_t *env, void *closure, const char *replacement,
+                                    const char *display, const char *help, long delete_before,
+                                    long delete_after) {
   qword_closure_t *wenv = (qword_closure_t *)(closure);
   sbuf_replace(wenv->sbuf, replacement);
   if (wenv->quote != 0) {
@@ -115,10 +110,9 @@ static bool qword_add_completion_ex(ic_env_t *env, void *closure,
     ssize_t pos = 0;
     ssize_t next;
     while ((next = sbuf_next_ofs(wenv->sbuf, pos, NULL)) > 0) {
-      if (!(*wenv->is_word_char)(
-            sbuf_string(wenv->sbuf) + pos,
-            (long)next)) { // strchr(wenv->non_word_char, sbuf_char_at(
-                           // wenv->sbuf, pos )) != NULL) {
+      if (!(*wenv->is_word_char)(sbuf_string(wenv->sbuf) + pos,
+                                 (long)next)) { // strchr(wenv->non_word_char, sbuf_char_at(
+                                                // wenv->sbuf, pos )) != NULL) {
         sbuf_insert_char_at(wenv->sbuf, wenv->escape_char, pos);
         pos++;
       }
@@ -128,30 +122,26 @@ static bool qword_add_completion_ex(ic_env_t *env, void *closure,
   // and call the previous completion function
   const long delete_after_adjust =
     (long)ic_count_end_overlap(sbuf_string(wenv->sbuf), wenv->postfix);
-  return (*wenv->prev_complete)(env, wenv->prev_env, sbuf_string(wenv->sbuf),
-                                display, help,
+  return (*wenv->prev_complete)(env, wenv->prev_env, sbuf_string(wenv->sbuf), display, help,
                                 wenv->delete_before_adjust + delete_before,
                                 delete_after_adjust + delete_after);
 }
 
 ic_public void xLineCompleteQword(xLineCompletionEnv cenv, const char *prefix,
-                                  xLineCompleterFunc   *fun,
-                                  xLineIsCharClassFunc *is_word_char) {
+                                  xLineCompleterFunc *fun, xLineIsCharClassFunc *is_word_char) {
   xLineCompleteQwordEx(cenv, prefix, fun, is_word_char, '\\', NULL);
 }
 
-ic_public void xLineCompleteQwordEx(xLineCompletionEnv cenv_arg,
-                                    const char *prefix, xLineCompleterFunc *fun,
-                                    xLineIsCharClassFunc *is_word_char,
+ic_public void xLineCompleteQwordEx(xLineCompletionEnv cenv_arg, const char *prefix,
+                                    xLineCompleterFunc *fun, xLineIsCharClassFunc *is_word_char,
                                     char escape_char, const char *quote_chars) {
   xLineCompletionEnv_ *cenv = (xLineCompletionEnv_ *)cenv_arg;
   if (is_word_char == NULL) is_word_char = &xLineCharIsNonseparator;
   if (quote_chars == NULL) quote_chars = "'\"";
 
   ssize_t len = ic_strlen(prefix);
-  ssize_t
-       pos; // will be start of the 'word' (excluding a potential start quote)
-  char quote        = 0;
+  ssize_t pos; // will be start of the 'word' (excluding a potential start quote)
+  char    quote     = 0;
   ssize_t quote_len = 0;
 
   // 1. look for a starting quote
@@ -177,22 +167,20 @@ ic_public void xLineCompleteQwordEx(xLineCompletionEnv cenv_arg,
         // close quote
         qpos_close = pos;
         qcount++;
-      } else if (!(*is_word_char)(
-                   prefix + pos,
-                   1)) { //  strchr(non_word_char, prefix[pos]) != NULL) {
+      } else if (!(*is_word_char)(prefix + pos,
+                                  1)) { //  strchr(non_word_char, prefix[pos]) != NULL) {
         qpos_close = -1;
       }
       ssize_t ofs = str_next_ofs(prefix, len, pos, NULL);
       if (ofs <= 0) break;
       pos += ofs;
     }
-    if ((qcount % 2 == 0 &&
-         qpos_close >= 0) || // if the last quote is only followed by word
-                             // chars, we still complete it
-        (qcount % 2 == 1))   // opening quote found
+    if ((qcount % 2 == 0 && qpos_close >= 0) || // if the last quote is only followed by word
+                                                // chars, we still complete it
+        (qcount % 2 == 1))                      // opening quote found
     {
       quote_len = (len - qpos_open - 1);
-      pos = qpos_open + 1; // pos points to the word start just after the quote.
+      pos       = qpos_open + 1; // pos points to the word start just after the quote.
     } else {
       quote = 0;
     }
@@ -205,9 +193,8 @@ ic_public void xLineCompleteQwordEx(xLineCompletionEnv cenv_arg,
       // go back one code point
       ssize_t ofs = str_prev_ofs(prefix, pos, NULL);
       if (ofs <= 0) break;
-      if (!(*is_word_char)(
-            prefix + (pos - ofs),
-            (long)ofs)) { // strchr(non_word_char, prefix[pos - ofs]) != NULL) {
+      if (!(*is_word_char)(prefix + (pos - ofs),
+                           (long)ofs)) { // strchr(non_word_char, prefix[pos - ofs]) != NULL) {
         // non word char, break if it is not escaped
         if (pos <= ofs || prefix[pos - ofs - 1] != escape_char) break;
         // otherwise go on
@@ -221,8 +208,7 @@ ic_public void xLineCompleteQwordEx(xLineCompletionEnv cenv_arg,
   // if (len == pos) return;
 
   // allocate new unescaped word prefix
-  char *word = ic_strndup(prefix + pos,
-                          (quote == 0 ? len - pos : quote_len));
+  char *word = ic_strndup(prefix + pos, (quote == 0 ? len - pos : quote_len));
   if (word == NULL) return;
 
   if (quote == 0) {
@@ -233,9 +219,8 @@ ic_public void xLineCompleteQwordEx(xLineCompletionEnv cenv_arg,
       ssize_t ofs = str_next_ofs(word, wlen, wpos, NULL);
       if (ofs <= 0) break;
       if (word[wpos] == escape_char && word[wpos + 1] != 0 &&
-          !(*is_word_char)(
-            word + wpos + 1,
-            (long)ofs)) // strchr(non_word_char, word[wpos+1]) != NULL) {
+          !(*is_word_char)(word + wpos + 1,
+                           (long)ofs)) // strchr(non_word_char, word[wpos+1]) != NULL) {
       {
         ic_memmove(word + wpos, word + wpos + 1, wlen - wpos /* including 0 */);
       }
@@ -311,12 +296,11 @@ typedef enum file_type_e {
   FT_LAST
 } file_type_t;
 
-static int         cli_color; // 1 enabled, 0 not initialized, -1 disabled
+static int         cli_color;                           // 1 enabled, 0 not initialized, -1 disabled
 static const char *lscolors = "exfxcxdxbxegedabagacad"; // default BSD setting
 static const char *ls_colors;
 static const char *ls_colors_names[] = {
-  "no=", "di=", "ln=", "so=", "pi=", "bd=", "cd=",
-  "su=", "sg=", "tw=", "ow=", "st=", "ex=", NULL};
+  "no=", "di=", "ln=", "so=", "pi=", "bd=", "cd=", "su=", "sg=", "tw=", "ow=", "st=", "ex=", NULL};
 
 static bool ls_colors_init(void) {
   if (cli_color != 0) return (cli_color >= 1);
@@ -339,10 +323,9 @@ static bool ls_colors_init(void) {
 }
 
 static ic_unused_fn bool ls_valid_esc(ssize_t c) {
-  return (
-    (c == 0 || c == 1 || c == 4 || c == 7 || c == 22 || c == 24 || c == 27) ||
-    (c >= 30 && c <= 37) || (c >= 40 && c <= 47) || (c >= 90 && c <= 97) ||
-    (c >= 100 && c <= 107));
+  return ((c == 0 || c == 1 || c == 4 || c == 7 || c == 22 || c == 24 || c == 27) ||
+          (c >= 30 && c <= 37) || (c >= 40 && c <= 47) || (c >= 90 && c <= 97) ||
+          (c >= 100 && c <= 107));
 }
 
 static bool ls_colors_from_key(stringbuf_t *sb, const char *key) {
@@ -406,8 +389,8 @@ static bool ls_colors_append(stringbuf_t *sb, file_type_t ft, const char *ext) {
   return false;
 }
 
-static void ls_colorize(bool no_lscolor, stringbuf_t *sb, file_type_t ft,
-                        const char *name, const char *ext, char dirsep) {
+static void ls_colorize(bool no_lscolor, stringbuf_t *sb, file_type_t ft, const char *name,
+                        const char *ext, char dirsep) {
   bool close = (no_lscolor ? false : ls_colors_append(sb, ft, ext));
   sbuf_append(sb, "[!pre]");
   sbuf_append(sb, name);
@@ -441,8 +424,7 @@ static file_type_t os_get_filetype(const char *cpath) {
 #define dir_cursor intptr_t
 #define dir_entry  struct __finddata64_t
 
-static bool os_findfirst(const char *path, dir_cursor *d,
-                         dir_entry *entry) {
+static bool os_findfirst(const char *path, dir_cursor *d, dir_entry *entry) {
   stringbuf_t *spath = sbuf_new();
   if (spath == NULL) return false;
   sbuf_append(spath, path);
@@ -509,8 +491,7 @@ static file_type_t os_get_filetype(const char *cpath) {
   case S_IFDIR: {
     if ((st.st_mode & S_ISUID) != 0) return FT_SETUID;
     if ((st.st_mode & S_ISGID) != 0) return FT_SETGID;
-    if ((st.st_mode & S_IWGRP) != 0 && (st.st_mode & S_ISVTX) != 0)
-      return FT_DIR_OW_STICKY;
+    if ((st.st_mode & S_IWGRP) != 0 && (st.st_mode & S_ISVTX) != 0) return FT_DIR_OW_STICKY;
     if ((st.st_mode & S_IWGRP)) return FT_DIR_OW;
     if ((st.st_mode & S_ISVTX)) return FT_DIR_STICKY;
     return FT_DIR;
@@ -531,8 +512,7 @@ static bool os_findnext(dir_cursor d, dir_entry *entry) {
   return (*entry != NULL);
 }
 
-static bool os_findfirst(const char *cpath, dir_cursor *d,
-                         dir_entry *entry) {
+static bool os_findfirst(const char *cpath, dir_cursor *d, dir_entry *entry) {
   *d = opendir(cpath);
   if (*d == NULL) {
     return false;
@@ -562,8 +542,7 @@ ic_private char ic_dirsep(void) {
 // File completion
 //-------------------------------------------------------------
 
-static bool ends_with_n(const char *name, ssize_t name_len, const char *ending,
-                        ssize_t len) {
+static bool ends_with_n(const char *name, ssize_t name_len, const char *ending, ssize_t len) {
   if (name_len < len) return false;
   if (ending == NULL || len <= 0) return true;
   for (ssize_t i = 1; i <= len; i++) {
@@ -596,15 +575,13 @@ static bool match_extension(const char *name, const char *extensions) {
   return false;
 }
 
-static bool filename_complete_indir(xLineCompletionEnv cenv_arg,
-                                    stringbuf_t *dir, stringbuf_t *dir_prefix,
-                                    stringbuf_t *display,
-                                    const char *base_prefix, char dir_sep,
-                                    const char *extensions) {
+static bool filename_complete_indir(xLineCompletionEnv cenv_arg, stringbuf_t *dir,
+                                    stringbuf_t *dir_prefix, stringbuf_t *display,
+                                    const char *base_prefix, char dir_sep, const char *extensions) {
   xLineCompletionEnv_ *cenv = (xLineCompletionEnv_ *)cenv_arg;
-  dir_cursor d = 0;
-  dir_entry  entry;
-  bool       cont = true;
+  dir_cursor           d    = 0;
+  dir_entry            entry;
+  bool                 cont = true;
   if (os_findfirst(sbuf_string(dir), &d, &entry)) {
     do {
       const char *name = os_direntry_name(&entry);
@@ -629,10 +606,9 @@ static bool filename_complete_indir(xLineCompletionEnv cenv_arg,
         if (isdir || match_extension(name, extensions)) {
           // add completion
           sbuf_clear(display);
-          ls_colorize(cenv->env->no_lscolors, display, ft, name, NULL,
-                      (isdir ? dir_sep : 0));
-          cont = xLineAddCompletionEx(cenv_arg, sbuf_string(dir_prefix),
-                                      sbuf_string(display), NULL);
+          ls_colorize(cenv->env->no_lscolors, display, ft, name, NULL, (isdir ? dir_sep : 0));
+          cont =
+            xLineAddCompletionEx(cenv_arg, sbuf_string(dir_prefix), sbuf_string(display), NULL);
         }
         sbuf_delete_from(dir_prefix, plen); // restore dir_prefix
       }
@@ -702,8 +678,8 @@ static void filename_completer(xLineCompletionEnv cenv_arg, const char *prefix) 
 
         // and complete in this directory
         filename_complete_indir(cenv_arg, root_dir, dir_prefix, display,
-                                (base != NULL ? base : prefix),
-                                fclosure->dir_sep, fclosure->extensions);
+                                (base != NULL ? base : prefix), fclosure->dir_sep,
+                                fclosure->extensions);
       }
     }
   }
@@ -712,10 +688,8 @@ static void filename_completer(xLineCompletionEnv cenv_arg, const char *prefix) 
   sbuf_free(dir_prefix);
 }
 
-ic_public void xLineCompleteFilename(xLineCompletionEnv cenv_arg,
-                                     const char *prefix, char dir_sep,
-                                     const char *roots,
-                                     const char *extensions) {
+ic_public void xLineCompleteFilename(xLineCompletionEnv cenv_arg, const char *prefix, char dir_sep,
+                                     const char *roots, const char *extensions) {
   xLineCompletionEnv_ *cenv = (xLineCompletionEnv_ *)cenv_arg;
   if (roots == NULL) roots = ".";
   if (extensions == NULL) extensions = "";
@@ -725,6 +699,6 @@ ic_public void xLineCompleteFilename(xLineCompletionEnv cenv_arg,
   fclosure.roots      = roots;
   fclosure.extensions = extensions;
   cenv->arg           = &fclosure;
-  xLineCompleteQwordEx(cenv_arg, prefix, &filename_completer,
-                       &xLineCharIsFilenameLetter, '\\', "'\"");
+  xLineCompleteQwordEx(cenv_arg, prefix, &filename_completer, &xLineCharIsFilenameLetter, '\\',
+                       "'\"");
 }

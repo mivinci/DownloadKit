@@ -38,8 +38,7 @@ static const HexTestCase kTestCases[] = {
   /* "Hello" */
   {{0x48, 0x65, 0x6c, 0x6c, 0x6f}, "48656c6c6f"},
   /* All bytes 0x00-0xff */
-  {{0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb,
-    0xcc, 0xdd, 0xee, 0xff},
+  {{0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff},
    "00112233445566778899aabbccddeeff"},
 };
 
@@ -52,10 +51,8 @@ TEST_P(HexTest, Encode) {
 
   int rc = xHexEncode(tc.raw.data(), tc.raw.size(), buf, &buf_len);
   ASSERT_EQ(rc, 0) << "xHexEncode failed for raw size " << tc.raw.size();
-  EXPECT_EQ(buf_len, tc.encoded.size())
-    << "encoded length mismatch for input " << tc.encoded;
-  EXPECT_EQ(std::string(buf, buf_len), tc.encoded)
-    << "encoded content mismatch";
+  EXPECT_EQ(buf_len, tc.encoded.size()) << "encoded length mismatch for input " << tc.encoded;
+  EXPECT_EQ(std::string(buf, buf_len), tc.encoded) << "encoded content mismatch";
 }
 
 TEST_P(HexTest, Decode) {
@@ -75,10 +72,8 @@ TEST_P(HexTest, Decode) {
 
   int rc = xHexDecode(tc.encoded.c_str(), tc.encoded.size(), buf, &buf_len);
   ASSERT_EQ(rc, 0) << "xHexDecode failed for " << tc.encoded;
-  ASSERT_EQ(buf_len, tc.raw.size())
-    << "decoded length mismatch for " << tc.encoded;
-  EXPECT_EQ(std::vector<uint8_t>(buf, buf + buf_len), tc.raw)
-    << "decoded content mismatch";
+  ASSERT_EQ(buf_len, tc.raw.size()) << "decoded length mismatch for " << tc.encoded;
+  EXPECT_EQ(std::vector<uint8_t>(buf, buf + buf_len), tc.raw) << "decoded content mismatch";
 }
 
 /* ── Round-trip ─────────────────────────────────────────── */
@@ -107,22 +102,19 @@ TEST(Hex, DecodeCaseInsensitive) {
   int rc = xHexDecode("deadbeef", 8, buf, &buf_len);
   ASSERT_EQ(rc, 0);
   uint8_t expected[] = {0xde, 0xad, 0xbe, 0xef};
-  EXPECT_EQ(std::vector<uint8_t>(buf, buf + buf_len),
-            std::vector<uint8_t>(expected, expected + 4));
+  EXPECT_EQ(std::vector<uint8_t>(buf, buf + buf_len), std::vector<uint8_t>(expected, expected + 4));
 
   /* Upper-case */
   buf_len = sizeof(buf);
   rc      = xHexDecode("DEADBEEF", 8, buf, &buf_len);
   ASSERT_EQ(rc, 0);
-  EXPECT_EQ(std::vector<uint8_t>(buf, buf + buf_len),
-            std::vector<uint8_t>(expected, expected + 4));
+  EXPECT_EQ(std::vector<uint8_t>(buf, buf + buf_len), std::vector<uint8_t>(expected, expected + 4));
 
   /* Mixed-case */
   buf_len = sizeof(buf);
   rc      = xHexDecode("DeAdBeEf", 8, buf, &buf_len);
   ASSERT_EQ(rc, 0);
-  EXPECT_EQ(std::vector<uint8_t>(buf, buf + buf_len),
-            std::vector<uint8_t>(expected, expected + 4));
+  EXPECT_EQ(std::vector<uint8_t>(buf, buf + buf_len), std::vector<uint8_t>(expected, expected + 4));
 }
 
 /* ── Invalid input ──────────────────────────────────────── */

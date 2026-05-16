@@ -56,8 +56,7 @@ size_t ai_budget_estimate_tokens(const struct xAgentSessionMsg_ *msgs, size_t n)
     }
   }
 
-  return (payload_bytes / XAGENT_BUDGET_BYTES_PER_TOKEN) +
-         (n * XAGENT_BUDGET_PER_MSG_TOKENS);
+  return (payload_bytes / XAGENT_BUDGET_BYTES_PER_TOKEN) + (n * XAGENT_BUDGET_PER_MSG_TOKENS);
 }
 
 /* ─────────────────────────────────────────────────────────────────
@@ -67,8 +66,7 @@ size_t ai_budget_estimate_tokens(const struct xAgentSessionMsg_ *msgs, size_t n)
  * Linear scan; slice sizes are in the tens-to-low-hundreds range,
  * so this is never a hot path.
  * ──────────────────────────────────────────────────────────────── */
-size_t ai_budget_find_user_turn(const struct xAgentSessionMsg_ *msgs, size_t n,
-                                size_t k) {
+size_t ai_budget_find_user_turn(const struct xAgentSessionMsg_ *msgs, size_t n, size_t k) {
   if (!msgs) return XAGENT_BUDGET_NO_SUCH_TURN;
 
   size_t seen = 0;

@@ -14,8 +14,8 @@ extern "C" {
 }
 
 #include <cstdio>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 
 /* ───────────────────── Test Fixture ───────────────────── */
 
@@ -23,7 +23,9 @@ class XferTest : public ::testing::Test {
 protected:
   xEventLoop loop = nullptr;
 
-  void SetUp() override { loop = xEventLoopCreate(); }
+  void SetUp() override {
+    loop = xEventLoopCreate();
+  }
 
   void TearDown() override {
     if (loop) {
@@ -42,13 +44,13 @@ protected:
   /* Helper: create a temporary file with some content. */
   static std::string create_temp_file(size_t size) {
     char path[] = "/tmp/xfer_test_XXXXXX";
-    int fd = mkstemp(path);
+    int  fd     = mkstemp(path);
     EXPECT_GE(fd, 0);
     if (fd < 0) return "";
 
     /* Write `size` bytes of dummy data */
     std::vector<uint8_t> data(size, 0xAB);
-    ssize_t written = write(fd, data.data(), data.size());
+    ssize_t              written = write(fd, data.data(), data.size());
     EXPECT_EQ(written, (ssize_t)size);
     close(fd);
     return std::string(path);
@@ -63,7 +65,7 @@ protected:
 
 TEST_F(XferTest, CreateDestroy) {
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   EXPECT_EQ(xTransferGetState(xfer), xTransferState_Idle);
@@ -74,7 +76,7 @@ TEST_F(XferTest, CreateDestroy) {
 
 TEST_F(XferTest, CreateNullLoop) {
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(nullptr, &conf);
+  xTransfer     xfer = xTransferCreate(nullptr, &conf);
   EXPECT_EQ(xfer, nullptr);
 }
 
@@ -96,7 +98,7 @@ TEST_F(XferTest, SendFileNullXfer) {
 
 TEST_F(XferTest, SendFileNullPath) {
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   EXPECT_EQ(xTransferSendFile(xfer, nullptr), xErrno_InvalidArg);
@@ -106,7 +108,7 @@ TEST_F(XferTest, SendFileNullPath) {
 
 TEST_F(XferTest, SendFileNonExistent) {
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   /* File does not exist → should fail with SysError. */
@@ -121,7 +123,7 @@ TEST_F(XferTest, SendFileValidFile) {
   ASSERT_FALSE(path.empty());
 
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   xErrno err = xTransferSendFile(xfer, path.c_str());
@@ -138,7 +140,7 @@ TEST_F(XferTest, SendFileDoubleCall) {
   ASSERT_FALSE(path.empty());
 
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   EXPECT_EQ(xTransferSendFile(xfer, path.c_str()), xErrno_Ok);
@@ -157,7 +159,7 @@ TEST_F(XferTest, RecvFileNullXfer) {
 
 TEST_F(XferTest, RecvFileNullCode) {
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   EXPECT_EQ(xTransferRecvFile(xfer, nullptr, "/tmp"), xErrno_InvalidArg);
@@ -167,7 +169,7 @@ TEST_F(XferTest, RecvFileNullCode) {
 
 TEST_F(XferTest, RecvFileNullDestDir) {
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   EXPECT_EQ(xTransferRecvFile(xfer, "abc", nullptr), xErrno_InvalidArg);
@@ -177,7 +179,7 @@ TEST_F(XferTest, RecvFileNullDestDir) {
 
 TEST_F(XferTest, RecvFileValid) {
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   xErrno err = xTransferRecvFile(xfer, "7-guitar-piano", "/tmp");
@@ -190,7 +192,7 @@ TEST_F(XferTest, RecvFileValid) {
 
 TEST_F(XferTest, RecvFileDoubleCall) {
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   EXPECT_EQ(xTransferRecvFile(xfer, "abc", "/tmp"), xErrno_Ok);
@@ -204,7 +206,7 @@ TEST_F(XferTest, RecvFileDoubleCall) {
 
 TEST_F(XferTest, CancelIdle) {
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   /* Cancel from Idle → should move to Failed. */
@@ -219,7 +221,7 @@ TEST_F(XferTest, CancelAfterSend) {
   ASSERT_FALSE(path.empty());
 
   xTransferConf conf = make_conf();
-  xTransfer xfer = xTransferCreate(loop, &conf);
+  xTransfer     xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
 
   EXPECT_EQ(xTransferSendFile(xfer, path.c_str()), xErrno_Ok);
@@ -255,10 +257,10 @@ TEST_F(XferTest, GetRoleNull) {
 
 namespace {
 struct CallbackCtx {
-  int state_change_count;
+  int            state_change_count;
   xTransferState last_state;
-  int error_count;
-  xErrno last_error;
+  int            error_count;
+  xErrno         last_error;
 };
 
 void on_state_change(xTransfer xfer, xTransferState state, void *ctx) {
@@ -280,9 +282,9 @@ void on_error(xTransfer xfer, xErrno err, const char *msg, void *ctx) {
 TEST_F(XferTest, StateChangeCallback) {
   CallbackCtx cb_ctx{};
 
-  xTransferConf conf = make_conf();
+  xTransferConf conf   = make_conf();
   conf.on_state_change = on_state_change;
-  conf.ctx = &cb_ctx;
+  conf.ctx             = &cb_ctx;
 
   xTransfer xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);
@@ -302,10 +304,10 @@ TEST_F(XferTest, StateChangeCallback) {
 TEST_F(XferTest, ErrorCallbackOnBadFile) {
   CallbackCtx cb_ctx{};
 
-  xTransferConf conf = make_conf();
+  xTransferConf conf   = make_conf();
   conf.on_state_change = on_state_change;
-  conf.on_error = on_error;
-  conf.ctx = &cb_ctx;
+  conf.on_error        = on_error;
+  conf.ctx             = &cb_ctx;
 
   xTransfer xfer = xTransferCreate(loop, &conf);
   ASSERT_NE(xfer, nullptr);

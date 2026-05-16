@@ -10,8 +10,7 @@
 
 #include <string.h>
 
-static const char kAlphabet[] =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char kAlphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /* Map a base64 character (standard or URL-safe) to its 6-bit value.
  * Returns -1 for invalid input.  Padding '=' is NOT handled here;
@@ -25,8 +24,7 @@ static int base64_val(char c) {
   return -1;
 }
 
-int xBase64Encode(const uint8_t *src, size_t src_len, char *dst,
-                  size_t *dst_len) {
+int xBase64Encode(const uint8_t *src, size_t src_len, char *dst, size_t *dst_len) {
   if (!dst || !dst_len) return -1;
   if (!src && src_len > 0) return -1;
 
@@ -44,8 +42,7 @@ int xBase64Encode(const uint8_t *src, size_t src_len, char *dst,
   for (; i + 3 <= src_len; i += 3) {
     dst[out++] = kAlphabet[src[i] >> 2];
     dst[out++] = kAlphabet[((src[i] & 0x03) << 4) | ((src[i + 1] >> 4) & 0x0F)];
-    dst[out++] =
-      kAlphabet[((src[i + 1] & 0x0F) << 2) | ((src[i + 2] >> 6) & 0x03)];
+    dst[out++] = kAlphabet[((src[i + 1] & 0x0F) << 2) | ((src[i + 2] >> 6) & 0x03)];
     dst[out++] = kAlphabet[src[i + 2] & 0x3F];
   }
 
@@ -67,8 +64,7 @@ int xBase64Encode(const uint8_t *src, size_t src_len, char *dst,
   return 0;
 }
 
-int xBase64Decode(const char *src, size_t src_len, uint8_t *dst,
-                  size_t *dst_len) {
+int xBase64Decode(const char *src, size_t src_len, uint8_t *dst, size_t *dst_len) {
   if (!src || !dst || !dst_len) return -1;
   if (src_len == 0) {
     *dst_len = 0;

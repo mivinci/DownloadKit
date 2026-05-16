@@ -38,8 +38,7 @@ TEST_F(EventPostTest, BasicPost) {
   std::atomic<bool> called{false};
 
   auto fn = [](void *arg) {
-    static_cast<std::atomic<bool> *>(arg)->store(true,
-                                                 std::memory_order_release);
+    static_cast<std::atomic<bool> *>(arg)->store(true, std::memory_order_release);
   };
 
   ASSERT_EQ(xEventLoopPost(loop, fn, &called), xErrno_Ok);
@@ -55,23 +54,18 @@ TEST_F(EventPostTest, BasicPost) {
 /* ───────────────────── Post from another thread ───────────────────── */
 
 TEST_F(EventPostTest, PostFromAnotherThread) {
-  std::atomic<bool>              called{false};
-  std::atomic<std::thread::id>   cb_thread{};
+  std::atomic<bool>            called{false};
+  std::atomic<std::thread::id> cb_thread{};
 
   auto fn = [](void *arg) {
-    auto *ctx =
-      static_cast<std::pair<std::atomic<bool> *, std::atomic<std::thread::id> *> *>(
-        arg);
+    auto *ctx = static_cast<std::pair<std::atomic<bool> *, std::atomic<std::thread::id> *> *>(arg);
     ctx->second->store(std::this_thread::get_id(), std::memory_order_release);
     ctx->first->store(true, std::memory_order_release);
   };
 
-  std::pair<std::atomic<bool> *, std::atomic<std::thread::id> *> ctx{&called,
-                                                                       &cb_thread};
+  std::pair<std::atomic<bool> *, std::atomic<std::thread::id> *> ctx{&called, &cb_thread};
 
-  std::thread poster([&]() {
-    EXPECT_EQ(xEventLoopPost(loop, fn, &ctx), xErrno_Ok);
-  });
+  std::thread poster([&]() { EXPECT_EQ(xEventLoopPost(loop, fn, &ctx), xErrno_Ok); });
 
   poster.join();
 
@@ -89,12 +83,11 @@ TEST_F(EventPostTest, PostFromAnotherThread) {
 /* ───────────────────── Multiple posts ───────────────────── */
 
 TEST_F(EventPostTest, MultiplePosts) {
-  constexpr int      N = 100;
-  std::atomic<int>   count{0};
+  constexpr int    N = 100;
+  std::atomic<int> count{0};
 
   auto fn = [](void *arg) {
-    static_cast<std::atomic<int> *>(arg)->fetch_add(1,
-                                                    std::memory_order_relaxed);
+    static_cast<std::atomic<int> *>(arg)->fetch_add(1, std::memory_order_relaxed);
   };
 
   for (int i = 0; i < N; i++) {
@@ -118,8 +111,7 @@ TEST_F(EventPostTest, ConcurrentPosts) {
   std::atomic<int> count{0};
 
   auto fn = [](void *arg) {
-    static_cast<std::atomic<int> *>(arg)->fetch_add(1,
-                                                    std::memory_order_relaxed);
+    static_cast<std::atomic<int> *>(arg)->fetch_add(1, std::memory_order_relaxed);
   };
 
   std::vector<std::thread> threads;
@@ -134,8 +126,7 @@ TEST_F(EventPostTest, ConcurrentPosts) {
   for (auto &th : threads)
     th.join();
 
-  for (int i = 0; i < 500 && count.load(std::memory_order_acquire) < TOTAL;
-       i++) {
+  for (int i = 0; i < 500 && count.load(std::memory_order_acquire) < TOTAL; i++) {
     xEventWait(loop, 10);
   }
 
@@ -148,8 +139,7 @@ TEST_F(EventPostTest, PostInterleavedWithSubmit) {
   std::atomic<int> post_count{0};
 
   auto post_fn = [](void *arg) {
-    static_cast<std::atomic<int> *>(arg)->fetch_add(1,
-                                                    std::memory_order_relaxed);
+    static_cast<std::atomic<int> *>(arg)->fetch_add(1, std::memory_order_relaxed);
   };
 
   /* Post some callbacks. */
@@ -158,8 +148,7 @@ TEST_F(EventPostTest, PostInterleavedWithSubmit) {
   }
 
   /* Pump the loop. */
-  for (int i = 0; i < 200 && post_count.load(std::memory_order_acquire) < 10;
-       i++) {
+  for (int i = 0; i < 200 && post_count.load(std::memory_order_acquire) < 10; i++) {
     xEventWait(loop, 10);
   }
 
@@ -181,9 +170,7 @@ TEST_F(EventPostTest, NullFnReturnsError) {
 
 TEST_F(EventPostTest, PostStopsRunningLoop) {
   /* Post a callback that stops the loop, then run the loop. */
-  auto stop_fn = [](void *arg) {
-    xEventLoopStop(static_cast<xEventLoop>(arg));
-  };
+  auto stop_fn = [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); };
 
   ASSERT_EQ(xEventLoopPost(loop, stop_fn, loop), xErrno_Ok);
 

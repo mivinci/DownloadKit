@@ -74,11 +74,11 @@ XDEF_STRUCT(xMd) {
   /* Open SGR spans. Bitfield because emphasis can nest (bold can
    * wrap italic in markdown) and the terminal handles the SGR
    * stack implicitly - we just track which close code to emit. */
-  unsigned bold    : 1;
-  unsigned italic  : 1;
-  unsigned code    : 1; /* inline `..` */
+  unsigned bold : 1;
+  unsigned italic : 1;
+  unsigned code : 1;    /* inline `..` */
   unsigned heading : 1; /* current line is a heading */
-  unsigned fence   : 1; /* inside ```...``` - pass through raw */
+  unsigned fence : 1;   /* inside ```...``` - pass through raw */
 
   /* True when the next emitted byte starts a line. Seeded 1 so the
    * very first chunk starts in bol state. */

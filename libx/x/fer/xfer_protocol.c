@@ -53,8 +53,8 @@ static inline uint64_t get_u64(const uint8_t *buf) {
  * Total:  1 + 2 + N + 8 + 4 + 20 = 35 + N
  */
 
-xErrno xTransferEncodeFileMeta(const xTransferFileMeta *meta, uint8_t *buf,
-                                size_t cap, size_t *out) {
+xErrno xTransferEncodeFileMeta(const xTransferFileMeta *meta, uint8_t *buf, size_t cap,
+                               size_t *out) {
   if (!meta || !buf || !out) return xErrno_InvalidArg;
 
   size_t needed = 1 + 2 + meta->filename_len + 8 + 4 + XFER_SHA1_SIZE;
@@ -87,8 +87,7 @@ xErrno xTransferEncodeFileMeta(const xTransferFileMeta *meta, uint8_t *buf,
   return xErrno_Ok;
 }
 
-xErrno xTransferDecodeFileMeta(const uint8_t *data, size_t len,
-                                xTransferFileMeta *meta) {
+xErrno xTransferDecodeFileMeta(const uint8_t *data, size_t len, xTransferFileMeta *meta) {
   if (!data || !meta) return xErrno_InvalidArg;
 
   /* Minimum: name_len(2) + size(8) + chunk_sz(4) + sha1(20) = 34 */
@@ -106,7 +105,7 @@ xErrno xTransferDecodeFileMeta(const uint8_t *data, size_t len,
   /* Filename */
   memcpy(meta->filename, p, name_len);
   meta->filename[name_len] = '\0';
-  meta->filename_len = name_len;
+  meta->filename_len       = name_len;
   p += name_len;
 
   /* File size */
@@ -130,8 +129,7 @@ xErrno xTransferDecodeFileMeta(const uint8_t *data, size_t len,
  * Header: 5 bytes
  */
 
-xErrno xTransferEncodeChunkHeader(uint32_t chunk_id, uint8_t *buf, size_t cap,
-                                   size_t *out) {
+xErrno xTransferEncodeChunkHeader(uint32_t chunk_id, uint8_t *buf, size_t cap, size_t *out) {
   if (!buf || !out) return xErrno_InvalidArg;
   if (cap < 5) return xErrno_InvalidArg;
 
@@ -141,17 +139,15 @@ xErrno xTransferEncodeChunkHeader(uint32_t chunk_id, uint8_t *buf, size_t cap,
   return xErrno_Ok;
 }
 
-xErrno xTransferDecodeChunkHeader(const uint8_t *data, size_t len,
-                                   uint32_t *chunk_id,
-                                   const uint8_t **payload,
-                                   uint32_t *payload_len) {
+xErrno xTransferDecodeChunkHeader(const uint8_t *data, size_t len, uint32_t *chunk_id,
+                                  const uint8_t **payload, uint32_t *payload_len) {
   if (!data || !chunk_id || !payload || !payload_len) return xErrno_InvalidArg;
 
   /* Minimum: chunk_id(4) */
   if (len < 4) return xErrno_InvalidArg;
 
-  *chunk_id = get_u32(data);
-  *payload = data + 4;
+  *chunk_id    = get_u32(data);
+  *payload     = data + 4;
   *payload_len = (uint32_t)(len - 4);
   return xErrno_Ok;
 }
@@ -163,8 +159,8 @@ xErrno xTransferDecodeChunkHeader(const uint8_t *data, size_t len,
  * Total:  25 bytes
  */
 
-xErrno xTransferEncodeFileDone(const xTransferFileDone *done, uint8_t *buf,
-                                size_t cap, size_t *out) {
+xErrno xTransferEncodeFileDone(const xTransferFileDone *done, uint8_t *buf, size_t cap,
+                               size_t *out) {
   if (!done || !buf || !out) return xErrno_InvalidArg;
 
   size_t needed = 1 + 4 + XFER_SHA1_SIZE;
@@ -178,8 +174,7 @@ xErrno xTransferEncodeFileDone(const xTransferFileDone *done, uint8_t *buf,
   return xErrno_Ok;
 }
 
-xErrno xTransferDecodeFileDone(const uint8_t *data, size_t len,
-                                xTransferFileDone *done) {
+xErrno xTransferDecodeFileDone(const uint8_t *data, size_t len, xTransferFileDone *done) {
   if (!data || !done) return xErrno_InvalidArg;
 
   /* total_chunks(4) + sha1(20) = 24 */
@@ -198,8 +193,8 @@ xErrno xTransferDecodeFileDone(const uint8_t *data, size_t len,
  * Total:  9 + bitmap_len
  */
 
-xErrno xTransferEncodeFileResume(const xTransferFileResume *resume,
-                                  uint8_t *buf, size_t cap, size_t *out) {
+xErrno xTransferEncodeFileResume(const xTransferFileResume *resume, uint8_t *buf, size_t cap,
+                                 size_t *out) {
   if (!resume || !buf || !out) return xErrno_InvalidArg;
   if (!resume->bitmap && resume->bitmap_len > 0) return xErrno_InvalidArg;
 
@@ -229,8 +224,7 @@ xErrno xTransferEncodeFileResume(const xTransferFileResume *resume,
   return xErrno_Ok;
 }
 
-xErrno xTransferDecodeFileResume(const uint8_t *data, size_t len,
-                                  xTransferFileResume *resume) {
+xErrno xTransferDecodeFileResume(const uint8_t *data, size_t len, xTransferFileResume *resume) {
   if (!data || !resume) return xErrno_InvalidArg;
 
   /* Minimum: total_chunks(4) + bitmap_len(4) = 8 */
@@ -259,8 +253,7 @@ xErrno xTransferDecodeFileResume(const uint8_t *data, size_t len,
  * Total:  2 bytes
  */
 
-xErrno xTransferEncodeFileAck(const xTransferFileAck *ack, uint8_t *buf,
-                               size_t cap, size_t *out) {
+xErrno xTransferEncodeFileAck(const xTransferFileAck *ack, uint8_t *buf, size_t cap, size_t *out) {
   if (!ack || !buf || !out) return xErrno_InvalidArg;
 
   size_t needed = 1 + 1;
@@ -273,8 +266,7 @@ xErrno xTransferEncodeFileAck(const xTransferFileAck *ack, uint8_t *buf,
   return xErrno_Ok;
 }
 
-xErrno xTransferDecodeFileAck(const uint8_t *data, size_t len,
-                               xTransferFileAck *ack) {
+xErrno xTransferDecodeFileAck(const uint8_t *data, size_t len, xTransferFileAck *ack) {
   if (!data || !ack) return xErrno_InvalidArg;
 
   /* status(1) = 1 */

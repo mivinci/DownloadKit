@@ -55,10 +55,8 @@ static long g_counter = 0;
  * and `thisObject`; the module facade invokes us as plain functions.
  */
 
-static xJSValueRef native_counter_inc(xJSContextRef ctx, xJSObjectRef fn,
-                                      xJSObjectRef this_obj, size_t argc,
-                                      const xJSValueRef argv[],
-                                      xJSValueRef      *exc) {
+static xJSValueRef native_counter_inc(xJSContextRef ctx, xJSObjectRef fn, xJSObjectRef this_obj,
+                                      size_t argc, const xJSValueRef argv[], xJSValueRef *exc) {
   (void)fn;
   (void)this_obj;
   (void)argc;
@@ -68,10 +66,8 @@ static xJSValueRef native_counter_inc(xJSContextRef ctx, xJSObjectRef fn,
   return xJSValueMakeUndefined(ctx);
 }
 
-static xJSValueRef native_counter_get(xJSContextRef ctx, xJSObjectRef fn,
-                                      xJSObjectRef this_obj, size_t argc,
-                                      const xJSValueRef argv[],
-                                      xJSValueRef      *exc) {
+static xJSValueRef native_counter_get(xJSContextRef ctx, xJSObjectRef fn, xJSObjectRef this_obj,
+                                      size_t argc, const xJSValueRef argv[], xJSValueRef *exc) {
   (void)fn;
   (void)this_obj;
   (void)argc;
@@ -80,10 +76,8 @@ static xJSValueRef native_counter_get(xJSContextRef ctx, xJSObjectRef fn,
   return xJSValueMakeNumber(ctx, (double)g_counter);
 }
 
-static xJSValueRef native_counter_reset(xJSContextRef ctx, xJSObjectRef fn,
-                                        xJSObjectRef this_obj, size_t argc,
-                                        const xJSValueRef argv[],
-                                        xJSValueRef      *exc) {
+static xJSValueRef native_counter_reset(xJSContextRef ctx, xJSObjectRef fn, xJSObjectRef this_obj,
+                                        size_t argc, const xJSValueRef argv[], xJSValueRef *exc) {
   (void)fn;
   (void)this_obj;
   (void)argc;
@@ -96,10 +90,8 @@ static xJSValueRef native_counter_reset(xJSContextRef ctx, xJSObjectRef fn,
 /* A minimal console.log: stringify every argument, join with ' ',
  * print with a trailing newline.  Good enough to prove the module
  * wiring end-to-end. */
-static xJSValueRef native_console_log(xJSContextRef ctx, xJSObjectRef fn,
-                                      xJSObjectRef this_obj, size_t argc,
-                                      const xJSValueRef argv[],
-                                      xJSValueRef      *exc) {
+static xJSValueRef native_console_log(xJSContextRef ctx, xJSObjectRef fn, xJSObjectRef this_obj,
+                                      size_t argc, const xJSValueRef argv[], xJSValueRef *exc) {
   (void)fn;
   (void)this_obj;
   (void)exc;
@@ -128,8 +120,7 @@ static xJSValueRef native_console_log(xJSContextRef ctx, xJSObjectRef fn,
  * the import facade instead".
  */
 
-static void install_native(xJSGlobalContextRef ctx, const char *holder_key,
-                           const char                     *fn_key,
+static void install_native(xJSGlobalContextRef ctx, const char *holder_key, const char *fn_key,
                            xJSObjectCallAsFunctionCallback cb) {
   xJSObjectRef global = xJSContextGetGlobalObject(ctx);
 
@@ -164,8 +155,7 @@ static void install_native(xJSGlobalContextRef ctx, const char *holder_key,
  * top-level await).  No manual JSModuleDef plumbing required.
  */
 
-static xJSStringRef load_native_module(xJSContextRef ctx, const char *name,
-                                       void *opaque) {
+static xJSStringRef load_native_module(xJSContextRef ctx, const char *name, void *opaque) {
   (void)ctx;
   (void)opaque;
 
@@ -193,8 +183,7 @@ static xJSStringRef load_native_module(xJSContextRef ctx, const char *name,
  * imports both, and block until the resulting promise settles.
  */
 
-static void print_exception(xJSContextRef ctx, xJSValueRef exc,
-                            const char *where) {
+static void print_exception(xJSContextRef ctx, xJSValueRef exc, const char *where) {
   if (!exc) {
     fprintf(stderr, "%s: (no exception object)\n", where);
     return;
@@ -233,15 +222,14 @@ int main(void) {
 
   /* 3. Evaluate a module that imports the facades.  Passing a
    *    sourceURL of "demo.js" gives clean stack traces. */
-  static const char user_src[] =
-    "import { increment, get, reset } from 'counter';\n"
-    "import { log }                    from 'console';\n"
-    "\n"
-    "log('initial =', get());\n"
-    "for (let i = 0; i < 5; i++) increment();\n"
-    "log('after 5 inc =', get());\n"
-    "reset();\n"
-    "log('after reset =', get());\n";
+  static const char user_src[] = "import { increment, get, reset } from 'counter';\n"
+                                 "import { log }                    from 'console';\n"
+                                 "\n"
+                                 "log('initial =', get());\n"
+                                 "for (let i = 0; i < 5; i++) increment();\n"
+                                 "log('after 5 inc =', get());\n"
+                                 "reset();\n"
+                                 "log('after reset =', get());\n";
 
   xJSStringRef src     = xJSStringCreateWithUTF8CString(user_src);
   xJSStringRef url     = xJSStringCreateWithUTF8CString("demo.js");

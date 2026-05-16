@@ -48,10 +48,8 @@ protected:
   void RunUntilDone(std::atomic<bool> &done, int timeout_ms = 5000) {
     std::thread runner([&]() { xEventLoopRun(loop); });
 
-    auto deadline =
-      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    while (!done.load(std::memory_order_acquire) &&
-           std::chrono::steady_clock::now() < deadline) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (!done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
       sleep_ms(10);
     }
 
@@ -72,10 +70,10 @@ struct DnsCtx {
 };
 
 static void dns_callback(xDnsResult *result, void *arg) {
-  auto *ctx          = static_cast<DnsCtx *>(arg);
+  auto *ctx            = static_cast<DnsCtx *>(arg);
   ctx->callback_thread = pthread_self();
-  ctx->error         = result->error;
-  ctx->result        = result;
+  ctx->error           = result->error;
+  ctx->result          = result;
 
   int count = 0;
   for (xDnsAddr *a = result->addrs; a; a = a->next) {
@@ -108,8 +106,8 @@ TEST_F(DnsTest, ResolveLocalhost) {
 TEST_F(DnsTest, ResolveNonExistentDomain) {
   DnsCtx ctx;
 
-  xDnsQuery q = xDnsResolve(loop, "this.domain.does.not.exist.invalid", NULL,
-                            NULL, dns_callback, &ctx);
+  xDnsQuery q =
+    xDnsResolve(loop, "this.domain.does.not.exist.invalid", NULL, NULL, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -127,11 +125,10 @@ TEST_F(DnsTest, ResolveIPv4Only) {
   DnsCtx ctx;
 
   struct addrinfo hints = {};
-  hints.ai_family   = AF_INET;
-  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_family       = AF_INET;
+  hints.ai_socktype     = SOCK_STREAM;
 
-  xDnsQuery q =
-    xDnsResolve(loop, "localhost", NULL, &hints, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve(loop, "localhost", NULL, &hints, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -154,11 +151,10 @@ TEST_F(DnsTest, ResolveIPv6Only) {
   DnsCtx ctx;
 
   struct addrinfo hints = {};
-  hints.ai_family   = AF_INET6;
-  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_family       = AF_INET6;
+  hints.ai_socktype     = SOCK_STREAM;
 
-  xDnsQuery q =
-    xDnsResolve(loop, "localhost", NULL, &hints, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve(loop, "localhost", NULL, &hints, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -209,8 +205,7 @@ TEST_F(DnsTest, CancelPreventsCallback) {
     xDnsResultFree(result);
   };
 
-  xDnsQuery q =
-    xDnsResolve(loop, "localhost", NULL, NULL, cancel_cb, &called);
+  xDnsQuery q = xDnsResolve(loop, "localhost", NULL, NULL, cancel_cb, &called);
   ASSERT_NE(q, nullptr);
 
   /* Cancel immediately */
@@ -250,13 +245,10 @@ TEST_F(DnsTest, CallbackOnEventLoopThread) {
 
   /* Use a timer to stop the loop after the DNS callback fires */
   xEventLoopTimerAfter(
-    loop,
-    [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop,
-    2000);
+    loop, [](void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop, 2000);
 
   /* Pump until callback fires or timer stops us */
-  for (int i = 0; i < 500 && !ctx.called.load(std::memory_order_acquire);
-       i++) {
+  for (int i = 0; i < 500 && !ctx.called.load(std::memory_order_acquire); i++) {
     xEventWait(loop, 10);
   }
 
@@ -271,8 +263,7 @@ TEST_F(DnsTest, CallbackOnEventLoopThread) {
 TEST_F(DnsTest, ResolveIPv4Literal) {
   DnsCtx ctx;
 
-  xDnsQuery q =
-    xDnsResolve(loop, "127.0.0.1", NULL, NULL, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve(loop, "127.0.0.1", NULL, NULL, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);
@@ -305,8 +296,7 @@ TEST_F(DnsTest, ResolveIPv6Literal) {
 TEST_F(DnsTest, ResolveWithService) {
   DnsCtx ctx;
 
-  xDnsQuery q =
-    xDnsResolve(loop, "localhost", "80", NULL, dns_callback, &ctx);
+  xDnsQuery q = xDnsResolve(loop, "localhost", "80", NULL, dns_callback, &ctx);
   ASSERT_NE(q, nullptr);
 
   RunUntilDone(ctx.called);

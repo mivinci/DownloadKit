@@ -16,7 +16,7 @@ extern "C" {
 
 // BM_Ring_WriteRead: Measure write + read throughput
 static void BM_Ring_WriteRead(benchmark::State &state) {
-  const int64_t chunk_size = state.range(0);
+  const int64_t     chunk_size = state.range(0);
   std::vector<char> data(chunk_size, 'x');
   std::vector<char> out(chunk_size);
 
@@ -35,13 +35,13 @@ BENCHMARK(BM_Ring_WriteRead)->Arg(64)->Arg(256)->Arg(1024)->Arg(4096);
 
 // BM_Ring_Throughput: Measure sustained write throughput until full
 static void BM_Ring_Throughput(benchmark::State &state) {
-  const int64_t cap = state.range(0);
-  const int64_t chunk = 64;
+  const int64_t     cap   = state.range(0);
+  const int64_t     chunk = 64;
   std::vector<char> data(chunk, 'x');
 
   for (auto _ : state) {
-    xRingBuffer rb = xRingBufferCreate(cap);
-    int64_t written = 0;
+    xRingBuffer rb      = xRingBufferCreate(cap);
+    int64_t     written = 0;
     while (xRingBufferWrite(rb, data.data(), chunk) > 0) {
       written += chunk;
     }

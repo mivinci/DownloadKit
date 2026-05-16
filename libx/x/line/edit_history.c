@@ -63,8 +63,7 @@ typedef struct hsearch_s {
   bool              cinsert;
 } hsearch_t;
 
-static void hsearch_push(hsearch_t **hs, ssize_t hidx,
-                         ssize_t mpos, ssize_t mlen, bool cinsert) {
+static void hsearch_push(hsearch_t **hs, ssize_t hidx, ssize_t mpos, ssize_t mlen, bool cinsert) {
   hsearch_t *h = (hsearch_t *)calloc(1, sizeof(hsearch_t));
   if (h == NULL) return;
   h->hidx      = hidx;
@@ -75,8 +74,8 @@ static void hsearch_push(hsearch_t **hs, ssize_t hidx,
   *hs          = h;
 }
 
-static bool hsearch_pop(hsearch_t **hs, ssize_t *hidx,
-                        ssize_t *match_pos, ssize_t *match_len, bool *cinsert) {
+static bool hsearch_pop(hsearch_t **hs, ssize_t *hidx, ssize_t *match_pos, ssize_t *match_len,
+                        bool *cinsert) {
   hsearch_t *h = *hs;
   if (h == NULL) return false;
   *hs = h->next;
@@ -135,8 +134,7 @@ static void edit_history_search(ic_env_t *env, editor_t *eb, char *initial) {
       hsearch_push(&hs, hidx, match_pos, match_len, true);
       char c               = initial[ipos + next]; // terminate temporarily
       initial[ipos + next] = 0;
-      if (history_search(env->history, hidx, initial, true, &hidx,
-                         &match_pos)) {
+      if (history_search(env->history, hidx, initial, true, &hidx, &match_pos)) {
         match_len = ipos + next;
       } else if (ipos + next >= initial_len) {
         term_beep(env->term);
@@ -198,8 +196,7 @@ again:
   } else if (c == KEY_CTRL_R || c == KEY_TAB || c == KEY_UP) {
     // search backward
     hsearch_push(&hs, hidx, match_pos, match_len, false);
-    if (!history_search(env->history, hidx + 1, sbuf_string(eb->input), true,
-                        &hidx, &match_pos)) {
+    if (!history_search(env->history, hidx + 1, sbuf_string(eb->input), true, &hidx, &match_pos)) {
       hsearch_pop(&hs, NULL, NULL, NULL, NULL);
       term_beep(env->term);
     };
@@ -207,8 +204,7 @@ again:
   } else if (c == KEY_CTRL_S || c == KEY_SHIFT_TAB || c == KEY_DOWN) {
     // search forward
     hsearch_push(&hs, hidx, match_pos, match_len, false);
-    if (!history_search(env->history, hidx - 1, sbuf_string(eb->input), false,
-                        &hidx, &match_pos)) {
+    if (!history_search(env->history, hidx - 1, sbuf_string(eb->input), false, &hidx, &match_pos)) {
       hsearch_pop(&hs, NULL, NULL, NULL, NULL);
       term_beep(env->term);
     };
@@ -232,8 +228,7 @@ again:
       goto again;
     }
     // search for the new input
-    if (history_search(env->history, hidx, sbuf_string(eb->input), true, &hidx,
-                       &match_pos)) {
+    if (history_search(env->history, hidx, sbuf_string(eb->input), true, &hidx, &match_pos)) {
       match_len = sbuf_len(eb->input);
     } else {
       term_beep(env->term);
@@ -251,19 +246,16 @@ again:
 }
 
 // Start an incremental search with the current word
-ic_private void edit_history_search_with_current_word(ic_env_t *env,
-                                                      editor_t *eb) {
+ic_private void edit_history_search_with_current_word(ic_env_t *env, editor_t *eb) {
   char   *initial = NULL;
   ssize_t start   = sbuf_find_word_start(eb->input, eb->pos);
   if (start >= 0) {
     const ssize_t next = sbuf_next(eb->input, start, NULL);
-    if (!xLineCharIsIdletter(sbuf_string(eb->input) + start,
-                             (long)(next - start))) {
+    if (!xLineCharIsIdletter(sbuf_string(eb->input) + start, (long)(next - start))) {
       start = next;
     }
     if (start >= 0 && start < eb->pos) {
-      initial =
-        ic_strndup(sbuf_string(eb->input) + start, eb->pos - start);
+      initial = ic_strndup(sbuf_string(eb->input) + start, eb->pos - start);
     }
   }
   edit_history_search(env, eb, initial);

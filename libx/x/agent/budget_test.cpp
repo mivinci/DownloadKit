@@ -61,8 +61,7 @@ xAgentSessionMsg_ MakeToolUse(const char *id, const char *name, const char *args
   return m;
 }
 
-xAgentSessionMsg_ MakeToolResult(const char *id, const char *output,
-                              int is_error) {
+xAgentSessionMsg_ MakeToolResult(const char *id, const char *output, int is_error) {
   xAgentSessionMsg_ m{};
   m.role                   = xAgentRole_Tool;
   m.kind                   = xAgentSessionEntry_ToolResult;
@@ -95,7 +94,7 @@ TEST(XaiBudgetEstimate, SingleTextUsesBytesDivFourPlusEnvelope) {
 
 TEST(XaiBudgetEstimate, ThinkingCountsSameAsText) {
   xAgentSessionMsg_ a = MakeText(xAgentRole_Assistant, "abcdabcd"); /* 8 */
-  xAgentSessionMsg_ b = MakeThinking("abcdabcd");                /* 8 */
+  xAgentSessionMsg_ b = MakeThinking("abcdabcd");                   /* 8 */
   EXPECT_EQ(ai_budget_estimate_tokens(&a, 1), ai_budget_estimate_tokens(&b, 1));
 }
 
@@ -123,8 +122,8 @@ TEST(XaiBudgetEstimate, ToolResultUsesOutputLen) {
 
 TEST(XaiBudgetEstimate, MixedSliceSumsPerEntry) {
   xAgentSessionMsg_ seq[] = {
-    MakeText(xAgentRole_User, "hello"),         /* 5 */
-    MakeText(xAgentRole_Assistant, "hi!"),      /* 3 */
+    MakeText(xAgentRole_User, "hello"),      /* 5 */
+    MakeText(xAgentRole_Assistant, "hi!"),   /* 3 */
     MakeToolUse("i", "calc", "{\"x\":1}"),   /* 4 + 7 = 11 */
     MakeToolResult("i", "2", /*err=*/0),     /* 1 */
     MakeThinking("reasoning steps aplenty"), /* 22 */
@@ -144,8 +143,7 @@ TEST(XaiBudgetEstimate, EmptyTextStillPaysEnvelope) {
 /* ── ai_budget_find_user_turn ───────────────────────────────────── */
 
 TEST(XaiBudgetFindNth, EmptyReturnsSentinel) {
-  EXPECT_EQ(ai_budget_find_user_turn(nullptr, 0, 0),
-            XAGENT_BUDGET_NO_SUCH_TURN);
+  EXPECT_EQ(ai_budget_find_user_turn(nullptr, 0, 0), XAGENT_BUDGET_NO_SUCH_TURN);
 }
 
 TEST(XaiBudgetFindNth, NoUserEntries) {

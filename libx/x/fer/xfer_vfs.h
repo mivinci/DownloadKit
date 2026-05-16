@@ -40,12 +40,12 @@ XDEF_STRUCT(xTransferVfs) {
   void *(*open)(void *ctx, const char *path, const char *mode);
 
   /** Random-access read at @p offset.  Writes actual bytes read to @p nread. */
-  xErrno (*pread)(void *ctx, void *handle, uint8_t *buf, size_t len,
-                  uint64_t offset, size_t *nread);
+  xErrno (*pread)(void *ctx, void *handle, uint8_t *buf, size_t len, uint64_t offset,
+                  size_t *nread);
 
   /** Random-access write at @p offset.  Writes actual bytes written to @p nwritten. */
-  xErrno (*pwrite)(void *ctx, void *handle, const uint8_t *buf, size_t len,
-                   uint64_t offset, size_t *nwritten);
+  xErrno (*pwrite)(void *ctx, void *handle, const uint8_t *buf, size_t len, uint64_t offset,
+                   size_t *nwritten);
 
   /** Get total size of the opened file. */
   xErrno (*size)(void *ctx, void *handle, uint64_t *out_size);

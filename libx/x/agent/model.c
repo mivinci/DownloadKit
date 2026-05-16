@@ -36,8 +36,7 @@ static void spec_reset_(xAgentModelSpec *s) {
 }
 
 xAgentModelRegistry xAgentModelRegistryCreate(void) {
-  struct xAgentModelRegistry_ *r =
-    (struct xAgentModelRegistry_ *)calloc(1, sizeof(*r));
+  struct xAgentModelRegistry_ *r = (struct xAgentModelRegistry_ *)calloc(1, sizeof(*r));
   if (!r) return NULL;
   /* entries/count/cap left zero — first Add grows the buffer. */
   return (xAgentModelRegistry)r;
@@ -46,29 +45,26 @@ xAgentModelRegistry xAgentModelRegistryCreate(void) {
 void xAgentModelRegistryDestroy(xAgentModelRegistry reg) {
   if (!reg) return;
   struct xAgentModelRegistry_ *r = (struct xAgentModelRegistry_ *)reg;
-  for (size_t i = 0; i < r->count; i++) spec_reset_(&r->entries[i]);
+  for (size_t i = 0; i < r->count; i++)
+    spec_reset_(&r->entries[i]);
   free(r->entries);
   free(r);
 }
 
-xErrno xAgentModelRegistryAdd(xAgentModelRegistry    reg,
-                              const xAgentModelSpec *spec) {
-  if (!reg || !spec || !spec->id || !*spec->id || !spec->provider)
-    return xErrno_InvalidArg;
+xErrno xAgentModelRegistryAdd(xAgentModelRegistry reg, const xAgentModelSpec *spec) {
+  if (!reg || !spec || !spec->id || !*spec->id || !spec->provider) return xErrno_InvalidArg;
 
   struct xAgentModelRegistry_ *r = (struct xAgentModelRegistry_ *)reg;
 
   /* Duplicate-id rejection: scan the array once. */
   for (size_t i = 0; i < r->count; i++) {
-    if (r->entries[i].id && strcmp(r->entries[i].id, spec->id) == 0)
-      return xErrno_AlreadyExists;
+    if (r->entries[i].id && strcmp(r->entries[i].id, spec->id) == 0) return xErrno_AlreadyExists;
   }
 
   /* Grow if needed (geometric: 4, 8, 16, ...). */
   if (r->count == r->cap) {
-    size_t new_cap = r->cap ? r->cap * 2 : 4;
-    xAgentModelSpec *grown = (xAgentModelSpec *)realloc(
-      r->entries, new_cap * sizeof(*grown));
+    size_t           new_cap = r->cap ? r->cap * 2 : 4;
+    xAgentModelSpec *grown   = (xAgentModelSpec *)realloc(r->entries, new_cap * sizeof(*grown));
     if (!grown) return xErrno_NoMemory;
     r->entries = grown;
     r->cap     = new_cap;
@@ -85,22 +81,20 @@ xErrno xAgentModelRegistryAdd(xAgentModelRegistry    reg,
   }
 
   xAgentModelSpec *slot = &r->entries[r->count];
-  slot->id          = id_copy;
-  slot->provider    = spec->provider;
-  slot->model       = model_copy;
-  slot->temperature = spec->temperature;
-  slot->max_tokens  = spec->max_tokens;
+  slot->id              = id_copy;
+  slot->provider        = spec->provider;
+  slot->model           = model_copy;
+  slot->temperature     = spec->temperature;
+  slot->max_tokens      = spec->max_tokens;
   r->count++;
   return xErrno_Ok;
 }
 
-const xAgentModelSpec *xAgentModelRegistryGet(xAgentModelRegistry reg,
-                                              const char         *id) {
+const xAgentModelSpec *xAgentModelRegistryGet(xAgentModelRegistry reg, const char *id) {
   if (!reg || !id) return NULL;
   struct xAgentModelRegistry_ *r = (struct xAgentModelRegistry_ *)reg;
   for (size_t i = 0; i < r->count; i++) {
-    if (r->entries[i].id && strcmp(r->entries[i].id, id) == 0)
-      return &r->entries[i];
+    if (r->entries[i].id && strcmp(r->entries[i].id, id) == 0) return &r->entries[i];
   }
   return NULL;
 }
@@ -110,8 +104,7 @@ size_t xAgentModelRegistryCount(xAgentModelRegistry reg) {
   return ((struct xAgentModelRegistry_ *)reg)->count;
 }
 
-const xAgentModelSpec *xAgentModelRegistryAt(xAgentModelRegistry reg,
-                                             size_t              idx) {
+const xAgentModelSpec *xAgentModelRegistryAt(xAgentModelRegistry reg, size_t idx) {
   if (!reg) return NULL;
   struct xAgentModelRegistry_ *r = (struct xAgentModelRegistry_ *)reg;
   if (idx >= r->count) return NULL;

@@ -27,8 +27,8 @@ void xStunAttrWriterInit(xStunAttrWriter *w, uint8_t *buf, size_t cap) {
  * Write a raw TLV attribute header + value, with 4-byte padding.
  * Returns xErrno_Ok on success.
  */
-static xErrno attr_write_raw(xStunAttrWriter *w, uint16_t type,
-                             const uint8_t *value, uint16_t value_len) {
+static xErrno attr_write_raw(xStunAttrWriter *w, uint16_t type, const uint8_t *value,
+                             uint16_t value_len) {
   size_t padded = XSTUN_ALIGN4(value_len);
   size_t total  = XSTUN_ATTR_HEADER_SIZE + padded;
   if (w->pos + total > w->cap) return xErrno_NoMemory;
@@ -49,9 +49,8 @@ static xErrno attr_write_raw(xStunAttrWriter *w, uint16_t type,
 
 /* ───────────────────── Address Encoding ───────────────────── */
 
-static xErrno encode_address(xStunAttrWriter *w, uint16_t attr_type,
-                             const struct sockaddr *addr, bool xor_encode,
-                             const uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
+static xErrno encode_address(xStunAttrWriter *w, uint16_t attr_type, const struct sockaddr *addr,
+                             bool xor_encode, const uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
   uint8_t  value[20]; /* max: 1 + 1 + 2 + 16 (IPv6) */
   uint16_t value_len;
 
@@ -101,19 +100,16 @@ static xErrno encode_address(xStunAttrWriter *w, uint16_t attr_type,
   return attr_write_raw(w, attr_type, value, value_len);
 }
 
-xErrno xStunAttrWriteXorMappedAddress(xStunAttrWriter       *w,
-                                      const struct sockaddr *addr,
+xErrno xStunAttrWriteXorMappedAddress(xStunAttrWriter *w, const struct sockaddr *addr,
                                       const uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
   return encode_address(w, xStunAttrType_XorMappedAddress, addr, true, txn_id);
 }
 
-xErrno xStunAttrWriteMappedAddress(xStunAttrWriter       *w,
-                                   const struct sockaddr *addr) {
+xErrno xStunAttrWriteMappedAddress(xStunAttrWriter *w, const struct sockaddr *addr) {
   return encode_address(w, xStunAttrType_MappedAddress, addr, false, NULL);
 }
 
-xErrno xStunAttrWriteXorPeerAddress(xStunAttrWriter       *w,
-                                    const struct sockaddr *addr,
+xErrno xStunAttrWriteXorPeerAddress(xStunAttrWriter *w, const struct sockaddr *addr,
                                     const uint8_t txn_id[XSTUN_TXN_ID_SIZE]) {
   return encode_address(w, xStunAttrType_XorPeerAddress, addr, true, txn_id);
 }
@@ -141,28 +137,25 @@ xErrno xStunAttrWriteUsername(xStunAttrWriter *w, const char *remote_ufrag,
 xErrno xStunAttrWriteRealm(xStunAttrWriter *w, const char *realm) {
   if (!realm) return xErrno_InvalidArg;
   size_t len = strlen(realm);
-  return attr_write_raw(w, xStunAttrType_Realm, (const uint8_t *)realm,
-                        (uint16_t)len);
+  return attr_write_raw(w, xStunAttrType_Realm, (const uint8_t *)realm, (uint16_t)len);
 }
 
 xErrno xStunAttrWriteNonce(xStunAttrWriter *w, const char *nonce) {
   if (!nonce) return xErrno_InvalidArg;
   size_t len = strlen(nonce);
-  return attr_write_raw(w, xStunAttrType_Nonce, (const uint8_t *)nonce,
-                        (uint16_t)len);
+  return attr_write_raw(w, xStunAttrType_Nonce, (const uint8_t *)nonce, (uint16_t)len);
 }
 
 xErrno xStunAttrWriteSoftware(xStunAttrWriter *w, const char *software) {
   if (!software) return xErrno_InvalidArg;
   size_t len = strlen(software);
-  return attr_write_raw(w, xStunAttrType_Software, (const uint8_t *)software,
-                        (uint16_t)len);
+  return attr_write_raw(w, xStunAttrType_Software, (const uint8_t *)software, (uint16_t)len);
 }
 
 /* ───────────────────── Integrity / Fingerprint ───────────────────── */
 
-xErrno xStunAttrWriteMessageIntegrity(xStunAttrWriter *w, uint8_t *msg_buf,
-                                      const uint8_t *key, size_t key_len) {
+xErrno xStunAttrWriteMessageIntegrity(xStunAttrWriter *w, uint8_t *msg_buf, const uint8_t *key,
+                                      size_t key_len) {
   if (!w || !msg_buf || !key) return xErrno_InvalidArg;
 
   /*
@@ -174,8 +167,7 @@ xErrno xStunAttrWriteMessageIntegrity(xStunAttrWriter *w, uint8_t *msg_buf,
 
   /* Temporarily set the STUN header length field */
   uint16_t orig_len = xReadU16BE(msg_buf + 2);
-  xWriteU16BE(msg_buf + 2, (uint16_t)(mi_offset + XSTUN_ATTR_HEADER_SIZE +
-                                      XSTUN_SHA1_DIGEST_SIZE));
+  xWriteU16BE(msg_buf + 2, (uint16_t)(mi_offset + XSTUN_ATTR_HEADER_SIZE + XSTUN_SHA1_DIGEST_SIZE));
 
   /* Compute HMAC-SHA1 over header + attrs so far */
   uint8_t hmac[XSTUN_SHA1_DIGEST_SIZE];
@@ -184,8 +176,7 @@ xErrno xStunAttrWriteMessageIntegrity(xStunAttrWriter *w, uint8_t *msg_buf,
   /* Restore original length (will be updated by caller) */
   xWriteU16BE(msg_buf + 2, orig_len);
 
-  return attr_write_raw(w, xStunAttrType_MessageIntegrity, hmac,
-                        XSTUN_SHA1_DIGEST_SIZE);
+  return attr_write_raw(w, xStunAttrType_MessageIntegrity, hmac, XSTUN_SHA1_DIGEST_SIZE);
 }
 
 xErrno xStunAttrWriteFingerprint(xStunAttrWriter *w, uint8_t *msg_buf) {
@@ -239,8 +230,7 @@ xErrno xStunAttrWriteLifetime(xStunAttrWriter *w, uint32_t lifetime) {
   return attr_write_raw(w, xStunAttrType_Lifetime, value, 4);
 }
 
-xErrno xStunAttrWriteRequestedTransport(xStunAttrWriter *w,
-                                        uint32_t         transport) {
+xErrno xStunAttrWriteRequestedTransport(xStunAttrWriter *w, uint32_t transport) {
   uint8_t value[4];
   xWriteU32BE(value, transport);
   return attr_write_raw(w, xStunAttrType_RequestedTransport, value, 4);
@@ -259,8 +249,7 @@ xErrno xStunAttrWriteData(xStunAttrWriter *w, const uint8_t *data, size_t len) {
 
 /* ───────────────────── Error Code ───────────────────── */
 
-xErrno xStunAttrWriteErrorCode(xStunAttrWriter *w, int code,
-                               const char *reason) {
+xErrno xStunAttrWriteErrorCode(xStunAttrWriter *w, int code, const char *reason) {
   if (code < 300 || code > 699) return xErrno_InvalidArg;
 
   size_t   reason_len = reason ? strlen(reason) : 0;
@@ -361,21 +350,20 @@ static xErrno decode_address(const xStunAttr *attr, bool xor_decode,
   return xErrno_Ok;
 }
 
-xErrno xStunAttrDecodeXorMappedAddress(const xStunAttr *attr,
-                                       const uint8_t txn_id[XSTUN_TXN_ID_SIZE],
+xErrno xStunAttrDecodeXorMappedAddress(const xStunAttr         *attr,
+                                       const uint8_t            txn_id[XSTUN_TXN_ID_SIZE],
                                        struct sockaddr_storage *out) {
   return decode_address(attr, true, txn_id, out);
 }
 
-xErrno xStunAttrDecodeMappedAddress(const xStunAttr         *attr,
-                                    struct sockaddr_storage *out) {
+xErrno xStunAttrDecodeMappedAddress(const xStunAttr *attr, struct sockaddr_storage *out) {
   return decode_address(attr, false, NULL, out);
 }
 
 /* ───────────────────── Error Code Decoding ───────────────────── */
 
-xErrno xStunAttrDecodeErrorCode(const xStunAttr *attr, int *code,
-                                const char **reason, size_t *reason_len) {
+xErrno xStunAttrDecodeErrorCode(const xStunAttr *attr, int *code, const char **reason,
+                                size_t *reason_len) {
   if (!attr || !code) return xErrno_InvalidArg;
   if (attr->length < 4) return xErrno_InvalidArg;
 
@@ -399,10 +387,9 @@ xErrno xStunAttrDecodeErrorCode(const xStunAttr *attr, int *code,
 /* ───────────────────── Integrity / Fingerprint Verification
  * ───────────────────── */
 
-xErrno xStunAttrVerifyMessageIntegrity(const uint8_t *msg_buf,
-                                       size_t msg_len __attribute__((unused)),
-                                       const xStunAttr *attr,
-                                       const uint8_t *key, size_t key_len) {
+xErrno xStunAttrVerifyMessageIntegrity(const uint8_t   *msg_buf,
+                                       size_t           msg_len __attribute__((unused)),
+                                       const xStunAttr *attr, const uint8_t *key, size_t key_len) {
   if (!msg_buf || !attr || !key) return xErrno_InvalidArg;
   if (attr->length != XSTUN_SHA1_DIGEST_SIZE) return xErrno_InvalidArg;
 
@@ -420,8 +407,7 @@ xErrno xStunAttrVerifyMessageIntegrity(const uint8_t *msg_buf,
 
   /* Adjust length to include MI attribute */
   uint16_t adjusted_len =
-    (uint16_t)(mi_offset - XSTUN_HEADER_SIZE + XSTUN_ATTR_HEADER_SIZE +
-               XSTUN_SHA1_DIGEST_SIZE);
+    (uint16_t)(mi_offset - XSTUN_HEADER_SIZE + XSTUN_ATTR_HEADER_SIZE + XSTUN_SHA1_DIGEST_SIZE);
   xWriteU16BE(header_copy + 2, adjusted_len);
 
   /*
@@ -435,8 +421,7 @@ xErrno xStunAttrVerifyMessageIntegrity(const uint8_t *msg_buf,
 
   memcpy(tmp, header_copy, XSTUN_HEADER_SIZE);
   if (hash_len > XSTUN_HEADER_SIZE) {
-    memcpy(tmp + XSTUN_HEADER_SIZE, msg_buf + XSTUN_HEADER_SIZE,
-           hash_len - XSTUN_HEADER_SIZE);
+    memcpy(tmp + XSTUN_HEADER_SIZE, msg_buf + XSTUN_HEADER_SIZE, hash_len - XSTUN_HEADER_SIZE);
   }
 
   uint8_t computed[XSTUN_SHA1_DIGEST_SIZE];
@@ -450,8 +435,7 @@ xErrno xStunAttrVerifyMessageIntegrity(const uint8_t *msg_buf,
   return xErrno_Ok;
 }
 
-xErrno xStunAttrVerifyFingerprint(const uint8_t *msg_buf,
-                                  size_t msg_len __attribute__((unused)),
+xErrno xStunAttrVerifyFingerprint(const uint8_t *msg_buf, size_t msg_len __attribute__((unused)),
                                   const xStunAttr *attr) {
   if (!msg_buf || !attr) return xErrno_InvalidArg;
   if (attr->length != 4) return xErrno_InvalidArg;
@@ -462,8 +446,7 @@ xErrno xStunAttrVerifyFingerprint(const uint8_t *msg_buf,
   /* Adjust length to include FINGERPRINT */
   uint8_t header_copy[XSTUN_HEADER_SIZE];
   memcpy(header_copy, msg_buf, XSTUN_HEADER_SIZE);
-  uint16_t adjusted_len =
-    (uint16_t)(fp_offset - XSTUN_HEADER_SIZE + XSTUN_ATTR_HEADER_SIZE + 4);
+  uint16_t adjusted_len = (uint16_t)(fp_offset - XSTUN_HEADER_SIZE + XSTUN_ATTR_HEADER_SIZE + 4);
   xWriteU16BE(header_copy + 2, adjusted_len);
 
   /* CRC over adjusted header + attrs before FINGERPRINT */
@@ -473,8 +456,7 @@ xErrno xStunAttrVerifyFingerprint(const uint8_t *msg_buf,
 
   memcpy(tmp, header_copy, XSTUN_HEADER_SIZE);
   if (crc_len > XSTUN_HEADER_SIZE) {
-    memcpy(tmp + XSTUN_HEADER_SIZE, msg_buf + XSTUN_HEADER_SIZE,
-           crc_len - XSTUN_HEADER_SIZE);
+    memcpy(tmp + XSTUN_HEADER_SIZE, msg_buf + XSTUN_HEADER_SIZE, crc_len - XSTUN_HEADER_SIZE);
   }
 
   uint32_t computed = xCrc32(tmp, crc_len) ^ XSTUN_FINGERPRINT_XOR;

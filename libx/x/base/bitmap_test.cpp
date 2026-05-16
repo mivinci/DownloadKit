@@ -254,11 +254,11 @@ TEST(BitmapTest, Data) {
   xBitmap bm;
   ASSERT_EQ(xBitmapInit(&bm, 16), xErrno_Ok);
 
-  xBitmapSet(&bm, 0);  /* byte 0, bit 0 → 0x01 */
-  xBitmapSet(&bm, 8);  /* byte 1, bit 0 → 0x01 */
+  xBitmapSet(&bm, 0); /* byte 0, bit 0 → 0x01 */
+  xBitmapSet(&bm, 8); /* byte 1, bit 0 → 0x01 */
 
-  uint32_t nbytes = 0;
-  const uint8_t *data = xBitmapData(&bm, &nbytes);
+  uint32_t       nbytes = 0;
+  const uint8_t *data   = xBitmapData(&bm, &nbytes);
   ASSERT_NE(data, nullptr);
   EXPECT_EQ(nbytes, 2u);
   EXPECT_EQ(data[0], 0x01);
@@ -268,8 +268,8 @@ TEST(BitmapTest, Data) {
 }
 
 TEST(BitmapTest, DataNull) {
-  uint32_t nbytes = 42;
-  const uint8_t *data = xBitmapData(nullptr, &nbytes);
+  uint32_t       nbytes = 42;
+  const uint8_t *data   = xBitmapData(nullptr, &nbytes);
   EXPECT_EQ(data, nullptr);
   EXPECT_EQ(nbytes, 0u);
 }
@@ -322,7 +322,7 @@ TEST(BitmapTest, NonAlignedBits) {
 TEST(BitmapTest, LargeBitmap) {
   /* Simulate a 1GB file with 64KB chunks → 16384 chunks → 2KB bitmap */
   const uint32_t nbits = 16384;
-  xBitmap bm;
+  xBitmap        bm;
   ASSERT_EQ(xBitmapInit(&bm, nbits), xErrno_Ok);
   EXPECT_EQ(bm.nbytes, 2048u);
 

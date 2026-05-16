@@ -11,14 +11,14 @@
 #ifndef XPP_OPTION_H
 #define XPP_OPTION_H
 
-#include "panic.h"
+#include <xpp/panic.h>
 
 #include <utility>
 
 namespace xpp {
 
 /** Forward declaration so Option::okOr / okOrElse can name Result. */
-template <typename T, typename E> class Result;
+template <class T, typename E> class Result;
 
 /**
  * @brief Tag for constructing an empty Option.
@@ -36,7 +36,7 @@ constexpr None none{};
  *
  * @tparam T  The value type.
  */
-template <typename T> class Option {
+template <class T> class Option {
 public:
   /** Underlying value type, following std::optional convention. */
   using value_type = T;
@@ -218,13 +218,12 @@ public:
    *
    * Mirrors Rust's Option::map.
    */
-  template <typename Func>
+  template <class Func>
   auto map(Func &&fn) const & -> Option<decltype(fn(std::declval<const T &>()))> {
     using U = decltype(fn(std::declval<const T &>()));
     return m_hasValue ? Option<U>(fn(unwrapUnchecked())) : Option<U>(none);
   }
-  template <typename Func>
-  auto map(Func &&fn) && -> Option<decltype(fn(std::declval<T &&>()))> {
+  template <class Func> auto map(Func &&fn) && -> Option<decltype(fn(std::declval<T &&>()))> {
     using U = decltype(fn(std::declval<T &&>()));
     return m_hasValue ? Option<U>(fn(std::move(unwrapUnchecked()))) : Option<U>(none);
   }
@@ -236,13 +235,12 @@ public:
    * cannot statically constrain this without pulling in is_option.
    * Returns None unchanged.
    */
-  template <typename Func>
+  template <class Func>
   auto andThen(Func &&fn) const & -> decltype(fn(std::declval<const T &>())) {
     using R = decltype(fn(std::declval<const T &>()));
     return m_hasValue ? fn(unwrapUnchecked()) : R(none);
   }
-  template <typename Func>
-  auto andThen(Func &&fn) && -> decltype(fn(std::declval<T &&>())) {
+  template <class Func> auto andThen(Func &&fn) && -> decltype(fn(std::declval<T &&>())) {
     using R = decltype(fn(std::declval<T &&>()));
     return m_hasValue ? fn(std::move(unwrapUnchecked())) : R(none);
   }
@@ -252,10 +250,10 @@ public:
    *
    * Mirrors Rust's Option::or_else.
    */
-  template <typename Func> Option orElse(Func &&fn) const & {
+  template <class Func> Option orElse(Func &&fn) const & {
     return m_hasValue ? *this : fn();
   }
-  template <typename Func> Option orElse(Func &&fn) && {
+  template <class Func> Option orElse(Func &&fn) && {
     return m_hasValue ? Option(std::move(*this)) : fn();
   }
 
@@ -264,7 +262,7 @@ public:
    *
    * Mirrors Rust's Option::unwrap_or_else. Consuming overload only.
    */
-  template <typename Func> T unwrapOrElse(Func &&fn) && {
+  template <class Func> T unwrapOrElse(Func &&fn) && {
     return m_hasValue ? std::move(unwrapUnchecked()) : fn();
   }
 
@@ -274,7 +272,7 @@ public:
    * Mirrors Rust's Option::filter. Consuming overload only — taking
    * Option by value matches Rust's `self` semantics.
    */
-  template <typename Func> Option filter(Func &&pred) && {
+  template <class Func> Option filter(Func &&pred) && {
     if (m_hasValue && pred(unwrapUnchecked())) {
       return Option(std::move(unwrapUnchecked()));
     }
@@ -287,15 +285,15 @@ public:
    * Mirrors Rust's Option::inspect. fn is invoked for side effects
    * (logging, debugging) and its return value is discarded.
    */
-  template <typename Func> Option &inspect(Func &&fn) & {
+  template <class Func> Option &inspect(Func &&fn) & {
     if (m_hasValue) fn(unwrapUnchecked());
     return *this;
   }
-  template <typename Func> const Option &inspect(Func &&fn) const & {
+  template <class Func> const Option &inspect(Func &&fn) const & {
     if (m_hasValue) fn(unwrapUnchecked());
     return *this;
   }
-  template <typename Func> Option inspect(Func &&fn) && {
+  template <class Func> Option inspect(Func &&fn) && {
     if (m_hasValue) fn(unwrapUnchecked());
     return std::move(*this);
   }
@@ -306,14 +304,14 @@ public:
    * Mirrors Rust's Option::ok_or. Caller must have included result.h.
    * Consuming overload only.
    */
-  template <typename E> Result<T, E> okOr(E e) &&;
+  template <class E> Result<T, E> okOr(E e) &&;
 
   /**
    * @brief Same as okOr but error is computed lazily by @p fn.
    *
    * Mirrors Rust's Option::ok_or_else. Caller must have included result.h.
    */
-  template <typename Func> auto okOrElse(Func &&fn) && -> Result<T, decltype(fn())>;
+  template <class Func> auto okOrElse(Func &&fn) && -> Result<T, decltype(fn())>;
 
 private:
   void clear() {
@@ -332,7 +330,7 @@ private:
  *
  * Usage: auto o = Some(42);  // Option<int>
  */
-template <typename T> Option<typename std::decay<T>::type> Some(T &&val) {
+template <class T> Option<typename std::decay<T>::type> Some(T &&val) {
   return Option<typename std::decay<T>::type>(std::forward<T>(val));
 }
 

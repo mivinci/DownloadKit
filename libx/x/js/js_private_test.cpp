@@ -308,8 +308,7 @@ TEST(XjsPrivTagged, SingletonSemanticsThroughAPI) {
 TEST(XjsPrivTagged, Int31InlineRoundTrip) {
   xJSGlobalContextRef ctx = xJSGlobalContextCreate(nullptr);
   /* In-range ints must be inlined — no heap slot, no refcount. */
-  const int32_t samples[] = {
-    0, 1, -1, 42, -42, 123456, -123456, XJS_INT31_MIN, XJS_INT31_MAX};
+  const int32_t samples[] = {0, 1, -1, 42, -42, 123456, -123456, XJS_INT31_MIN, XJS_INT31_MAX};
   for (int32_t x : samples) {
     xJSValueRef v = xJSValueMakeNumber(ctx, (double)x);
     ASSERT_NE(v, nullptr);
@@ -330,9 +329,8 @@ TEST(XjsPrivTagged, Int31OutOfRangeFallsBackToHeap) {
   xJSGlobalContextRef ctx = xJSGlobalContextCreate(nullptr);
   /* XJS_INT31_MAX+1 and XJS_INT31_MIN-1 can't fit in int31 so they
    * should be stored as heap-allocated float64 slots. */
-  const int64_t overs[] = {(int64_t)XJS_INT31_MAX + 1,
-                           (int64_t)XJS_INT31_MIN - 1, (int64_t)INT32_MAX,
-                           (int64_t)INT32_MIN};
+  const int64_t overs[] = {(int64_t)XJS_INT31_MAX + 1, (int64_t)XJS_INT31_MIN - 1,
+                           (int64_t)INT32_MAX, (int64_t)INT32_MIN};
   for (int64_t x : overs) {
     xJSValueRef v = xJSValueMakeNumber(ctx, (double)x);
     ASSERT_NE(v, nullptr);

@@ -56,8 +56,7 @@ static int demo_open_line(Demo *d) {
   }
   int fd = xLineFd(d->line);
   if (fd < 0) {
-    fprintf(stderr, "xLineFd returned %d — not pollable on this platform\n",
-            fd);
+    fprintf(stderr, "xLineFd returned %d — not pollable on this platform\n", fd);
     xLineEnd(d->line);
     d->line = NULL;
     return -1;

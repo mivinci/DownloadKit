@@ -35,9 +35,8 @@ XDEF_STRUCT(xTlsCtxOpenSSL_) {
   int            is_server; /**< Non-zero if server mode */
 };
 
-static int alpn_select_cb(SSL *ssl, const unsigned char **out,
-                          unsigned char *outlen, const unsigned char *in,
-                          unsigned int inlen, void *arg) {
+static int alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen,
+                          const unsigned char *in, unsigned int inlen, void *arg) {
   (void)ssl;
   xTlsCtxOpenSSL_ *ctx = (xTlsCtxOpenSSL_ *)arg;
 
@@ -62,8 +61,7 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *conf) {
   /* Determine mode: server if cert+key provided, client otherwise */
   int is_server = (conf->cert && conf->key) ? 1 : 0;
 
-  SSL_CTX *ssl_ctx =
-    SSL_CTX_new(is_server ? TLS_server_method() : TLS_client_method());
+  SSL_CTX *ssl_ctx = SSL_CTX_new(is_server ? TLS_server_method() : TLS_client_method());
   if (!ssl_ctx) {
     xLog(false, "xnet: SSL_CTX_new failed");
     return NULL;
@@ -82,8 +80,7 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *conf) {
     }
 
     /* Load private key */
-    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, conf->key, SSL_FILETYPE_PEM) !=
-        1) {
+    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, conf->key, SSL_FILETYPE_PEM) != 1) {
       xLog(false, "xnet: failed to load private key: %s", conf->key);
       goto fail;
     }
@@ -106,8 +103,7 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *conf) {
     if (conf->skip_verify) {
       SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
     } else {
-      SSL_CTX_set_verify(
-        ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+      SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
     }
   } else {
     /* ── Client mode ── */
@@ -136,8 +132,7 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *conf) {
       }
     }
     if (conf->key) {
-      if (SSL_CTX_use_PrivateKey_file(ssl_ctx, conf->key, SSL_FILETYPE_PEM) !=
-          1) {
+      if (SSL_CTX_use_PrivateKey_file(ssl_ctx, conf->key, SSL_FILETYPE_PEM) != 1) {
         xLog(false, "xnet: failed to load client key: %s", conf->key);
         goto fail;
       }
@@ -180,8 +175,7 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *conf) {
       SSL_CTX_set_alpn_select_cb(ssl_ctx, alpn_select_cb, ctx);
     } else {
       /* Client: advertise ALPN protocols */
-      SSL_CTX_set_alpn_protos(ssl_ctx, ctx->alpn_wire,
-                              (unsigned int)ctx->alpn_wire_len);
+      SSL_CTX_set_alpn_protos(ssl_ctx, ctx->alpn_wire, (unsigned int)ctx->alpn_wire_len);
     }
   }
 
@@ -203,8 +197,8 @@ void xTlsCtxDestroy(xTlsCtx raw) {
 int xTlsCtxReload(xTlsCtx raw, const xTlsConf *conf) {
   if (!raw || !conf || !conf->cert || !conf->key) return -1;
 
-  xTlsCtxOpenSSL_ *ctx = (xTlsCtxOpenSSL_ *)raw;
-  SSL_CTX *ssl_ctx = ctx->ssl_ctx;
+  xTlsCtxOpenSSL_ *ctx     = (xTlsCtxOpenSSL_ *)raw;
+  SSL_CTX         *ssl_ctx = ctx->ssl_ctx;
 
   /* Load new certificate */
   if (SSL_CTX_use_certificate_chain_file(ssl_ctx, conf->cert) != 1) {
@@ -236,8 +230,7 @@ int xTlsCtxReload(xTlsCtx raw, const xTlsConf *conf) {
   if (conf->skip_verify) {
     SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
   } else {
-    SSL_CTX_set_verify(ssl_ctx,
-                       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
   }
 
   /* Update ALPN if provided */

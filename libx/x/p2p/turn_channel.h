@@ -45,8 +45,8 @@ static inline bool xTurnIsChannelData(uint8_t first_byte) {
  * @param out_cap  Output buffer capacity.
  * @return         Total encoded length, or -1 on error.
  */
-int xTurnChannelDataEncode(uint16_t channel, const uint8_t *data,
-                           uint16_t data_len, uint8_t *out, size_t out_cap);
+int xTurnChannelDataEncode(uint16_t channel, const uint8_t *data, uint16_t data_len, uint8_t *out,
+                           size_t out_cap);
 
 /**
  * @brief Decode a ChannelData message.
@@ -58,8 +58,7 @@ int xTurnChannelDataEncode(uint16_t channel, const uint8_t *data,
  * @param data_len  Output data length.
  * @return          xErrno_Ok on success.
  */
-xErrno xTurnChannelDataDecode(const uint8_t *buf, size_t buf_len,
-                              uint16_t *channel, const uint8_t **data,
-                              uint16_t *data_len);
+xErrno xTurnChannelDataDecode(const uint8_t *buf, size_t buf_len, uint16_t *channel,
+                              const uint8_t **data, uint16_t *data_len);
 
 #endif /* XP2P_TURN_CHANNEL_H */

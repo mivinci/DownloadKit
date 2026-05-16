@@ -75,15 +75,12 @@ XDEF_STRUCT(xCommandConf) {
 
   uint64_t timeout_ms; /**< 0 = no timeout                      */
   size_t   stdout_cap; /**< Max stdout bytes (0 = unlimited)    */
-  size_t
-    stderr_cap; /**< Max stderr bytes (0 = unlimited, ignored in PTY mode) */
+  size_t   stderr_cap; /**< Max stderr bytes (0 = unlimited, ignored in PTY mode) */
 
   xCommandOutputMode stdout_mode;
-  xCommandOutputMode
-    stderr_mode; /**< Ignored in PTY mode (merged into stdout) */
+  xCommandOutputMode stderr_mode; /**< Ignored in PTY mode (merged into stdout) */
 
-  xCommandInputMode
-    input_mode; /**< xCommandInput_Pipe (default) or xCommandInput_Pty */
+  xCommandInputMode input_mode; /**< xCommandInput_Pipe (default) or xCommandInput_Pty */
 };
 
 /* ───────────────────── Result ───────────────────── */
@@ -117,8 +114,7 @@ XDEF_HANDLE(xCommandExecutor);
  * @param len   Number of bytes in @p data.
  * @param ud    User-provided argument.
  */
-typedef void (*xCommandExecutorOutputFunc)(xCommandExecutor exec,
-                                           const char *data, size_t len,
+typedef void (*xCommandExecutorOutputFunc)(xCommandExecutor exec, const char *data, size_t len,
                                            void *ud);
 
 /**
@@ -128,9 +124,8 @@ typedef void (*xCommandExecutorOutputFunc)(xCommandExecutor exec,
  * @param result Pointer to the result (valid only inside this callback).
  * @param ud     User-provided argument.
  */
-typedef void (*xCommandExecutorDoneFunc)(xCommandExecutor      exec,
-                                         const xCommandResult *result,
-                                         void                 *ud);
+typedef void (*xCommandExecutorDoneFunc)(xCommandExecutor exec, const xCommandResult *result,
+                                         void *ud);
 
 /* ───────────────────── Lifecycle ───────────────────── */
 
@@ -175,12 +170,10 @@ XCAPI(void) xCommandExecutorDestroy(xCommandExecutor exec);
  * @param ud        User data forwarded to all callbacks.
  * @return          xErrno_Ok on success, or an error code.
  */
-XCAPI(xErrno) xCommandExecutorSubmit(xCommandExecutor           exec,
-                                     const xCommandConf        *conf,
+XCAPI(xErrno) xCommandExecutorSubmit(xCommandExecutor exec, const xCommandConf *conf,
                                      xCommandExecutorOutputFunc on_stdout,
                                      xCommandExecutorOutputFunc on_stderr,
-                                     xCommandExecutorDoneFunc   on_done,
-                                     void                      *ud);
+                                     xCommandExecutorDoneFunc on_done, void *ud);
 
 /**
  * @brief Cancel a running command.

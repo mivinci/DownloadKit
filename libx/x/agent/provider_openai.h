@@ -49,8 +49,7 @@ XDEF_STRUCT(xAgentOpenAIConf) {
  * @param conf  Provider configuration (must not be NULL).
  * @return      A new provider handle, or NULL on failure.
  */
-XCAPI(xAgentProvider) xAgentProviderOpenAICreate(xEventLoop           loop,
-                                           xHttpClient          http,
-                                           const xAgentOpenAIConf *conf);
+XCAPI(xAgentProvider) xAgentProviderOpenAICreate(xEventLoop loop, xHttpClient http,
+                                                 const xAgentOpenAIConf *conf);
 
 #endif /* XAGENT_PROVIDER_OPENAI_H */

@@ -7,8 +7,8 @@
  */
 
 #include "hmac_sha1.h"
-#include "hmac.h"
 #include "hash_private.h"
+#include "hmac.h"
 #include "sha1.h"
 
 /* ── SHA-1 vtable shims (void* → xSha1Ctx*) ────────────── */
@@ -36,8 +36,7 @@ const xHashVtable xHashVtableSha1 = {
 
 /* ── Convenience wrapper ────────────────────────────────── */
 
-xErrno xHmacSha1(const uint8_t *key, size_t key_len,
-                  const uint8_t *data, size_t data_len,
-                  uint8_t *digest) {
+xErrno xHmacSha1(const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len,
+                 uint8_t *digest) {
   return xHmac(&xHashVtableSha1, key, key_len, data, data_len, digest);
 }

@@ -30,8 +30,7 @@
 
 /* ── Level name table ── */
 
-static const char *level_names[] = {"DEBUG", "INFO ", "WARN ", "ERROR",
-                                    "FATAL"};
+static const char *level_names[] = {"DEBUG", "INFO ", "WARN ", "ERROR", "FATAL"};
 
 /* ── Forward declarations ── */
 
@@ -60,8 +59,7 @@ struct xLogFreeList_ g_entry_freelist = {
 static struct xLogEntry_ *entry_alloc(void) {
   struct xLogEntry_ *e = xAtomicLoad(&g_entry_freelist.head, xAtomicAcquire);
   while (e) {
-    if (xAtomicCasWeak(&g_entry_freelist.head, &e, e->free_next,
-                       xAtomicAcqRel)) {
+    if (xAtomicCasWeak(&g_entry_freelist.head, &e, e->free_next, xAtomicAcqRel)) {
       xAtomicFetchSub(&g_entry_freelist.count, 1, xAtomicRelaxed);
       return e;
     }
@@ -81,8 +79,7 @@ static void entry_free(struct xLogEntry_ *e) {
     return;
   }
   e->free_next = xAtomicLoad(&g_entry_freelist.head, xAtomicRelaxed);
-  while (
-    !xAtomicCasWeak(&g_entry_freelist.head, &e->free_next, e, xAtomicAcqRel)) {
+  while (!xAtomicCasWeak(&g_entry_freelist.head, &e->free_next, e, xAtomicAcqRel)) {
     /* CAS failed, e->free_next is reloaded */
   }
   xAtomicFetchAdd(&g_entry_freelist.count, 1, xAtomicRelaxed);
@@ -98,22 +95,21 @@ xLogger xLoggerCreate(xLoggerConf conf) {
   struct xLogger_ *lg = calloc(1, sizeof(*lg));
   if (!lg) return NULL;
 
-  lg->loop      = conf.loop;
-  lg->mode      = conf.mode;
-  lg->level     = conf.level;
-  lg->max_size  = conf.max_size;
-  lg->max_files = conf.max_files;
-  lg->flush_interval_ms =
-    conf.flush_interval_ms ? conf.flush_interval_ms : XLOG_DEFAULT_FLUSH_MS;
-  lg->head          = NULL;
-  lg->tail          = NULL;
-  lg->timer         = NULL;
-  lg->pipe_rfd      = -1;
-  lg->pipe_wfd      = -1;
-  lg->pipe_src      = NULL;
-  lg->flush_req_rfd = -1;
-  lg->flush_req_wfd = -1;
-  lg->flush_req_src = NULL;
+  lg->loop              = conf.loop;
+  lg->mode              = conf.mode;
+  lg->level             = conf.level;
+  lg->max_size          = conf.max_size;
+  lg->max_files         = conf.max_files;
+  lg->flush_interval_ms = conf.flush_interval_ms ? conf.flush_interval_ms : XLOG_DEFAULT_FLUSH_MS;
+  lg->head              = NULL;
+  lg->tail              = NULL;
+  lg->timer             = NULL;
+  lg->pipe_rfd          = -1;
+  lg->pipe_wfd          = -1;
+  lg->pipe_src          = NULL;
+  lg->flush_req_rfd     = -1;
+  lg->flush_req_wfd     = -1;
+  lg->flush_req_src     = NULL;
 
   /* Copy path */
   if (conf.path) {
@@ -135,8 +131,7 @@ xLogger xLoggerCreate(xLoggerConf conf) {
 
   /* Timer mode: register periodic timer */
   if (lg->mode == xLogMode_Timer || lg->mode == xLogMode_Mixed) {
-    lg->timer = xEventLoopTimerAfter(lg->loop, logger_timer_cb, lg,
-                                     lg->flush_interval_ms);
+    lg->timer = xEventLoopTimerAfter(lg->loop, logger_timer_cb, lg, lg->flush_interval_ms);
     if (!lg->timer) goto fail;
   }
 
@@ -146,8 +141,7 @@ xLogger xLoggerCreate(xLoggerConf conf) {
     if (logger_make_pipe(fds) != 0) goto fail;
     lg->pipe_rfd = fds[0];
     lg->pipe_wfd = fds[1];
-    lg->pipe_src =
-      xEventAdd(lg->loop, lg->pipe_rfd, xEvent_Read, logger_pipe_cb, lg);
+    lg->pipe_src = xEventAdd(lg->loop, lg->pipe_rfd, xEvent_Read, logger_pipe_cb, lg);
     if (!lg->pipe_src) goto fail;
   }
 
@@ -157,8 +151,8 @@ xLogger xLoggerCreate(xLoggerConf conf) {
     if (logger_make_pipe(fds) != 0) goto fail;
     lg->flush_req_rfd = fds[0];
     lg->flush_req_wfd = fds[1];
-    lg->flush_req_src = xEventAdd(lg->loop, lg->flush_req_rfd, xEvent_Read,
-                                  logger_flush_req_cb, lg);
+    lg->flush_req_src =
+      xEventAdd(lg->loop, lg->flush_req_rfd, xEvent_Read, logger_flush_req_cb, lg);
     if (!lg->flush_req_src) goto fail;
   }
 
@@ -239,8 +233,7 @@ static void logger_timer_cb(void *arg) {
   }
 
   /* Re-arm timer */
-  lg->timer =
-    xEventLoopTimerAfter(lg->loop, logger_timer_cb, lg, lg->flush_interval_ms);
+  lg->timer = xEventLoopTimerAfter(lg->loop, logger_timer_cb, lg, lg->flush_interval_ms);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -320,8 +313,7 @@ void xLoggerLog(xLogger logger, xLogLevel level, const char *fmt, ...) {
 
   va_list ap;
   va_start(ap, fmt);
-  int hdr =
-    snprintf(entry->buf, sizeof(entry->buf), "%s %s ", ts, level_names[level]);
+  int hdr = snprintf(entry->buf, sizeof(entry->buf), "%s %s ", ts, level_names[level]);
   if (hdr < 0) hdr = 0;
   if ((size_t)hdr < sizeof(entry->buf)) {
     vsnprintf(entry->buf + hdr, sizeof(entry->buf) - (size_t)hdr, fmt, ap);
@@ -460,8 +452,7 @@ void xLoggerFlush(xLogger logger) {
 
 static __thread xLogger tl_logger;
 
-static void bridge_callback(const char *msg, const char *backtrace,
-                            void *userdata) {
+static void bridge_callback(const char *msg, const char *backtrace, void *userdata) {
   (void)backtrace;
   xLogger logger = (xLogger)userdata;
   if (!logger) return;
@@ -483,8 +474,8 @@ static void bridge_callback(const char *msg, const char *backtrace,
   char ts[32];
   logger_format_timestamp(ts, sizeof(ts));
 
-  int n = snprintf(entry->buf, sizeof(entry->buf), "%s %s %s\n", ts,
-                   level_names[xLogLevel_Info], msg);
+  int n =
+    snprintf(entry->buf, sizeof(entry->buf), "%s %s %s\n", ts, level_names[xLogLevel_Info], msg);
   if (n < 0) n = 0;
   if ((size_t)n >= sizeof(entry->buf)) n = (int)sizeof(entry->buf) - 1;
   entry->len = n;

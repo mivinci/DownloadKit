@@ -34,8 +34,7 @@
 #include <os/lock.h>
 #include <unistd.h>
 /* Darwin private API used by libdispatch for lightweight waits. */
-extern int __ulock_wait(uint32_t op, void *addr, uint64_t val,
-                        uint32_t timeout);
+extern int __ulock_wait(uint32_t op, void *addr, uint64_t val, uint32_t timeout);
 extern int __ulock_wake(uint32_t op, void *addr, uint64_t val);
 #define X_UL_COMPARE_AND_WAIT 1
 #define X_ULF_WAKE_ALL        0x00000100
@@ -57,8 +56,7 @@ XDEF_STRUCT(xNote) {
 };
 
 /** @brief Static initializer for xNote. */
-#define X_NOTE_INIT \
-  { 0 }
+#define X_NOTE_INIT {0}
 
 /**
  * @brief Initialize a note to the pending state.

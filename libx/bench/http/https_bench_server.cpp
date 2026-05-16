@@ -22,10 +22,10 @@
  *   h2load -t4 -c100 -m10 -D 10 https://127.0.0.1:8443/ping
  */
 
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <csignal>
 #include <vector>
 
 extern "C" {
@@ -37,8 +37,7 @@ extern "C" {
 static xEventLoop g_loop = nullptr;
 
 // GET /ping → "pong"
-static void handle_ping(xHttpResponseWriter writer, const xHttpRequest *req,
-                        void *arg) {
+static void handle_ping(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   (void)req;
   (void)arg;
   xHttpResponseSetHeader(writer, "Content-Type", "text/plain");
@@ -47,8 +46,7 @@ static void handle_ping(xHttpResponseWriter writer, const xHttpRequest *req,
 
 // GET /echo?size=N → N bytes of 'x'
 // POST /echo → echo request body
-static void handle_echo(xHttpResponseWriter writer, const xHttpRequest *req,
-                        void *arg) {
+static void handle_echo(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   (void)arg;
 
   if (strcmp(req->method, "POST") == 0) {
@@ -59,8 +57,8 @@ static void handle_echo(xHttpResponseWriter writer, const xHttpRequest *req,
   }
 
   // GET: parse ?size=N from URL
-  size_t size = 64; // default
-  const char *q = strchr(req->url, '?');
+  size_t      size = 64; // default
+  const char *q    = strchr(req->url, '?');
   if (q) {
     const char *sp = strstr(q, "size=");
     if (sp) {
@@ -76,9 +74,9 @@ static void handle_echo(xHttpResponseWriter writer, const xHttpRequest *req,
 }
 
 int main(int argc, char *argv[]) {
-  uint16_t port = 8443;
+  uint16_t    port      = 8443;
   const char *cert_path = "bench_cert.pem";
-  const char *key_path = "bench_key.pem";
+  const char *key_path  = "bench_key.pem";
 
   if (argc > 1) port = (uint16_t)atoi(argv[1]);
   if (argc > 2) cert_path = argv[2];
@@ -91,8 +89,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Watch SIGINT to stop gracefully
-  xEventLoopSignalWatch(g_loop, SIGINT,
-                        [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
+  xEventLoopSignalWatch(g_loop, SIGINT, [](int, void *) { xEventLoopStop(g_loop); }, nullptr);
 
   xHttpServer server = xHttpServerCreate(g_loop);
   if (!server) {
@@ -104,9 +101,9 @@ int main(int argc, char *argv[]) {
   xHttpServerRoute(server, "GET /ping", handle_ping, nullptr);
   xHttpServerRoute(server, "/echo", handle_echo, nullptr);
 
-  xTlsConf tls = {};
-  tls.cert = cert_path;
-  tls.key = key_path;
+  xTlsConf tls    = {};
+  tls.cert        = cert_path;
+  tls.key         = key_path;
   tls.skip_verify = 1; // No client cert required (one-way TLS for benchmarking)
 
   xErrno err = xHttpServerListenTls(server, "0.0.0.0", port, &tls);
@@ -116,8 +113,9 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "  cert: %s\n", cert_path);
     fprintf(stderr, "  key:  %s\n", key_path);
     fprintf(stderr, "Generate with:\n");
-    fprintf(stderr, "  openssl req -x509 -newkey rsa:2048 -keyout %s -out %s "
-                    "-days 365 -nodes -subj '/CN=localhost'\n",
+    fprintf(stderr,
+            "  openssl req -x509 -newkey rsa:2048 -keyout %s -out %s "
+            "-days 365 -nodes -subj '/CN=localhost'\n",
             key_path, cert_path);
     xHttpServerDestroy(server);
     xEventLoopDestroy(g_loop);

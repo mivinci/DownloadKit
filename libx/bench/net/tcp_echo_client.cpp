@@ -29,8 +29,7 @@ extern "C" {
 #include <x/base/time.h>
 }
 
-static double run_client(const char *host, uint16_t port, size_t msg_size,
-                         int64_t num_messages) {
+static double run_client(const char *host, uint16_t port, size_t msg_size, int64_t num_messages) {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) {
     perror("socket");
@@ -40,7 +39,7 @@ static double run_client(const char *host, uint16_t port, size_t msg_size,
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
-  addr.sin_port = htons(port);
+  addr.sin_port   = htons(port);
   inet_pton(AF_INET, host, &addr.sin_addr);
 
   if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
@@ -58,8 +57,7 @@ static double run_client(const char *host, uint16_t port, size_t msg_size,
     // Send
     ssize_t total_sent = 0;
     while (total_sent < (ssize_t)msg_size) {
-      ssize_t n =
-          write(fd, send_buf.data() + total_sent, msg_size - total_sent);
+      ssize_t n = write(fd, send_buf.data() + total_sent, msg_size - total_sent);
       if (n <= 0) {
         if (errno == EINTR) continue;
         perror("write");
@@ -72,8 +70,7 @@ static double run_client(const char *host, uint16_t port, size_t msg_size,
     // Receive echo
     ssize_t total_recv = 0;
     while (total_recv < (ssize_t)msg_size) {
-      ssize_t n =
-          read(fd, recv_buf.data() + total_recv, msg_size - total_recv);
+      ssize_t n = read(fd, recv_buf.data() + total_recv, msg_size - total_recv);
       if (n <= 0) {
         if (errno == EINTR) continue;
         perror("read");
@@ -91,11 +88,11 @@ static double run_client(const char *host, uint16_t port, size_t msg_size,
 }
 
 int main(int argc, char *argv[]) {
-  const char *host = "127.0.0.1";
-  uint16_t port = 9000;
-  size_t msg_size = 128;
-  int64_t num_messages = 100000;
-  int concurrency = 1;
+  const char *host         = "127.0.0.1";
+  uint16_t    port         = 9000;
+  size_t      msg_size     = 128;
+  int64_t     num_messages = 100000;
+  int         concurrency  = 1;
 
   if (argc > 1) host = argv[1];
   if (argc > 2) port = (uint16_t)atoi(argv[2]);
@@ -112,20 +109,20 @@ int main(int argc, char *argv[]) {
   int64_t msgs_per_conn = num_messages / concurrency;
 
   std::vector<std::thread> threads;
-  std::vector<double> durations(concurrency);
+  std::vector<double>      durations(concurrency);
 
   uint64_t wall_start = xMonoMs();
 
   for (int c = 0; c < concurrency; c++) {
-    threads.emplace_back([&, c]() {
-      durations[c] = run_client(host, port, msg_size, msgs_per_conn);
-    });
+    threads.emplace_back(
+      [&, c]() { durations[c] = run_client(host, port, msg_size, msgs_per_conn); });
   }
 
-  for (auto &t : threads) t.join();
+  for (auto &t : threads)
+    t.join();
 
   uint64_t wall_end = xMonoMs();
-  double wall_ms = (double)(wall_end - wall_start);
+  double   wall_ms  = (double)(wall_end - wall_start);
 
   // Check for errors
   for (int c = 0; c < concurrency; c++) {
@@ -135,11 +132,11 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  int64_t total_msgs = msgs_per_conn * concurrency;
-  double total_bytes = (double)total_msgs * (double)msg_size * 2.0; // send+recv
-  double throughput_msgs = (double)total_msgs / (wall_ms / 1000.0);
-  double throughput_mb = total_bytes / (wall_ms / 1000.0) / (1024.0 * 1024.0);
-  double avg_rtt_us = wall_ms * 1000.0 / (double)total_msgs;
+  int64_t total_msgs      = msgs_per_conn * concurrency;
+  double  total_bytes     = (double)total_msgs * (double)msg_size * 2.0; // send+recv
+  double  throughput_msgs = (double)total_msgs / (wall_ms / 1000.0);
+  double  throughput_mb   = total_bytes / (wall_ms / 1000.0) / (1024.0 * 1024.0);
+  double  avg_rtt_us      = wall_ms * 1000.0 / (double)total_msgs;
 
   fprintf(stdout, "\n=== Results ===\n");
   fprintf(stdout, "Wall time:       %.2f ms\n", wall_ms);

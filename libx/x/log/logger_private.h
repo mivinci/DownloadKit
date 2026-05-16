@@ -28,11 +28,11 @@
 /* ── Log entry (queued per message) ── */
 
 struct xLogEntry_ {
-  xMpsc     node;                     /**< MPSC queue linkage              */
-  xLogLevel level;                    /**< Severity of this entry          */
-  int       len;                      /**< Bytes written into buf (excl NUL) */
-  char      buf[XLOG_ENTRY_BUF_SIZE]; /**< Pre-formatted message         */
-  struct xLogEntry_ *free_next;       /**< Freelist linkage                */
+  xMpsc              node;                     /**< MPSC queue linkage              */
+  xLogLevel          level;                    /**< Severity of this entry          */
+  int                len;                      /**< Bytes written into buf (excl NUL) */
+  char               buf[XLOG_ENTRY_BUF_SIZE]; /**< Pre-formatted message         */
+  struct xLogEntry_ *free_next;                /**< Freelist linkage                */
 };
 
 /* ── Global lock-free freelist ──

@@ -54,8 +54,7 @@
  * @param type   Type of the enclosing struct.
  * @param member Name of the member field inside @p type.
  */
-#define xContainerOf(ptr, type, member) \
-  ((type *)((char *)(ptr) - offsetof(type, member)))
+#define xContainerOf(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 
 #ifndef __cplusplus
 #ifdef __STDC_VERSION__ /* C99 and later */

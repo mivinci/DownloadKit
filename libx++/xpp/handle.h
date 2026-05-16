@@ -32,7 +32,7 @@ struct FromRaw {};
  *   - Deleted copy
  *   - handle() accessor + bool conversion
  */
-template <typename T, void (*Drop)(T)> class Handle {
+template <class T, void (*Drop)(T)> class Handle {
 public:
   /** @brief Default-constructs a null handle. */
   constexpr Handle() noexcept = default;

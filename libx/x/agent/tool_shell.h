@@ -41,8 +41,7 @@
  * @param cwd      Working directory (may be NULL = inherit).
  * @param ud       The callback_ud pointer from xAgentShellConf.
  */
-typedef void (*xAgentShellOnCommandFunc)(const char *command, const char *cwd,
-                                      void *ud);
+typedef void (*xAgentShellOnCommandFunc)(const char *command, const char *cwd, void *ud);
 
 /**
  * @brief Called after the shell command finishes.
@@ -56,9 +55,8 @@ typedef void (*xAgentShellOnCommandFunc)(const char *command, const char *cwd,
  * @param timed_out    Non-zero if the command exceeded its timeout.
  * @param ud           The callback_ud pointer from xAgentShellConf.
  */
-typedef void (*xAgentShellOnResultFunc)(int exit_code, size_t stdout_len,
-                                     size_t stderr_len, int timed_out,
-                                     void *ud);
+typedef void (*xAgentShellOnResultFunc)(int exit_code, size_t stdout_len, size_t stderr_len,
+                                        int timed_out, void *ud);
 
 /**
  * @brief Called for each chunk of streaming output from the running command.
@@ -70,8 +68,7 @@ typedef void (*xAgentShellOnResultFunc)(int exit_code, size_t stdout_len,
  * @param is_stderr  Non-zero if this chunk came from stderr.
  * @param ud    The callback_ud pointer from xAgentShellConf.
  */
-typedef void (*xAgentShellOnOutputFunc)(const char *data, size_t len,
-                                     int is_stderr, void *ud);
+typedef void (*xAgentShellOnOutputFunc)(const char *data, size_t len, int is_stderr, void *ud);
 
 /**
  * @brief Configuration for xAgentToolShellCreate().
@@ -86,7 +83,7 @@ XDEF_STRUCT(xAgentShellConf) {
   xAgentShellOnCommandFunc on_command;  /**< Optional: called before exec    */
   xAgentShellOnResultFunc  on_result;   /**< Optional: called after exec     */
   xAgentShellOnOutputFunc  on_stream;   /**< Optional: streaming output       */
-  void                 *callback_ud; /**< Forwarded to on_command/on_result/on_stream */
+  void                    *callback_ud; /**< Forwarded to on_command/on_result/on_stream */
 };
 
 /**

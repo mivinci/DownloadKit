@@ -100,8 +100,7 @@ static int is_space_char(char x) {
 }
 
 static int is_word_char(char x) {
-  return (x >= '0' && x <= '9') || (x >= 'A' && x <= 'Z') ||
-         (x >= 'a' && x <= 'z');
+  return (x >= '0' && x <= '9') || (x >= 'A' && x <= 'Z') || (x >= 'a' && x <= 'z');
 }
 
 /* ── Style-toggle helpers ──────────────────────────────────────── */
@@ -156,15 +155,15 @@ void xMdFeed(xMd *md, const char *data, size_t len) {
    * prepend the stashed bytes so the for-loop sees a complete
    * character.  We use a small on-stack buffer: up to 3 pending
    * bytes + the current chunk. */
-  char  stitch[3 + len];  /* VLA, len is caller-controlled */
+  char        stitch[3 + len]; /* VLA, len is caller-controlled */
   const char *cur;
-  size_t cur_len;
+  size_t      cur_len;
 
   if (md->utf8_pending_n > 0) {
     memcpy(stitch, md->utf8_pending, md->utf8_pending_n);
     memcpy(stitch + md->utf8_pending_n, data, len);
-    cur     = stitch;
-    cur_len = md->utf8_pending_n + len;
+    cur                = stitch;
+    cur_len            = md->utf8_pending_n + len;
     md->utf8_pending_n = 0;
   } else {
     cur     = data;
@@ -194,18 +193,21 @@ void xMdFeed(xMd *md, const char *data, size_t len) {
   if (cur_len > 0) {
     const unsigned char *base = (const unsigned char *)cur;
     const unsigned char *tail = base + cur_len;
-    const unsigned char *p = tail - 1;
+    const unsigned char *p    = tail - 1;
 
     /* Find the last non-continuation byte. */
     while (p > base && (*p & 0xC0) == 0x80)
       --p;
 
-    unsigned char lead = *p;
-    size_t seq_len = 1;  /* default: ASCII or orphan continuation */
+    unsigned char lead    = *p;
+    size_t        seq_len = 1; /* default: ASCII or orphan continuation */
 
-    if      (lead >= 0xF0) seq_len = 4;
-    else if (lead >= 0xE0) seq_len = 3;
-    else if (lead >= 0xC0) seq_len = 2;
+    if (lead >= 0xF0)
+      seq_len = 4;
+    else if (lead >= 0xE0)
+      seq_len = 3;
+    else if (lead >= 0xC0)
+      seq_len = 2;
 
     size_t avail = (size_t)(tail - p);
     if (seq_len > 1 && avail < seq_len) {
@@ -508,15 +510,14 @@ void xMdFeed(xMd *md, const char *data, size_t len) {
         while (end < cur_len) {
           char nc = cur[end];
           /* Stop at any byte that needs special handling. */
-          if (nc == '\\' || nc == '*' || nc == '_' || nc == '`' ||
-              nc == '#' || nc == '\n') {
+          if (nc == '\\' || nc == '*' || nc == '_' || nc == '`' || nc == '#' || nc == '\n') {
             break;
           }
           end++;
         }
         raw_n(md, cur + start, end - start);
         md->bol = 0;
-        i = end - 1; /* for-loop will ++i, so advance to end-1 */
+        i       = end - 1; /* for-loop will ++i, so advance to end-1 */
       }
       continue;
     }
@@ -584,8 +585,8 @@ void xMdFlush(xMd *md) {
   /* fence left open is an honest-to-god malformed stream; reset
    * state but don't emit anything - the raw bytes already hit the
    * sink faithfully. */
-  md->fence = 0;
-  md->bol   = 1;
+  md->fence          = 0;
+  md->bol            = 1;
   md->utf8_pending_n = 0;
 }
 
@@ -595,6 +596,6 @@ void xMdReset(xMd *md) {
     raw_n(md, "\x1b[0m", 4);
   }
   md->bold = md->italic = md->code = md->heading = md->fence = 0;
-  md->bol  = 1;
-  md->utf8_pending_n = 0;
+  md->bol                                                    = 1;
+  md->utf8_pending_n                                         = 0;
 }

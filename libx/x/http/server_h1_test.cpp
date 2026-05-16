@@ -73,36 +73,29 @@ TEST_F(HttpServerTest, SetMaxBodySize) {
 static void dummy_handler(xHttpResponseWriter, const xHttpRequest *, void *) {}
 
 TEST_F(HttpServerTest, RouteRegistration) {
-  EXPECT_EQ(xHttpServerRoute(server, "GET /test", dummy_handler, nullptr),
-            xErrno_Ok);
-  EXPECT_EQ(xHttpServerRoute(server, "/any", dummy_handler, nullptr),
-            xErrno_Ok);
+  EXPECT_EQ(xHttpServerRoute(server, "GET /test", dummy_handler, nullptr), xErrno_Ok);
+  EXPECT_EQ(xHttpServerRoute(server, "/any", dummy_handler, nullptr), xErrno_Ok);
 }
 
 TEST_F(HttpServerTest, RouteNullPathReturnsError) {
-  EXPECT_EQ(xHttpServerRoute(server, nullptr, dummy_handler, nullptr),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xHttpServerRoute(server, nullptr, dummy_handler, nullptr), xErrno_InvalidArg);
 }
 
 TEST_F(HttpServerTest, RouteNullHandlerReturnsError) {
-  EXPECT_EQ(xHttpServerRoute(server, "GET /test", nullptr, nullptr),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xHttpServerRoute(server, "GET /test", nullptr, nullptr), xErrno_InvalidArg);
 }
 
 TEST_F(HttpServerTest, RouteNullServerReturnsError) {
-  EXPECT_EQ(xHttpServerRoute(nullptr, "GET /test", dummy_handler, nullptr),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xHttpServerRoute(nullptr, "GET /test", dummy_handler, nullptr), xErrno_InvalidArg);
 }
 
 /* ───────────────────── Basic GET request ───────────────────── */
 
-static void echo_handler(xHttpResponseWriter writer, const xHttpRequest *req,
-                         void *arg) {
+static void echo_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   auto *ctx        = static_cast<HandlerCtx *>(arg);
   ctx->last_method = req->method;
   ctx->last_url    = req->url;
-  if (req->body && req->body_len > 0)
-    ctx->last_body.assign(req->body, req->body_len);
+  if (req->body && req->body_len > 0) ctx->last_body.assign(req->body, req->body_len);
   ctx->call_count.fetch_add(1, std::memory_order_release);
 
   const char *body = "Hello, World!";
@@ -139,13 +132,11 @@ TEST_F(HttpServerTest, BasicGetRequest) {
 
 /* ───────────────────── POST request with body ───────────────────── */
 
-static void body_echo_handler(xHttpResponseWriter writer,
-                              const xHttpRequest *req, void *arg) {
+static void body_echo_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   auto *ctx        = static_cast<HandlerCtx *>(arg);
   ctx->last_method = req->method;
   ctx->last_url    = req->url;
-  if (req->body && req->body_len > 0)
-    ctx->last_body.assign(req->body, req->body_len);
+  if (req->body && req->body_len > 0) ctx->last_body.assign(req->body, req->body_len);
   ctx->call_count.fetch_add(1, std::memory_order_release);
 
   /* Echo the body back */
@@ -223,8 +214,7 @@ TEST_F(HttpServerTest, MethodNotAllowedResponse) {
   std::string response = recv_all(fd);
   close(fd);
 
-  EXPECT_NE(response.find("HTTP/1.1 405 Method Not Allowed"),
-            std::string::npos);
+  EXPECT_NE(response.find("HTTP/1.1 405 Method Not Allowed"), std::string::npos);
 }
 
 /* ───────────────────── Keep-alive connection reuse ───────────────────── */
@@ -265,8 +255,7 @@ TEST_F(HttpServerTest, DefaultResponseWhenHandlerDoesNotSend) {
     /* Handler does nothing — server should auto-send 200 OK */
   };
 
-  xHttpServerRoute(server, "GET /noop", (xHttpHandlerFunc)noop_handler,
-                   nullptr);
+  xHttpServerRoute(server, "GET /noop", (xHttpHandlerFunc)noop_handler, nullptr);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -439,8 +428,7 @@ TEST_F(HttpServerTest, DestroyWithActiveConnections) {
 
 /* ───────────────────── Streaming response (xHttpResponseWrite) ───────── */
 
-static void stream_handler(xHttpResponseWriter writer, const xHttpRequest *req,
-                           void *arg) {
+static void stream_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   (void)req;
   auto *ctx = static_cast<HandlerCtx *>(arg);
   ctx->call_count.fetch_add(1, std::memory_order_release);
@@ -472,8 +460,7 @@ TEST_F(HttpServerTest, StreamingResponse) {
 
   EXPECT_EQ(ctx.call_count.load(), 1);
   EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
-  EXPECT_NE(response.find("Content-Type: text/event-stream"),
-            std::string::npos);
+  EXPECT_NE(response.find("Content-Type: text/event-stream"), std::string::npos);
   EXPECT_NE(response.find("Connection: close"), std::string::npos);
   EXPECT_NE(response.find("data: hello"), std::string::npos);
   EXPECT_NE(response.find("data: world"), std::string::npos);
@@ -483,8 +470,7 @@ TEST_F(HttpServerTest, StreamingResponse) {
 
 /* ───────────────────── Streaming auto-end on handler return ─────────── */
 
-static void stream_no_end_handler(xHttpResponseWriter writer,
-                                  const xHttpRequest *req, void *arg) {
+static void stream_no_end_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   (void)req;
   auto *ctx = static_cast<HandlerCtx *>(arg);
   ctx->call_count.fetch_add(1, std::memory_order_release);
@@ -519,8 +505,8 @@ TEST_F(HttpServerTest, StreamingAutoEnd) {
 
 /* ───────────────────── Write and Send are mutually exclusive ─────────── */
 
-static void write_then_send_handler(xHttpResponseWriter writer,
-                                    const xHttpRequest *req, void *arg) {
+static void write_then_send_handler(xHttpResponseWriter writer, const xHttpRequest *req,
+                                    void *arg) {
   (void)req;
   (void)arg;
   xHttpResponseWrite(writer, "data", 4);
@@ -554,8 +540,7 @@ TEST_F(HttpServerTest, WriteAndSendMutuallyExclusive) {
 
 /* ───────────────────── Parameterized route: /users/:id ───────────────── */
 
-static void param_handler(xHttpResponseWriter writer, const xHttpRequest *req,
-                          void *arg) {
+static void param_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   auto *ctx = static_cast<ParamHandlerCtx *>(arg);
   ctx->call_count.fetch_add(1, std::memory_order_release);
 
@@ -615,8 +600,7 @@ TEST_F(HttpServerTest, ParamRouteStringId) {
 
 /* ───────────────────── Multiple params: /users/:id/posts/:pid ────────── */
 
-static void multi_param_handler(xHttpResponseWriter writer,
-                                const xHttpRequest *req, void *arg) {
+static void multi_param_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   auto *ctx = static_cast<ParamHandlerCtx *>(arg);
   ctx->call_count.fetch_add(1, std::memory_order_release);
 
@@ -627,16 +611,15 @@ static void multi_param_handler(xHttpResponseWriter writer,
   if (action && action_len > 0) ctx->param_action.assign(action, action_len);
 
   char body[256];
-  int  blen = snprintf(body, sizeof(body), "id=%s,action=%s",
-                       ctx->param_id.c_str(), ctx->param_action.c_str());
+  int  blen = snprintf(body, sizeof(body), "id=%s,action=%s", ctx->param_id.c_str(),
+                       ctx->param_action.c_str());
   xHttpResponseSetStatus(writer, 200);
   xHttpResponseSend(writer, body, (size_t)blen);
 }
 
 TEST_F(HttpServerTest, ParamRouteMultipleParams) {
   ParamHandlerCtx ctx;
-  xHttpServerRoute(server, "GET /users/:id/:action", multi_param_handler,
-                   &ctx);
+  xHttpServerRoute(server, "GET /users/:id/:action", multi_param_handler, &ctx);
   listen_and_pump();
 
   int fd = connect_to(port);
@@ -681,8 +664,7 @@ TEST_F(HttpServerTest, ParamRouteExtraSegments404) {
 
 /* ───────────────────── Param route: missing param returns NULL ───────── */
 
-static void missing_param_handler(xHttpResponseWriter writer,
-                                  const xHttpRequest *req, void *arg) {
+static void missing_param_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
   auto *ctx = static_cast<ParamHandlerCtx *>(arg);
   ctx->call_count.fetch_add(1, std::memory_order_release);
 

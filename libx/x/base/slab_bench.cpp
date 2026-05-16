@@ -60,23 +60,27 @@ BENCHMARK(BM_Calloc_AllocFree);
 /* ───────── Batch alloc then batch free (more realistic) ───────── */
 
 static void BM_Slab_Batch(benchmark::State &state) {
-  const int64_t      n = state.range(0);
-  xSlab             *s = xSlabCreate(sizeof(Obj64), 16, 0);
+  const int64_t       n = state.range(0);
+  xSlab              *s = xSlabCreate(sizeof(Obj64), 16, 0);
   std::vector<void *> ptrs(n);
   for (auto _ : state) {
-    for (int64_t i = 0; i < n; i++) ptrs[i] = xSlabAlloc(s);
-    for (int64_t i = 0; i < n; i++) xSlabFree(s, ptrs[i]);
+    for (int64_t i = 0; i < n; i++)
+      ptrs[i] = xSlabAlloc(s);
+    for (int64_t i = 0; i < n; i++)
+      xSlabFree(s, ptrs[i]);
   }
   xSlabDestroy(s);
 }
 BENCHMARK(BM_Slab_Batch)->Arg(16)->Arg(256)->Arg(4096);
 
 static void BM_Malloc_Batch(benchmark::State &state) {
-  const int64_t      n = state.range(0);
+  const int64_t       n = state.range(0);
   std::vector<void *> ptrs(n);
   for (auto _ : state) {
-    for (int64_t i = 0; i < n; i++) ptrs[i] = malloc(sizeof(Obj64));
-    for (int64_t i = 0; i < n; i++) free(ptrs[i]);
+    for (int64_t i = 0; i < n; i++)
+      ptrs[i] = malloc(sizeof(Obj64));
+    for (int64_t i = 0; i < n; i++)
+      free(ptrs[i]);
   }
 }
 BENCHMARK(BM_Malloc_Batch)->Arg(16)->Arg(256)->Arg(4096);

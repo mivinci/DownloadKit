@@ -36,9 +36,8 @@
 extern "C" {
 #endif
 
-void banner_print(const char *version, const char *model_label,
-                  const char *tools_label, const char *data_dir,
-                  int no_models);
+void banner_print(const char *version, const char *model_label, const char *tools_label,
+                  const char *data_dir, int no_models);
 
 #ifdef __cplusplus
 }

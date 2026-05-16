@@ -110,52 +110,44 @@ enum {
  * Class callbacks  (prototypes needed before xJSClassDefinition)
  * ═══════════════════════════════════════════════════════════════════ */
 
-typedef void (*xJSObjectInitializeCallback)(xJSContextRef ctx,
-                                            xJSObjectRef  object);
+typedef void (*xJSObjectInitializeCallback)(xJSContextRef ctx, xJSObjectRef object);
 
 typedef void (*xJSObjectFinalizeCallback)(xJSObjectRef object);
 
-typedef bool (*xJSObjectHasPropertyCallback)(xJSContextRef ctx,
-                                             xJSObjectRef  object,
-                                             xJSStringRef  propertyName);
+typedef bool (*xJSObjectHasPropertyCallback)(xJSContextRef ctx, xJSObjectRef object,
+                                             xJSStringRef propertyName);
 
-typedef xJSValueRef (*xJSObjectGetPropertyCallback)(xJSContextRef ctx,
-                                                    xJSObjectRef  object,
-                                                    xJSStringRef  propertyName,
-                                                    xJSValueRef  *exception);
+typedef xJSValueRef (*xJSObjectGetPropertyCallback)(xJSContextRef ctx, xJSObjectRef object,
+                                                    xJSStringRef propertyName,
+                                                    xJSValueRef *exception);
 
-typedef bool (*xJSObjectSetPropertyCallback)(xJSContextRef ctx,
-                                             xJSObjectRef  object,
-                                             xJSStringRef  propertyName,
-                                             xJSValueRef   value,
-                                             xJSValueRef  *exception);
+typedef bool (*xJSObjectSetPropertyCallback)(xJSContextRef ctx, xJSObjectRef object,
+                                             xJSStringRef propertyName, xJSValueRef value,
+                                             xJSValueRef *exception);
 
-typedef bool (*xJSObjectDeletePropertyCallback)(xJSContextRef ctx,
-                                                xJSObjectRef  object,
-                                                xJSStringRef  propertyName,
-                                                xJSValueRef  *exception);
+typedef bool (*xJSObjectDeletePropertyCallback)(xJSContextRef ctx, xJSObjectRef object,
+                                                xJSStringRef propertyName, xJSValueRef *exception);
 
-typedef void (*xJSObjectGetPropertyNamesCallback)(
-  xJSContextRef ctx, xJSObjectRef object,
-  xJSPropertyNameAccumulatorRef propertyNames);
+typedef void (*xJSObjectGetPropertyNamesCallback)(xJSContextRef ctx, xJSObjectRef object,
+                                                  xJSPropertyNameAccumulatorRef propertyNames);
 
-typedef xJSValueRef (*xJSObjectCallAsFunctionCallback)(
-  xJSContextRef ctx, xJSObjectRef function, xJSObjectRef thisObject,
-  size_t argumentCount, const xJSValueRef arguments[], xJSValueRef *exception);
+typedef xJSValueRef (*xJSObjectCallAsFunctionCallback)(xJSContextRef ctx, xJSObjectRef function,
+                                                       xJSObjectRef      thisObject,
+                                                       size_t            argumentCount,
+                                                       const xJSValueRef arguments[],
+                                                       xJSValueRef      *exception);
 
-typedef xJSObjectRef (*xJSObjectCallAsConstructorCallback)(
-  xJSContextRef ctx, xJSObjectRef constructor, size_t argumentCount,
-  const xJSValueRef arguments[], xJSValueRef *exception);
+typedef xJSObjectRef (*xJSObjectCallAsConstructorCallback)(xJSContextRef     ctx,
+                                                           xJSObjectRef      constructor,
+                                                           size_t            argumentCount,
+                                                           const xJSValueRef arguments[],
+                                                           xJSValueRef      *exception);
 
-typedef bool (*xJSObjectHasInstanceCallback)(xJSContextRef ctx,
-                                             xJSObjectRef  constructor,
-                                             xJSValueRef   possibleInstance,
-                                             xJSValueRef  *exception);
+typedef bool (*xJSObjectHasInstanceCallback)(xJSContextRef ctx, xJSObjectRef constructor,
+                                             xJSValueRef possibleInstance, xJSValueRef *exception);
 
-typedef xJSValueRef (*xJSObjectConvertToTypeCallback)(xJSContextRef ctx,
-                                                      xJSObjectRef  object,
-                                                      xJSType       type,
-                                                      xJSValueRef  *exception);
+typedef xJSValueRef (*xJSObjectConvertToTypeCallback)(xJSContextRef ctx, xJSObjectRef object,
+                                                      xJSType type, xJSValueRef *exception);
 
 /** Static function entry for xJSClassDefinition::staticFunctions. */
 XDEF_STRUCT(xJSStaticFunction) {
@@ -229,8 +221,7 @@ xJSGlobalContextCreate(xJSClassRef globalObjectClass);
 
 /** Create a global execution context in the given group. */
 XCAPI(xJSGlobalContextRef)
-xJSGlobalContextCreateInGroup(xJSContextGroupRef group,
-                              xJSClassRef        globalObjectClass);
+xJSGlobalContextCreateInGroup(xJSContextGroupRef group, xJSClassRef globalObjectClass);
 
 XCAPI(xJSGlobalContextRef) xJSGlobalContextRetain(xJSGlobalContextRef ctx);
 XCAPI(void)                xJSGlobalContextRelease(xJSGlobalContextRef ctx);
@@ -241,7 +232,7 @@ XCAPI(xJSGlobalContextRef)
 xJSContextGetGlobalContext(xJSContextRef ctx);
 
 XCAPI(xJSStringRef) xJSGlobalContextCopyName(xJSGlobalContextRef ctx);
-XCAPI(void) xJSGlobalContextSetName(xJSGlobalContextRef ctx, xJSStringRef name);
+XCAPI(void)         xJSGlobalContextSetName(xJSGlobalContextRef ctx, xJSStringRef name);
 
 /* ═══════════════════════════════════════════════════════════════════
  * Value: type queries & construction
@@ -256,43 +247,34 @@ XCAPI(bool) xJSValueIsNumber(xJSContextRef ctx, xJSValueRef value);
 XCAPI(bool) xJSValueIsString(xJSContextRef ctx, xJSValueRef value);
 XCAPI(bool) xJSValueIsSymbol(xJSContextRef ctx, xJSValueRef value);
 XCAPI(bool) xJSValueIsObject(xJSContextRef ctx, xJSValueRef value);
-XCAPI(bool) xJSValueIsObjectOfClass(xJSContextRef ctx, xJSValueRef value,
-                                    xJSClassRef jsClass);
+XCAPI(bool) xJSValueIsObjectOfClass(xJSContextRef ctx, xJSValueRef value, xJSClassRef jsClass);
 XCAPI(bool) xJSValueIsArray(xJSContextRef ctx, xJSValueRef value);
 XCAPI(bool) xJSValueIsDate(xJSContextRef ctx, xJSValueRef value);
 
 XCAPI(bool) xJSValueIsEqual(xJSContextRef ctx, xJSValueRef a, xJSValueRef b,
                             xJSValueRef *exception);
-XCAPI(bool) xJSValueIsStrictEqual(xJSContextRef ctx, xJSValueRef a,
-                                  xJSValueRef b);
-XCAPI(bool) xJSValueIsInstanceOfConstructor(xJSContextRef ctx,
-                                            xJSValueRef   value,
-                                            xJSObjectRef  constructor,
-                                            xJSValueRef  *exception);
+XCAPI(bool) xJSValueIsStrictEqual(xJSContextRef ctx, xJSValueRef a, xJSValueRef b);
+XCAPI(bool) xJSValueIsInstanceOfConstructor(xJSContextRef ctx, xJSValueRef value,
+                                            xJSObjectRef constructor, xJSValueRef *exception);
 
 XCAPI(xJSValueRef) xJSValueMakeUndefined(xJSContextRef ctx);
 XCAPI(xJSValueRef) xJSValueMakeNull(xJSContextRef ctx);
 XCAPI(xJSValueRef) xJSValueMakeBoolean(xJSContextRef ctx, bool value);
 XCAPI(xJSValueRef) xJSValueMakeNumber(xJSContextRef ctx, double value);
 XCAPI(xJSValueRef) xJSValueMakeString(xJSContextRef ctx, xJSStringRef s);
-XCAPI(xJSValueRef) xJSValueMakeSymbol(xJSContextRef ctx,
-                                      xJSStringRef  description);
+XCAPI(xJSValueRef) xJSValueMakeSymbol(xJSContextRef ctx, xJSStringRef description);
 
 /* JSON bridge. */
-XCAPI(xJSValueRef)  xJSValueMakeFromJSONString(xJSContextRef ctx,
-                                               xJSStringRef  json);
-XCAPI(xJSStringRef) xJSValueCreateJSONString(xJSContextRef ctx,
-                                             xJSValueRef value, unsigned indent,
+XCAPI(xJSValueRef)  xJSValueMakeFromJSONString(xJSContextRef ctx, xJSStringRef json);
+XCAPI(xJSStringRef) xJSValueCreateJSONString(xJSContextRef ctx, xJSValueRef value, unsigned indent,
                                              xJSValueRef *exception);
 
 /* Conversions.  "Copy" in the name means the caller owns the result. */
 XCAPI(bool)         xJSValueToBoolean(xJSContextRef ctx, xJSValueRef value);
-XCAPI(double)       xJSValueToNumber(xJSContextRef ctx, xJSValueRef value,
-                                     xJSValueRef *exception);
+XCAPI(double)       xJSValueToNumber(xJSContextRef ctx, xJSValueRef value, xJSValueRef *exception);
 XCAPI(xJSStringRef) xJSValueToStringCopy(xJSContextRef ctx, xJSValueRef value,
                                          xJSValueRef *exception);
-XCAPI(xJSObjectRef) xJSValueToObject(xJSContextRef ctx, xJSValueRef value,
-                                     xJSValueRef *exception);
+XCAPI(xJSObjectRef) xJSValueToObject(xJSContextRef ctx, xJSValueRef value, xJSValueRef *exception);
 
 /* GC rooting (retain JS values across JS API boundaries). */
 XCAPI(void) xJSValueProtect(xJSContextRef ctx, xJSValueRef value);
@@ -306,84 +288,70 @@ XCAPI(xJSObjectRef)
 xJSObjectMake(xJSContextRef ctx, xJSClassRef jsClass, void *data);
 
 XCAPI(xJSObjectRef)
-xJSObjectMakeFunctionWithCallback(
-  xJSContextRef ctx, xJSStringRef name,
-  xJSObjectCallAsFunctionCallback callAsFunction);
+xJSObjectMakeFunctionWithCallback(xJSContextRef ctx, xJSStringRef name,
+                                  xJSObjectCallAsFunctionCallback callAsFunction);
 
 XCAPI(xJSObjectRef)
 xJSObjectMakeConstructor(xJSContextRef ctx, xJSClassRef jsClass,
                          xJSObjectCallAsConstructorCallback callAsConstructor);
 
 XCAPI(xJSObjectRef)
-xJSObjectMakeArray(xJSContextRef ctx, size_t argumentCount,
-                   const xJSValueRef arguments[], xJSValueRef *exception);
+xJSObjectMakeArray(xJSContextRef ctx, size_t argumentCount, const xJSValueRef arguments[],
+                   xJSValueRef *exception);
 
 XCAPI(xJSObjectRef)
-xJSObjectMakeDate(xJSContextRef ctx, size_t argumentCount,
-                  const xJSValueRef arguments[], xJSValueRef *exception);
+xJSObjectMakeDate(xJSContextRef ctx, size_t argumentCount, const xJSValueRef arguments[],
+                  xJSValueRef *exception);
 
 XCAPI(xJSObjectRef)
-xJSObjectMakeError(xJSContextRef ctx, size_t argumentCount,
-                   const xJSValueRef arguments[], xJSValueRef *exception);
+xJSObjectMakeError(xJSContextRef ctx, size_t argumentCount, const xJSValueRef arguments[],
+                   xJSValueRef *exception);
 
 XCAPI(xJSObjectRef)
-xJSObjectMakeRegExp(xJSContextRef ctx, size_t argumentCount,
-                    const xJSValueRef arguments[], xJSValueRef *exception);
+xJSObjectMakeRegExp(xJSContextRef ctx, size_t argumentCount, const xJSValueRef arguments[],
+                    xJSValueRef *exception);
 
 XCAPI(xJSObjectRef)
-xJSObjectMakeDeferredPromise(xJSContextRef ctx, xJSObjectRef *resolve,
-                             xJSObjectRef *reject, xJSValueRef *exception);
+xJSObjectMakeDeferredPromise(xJSContextRef ctx, xJSObjectRef *resolve, xJSObjectRef *reject,
+                             xJSValueRef *exception);
 
 /* Compile-and-return-function (a la `new Function(...)`). */
 XCAPI(xJSObjectRef)
-xJSObjectMakeFunction(xJSContextRef ctx, xJSStringRef name,
-                      unsigned           parameterCount,
+xJSObjectMakeFunction(xJSContextRef ctx, xJSStringRef name, unsigned parameterCount,
                       const xJSStringRef parameterNames[], xJSStringRef body,
-                      xJSStringRef sourceURL, int startingLineNumber,
-                      xJSValueRef *exception);
+                      xJSStringRef sourceURL, int startingLineNumber, xJSValueRef *exception);
 
-XCAPI(xJSValueRef) xJSObjectGetPrototype(xJSContextRef ctx,
-                                         xJSObjectRef  object);
-XCAPI(void)        xJSObjectSetPrototype(xJSContextRef ctx, xJSObjectRef object,
-                                         xJSValueRef value);
+XCAPI(xJSValueRef) xJSObjectGetPrototype(xJSContextRef ctx, xJSObjectRef object);
+XCAPI(void)        xJSObjectSetPrototype(xJSContextRef ctx, xJSObjectRef object, xJSValueRef value);
 
-XCAPI(bool)        xJSObjectHasProperty(xJSContextRef ctx, xJSObjectRef object,
-                                        xJSStringRef propertyName);
+XCAPI(bool) xJSObjectHasProperty(xJSContextRef ctx, xJSObjectRef object, xJSStringRef propertyName);
 XCAPI(xJSValueRef) xJSObjectGetProperty(xJSContextRef ctx, xJSObjectRef object,
-                                        xJSStringRef propertyName,
-                                        xJSValueRef *exception);
-XCAPI(void)        xJSObjectSetProperty(xJSContextRef ctx, xJSObjectRef object,
-                                        xJSStringRef propertyName, xJSValueRef value,
-                                        xJSPropertyAttributes attributes,
-                                        xJSValueRef          *exception);
+                                        xJSStringRef propertyName, xJSValueRef *exception);
+XCAPI(void) xJSObjectSetProperty(xJSContextRef ctx, xJSObjectRef object, xJSStringRef propertyName,
+                                 xJSValueRef value, xJSPropertyAttributes attributes,
+                                 xJSValueRef *exception);
 XCAPI(bool) xJSObjectDeleteProperty(xJSContextRef ctx, xJSObjectRef object,
-                                    xJSStringRef propertyName,
-                                    xJSValueRef *exception);
+                                    xJSStringRef propertyName, xJSValueRef *exception);
 
-XCAPI(xJSValueRef) xJSObjectGetPropertyAtIndex(xJSContextRef ctx,
-                                               xJSObjectRef  object,
-                                               unsigned      propertyIndex,
-                                               xJSValueRef  *exception);
-XCAPI(void) xJSObjectSetPropertyAtIndex(xJSContextRef ctx, xJSObjectRef object,
-                                        unsigned     propertyIndex,
-                                        xJSValueRef  value,
-                                        xJSValueRef *exception);
+XCAPI(xJSValueRef) xJSObjectGetPropertyAtIndex(xJSContextRef ctx, xJSObjectRef object,
+                                               unsigned propertyIndex, xJSValueRef *exception);
+XCAPI(void)        xJSObjectSetPropertyAtIndex(xJSContextRef ctx, xJSObjectRef object,
+                                               unsigned propertyIndex, xJSValueRef value,
+                                               xJSValueRef *exception);
 
 XCAPI(void *) xJSObjectGetPrivate(xJSObjectRef object);
 XCAPI(bool)   xJSObjectSetPrivate(xJSObjectRef object, void *data);
 
 XCAPI(bool) xJSObjectIsFunction(xJSContextRef ctx, xJSObjectRef object);
 XCAPI(xJSValueRef)
-xJSObjectCallAsFunction(xJSContextRef ctx, xJSObjectRef object,
-                        xJSObjectRef thisObject, size_t argumentCount,
-                        const xJSValueRef arguments[], xJSValueRef *exception);
+xJSObjectCallAsFunction(xJSContextRef ctx, xJSObjectRef object, xJSObjectRef thisObject,
+                        size_t argumentCount, const xJSValueRef arguments[],
+                        xJSValueRef *exception);
 
-XCAPI(bool) xJSObjectIsConstructor(xJSContextRef ctx, xJSObjectRef object);
-XCAPI(xJSObjectRef) xJSObjectCallAsConstructor(xJSContextRef     ctx,
-                                               xJSObjectRef      object,
-                                               size_t            argumentCount,
-                                               const xJSValueRef arguments[],
-                                               xJSValueRef      *exception);
+XCAPI(bool)         xJSObjectIsConstructor(xJSContextRef ctx, xJSObjectRef object);
+XCAPI(xJSObjectRef) xJSObjectCallAsConstructor(xJSContextRef ctx, xJSObjectRef object,
+                                               size_t argumentCount, const xJSValueRef arguments[],
+                                               xJSValueRef *exception);
 
 XCAPI(xJSPropertyNameArrayRef)
 xJSObjectCopyPropertyNames(xJSContextRef ctx, xJSObjectRef object);
@@ -415,8 +383,7 @@ XCAPI(void)        xJSClassRelease(xJSClassRef jsClass);
  * *UTF8* helpers transcode on the fly.
  * ═══════════════════════════════════════════════════════════════════ */
 
-XCAPI(xJSStringRef) xJSStringCreateWithCharacters(const uint16_t *chars,
-                                                  size_t          numChars);
+XCAPI(xJSStringRef) xJSStringCreateWithCharacters(const uint16_t *chars, size_t numChars);
 XCAPI(xJSStringRef) xJSStringCreateWithUTF8CString(const char *string);
 
 XCAPI(xJSStringRef) xJSStringRetain(xJSStringRef string);
@@ -425,8 +392,7 @@ XCAPI(void)         xJSStringRelease(xJSStringRef string);
 XCAPI(size_t)           xJSStringGetLength(xJSStringRef string);
 XCAPI(const uint16_t *) xJSStringGetCharactersPtr(xJSStringRef string);
 XCAPI(size_t)           xJSStringGetMaximumUTF8CStringSize(xJSStringRef string);
-XCAPI(size_t) xJSStringGetUTF8CString(xJSStringRef string, char *buffer,
-                                      size_t bufferSize);
+XCAPI(size_t) xJSStringGetUTF8CString(xJSStringRef string, char *buffer, size_t bufferSize);
 
 XCAPI(bool) xJSStringIsEqual(xJSStringRef a, xJSStringRef b);
 XCAPI(bool) xJSStringIsEqualToUTF8CString(xJSStringRef a, const char *b);
@@ -436,14 +402,12 @@ XCAPI(bool) xJSStringIsEqualToUTF8CString(xJSStringRef a, const char *b);
  * ═══════════════════════════════════════════════════════════════════ */
 
 XCAPI(bool)
-xJSCheckScriptSyntax(xJSContextRef ctx, xJSStringRef script,
-                     xJSStringRef sourceURL, int startingLineNumber,
-                     xJSValueRef *exception);
+xJSCheckScriptSyntax(xJSContextRef ctx, xJSStringRef script, xJSStringRef sourceURL,
+                     int startingLineNumber, xJSValueRef *exception);
 
 XCAPI(xJSValueRef)
-xJSEvaluateScript(xJSContextRef ctx, xJSStringRef script,
-                  xJSObjectRef thisObject, xJSStringRef sourceURL,
-                  int startingLineNumber, xJSValueRef *exception);
+xJSEvaluateScript(xJSContextRef ctx, xJSStringRef script, xJSObjectRef thisObject,
+                  xJSStringRef sourceURL, int startingLineNumber, xJSValueRef *exception);
 
 XCAPI(void) xJSGarbageCollect(xJSContextRef ctx);
 
@@ -524,8 +488,8 @@ XCAPI(bool) xJSDetectModule(const char *source, size_t length);
  *         (in which case @p exception is populated if non-NULL).
  */
 XCAPI(xJSValueRef)
-xJSEvaluateModule(xJSContextRef ctx, xJSStringRef script,
-                  xJSStringRef sourceURL, xJSValueRef *exception);
+xJSEvaluateModule(xJSContextRef ctx, xJSStringRef script, xJSStringRef sourceURL,
+                  xJSValueRef *exception);
 
 /**
  * Synchronously drain pending jobs on @p ctx until @p promise
@@ -554,17 +518,16 @@ xJSAwaitPromise(xJSContextRef ctx, xJSValueRef promise, xJSValueRef *exception);
  * "module not found" and causes the importing evaluation to
  * reject with a ReferenceError.
  */
-typedef xJSStringRef (*xJSModuleLoadCallback)(xJSContextRef ctx,
-                                              const char   *normalizedName,
-                                              void         *opaque);
+typedef xJSStringRef (*xJSModuleLoadCallback)(xJSContextRef ctx, const char *normalizedName,
+                                              void *opaque);
 
 /**
  * Install (or clear, by passing NULL) the module loader on @p ctx.
  * Only one loader may be active at a time.  @p opaque is passed
  * unchanged to every invocation of @p load.
  */
-XCAPI(void) xJSContextSetModuleLoader(xJSGlobalContextRef   ctx,
-                                      xJSModuleLoadCallback load, void *opaque);
+XCAPI(void) xJSContextSetModuleLoader(xJSGlobalContextRef ctx, xJSModuleLoadCallback load,
+                                      void *opaque);
 
 #ifdef __cplusplus
 }

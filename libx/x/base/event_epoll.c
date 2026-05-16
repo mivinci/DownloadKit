@@ -92,19 +92,18 @@ xEventLoop xEventLoopCreate(void) {
 }
 
 xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
-  struct xEventLoopEpoll_ *loop =
-    (struct xEventLoopEpoll_ *)calloc(1, sizeof(*loop));
+  struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)calloc(1, sizeof(*loop));
   if (!loop) return NULL;
 
-  loop->epfd              = -1;
-  loop->base.wake_rfd     = -1;
-  loop->base.wake_wfd     = -1;
-  loop->base.stopped      = 0;
-  loop->base.timer_heap   = NULL;
-  loop->base.task_group   = group;
+  loop->epfd            = -1;
+  loop->base.wake_rfd   = -1;
+  loop->base.wake_wfd   = -1;
+  loop->base.stopped    = 0;
+  loop->base.timer_heap = NULL;
+  loop->base.task_group = group;
   source_array_init(&loop->base.sources);
-  loop->base.done_head = NULL;
-  loop->base.done_tail = NULL;
+  loop->base.done_head     = NULL;
+  loop->base.done_tail     = NULL;
   loop->base.work_freelist = NULL;
   xAtomicStore(&loop->base.inflight, 0, xAtomicRelaxed);
   xAtomicStore(&loop->base.wake_pending, 0, xAtomicRelaxed);
@@ -129,8 +128,7 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   struct epoll_event ev;
   ev.events  = EPOLLIN | EPOLLET;
   ev.data.fd = loop->base.wake_rfd;
-  if (epoll_ctl(loop->epfd, EPOLL_CTL_ADD, loop->base.wake_rfd, &ev) != 0)
-    goto fail;
+  if (epoll_ctl(loop->epfd, EPOLL_CTL_ADD, loop->base.wake_rfd, &ev) != 0) goto fail;
 
   return (xEventLoop)loop;
 
@@ -153,8 +151,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
   /* Discard all pending timers without firing */
   pthread_mutex_lock(&loop->base.timer_mu);
   while (xHeapSize(loop->base.timer_heap) > 0) {
-    struct xEventTimer_ *t =
-      (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
+    struct xEventTimer_ *t = (struct xEventTimer_ *)xHeapPop(loop->base.timer_heap);
     event_timer_free(&loop->base, t);
   }
   pthread_mutex_unlock(&loop->base.timer_mu);
@@ -181,13 +178,11 @@ void xEventLoopDestroy(xEventLoop loop_) {
   free(loop);
 }
 
-xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask, xEventFunc fn,
-                       void *arg) {
+xEventSource xEventAdd(xEventLoop loop_, int fd, xEventMask mask, xEventFunc fn, void *arg) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
   if (!loop || !fn) return NULL;
 
-  struct xEventSource_ *src =
-    source_array_add(&loop->base.sources, fd, mask, fn, arg);
+  struct xEventSource_ *src = source_array_add(&loop->base.sources, fd, mask, fn, arg);
   if (!src) return NULL;
 
   if (set_nonblock(fd) != 0) {
@@ -214,8 +209,7 @@ xErrno xEventMod(xEventLoop loop_, xEventSource src_, xEventMask mask) {
   struct epoll_event ev;
   ev.events   = mask_to_epoll(mask);
   ev.data.ptr = src;
-  if (epoll_ctl(loop->epfd, EPOLL_CTL_MOD, src->fd, &ev) != 0)
-    return xErrno_SysError;
+  if (epoll_ctl(loop->epfd, EPOLL_CTL_MOD, src->fd, &ev) != 0) return xErrno_SysError;
 
   src->mask = mask;
   return xErrno_Ok;
@@ -238,8 +232,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   /* Adjust timeout based on timer heap */
   int effective_timeout = timeout_ms;
   pthread_mutex_lock(&loop->base.timer_mu);
-  struct xEventTimer_ *top =
-    (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
+  struct xEventTimer_ *top = (struct xEventTimer_ *)xHeapPeek(loop->base.timer_heap);
   if (top) {
     uint64_t now           = xMonoMs();
     int64_t  wait          = (int64_t)(top->deadline - now);
@@ -282,8 +275,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
         ;
 
       if (loop->base.signal_watches[signo].fn) {
-        loop->base.signal_watches[signo].fn(
-          signo, loop->base.signal_watches[signo].arg);
+        loop->base.signal_watches[signo].fn(signo, loop->base.signal_watches[signo].arg);
         dispatched++;
       }
       continue;
@@ -313,12 +305,10 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 /* ───────────────────── Signal watch (self-pipe trick) ───────────────────────
  */
 static int signo_valid(int signo) {
-  return signo > 0 && signo < X_SIGNAL_MAX && signo != SIGKILL &&
-         signo != SIGSTOP;
+  return signo > 0 && signo < X_SIGNAL_MAX && signo != SIGKILL && signo != SIGSTOP;
 }
 
-xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
-                             void *arg) {
+xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn, void *arg) {
   struct xEventLoopEpoll_ *loop = (struct xEventLoopEpoll_ *)loop_;
   if (!loop || !signo_valid(signo)) return xErrno_InvalidArg;
 
@@ -374,8 +364,7 @@ xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
     }
   } else {
     /* Cancel */
-    if (loop->signal_pipe_r[signo] < 0)
-      return xErrno_Ok; /* nothing to cancel */
+    if (loop->signal_pipe_r[signo] < 0) return xErrno_Ok; /* nothing to cancel */
 
     signal(signo, SIG_DFL);
     g_signal_pipe_w[signo] = -1;
@@ -408,9 +397,7 @@ xErrno xEventWake(xEventLoop loop_) {
     r = write(loop->base.wake_rfd, &val, sizeof(val));
   } while (r < 0 && errno == EINTR);
 
-  return (r == (ssize_t)sizeof(val) || (r < 0 && errno == EAGAIN))
-           ? xErrno_Ok
-           : xErrno_SysError;
+  return (r == (ssize_t)sizeof(val) || (r < 0 && errno == EAGAIN)) ? xErrno_Ok : xErrno_SysError;
 }
 
 #endif /* X_HAS_EPOLL */

@@ -26,8 +26,7 @@ struct SendRecord {
 
 static SendRecord g_send;
 
-static xErrno mock_send(const uint8_t *data, size_t len,
-                        const struct sockaddr *addr, void *arg) {
+static xErrno mock_send(const uint8_t *data, size_t len, const struct sockaddr *addr, void *arg) {
   (void)arg;
   if (len > sizeof(g_send.data)) return xErrno_NoMemory;
   memcpy(g_send.data, data, len);
@@ -37,8 +36,8 @@ static xErrno mock_send(const uint8_t *data, size_t len,
   return xErrno_Ok;
 }
 
-static xErrno mock_send_fail(const uint8_t *data, size_t len,
-                             const struct sockaddr *addr, void *arg) {
+static xErrno mock_send_fail(const uint8_t *data, size_t len, const struct sockaddr *addr,
+                             void *arg) {
   (void)data;
   (void)len;
   (void)addr;
@@ -54,8 +53,7 @@ struct CompletionRecord {
 
 static CompletionRecord g_complete;
 
-static void mock_on_complete(const xStunMsg *msg, const struct sockaddr *addr,
-                             void *arg) {
+static void mock_on_complete(const xStunMsg *msg, const struct sockaddr *addr, void *arg) {
   (void)addr;
   (void)arg;
   g_complete.called = true;
@@ -96,9 +94,8 @@ protected:
 /* ───────────────────── Tests ───────────────────── */
 
 TEST_F(StunTxnTest, SendCreatesTransaction) {
-  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
-                               (struct sockaddr *)&dest, mock_send, NULL,
-                               mock_on_complete, NULL);
+  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, (struct sockaddr *)&dest,
+                               mock_send, NULL, mock_on_complete, NULL);
   ASSERT_EQ(err, xErrno_Ok);
   EXPECT_EQ(g_send.call_count, 1);
   EXPECT_EQ(mgr.count, 1);
@@ -108,9 +105,8 @@ TEST_F(StunTxnTest, SendCreatesTransaction) {
 }
 
 TEST_F(StunTxnTest, ResponseMatchesTransaction) {
-  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
-                               (struct sockaddr *)&dest, mock_send, NULL,
-                               mock_on_complete, NULL);
+  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, (struct sockaddr *)&dest,
+                               mock_send, NULL, mock_on_complete, NULL);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Decode the sent request to get the txn_id */
@@ -129,8 +125,8 @@ TEST_F(StunTxnTest, ResponseMatchesTransaction) {
   ASSERT_EQ(xStunMsgDecode(&decoded_resp, resp_buf, resp_len), xErrno_Ok);
 
   /* Feed it to the manager */
-  bool matched = xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len,
-                                       (struct sockaddr *)&dest);
+  bool matched =
+    xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len, (struct sockaddr *)&dest);
   EXPECT_TRUE(matched);
   EXPECT_TRUE(g_complete.called);
   EXPECT_FALSE(g_complete.timed_out);
@@ -138,9 +134,8 @@ TEST_F(StunTxnTest, ResponseMatchesTransaction) {
 }
 
 TEST_F(StunTxnTest, UnmatchedResponseDiscarded) {
-  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
-                               (struct sockaddr *)&dest, mock_send, NULL,
-                               mock_on_complete, NULL);
+  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, (struct sockaddr *)&dest,
+                               mock_send, NULL, mock_on_complete, NULL);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Build a response with a different txn_id */
@@ -156,8 +151,8 @@ TEST_F(StunTxnTest, UnmatchedResponseDiscarded) {
   xStunMsg decoded_resp;
   ASSERT_EQ(xStunMsgDecode(&decoded_resp, resp_buf, resp_len), xErrno_Ok);
 
-  bool matched = xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len,
-                                       (struct sockaddr *)&dest);
+  bool matched =
+    xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len, (struct sockaddr *)&dest);
   EXPECT_FALSE(matched);
   EXPECT_FALSE(g_complete.called);
   EXPECT_EQ(mgr.count, 1); /* Transaction still pending */
@@ -165,13 +160,11 @@ TEST_F(StunTxnTest, UnmatchedResponseDiscarded) {
 
 TEST_F(StunTxnTest, CancelAllCleansUp) {
   /* Create two transactions */
-  ASSERT_EQ(xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
-                            (struct sockaddr *)&dest, mock_send, NULL,
-                            mock_on_complete, NULL),
+  ASSERT_EQ(xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, (struct sockaddr *)&dest,
+                            mock_send, NULL, mock_on_complete, NULL),
             xErrno_Ok);
-  ASSERT_EQ(xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
-                            (struct sockaddr *)&dest, mock_send, NULL,
-                            mock_on_complete, NULL),
+  ASSERT_EQ(xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, (struct sockaddr *)&dest,
+                            mock_send, NULL, mock_on_complete, NULL),
             xErrno_Ok);
   EXPECT_EQ(mgr.count, 2);
 
@@ -180,9 +173,8 @@ TEST_F(StunTxnTest, CancelAllCleansUp) {
 }
 
 TEST_F(StunTxnTest, SendFailReturnsError) {
-  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
-                               (struct sockaddr *)&dest, mock_send_fail, NULL,
-                               mock_on_complete, NULL);
+  xErrno err = xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, (struct sockaddr *)&dest,
+                               mock_send_fail, NULL, mock_on_complete, NULL);
   EXPECT_NE(err, xErrno_Ok);
   EXPECT_EQ(mgr.count, 0);
 }
@@ -196,9 +188,8 @@ TEST_F(StunTxnTest, SendRawWorks) {
   int     msg_len = xStunMsgEncode(&msg, msg_buf, sizeof(msg_buf));
   ASSERT_GT(msg_len, 0);
 
-  xErrno err =
-    xStunTxnMgrSendRaw(&mgr, msg_buf, msg_len, (struct sockaddr *)&dest,
-                       mock_send, NULL, mock_on_complete, NULL);
+  xErrno err = xStunTxnMgrSendRaw(&mgr, msg_buf, msg_len, (struct sockaddr *)&dest, mock_send, NULL,
+                                  mock_on_complete, NULL);
   ASSERT_EQ(err, xErrno_Ok);
   EXPECT_EQ(mgr.count, 1);
 
@@ -209,9 +200,8 @@ TEST_F(StunTxnTest, SendRawWorks) {
 TEST_F(StunTxnTest, MultipleTransactionsMultiplex) {
   /* Send 3 transactions */
   for (int i = 0; i < 3; i++) {
-    ASSERT_EQ(xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0,
-                              (struct sockaddr *)&dest, mock_send, NULL,
-                              mock_on_complete, NULL),
+    ASSERT_EQ(xStunTxnMgrSend(&mgr, xStunMsgType_BindingRequest, NULL, 0, (struct sockaddr *)&dest,
+                              mock_send, NULL, mock_on_complete, NULL),
               xErrno_Ok);
   }
   EXPECT_EQ(mgr.count, 3);
@@ -226,8 +216,8 @@ TEST_F(StunTxnTest, MultipleTransactionsMultiplex) {
   xStunMsg decoded_resp;
   ASSERT_EQ(xStunMsgDecode(&decoded_resp, resp_buf, resp_len), xErrno_Ok);
 
-  bool matched = xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len,
-                                       (struct sockaddr *)&dest);
+  bool matched =
+    xStunTxnMgrOnResponse(&mgr, &decoded_resp, resp_buf, resp_len, (struct sockaddr *)&dest);
   EXPECT_TRUE(matched);
   EXPECT_EQ(mgr.count, 2); /* One removed, two remaining */
 }

@@ -39,14 +39,11 @@ static void on_probe_done(const xNatProbeResult *result, void *arg) {
     printf("  Port Delta: %d\n", result->port_delta);
   }
 
-  printf("  Mapped Ports (phase1): %u, %u\n",
-         result->mapped_ports[0], result->mapped_ports[1]);
+  printf("  Mapped Ports (phase1): %u, %u\n", result->mapped_ports[0], result->mapped_ports[1]);
 
-  if (result->type == xNatType_SymmetricSequential ||
-      result->type == xNatType_SymmetricRandom) {
-    printf("  Mapped Ports (phase2): %u, %u, %u\n",
-           result->mapped_ports[2], result->mapped_ports[3],
-           result->mapped_ports[4]);
+  if (result->type == xNatType_SymmetricSequential || result->type == xNatType_SymmetricRandom) {
+    printf("  Mapped Ports (phase2): %u, %u, %u\n", result->mapped_ports[2],
+           result->mapped_ports[3], result->mapped_ports[4]);
   }
 
   printf("═══════════════════════════════════════\n");
@@ -72,8 +69,7 @@ static void on_sigint(int signo, void *arg) {
 /**
  * @brief Parse "host:port" string. Returns false on failure.
  */
-static bool parse_host_port(const char *str, char *host, size_t host_len,
-                            uint16_t *port) {
+static bool parse_host_port(const char *str, char *host, size_t host_len, uint16_t *port) {
   const char *colon = strrchr(str, ':');
   if (!colon || colon == str) return false;
 
@@ -82,7 +78,7 @@ static bool parse_host_port(const char *str, char *host, size_t host_len,
 
   memcpy(host, str, hlen);
   host[hlen] = '\0';
-  *port = (uint16_t)atoi(colon + 1);
+  *port      = (uint16_t)atoi(colon + 1);
   return *port > 0;
 }
 
@@ -109,9 +105,7 @@ int main(int argc, char *argv[]) {
       timeout = atoi(optarg);
       break;
     default:
-      fprintf(stderr,
-              "Usage: %s [-a stun1:port] [-b stun2:port] [-t timeout_ms]\n",
-              argv[0]);
+      fprintf(stderr, "Usage: %s [-a stun1:port] [-b stun2:port] [-t timeout_ms]\n", argv[0]);
       return 1;
     }
   }
@@ -144,8 +138,7 @@ int main(int argc, char *argv[]) {
 
   printf("Probing NAT type...\n");
 
-  g_probe = xNatProbeStart(g_loop, host1, port1, host2, port2,
-                           timeout, on_probe_done, NULL);
+  g_probe = xNatProbeStart(g_loop, host1, port1, host2, port2, timeout, on_probe_done, NULL);
   if (!g_probe) {
     fprintf(stderr, "Failed to start NAT probe\n");
     xEventLoopDestroy(g_loop);

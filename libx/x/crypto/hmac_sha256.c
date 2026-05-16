@@ -7,8 +7,8 @@
  */
 
 #include "hmac_sha256.h"
-#include "hmac.h"
 #include "hash_private.h"
+#include "hmac.h"
 #include "sha256.h"
 
 /* ── SHA-256 vtable shims (void* → xSha256Ctx*) ────────── */
@@ -36,8 +36,7 @@ const xHashVtable xHashVtableSha256 = {
 
 /* ── Convenience wrapper ────────────────────────────────── */
 
-xErrno xHmacSha256(const uint8_t *key, size_t key_len,
-                    const uint8_t *data, size_t data_len,
-                    uint8_t *digest) {
+xErrno xHmacSha256(const uint8_t *key, size_t key_len, const uint8_t *data, size_t data_len,
+                   uint8_t *digest) {
   return xHmac(&xHashVtableSha256, key, key_len, data, data_len, digest);
 }

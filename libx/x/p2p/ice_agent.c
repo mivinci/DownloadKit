@@ -103,11 +103,11 @@ XDEF_STRUCT(xIceAgent_) {
 
   /* Multi-STUN server support for port prediction */
   struct sockaddr_storage stun_addrs[XICE_STUN_SERVER_COUNT_MAX];
-  int                     stun_count; /* Number of resolved STUN servers */
+  int                     stun_count;       /* Number of resolved STUN servers */
   int                     stun_dns_pending; /* Pending DNS resolutions */
   xDnsQuery               stun_dns_queries[XICE_STUN_SERVER_COUNT_MAX];
-  uint16_t stun_ports[XICE_STUN_SERVER_COUNT_MAX];  /* Parsed ports */
-  bool     stun_dns_ok[XICE_STUN_SERVER_COUNT_MAX]; /* DNS resolved? */
+  uint16_t                stun_ports[XICE_STUN_SERVER_COUNT_MAX];  /* Parsed ports */
+  bool                    stun_dns_ok[XICE_STUN_SERVER_COUNT_MAX]; /* DNS resolved? */
 
   /*
    * Per-host srflx response collection for delta computation.
@@ -115,11 +115,10 @@ XDEF_STRUCT(xIceAgent_) {
    * received). srflx_received[host_index] = number of responses received for
    * this host.
    */
-  uint16_t srflx_mapped[XICE_HOST_COUNT_MAX][XICE_STUN_SERVER_COUNT_MAX];
-  int      srflx_received[XICE_HOST_COUNT_MAX];
-  int srflx_expected[XICE_HOST_COUNT_MAX]; /* Expected responses per host */
-  struct sockaddr_storage srflx_full_mapped[XICE_HOST_COUNT_MAX]
-                                           [XICE_STUN_SERVER_COUNT_MAX];
+  uint16_t                srflx_mapped[XICE_HOST_COUNT_MAX][XICE_STUN_SERVER_COUNT_MAX];
+  int                     srflx_received[XICE_HOST_COUNT_MAX];
+  int                     srflx_expected[XICE_HOST_COUNT_MAX]; /* Expected responses per host */
+  struct sockaddr_storage srflx_full_mapped[XICE_HOST_COUNT_MAX][XICE_STUN_SERVER_COUNT_MAX];
 
   /* Port prediction config (runtime, from xIceConf) */
   int port_predict_count;
@@ -132,12 +131,10 @@ XDEF_STRUCT(xIceAgent_) {
    * When the local side is Cone NAT and the remote is symmetric,
    * we spray connectivity checks to a wide range of random ports
    * on the remote's srflx IP (birthday attack). */
-  bool        aggressive_mode;   /* true when doing port-spray */
-  xEventTimer aggressive_timer;  /* pacing timer for spray checks */
-  int         spray_index;       /* next spray pair to check */
-  int         spray_pair_start;  /* index where spray pairs begin in pairs[] */
-
-
+  bool        aggressive_mode;  /* true when doing port-spray */
+  xEventTimer aggressive_timer; /* pacing timer for spray checks */
+  int         spray_index;      /* next spray pair to check */
+  int         spray_pair_start; /* index where spray pairs begin in pairs[] */
 
   /* DTLS data input hook — set by xPeerConnection when attached */
   xIceDtlsInputFn dtls_input_fn;
@@ -147,8 +144,7 @@ XDEF_STRUCT(xIceAgent_) {
 /* ───────────────────── Helpers ───────────────────── */
 
 static void generate_random_string(char *buf, size_t len) {
-  static const char charset[] =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  static const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
   for (size_t i = 0; i < len; i++) {
     buf[i] = charset[arc4random_uniform(sizeof(charset) - 1)];
@@ -191,8 +187,7 @@ static const char *state_name(xIceAgentState s) {
 
 static void set_state(xIceAgent_ *a, xIceAgentState new_state) {
   if (a->state == new_state) return;
-  XDEBUGL1("[ice] state: %s -> %s", state_name(a->state),
-           state_name(new_state));
+  XDEBUGL1("[ice] state: %s -> %s", state_name(a->state), state_name(new_state));
   a->state = new_state;
 
   /* Map internal state to public state */
@@ -240,21 +235,18 @@ static bool sockaddr_equal(const struct sockaddr *a, const struct sockaddr *b) {
   if (a->sa_family == AF_INET) {
     const struct sockaddr_in *a4 = (const struct sockaddr_in *)a;
     const struct sockaddr_in *b4 = (const struct sockaddr_in *)b;
-    return a4->sin_port == b4->sin_port &&
-           a4->sin_addr.s_addr == b4->sin_addr.s_addr;
+    return a4->sin_port == b4->sin_port && a4->sin_addr.s_addr == b4->sin_addr.s_addr;
   }
   if (a->sa_family == AF_INET6) {
     const struct sockaddr_in6 *a6 = (const struct sockaddr_in6 *)a;
     const struct sockaddr_in6 *b6 = (const struct sockaddr_in6 *)b;
-    return a6->sin6_port == b6->sin6_port &&
-           memcmp(&a6->sin6_addr, &b6->sin6_addr, 16) == 0;
+    return a6->sin6_port == b6->sin6_port && memcmp(&a6->sin6_addr, &b6->sin6_addr, 16) == 0;
   }
   return false;
 }
 
 /** Format a sockaddr into "ip:port" string, writes into buf (size >= 64). */
-static void sockaddr_to_str(const struct sockaddr *addr, char *buf,
-                            size_t len) {
+static void sockaddr_to_str(const struct sockaddr *addr, char *buf, size_t len) {
   if (addr->sa_family == AF_INET) {
     const struct sockaddr_in *a4 = (const struct sockaddr_in *)addr;
     char                      ip[INET_ADDRSTRLEN];
@@ -298,8 +290,7 @@ static xErrno udp_sendto(xSocket sock, const uint8_t *data, size_t len,
  */
 static xSocket find_host_sock(xIceAgent_ *a, sa_family_t family) {
   for (int i = 0; i < a->host_count; i++) {
-    if (a->local_candidates[i].sock &&
-        a->local_candidates[i].addr.ss_family == family) {
+    if (a->local_candidates[i].sock && a->local_candidates[i].addr.ss_family == family) {
       return a->local_candidates[i].sock;
     }
   }
@@ -309,8 +300,7 @@ static xSocket find_host_sock(xIceAgent_ *a, sa_family_t family) {
 /* ───────────────────── Pair Generation ───────────────────── */
 
 /** Compare two sockaddrs for IP equality only (ignoring port). */
-static bool sockaddr_ip_equal(const struct sockaddr *a,
-                              const struct sockaddr *b) {
+static bool sockaddr_ip_equal(const struct sockaddr *a, const struct sockaddr *b) {
   if (a->sa_family != b->sa_family) return false;
   if (a->sa_family == AF_INET) {
     return ((const struct sockaddr_in *)a)->sin_addr.s_addr ==
@@ -334,13 +324,11 @@ static void detect_remote_nat_type(xIceAgent_ *a) {
     if (a->remote_candidates[i].type != xIceCandidateType_Srflx) continue;
     for (int j = i + 1; j < a->remote_count; j++) {
       if (a->remote_candidates[j].type != xIceCandidateType_Srflx) continue;
-      const struct sockaddr *ai =
-        (const struct sockaddr *)&a->remote_candidates[i].addr;
-      const struct sockaddr *aj =
-        (const struct sockaddr *)&a->remote_candidates[j].addr;
+      const struct sockaddr *ai = (const struct sockaddr *)&a->remote_candidates[i].addr;
+      const struct sockaddr *aj = (const struct sockaddr *)&a->remote_candidates[j].addr;
       if (!sockaddr_ip_equal(ai, aj)) continue;
-      int pi = (int)xSockaddrPort(ai);
-      int pj = (int)xSockaddrPort(aj);
+      int pi   = (int)xSockaddrPort(ai);
+      int pj   = (int)xSockaddrPort(aj);
       int diff = abs(pi - pj);
       if (diff > XICE_SYMMETRIC_NAT_PORT_THRESHOLD) {
         a->remote_is_symmetric = true;
@@ -355,17 +343,14 @@ static void generate_pairs(xIceAgent_ *a) {
   a->pair_count = 0;
 
   for (int l = 0; l < a->local_count && a->pair_count < XICE_MAX_PAIRS; l++) {
-    for (int r = 0; r < a->remote_count && a->pair_count < XICE_MAX_PAIRS;
-         r++) {
+    for (int r = 0; r < a->remote_count && a->pair_count < XICE_MAX_PAIRS; r++) {
       /* Only pair candidates with same component */
-      if (a->local_candidates[l].component_id !=
-          a->remote_candidates[r].component_id) {
+      if (a->local_candidates[l].component_id != a->remote_candidates[r].component_id) {
         continue;
       }
 
       /* Only pair candidates with same address family (RFC 8445 §6.1.2.2) */
-      if (a->local_candidates[l].addr.ss_family !=
-          a->remote_candidates[r].addr.ss_family) {
+      if (a->local_candidates[l].addr.ss_family != a->remote_candidates[r].addr.ss_family) {
         continue;
       }
 
@@ -392,16 +377,13 @@ static void generate_pairs(xIceAgent_ *a) {
   xIcePairSort(a->pairs, a->pair_count);
 
 #if X_DEBUG_LEVEL >= 1
-  XDEBUGL1("[ice] generated %d candidate pairs (local=%d, remote=%d)",
-           a->pair_count, a->local_count, a->remote_count);
+  XDEBUGL1("[ice] generated %d candidate pairs (local=%d, remote=%d)", a->pair_count,
+           a->local_count, a->remote_count);
   for (int i = 0; i < a->pair_count; i++) {
     char lstr[64], rstr[64];
-    sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr,
-                    sizeof(lstr));
-    sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr, rstr,
-                    sizeof(rstr));
-    XDEBUGL1("[ice]   pair[%d]: %s -> %s (prio=%" PRIu64 ")", i, lstr, rstr,
-             a->pairs[i].priority);
+    sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr, sizeof(lstr));
+    sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr, rstr, sizeof(rstr));
+    XDEBUGL1("[ice]   pair[%d]: %s -> %s (prio=%" PRIu64 ")", i, lstr, rstr, a->pairs[i].priority);
   }
 #endif
 }
@@ -419,8 +401,7 @@ typedef struct {
 
 static void start_consent(xIceAgent_ *a);
 
-static void on_check_response(const xStunMsg *msg, const struct sockaddr *from,
-                              void *arg);
+static void on_check_response(const xStunMsg *msg, const struct sockaddr *from, void *arg);
 
 /**
  * @brief Send function that uses a specific socket (passed as arg).
@@ -429,8 +410,8 @@ static void on_check_response(const xStunMsg *msg, const struct sockaddr *from,
  * client so that each STUN transaction (including retransmissions)
  * always goes out on the correct socket.
  */
-static xErrno sock_stun_send(const uint8_t *data, size_t len,
-                             const struct sockaddr *addr, void *arg) {
+static xErrno sock_stun_send(const uint8_t *data, size_t len, const struct sockaddr *addr,
+                             void *arg) {
   xSocket sock = (xSocket)arg;
   return udp_sendto(sock, data, len, addr);
 }
@@ -439,10 +420,8 @@ static xErrno send_check(xIceAgent_ *a, xIcePair *pair, bool log) {
 #if X_DEBUG_LEVEL >= 1
   if (log) {
     char lstr[64], rstr[64];
-    sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
-                    sizeof(lstr));
-    sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr,
-                    sizeof(rstr));
+    sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr, sizeof(lstr));
+    sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr, sizeof(rstr));
     XDEBUGL1("[ice] send_check: %s -> %s (role=%s)", lstr, rstr,
              a->role == xIceAgentRole_Controlling ? "controlling" : "controlled");
   }
@@ -465,8 +444,7 @@ static xErrno send_check(xIceAgent_ *a, xIcePair *pair, bool log) {
   xStunMsgEncode(&msg, msg_buf, sizeof(msg_buf));
 
   xStunAttrWriter w;
-  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE,
-                      sizeof(msg_buf) - XSTUN_HEADER_SIZE);
+  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE, sizeof(msg_buf) - XSTUN_HEADER_SIZE);
 
   /* USERNAME = remote_ufrag:local_ufrag */
   xStunAttrWriteUsername(&w, a->remote_ufrag, a->ice_ufrag);
@@ -508,19 +486,16 @@ static xErrno send_check(xIceAgent_ *a, xIcePair *pair, bool log) {
   xErrno err;
   if (pair->local->type == xIceCandidateType_Relay && a->turn_client) {
     /* Relay pair: send connectivity check through TURN server */
-    err = xTurnClientSendData(a->turn_client,
-                              (const struct sockaddr *)&pair->remote->addr,
-                              msg_buf, total);
+    err = xTurnClientSendData(a->turn_client, (const struct sockaddr *)&pair->remote->addr, msg_buf,
+                              total);
     if (err == xErrno_Ok) {
       /* Register the transaction so we can match the response */
-      err = xStunTxnMgrSendRaw(
-        &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
-        sock_stun_send, pair->local->sock, on_check_response, ctx);
+      err = xStunTxnMgrSendRaw(&a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
+                               sock_stun_send, pair->local->sock, on_check_response, ctx);
     }
   } else {
-    err = xStunTxnMgrSendRaw(
-      &a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
-      sock_stun_send, pair->local->sock, on_check_response, ctx);
+    err = xStunTxnMgrSendRaw(&a->txn_mgr, msg_buf, total, (struct sockaddr *)&pair->remote->addr,
+                             sock_stun_send, pair->local->sock, on_check_response, ctx);
   }
   if (err != xErrno_Ok) {
     free(ctx);
@@ -534,12 +509,10 @@ static void start_aggressive_spray(xIceAgent_ *a);
 static void start_symmetric_keepalive(xIceAgent_ *a);
 static void symmetric_keepalive_cb(void *arg);
 
-
 static void schedule_next_check(xIceAgent_ *a) {
   if (a->state != xIceAgentState_Checking) return;
 
-  a->check_timer =
-    xEventLoopTimerAfter(a->loop, check_pacing_cb, a, XICE_CHECK_PACING_MS);
+  a->check_timer = xEventLoopTimerAfter(a->loop, check_pacing_cb, a, XICE_CHECK_PACING_MS);
 }
 
 static void check_pacing_cb(void *arg) {
@@ -553,8 +526,7 @@ static void check_pacing_cb(void *arg) {
     xIcePair *pair = &a->pairs[a->check_index];
     a->check_index++;
 
-    if (pair->state == xIcePairState_Frozen ||
-        pair->state == xIcePairState_Waiting) {
+    if (pair->state == xIcePairState_Frozen || pair->state == xIcePairState_Waiting) {
       send_check(a, pair, true);
       schedule_next_check(a);
       return;
@@ -590,8 +562,7 @@ static void try_nominate(xIceAgent_ *a) {
   for (int i = 0; i < a->pair_count; i++) {
     if (a->pairs[i].state == xIcePairState_InProgress) {
       any_in_progress = true;
-      if (a->pairs[i].remote->type != xIceCandidateType_Prflx)
-        any_non_prflx_in_progress = true;
+      if (a->pairs[i].remote->type != xIceCandidateType_Prflx) any_non_prflx_in_progress = true;
     }
     if (a->pairs[i].state == xIcePairState_Succeeded) {
       any_succeeded = true;
@@ -632,10 +603,8 @@ static void try_nominate(xIceAgent_ *a) {
 
 #if X_DEBUG_LEVEL >= 0
       char lstr[64], rstr[64];
-      sockaddr_to_str((const struct sockaddr *)&best->local->addr, lstr,
-                      sizeof(lstr));
-      sockaddr_to_str((const struct sockaddr *)&best->remote->addr, rstr,
-                      sizeof(rstr));
+      sockaddr_to_str((const struct sockaddr *)&best->local->addr, lstr, sizeof(lstr));
+      sockaddr_to_str((const struct sockaddr *)&best->remote->addr, rstr, sizeof(rstr));
       XDEBUGL0("[ice] nominated pair: %s -> %s", lstr, rstr);
 #endif
 
@@ -652,7 +621,6 @@ static void try_nominate(xIceAgent_ *a) {
         xEventLoopTimerCancel(a->loop, a->aggressive_timer);
         a->aggressive_timer = NULL;
       }
-
     }
     return;
   }
@@ -684,9 +652,7 @@ static void try_nominate(xIceAgent_ *a) {
 }
 
 static void on_check_response(const xStunMsg        *msg,
-                              const struct sockaddr *from
-                              __attribute__((unused)),
-                              void *arg) {
+                              const struct sockaddr *from __attribute__((unused)), void *arg) {
   CheckCtx   *ctx   = (CheckCtx *)arg;
   xIceAgent_ *agent = ctx->agent;
   xIcePair   *pair  = ctx->pair;
@@ -694,10 +660,8 @@ static void on_check_response(const xStunMsg        *msg,
 
 #if X_DEBUG_LEVEL >= 1
   char lstr[64], rstr[64];
-  sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
-                  sizeof(lstr));
-  sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr,
-                  sizeof(rstr));
+  sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr, sizeof(lstr));
+  sockaddr_to_str((const struct sockaddr *)&pair->remote->addr, rstr, sizeof(rstr));
   XDEBUGL1("[ice] check response: %s -> %s, result=%s", lstr, rstr,
            !msg                                   ? "timeout"
            : xStunMsgIsSuccessResponse(msg->type) ? "success"
@@ -719,8 +683,7 @@ static void on_check_response(const xStunMsg        *msg,
     xStunAttr attr;
     while (xStunAttrIterNext(&iter, &attr)) {
       if (attr.type == xStunAttrType_ErrorCode) {
-        xStunAttrDecodeErrorCode(&attr, &err_code, &err_reason,
-                                 &err_reason_len);
+        xStunAttrDecodeErrorCode(&attr, &err_code, &err_reason, &err_reason_len);
         break;
       }
     }
@@ -733,7 +696,7 @@ static void on_check_response(const xStunMsg        *msg,
         agent->role = xIceAgentRole_Controlling;
       }
       pair->state = xIcePairState_Waiting;
-        send_check(agent, pair, true);
+      send_check(agent, pair, true);
       return; /* Don't call try_nominate yet */
     }
     /* Other error: mark pair as failed */
@@ -833,8 +796,7 @@ static void start_checks(xIceAgent_ *a) {
   schedule_next_check(a);
 
   /* Start overall check timeout */
-  a->check_timeout =
-    xEventLoopTimerAfter(a->loop, check_timeout_cb, a, XICE_CHECK_TIMEOUT_MS);
+  a->check_timeout = xEventLoopTimerAfter(a->loop, check_timeout_cb, a, XICE_CHECK_TIMEOUT_MS);
 }
 
 /* ───────────────────── Symmetric NAT Keepalive ───────────────────── */
@@ -849,7 +811,7 @@ static void start_checks(xIceAgent_ *a) {
  * spray has a chance to hit it.
  */
 static void symmetric_keepalive_cb(void *arg) {
-  xIceAgent_ *a     = (xIceAgent_ *)arg;
+  xIceAgent_ *a       = (xIceAgent_ *)arg;
   a->aggressive_timer = NULL;
 
   if (a->state != xIceAgentState_Checking) return;
@@ -863,8 +825,8 @@ static void symmetric_keepalive_cb(void *arg) {
   }
 
   /* Schedule next keepalive */
-  a->aggressive_timer = xEventLoopTimerAfter(
-    a->loop, symmetric_keepalive_cb, a, XICE_SYMMETRIC_KEEPALIVE_MS);
+  a->aggressive_timer =
+    xEventLoopTimerAfter(a->loop, symmetric_keepalive_cb, a, XICE_SYMMETRIC_KEEPALIVE_MS);
 }
 
 /**
@@ -883,15 +845,16 @@ static void start_symmetric_keepalive(xIceAgent_ *a) {
   a->aggressive_mode = true;
 
   XDEBUGL1("[ice] starting symmetric keepalive (keeping pinholes alive "
-           "for cone side spray, interval=%dms)", XICE_SYMMETRIC_KEEPALIVE_MS);
+           "for cone side spray, interval=%dms)",
+           XICE_SYMMETRIC_KEEPALIVE_MS);
 
   /* Extend the check timeout to match the cone side's spray window */
   if (a->check_timeout) {
     xEventLoopTimerCancel(a->loop, a->check_timeout);
     a->check_timeout = NULL;
   }
-  a->check_timeout = xEventLoopTimerAfter(
-    a->loop, check_timeout_cb, a, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS);
+  a->check_timeout =
+    xEventLoopTimerAfter(a->loop, check_timeout_cb, a, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS);
 
   /* Start the first keepalive immediately */
   symmetric_keepalive_cb(a);
@@ -906,7 +869,7 @@ static void start_symmetric_keepalive(xIceAgent_ *a) {
  * normal pacing (XICE_CHECK_PACING_AGGRESSIVE_MS).
  */
 static void aggressive_pacing_cb(void *arg) {
-  xIceAgent_ *a     = (xIceAgent_ *)arg;
+  xIceAgent_ *a       = (xIceAgent_ *)arg;
   a->aggressive_timer = NULL;
 
   if (a->state != xIceAgentState_Checking) return;
@@ -918,8 +881,7 @@ static void aggressive_pacing_cb(void *arg) {
     xIcePair *pair = &a->pairs[a->spray_index];
     a->spray_index++;
 
-    if (pair->state == xIcePairState_Frozen ||
-        pair->state == xIcePairState_Waiting) {
+    if (pair->state == xIcePairState_Frozen || pair->state == xIcePairState_Waiting) {
       send_check(a, pair, false);
       sent++;
     }
@@ -927,11 +889,10 @@ static void aggressive_pacing_cb(void *arg) {
 
   if (a->spray_index < a->pair_count) {
     /* More spray pairs to send */
-    a->aggressive_timer = xEventLoopTimerAfter(
-      a->loop, aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS);
+    a->aggressive_timer =
+      xEventLoopTimerAfter(a->loop, aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS);
   } else {
-    XDEBUGL1("[ice] spray: all %d spray pairs dispatched",
-             a->pair_count - a->spray_pair_start);
+    XDEBUGL1("[ice] spray: all %d spray pairs dispatched", a->pair_count - a->spray_pair_start);
   }
 }
 
@@ -955,41 +916,39 @@ static void start_aggressive_spray(xIceAgent_ *a) {
   a->aggressive_mode = true;
 
   XDEBUGL1("[ice] starting birthday-attack spray (remote is symmetric, "
-           "local is cone, spray_count=%d)", XICE_BIRTHDAY_SPRAY_COUNT);
+           "local is cone, spray_count=%d)",
+           XICE_BIRTHDAY_SPRAY_COUNT);
 
   /* Extend the check timeout to give spray time to work */
   if (a->check_timeout) {
     xEventLoopTimerCancel(a->loop, a->check_timeout);
     a->check_timeout = NULL;
   }
-  a->check_timeout = xEventLoopTimerAfter(a->loop, check_timeout_cb, a,
-                                          XICE_CHECK_TIMEOUT_AGGRESSIVE_MS);
+  a->check_timeout =
+    xEventLoopTimerAfter(a->loop, check_timeout_cb, a, XICE_CHECK_TIMEOUT_AGGRESSIVE_MS);
 
   /* Record where spray pairs start */
   a->spray_pair_start = a->pair_count;
 
   /* Collect unique remote srflx IPs (de-dup by IP, not IP:port) */
   struct sockaddr_storage srflx_ips[8];
-  int ip_count = 0;
+  int                     ip_count = 0;
 
   for (int r = 0; r < a->remote_count && ip_count < 8; r++) {
     if (a->remote_candidates[r].type != xIceCandidateType_Srflx) continue;
-    const struct sockaddr *raddr =
-      (const struct sockaddr *)&a->remote_candidates[r].addr;
+    const struct sockaddr *raddr = (const struct sockaddr *)&a->remote_candidates[r].addr;
 
     /* De-duplicate by IP only */
     bool dup = false;
     for (int t = 0; t < ip_count; t++) {
-      if (sockaddr_ip_equal(raddr,
-                            (const struct sockaddr *)&srflx_ips[t])) {
+      if (sockaddr_ip_equal(raddr, (const struct sockaddr *)&srflx_ips[t])) {
         dup = true;
         break;
       }
     }
     if (dup) continue;
 
-    memcpy(&srflx_ips[ip_count], &a->remote_candidates[r].addr,
-           sizeof(struct sockaddr_storage));
+    memcpy(&srflx_ips[ip_count], &a->remote_candidates[r].addr, sizeof(struct sockaddr_storage));
     ip_count++;
   }
 
@@ -1000,7 +959,8 @@ static void start_aggressive_spray(xIceAgent_ *a) {
   }
 
   XDEBUGL1("[ice] spray: %d unique srflx IPs, generating %d "
-           "random ports each", ip_count, XICE_BIRTHDAY_SPRAY_COUNT);
+           "random ports each",
+           ip_count, XICE_BIRTHDAY_SPRAY_COUNT);
 
   /* Generate random spray candidates across the ephemeral port range */
   for (int t = 0; t < ip_count; t++) {
@@ -1022,24 +982,19 @@ static void start_aggressive_spray(xIceAgent_ *a) {
       pred->component_id = 1;
       pred->transport    = 0;
       /* Very low priority so these don't interfere with normal pairs */
-      pred->priority =
-        xIceCandidatePriority(xIceCandidateType_Srflx,
-                              (uint16_t)(200 + n), 1);
+      pred->priority = xIceCandidatePriority(xIceCandidateType_Srflx, (uint16_t)(200 + n), 1);
       memcpy(&pred->addr, &srflx_ips[t], sizeof(struct sockaddr_storage));
       sockaddr_set_port(&pred->addr, port);
       snprintf(pred->foundation, XICE_FOUNDATION_MAX_LEN, "bday%d", port);
       a->remote_count++;
 
       /* Create pairs with all local host/srflx candidates */
-      for (int l = 0; l < a->local_count && a->pair_count < XICE_MAX_PAIRS;
-           l++) {
+      for (int l = 0; l < a->local_count && a->pair_count < XICE_MAX_PAIRS; l++) {
         if (a->local_candidates[l].type != xIceCandidateType_Host &&
             a->local_candidates[l].type != xIceCandidateType_Srflx)
           continue;
-        if (a->local_candidates[l].addr.ss_family != pred->addr.ss_family)
-          continue;
-        if (a->local_candidates[l].component_id != pred->component_id)
-          continue;
+        if (a->local_candidates[l].addr.ss_family != pred->addr.ss_family) continue;
+        if (a->local_candidates[l].component_id != pred->component_id) continue;
 
         xIcePair *pair  = &a->pairs[a->pair_count];
         pair->local     = &a->local_candidates[l];
@@ -1063,8 +1018,7 @@ static void start_aggressive_spray(xIceAgent_ *a) {
   }
 
   int spray_count = a->pair_count - a->spray_pair_start;
-  XDEBUGL1("[ice] spray: generated %d spray pairs (total=%d)",
-           spray_count, a->pair_count);
+  XDEBUGL1("[ice] spray: generated %d spray pairs (total=%d)", spray_count, a->pair_count);
 
   if (spray_count == 0) {
     XDEBUGL1("[ice] spray: no pairs generated, aborting");
@@ -1074,8 +1028,8 @@ static void start_aggressive_spray(xIceAgent_ *a) {
 
   /* Start fast pacing for spray pairs */
   a->spray_index = a->spray_pair_start;
-  a->aggressive_timer = xEventLoopTimerAfter(
-    a->loop, aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS);
+  a->aggressive_timer =
+    xEventLoopTimerAfter(a->loop, aggressive_pacing_cb, a, XICE_CHECK_PACING_AGGRESSIVE_MS);
 }
 
 /* ───────────────────── Consent Freshness ───────────────────── */
@@ -1084,8 +1038,7 @@ static void consent_cb(void *arg) {
   xIceAgent_ *a    = (xIceAgent_ *)arg;
   a->consent_timer = NULL;
 
-  if (a->state != xIceAgentState_Connected &&
-      a->state != xIceAgentState_Completed) {
+  if (a->state != xIceAgentState_Connected && a->state != xIceAgentState_Completed) {
     return;
   }
 
@@ -1106,8 +1059,7 @@ static void consent_cb(void *arg) {
   xStunMsgEncode(&msg, msg_buf, sizeof(msg_buf));
 
   xStunAttrWriter w;
-  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE,
-                      sizeof(msg_buf) - XSTUN_HEADER_SIZE);
+  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE, sizeof(msg_buf) - XSTUN_HEADER_SIZE);
   xStunAttrWriteUsername(&w, a->remote_ufrag, a->ice_ufrag);
   xStunAttrWriteMessageIntegrity(&w, msg_buf, (const uint8_t *)a->remote_pwd,
                                  strlen(a->remote_pwd));
@@ -1117,8 +1069,7 @@ static void consent_cb(void *arg) {
 
   /* Send consent check via TURN relay if nominated pair is relay type */
   if (a->nominated->local->type == xIceCandidateType_Relay && a->turn_client) {
-    xTurnClientSendData(a->turn_client,
-                        (const struct sockaddr *)&a->nominated->remote->addr,
+    xTurnClientSendData(a->turn_client, (const struct sockaddr *)&a->nominated->remote->addr,
                         msg_buf, total);
   } else {
     udp_sendto(a->nominated->local->sock, msg_buf, total,
@@ -1126,13 +1077,11 @@ static void consent_cb(void *arg) {
   }
 
   /* Schedule next consent check */
-  a->consent_timer =
-    xEventLoopTimerAfter(a->loop, consent_cb, a, XICE_CONSENT_INTERVAL_MS);
+  a->consent_timer = xEventLoopTimerAfter(a->loop, consent_cb, a, XICE_CONSENT_INTERVAL_MS);
 }
 
 static void start_consent(xIceAgent_ *a) {
-  a->consent_timer =
-    xEventLoopTimerAfter(a->loop, consent_cb, a, XICE_CONSENT_INTERVAL_MS);
+  a->consent_timer = xEventLoopTimerAfter(a->loop, consent_cb, a, XICE_CONSENT_INTERVAL_MS);
 }
 
 /* ───────────────────── Gathering ───────────────────── */
@@ -1143,8 +1092,8 @@ static void gather_check_done(xIceAgent_ *a);
  * Parse a "host:port" string into hostname and port.
  * Returns true on success. `host_out` is NUL-terminated.
  */
-static bool parse_host_port(const char *host_port, char *host_out,
-                            size_t host_out_size, uint16_t *port_out) {
+static bool parse_host_port(const char *host_port, char *host_out, size_t host_out_size,
+                            uint16_t *port_out) {
   if (!host_port) return false;
 
   const char *colon = strrchr(host_port, ':');
@@ -1175,8 +1124,7 @@ static void sockaddr_set_port(struct sockaddr_storage *addr, uint16_t port) {
 
 /* Forward declarations for DNS callbacks */
 static void send_stun_bindings_all(xIceAgent_ *a);
-static void start_turn_allocate(xIceAgent_                    *a,
-                                const struct sockaddr_storage *turn_addr);
+static void start_turn_allocate(xIceAgent_ *a, const struct sockaddr_storage *turn_addr);
 
 /**
  * Context for per-STUN-server DNS resolution.
@@ -1278,16 +1226,15 @@ static void on_turn_dns_done(xDnsResult *result, void *arg) {
 
 typedef struct {
   xIceAgent_ *agent;
-  int host_index;   /* Index of the host candidate that sent the request */
-  int server_index; /* Index of the STUN server this request was sent to */
+  int         host_index;   /* Index of the host candidate that sent the request */
+  int         server_index; /* Index of the STUN server this request was sent to */
 } SrflxCtx;
 
 /**
  * Create an srflx candidate from a mapped address and notify via callback.
  */
 static void create_srflx_candidate(xIceAgent_ *a, int host_index,
-                                   const struct sockaddr_storage *mapped,
-                                   uint16_t                       local_pref) {
+                                   const struct sockaddr_storage *mapped, uint16_t local_pref) {
   if (a->local_count >= XICE_MAX_CANDIDATES) return;
 
   xIceCandidate *host = &a->local_candidates[host_index];
@@ -1296,8 +1243,7 @@ static void create_srflx_candidate(xIceAgent_ *a, int host_index,
   cand->type         = xIceCandidateType_Srflx;
   cand->component_id = 1;
   cand->transport    = 0; /* UDP */
-  cand->priority =
-    xIceCandidatePriority(xIceCandidateType_Srflx, local_pref, 1);
+  cand->priority     = xIceCandidatePriority(xIceCandidateType_Srflx, local_pref, 1);
   memcpy(&cand->addr, mapped, sizeof(*mapped));
   memcpy(&cand->base_addr, &host->addr, sizeof(cand->base_addr));
   memcpy(&cand->rel_addr, mapped, sizeof(*mapped));
@@ -1339,8 +1285,7 @@ static void finalize_srflx_for_host(xIceAgent_ *a, int hi) {
   /* Always create an srflx candidate from the last successful response.
    * This is the most recently allocated port — closest to what the NAT
    * will assign for the next outgoing packet (connectivity check). */
-  create_srflx_candidate(a, hi, &a->srflx_full_mapped[hi][last_si],
-                         (uint16_t)(65535 - hi));
+  create_srflx_candidate(a, hi, &a->srflx_full_mapped[hi][last_si], (uint16_t)(65535 - hi));
 
   /* If we only have one STUN server or only one success, no delta to compute */
   if (first_si == last_si) return;
@@ -1360,8 +1305,7 @@ static void finalize_srflx_for_host(xIceAgent_ *a, int hi) {
   /* Negative delta or large positive delta indicates random/symmetric NAT.
    * Typical sequential NAT deltas are small positive values: 1, 2, etc. */
   if (delta < 0 || delta > XICE_SYMMETRIC_NAT_PORT_THRESHOLD) {
-    XDEBUGL1("[ice] host[%d]: port delta=%d (symmetric NAT), skip prediction",
-             hi, delta);
+    XDEBUGL1("[ice] host[%d]: port delta=%d (symmetric NAT), skip prediction", hi, delta);
     a->local_is_symmetric = true;
     return;
   }
@@ -1371,8 +1315,8 @@ static void finalize_srflx_for_host(xIceAgent_ *a, int hi) {
   int per_dest_delta = delta / server_gap;
   if (per_dest_delta <= 0) per_dest_delta = delta;
 
-  XDEBUGL1("[ice] host[%d]: ports=[%u,%u], delta=%d, per_dest=%d", hi,
-           port_first, port_last, delta, per_dest_delta);
+  XDEBUGL1("[ice] host[%d]: ports=[%u,%u], delta=%d, per_dest=%d", hi, port_first, port_last, delta,
+           per_dest_delta);
 
   /* Generate predicted srflx candidates.
    * Start from port_last + per_dest_delta (the next expected allocation). */
@@ -1383,23 +1327,19 @@ static void finalize_srflx_for_host(xIceAgent_ *a, int hi) {
 
     /* Clone the last mapped address and change the port */
     struct sockaddr_storage predicted_addr;
-    memcpy(&predicted_addr, &a->srflx_full_mapped[hi][last_si],
-           sizeof(predicted_addr));
+    memcpy(&predicted_addr, &a->srflx_full_mapped[hi][last_si], sizeof(predicted_addr));
     sockaddr_set_port(&predicted_addr, (uint16_t)predicted_port);
 
     /* Use lower priority for predicted candidates */
     uint16_t local_pref = (uint16_t)(65535 - hi - k * a->host_count);
     create_srflx_candidate(a, hi, &predicted_addr, local_pref);
 
-    XDEBUGL1("[ice] host[%d]: predicted srflx port %d (k=%d)", hi,
-             predicted_port, k);
+    XDEBUGL1("[ice] host[%d]: predicted srflx port %d (k=%d)", hi, predicted_port, k);
   }
 }
 
 static void on_srflx_response(const xStunMsg        *msg,
-                              const struct sockaddr *from
-                              __attribute__((unused)),
-                              void *arg) {
+                              const struct sockaddr *from __attribute__((unused)), void *arg) {
   SrflxCtx   *ctx = (SrflxCtx *)arg;
   xIceAgent_ *a   = ctx->agent;
   int         hi  = ctx->host_index;
@@ -1407,8 +1347,7 @@ static void on_srflx_response(const xStunMsg        *msg,
   free(ctx);
 
   XDEBUGL1("[ice] srflx response for host[%d] server[%d]: %s", hi, si,
-           (msg && xStunMsgIsSuccessResponse(msg->type)) ? "success"
-                                                         : "fail/timeout");
+           (msg && xStunMsgIsSuccessResponse(msg->type)) ? "success" : "fail/timeout");
 
   if (msg && xStunMsgIsSuccessResponse(msg->type)) {
     xStunAttrIter iter;
@@ -1418,8 +1357,7 @@ static void on_srflx_response(const xStunMsg        *msg,
     while (xStunAttrIterNext(&iter, &attr)) {
       if (attr.type == xStunAttrType_XorMappedAddress) {
         struct sockaddr_storage mapped;
-        if (xStunAttrDecodeXorMappedAddress(&attr, msg->txn_id, &mapped) ==
-            xErrno_Ok) {
+        if (xStunAttrDecodeXorMappedAddress(&attr, msg->txn_id, &mapped) == xErrno_Ok) {
           uint16_t mapped_port = xSockaddrPort((struct sockaddr *)&mapped);
           if (hi < XICE_HOST_COUNT_MAX && si < XICE_STUN_SERVER_COUNT_MAX) {
             a->srflx_mapped[hi][si] = mapped_port;
@@ -1451,13 +1389,11 @@ static void turn_create_permissions_for_remotes(xIceAgent_ *a);
 
 static void on_turn_allocated(const struct sockaddr *relayed_addr,
                               const struct sockaddr *mapped_addr,
-                              uint32_t lifetime __attribute__((unused)),
-                              void    *arg) {
+                              uint32_t lifetime __attribute__((unused)), void *arg) {
   xIceAgent_ *a = (xIceAgent_ *)arg;
 
   /* Use the first host candidate as the base for TURN-derived candidates */
-  xIceCandidate *base_host =
-    (a->host_count > 0) ? &a->local_candidates[0] : NULL;
+  xIceCandidate *base_host = (a->host_count > 0) ? &a->local_candidates[0] : NULL;
 
   /* Create srflx candidate from mapped_addr if available */
   if (mapped_addr && a->local_count < XICE_MAX_CANDIDATES) {
@@ -1466,7 +1402,7 @@ static void on_turn_allocated(const struct sockaddr *relayed_addr,
     cand->type         = xIceCandidateType_Srflx;
     cand->component_id = 1;
     cand->transport    = 0;
-    cand->priority = xIceCandidatePriority(xIceCandidateType_Srflx, 65534, 1);
+    cand->priority     = xIceCandidatePriority(xIceCandidateType_Srflx, 65534, 1);
     memcpy(&cand->addr, mapped_addr, sockaddr_len(mapped_addr));
     if (base_host) {
       memcpy(&cand->base_addr, &base_host->addr, sizeof(cand->base_addr));
@@ -1491,7 +1427,7 @@ static void on_turn_allocated(const struct sockaddr *relayed_addr,
     cand->type         = xIceCandidateType_Relay;
     cand->component_id = 1;
     cand->transport    = 0;
-    cand->priority = xIceCandidatePriority(xIceCandidateType_Relay, 65535, 1);
+    cand->priority     = xIceCandidatePriority(xIceCandidateType_Relay, 65535, 1);
     memcpy(&cand->addr, relayed_addr, sockaddr_len(relayed_addr));
     if (base_host) {
       memcpy(&cand->base_addr, &base_host->addr, sizeof(cand->base_addr));
@@ -1525,8 +1461,7 @@ static void on_turn_failed(xErrno err __attribute__((unused)), void *arg) {
 /**
  * @brief Callback for TURN relay data — forwards to DTLS input hook.
  */
-static void on_turn_data(const uint8_t *data, size_t len,
-                         const struct sockaddr *from, void *arg) {
+static void on_turn_data(const uint8_t *data, size_t len, const struct sockaddr *from, void *arg) {
   xIceAgent_ *a = (xIceAgent_ *)arg;
   XDEBUGL0("[ice] TURN relay data %zu bytes", len);
   if (a->dtls_input_fn) {
@@ -1543,12 +1478,10 @@ static void turn_create_permissions_for_remotes(xIceAgent_ *a) {
   if (a->turn_client->state != xTurnState_Allocated) return;
 
   for (int i = 0; i < a->remote_count; i++) {
-    const struct sockaddr *peer =
-      (const struct sockaddr *)&a->remote_candidates[i].addr;
-    xErrno err = xTurnClientCreatePermission(a->turn_client, peer);
+    const struct sockaddr *peer = (const struct sockaddr *)&a->remote_candidates[i].addr;
+    xErrno                 err  = xTurnClientCreatePermission(a->turn_client, peer);
     if (err != xErrno_Ok) {
-      XDEBUGL0("[ice] failed to create TURN permission for remote candidate %d",
-               i);
+      XDEBUGL0("[ice] failed to create TURN permission for remote candidate %d", i);
     }
   }
 }
@@ -1557,8 +1490,7 @@ static void turn_create_permissions_for_remotes(xIceAgent_ *a) {
  * Send a STUN Binding Request from a specific host candidate to a
  * specific STUN server (identified by server_index).
  */
-static void send_stun_binding_for_host(xIceAgent_                    *a,
-                                       const struct sockaddr_storage *stun_addr,
+static void send_stun_binding_for_host(xIceAgent_ *a, const struct sockaddr_storage *stun_addr,
                                        int host_index, int server_index) {
   uint8_t msg_buf[256];
   uint8_t txn_id[XSTUN_TXN_ID_SIZE];
@@ -1583,10 +1515,8 @@ static void send_stun_binding_for_host(xIceAgent_                    *a,
   ctx->host_index   = host_index;
   ctx->server_index = server_index;
 
-  xStunTxnMgrSendRaw(&a->txn_mgr, msg_buf, XSTUN_HEADER_SIZE,
-                     (struct sockaddr *)stun_addr, sock_stun_send,
-                     a->local_candidates[host_index].sock, on_srflx_response,
-                     ctx);
+  xStunTxnMgrSendRaw(&a->txn_mgr, msg_buf, XSTUN_HEADER_SIZE, (struct sockaddr *)stun_addr,
+                     sock_stun_send, a->local_candidates[host_index].sock, on_srflx_response, ctx);
 }
 
 /**
@@ -1599,8 +1529,7 @@ static void send_stun_bindings_all(xIceAgent_ *a) {
   for (int hi = 0; hi < a->host_count && hi < XICE_HOST_COUNT_MAX; hi++) {
     int sent = 0;
     for (int si = 0; si < a->stun_count; si++) {
-      if (a->local_candidates[hi].addr.ss_family != a->stun_addrs[si].ss_family)
-        continue;
+      if (a->local_candidates[hi].addr.ss_family != a->stun_addrs[si].ss_family) continue;
       a->pending_gather++;
       send_stun_binding_for_host(a, &a->stun_addrs[si], hi, si);
       sent++;
@@ -1613,8 +1542,7 @@ static void send_stun_bindings_all(xIceAgent_ *a) {
  * Start a TURN Allocate to the resolved TURN server address.
  * Called from on_turn_dns_done after successful DNS resolution.
  */
-static void start_turn_allocate(xIceAgent_                    *a,
-                                const struct sockaddr_storage *turn_addr) {
+static void start_turn_allocate(xIceAgent_ *a, const struct sockaddr_storage *turn_addr) {
   a->turn_client = (xTurnClient *)calloc(1, sizeof(xTurnClient));
   if (!a->turn_client) {
     a->pending_gather--;
@@ -1625,10 +1553,8 @@ static void start_turn_allocate(xIceAgent_                    *a,
   xTurnConfig tc_conf;
   memset(&tc_conf, 0, sizeof(tc_conf));
   memcpy(&tc_conf.server, turn_addr, sizeof(*turn_addr));
-  strncpy(tc_conf.username, a->conf.turn_username,
-          sizeof(tc_conf.username) - 1);
-  strncpy(tc_conf.password, a->conf.turn_password,
-          sizeof(tc_conf.password) - 1);
+  strncpy(tc_conf.username, a->conf.turn_username, sizeof(tc_conf.username) - 1);
+  strncpy(tc_conf.password, a->conf.turn_password, sizeof(tc_conf.password) - 1);
   tc_conf.send_fn      = sock_stun_send;
   tc_conf.send_arg     = find_host_sock(a, turn_addr->ss_family);
   tc_conf.on_allocated = on_turn_allocated;
@@ -1645,8 +1571,8 @@ static void start_turn_allocate(xIceAgent_                    *a,
  * If so, cancel the gather timer and finish gathering immediately.
  */
 static void gather_check_done(xIceAgent_ *a) {
-  XDEBUGL1("[ice] gather_check_done: pending=%d, state=%s, done=%d",
-           a->pending_gather, state_name(a->state), a->gathering_done);
+  XDEBUGL1("[ice] gather_check_done: pending=%d, state=%s, done=%d", a->pending_gather,
+           state_name(a->state), a->gathering_done);
   if (a->pending_gather > 0) return;
   if (a->state != xIceAgentState_Gathering) return;
   if (a->gathering_done) return;
@@ -1701,10 +1627,8 @@ static void gather_timeout_cb(void *arg) {
 /* ───────────────────── Incoming STUN Handler ───────────────────── */
 
 static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
-                                            const uint8_t         *raw_buf,
-                                            size_t                 raw_len,
-                                            const struct sockaddr *from,
-                                            xSocket                sock) {
+                                            const uint8_t *raw_buf, size_t raw_len,
+                                            const struct sockaddr *from, xSocket sock) {
   /* Validate USERNAME and MESSAGE-INTEGRITY (RFC 8445 §7.2.1.1) */
   bool             has_username  = false;
   bool             has_integrity = false;
@@ -1719,11 +1643,9 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
       size_t local_len  = strlen(a->ice_ufrag);
       size_t remote_len = strlen(a->remote_ufrag);
       size_t expected   = local_len + 1 + remote_len;
-      if (vattr.length != expected ||
-          memcmp(vattr.value, a->ice_ufrag, local_len) != 0 ||
+      if (vattr.length != expected || memcmp(vattr.value, a->ice_ufrag, local_len) != 0 ||
           vattr.value[local_len] != ':' ||
-          memcmp(vattr.value + local_len + 1, a->remote_ufrag, remote_len) !=
-            0) {
+          memcmp(vattr.value + local_len + 1, a->remote_ufrag, remote_len) != 0) {
         XDEBUGL0("[ice] incoming request: USERNAME mismatch, discarding");
         return;
       }
@@ -1740,8 +1662,7 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
     return;
   }
   /* Verify HMAC using local ice_pwd (the remote peer signs with our pwd) */
-  if (xStunAttrVerifyMessageIntegrity(raw_buf, raw_len, mi_attr_ptr,
-                                      (const uint8_t *)a->ice_pwd,
+  if (xStunAttrVerifyMessageIntegrity(raw_buf, raw_len, mi_attr_ptr, (const uint8_t *)a->ice_pwd,
                                       strlen(a->ice_pwd)) != xErrno_Ok) {
     XDEBUGL0("[ice] incoming request: MESSAGE-INTEGRITY verification failed, "
              "discarding");
@@ -1755,12 +1676,10 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
   xStunMsgEncode(&resp, resp_buf, sizeof(resp_buf));
 
   xStunAttrWriter w;
-  xStunAttrWriterInit(&w, resp_buf + XSTUN_HEADER_SIZE,
-                      sizeof(resp_buf) - XSTUN_HEADER_SIZE);
+  xStunAttrWriterInit(&w, resp_buf + XSTUN_HEADER_SIZE, sizeof(resp_buf) - XSTUN_HEADER_SIZE);
 
   xStunAttrWriteXorMappedAddress(&w, from, msg->txn_id);
-  xStunAttrWriteMessageIntegrity(&w, resp_buf, (const uint8_t *)a->ice_pwd,
-                                 strlen(a->ice_pwd));
+  xStunAttrWriteMessageIntegrity(&w, resp_buf, (const uint8_t *)a->ice_pwd, strlen(a->ice_pwd));
   xStunAttrWriteFingerprint(&w, resp_buf);
 
   xWriteU16BE(resp_buf + 2, (uint16_t)w.pos);
@@ -1782,8 +1701,7 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
   /* Check if this is from a known remote candidate */
   bool known = false;
   for (int i = 0; i < a->remote_count; i++) {
-    const struct sockaddr *raddr =
-      (const struct sockaddr *)&a->remote_candidates[i].addr;
+    const struct sockaddr *raddr = (const struct sockaddr *)&a->remote_candidates[i].addr;
     if (sockaddr_equal(from, raddr)) {
       known = true;
       break;
@@ -1796,7 +1714,7 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
     memset(prflx, 0, sizeof(*prflx));
     prflx->type         = xIceCandidateType_Prflx;
     prflx->component_id = 1;
-    prflx->priority = xIceCandidatePriority(xIceCandidateType_Prflx, 65535, 1);
+    prflx->priority     = xIceCandidatePriority(xIceCandidateType_Prflx, 65535, 1);
     memcpy(&prflx->addr, from, sockaddr_len(from));
     memcpy(&prflx->base_addr, from, sockaddr_len(from));
     xIceCandidateFoundation(prflx, NULL);
@@ -1807,12 +1725,9 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
      * generate_pairs() here would reset all pair states and corrupt
      * outstanding connectivity-check transactions. */
     if (a->state == xIceAgentState_Checking) {
-      for (int l = 0; l < a->local_count && a->pair_count < XICE_MAX_PAIRS;
-           l++) {
-        if (a->local_candidates[l].component_id != prflx->component_id)
-          continue;
-        if (a->local_candidates[l].addr.ss_family != prflx->addr.ss_family)
-          continue;
+      for (int l = 0; l < a->local_count && a->pair_count < XICE_MAX_PAIRS; l++) {
+        if (a->local_candidates[l].component_id != prflx->component_id) continue;
+        if (a->local_candidates[l].addr.ss_family != prflx->addr.ss_family) continue;
 
         xIcePair *pair  = &a->pairs[a->pair_count];
         pair->local     = &a->local_candidates[l];
@@ -1851,12 +1766,10 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
     for (int i = 0; i < a->pair_count; i++) {
       xIcePair *pair = &a->pairs[i];
       if (pair->local->sock != sock) continue;
-      const struct sockaddr *raddr =
-        (const struct sockaddr *)&pair->remote->addr;
+      const struct sockaddr *raddr = (const struct sockaddr *)&pair->remote->addr;
       if (!sockaddr_equal(from, raddr)) continue;
 
-      if (pair->state == xIcePairState_Frozen ||
-          pair->state == xIcePairState_Waiting ||
+      if (pair->state == xIcePairState_Frozen || pair->state == xIcePairState_Waiting ||
           pair->state == xIcePairState_Failed) {
         XDEBUGL0("[ice] triggered check for pair %d", i);
         send_check(a, pair, true);
@@ -1869,8 +1782,7 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
   if (use_candidate && a->role == xIceAgentRole_Controlled && !a->nominated) {
     /* Find the pair for this remote address */
     for (int i = 0; i < a->pair_count; i++) {
-      const struct sockaddr *raddr =
-        (const struct sockaddr *)&a->pairs[i].remote->addr;
+      const struct sockaddr *raddr = (const struct sockaddr *)&a->pairs[i].remote->addr;
       if (sockaddr_equal(from, raddr)) {
         a->nominated          = &a->pairs[i];
         a->pairs[i].nominated = true;
@@ -1878,10 +1790,8 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
 
 #if X_DEBUG_LEVEL >= 0
         char lstr[64], rstr[64];
-        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr,
-                        sizeof(lstr));
-        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr,
-                        rstr, sizeof(rstr));
+        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr, sizeof(lstr));
+        sockaddr_to_str((const struct sockaddr *)&a->pairs[i].remote->addr, rstr, sizeof(rstr));
         XDEBUGL0("[ice] nominated pair: %s -> %s", lstr, rstr);
 #endif
 
@@ -1915,8 +1825,7 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
     struct sockaddr_storage from_addr;
     socklen_t               from_len = sizeof(from_addr);
 
-    ssize_t n = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *)&from_addr,
-                         &from_len);
+    ssize_t n = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *)&from_addr, &from_len);
     if (n <= 0) break;
 
     size_t                 len  = (size_t)n;
@@ -1925,8 +1834,7 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
 #if X_DEBUG_LEVEL >= 2
     char fstr[64];
     sockaddr_to_str(from, fstr, sizeof(fstr));
-    XDEBUGL2("[ice] on_udp_recv: %zu bytes from %s (first_byte=0x%02x)", len,
-             fstr, buf[0]);
+    XDEBUGL2("[ice] on_udp_recv: %zu bytes from %s (first_byte=0x%02x)", len, fstr, buf[0]);
 #endif
 
     /*
@@ -1964,8 +1872,7 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
           xTurnClientOnMessage(a->turn_client, &msg, buf, len, from);
         }
         /* No TURN client or not handled — silently discard */
-      } else if (xStunMsgIsSuccessResponse(msg.type) ||
-                 xStunMsgIsErrorResponse(msg.type)) {
+      } else if (xStunMsgIsSuccessResponse(msg.type) || xStunMsgIsErrorResponse(msg.type)) {
         /* Try TURN client first */
         if (a->turn_client) {
           if (xTurnClientOnMessage(a->turn_client, &msg, buf, len, from)) {
@@ -1980,8 +1887,7 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
 
     case XICE_DEMUX_DTLS:
       /* Feed into upper layer (PeerConnection) if DTLS hook is set */
-      XDEBUGL3("[ice] DTLS packet %zu bytes, dtls_input_fn=%p", len,
-               (void *)a->dtls_input_fn);
+      XDEBUGL3("[ice] DTLS packet %zu bytes, dtls_input_fn=%p", len, (void *)a->dtls_input_fn);
       if (a->dtls_input_fn) {
         a->dtls_input_fn(buf, len, from, a->dtls_input_arg);
       }
@@ -2018,12 +1924,11 @@ xIceAgent xIceAgentCreate(xEventLoop loop, const xIceConf *conf) {
   a->conf  = *conf;
   a->loop  = loop;
   a->state = xIceAgentState_New;
-  a->role  = (conf->role == xIceRole_Controlling) ? xIceAgentRole_Controlling
-                                                  : xIceAgentRole_Controlled;
+  a->role =
+    (conf->role == xIceRole_Controlling) ? xIceAgentRole_Controlling : xIceAgentRole_Controlled;
 
   /* Port prediction count: use user value if valid, otherwise default */
-  if (conf->port_predict_count > 0 &&
-      conf->port_predict_count <= XICE_PORT_PREDICT_COUNT_MAX)
+  if (conf->port_predict_count > 0 && conf->port_predict_count <= XICE_PORT_PREDICT_COUNT_MAX)
     a->port_predict_count = conf->port_predict_count;
   else
     a->port_predict_count = XICE_PORT_PREDICT_COUNT_DEFAULT;
@@ -2144,8 +2049,7 @@ xErrno xIceAgentGather(xIceAgent agent) {
 
     if (a->local_count >= XICE_MAX_CANDIDATES) break;
 
-    xSocket sock = xSocketCreate(a->loop, family, SOCK_DGRAM, 0, xEvent_Read,
-                                 on_udp_recv, a);
+    xSocket sock = xSocketCreate(a->loop, family, SOCK_DGRAM, 0, xEvent_Read, on_udp_recv, a);
     if (!sock) continue;
 
     /* Bind to this interface address with an OS-assigned port */
@@ -2189,8 +2093,8 @@ xErrno xIceAgentGather(xIceAgent agent) {
     cand->type         = xIceCandidateType_Host;
     cand->component_id = 1;
     cand->transport    = 0; /* UDP */
-    cand->priority     = xIceCandidatePriority(xIceCandidateType_Host,
-                                               (uint16_t)(65535 - iface_index), 1);
+    cand->priority =
+      xIceCandidatePriority(xIceCandidateType_Host, (uint16_t)(65535 - iface_index), 1);
     memcpy(&cand->addr, &local_addr, addr_len);
     memcpy(&cand->base_addr, &local_addr, addr_len);
     cand->sock = sock;
@@ -2289,8 +2193,7 @@ xErrno xIceAgentGather(xIceAgent agent) {
 
       a->turn_port = port;
       a->pending_gather++;
-      a->turn_dns_query =
-        xDnsResolve(a->loop, host, NULL, &hints, on_turn_dns_done, a);
+      a->turn_dns_query = xDnsResolve(a->loop, host, NULL, &hints, on_turn_dns_done, a);
       if (!a->turn_dns_query) {
         a->pending_gather--;
       }
@@ -2304,8 +2207,7 @@ xErrno xIceAgentGather(xIceAgent agent) {
   }
 
   /* Start gathering timeout (fallback for slow servers) */
-  a->gather_timer =
-    xEventLoopTimerAfter(a->loop, gather_timeout_cb, a, XICE_GATHER_TIMEOUT_MS);
+  a->gather_timer = xEventLoopTimerAfter(a->loop, gather_timeout_cb, a, XICE_GATHER_TIMEOUT_MS);
 
   return xErrno_Ok;
 }
@@ -2317,8 +2219,8 @@ char *xIceAgentCreateOffer(xIceAgent agent) {
   char *sdp = (char *)malloc(XSDP_MAX_SIZE);
   if (!sdp) return NULL;
 
-  int len = xIceSdpEncode(a->ice_ufrag, a->ice_pwd, a->local_candidates,
-                          a->local_count, true, sdp, XSDP_MAX_SIZE);
+  int len = xIceSdpEncode(a->ice_ufrag, a->ice_pwd, a->local_candidates, a->local_count, true, sdp,
+                          XSDP_MAX_SIZE);
   if (len < 0) {
     free(sdp);
     return NULL;
@@ -2346,13 +2248,11 @@ xErrno xIceAgentSetRemoteDescription(xIceAgent agent, const char *sdp) {
   a->remote_gathering_done = parsed.end_of_candidates;
   a->remote_set            = true;
 
-  XDEBUGL1("[ice] set remote: ufrag=%s, %d candidates, gathering_done=%d",
-           a->remote_ufrag, parsed.candidate_count, a->gathering_done);
+  XDEBUGL1("[ice] set remote: ufrag=%s, %d candidates, gathering_done=%d", a->remote_ufrag,
+           parsed.candidate_count, a->gathering_done);
 
   /* Add remote candidates (with de-duplication) */
-  for (int i = 0;
-       i < parsed.candidate_count && a->remote_count < XICE_MAX_CANDIDATES;
-       i++) {
+  for (int i = 0; i < parsed.candidate_count && a->remote_count < XICE_MAX_CANDIDATES; i++) {
     bool dup = false;
     for (int j = 0; j < a->remote_count; j++) {
       if (sockaddr_equal((const struct sockaddr *)&a->remote_candidates[j].addr,
@@ -2376,8 +2276,7 @@ xErrno xIceAgentSetRemoteDescription(xIceAgent agent, const char *sdp) {
     generate_pairs(a);
     start_checks(a);
   } else {
-    XDEBUGL1("[ice] remote set, gather not done yet (state=%s)",
-             state_name(a->state));
+    XDEBUGL1("[ice] remote set, gather not done yet (state=%s)", state_name(a->state));
   }
 
   return xErrno_Ok;
@@ -2409,11 +2308,10 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
 
   /* Create TURN permission for the new remote candidate */
   if (a->turn_client && a->turn_client->state == xTurnState_Allocated) {
-    xErrno perm_err = xTurnClientCreatePermission(
-      a->turn_client, (const struct sockaddr *)&cand.addr);
+    xErrno perm_err =
+      xTurnClientCreatePermission(a->turn_client, (const struct sockaddr *)&cand.addr);
     if (perm_err != xErrno_Ok) {
-      XDEBUGL0(
-        "[ice] failed to create TURN permission for new remote candidate");
+      XDEBUGL0("[ice] failed to create TURN permission for new remote candidate");
     }
   }
 
@@ -2424,8 +2322,7 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
     xIceCandidate *remote = &a->remote_candidates[new_remote_idx];
     for (int l = 0; l < a->local_count && a->pair_count < XICE_MAX_PAIRS; l++) {
       if (a->local_candidates[l].component_id != remote->component_id) continue;
-      if (a->local_candidates[l].addr.ss_family != remote->addr.ss_family)
-        continue;
+      if (a->local_candidates[l].addr.ss_family != remote->addr.ss_family) continue;
 
       xIcePair *pair  = &a->pairs[a->pair_count];
       pair->local     = &a->local_candidates[l];
@@ -2445,8 +2342,7 @@ xErrno xIceAgentAddRemoteCandidate(xIceAgent agent, const char *candidate_sdp) {
       a->pair_count++;
     }
 
-    XDEBUGL1("[ice] trickle: added pairs for new remote, total=%d",
-             a->pair_count);
+    XDEBUGL1("[ice] trickle: added pairs for new remote, total=%d", a->pair_count);
 
     /* Re-evaluate remote NAT type with the new candidate */
     detect_remote_nat_type(a);
@@ -2477,8 +2373,7 @@ xErrno xIceAgentSend(xIceAgent agent, const uint8_t *data, size_t len) {
   if (!agent || !data) return xErrno_InvalidArg;
   xIceAgent_ *a = (xIceAgent_ *)agent;
 
-  if (a->state != xIceAgentState_Connected &&
-      a->state != xIceAgentState_Completed) {
+  if (a->state != xIceAgentState_Connected && a->state != xIceAgentState_Completed) {
     return xErrno_InvalidArg;
   }
 
@@ -2489,9 +2384,8 @@ xErrno xIceAgentSend(xIceAgent agent, const uint8_t *data, size_t len) {
   /* Send via TURN relay if nominated pair's local candidate is relay type */
   if (a->nominated->local->type == xIceCandidateType_Relay) {
     if (!a->turn_client) return xErrno_SysError;
-    return xTurnClientSendData(
-      a->turn_client, (const struct sockaddr *)&a->nominated->remote->addr,
-      data, len);
+    return xTurnClientSendData(a->turn_client, (const struct sockaddr *)&a->nominated->remote->addr,
+                               data, len);
   }
 
   return udp_sendto(a->nominated->local->sock, data, len,
@@ -2518,8 +2412,7 @@ xEventLoop xIceAgentGetLoop(xIceAgent agent) {
   return a->loop;
 }
 
-const xIceCandidate *xIceAgentGetLocalCandidates(xIceAgent agent,
-                                                 int      *out_count) {
+const xIceCandidate *xIceAgentGetLocalCandidates(xIceAgent agent, int *out_count) {
   if (!agent) {
     if (out_count) *out_count = 0;
     return NULL;
@@ -2529,8 +2422,7 @@ const xIceCandidate *xIceAgentGetLocalCandidates(xIceAgent agent,
   return a->local_candidates;
 }
 
-void xIceAgentSetDtlsInputCallback(xIceAgent agent, xIceDtlsInputFn fn,
-                                   void *arg) {
+void xIceAgentSetDtlsInputCallback(xIceAgent agent, xIceDtlsInputFn fn, void *arg) {
   if (!agent) return;
   xIceAgent_ *a     = (xIceAgent_ *)agent;
   a->dtls_input_fn  = fn;
@@ -2540,6 +2432,5 @@ void xIceAgentSetDtlsInputCallback(xIceAgent agent, xIceDtlsInputFn fn,
 void xIceAgentSetRole(xIceAgent agent, xIceRole role) {
   if (!agent) return;
   xIceAgent_ *a = (xIceAgent_ *)agent;
-  a->role       = (role == xIceRole_Controlling) ? xIceAgentRole_Controlling
-                                                 : xIceAgentRole_Controlled;
+  a->role = (role == xIceRole_Controlling) ? xIceAgentRole_Controlling : xIceAgentRole_Controlled;
 }

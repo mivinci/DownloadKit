@@ -63,22 +63,22 @@ struct xOaiImpl_ {
   xEventLoop  loop;
   xHttpClient http;
   /* Config snapshots (own these). */
-  char       *api_key;
-  char       *base_url;      /* without trailing slash                */
-  char       *organization;  /* may be NULL                           */
-  char       *default_model; /* may be NULL                           */
-  long        timeout_ms;
+  char *api_key;
+  char *base_url;      /* without trailing slash                */
+  char *organization;  /* may be NULL                           */
+  char *default_model; /* may be NULL                           */
+  long  timeout_ms;
 
   /* ── In-flight state ── */
-  int                        in_flight;
-  int                        cancelled;
+  int                           in_flight;
+  int                           cancelled;
   xAgentProviderStreamCallbacks cbs;
-  void                      *cb_arg;
+  void                         *cb_arg;
   xAgentProviderStopReason      stop_reason; /* sticky; last write wins */
-  xErrno                     stop_err;
-  char                       stop_errmsg[256]; /* curl/server error detail  */
-  int                        saw_finish_reason; /* 1 once server sent one */
-  struct xOaiToolCallSlot_   tool_calls[XAGENT_OAI_MAX_TOOL_CALLS];
+  xErrno                        stop_err;
+  char                          stop_errmsg[256];  /* curl/server error detail  */
+  int                           saw_finish_reason; /* 1 once server sent one */
+  struct xOaiToolCallSlot_      tool_calls[XAGENT_OAI_MAX_TOOL_CALLS];
 
   /* Token accounting for the current flight. OpenAI-compatible SSE
    * streams put a `usage` object on the chunk that carries
@@ -86,8 +86,8 @@ struct xOaiImpl_ {
    * are -1 until we actually see them; if the server never reports
    * usage (e.g. a minimal mock) we hand NULL to on_done so callers
    * can tell "unknown" from "zero". */
-  int                        saw_usage;
-  xAgentUsage                   usage;
+  int         saw_usage;
+  xAgentUsage usage;
 
   xEventTimer defer_done; /* non-NULL while pending   */
 };
@@ -111,13 +111,13 @@ static void oai_free(char **p) {
 }
 
 /* Appends (src, src_len) to the end of *dst (heap-grown, NUL-terminated). */
-static int oai_str_append(char **dst, size_t *len, size_t *cap,
-                          const char *src, size_t src_len) {
+static int oai_str_append(char **dst, size_t *len, size_t *cap, const char *src, size_t src_len) {
   if (!src || src_len == 0) return 0;
   size_t need = *len + src_len + 1; /* +1 NUL */
   if (need > *cap) {
     size_t new_cap = *cap ? *cap : 64;
-    while (new_cap < need) new_cap *= 2;
+    while (new_cap < need)
+      new_cap *= 2;
     char *n = (char *)realloc(*dst, new_cap);
     if (!n) return -1;
     *dst = n;
@@ -136,11 +136,16 @@ static int oai_str_append(char **dst, size_t *len, size_t *cap,
  */
 static const char *oai_role_str(xAgentRole r) {
   switch (r) {
-  case xAgentRole_System:    return "system";
-  case xAgentRole_User:      return "user";
-  case xAgentRole_Assistant: return "assistant";
-  case xAgentRole_Tool:      return "tool";
-  case xAgentRole_Summary:   return "system";
+  case xAgentRole_System:
+    return "system";
+  case xAgentRole_User:
+    return "user";
+  case xAgentRole_Assistant:
+    return "assistant";
+  case xAgentRole_Tool:
+    return "tool";
+  case xAgentRole_Summary:
+    return "system";
   }
   return "user";
 }
@@ -171,10 +176,8 @@ static cJSON *oai_message_to_json(const xAgentMessage *m) {
     size_t      out_len = 0;
     for (size_t i = 0; i < m->n; i++) {
       if (m->contents[i].type == xAgentContentType_ToolResult) {
-        tool_id = m->contents[i].u.tool_result.id
-                    ? m->contents[i].u.tool_result.id : "";
-        out     = m->contents[i].u.tool_result.output
-                    ? m->contents[i].u.tool_result.output : "";
+        tool_id = m->contents[i].u.tool_result.id ? m->contents[i].u.tool_result.id : "";
+        out     = m->contents[i].u.tool_result.output ? m->contents[i].u.tool_result.output : "";
         out_len = m->contents[i].u.tool_result.output_len;
         break;
       }
@@ -207,30 +210,26 @@ static cJSON *oai_message_to_json(const xAgentMessage *m) {
      * assistant tool call message". The session layer preserves the
      * thinking stream for us; here we serialise it alongside content
      * and tool_calls. */
-    cJSON  *tool_calls     = NULL;
-    xBuffer text_buf       = NULL;
-    xBuffer reasoning_buf  = NULL;
+    cJSON  *tool_calls    = NULL;
+    xBuffer text_buf      = NULL;
+    xBuffer reasoning_buf = NULL;
     for (size_t i = 0; i < m->n; i++) {
       const xAgentContent *c = &m->contents[i];
       if (c->type == xAgentContentType_Text && c->u.text.text) {
         if (!text_buf) text_buf = xBufferCreate(256);
         if (text_buf) xBufferAppendStr(&text_buf, c->u.text.text);
-      } else if (c->type == xAgentContentType_Thinking &&
-                 c->u.thinking.text) {
+      } else if (c->type == xAgentContentType_Thinking && c->u.thinking.text) {
         if (!reasoning_buf) reasoning_buf = xBufferCreate(256);
         if (reasoning_buf) xBufferAppendStr(&reasoning_buf, c->u.thinking.text);
       } else if (c->type == xAgentContentType_ToolUse) {
         if (!tool_calls) tool_calls = cJSON_CreateArray();
         cJSON *tc = cJSON_CreateObject();
-        cJSON_AddStringToObject(tc, "id",
-                                c->u.tool_use.id ? c->u.tool_use.id : "");
+        cJSON_AddStringToObject(tc, "id", c->u.tool_use.id ? c->u.tool_use.id : "");
         cJSON_AddStringToObject(tc, "type", "function");
         cJSON *fn = cJSON_CreateObject();
-        cJSON_AddStringToObject(fn, "name",
-                                c->u.tool_use.name ? c->u.tool_use.name : "");
-        cJSON_AddStringToObject(
-          fn, "arguments",
-          c->u.tool_use.args_json ? c->u.tool_use.args_json : "{}");
+        cJSON_AddStringToObject(fn, "name", c->u.tool_use.name ? c->u.tool_use.name : "");
+        cJSON_AddStringToObject(fn, "arguments",
+                                c->u.tool_use.args_json ? c->u.tool_use.args_json : "{}");
         cJSON_AddItemToObject(tc, "function", fn);
         cJSON_AddItemToArray(tool_calls, tc);
       }
@@ -254,11 +253,9 @@ static cJSON *oai_message_to_json(const xAgentMessage *m) {
   /* system / user: concatenate all text blocks. */
   xBuffer text_buf = NULL;
   for (size_t i = 0; i < m->n; i++) {
-    if (m->contents[i].type == xAgentContentType_Text &&
-        m->contents[i].u.text.text) {
+    if (m->contents[i].type == xAgentContentType_Text && m->contents[i].u.text.text) {
       if (!text_buf) text_buf = xBufferCreate(256);
-      if (text_buf)
-        xBufferAppendStr(&text_buf, m->contents[i].u.text.text);
+      if (text_buf) xBufferAppendStr(&text_buf, m->contents[i].u.text.text);
     }
   }
   if (text_buf && xBufferLen(text_buf) > 0) {
@@ -306,8 +303,7 @@ static cJSON *oai_tool_to_json(xAgentTool tool) {
  * Build the request body JSON as a heap-alloc'd NUL-terminated
  * string. The caller takes ownership and must free() it.
  */
-static char *oai_build_body(struct xOaiImpl_            *impl,
-                            const xAgentProviderSubmitConf *conf) {
+static char *oai_build_body(struct xOaiImpl_ *impl, const xAgentProviderSubmitConf *conf) {
   cJSON *root = cJSON_CreateObject();
   if (!root) return NULL;
 
@@ -395,14 +391,13 @@ static void oai_emit_tool_calls(struct xOaiImpl_ *impl) {
     struct xOaiToolCallSlot_ *s = &impl->tool_calls[i];
     if (!s->used || s->emitted) continue;
 
-    xAgentContent c = {0};
+    xAgentContent c        = {0};
     c.type                 = xAgentContentType_ToolUse;
-    c.u.tool_use.id        = s->id   ? s->id   : "";
+    c.u.tool_use.id        = s->id ? s->id : "";
     c.u.tool_use.name      = s->name ? s->name : "";
-    c.u.tool_use.args_json =
-      (s->args_buf && s->args_len > 0) ? s->args_buf : "{}";
-    XDEBUG("[xai/openai] emit tool_call: name=%s args=%s",
-           c.u.tool_use.name, c.u.tool_use.args_json);
+    c.u.tool_use.args_json = (s->args_buf && s->args_len > 0) ? s->args_buf : "{}";
+    XDEBUG("[xai/openai] emit tool_call: name=%s args=%s", c.u.tool_use.name,
+           c.u.tool_use.args_json);
     impl->cbs.on_tool_call(&c, impl->cb_arg);
     s->emitted = 1;
   }
@@ -419,15 +414,15 @@ static void oai_finish_flight(struct xOaiImpl_ *impl) {
 
   xAgentProviderDoneFunc   done   = impl->cbs.on_done;
   xAgentProviderStopReason reason = impl->stop_reason;
-  xErrno                err    = impl->stop_err;
-  void                 *arg    = impl->cb_arg;
+  xErrno                   err    = impl->stop_err;
+  void                    *arg    = impl->cb_arg;
 
   /* Snapshot usage before we reset state. We pass a pointer through
    * the callback, so it must outlive the rest of this function —
    * using a local here is fine since on_done is invoked synchronously
    * just below and the pointer is only valid for that call. */
   xAgentUsage usage_snapshot = impl->usage;
-  int      had_usage      = impl->saw_usage;
+  int         had_usage      = impl->saw_usage;
 
   /* Snapshot errmsg before clearing — same local-lifetime reasoning. */
   char errmsg[256];
@@ -435,24 +430,22 @@ static void oai_finish_flight(struct xOaiImpl_ *impl) {
 
   /* Clear flight state BEFORE firing on_done, so a callback that
    * synchronously issues another submit() sees a clean provider. */
-  impl->in_flight   = 0;
-  impl->cancelled   = 0;
-  impl->defer_done  = NULL;
-  impl->cbs         = (xAgentProviderStreamCallbacks){0};
-  impl->cb_arg      = NULL;
-  impl->stop_reason = xAgentProviderStop_EndTurn;
-  impl->stop_err    = xErrno_Ok;
-  impl->stop_errmsg[0] = '\0';
-  impl->saw_finish_reason = 0;
-  impl->saw_usage   = 0;
+  impl->in_flight               = 0;
+  impl->cancelled               = 0;
+  impl->defer_done              = NULL;
+  impl->cbs                     = (xAgentProviderStreamCallbacks){0};
+  impl->cb_arg                  = NULL;
+  impl->stop_reason             = xAgentProviderStop_EndTurn;
+  impl->stop_err                = xErrno_Ok;
+  impl->stop_errmsg[0]          = '\0';
+  impl->saw_finish_reason       = 0;
+  impl->saw_usage               = 0;
   impl->usage.prompt_tokens     = -1;
   impl->usage.completion_tokens = -1;
   impl->usage.total_tokens      = -1;
   oai_tool_calls_reset(impl);
 
-  if (done)
-    done(reason, err, had_usage ? &usage_snapshot : NULL,
-         errmsg[0] ? errmsg : NULL, arg);
+  if (done) done(reason, err, had_usage ? &usage_snapshot : NULL, errmsg[0] ? errmsg : NULL, arg);
 }
 
 /* ── SSE delta parsing ─────────────────────────────────────────────────── */
@@ -462,12 +455,12 @@ static void oai_finish_flight(struct xOaiImpl_ *impl) {
  */
 static xAgentProviderStopReason oai_parse_finish_reason(const char *fr) {
   if (!fr) return xAgentProviderStop_EndTurn;
-  if (strcmp(fr, "stop") == 0)           return xAgentProviderStop_EndTurn;
-  if (strcmp(fr, "tool_calls") == 0)     return xAgentProviderStop_ToolUse;
-  if (strcmp(fr, "length") == 0)         return xAgentProviderStop_MaxTokens;
+  if (strcmp(fr, "stop") == 0) return xAgentProviderStop_EndTurn;
+  if (strcmp(fr, "tool_calls") == 0) return xAgentProviderStop_ToolUse;
+  if (strcmp(fr, "length") == 0) return xAgentProviderStop_MaxTokens;
   if (strcmp(fr, "content_filter") == 0) return xAgentProviderStop_Error;
   /* "function_call" is the legacy name for tool_calls. */
-  if (strcmp(fr, "function_call") == 0)  return xAgentProviderStop_ToolUse;
+  if (strcmp(fr, "function_call") == 0) return xAgentProviderStop_ToolUse;
   return xAgentProviderStop_EndTurn;
 }
 
@@ -513,12 +506,11 @@ static int oai_handle_chunk(struct xOaiImpl_ *impl, const char *data) {
   cJSON *usage_obj = cJSON_GetObjectItemCaseSensitive(root, "usage");
   if (cJSON_IsObject(usage_obj)) {
     cJSON *pt = cJSON_GetObjectItemCaseSensitive(usage_obj, "prompt_tokens");
-    cJSON *ct = cJSON_GetObjectItemCaseSensitive(usage_obj,
-                                                 "completion_tokens");
+    cJSON *ct = cJSON_GetObjectItemCaseSensitive(usage_obj, "completion_tokens");
     cJSON *tt = cJSON_GetObjectItemCaseSensitive(usage_obj, "total_tokens");
-    if (cJSON_IsNumber(pt)) impl->usage.prompt_tokens     = pt->valueint;
+    if (cJSON_IsNumber(pt)) impl->usage.prompt_tokens = pt->valueint;
     if (cJSON_IsNumber(ct)) impl->usage.completion_tokens = ct->valueint;
-    if (cJSON_IsNumber(tt)) impl->usage.total_tokens      = tt->valueint;
+    if (cJSON_IsNumber(tt)) impl->usage.total_tokens = tt->valueint;
     impl->saw_usage = 1;
   }
 
@@ -530,8 +522,7 @@ static int oai_handle_chunk(struct xOaiImpl_ *impl, const char *data) {
   cJSON *delta = cJSON_GetObjectItemCaseSensitive(choice, "delta");
   if (delta) {
     cJSON *content = cJSON_GetObjectItemCaseSensitive(delta, "content");
-    if (cJSON_IsString(content) && content->valuestring &&
-        impl->cbs.on_text) {
+    if (cJSON_IsString(content) && content->valuestring && impl->cbs.on_text) {
       const char *s = content->valuestring;
       impl->cbs.on_text(s, strlen(s), impl->cb_arg);
     }
@@ -540,10 +531,8 @@ static int oai_handle_chunk(struct xOaiImpl_ *impl, const char *data) {
      * stream. We forward it verbatim; the session layer decides
      * whether to store it (for round-2 echo-back) and/or surface it
      * to the caller. */
-    cJSON *reasoning =
-      cJSON_GetObjectItemCaseSensitive(delta, "reasoning_content");
-    if (cJSON_IsString(reasoning) && reasoning->valuestring &&
-        impl->cbs.on_thinking) {
+    cJSON *reasoning = cJSON_GetObjectItemCaseSensitive(delta, "reasoning_content");
+    if (cJSON_IsString(reasoning) && reasoning->valuestring && impl->cbs.on_thinking) {
       const char *s = reasoning->valuestring;
       impl->cbs.on_thinking(s, strlen(s), impl->cb_arg);
     }
@@ -557,7 +546,7 @@ static int oai_handle_chunk(struct xOaiImpl_ *impl, const char *data) {
         if (i < 0 || i >= XAGENT_OAI_MAX_TOOL_CALLS) continue;
 
         struct xOaiToolCallSlot_ *slot = &impl->tool_calls[i];
-        slot->used = 1;
+        slot->used                     = 1;
 
         cJSON *id = cJSON_GetObjectItemCaseSensitive(tc, "id");
         if (cJSON_IsString(id) && id->valuestring && !slot->id) {
@@ -573,8 +562,7 @@ static int oai_handle_chunk(struct xOaiImpl_ *impl, const char *data) {
           cJSON *args = cJSON_GetObjectItemCaseSensitive(fn, "arguments");
           if (cJSON_IsString(args) && args->valuestring) {
             const char *s = args->valuestring;
-            oai_str_append(&slot->args_buf, &slot->args_len, &slot->args_cap,
-                           s, strlen(s));
+            oai_str_append(&slot->args_buf, &slot->args_len, &slot->args_cap, s, strlen(s));
           }
         }
       }
@@ -584,12 +572,10 @@ static int oai_handle_chunk(struct xOaiImpl_ *impl, const char *data) {
   cJSON *finish = cJSON_GetObjectItemCaseSensitive(choice, "finish_reason");
   if (cJSON_IsString(finish) && finish->valuestring) {
     impl->stop_reason = oai_parse_finish_reason(finish->valuestring);
-    impl->stop_err =
-      (impl->stop_reason == xAgentProviderStop_Error) ? xErrno_SysError
-                                                   : xErrno_Ok;
+    impl->stop_err = (impl->stop_reason == xAgentProviderStop_Error) ? xErrno_SysError : xErrno_Ok;
     if (impl->stop_reason == xAgentProviderStop_Error) {
-      snprintf(impl->stop_errmsg, sizeof(impl->stop_errmsg),
-               "finish_reason: %s", finish->valuestring);
+      snprintf(impl->stop_errmsg, sizeof(impl->stop_errmsg), "finish_reason: %s",
+               finish->valuestring);
     }
     impl->saw_finish_reason = 1;
   }
@@ -624,8 +610,7 @@ static void oai_on_sse_done(int curl_code, void *arg) {
      * we actually observed a finish_reason, not just curl_code. */
     impl->stop_reason = xAgentProviderStop_Error;
     impl->stop_err    = xErrno_SysError;
-    snprintf(impl->stop_errmsg, sizeof(impl->stop_errmsg),
-             "curl error %d", curl_code);
+    snprintf(impl->stop_errmsg, sizeof(impl->stop_errmsg), "curl error %d", curl_code);
   }
   /* Otherwise: keep whatever stop_reason the last finish_reason
    * set (or the default EndTurn if the stream ended cleanly
@@ -636,33 +621,30 @@ static void oai_on_sse_done(int curl_code, void *arg) {
 
 /* ── Vtable ops ────────────────────────────────────────────────────────── */
 
-static xErrno oai_submit(void                             *impl_p,
-                         const xAgentProviderSubmitConf      *conf,
-                         const xAgentProviderStreamCallbacks *cbs,
-                         void                             *cb_arg) {
+static xErrno oai_submit(void *impl_p, const xAgentProviderSubmitConf *conf,
+                         const xAgentProviderStreamCallbacks *cbs, void *cb_arg) {
   struct xOaiImpl_ *impl = (struct xOaiImpl_ *)impl_p;
   if (!impl || !conf || !cbs) return xErrno_InvalidArg;
   if (impl->in_flight) return xErrno_InvalidState;
   if (!impl->api_key) return xErrno_InvalidState;
 
   /* Reset per-flight state. */
-  impl->in_flight   = 1;
-  impl->cancelled   = 0;
-  impl->cbs         = *cbs;
-  impl->cb_arg      = cb_arg;
-  impl->stop_reason = xAgentProviderStop_EndTurn;
-  impl->stop_err    = xErrno_Ok;
-  impl->stop_errmsg[0] = '\0';
-  impl->saw_finish_reason = 0;
-  impl->saw_usage   = 0;
+  impl->in_flight               = 1;
+  impl->cancelled               = 0;
+  impl->cbs                     = *cbs;
+  impl->cb_arg                  = cb_arg;
+  impl->stop_reason             = xAgentProviderStop_EndTurn;
+  impl->stop_err                = xErrno_Ok;
+  impl->stop_errmsg[0]          = '\0';
+  impl->saw_finish_reason       = 0;
+  impl->saw_usage               = 0;
   impl->usage.prompt_tokens     = -1;
   impl->usage.completion_tokens = -1;
   impl->usage.total_tokens      = -1;
   oai_tool_calls_reset(impl);
 
   /* Compose URL: <base>/chat/completions */
-  const char *base = impl->base_url ? impl->base_url
-                                    : "https://api.openai.com/v1";
+  const char *base     = impl->base_url ? impl->base_url : "https://api.openai.com/v1";
   size_t      base_len = strlen(base);
   const char *tail     = "/chat/completions";
   size_t      tail_len = strlen(tail);
@@ -693,32 +675,29 @@ static xErrno oai_submit(void                             *impl_p,
 
   /* Headers: we must hold the storage until xHttpClientDoSse returns. */
   char auth_buf[512];
-  snprintf(auth_buf, sizeof(auth_buf), "Authorization: Bearer %s",
-           impl->api_key);
+  snprintf(auth_buf, sizeof(auth_buf), "Authorization: Bearer %s", impl->api_key);
   char org_buf[256];
   org_buf[0] = '\0';
   if (impl->organization) {
-    snprintf(org_buf, sizeof(org_buf), "OpenAI-Organization: %s",
-             impl->organization);
+    snprintf(org_buf, sizeof(org_buf), "OpenAI-Organization: %s", impl->organization);
   }
 
   const char *hdrs[5];
   size_t      nhdr = 0;
-  hdrs[nhdr++] = auth_buf;
-  hdrs[nhdr++] = "Content-Type: application/json";
+  hdrs[nhdr++]     = auth_buf;
+  hdrs[nhdr++]     = "Content-Type: application/json";
   if (org_buf[0]) hdrs[nhdr++] = org_buf;
   hdrs[nhdr++] = NULL;
 
   xHttpRequestConf req = {0};
-  req.url        = url;
-  req.method     = xHttpMethod_POST;
-  req.body       = body;
-  req.body_len   = strlen(body);
-  req.headers    = hdrs;
-  req.timeout_ms = impl->timeout_ms;
+  req.url              = url;
+  req.method           = xHttpMethod_POST;
+  req.body             = body;
+  req.body_len         = strlen(body);
+  req.headers          = hdrs;
+  req.timeout_ms       = impl->timeout_ms;
 
-  xErrno err = xHttpClientDoSse(impl->http, &req, oai_on_sse_event,
-                                oai_on_sse_done, impl);
+  xErrno err = xHttpClientDoSse(impl->http, &req, oai_on_sse_event, oai_on_sse_done, impl);
 
   /* xHttpClientDoSse copies the body + headers internally (see
    * xhttp/sse.c), so we can free our scratch buffers now. */
@@ -770,9 +749,8 @@ static const xAgentProviderVtable kOpenAIVtable = {
 
 /* ── Public constructor ────────────────────────────────────────────────── */
 
-xAgentProvider xAgentProviderOpenAICreate(xEventLoop           loop,
-                                    xHttpClient          http,
-                                    const xAgentOpenAIConf *conf) {
+xAgentProvider xAgentProviderOpenAICreate(xEventLoop loop, xHttpClient http,
+                                          const xAgentOpenAIConf *conf) {
   if (!loop || !http || !conf || !conf->api_key) return NULL;
 
   struct xOaiImpl_ *impl = (struct xOaiImpl_ *)calloc(1, sizeof(*impl));
@@ -792,8 +770,7 @@ xAgentProvider xAgentProviderOpenAICreate(xEventLoop           loop,
     return NULL;
   }
 
-  struct xAgentProvider_ *base =
-    (struct xAgentProvider_ *)calloc(1, sizeof(*base));
+  struct xAgentProvider_ *base = (struct xAgentProvider_ *)calloc(1, sizeof(*base));
   if (!base) {
     oai_destroy(impl);
     return NULL;

@@ -146,27 +146,17 @@ XCAPI(xLogger) xLoggerCurrent(void);
 #endif
 
 /* Macros using the thread-local logger context (set via xLoggerEnter). */
-#define XLOG_DEBUG(fmt, ...) \
-  xLoggerLog(xLoggerCurrent(), xLogLevel_Debug, (fmt), ##__VA_ARGS__)
-#define XLOG_INFO(fmt, ...) \
-  xLoggerLog(xLoggerCurrent(), xLogLevel_Info, (fmt), ##__VA_ARGS__)
-#define XLOG_WARN(fmt, ...) \
-  xLoggerLog(xLoggerCurrent(), xLogLevel_Warn, (fmt), ##__VA_ARGS__)
-#define XLOG_ERROR(fmt, ...) \
-  xLoggerLog(xLoggerCurrent(), xLogLevel_Error, (fmt), ##__VA_ARGS__)
-#define XLOG_FATAL(fmt, ...) \
-  xLoggerLog(xLoggerCurrent(), xLogLevel_Fatal, (fmt), ##__VA_ARGS__)
+#define XLOG_DEBUG(fmt, ...) xLoggerLog(xLoggerCurrent(), xLogLevel_Debug, (fmt), ##__VA_ARGS__)
+#define XLOG_INFO(fmt, ...)  xLoggerLog(xLoggerCurrent(), xLogLevel_Info, (fmt), ##__VA_ARGS__)
+#define XLOG_WARN(fmt, ...)  xLoggerLog(xLoggerCurrent(), xLogLevel_Warn, (fmt), ##__VA_ARGS__)
+#define XLOG_ERROR(fmt, ...) xLoggerLog(xLoggerCurrent(), xLogLevel_Error, (fmt), ##__VA_ARGS__)
+#define XLOG_FATAL(fmt, ...) xLoggerLog(xLoggerCurrent(), xLogLevel_Fatal, (fmt), ##__VA_ARGS__)
 
 /* Explicit-logger variants: pass a specific logger handle. */
-#define XLOG_DEBUG_L(logger, fmt, ...) \
-  xLoggerLog((logger), xLogLevel_Debug, (fmt), ##__VA_ARGS__)
-#define XLOG_INFO_L(logger, fmt, ...) \
-  xLoggerLog((logger), xLogLevel_Info, (fmt), ##__VA_ARGS__)
-#define XLOG_WARN_L(logger, fmt, ...) \
-  xLoggerLog((logger), xLogLevel_Warn, (fmt), ##__VA_ARGS__)
-#define XLOG_ERROR_L(logger, fmt, ...) \
-  xLoggerLog((logger), xLogLevel_Error, (fmt), ##__VA_ARGS__)
-#define XLOG_FATAL_L(logger, fmt, ...) \
-  xLoggerLog((logger), xLogLevel_Fatal, (fmt), ##__VA_ARGS__)
+#define XLOG_DEBUG_L(logger, fmt, ...) xLoggerLog((logger), xLogLevel_Debug, (fmt), ##__VA_ARGS__)
+#define XLOG_INFO_L(logger, fmt, ...)  xLoggerLog((logger), xLogLevel_Info, (fmt), ##__VA_ARGS__)
+#define XLOG_WARN_L(logger, fmt, ...)  xLoggerLog((logger), xLogLevel_Warn, (fmt), ##__VA_ARGS__)
+#define XLOG_ERROR_L(logger, fmt, ...) xLoggerLog((logger), xLogLevel_Error, (fmt), ##__VA_ARGS__)
+#define XLOG_FATAL_L(logger, fmt, ...) xLoggerLog((logger), xLogLevel_Fatal, (fmt), ##__VA_ARGS__)
 
 #endif /* XLOG_LOGGER_H */

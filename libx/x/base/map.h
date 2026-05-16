@@ -77,8 +77,7 @@ typedef bool (*xMapIterFunc)(const void *key, void *val, void *arg);
  * @param eq   Equality function for keys (required).
  * @return A new map handle, or NULL on failure.
  */
-XCAPI(xMap) xMapCreate(xMapType type, size_t cap, xMapHashFunc hash,
-                       xMapEqFunc eq);
+XCAPI(xMap) xMapCreate(xMapType type, size_t cap, xMapHashFunc hash, xMapEqFunc eq);
 
 /**
  * @brief Destroy a map and free all internal memory.

@@ -54,8 +54,7 @@ static int on_header_field(llhttp_t *parser, const char *at, size_t len) {
   /* Accumulate into raw headers */
   if (!stream->headers_raw) stream->headers_raw = xBufferCreate(512);
   if (!stream->headers_raw) return HPE_INTERNAL;
-  if (xBufferAppend(&stream->headers_raw, at, len) != xErrno_Ok)
-    return HPE_INTERNAL;
+  if (xBufferAppend(&stream->headers_raw, at, len) != xErrno_Ok) return HPE_INTERNAL;
 
   /* Track current field for potential use */
   if (stream->header_field) {
@@ -64,8 +63,7 @@ static int on_header_field(llhttp_t *parser, const char *at, size_t len) {
     stream->header_field = xBufferCreate(128);
     if (!stream->header_field) return HPE_INTERNAL;
   }
-  if (xBufferAppend(&stream->header_field, at, len) != xErrno_Ok)
-    return HPE_INTERNAL;
+  if (xBufferAppend(&stream->header_field, at, len) != xErrno_Ok) return HPE_INTERNAL;
 
   return HPE_OK;
 }
@@ -82,12 +80,9 @@ static int on_header_value(llhttp_t *parser, const char *at, size_t len) {
   }
 
   /* Append ": " + value + "\r\n" to raw headers */
-  if (xBufferAppend(&stream->headers_raw, ": ", 2) != xErrno_Ok)
-    return HPE_INTERNAL;
-  if (xBufferAppend(&stream->headers_raw, at, len) != xErrno_Ok)
-    return HPE_INTERNAL;
-  if (xBufferAppend(&stream->headers_raw, "\r\n", 2) != xErrno_Ok)
-    return HPE_INTERNAL;
+  if (xBufferAppend(&stream->headers_raw, ": ", 2) != xErrno_Ok) return HPE_INTERNAL;
+  if (xBufferAppend(&stream->headers_raw, at, len) != xErrno_Ok) return HPE_INTERNAL;
+  if (xBufferAppend(&stream->headers_raw, "\r\n", 2) != xErrno_Ok) return HPE_INTERNAL;
 
   return HPE_OK;
 }
@@ -206,22 +201,20 @@ static int h1_should_keep_alive(struct xHttpConn_ *conn) {
 /**
  * H1 send_response: serialize HTTP/1.1 status line + headers + body.
  */
-static int h1_send_response(struct xHttpStream_ *stream, int status,
-                            struct xHttpHeader_ *headers, const char *body,
-                            size_t body_len) {
+static int h1_send_response(struct xHttpStream_ *stream, int status, struct xHttpHeader_ *headers,
+                            const char *body, size_t body_len) {
   struct xHttpConn_ *conn = stream->conn;
   xIOBuffer         *wb   = &conn->write_buf;
 
   /* Status line: "HTTP/1.1 <code> <reason>\r\n" */
   char status_line[64];
-  int  slen = snprintf(status_line, sizeof(status_line), "HTTP/1.1 %d %s\r\n",
-                       status, xHttpStatusReason(status));
+  int  slen = snprintf(status_line, sizeof(status_line), "HTTP/1.1 %d %s\r\n", status,
+                       xHttpStatusReason(status));
   xIOBufferAppend(wb, status_line, (size_t)slen);
 
   /* Content-Length header */
   char cl_buf[48];
-  int  cl_len =
-    snprintf(cl_buf, sizeof(cl_buf), "Content-Length: %zu\r\n", body_len);
+  int  cl_len = snprintf(cl_buf, sizeof(cl_buf), "Content-Length: %zu\r\n", body_len);
   xIOBufferAppend(wb, cl_buf, (size_t)cl_len);
 
   /* Connection header */
@@ -256,8 +249,7 @@ static int h1_send_response(struct xHttpStream_ *stream, int status,
  * H1 write_data: append data to write buffer (streaming mode).
  * On first call, flushes headers with Connection: close.
  */
-static int h1_write_data(struct xHttpStream_ *stream, const char *data,
-                         size_t len) {
+static int h1_write_data(struct xHttpStream_ *stream, const char *data, size_t len) {
   struct xHttpConn_           *conn = stream->conn;
   struct xHttpResponseWriter_ *w    = &stream->writer;
 
@@ -270,8 +262,8 @@ static int h1_write_data(struct xHttpStream_ *stream, const char *data,
 
     /* Status line */
     char status_line[64];
-    int  slen = snprintf(status_line, sizeof(status_line), "HTTP/1.1 %d %s\r\n",
-                         w->status_code, xHttpStatusReason(w->status_code));
+    int  slen = snprintf(status_line, sizeof(status_line), "HTTP/1.1 %d %s\r\n", w->status_code,
+                         xHttpStatusReason(w->status_code));
     xIOBufferAppend(wb, status_line, (size_t)slen);
 
     /* Connection: close (no Content-Length in streaming) */

@@ -36,17 +36,14 @@
  * Module loader trampoline
  * ═══════════════════════════════════════════════════════════════════ */
 
-JSModuleDef *xjs_module_loader_trampoline(JSContext *qctx,
-                                          const char *module_name,
-                                          void       *runtime_opaque,
-                                          JSValueConst attributes) {
+JSModuleDef *xjs_module_loader_trampoline(JSContext *qctx, const char *module_name,
+                                          void *runtime_opaque, JSValueConst attributes) {
   (void)runtime_opaque;
   (void)attributes;
 
   struct OpaqueXJSContext *c = xjs_ctx_from_q(qctx);
   if (!c || !c->module_load_cb) {
-    JS_ThrowReferenceError(
-      qctx, "could not load module '%s': no loader installed", module_name);
+    JS_ThrowReferenceError(qctx, "could not load module '%s': no loader installed", module_name);
     return NULL;
   }
 
@@ -73,8 +70,8 @@ JSModuleDef *xjs_module_loader_trampoline(JSContext *qctx,
   /* Compile-only: produces a JS_TAG_MODULE value whose payload
    * pointer is the JSModuleDef* QuickJS expects us to return.
    * This is the exact pattern upstream's js_module_load uses. */
-  JSValue mv = JS_Eval(qctx, buf, nbytes, module_name,
-                       JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+  JSValue mv =
+    JS_Eval(qctx, buf, nbytes, module_name, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
 
   free(buf);
   xJSStringRelease(src);
@@ -94,8 +91,8 @@ bool xJSDetectModule(const char *source, size_t length) {
   return JS_DetectModule(source, length);
 }
 
-xJSValueRef xJSEvaluateModule(xJSContextRef c, xJSStringRef script,
-                              xJSStringRef sourceURL, xJSValueRef *exc) {
+xJSValueRef xJSEvaluateModule(xJSContextRef c, xJSStringRef script, xJSStringRef sourceURL,
+                              xJSValueRef *exc) {
   if (!script) return NULL;
   JSContext *q = xjs_ctx_of(c);
   if (!q) return NULL;
@@ -108,9 +105,8 @@ xJSValueRef xJSEvaluateModule(xJSContextRef c, xJSStringRef script,
 
   char *url = NULL;
   if (sourceURL) {
-    size_t urlbytes =
-      xjs_utf16_to_utf8(sourceURL->data, sourceURL->length, NULL, 0);
-    url = (char *)malloc(urlbytes + 1);
+    size_t urlbytes = xjs_utf16_to_utf8(sourceURL->data, sourceURL->length, NULL, 0);
+    url             = (char *)malloc(urlbytes + 1);
     if (url) {
       xjs_utf16_to_utf8(sourceURL->data, sourceURL->length, url, urlbytes);
       url[urlbytes] = 0;
@@ -121,8 +117,7 @@ xJSValueRef xJSEvaluateModule(xJSContextRef c, xJSStringRef script,
    * Promise directly (QuickJS boxes it for us at line 36545 of
    * quickjs.c when JS_EVAL_FLAG_ASYNC is implied by module type).
    * Imports are resolved through our trampoline above. */
-  JSValue v =
-    JS_Eval(q, buf, nbytes, url ? url : "<xjs>", JS_EVAL_TYPE_MODULE);
+  JSValue v = JS_Eval(q, buf, nbytes, url ? url : "<xjs>", JS_EVAL_TYPE_MODULE);
 
   free(buf);
   free(url);
@@ -134,8 +129,7 @@ xJSValueRef xJSEvaluateModule(xJSContextRef c, xJSStringRef script,
   return xjs_slot_make(q, v);
 }
 
-xJSValueRef xJSAwaitPromise(xJSContextRef c, xJSValueRef promise,
-                            xJSValueRef *exc) {
+xJSValueRef xJSAwaitPromise(xJSContextRef c, xJSValueRef promise, xJSValueRef *exc) {
   if (!c || !promise) return NULL;
   JSContext *q  = xjs_ctx_of(c);
   JSValue    pv = xjs_slot_qv(promise);
@@ -172,8 +166,10 @@ xJSValueRef xJSAwaitPromise(xJSContextRef c, xJSValueRef promise,
 
   JSValue result = JS_PromiseResult(q, pv); /* fresh reference */
   if (JS_PromiseState(q, pv) == JS_PROMISE_REJECTED) {
-    if (exc) *exc = xjs_slot_make(q, result);
-    else     JS_FreeValue(q, result);
+    if (exc)
+      *exc = xjs_slot_make(q, result);
+    else
+      JS_FreeValue(q, result);
     return NULL;
   }
   return xjs_slot_make(q, result);

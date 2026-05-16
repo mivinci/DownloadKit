@@ -8,10 +8,10 @@
 
 #include "turn_client.h"
 
-#include <x/crypto/md5.h>
 #include "ice_private.h"
 #include "stun_attr.h"
 #include "stun_msg.h"
+#include <x/crypto/md5.h>
 
 #include <x/base/log.h>
 
@@ -31,8 +31,7 @@ static size_t sockaddr_size(const struct sockaddr *addr) {
  *   key = MD5(username ":" realm ":" password)
  * per RFC 5389 §15.4.
  */
-static void turn_compute_key(const xTurnClient *tc, uint8_t *key,
-                             size_t *key_len) {
+static void turn_compute_key(const xTurnClient *tc, uint8_t *key, size_t *key_len) {
   const char *user  = tc->config.username;
   const char *realm = tc->realm;
   const char *pass  = tc->config.password;
@@ -68,8 +67,7 @@ static void turn_compute_key(const xTurnClient *tc, uint8_t *key,
 
 /* ───────────────────── Init / Destroy ───────────────────── */
 
-void xTurnClientInit(xTurnClient *tc, xEventLoop loop,
-                     const xTurnConfig *config) {
+void xTurnClientInit(xTurnClient *tc, xEventLoop loop, const xTurnConfig *config) {
   memset(tc, 0, sizeof(*tc));
   tc->config       = *config;
   tc->loop         = loop;
@@ -90,9 +88,7 @@ void xTurnClientDestroy(xTurnClient *tc) {
 /* ───────────────────── Refresh ───────────────────── */
 
 static void on_refresh_response(const xStunMsg        *msg,
-                                const struct sockaddr *from
-                                __attribute__((unused)),
-                                void *arg);
+                                const struct sockaddr *from __attribute__((unused)), void *arg);
 static void schedule_refresh(xTurnClient *tc);
 
 static void refresh_timer_cb(void *arg) {
@@ -117,8 +113,7 @@ static void refresh_timer_cb(void *arg) {
   xStunMsgEncode(&msg, msg_buf, sizeof(msg_buf));
 
   xStunAttrWriter w;
-  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE,
-                      sizeof(msg_buf) - XSTUN_HEADER_SIZE);
+  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE, sizeof(msg_buf) - XSTUN_HEADER_SIZE);
 
   /* Request same lifetime */
   xStunAttrWriteLifetime(&w, tc->lifetime);
@@ -137,23 +132,19 @@ static void refresh_timer_cb(void *arg) {
   xWriteU16BE(msg_buf + 2, (uint16_t)w.pos);
   size_t total = XSTUN_HEADER_SIZE + w.pos;
 
-  xStunTxnMgrSendRaw(&tc->txn_mgr, msg_buf, total,
-                     (struct sockaddr *)&tc->config.server, tc->config.send_fn,
-                     tc->config.send_arg, on_refresh_response, tc);
+  xStunTxnMgrSendRaw(&tc->txn_mgr, msg_buf, total, (struct sockaddr *)&tc->config.server,
+                     tc->config.send_fn, tc->config.send_arg, on_refresh_response, tc);
 }
 
 static void on_refresh_response(const xStunMsg        *msg,
-                                const struct sockaddr *from
-                                __attribute__((unused)),
-                                void *arg) {
+                                const struct sockaddr *from __attribute__((unused)), void *arg) {
   xTurnClient *tc = (xTurnClient *)arg;
 
   if (!msg || xStunMsgIsErrorResponse(msg->type)) {
     /* Refresh failed — allocation lost */
     tc->state = xTurnState_Failed;
     if (tc->config.on_failed) {
-      tc->config.on_failed(msg ? xErrno_SysError : xErrno_Timeout,
-                           tc->config.ctx);
+      tc->config.on_failed(msg ? xErrno_SysError : xErrno_Timeout, tc->config.ctx);
     }
     return;
   }
@@ -183,14 +174,12 @@ static void schedule_refresh(xTurnClient *tc) {
   uint32_t refresh_ms = (tc->lifetime * XTURN_REFRESH_RATIO / 100) * 1000;
   if (refresh_ms == 0) refresh_ms = 1000;
 
-  tc->refresh_timer =
-    xEventLoopTimerAfter(tc->loop, refresh_timer_cb, tc, refresh_ms);
+  tc->refresh_timer = xEventLoopTimerAfter(tc->loop, refresh_timer_cb, tc, refresh_ms);
 }
 
 /* ───────────────────── Allocate ───────────────────── */
 
-static void on_allocate_response(const xStunMsg        *msg,
-                                 const struct sockaddr *from, void *arg);
+static void on_allocate_response(const xStunMsg *msg, const struct sockaddr *from, void *arg);
 
 static xErrno send_allocate(xTurnClient *tc, bool with_credentials) {
   uint8_t msg_buf[512];
@@ -211,8 +200,7 @@ static xErrno send_allocate(xTurnClient *tc, bool with_credentials) {
 
   /* Write attributes */
   xStunAttrWriter w;
-  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE,
-                      sizeof(msg_buf) - XSTUN_HEADER_SIZE);
+  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE, sizeof(msg_buf) - XSTUN_HEADER_SIZE);
 
   xStunAttrWriteRequestedTransport(&w, XTURN_TRANSPORT_UDP);
 
@@ -231,15 +219,12 @@ static xErrno send_allocate(xTurnClient *tc, bool with_credentials) {
   xWriteU16BE(msg_buf + 2, (uint16_t)w.pos);
   size_t total = XSTUN_HEADER_SIZE + w.pos;
 
-  return xStunTxnMgrSendRaw(
-    &tc->txn_mgr, msg_buf, total, (struct sockaddr *)&tc->config.server,
-    tc->config.send_fn, tc->config.send_arg, on_allocate_response, tc);
+  return xStunTxnMgrSendRaw(&tc->txn_mgr, msg_buf, total, (struct sockaddr *)&tc->config.server,
+                            tc->config.send_fn, tc->config.send_arg, on_allocate_response, tc);
 }
 
 static void on_allocate_response(const xStunMsg        *msg,
-                                 const struct sockaddr *from
-                                 __attribute__((unused)),
-                                 void *arg) {
+                                 const struct sockaddr *from __attribute__((unused)), void *arg) {
   xTurnClient *tc = (xTurnClient *)arg;
 
   if (!msg) {
@@ -262,15 +247,11 @@ static void on_allocate_response(const xStunMsg        *msg,
       if (attr.type == xStunAttrType_ErrorCode) {
         xStunAttrDecodeErrorCode(&attr, &error_code, NULL, NULL);
       } else if (attr.type == xStunAttrType_Realm) {
-        size_t len = attr.length < sizeof(tc->realm) - 1
-                       ? attr.length
-                       : sizeof(tc->realm) - 1;
+        size_t len = attr.length < sizeof(tc->realm) - 1 ? attr.length : sizeof(tc->realm) - 1;
         memcpy(tc->realm, attr.value, len);
         tc->realm[len] = '\0';
       } else if (attr.type == xStunAttrType_Nonce) {
-        size_t len = attr.length < sizeof(tc->nonce) - 1
-                       ? attr.length
-                       : sizeof(tc->nonce) - 1;
+        size_t len = attr.length < sizeof(tc->nonce) - 1 ? attr.length : sizeof(tc->nonce) - 1;
         memcpy(tc->nonce, attr.value, len);
         tc->nonce[len] = '\0';
       }
@@ -299,12 +280,12 @@ static void on_allocate_response(const xStunMsg        *msg,
 
   while (xStunAttrIterNext(&iter, &attr)) {
     if (attr.type == xStunAttrType_XorRelayedAddress) {
-      xStunAttrDecodeXorMappedAddress(
-        &attr, msg->txn_id, (struct sockaddr_storage *)&tc->relayed_addr);
+      xStunAttrDecodeXorMappedAddress(&attr, msg->txn_id,
+                                      (struct sockaddr_storage *)&tc->relayed_addr);
       got_relayed = true;
     } else if (attr.type == xStunAttrType_XorMappedAddress) {
-      xStunAttrDecodeXorMappedAddress(
-        &attr, msg->txn_id, (struct sockaddr_storage *)&tc->mapped_addr);
+      xStunAttrDecodeXorMappedAddress(&attr, msg->txn_id,
+                                      (struct sockaddr_storage *)&tc->mapped_addr);
       got_mapped = true;
     } else if (attr.type == xStunAttrType_Lifetime) {
       if (attr.length >= 4) {
@@ -328,9 +309,8 @@ static void on_allocate_response(const xStunMsg        *msg,
 
   if (tc->config.on_allocated) {
     tc->config.on_allocated((struct sockaddr *)&tc->relayed_addr,
-                            got_mapped ? (struct sockaddr *)&tc->mapped_addr
-                                       : NULL,
-                            tc->lifetime, tc->config.ctx);
+                            got_mapped ? (struct sockaddr *)&tc->mapped_addr : NULL, tc->lifetime,
+                            tc->config.ctx);
   }
 }
 
@@ -343,16 +323,14 @@ xErrno xTurnClientAllocate(xTurnClient *tc) {
 /* ───────────────────── CreatePermission ───────────────────── */
 
 static void on_permission_response(const xStunMsg        *msg,
-                                   const struct sockaddr *from
-                                   __attribute__((unused)),
-                                   void *arg) {
+                                   const struct sockaddr *from __attribute__((unused)), void *arg) {
   (void)arg;
   if (!msg) {
     XDEBUG("[turn] CreatePermission timed out");
     return;
   }
   if (xStunMsgIsErrorResponse(msg->type)) {
-    int error_code = 0;
+    int           error_code = 0;
     xStunAttrIter iter;
     xStunAttrIterInit(&iter, msg);
     xStunAttr attr;
@@ -367,8 +345,7 @@ static void on_permission_response(const xStunMsg        *msg,
   XDEBUG("[turn] CreatePermission succeeded");
 }
 
-xErrno xTurnClientCreatePermission(xTurnClient           *tc,
-                                   const struct sockaddr *peer) {
+xErrno xTurnClientCreatePermission(xTurnClient *tc, const struct sockaddr *peer) {
   if (tc->state != xTurnState_Allocated) return xErrno_InvalidArg;
   if (tc->permission_count >= XTURN_MAX_PERMISSIONS) return xErrno_NoMemory;
 
@@ -387,8 +364,7 @@ xErrno xTurnClientCreatePermission(xTurnClient           *tc,
   xStunMsgEncode(&msg, msg_buf, sizeof(msg_buf));
 
   xStunAttrWriter w;
-  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE,
-                      sizeof(msg_buf) - XSTUN_HEADER_SIZE);
+  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE, sizeof(msg_buf) - XSTUN_HEADER_SIZE);
 
   xStunAttrWriteXorPeerAddress(&w, peer, txn_id);
 
@@ -413,24 +389,22 @@ xErrno xTurnClientCreatePermission(xTurnClient           *tc,
     tc->permission_count++;
   }
 
-  return xStunTxnMgrSendRaw(
-    &tc->txn_mgr, msg_buf, total, (struct sockaddr *)&tc->config.server,
-    tc->config.send_fn, tc->config.send_arg, on_permission_response, tc);
+  return xStunTxnMgrSendRaw(&tc->txn_mgr, msg_buf, total, (struct sockaddr *)&tc->config.server,
+                            tc->config.send_fn, tc->config.send_arg, on_permission_response, tc);
 }
 
 /* ───────────────────── ChannelBind ───────────────────── */
 
 static void on_channel_bind_response(const xStunMsg        *msg,
-                                     const struct sockaddr *from
-                                     __attribute__((unused)),
-                                     void *arg) {
+                                     const struct sockaddr *from __attribute__((unused)),
+                                     void                  *arg) {
   (void)arg;
   if (!msg) {
     XDEBUG("[turn] ChannelBind timed out");
     return;
   }
   if (xStunMsgIsErrorResponse(msg->type)) {
-    int error_code = 0;
+    int           error_code = 0;
     xStunAttrIter iter;
     xStunAttrIterInit(&iter, msg);
     xStunAttr attr;
@@ -467,8 +441,7 @@ int xTurnClientChannelBind(xTurnClient *tc, const struct sockaddr *peer) {
   xStunMsgEncode(&msg, msg_buf, sizeof(msg_buf));
 
   xStunAttrWriter w;
-  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE,
-                      sizeof(msg_buf) - XSTUN_HEADER_SIZE);
+  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE, sizeof(msg_buf) - XSTUN_HEADER_SIZE);
 
   xStunAttrWriteChannelNumber(&w, ch);
   xStunAttrWriteXorPeerAddress(&w, peer, txn_id);
@@ -494,9 +467,8 @@ int xTurnClientChannelBind(xTurnClient *tc, const struct sockaddr *peer) {
   if (sz > 0) memcpy(&binding->peer, peer, sz);
   binding->bound = true;
 
-  xStunTxnMgrSendRaw(&tc->txn_mgr, msg_buf, total,
-                     (struct sockaddr *)&tc->config.server, tc->config.send_fn,
-                     tc->config.send_arg, on_channel_bind_response, tc);
+  xStunTxnMgrSendRaw(&tc->txn_mgr, msg_buf, total, (struct sockaddr *)&tc->config.server,
+                     tc->config.send_fn, tc->config.send_arg, on_channel_bind_response, tc);
 
   return (int)ch;
 }
@@ -507,22 +479,19 @@ static int find_channel_for_peer(xTurnClient *tc, const struct sockaddr *peer) {
   for (int i = 0; i < tc->channel_count; i++) {
     if (!tc->channels[i].bound) continue;
     /* Compare addresses */
-    const struct sockaddr *ch_peer =
-      (const struct sockaddr *)&tc->channels[i].peer;
+    const struct sockaddr *ch_peer = (const struct sockaddr *)&tc->channels[i].peer;
     if (ch_peer->sa_family != peer->sa_family) continue;
 
     if (peer->sa_family == AF_INET) {
       const struct sockaddr_in *a = (const struct sockaddr_in *)peer;
       const struct sockaddr_in *b = (const struct sockaddr_in *)ch_peer;
-      if (a->sin_port == b->sin_port &&
-          a->sin_addr.s_addr == b->sin_addr.s_addr) {
+      if (a->sin_port == b->sin_port && a->sin_addr.s_addr == b->sin_addr.s_addr) {
         return (int)tc->channels[i].number;
       }
     } else if (peer->sa_family == AF_INET6) {
       const struct sockaddr_in6 *a = (const struct sockaddr_in6 *)peer;
       const struct sockaddr_in6 *b = (const struct sockaddr_in6 *)ch_peer;
-      if (a->sin6_port == b->sin6_port &&
-          memcmp(&a->sin6_addr, &b->sin6_addr, 16) == 0) {
+      if (a->sin6_port == b->sin6_port && memcmp(&a->sin6_addr, &b->sin6_addr, 16) == 0) {
         return (int)tc->channels[i].number;
       }
     }
@@ -530,19 +499,17 @@ static int find_channel_for_peer(xTurnClient *tc, const struct sockaddr *peer) {
   return -1;
 }
 
-xErrno xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer,
-                           const uint8_t *data, size_t len) {
+xErrno xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer, const uint8_t *data,
+                           size_t len) {
   if (tc->state != xTurnState_Allocated) return xErrno_InvalidArg;
 
   int ch = find_channel_for_peer(tc, peer);
   if (ch >= 0) {
     /* Use ChannelData — more efficient */
     uint8_t buf[XSTUN_MAX_MSG_SIZE];
-    int encoded = xTurnChannelDataEncode((uint16_t)ch, data, (uint16_t)len, buf,
-                                         sizeof(buf));
+    int     encoded = xTurnChannelDataEncode((uint16_t)ch, data, (uint16_t)len, buf, sizeof(buf));
     if (encoded < 0) return xErrno_NoMemory;
-    return tc->config.send_fn(buf, (size_t)encoded,
-                              (struct sockaddr *)&tc->config.server,
+    return tc->config.send_fn(buf, (size_t)encoded, (struct sockaddr *)&tc->config.server,
                               tc->config.send_arg);
   }
 
@@ -556,8 +523,7 @@ xErrno xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer,
   xStunMsgEncode(&msg, msg_buf, sizeof(msg_buf));
 
   xStunAttrWriter w;
-  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE,
-                      sizeof(msg_buf) - XSTUN_HEADER_SIZE);
+  xStunAttrWriterInit(&w, msg_buf + XSTUN_HEADER_SIZE, sizeof(msg_buf) - XSTUN_HEADER_SIZE);
 
   xStunAttrWriteXorPeerAddress(&w, peer, txn_id);
   xStunAttrWriteData(&w, data, len);
@@ -565,18 +531,16 @@ xErrno xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer,
   xWriteU16BE(msg_buf + 2, (uint16_t)w.pos);
   size_t total = XSTUN_HEADER_SIZE + w.pos;
 
-  return tc->config.send_fn(
-    msg_buf, total, (struct sockaddr *)&tc->config.server, tc->config.send_arg);
+  return tc->config.send_fn(msg_buf, total, (struct sockaddr *)&tc->config.server,
+                            tc->config.send_arg);
 }
 
 /* ───────────────────── Message Handling ───────────────────── */
 
-bool xTurnClientOnMessage(xTurnClient *tc, const xStunMsg *msg,
-                          const uint8_t *raw_buf, size_t raw_len,
-                          const struct sockaddr *from) {
+bool xTurnClientOnMessage(xTurnClient *tc, const xStunMsg *msg, const uint8_t *raw_buf,
+                          size_t raw_len, const struct sockaddr *from) {
   /* First try to match to a pending transaction */
-  if (xStunMsgIsSuccessResponse(msg->type) ||
-      xStunMsgIsErrorResponse(msg->type)) {
+  if (xStunMsgIsSuccessResponse(msg->type) || xStunMsgIsErrorResponse(msg->type)) {
     return xStunTxnMgrOnResponse(&tc->txn_mgr, msg, raw_buf, raw_len, from);
   }
 
@@ -602,8 +566,7 @@ bool xTurnClientOnMessage(xTurnClient *tc, const xStunMsg *msg,
     }
 
     if (got_peer && ind_data && tc->config.on_data) {
-      tc->config.on_data(ind_data, ind_data_len, (struct sockaddr *)&peer_addr,
-                         tc->config.ctx);
+      tc->config.on_data(ind_data, ind_data_len, (struct sockaddr *)&peer_addr, tc->config.ctx);
     }
     return true;
   }
@@ -616,8 +579,7 @@ bool xTurnClientOnChannelData(xTurnClient *tc, const uint8_t *buf, size_t len) {
   const uint8_t *data;
   uint16_t       data_len;
 
-  if (xTurnChannelDataDecode(buf, len, &channel, &data, &data_len) !=
-      xErrno_Ok) {
+  if (xTurnChannelDataDecode(buf, len, &channel, &data, &data_len) != xErrno_Ok) {
     return false;
   }
 
@@ -625,8 +587,7 @@ bool xTurnClientOnChannelData(xTurnClient *tc, const uint8_t *buf, size_t len) {
   for (int i = 0; i < tc->channel_count; i++) {
     if (tc->channels[i].number == channel && tc->channels[i].bound) {
       if (tc->config.on_data) {
-        tc->config.on_data(data, data_len,
-                           (struct sockaddr *)&tc->channels[i].peer,
+        tc->config.on_data(data, data_len, (struct sockaddr *)&tc->channels[i].peer,
                            tc->config.ctx);
       }
       return true;

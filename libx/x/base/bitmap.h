@@ -30,10 +30,10 @@
  * for lifecycle management, or xBitmapInitStatic to wrap an external buffer.
  */
 XDEF_STRUCT(xBitmap) {
-  uint8_t *data;    /**< Backing byte array                          */
-  uint32_t nbits;   /**< Total number of bits                        */
-  uint32_t nbytes;  /**< Length of @c data in bytes = ceil(nbits/8)  */
-  bool     owned;   /**< True if @c data was allocated by xBitmapInit */
+  uint8_t *data;   /**< Backing byte array                          */
+  uint32_t nbits;  /**< Total number of bits                        */
+  uint32_t nbytes; /**< Length of @c data in bytes = ceil(nbits/8)  */
+  bool     owned;  /**< True if @c data was allocated by xBitmapInit */
 };
 
 /* ── Lifecycle ─────────────────────────────────────────── */
@@ -54,8 +54,7 @@ XCAPI(xErrno) xBitmapInit(xBitmap *bm, uint32_t nbits);
  * @param nbits  Logical number of bits (<= nbytes * 8).
  * @return xErrno_Ok on success.
  */
-XCAPI(xErrno) xBitmapInitStatic(xBitmap *bm, uint8_t *data,
-                                uint32_t nbytes, uint32_t nbits);
+XCAPI(xErrno) xBitmapInitStatic(xBitmap *bm, uint8_t *data, uint32_t nbytes, uint32_t nbits);
 
 /**
  * @brief Free the bitmap's internal buffer (no-op for static bitmaps).

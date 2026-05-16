@@ -147,8 +147,7 @@ TEST(EventLifecycle, DestroyWithRegisteredSources) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xEventSource src = xEventAdd(
-    loop, fds[0], xEvent_Read, [](int, xEventMask, void *) {}, nullptr);
+  xEventSource src = xEventAdd(loop, fds[0], xEvent_Read, [](int, xEventMask, void *) {}, nullptr);
   ASSERT_NE(src, nullptr);
 
   /* Destroy without removing source — must not crash or leak */
@@ -166,8 +165,7 @@ TEST(EventAddDel, AddAndDel) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  xEventSource src = xEventAdd(
-    loop, fds[0], xEvent_Read, [](int, xEventMask, void *) {}, nullptr);
+  xEventSource src = xEventAdd(loop, fds[0], xEvent_Read, [](int, xEventMask, void *) {}, nullptr);
   ASSERT_NE(src, nullptr);
 
   EXPECT_EQ(xEventDel(loop, src), xErrno_Ok);
@@ -206,8 +204,7 @@ TEST(EventAddDel, AddMultipleSources) {
 
   for (int i = 0; i < N; i++) {
     ASSERT_EQ(make_pipe(pipes[i]), 0);
-    srcs[i] = xEventAdd(
-      loop, pipes[i][0], xEvent_Read, [](int, xEventMask, void *) {}, nullptr);
+    srcs[i] = xEventAdd(loop, pipes[i][0], xEvent_Read, [](int, xEventMask, void *) {}, nullptr);
     ASSERT_NE(srcs[i], nullptr);
   }
 
@@ -353,10 +350,7 @@ TEST(EventMod, SwitchReadToWrite) {
 
   xEventSource src = xEventAdd(
     loop, fds[1], xEvent_Read,
-    [](int, xEventMask mask, void *arg) {
-      *static_cast<xEventMask *>(arg) = mask;
-    },
-    &last_mask);
+    [](int, xEventMask mask, void *arg) { *static_cast<xEventMask *>(arg) = mask; }, &last_mask);
   ASSERT_NE(src, nullptr);
 
   /* No data to read — should timeout */
@@ -400,11 +394,9 @@ TEST(EventTimeout, TimesOutWhenNoEvents) {
   xEventLoop loop = xEventLoopCreate();
   ASSERT_NE(loop, nullptr);
 
-  auto start = std::chrono::steady_clock::now();
-  int  n     = xEventWait(loop, 80);
-  auto elapsed =
-    std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start)
-      .count();
+  auto start   = std::chrono::steady_clock::now();
+  int  n       = xEventWait(loop, 80);
+  auto elapsed = std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start).count();
 
   EXPECT_EQ(n, 0);
   EXPECT_GE(elapsed, 50); /* should have waited ~80ms */
@@ -423,11 +415,9 @@ TEST(EventWake, WakeFromAnotherThread) {
     xEventWake(loop);
   });
 
-  auto start = std::chrono::steady_clock::now();
-  int  n     = xEventWait(loop, 5000); /* long timeout, should be woken early */
-  auto elapsed =
-    std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start)
-      .count();
+  auto start   = std::chrono::steady_clock::now();
+  int  n       = xEventWait(loop, 5000); /* long timeout, should be woken early */
+  auto elapsed = std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start).count();
 
   /* Should have returned well before the 5s timeout */
   EXPECT_LT(elapsed, 2000);
@@ -732,8 +722,8 @@ TEST(EventReadWrite, BothReadAndWrite) {
 
   /* Monitor write end for both read and write.
    * Write end of a pipe is always writable. */
-  auto *ctx_pair = new std::pair<xEventMask *, int *>(&got_mask, &count);
-  xEventSource src = xEventAdd(
+  auto        *ctx_pair = new std::pair<xEventMask *, int *>(&got_mask, &count);
+  xEventSource src      = xEventAdd(
     loop, fds[1], (xEventMask)(xEvent_Read | xEvent_Write),
     [](int, xEventMask mask, void *arg) {
       auto *ctx = static_cast<std::pair<xEventMask *, int *> *>(arg);
@@ -804,8 +794,7 @@ TEST(EventSignal, CancelStopsCallback) {
   int count = 0;
 
   EXPECT_EQ(xEventLoopSignalWatch(
-              loop, SIGUSR1,
-              [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count),
+              loop, SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count),
             xErrno_Ok);
 
   kill(getpid(), SIGUSR1);
@@ -833,13 +822,11 @@ TEST(EventSignal, ReplaceCallback) {
   int count1 = 0, count2 = 0;
 
   EXPECT_EQ(xEventLoopSignalWatch(
-              loop, SIGUSR1,
-              [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count1),
+              loop, SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count1),
             xErrno_Ok);
 
   EXPECT_EQ(xEventLoopSignalWatch(
-              loop, SIGUSR1,
-              [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count2),
+              loop, SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count2),
             xErrno_Ok);
 
   kill(getpid(), SIGUSR1);
@@ -860,12 +847,9 @@ TEST(EventSignal, InvalidArgs) {
 
   auto dummy = [](int, void *) {};
 
-  EXPECT_EQ(xEventLoopSignalWatch(NULL, SIGUSR1, dummy, NULL),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGKILL, dummy, NULL),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGSTOP, dummy, NULL),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xEventLoopSignalWatch(NULL, SIGUSR1, dummy, NULL), xErrno_InvalidArg);
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGKILL, dummy, NULL), xErrno_InvalidArg);
+  EXPECT_EQ(xEventLoopSignalWatch(loop, SIGSTOP, dummy, NULL), xErrno_InvalidArg);
   EXPECT_EQ(xEventLoopSignalWatch(loop, -1, dummy, NULL), xErrno_InvalidArg);
   EXPECT_EQ(xEventLoopSignalWatch(loop, 0, dummy, NULL), xErrno_InvalidArg);
 
@@ -879,13 +863,11 @@ TEST(EventSignal, MultipleSignals) {
   int count1 = 0, count2 = 0;
 
   EXPECT_EQ(xEventLoopSignalWatch(
-              loop, SIGUSR1,
-              [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count1),
+              loop, SIGUSR1, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count1),
             xErrno_Ok);
 
   EXPECT_EQ(xEventLoopSignalWatch(
-              loop, SIGUSR2,
-              [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count2),
+              loop, SIGUSR2, [](int, void *arg) { (*static_cast<int *>(arg))++; }, &count2),
             xErrno_Ok);
 
   kill(getpid(), SIGUSR1);
@@ -908,9 +890,7 @@ TEST(EventSignal, StopLoopFromCallback) {
 
   EXPECT_EQ(
     xEventLoopSignalWatch(
-      loop, SIGUSR1,
-      [](int, void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); },
-      loop),
+      loop, SIGUSR1, [](int, void *arg) { xEventLoopStop(static_cast<xEventLoop>(arg)); }, loop),
     xErrno_Ok);
 
   std::thread sender([&]() {
@@ -920,9 +900,7 @@ TEST(EventSignal, StopLoopFromCallback) {
 
   auto start = std::chrono::steady_clock::now();
   xEventLoopRun(loop);
-  auto elapsed =
-    std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start)
-      .count();
+  auto elapsed = std::chrono::duration_cast<ms>(std::chrono::steady_clock::now() - start).count();
 
   EXPECT_LT(elapsed, 3000);
 

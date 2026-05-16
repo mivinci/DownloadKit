@@ -28,10 +28,10 @@ XDEF_STRUCT(xLogCtx) {
 
 #ifdef _WIN32
 static __declspec(thread) xLogCtx tl_ctx;
-static __declspec(thread) bool tl_in_fatal = false;
+static __declspec(thread) bool    tl_in_fatal = false;
 #else
 static __thread xLogCtx tl_ctx;
-static __thread bool tl_in_fatal = false;
+static __thread bool    tl_in_fatal = false;
 #endif
 
 /* ───────────────── Public API ───────────────── */

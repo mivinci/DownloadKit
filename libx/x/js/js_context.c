@@ -20,8 +20,7 @@
 
 /* Module loader trampoline lives in js_module.c — forward declare so
  * we can plug it into the runtime at context creation. */
-JSModuleDef *xjs_module_loader_trampoline(JSContext *ctx,
-                                          const char *module_name, void *opaque,
+JSModuleDef *xjs_module_loader_trampoline(JSContext *ctx, const char *module_name, void *opaque,
                                           JSValueConst attributes);
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -70,8 +69,7 @@ static const JSMallocFunctions kXJSMallocFns = {
  * ═══════════════════════════════════════════════════════════════════ */
 
 xJSContextGroupRef xJSContextGroupCreate(void) {
-  struct OpaqueXJSContextGroup *g =
-    (struct OpaqueXJSContextGroup *)calloc(1, sizeof(*g));
+  struct OpaqueXJSContextGroup *g = (struct OpaqueXJSContextGroup *)calloc(1, sizeof(*g));
   if (!g) return NULL;
   g->refcount = 1;
   g->rt       = JS_NewRuntime2(&kXJSMallocFns, NULL);
@@ -88,8 +86,7 @@ xJSContextGroupRef xJSContextGroupCreate(void) {
    * reachable now through the ES module machinery.  We pass a NULL
    * normalize func so QuickJS's default "./x relative to importer"
    * resolution handles specifier normalisation for us. */
-  JS_SetModuleLoaderFunc2(g->rt, /*module_normalize*/ NULL,
-                          xjs_module_loader_trampoline,
+  JS_SetModuleLoaderFunc2(g->rt, /*module_normalize*/ NULL, xjs_module_loader_trampoline,
                           /*check_attrs*/ NULL, /*opaque*/ NULL);
   return g;
 }
@@ -110,9 +107,8 @@ void xJSContextGroupRelease(xJSContextGroupRef g) {
  * Global context
  * ═══════════════════════════════════════════════════════════════════ */
 
-xJSGlobalContextRef
-xJSGlobalContextCreateInGroup(xJSContextGroupRef group,
-                              xJSClassRef        globalObjectClass) {
+xJSGlobalContextRef xJSGlobalContextCreateInGroup(xJSContextGroupRef group,
+                                                  xJSClassRef        globalObjectClass) {
   (void)globalObjectClass; /* [TODO] custom global not implemented */
   if (!group) return NULL;
   struct OpaqueXJSContext *c = (struct OpaqueXJSContext *)calloc(1, sizeof(*c));
@@ -191,8 +187,7 @@ void xJSGlobalContextSetName(xJSGlobalContextRef ctx, xJSStringRef name) {
   if (ctx->name) xJSStringGetUTF8CString(name, ctx->name, sz);
 }
 
-void xJSContextSetModuleLoader(xJSGlobalContextRef   ctx,
-                               xJSModuleLoadCallback load, void *opaque) {
+void xJSContextSetModuleLoader(xJSGlobalContextRef ctx, xJSModuleLoadCallback load, void *opaque) {
   if (!ctx) return;
   ctx->module_load_cb     = load;
   ctx->module_load_opaque = opaque;

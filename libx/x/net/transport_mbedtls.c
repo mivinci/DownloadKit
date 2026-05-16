@@ -39,9 +39,8 @@
   mbedtls_ssl_conf_min_tls_version((conf), MBEDTLS_SSL_VERSION_TLS1_2)
 #else
 /* mbedTLS 2.x */
-#define X_MBEDTLS_SET_MIN_TLS12(conf)                              \
-  mbedtls_ssl_conf_min_version((conf), MBEDTLS_SSL_MAJOR_VERSION_3, \
-                               MBEDTLS_SSL_MINOR_VERSION_3)
+#define X_MBEDTLS_SET_MIN_TLS12(conf) \
+  mbedtls_ssl_conf_min_version((conf), MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3)
 #endif
 
 #include <errno.h>
@@ -77,8 +76,7 @@ static int mbed_send_cb(void *ctx, const unsigned char *buf, size_t len) {
     n = write(t->fd, buf, len);
   } while (n < 0 && errno == EINTR);
   if (n < 0) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
-      return MBEDTLS_ERR_SSL_WANT_WRITE;
+    if (errno == EAGAIN || errno == EWOULDBLOCK) return MBEDTLS_ERR_SSL_WANT_WRITE;
     return MBEDTLS_ERR_NET_SEND_FAILED;
   }
   return (int)n;
@@ -91,8 +89,7 @@ static int mbed_recv_cb(void *ctx, unsigned char *buf, size_t len) {
     n = read(t->fd, buf, len);
   } while (n < 0 && errno == EINTR);
   if (n < 0) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
-      return MBEDTLS_ERR_SSL_WANT_READ;
+    if (errno == EAGAIN || errno == EWOULDBLOCK) return MBEDTLS_ERR_SSL_WANT_READ;
     return MBEDTLS_ERR_NET_RECV_FAILED;
   }
   if (n == 0) return 0; /* EOF */
@@ -130,8 +127,7 @@ static ssize_t mbed_writev(void *ctx, const struct iovec *iov, int iovcnt) {
   for (int i = 0; i < iovcnt; i++) {
     if (iov[i].iov_len == 0) continue;
 
-    int n = mbedtls_ssl_write(&t->ssl, (const unsigned char *)iov[i].iov_base,
-                              iov[i].iov_len);
+    int n = mbedtls_ssl_write(&t->ssl, (const unsigned char *)iov[i].iov_base, iov[i].iov_len);
     if (n > 0) {
       total += n;
       if ((size_t)n < iov[i].iov_len) break; /* Partial write */
@@ -271,12 +267,10 @@ void xTransportTlsServerInit(xTransport *transport, xTlsCtx tls_ctx, int fd) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx,
-                            const char *hostname, int fd) {
+int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx, const char *hostname, int fd) {
   if (!transport || !tls_ctx) return -1;
 
-  mbedtls_ssl_config *client_conf =
-    (mbedtls_ssl_config *)xTlsCtxGetNative(tls_ctx);
+  mbedtls_ssl_config *client_conf = (mbedtls_ssl_config *)xTlsCtxGetNative(tls_ctx);
   if (!client_conf) return -1;
 
   xTlsMbedTLS_ *t = (xTlsMbedTLS_ *)calloc(1, sizeof(xTlsMbedTLS_));

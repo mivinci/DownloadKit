@@ -25,11 +25,8 @@ extern "C" {
 
 /* ───────────────────── Helpers ───────────────────── */
 
-static void pump_until_bool(xEventLoop loop, std::atomic<bool> &flag,
-                            int max_ms = 5000) {
-  for (int elapsed = 0;
-       elapsed < max_ms && !flag.load(std::memory_order_acquire);
-       elapsed += 10) {
+static void pump_until_bool(xEventLoop loop, std::atomic<bool> &flag, int max_ms = 5000) {
+  for (int elapsed = 0; elapsed < max_ms && !flag.load(std::memory_order_acquire); elapsed += 10) {
     xEventWait(loop, 10);
   }
 }
@@ -48,10 +45,8 @@ static void on_resp(const xHttpResponse *resp, void *arg) {
   auto *ctx        = static_cast<RespCtx *>(arg);
   ctx->status_code = resp->status_code;
   ctx->curl_code   = resp->curl_code;
-  if (resp->body && resp->body_len > 0)
-    ctx->body.assign(resp->body, resp->body_len);
-  if (resp->headers && resp->headers_len > 0)
-    ctx->headers.assign(resp->headers, resp->headers_len);
+  if (resp->body && resp->body_len > 0) ctx->body.assign(resp->body, resp->body_len);
+  if (resp->headers && resp->headers_len > 0) ctx->headers.assign(resp->headers, resp->headers_len);
   ctx->done.store(true, std::memory_order_release);
 }
 
@@ -81,8 +76,7 @@ static void on_sse_end(int curl_code, void *arg) {
 
 /* ───────────────────── Server handlers ───────────────────── */
 
-static void hello_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                          void *arg) {
+static void hello_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)req;
   (void)arg;
   xHttpResponseSetStatus(w, 200);
@@ -90,16 +84,14 @@ static void hello_handler(xHttpResponseWriter w, const xHttpRequest *req,
   xHttpResponseSend(w, "hello", 5);
 }
 
-static void echo_body_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                              void *arg) {
+static void echo_body_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)arg;
   xHttpResponseSetStatus(w, 200);
   xHttpResponseSetHeader(w, "Content-Type", "application/octet-stream");
   xHttpResponseSend(w, req->body, req->body_len);
 }
 
-static void echo_header_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                                void *arg) {
+static void echo_header_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)arg;
   /* Echo back the raw request headers as the response body */
   xHttpResponseSetStatus(w, 200);
@@ -107,8 +99,7 @@ static void echo_header_handler(xHttpResponseWriter w, const xHttpRequest *req,
   xHttpResponseSend(w, req->headers, req->headers_len);
 }
 
-static void sse_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                        void *arg) {
+static void sse_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)req;
   (void)arg;
   xHttpResponseSetStatus(w, 200);
@@ -189,8 +180,7 @@ TEST_F(IntegrationTest, H1PostEcho) {
   RespCtx     ctx;
   std::string url  = make_url("/echo");
   const char *body = "{\"msg\":\"integration\"}";
-  xErrno      err =
-    xHttpClientPost(client, url.c_str(), body, strlen(body), on_resp, &ctx);
+  xErrno      err  = xHttpClientPost(client, url.c_str(), body, strlen(body), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 5000);
@@ -313,7 +303,7 @@ TEST_F(IntegrationTest, ClientDefaultH2c) {
   xHttpClientDestroy(client);
   xHttpClientConf conf = {};
   conf.http_version    = xHttpVersion_H2C;
-  client = xHttpClientCreate(loop, &conf);
+  client               = xHttpClientCreate(loop, &conf);
   ASSERT_NE(client, nullptr);
 
   RespCtx     ctx;
@@ -339,8 +329,7 @@ TEST_F(IntegrationTest, SseOverH1) {
 
   SseTestCtx  ctx;
   std::string url = make_url("/events");
-  xErrno      err =
-    xHttpClientGetSse(client, url.c_str(), on_sse_ev, on_sse_end, &ctx);
+  xErrno      err = xHttpClientGetSse(client, url.c_str(), on_sse_ev, on_sse_end, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 5000);
@@ -440,8 +429,7 @@ TEST_F(IntegrationTest, H2cDoCustomHeaders) {
 
 /* ───────────────────── Route params over H1 ───────────────────── */
 
-static void param_echo_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                               void *arg) {
+static void param_echo_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)arg;
   size_t      len = 0;
   const char *id  = xHttpRequestParam(req, "id", &len);
@@ -502,14 +490,13 @@ TEST_F(IntegrationTest, H2cRouteParam) {
 
 /* ───────────────────── PUT method ───────────────────── */
 
-static void put_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                        void *arg) {
+static void put_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)arg;
   xHttpResponseSetStatus(w, 200);
   xHttpResponseSetHeader(w, "Content-Type", "text/plain");
   /* Echo method + body */
   char buf[256];
-  int n = snprintf(buf, sizeof(buf), "%s:%.*s", req->method, (int)req->body_len,
+  int  n = snprintf(buf, sizeof(buf), "%s:%.*s", req->method, (int)req->body_len,
                    req->body ? req->body : "");
   xHttpResponseSend(w, buf, (size_t)n);
 }
@@ -542,8 +529,7 @@ TEST_F(IntegrationTest, H1PutMethod) {
 
 /* ───────────────────── DELETE method over H2C ───────────────────── */
 
-static void delete_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                           void *arg) {
+static void delete_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)arg;
   (void)req;
   xHttpResponseSetStatus(w, 204);
@@ -587,8 +573,8 @@ TEST_F(IntegrationTest, LargeBodyRoundTrip) {
 
   RespCtx     ctx;
   std::string url = make_url("/echo");
-  xErrno      err = xHttpClientPost(client, url.c_str(), large_body.c_str(),
-                                    large_body.size(), on_resp, &ctx);
+  xErrno      err =
+    xHttpClientPost(client, url.c_str(), large_body.c_str(), large_body.size(), on_resp, &ctx);
   ASSERT_EQ(err, xErrno_Ok);
 
   pump_until_bool(loop, ctx.done, 10000);
@@ -602,8 +588,7 @@ TEST_F(IntegrationTest, LargeBodyRoundTrip) {
 
 /* ───────────────────── SSE via DoSse POST (LLM-style) ───────────────────── */
 
-static void sse_post_handler(xHttpResponseWriter w, const xHttpRequest *req,
-                             void *arg) {
+static void sse_post_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   (void)arg;
   /* Echo the request body as an SSE event, then send a done event */
   xHttpResponseSetStatus(w, 200);
@@ -611,8 +596,8 @@ static void sse_post_handler(xHttpResponseWriter w, const xHttpRequest *req,
   xHttpResponseSetHeader(w, "Cache-Control", "no-cache");
 
   char buf[512];
-  int  n = snprintf(buf, sizeof(buf), "data: %.*s\n\n", (int)req->body_len,
-                   req->body ? req->body : "");
+  int  n =
+    snprintf(buf, sizeof(buf), "data: %.*s\n\n", (int)req->body_len, req->body ? req->body : "");
   xHttpResponseWrite(w, buf, (size_t)n);
   xHttpResponseWrite(w, "event: done\ndata: [DONE]\n\n", 26);
   xHttpResponseEnd(w);
@@ -727,8 +712,7 @@ TEST_F(IntegrationTest, ConcurrentH1AndH2c) {
 
   /* Pump until both complete */
   for (int elapsed = 0; elapsed < 5000; elapsed += 10) {
-    if (ctx_h1.done.load(std::memory_order_acquire) &&
-        ctx_h2c.done.load(std::memory_order_acquire))
+    if (ctx_h1.done.load(std::memory_order_acquire) && ctx_h2c.done.load(std::memory_order_acquire))
       break;
     xEventWait(loop, 10);
   }

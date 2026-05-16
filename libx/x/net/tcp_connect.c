@@ -54,8 +54,8 @@ XDEF_STRUCT(xTcpConnector_) {
   uint16_t        port;
 
   /* TLS context (shared or auto-created) */
-  xTlsCtx  tls_ctx;
-  int      owns_tls_ctx; /**< Non-zero if we created tls_ctx internally */
+  xTlsCtx tls_ctx;
+  int     owns_tls_ctx; /**< Non-zero if we created tls_ctx internally */
 
   /* DNS */
   xDnsQuery   dns_query;
@@ -230,8 +230,8 @@ static void connector_do_tcp_connect(xTcpConnector_ *c) {
   xDnsAddr *addr = c->dns_result->addrs;
 
   /* Create socket */
-  c->sock = xSocketCreate(c->loop, addr->family, SOCK_STREAM, 0, xEvent_Write,
-                          connector_sock_cb, c);
+  c->sock =
+    xSocketCreate(c->loop, addr->family, SOCK_STREAM, 0, xEvent_Write, connector_sock_cb, c);
   if (!c->sock) {
     connector_fail(c, xErrno_SysError);
     return;
@@ -389,9 +389,8 @@ static void connector_sock_cb(xSocket sock, xEventMask mask, void *arg) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-xErrno xTcpConnect(xEventLoop loop, const char *host, uint16_t port,
-                   const xTcpConnectConf *conf, xTcpConnectFunc callback,
-                   void *arg) {
+xErrno xTcpConnect(xEventLoop loop, const char *host, uint16_t port, const xTcpConnectConf *conf,
+                   xTcpConnectFunc callback, void *arg) {
   if (!loop || !host || !callback) return xErrno_InvalidArg;
 
   xTcpConnector_ *c = (xTcpConnector_ *)calloc(1, sizeof(xTcpConnector_));
@@ -418,10 +417,8 @@ xErrno xTcpConnect(xEventLoop loop, const char *host, uint16_t port,
   }
 
   /* Set timeout */
-  int timeout_ms =
-    c->conf.timeout_ms > 0 ? c->conf.timeout_ms : XTCP_DEFAULT_TIMEOUT_MS;
-  c->timer =
-    xEventLoopTimerAfter(loop, connector_timeout_cb, c, (uint64_t)timeout_ms);
+  int timeout_ms = c->conf.timeout_ms > 0 ? c->conf.timeout_ms : XTCP_DEFAULT_TIMEOUT_MS;
+  c->timer       = xEventLoopTimerAfter(loop, connector_timeout_cb, c, (uint64_t)timeout_ms);
 
   /* Start DNS resolution */
   char port_str[8];

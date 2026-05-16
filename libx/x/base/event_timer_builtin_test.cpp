@@ -50,21 +50,34 @@ static int make_pipe(int fds[2]) {
   addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   addr.sin_port        = 0;
   if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-    closesocket(listener); return -1;
+    closesocket(listener);
+    return -1;
   }
-  if (listen(listener, 1) != 0) { closesocket(listener); return -1; }
+  if (listen(listener, 1) != 0) {
+    closesocket(listener);
+    return -1;
+  }
   int addrlen = sizeof(addr);
   if (getsockname(listener, (struct sockaddr *)&addr, &addrlen) != 0) {
-    closesocket(listener); return -1;
+    closesocket(listener);
+    return -1;
   }
   SOCKET conn = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (conn == INVALID_SOCKET) { closesocket(listener); return -1; }
+  if (conn == INVALID_SOCKET) {
+    closesocket(listener);
+    return -1;
+  }
   if (connect(conn, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-    closesocket(listener); closesocket(conn); return -1;
+    closesocket(listener);
+    closesocket(conn);
+    return -1;
   }
   SOCKET acceptor = accept(listener, NULL, NULL);
   closesocket(listener);
-  if (acceptor == INVALID_SOCKET) { closesocket(conn); return -1; }
+  if (acceptor == INVALID_SOCKET) {
+    closesocket(conn);
+    return -1;
+  }
   u_long mode = 1;
   ioctlsocket(acceptor, FIONBIO, &mode);
   ioctlsocket(conn, FIONBIO, &mode);
@@ -115,8 +128,7 @@ TEST(BuiltinTimerAfter, BasicDelay) {
   std::atomic<int> fired{0};
 
   xEventTimer t = xEventLoopTimerAfter(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 50);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 50);
   ASSERT_NE(t, nullptr);
 
   /* Wait long enough for the timer to fire (may need multiple waits
@@ -136,8 +148,7 @@ TEST(BuiltinTimerAfter, ZeroDelayFiresImmediately) {
   std::atomic<int> fired{0};
 
   xEventLoopTimerAfter(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 0);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 0);
 
   xEventWait(loop, 100);
 
@@ -166,8 +177,7 @@ TEST(BuiltinTimerAt, AbsoluteTime) {
 
   uint64_t    deadline = xEventLoopNowMs() + 50;
   xEventTimer t        = xEventLoopTimerAt(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, deadline);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, deadline);
   ASSERT_NE(t, nullptr);
 
   for (int i = 0; i < 10 && fired.load() == 0; i++)
@@ -186,8 +196,7 @@ TEST(BuiltinTimerAt, ExpiredDeadlineFiresImmediately) {
 
   /* Deadline in the past */
   xEventLoopTimerAt(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 0);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 0);
 
   xEventWait(loop, 100);
 
@@ -205,8 +214,7 @@ TEST(BuiltinTimerCancel, CancelBeforeFire) {
   std::atomic<int> fired{0};
 
   xEventTimer t = xEventLoopTimerAfter(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 500);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 500);
   ASSERT_NE(t, nullptr);
 
   EXPECT_EQ(xEventLoopTimerCancel(loop, t), xErrno_Ok);
@@ -296,8 +304,7 @@ TEST(BuiltinTimerMixed, IOAndTimerTogether) {
   ASSERT_NE(src, nullptr);
 
   xEventLoopTimerAfter(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &timer_count, 50);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &timer_count, 50);
 
   /* Write data to trigger I/O */
   write_fd(fds[1], "x", 1);
@@ -352,8 +359,7 @@ TEST(BuiltinTimerRun, TimerFiresDuringRun) {
   std::atomic<int> fired{0};
 
   xEventLoopTimerAfter(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 50);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 50);
 
   std::thread runner([&]() { xEventLoopRun(loop); });
 
@@ -382,8 +388,7 @@ TEST(BuiltinTimerCrossThread, SubmitFromAnotherThread) {
 
   /* Submit timer from a different thread */
   xEventLoopTimerAfter(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 50);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 50);
 
   for (int i = 0; i < 40 && fired.load() == 0; i++)
     sleep_ms(10);
@@ -407,11 +412,9 @@ TEST(BuiltinTimerDestroy, DiscardsPendingTimers) {
 
   /* Schedule timers far in the future */
   xEventLoopTimerAfter(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 10000);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 10000);
   xEventLoopTimerAfter(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 20000);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 20000);
 
   /* Destroy without waiting — should not crash or fire callbacks */
   xEventLoopDestroy(loop);
@@ -429,10 +432,7 @@ TEST(BuiltinTimerPrecision, DelayAccuracy) {
 
   uint64_t submit_time = xEventLoopNowMs();
   xEventLoopTimerAfter(
-    loop,
-    [](void *arg) {
-      static_cast<std::atomic<uint64_t> *>(arg)->store(xEventLoopNowMs());
-    },
+    loop, [](void *arg) { static_cast<std::atomic<uint64_t> *>(arg)->store(xEventLoopNowMs()); },
     &fire_time, 100);
 
   std::thread runner([&]() { xEventLoopRun(loop); });
@@ -462,8 +462,7 @@ TEST(BuiltinTimerCancel, CancelAfterFireReturnsError) {
   std::atomic<int> fired{0};
 
   xEventTimer t = xEventLoopTimerAfter(
-    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); },
-    &fired, 10);
+    loop, [](void *arg) { static_cast<std::atomic<int> *>(arg)->fetch_add(1); }, &fired, 10);
   ASSERT_NE(t, nullptr);
 
   /* Wait for it to fire */

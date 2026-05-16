@@ -46,9 +46,9 @@
 #include <x/agent/query.h>
 #include <x/agent/session.h>
 #include <x/agent/tool.h>
+#include <x/base/array.h>
 #include <x/base/base.h>
 #include <x/base/error.h>
-#include <x/base/array.h>
 #include <x/base/time.h>
 #include <x/buf/buf.h>
 
@@ -90,7 +90,7 @@ static char *dup_cstr(const char *src) {
 
 struct query_freelist {
   struct xAgentQuery_ *head;
-  size_t            count;
+  size_t               count;
 };
 
 static __thread struct query_freelist tl_qfree = {NULL, 0};
@@ -98,7 +98,7 @@ static __thread struct query_freelist tl_qfree = {NULL, 0};
 static struct xAgentQuery_ *query_alloc(void) {
   if (tl_qfree.head) {
     struct xAgentQuery_ *q = tl_qfree.head;
-    tl_qfree.head       = q->next;
+    tl_qfree.head          = q->next;
     tl_qfree.count--;
     q->next = NULL;
     return q;
@@ -111,8 +111,8 @@ static void query_free(struct xAgentQuery_ *q) {
     free(q);
     return;
   }
-  q->next          = tl_qfree.head;
-  tl_qfree.head    = q;
+  q->next       = tl_qfree.head;
+  tl_qfree.head = q;
   tl_qfree.count++;
 }
 
@@ -128,7 +128,7 @@ static void query_msg_release(void *elem) {
   ai_session_msg_free((struct xAgentSessionMsg_ *)elem);
 }
 
-static const xArrayCallbacks kMsgCbs = { NULL, query_msg_release, NULL };
+static const xArrayCallbacks kMsgCbs = {NULL, query_msg_release, NULL};
 
 /* Push a new zero-initialised slot onto a turn-entry array. The
  * returned slot has @c created_at_ms pre-filled with the current
@@ -137,8 +137,7 @@ static const xArrayCallbacks kMsgCbs = { NULL, query_msg_release, NULL };
  * completed tool call, etc.) rather than the later time at which
  * the on_done handler copies the entries over. */
 static struct xAgentSessionMsg_ *msg_push(xArray *arrp) {
-  struct xAgentSessionMsg_ *slot =
-    (struct xAgentSessionMsg_ *)xArrayPush(arrp);
+  struct xAgentSessionMsg_ *slot = (struct xAgentSessionMsg_ *)xArrayPush(arrp);
   if (slot) slot->created_at_ms = xWallMs();
   return slot;
 }
@@ -146,8 +145,7 @@ static struct xAgentSessionMsg_ *msg_push(xArray *arrp) {
 /* Append a single-content text entry with role @p role. The text is
  * duplicated. Used to materialise user text and assistant text into
  * turn-entry storage. */
-static xErrno turn_buf_append_text(xArray *arrp, xAgentRole role,
-                                   const char *text, size_t len) {
+static xErrno turn_buf_append_text(xArray *arrp, xAgentRole role, const char *text, size_t len) {
   struct xAgentSessionMsg_ *slot = msg_push(arrp);
   if (!slot) return xErrno_NoMemory;
   slot->role = role;
@@ -164,8 +162,7 @@ static xErrno turn_buf_append_text(xArray *arrp, xAgentRole role,
 }
 
 /* Append an assistant thinking entry. @p text is duplicated. */
-static xErrno turn_buf_append_thinking(xArray *arrp, const char *text,
-                                       size_t len) {
+static xErrno turn_buf_append_thinking(xArray *arrp, const char *text, size_t len) {
   struct xAgentSessionMsg_ *slot = msg_push(arrp);
   if (!slot) return xErrno_NoMemory;
   slot->role = xAgentRole_Assistant;
@@ -182,8 +179,8 @@ static xErrno turn_buf_append_thinking(xArray *arrp, const char *text,
 }
 
 /* Append an assistant tool_use entry. Every string is duplicated. */
-static xErrno turn_buf_append_tool_use(xArray *arrp, const char *id,
-                                       const char *name, const char *args) {
+static xErrno turn_buf_append_tool_use(xArray *arrp, const char *id, const char *name,
+                                       const char *args) {
   struct xAgentSessionMsg_ *slot = msg_push(arrp);
   if (!slot) return xErrno_NoMemory;
   slot->role          = xAgentRole_Assistant;
@@ -201,8 +198,7 @@ static xErrno turn_buf_append_tool_use(xArray *arrp, const char *id,
 }
 
 /* Append a tool_result entry. The output is duplicated. */
-static xErrno turn_buf_append_tool_result(xArray *arrp, const char *id,
-                                          const char *output,
+static xErrno turn_buf_append_tool_result(xArray *arrp, const char *id, const char *output,
                                           size_t output_len, int is_error) {
   struct xAgentSessionMsg_ *slot = msg_push(arrp);
   if (!slot) return xErrno_NoMemory;
@@ -246,19 +242,16 @@ static xErrno turn_buf_append_message(xArray *arrp, const xAgentMessage *msg) {
   if (msg->role == xAgentRole_Assistant) {
     for (size_t i = 0; i < msg->n; i++) {
       const xAgentContent *c = &msg->contents[i];
-      xErrno            rc;
+      xErrno               rc;
       switch (c->type) {
       case xAgentContentType_Text:
-        rc = turn_buf_append_text(arrp, xAgentRole_Assistant,
-                                  c->u.text.text, c->u.text.len);
+        rc = turn_buf_append_text(arrp, xAgentRole_Assistant, c->u.text.text, c->u.text.len);
         break;
       case xAgentContentType_Thinking:
-        rc = turn_buf_append_thinking(arrp, c->u.thinking.text,
-                                      c->u.thinking.len);
+        rc = turn_buf_append_thinking(arrp, c->u.thinking.text, c->u.thinking.len);
         break;
       case xAgentContentType_ToolUse:
-        rc = turn_buf_append_tool_use(arrp, c->u.tool_use.id,
-                                      c->u.tool_use.name,
+        rc = turn_buf_append_tool_use(arrp, c->u.tool_use.id, c->u.tool_use.name,
                                       c->u.tool_use.args_json);
         break;
       default:
@@ -273,9 +266,9 @@ static xErrno turn_buf_append_message(xArray *arrp, const xAgentMessage *msg) {
     for (size_t i = 0; i < msg->n; i++) {
       const xAgentContent *c = &msg->contents[i];
       if (c->type != xAgentContentType_ToolResult) continue;
-      xErrno rc = turn_buf_append_tool_result(
-        arrp, c->u.tool_result.id, c->u.tool_result.output,
-        c->u.tool_result.output_len, c->u.tool_result.is_error);
+      xErrno rc =
+        turn_buf_append_tool_result(arrp, c->u.tool_result.id, c->u.tool_result.output,
+                                    c->u.tool_result.output_len, c->u.tool_result.is_error);
       if (rc != xErrno_Ok) return rc;
     }
     return xErrno_Ok;
@@ -301,7 +294,7 @@ static xErrno turn_buf_append_message(xArray *arrp, const xAgentMessage *msg) {
       off += k;
     }
   }
-  concat[total]               = '\0';
+  concat[total]                  = '\0';
   struct xAgentSessionMsg_ *slot = msg_push(arrp);
   if (!slot) {
     free(concat);
@@ -325,7 +318,7 @@ static void pending_release(void *elem) {
   memset(p, 0, sizeof(*p));
 }
 
-static const xArrayCallbacks kPendingCbs = { NULL, pending_release, NULL };
+static const xArrayCallbacks kPendingCbs = {NULL, pending_release, NULL};
 
 /* ── Tool-confirmation resolver ──────────────────────────────────────
  *
@@ -350,15 +343,14 @@ static const xArrayCallbacks kPendingCbs = { NULL, pending_release, NULL };
  */
 
 struct xAgentToolConfirmResolver_ {
-  struct xAgentQuery_ *q;     /* owning query; NULL = invalidated */
-  char             *id;    /* tool_use_id, owned copy          */
-  int               done;  /* 1 after resolve() ran once       */
+  struct xAgentQuery_ *q;    /* owning query; NULL = invalidated */
+  char                *id;   /* tool_use_id, owned copy          */
+  int                  done; /* 1 after resolve() ran once       */
 };
 
-static struct xAgentToolConfirmResolver_ *
-confirm_resolver_new_(struct xAgentQuery_ *q, const char *tool_use_id) {
-  struct xAgentToolConfirmResolver_ *r =
-    (struct xAgentToolConfirmResolver_ *)calloc(1, sizeof(*r));
+static struct xAgentToolConfirmResolver_ *confirm_resolver_new_(struct xAgentQuery_ *q,
+                                                                const char          *tool_use_id) {
+  struct xAgentToolConfirmResolver_ *r = (struct xAgentToolConfirmResolver_ *)calloc(1, sizeof(*r));
   if (!r) return NULL;
   r->q  = q;
   r->id = dup_cstr(tool_use_id ? tool_use_id : "");
@@ -400,13 +392,12 @@ static void async_pending_release(void *elem) {
      * exactly once). If the host never resolves, the handle leaks
      * \u2014 a small, per-cancelled-call cost we accept in exchange for
      * crash-safety. */
-    confirm_resolver_invalidate_(
-        (struct xAgentToolConfirmResolver_ *)a->resolver);
+    confirm_resolver_invalidate_((struct xAgentToolConfirmResolver_ *)a->resolver);
   }
   memset(a, 0, sizeof(*a));
 }
 
-static const xArrayCallbacks kAsyncPendingCbs = { NULL, async_pending_release, NULL };
+static const xArrayCallbacks kAsyncPendingCbs = {NULL, async_pending_release, NULL};
 
 static void pending_reset(struct xAgentQuery_ *q) {
   xArrayReset(q->pending_arr);
@@ -414,13 +405,11 @@ static void pending_reset(struct xAgentQuery_ *q) {
 
 /* Append one pending tool_call. Copies every string. */
 static xErrno pending_append(struct xAgentQuery_ *q, const xAgentContent *call) {
-  struct xAgentQueryPending_ *slot =
-    (struct xAgentQueryPending_ *)xArrayPush(&q->pending_arr);
+  struct xAgentQueryPending_ *slot = (struct xAgentQueryPending_ *)xArrayPush(&q->pending_arr);
   if (!slot) return xErrno_NoMemory;
-  slot->id   = dup_cstr(call->u.tool_use.id ? call->u.tool_use.id : "");
-  slot->name = dup_cstr(call->u.tool_use.name ? call->u.tool_use.name : "");
-  slot->args_json =
-    dup_cstr(call->u.tool_use.args_json ? call->u.tool_use.args_json : "{}");
+  slot->id        = dup_cstr(call->u.tool_use.id ? call->u.tool_use.id : "");
+  slot->name      = dup_cstr(call->u.tool_use.name ? call->u.tool_use.name : "");
+  slot->args_json = dup_cstr(call->u.tool_use.args_json ? call->u.tool_use.args_json : "{}");
   if (!slot->id || !slot->name || !slot->args_json) {
     /* xArrayPop calls pending_release which frees partial fields. */
     xArrayPop(q->pending_arr);
@@ -434,8 +423,7 @@ static xErrno pending_append(struct xAgentQuery_ *q, const xAgentContent *call) 
 /* Append one byte range to the current-round assistant text buffer.
  * The xBuffer is lazy-created on first append so queries that never
  * receive text (e.g. tool-use only) avoid a needless allocation. */
-static xErrno assist_append(struct xAgentQuery_ *q, const char *chunk,
-                            size_t len) {
+static xErrno assist_append(struct xAgentQuery_ *q, const char *chunk, size_t len) {
   if (len == 0) return xErrno_Ok;
   if (!q->assist) {
     q->assist = xBufferCreate(256);
@@ -452,8 +440,7 @@ static void assist_reset(struct xAgentQuery_ *q) {
  * thinking stream. Kept separate so the two never race to the same
  * buffer and so view_build can emit them as distinct content blocks
  * on the wire. */
-static xErrno reasoning_append(struct xAgentQuery_ *q, const char *chunk,
-                               size_t len) {
+static xErrno reasoning_append(struct xAgentQuery_ *q, const char *chunk, size_t len) {
   if (len == 0) return xErrno_Ok;
   if (!q->reasoning) {
     q->reasoning = xBufferCreate(256);
@@ -495,22 +482,20 @@ static void usage_accumulate(struct xAgentQuery_ *q, const xAgentUsage *round) {
    * We also capture the FIRST round's prompt_tokens separately so
    * the calibrator can compare it against the gate's pre-submit
    * estimate (which was computed before any tool-loop rounds). */
-#define XAGENT_FOLD_MAX(field)                                                 \
-  do {                                                                       \
-    if (round->field >= 0) {                                                 \
-      q->usage.field = (q->usage.field < 0) ? round->field                  \
-                         : (q->usage.field > round->field                    \
-                              ? q->usage.field                               \
-                              : round->field);                               \
-    }                                                                        \
+#define XAGENT_FOLD_MAX(field)                                                              \
+  do {                                                                                      \
+    if (round->field >= 0) {                                                                \
+      q->usage.field = (q->usage.field < 0)                                                 \
+                         ? round->field                                                     \
+                         : (q->usage.field > round->field ? q->usage.field : round->field); \
+    }                                                                                       \
   } while (0)
 
-#define XAGENT_FOLD_ADD(field)                                                 \
-  do {                                                                       \
-    if (round->field >= 0) {                                                 \
-      q->usage.field =                                                       \
-        (q->usage.field < 0) ? round->field : q->usage.field + round->field; \
-    }                                                                        \
+#define XAGENT_FOLD_ADD(field)                                                              \
+  do {                                                                                      \
+    if (round->field >= 0) {                                                                \
+      q->usage.field = (q->usage.field < 0) ? round->field : q->usage.field + round->field; \
+    }                                                                                       \
   } while (0)
 
   XAGENT_FOLD_MAX(prompt_tokens);
@@ -526,18 +511,17 @@ static void usage_accumulate(struct xAgentQuery_ *q, const xAgentUsage *round) {
    * the accumulated maximum. Subsequent rounds add tool_results to
    * the prompt — those extra tokens were never estimated by the gate
    * and would systematically inflate the ratio if included. */
-  if (q->turn == 1 && round->prompt_tokens >= 0 &&
-      q->first_round_prompt_tokens < 0) {
+  if (q->turn == 1 && round->prompt_tokens >= 0 && q->first_round_prompt_tokens < 0) {
     q->first_round_prompt_tokens = round->prompt_tokens;
   }
 }
 
 static void usage_reset(struct xAgentQuery_ *q) {
-  q->saw_usage                    = 0;
-  q->usage.prompt_tokens          = -1;
-  q->usage.completion_tokens      = -1;
-  q->usage.total_tokens           = -1;
-  q->first_round_prompt_tokens    = -1;
+  q->saw_usage                 = 0;
+  q->usage.prompt_tokens       = -1;
+  q->usage.completion_tokens   = -1;
+  q->usage.total_tokens        = -1;
+  q->first_round_prompt_tokens = -1;
 }
 
 /* ── Submit-view construction ──────────────────────────────────── */
@@ -548,8 +532,8 @@ static void usage_reset(struct xAgentQuery_ *q) {
 struct view_ {
   xAgentMessage *msgs;   /* n_msgs entries                             */
   xAgentContent *blocks; /* n_blocks entries, referenced by msgs[i]    */
-  size_t      n_msgs;
-  size_t      n_blocks;
+  size_t         n_msgs;
+  size_t         n_blocks;
 };
 
 static void view_free(struct view_ *v) {
@@ -575,17 +559,14 @@ static xErrno view_build(struct xAgentQuery_ *q, struct view_ *out) {
   /* We present inputs and produced as one logical sequence; the
    * two arrays make the fold loop below simpler than a runtime
    * concat. */
-  struct xAgentSessionMsg_ *arrs[2] = {
-    (struct xAgentSessionMsg_ *)xArrayData(q->inputs_arr),
-    (struct xAgentSessionMsg_ *)xArrayData(q->produced_arr)
-  };
-  size_t lens[2] = { xArrayLen(q->inputs_arr), xArrayLen(q->produced_arr) };
-  size_t n_total = lens[0] + lens[1];
+  struct xAgentSessionMsg_ *arrs[2] = {(struct xAgentSessionMsg_ *)xArrayData(q->inputs_arr),
+                                       (struct xAgentSessionMsg_ *)xArrayData(q->produced_arr)};
+  size_t                    lens[2] = {xArrayLen(q->inputs_arr), xArrayLen(q->produced_arr)};
+  size_t                    n_total = lens[0] + lens[1];
   if (n_total == 0) return xErrno_InvalidArg;
 
-  /* Helper: address of logical entry i (across arrs[0]++arrs[1]). */
-#define XAGENT_ENTRY(i) \
-  (((i) < lens[0]) ? &arrs[0][(i)] : &arrs[1][(i) - lens[0]])
+    /* Helper: address of logical entry i (across arrs[0]++arrs[1]). */
+#define XAGENT_ENTRY(i) (((i) < lens[0]) ? &arrs[0][(i)] : &arrs[1][(i) - lens[0]])
 
   /* Pass 1: count output messages and content blocks. */
   size_t n_msgs   = 0;
@@ -594,7 +575,8 @@ static xErrno view_build(struct xAgentQuery_ *q, struct view_ *out) {
     struct xAgentSessionMsg_ *m = XAGENT_ENTRY(i);
     if (m->role == xAgentRole_Assistant) {
       size_t j = i;
-      while (j < n_total && XAGENT_ENTRY(j)->role == xAgentRole_Assistant) j++;
+      while (j < n_total && XAGENT_ENTRY(j)->role == xAgentRole_Assistant)
+        j++;
       n_msgs += 1;
       n_blocks += (j - i);
       i = j;
@@ -677,9 +659,8 @@ static xErrno view_build(struct xAgentQuery_ *q, struct view_ *out) {
 static void on_provider_text(const char *chunk, size_t len, void *arg);
 static void on_provider_tool_call(const xAgentContent *call, void *arg);
 static void on_provider_thinking(const char *chunk, size_t len, void *arg);
-static void on_provider_done(xAgentProviderStopReason reason, xErrno err,
-                             const xAgentUsage *usage, const char *errmsg,
-                             void *arg);
+static void on_provider_done(xAgentProviderStopReason reason, xErrno err, const xAgentUsage *usage,
+                             const char *errmsg, void *arg);
 
 /* ── Submit ────────────────────────────────────────────────────── */
 
@@ -689,20 +670,20 @@ static xErrno submit_round(struct xAgentQuery_ *q) {
   if (rc != xErrno_Ok) return rc;
 
   xAgentProviderSubmitConf pc = {0};
-  pc.model                 = q->model;
-  pc.messages              = v.msgs;
-  pc.n_messages            = v.n_msgs;
-  pc.tools                 = q->tools;
-  pc.tools_count           = q->tools_count;
-  pc.temperature           = -1;
-  pc.max_tokens            = q->max_tokens;
-  pc.stop                  = NULL;
+  pc.model                    = q->model;
+  pc.messages                 = v.msgs;
+  pc.n_messages               = v.n_msgs;
+  pc.tools                    = q->tools;
+  pc.tools_count              = q->tools_count;
+  pc.temperature              = -1;
+  pc.max_tokens               = q->max_tokens;
+  pc.stop                     = NULL;
 
   xAgentProviderStreamCallbacks cbs = {0};
-  cbs.on_text                    = on_provider_text;
-  cbs.on_tool_call               = on_provider_tool_call;
-  cbs.on_thinking                = on_provider_thinking;
-  cbs.on_done                    = on_provider_done;
+  cbs.on_text                       = on_provider_text;
+  cbs.on_tool_call                  = on_provider_tool_call;
+  cbs.on_thinking                   = on_provider_thinking;
+  cbs.on_done                       = on_provider_done;
 
   assist_reset(q);
   reasoning_reset(q);
@@ -724,12 +705,11 @@ static xErrno submit_round(struct xAgentQuery_ *q) {
  * Do NOT short-circuit with a C-style cast: we burned that before
  * (04-23 provider_openai.c bug), the compiler can't catch it and the
  * lookup reads a bogus address. */
-static xAgentTool find_tool(const xAgentTool **tools, size_t tools_count,
-                        const char *name) {
+static xAgentTool find_tool(const xAgentTool **tools, size_t tools_count, const char *name) {
   if (!name) return NULL;
   for (size_t i = 0; i < tools_count; i++) {
     if (!tools[i]) continue;
-    xAgentTool     t = *tools[i];
+    xAgentTool  t = *tools[i];
     const char *n = ai_tool_name(t);
     if (n && strcmp(n, name) == 0) return t;
   }
@@ -745,7 +725,7 @@ static xAgentTool find_tool(const xAgentTool **tools, size_t tools_count,
  * (OOM building result entries) aborts with the returned code.
  *
  * Forward declarations needed for async completion path. */
-static void query_finalize(struct xAgentQuery_ *q, xAgentDoneReason reason);
+static void   query_finalize(struct xAgentQuery_ *q, xAgentDoneReason reason);
 static xErrno submit_round(struct xAgentQuery_ *q);
 
 /* Invoke a tool handler synchronously on behalf of dispatch_pending_tools
@@ -763,12 +743,10 @@ static xErrno submit_round(struct xAgentQuery_ *q);
  * a fatal xErrno (currently only NoMemory when the async slot or
  * the tool_result slot fails to allocate).
  */
-static xErrno invoke_tool_inline_(struct xAgentQuery_ *q, xAgentTool t,
-                                  const char *tool_use_id,
-                                  const char *tool_name,
-                                  const char *args_json) {
-  xAgentContent in = {0};
-  in.type = xAgentContentType_ToolUse;
+static xErrno invoke_tool_inline_(struct xAgentQuery_ *q, xAgentTool t, const char *tool_use_id,
+                                  const char *tool_name, const char *args_json) {
+  xAgentContent in        = {0};
+  in.type                 = xAgentContentType_ToolUse;
   in.u.tool_use.id        = tool_use_id;
   in.u.tool_use.name      = tool_name;
   in.u.tool_use.args_json = args_json;
@@ -778,7 +756,7 @@ static xErrno invoke_tool_inline_(struct xAgentQuery_ *q, xAgentTool t,
   }
 
   xAgentContent out = {0};
-  xErrno      trc = ai_tool_invoke(t, (xAgentQuery)q, &in, &out);
+  xErrno        trc = ai_tool_invoke(t, (xAgentQuery)q, &in, &out);
 
   if (trc == xErrno_Pending) {
     /* Asynchronous tool: the handler will call on_done_fn later.
@@ -811,16 +789,13 @@ static xErrno invoke_tool_inline_(struct xAgentQuery_ *q, xAgentTool t,
   char        err_buf[256];
 
   if (trc != xErrno_Ok) {
-    snprintf(err_buf, sizeof(err_buf),
-             "tool handler returned error (xErrno=%d)", (int)trc);
+    snprintf(err_buf, sizeof(err_buf), "tool handler returned error (xErrno=%d)", (int)trc);
     out_text     = err_buf;
     out_text_len = strlen(err_buf);
     is_error     = 1;
   } else if (out.type == xAgentContentType_ToolResult) {
     out_text     = out.u.tool_result.output ? out.u.tool_result.output : "";
-    out_text_len = out.u.tool_result.output_len
-                     ? out.u.tool_result.output_len
-                     : strlen(out_text);
+    out_text_len = out.u.tool_result.output_len ? out.u.tool_result.output_len : strlen(out_text);
     is_error     = out.u.tool_result.is_error ? 1 : 0;
   } else {
     out_text     = "tool handler did not produce a tool_result";
@@ -828,8 +803,8 @@ static xErrno invoke_tool_inline_(struct xAgentQuery_ *q, xAgentTool t,
     is_error     = 1;
   }
 
-  xErrno rc = turn_buf_append_tool_result(&q->produced_arr, tool_use_id,
-                                          out_text, out_text_len, is_error);
+  xErrno rc =
+    turn_buf_append_tool_result(&q->produced_arr, tool_use_id, out_text, out_text_len, is_error);
 
   if (q->cbs.on_tool) {
     q->cbs.on_tool((xAgentQuery)q, tool_name, /*started=*/0, q->cbs.user_data);
@@ -844,8 +819,7 @@ static xErrno invoke_tool_inline_(struct xAgentQuery_ *q, xAgentTool t,
 static xErrno append_tool_error_(struct xAgentQuery_ *q, const char *tool_use_id,
                                  const char *message) {
   const char *m = message ? message : "tool error";
-  return turn_buf_append_tool_result(&q->produced_arr, tool_use_id, m,
-                                     strlen(m), /*is_error=*/1);
+  return turn_buf_append_tool_result(&q->produced_arr, tool_use_id, m, strlen(m), /*is_error=*/1);
 }
 
 /* Register a pending tool call that is blocked on user confirmation.
@@ -854,9 +828,8 @@ static xErrno append_tool_error_(struct xAgentQuery_ *q, const char *tool_use_id
  * to on_tool_confirm. On any failure the function rolls back all
  * side-effects and returns NULL. */
 static struct xAgentToolConfirmResolver_ *
-register_confirm_pending_(struct xAgentQuery_ *q, xAgentTool t,
-                          const char *tool_use_id, const char *tool_name,
-                          const char *args_json) {
+register_confirm_pending_(struct xAgentQuery_ *q, xAgentTool t, const char *tool_use_id,
+                          const char *tool_name, const char *args_json) {
   struct xAgentQueryAsyncTool_ *slot =
     (struct xAgentQueryAsyncTool_ *)xArrayPush(&q->async_pending_arr);
   if (!slot) return NULL;
@@ -875,8 +848,7 @@ register_confirm_pending_(struct xAgentQuery_ *q, xAgentTool t,
     return NULL;
   }
 
-  struct xAgentToolConfirmResolver_ *r =
-    confirm_resolver_new_(q, tool_use_id);
+  struct xAgentToolConfirmResolver_ *r = confirm_resolver_new_(q, tool_use_id);
   if (!r) {
     xArrayPop(q->async_pending_arr);
     return NULL;
@@ -887,8 +859,7 @@ register_confirm_pending_(struct xAgentQuery_ *q, xAgentTool t,
 
 static xErrno dispatch_pending_tools(struct xAgentQuery_ *q) {
   for (size_t i = 0; i < xArrayLen(q->pending_arr) && !q->cancelled; i++) {
-    struct xAgentQueryPending_ *p =
-      (struct xAgentQueryPending_ *)xArrayAt(q->pending_arr, i);
+    struct xAgentQueryPending_ *p = (struct xAgentQueryPending_ *)xArrayAt(q->pending_arr, i);
 
     xAgentTool t = find_tool(q->tools, q->tools_count, p->name);
 
@@ -898,8 +869,7 @@ static xErrno dispatch_pending_tools(struct xAgentQuery_ *q) {
        * to decide whether to retry with a different name or give
        * up. */
       char err_buf[256];
-      snprintf(err_buf, sizeof(err_buf),
-               "tool \"%s\" is not registered on this agent", p->name);
+      snprintf(err_buf, sizeof(err_buf), "tool \"%s\" is not registered on this agent", p->name);
       xErrno rc = append_tool_error_(q, p->id, err_buf);
       if (rc != xErrno_Ok) return rc;
       continue;
@@ -944,7 +914,7 @@ static xErrno dispatch_pending_tools(struct xAgentQuery_ *q) {
  * array, returning the entry (caller must free its fields). Returns
  * NULL if not found. */
 static struct xAgentQueryAsyncTool_ *async_pending_remove(struct xAgentQuery_ *q,
-                                                       const char *tool_use_id) {
+                                                          const char          *tool_use_id) {
   size_t len = xArrayLen(q->async_pending_arr);
   for (size_t i = 0; i < len; i++) {
     struct xAgentQueryAsyncTool_ *a =
@@ -955,14 +925,13 @@ static struct xAgentQueryAsyncTool_ *async_pending_remove(struct xAgentQuery_ *q
        * make a shallow copy of the struct and NULL out the string
        * pointers so the release callback doesn't free them. */
       struct xAgentQueryAsyncTool_ stolen = *a;
-      a->id        = NULL;
-      a->name      = NULL;
-      a->args_json = NULL;
-      a->resolver  = NULL;
+      a->id                               = NULL;
+      a->name                             = NULL;
+      a->args_json                        = NULL;
+      a->resolver                         = NULL;
       xArrayRemoveRange(q->async_pending_arr, i, 1);
       /* Return the stolen entry; caller owns the strings. */
-      struct xAgentQueryAsyncTool_ *out =
-        (struct xAgentQueryAsyncTool_ *)calloc(1, sizeof(*out));
+      struct xAgentQueryAsyncTool_ *out = (struct xAgentQueryAsyncTool_ *)calloc(1, sizeof(*out));
       if (out) *out = stolen;
       return out;
     }
@@ -973,9 +942,8 @@ static struct xAgentQueryAsyncTool_ *async_pending_remove(struct xAgentQuery_ *q
 /* Called when an async tool completes. Resolves the pending entry,
  * appends the tool_result to produced, and checks whether all async
  * tools are done so the tool-loop can continue. */
-void ai_query_async_tool_complete(struct xAgentQuery_ *q,
-                                         const char *tool_use_id,
-                                         const xAgentContent *result) {
+void ai_query_async_tool_complete(struct xAgentQuery_ *q, const char *tool_use_id,
+                                  const xAgentContent *result) {
   if (!q || !tool_use_id) return;
 
   struct xAgentQueryAsyncTool_ *a = async_pending_remove(q, tool_use_id);
@@ -987,27 +955,24 @@ void ai_query_async_tool_complete(struct xAgentQuery_ *q,
   char        err_buf[256];
 
   if (result && result->type == xAgentContentType_ToolResult) {
-    out_text     = result->u.tool_result.output ? result->u.tool_result.output : "";
-    out_text_len = result->u.tool_result.output_len
-                     ? result->u.tool_result.output_len
-                     : strlen(out_text);
-    is_error     = result->u.tool_result.is_error ? 1 : 0;
+    out_text = result->u.tool_result.output ? result->u.tool_result.output : "";
+    out_text_len =
+      result->u.tool_result.output_len ? result->u.tool_result.output_len : strlen(out_text);
+    is_error = result->u.tool_result.is_error ? 1 : 0;
   } else if (result && result->type == xAgentContentType_Text) {
     /* Allow the callback to return a simple text result. */
     out_text     = result->u.text.text ? result->u.text.text : "";
     out_text_len = result->u.text.len ? result->u.text.len : strlen(out_text);
     is_error     = 0;
   } else {
-    snprintf(err_buf, sizeof(err_buf),
-             "async tool \"%s\" on_done supplied no result", a->name);
+    snprintf(err_buf, sizeof(err_buf), "async tool \"%s\" on_done supplied no result", a->name);
     out_text     = err_buf;
     out_text_len = strlen(err_buf);
     is_error     = 1;
   }
 
   xErrno rc =
-    turn_buf_append_tool_result(&q->produced_arr, a->id, out_text,
-                                out_text_len, is_error);
+    turn_buf_append_tool_result(&q->produced_arr, a->id, out_text, out_text_len, is_error);
 
   /* Fire on_tool(started=0) now that the async operation is done. */
   if (q->cbs.on_tool) {
@@ -1023,8 +988,7 @@ void ai_query_async_tool_complete(struct xAgentQuery_ *q,
   /* If OOM recording the result, we need to abort the run. */
   if (rc != xErrno_Ok) {
     if (q->cbs.on_error) {
-      q->cbs.on_error((xAgentQuery)q, rc,
-                      "failed to record async tool_result in history",
+      q->cbs.on_error((xAgentQuery)q, rc, "failed to record async tool_result in history",
                       q->cbs.user_data);
     }
     query_finalize(q, xAgentDoneReason_ToolError);
@@ -1042,8 +1006,7 @@ void ai_query_async_tool_complete(struct xAgentQuery_ *q,
     xErrno src = submit_round(q);
     if (src != xErrno_Ok) {
       if (q->cbs.on_error) {
-        q->cbs.on_error((xAgentQuery)q, src,
-                        "failed to submit follow-up after async tools",
+        q->cbs.on_error((xAgentQuery)q, src, "failed to submit follow-up after async tools",
                         q->cbs.user_data);
       }
       query_finalize(q, xAgentDoneReason_ModelError);
@@ -1061,21 +1024,17 @@ static void commit_assistant_turn(struct xAgentQuery_ *q) {
    * blocks are documented as coming first, and putting reasoning
    * before tool_calls matches every upstream example I've seen. */
   if (q->reasoning && xBufferLen(q->reasoning) > 0) {
-    (void)turn_buf_append_thinking(&q->produced_arr,
-                                   (const char *)xBufferData(q->reasoning),
+    (void)turn_buf_append_thinking(&q->produced_arr, (const char *)xBufferData(q->reasoning),
                                    xBufferLen(q->reasoning));
   }
   if (q->assist && xBufferLen(q->assist) > 0) {
     (void)turn_buf_append_text(&q->produced_arr, xAgentRole_Assistant,
-                               (const char *)xBufferData(q->assist),
-                               xBufferLen(q->assist));
+                               (const char *)xBufferData(q->assist), xBufferLen(q->assist));
   }
   size_t n_pending = xArrayLen(q->pending_arr);
   for (size_t i = 0; i < n_pending; i++) {
-    struct xAgentQueryPending_ *p =
-      (struct xAgentQueryPending_ *)xArrayAt(q->pending_arr, i);
-    (void)turn_buf_append_tool_use(&q->produced_arr, p->id, p->name,
-                                   p->args_json);
+    struct xAgentQueryPending_ *p = (struct xAgentQueryPending_ *)xArrayAt(q->pending_arr, i);
+    (void)turn_buf_append_tool_use(&q->produced_arr, p->id, p->name, p->args_json);
   }
 }
 
@@ -1100,8 +1059,7 @@ static void commit_assistant_turn(struct xAgentQuery_ *q) {
 
 /* Map a provider stop reason to the caller-visible done reason for
  * runs that are *not* continuing into another tool-loop iteration. */
-static xAgentDoneReason translate_terminal(xAgentProviderStopReason r,
-                                        int                   user_cancel) {
+static xAgentDoneReason translate_terminal(xAgentProviderStopReason r, int user_cancel) {
   if (user_cancel) return xAgentDoneReason_Aborted;
   switch (r) {
   case xAgentProviderStop_EndTurn:
@@ -1134,13 +1092,12 @@ static void query_finalize(struct xAgentQuery_ *q, xAgentDoneReason reason) {
   if (!q->running) return; /* Already finalized — avoid double on_done */
 
   xAgentUsage usage_snapshot = q->usage;
-  int      had_usage      = q->saw_usage;
+  int         had_usage      = q->saw_usage;
 
   q->running = 0;
 
   if (q->cbs.on_done) {
-    q->cbs.on_done((xAgentQuery)q, reason,
-                   had_usage ? &usage_snapshot : NULL, q->cbs.user_data);
+    q->cbs.on_done((xAgentQuery)q, reason, had_usage ? &usage_snapshot : NULL, q->cbs.user_data);
   }
 }
 
@@ -1149,8 +1106,7 @@ static void query_finalize(struct xAgentQuery_ *q, xAgentDoneReason reason) {
  * still committed and then translated to a terminal done reason. */
 static void handle_error(struct xAgentQuery_ *q, xErrno err, const char *msg) {
   if (err != xErrno_Ok && q->cbs.on_error) {
-    q->cbs.on_error((xAgentQuery)q, err, msg ? msg : xstrerror(err),
-                    q->cbs.user_data);
+    q->cbs.on_error((xAgentQuery)q, err, msg ? msg : xstrerror(err), q->cbs.user_data);
   }
 }
 
@@ -1159,8 +1115,7 @@ static void handle_error(struct xAgentQuery_ *q, xErrno err, const char *msg) {
  * run with the appropriate done reason. On success we return and
  * wait for the next on_provider_done callback. */
 static void handle_tool_loop_continuation(struct xAgentQuery_ *q) {
-  int turn_limit =
-    q->max_turns > 0 ? q->max_turns : XAGENT_SESSION_DEFAULT_MAX_TURNS;
+  int turn_limit = q->max_turns > 0 ? q->max_turns : XAGENT_SESSION_DEFAULT_MAX_TURNS;
   if (q->turn >= turn_limit) {
     /* Already emitted enough rounds; tell the caller we bailed. */
     query_finalize(q, xAgentDoneReason_MaxTurns);
@@ -1182,8 +1137,7 @@ static void handle_tool_loop_continuation(struct xAgentQuery_ *q) {
      * on_error to give the caller diagnostic detail, then close
      * the run. */
     if (q->cbs.on_error) {
-      q->cbs.on_error((xAgentQuery)q, drc,
-                      "failed to record tool_result in history",
+      q->cbs.on_error((xAgentQuery)q, drc, "failed to record tool_result in history",
                       q->cbs.user_data);
     }
     query_finalize(q, xAgentDoneReason_ToolError);
@@ -1202,8 +1156,7 @@ static void handle_tool_loop_continuation(struct xAgentQuery_ *q) {
   xErrno src = submit_round(q);
   if (src != xErrno_Ok) {
     if (q->cbs.on_error) {
-      q->cbs.on_error((xAgentQuery)q, src,
-                      "failed to submit follow-up tool round",
+      q->cbs.on_error((xAgentQuery)q, src, "failed to submit follow-up tool round",
                       q->cbs.user_data);
     }
     query_finalize(q, xAgentDoneReason_ModelError);
@@ -1257,9 +1210,8 @@ static void on_provider_thinking(const char *chunk, size_t len, void *arg) {
   }
 }
 
-static void on_provider_done(xAgentProviderStopReason reason, xErrno err,
-                             const xAgentUsage *usage, const char *errmsg,
-                             void *arg) {
+static void on_provider_done(xAgentProviderStopReason reason, xErrno err, const xAgentUsage *usage,
+                             const char *errmsg, void *arg) {
   struct xAgentQuery_ *q = (struct xAgentQuery_ *)arg;
 
   /* If the query was already finalized (e.g. an async tool's
@@ -1311,8 +1263,7 @@ void ai_query_cancel_mark(struct xAgentQuery_ *q) {
   q->cancelled = 1;
 }
 
-void ai_query_take_produced(struct xAgentQuery_ *q, struct xAgentSessionMsg_ **out,
-                            size_t *n_out) {
+void ai_query_take_produced(struct xAgentQuery_ *q, struct xAgentSessionMsg_ **out, size_t *n_out) {
   if (out) *out = (struct xAgentSessionMsg_ *)xArrayData(q->produced_arr);
   if (n_out) *n_out = xArrayLen(q->produced_arr);
   /* Caller must consume before xAgentQueryDestroy, which will release
@@ -1345,24 +1296,21 @@ xAgentQuery xAgentQueryCreate(const xAgentQueryConf *conf) {
   if (!q) return NULL;
 
   /* Self-contained runtime configuration — no Session back-hack. */
-  q->provider   = conf->provider;
-  q->tools      = conf->tools;
+  q->provider    = conf->provider;
+  q->tools       = conf->tools;
   q->tools_count = conf->tools_count;
-  q->model      = conf->model;
-  q->max_tokens = conf->max_tokens;
-  q->max_turns  = conf->max_turns;
-  q->session    = s;         /* observational, never dereferenced for config */
-  q->cbs        = conf->cbs;
+  q->model       = conf->model;
+  q->max_tokens  = conf->max_tokens;
+  q->max_turns   = conf->max_turns;
+  q->session     = s; /* observational, never dereferenced for config */
+  q->cbs         = conf->cbs;
   usage_reset(q);
 
-  q->inputs_arr   = xArrayCreate(sizeof(struct xAgentSessionMsg_), 8, &kMsgCbs);
-  q->produced_arr = xArrayCreate(sizeof(struct xAgentSessionMsg_), 8, &kMsgCbs);
-  q->pending_arr  = xArrayCreate(sizeof(struct xAgentQueryPending_), 4,
-                                 &kPendingCbs);
-  q->async_pending_arr = xArrayCreate(sizeof(struct xAgentQueryAsyncTool_), 4,
-                                      &kAsyncPendingCbs);
-  if (!q->inputs_arr || !q->produced_arr || !q->pending_arr
-      || !q->async_pending_arr) {
+  q->inputs_arr        = xArrayCreate(sizeof(struct xAgentSessionMsg_), 8, &kMsgCbs);
+  q->produced_arr      = xArrayCreate(sizeof(struct xAgentSessionMsg_), 8, &kMsgCbs);
+  q->pending_arr       = xArrayCreate(sizeof(struct xAgentQueryPending_), 4, &kPendingCbs);
+  q->async_pending_arr = xArrayCreate(sizeof(struct xAgentQueryAsyncTool_), 4, &kAsyncPendingCbs);
+  if (!q->inputs_arr || !q->produced_arr || !q->pending_arr || !q->async_pending_arr) {
     xArrayDestroy(q->inputs_arr);
     xArrayDestroy(q->produced_arr);
     xArrayDestroy(q->pending_arr);
@@ -1435,8 +1383,7 @@ void xAgentQueryDestroy(xAgentQuery q) {
       /* AwaitingConfirm entries have no handler running; just
        * invalidate the resolver so any late host callback no-ops. */
       if (a->stage == XAGENT_ASYNC_STAGE_AWAITING_CONFIRM) {
-        confirm_resolver_invalidate_(
-            (struct xAgentToolConfirmResolver_ *)a->resolver);
+        confirm_resolver_invalidate_((struct xAgentToolConfirmResolver_ *)a->resolver);
         continue;
       }
       if (a->cancel_fn) {
@@ -1472,7 +1419,6 @@ xAgentQuery xAgentSessionQuery(xAgentSession sess) {
   return (xAgentQuery)s->query;
 }
 
-
 void xAgentQueryCancel(xAgentQuery q) {
   if (!q) return;
   struct xAgentQuery_ *qq = (struct xAgentQuery_ *)q;
@@ -1489,8 +1435,7 @@ void xAgentQueryCancel(xAgentQuery q) {
      * handler yet to cancel \u2014 just invalidate the resolver so a
      * late xAgentToolConfirmResolve() from the host becomes a no-op. */
     if (a->stage == XAGENT_ASYNC_STAGE_AWAITING_CONFIRM) {
-      confirm_resolver_invalidate_(
-          (struct xAgentToolConfirmResolver_ *)a->resolver);
+      confirm_resolver_invalidate_((struct xAgentToolConfirmResolver_ *)a->resolver);
       continue;
     }
     if (a->cancel_fn) {
@@ -1504,11 +1449,9 @@ void xAgentQueryCancel(xAgentQuery q) {
 
 /* Public API: deliver a user decision for a tool-call that was
  * paused on the confirmation gate. See <x/agent/query.h>. */
-void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle,
-                              xAgentToolDecision        decision,
-                              const char               *reason) {
-  struct xAgentToolConfirmResolver_ *r =
-    (struct xAgentToolConfirmResolver_ *)handle;
+void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle, xAgentToolDecision decision,
+                              const char *reason) {
+  struct xAgentToolConfirmResolver_ *r = (struct xAgentToolConfirmResolver_ *)handle;
   if (!r) return;
 
   /* Second resolve on the same handle: silent no-op. */
@@ -1540,9 +1483,9 @@ void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle,
     /* Fabricate an is_error=1 tool_result and push it through the
      * same completion path an async tool uses. The content gives
      * the model something human-readable to notice. */
-    const char *msg = (reason && *reason) ? reason : "rejected by user";
-    xAgentContent synth = {0};
-    synth.type = xAgentContentType_ToolResult;
+    const char   *msg              = (reason && *reason) ? reason : "rejected by user";
+    xAgentContent synth            = {0};
+    synth.type                     = xAgentContentType_ToolResult;
     synth.u.tool_result.id         = a->id;
     synth.u.tool_result.output     = msg;
     synth.u.tool_result.output_len = strlen(msg);
@@ -1554,9 +1497,9 @@ void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle,
      * the entry, we have to replicate the tail of complete() manually
      * here \u2014 appending the tool_result and driving the tool-loop
      * continuation if no asyncs remain. */
-    xErrno rc = turn_buf_append_tool_result(
-        &q->produced_arr, a->id, msg, synth.u.tool_result.output_len,
-        /*is_error=*/1);
+    xErrno rc =
+      turn_buf_append_tool_result(&q->produced_arr, a->id, msg, synth.u.tool_result.output_len,
+                                  /*is_error=*/1);
 
     free(a->id);
     free(a->name);
@@ -1566,8 +1509,7 @@ void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle,
 
     if (rc != xErrno_Ok) {
       if (q->cbs.on_error) {
-        q->cbs.on_error((xAgentQuery)q, rc,
-                        "failed to record rejected tool_result",
+        q->cbs.on_error((xAgentQuery)q, rc, "failed to record rejected tool_result",
                         q->cbs.user_data);
       }
       query_finalize(q, xAgentDoneReason_ToolError);
@@ -1584,8 +1526,7 @@ void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle,
       xErrno src = submit_round(q);
       if (src != xErrno_Ok) {
         if (q->cbs.on_error) {
-          q->cbs.on_error((xAgentQuery)q, src,
-                          "failed to submit follow-up after rejected tool",
+          q->cbs.on_error((xAgentQuery)q, src, "failed to submit follow-up after rejected tool",
                           q->cbs.user_data);
         }
         query_finalize(q, xAgentDoneReason_ModelError);
@@ -1601,10 +1542,10 @@ void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle,
    *
    * Free the stolen entry and the resolver now; invoke owns the
    * follow-up bookkeeping. */
-  xAgentTool  t         = a->tool;
-  char       *id_copy   = a->id;    /* move ownership of strings into locals */
-  char       *name_copy = a->name;
-  char       *args_copy = a->args_json;
+  xAgentTool t         = a->tool;
+  char      *id_copy   = a->id; /* move ownership of strings into locals */
+  char      *name_copy = a->name;
+  char      *args_copy = a->args_json;
   free(a);
   confirm_resolver_free_(r);
 
@@ -1615,8 +1556,7 @@ void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle,
 
   if (rc != xErrno_Ok) {
     if (q->cbs.on_error) {
-      q->cbs.on_error((xAgentQuery)q, rc,
-                      "failed to invoke confirmed tool", q->cbs.user_data);
+      q->cbs.on_error((xAgentQuery)q, rc, "failed to invoke confirmed tool", q->cbs.user_data);
     }
     query_finalize(q, xAgentDoneReason_ToolError);
     return;
@@ -1633,8 +1573,7 @@ void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle,
     xErrno src = submit_round(q);
     if (src != xErrno_Ok) {
       if (q->cbs.on_error) {
-        q->cbs.on_error((xAgentQuery)q, src,
-                        "failed to submit follow-up after confirmed tool",
+        q->cbs.on_error((xAgentQuery)q, src, "failed to submit follow-up after confirmed tool",
                         q->cbs.user_data);
       }
       query_finalize(q, xAgentDoneReason_ModelError);

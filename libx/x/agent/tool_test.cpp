@@ -13,10 +13,10 @@
 #include <gtest/gtest.h>
 
 extern "C" {
+#include "tool_private.h"
 #include <x/agent/message.h>
 #include <x/agent/tool.h>
 #include <x/base/error.h>
-#include "tool_private.h"
 }
 
 #include <cstring>
@@ -25,10 +25,10 @@ extern "C" {
 /* ── A trivial handler used by several tests ──────────────────────────── */
 
 struct HandlerSpy {
-  int         calls     = 0;
+  int         calls = 0;
   std::string last_args;
   std::string last_id;
-  xErrno      ret       = xErrno_Ok;
+  xErrno      ret = xErrno_Ok;
   std::string out_str;
 };
 
@@ -41,9 +41,9 @@ static xErrno spy_handler(xAgentQuery, const xAgentContent *in, xAgentContent *o
   }
   if (out) {
     memset(out, 0, sizeof(*out));
-    out->type                 = xAgentContentType_ToolResult;
-    out->u.tool_result.id     = spy->last_id.c_str();
-    out->u.tool_result.output = spy->out_str.c_str();
+    out->type                     = xAgentContentType_ToolResult;
+    out->u.tool_result.id         = spy->last_id.c_str();
+    out->u.tool_result.output     = spy->out_str.c_str();
     out->u.tool_result.output_len = spy->out_str.size();
   }
   return spy->ret;
@@ -52,13 +52,13 @@ static xErrno spy_handler(xAgentQuery, const xAgentContent *in, xAgentContent *o
 /* ── Create / Destroy ─────────────────────────────────────────────────── */
 
 TEST(XaiTool, CreateFullConfig) {
-  HandlerSpy   spy;
-  xAgentToolConf  conf = {};
-  conf.name         = "echo";
-  conf.description  = "Echo the input.";
-  conf.json_schema  = "{\"type\":\"object\"}";
-  conf.handler      = spy_handler;
-  conf.user_data    = &spy;
+  HandlerSpy     spy;
+  xAgentToolConf conf  = {};
+  conf.name            = "echo";
+  conf.description     = "Echo the input.";
+  conf.json_schema     = "{\"type\":\"object\"}";
+  conf.handler         = spy_handler;
+  conf.user_data       = &spy;
   conf.concurrent_safe = 1;
   conf.needs_confirm   = 0;
 
@@ -75,11 +75,11 @@ TEST(XaiTool, CreateFullConfig) {
 }
 
 TEST(XaiTool, CreateMinimalConfig) {
-  HandlerSpy  spy;
+  HandlerSpy     spy;
   xAgentToolConf conf = {};
-  conf.name    = "noop";
-  conf.handler = spy_handler;
-  conf.user_data = &spy;
+  conf.name           = "noop";
+  conf.handler        = spy_handler;
+  conf.user_data      = &spy;
 
   xAgentTool t = xAgentToolCreate(&conf);
   ASSERT_NE(t, nullptr);
@@ -98,18 +98,18 @@ TEST(XaiTool, CreateNullConf) {
 }
 
 TEST(XaiTool, CreateMissingName) {
-  HandlerSpy  spy;
+  HandlerSpy     spy;
   xAgentToolConf conf = {};
-  conf.name    = nullptr;
-  conf.handler = spy_handler;
-  conf.user_data = &spy;
+  conf.name           = nullptr;
+  conf.handler        = spy_handler;
+  conf.user_data      = &spy;
   EXPECT_EQ(xAgentToolCreate(&conf), nullptr);
 }
 
 TEST(XaiTool, CreateMissingHandler) {
   xAgentToolConf conf = {};
-  conf.name    = "x";
-  conf.handler = nullptr;
+  conf.name           = "x";
+  conf.handler        = nullptr;
   EXPECT_EQ(xAgentToolCreate(&conf), nullptr);
 }
 
@@ -123,19 +123,19 @@ TEST(XaiTool, ConfigFieldsAreSnapshotted) {
   char schema[]      = "{\"type\":\"object\"}";
 
   xAgentToolConf conf = {};
-  conf.name         = name;
-  conf.description  = description;
-  conf.json_schema  = schema;
-  conf.handler      = spy_handler;
-  conf.user_data    = &spy;
+  conf.name           = name;
+  conf.description    = description;
+  conf.json_schema    = schema;
+  conf.handler        = spy_handler;
+  conf.user_data      = &spy;
 
   xAgentTool t = xAgentToolCreate(&conf);
   ASSERT_NE(t, nullptr);
 
   /* Scribble over the caller-side buffers. */
-  memset(name,        0, sizeof(name));
+  memset(name, 0, sizeof(name));
   memset(description, 0, sizeof(description));
-  memset(schema,      0, sizeof(schema));
+  memset(schema, 0, sizeof(schema));
 
   EXPECT_STREQ(ai_tool_name(t), "mutable_name");
   EXPECT_STREQ(ai_tool_description(t), "mutable_desc");
@@ -165,25 +165,25 @@ TEST(XaiTool, InvokeDispatchesToHandler) {
   spy.out_str = R"({"result":42})";
 
   xAgentToolConf conf = {};
-  conf.name    = "answer";
-  conf.handler = spy_handler;
-  conf.user_data = &spy;
+  conf.name           = "answer";
+  conf.handler        = spy_handler;
+  conf.user_data      = &spy;
 
   xAgentTool t = xAgentToolCreate(&conf);
   ASSERT_NE(t, nullptr);
 
-  xAgentContent in = {};
-  in.type                   = xAgentContentType_ToolUse;
-  in.u.tool_use.id          = "call_42";
-  in.u.tool_use.name        = "answer";
-  in.u.tool_use.args_json   = R"({"q":"life"})";
+  xAgentContent in        = {};
+  in.type                 = xAgentContentType_ToolUse;
+  in.u.tool_use.id        = "call_42";
+  in.u.tool_use.name      = "answer";
+  in.u.tool_use.args_json = R"({"q":"life"})";
 
   xAgentContent out = {};
   EXPECT_EQ(ai_tool_invoke(t, nullptr, &in, &out), xErrno_Ok);
   EXPECT_EQ(spy.calls, 1);
   EXPECT_EQ(spy.last_args, R"({"q":"life"})");
-  EXPECT_EQ(spy.last_id,   "call_42");
-  EXPECT_EQ(out.type,      xAgentContentType_ToolResult);
+  EXPECT_EQ(spy.last_id, "call_42");
+  EXPECT_EQ(out.type, xAgentContentType_ToolResult);
   EXPECT_STREQ(out.u.tool_result.output, R"({"result":42})");
 
   xAgentToolDestroy(t);
@@ -194,15 +194,15 @@ TEST(XaiTool, InvokePropagatesHandlerError) {
   spy.ret = xErrno_InvalidArg;
 
   xAgentToolConf conf = {};
-  conf.name    = "fails";
-  conf.handler = spy_handler;
-  conf.user_data = &spy;
+  conf.name           = "fails";
+  conf.handler        = spy_handler;
+  conf.user_data      = &spy;
 
   xAgentTool t = xAgentToolCreate(&conf);
   ASSERT_NE(t, nullptr);
 
   xAgentContent in  = {};
-  in.type = xAgentContentType_ToolUse;
+  in.type           = xAgentContentType_ToolUse;
   xAgentContent out = {};
   EXPECT_EQ(ai_tool_invoke(t, nullptr, &in, &out), xErrno_InvalidArg);
   EXPECT_EQ(spy.calls, 1);
@@ -211,7 +211,7 @@ TEST(XaiTool, InvokePropagatesHandlerError) {
 }
 
 TEST(XaiTool, InvokeOnNullHandle) {
-  xAgentContent in = {};
+  xAgentContent in  = {};
   xAgentContent out = {};
   EXPECT_EQ(ai_tool_invoke(nullptr, nullptr, &in, &out), xErrno_InvalidArg);
 }
@@ -226,11 +226,11 @@ TEST(XaiTool, OnDoneFieldsAreCaptured) {
   int        marker = 42;
 
   xAgentToolConf conf = {};
-  conf.name        = "async_echo";
-  conf.handler     = spy_handler;
-  conf.user_data   = &spy;
-  conf.on_done_fn  = dummy_on_done;
-  conf.on_done_ud  = &marker;
+  conf.name           = "async_echo";
+  conf.handler        = spy_handler;
+  conf.user_data      = &spy;
+  conf.on_done_fn     = dummy_on_done;
+  conf.on_done_ud     = &marker;
 
   xAgentTool t = xAgentToolCreate(&conf);
   ASSERT_NE(t, nullptr);
@@ -245,9 +245,9 @@ TEST(XaiTool, OnDoneDefaultsToNull) {
   HandlerSpy spy;
 
   xAgentToolConf conf = {};
-  conf.name    = "sync_echo";
-  conf.handler = spy_handler;
-  conf.user_data = &spy;
+  conf.name           = "sync_echo";
+  conf.handler        = spy_handler;
+  conf.user_data      = &spy;
   /* on_done_fn and on_done_ud intentionally left zeroed. */
 
   xAgentTool t = xAgentToolCreate(&conf);
@@ -271,19 +271,19 @@ TEST(XaiTool, InvokeReturnsPendingWhenHandlerSignalsAsync) {
   spy.ret = xErrno_Pending;
 
   xAgentToolConf conf = {};
-  conf.name        = "async_op";
-  conf.handler     = spy_handler;
-  conf.user_data   = &spy;
-  conf.on_done_fn  = dummy_on_done;
-  conf.on_done_ud  = nullptr;
+  conf.name           = "async_op";
+  conf.handler        = spy_handler;
+  conf.user_data      = &spy;
+  conf.on_done_fn     = dummy_on_done;
+  conf.on_done_ud     = nullptr;
 
   xAgentTool t = xAgentToolCreate(&conf);
   ASSERT_NE(t, nullptr);
 
-  xAgentContent in  = {};
-  in.type               = xAgentContentType_ToolUse;
-  in.u.tool_use.id      = "call_async_1";
-  in.u.tool_use.name    = "async_op";
+  xAgentContent in        = {};
+  in.type                 = xAgentContentType_ToolUse;
+  in.u.tool_use.id        = "call_async_1";
+  in.u.tool_use.name      = "async_op";
   in.u.tool_use.args_json = "{\"delay\":5}";
 
   xAgentContent out = {};
@@ -304,11 +304,11 @@ TEST(XaiTool, OnCancelFieldsAreCaptured) {
   int        marker = 99;
 
   xAgentToolConf conf = {};
-  conf.name          = "cancellable";
-  conf.handler       = spy_handler;
-  conf.user_data     = &spy;
-  conf.on_cancel_fn  = dummy_on_cancel;
-  conf.on_cancel_ud  = &marker;
+  conf.name           = "cancellable";
+  conf.handler        = spy_handler;
+  conf.user_data      = &spy;
+  conf.on_cancel_fn   = dummy_on_cancel;
+  conf.on_cancel_ud   = &marker;
 
   xAgentTool t = xAgentToolCreate(&conf);
   ASSERT_NE(t, nullptr);
@@ -323,9 +323,9 @@ TEST(XaiTool, OnCancelDefaultsToNull) {
   HandlerSpy spy;
 
   xAgentToolConf conf = {};
-  conf.name      = "no_cancel";
-  conf.handler   = spy_handler;
-  conf.user_data = &spy;
+  conf.name           = "no_cancel";
+  conf.handler        = spy_handler;
+  conf.user_data      = &spy;
 
   xAgentTool t = xAgentToolCreate(&conf);
   ASSERT_NE(t, nullptr);
@@ -348,9 +348,9 @@ TEST(XaiTool, UserDataReturnsPointer) {
   int        marker = 42;
 
   xAgentToolConf conf = {};
-  conf.name      = "ud_test";
-  conf.handler   = spy_handler;
-  conf.user_data = &marker;
+  conf.name           = "ud_test";
+  conf.handler        = spy_handler;
+  conf.user_data      = &marker;
 
   xAgentTool t = xAgentToolCreate(&conf);
   ASSERT_NE(t, nullptr);
@@ -364,8 +364,8 @@ TEST(XaiTool, UserDataNullWhenNotSet) {
   HandlerSpy spy;
 
   xAgentToolConf conf = {};
-  conf.name      = "no_ud";
-  conf.handler   = spy_handler;
+  conf.name           = "no_ud";
+  conf.handler        = spy_handler;
   /* user_data intentionally left as nullptr (zero-init) */
 
   xAgentTool t = xAgentToolCreate(&conf);

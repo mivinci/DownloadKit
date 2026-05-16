@@ -53,16 +53,16 @@ static char *filter_sdp_candidates(const char *sdp, const char *type_filter) {
   if (!type_filter || !sdp) return strdup(sdp ? sdp : "");
 
   size_t sdp_len = strlen(sdp);
-  char *out = (char *)malloc(sdp_len + 1);
+  char  *out     = (char *)malloc(sdp_len + 1);
   if (!out) return NULL;
 
-  size_t out_pos = 0;
-  const char *p = sdp;
+  size_t      out_pos = 0;
+  const char *p       = sdp;
 
   while (*p) {
     /* Find end of current line (including \r\n) */
-    const char *eol = strstr(p, "\r\n");
-    size_t line_len = eol ? (size_t)(eol - p + 2) : strlen(p);
+    const char *eol      = strstr(p, "\r\n");
+    size_t      line_len = eol ? (size_t)(eol - p + 2) : strlen(p);
 
     if (strncmp(p, "a=candidate:", 12) == 0) {
       /* This is a candidate line — check if it matches the filter.
@@ -90,14 +90,22 @@ static char *filter_sdp_candidates(const char *sdp, const char *type_filter) {
 
 static const char *state_name(xIceState s) {
   switch (s) {
-  case xIceState_New:       return "New";
-  case xIceState_Gathering: return "Gathering";
-  case xIceState_Checking:  return "Checking";
-  case xIceState_Connected: return "Connected";
-  case xIceState_Completed: return "Completed";
-  case xIceState_Failed:    return "Failed";
-  case xIceState_Closed:    return "Closed";
-  default:                  return "Unknown";
+  case xIceState_New:
+    return "New";
+  case xIceState_Gathering:
+    return "Gathering";
+  case xIceState_Checking:
+    return "Checking";
+  case xIceState_Connected:
+    return "Connected";
+  case xIceState_Completed:
+    return "Completed";
+  case xIceState_Failed:
+    return "Failed";
+  case xIceState_Closed:
+    return "Closed";
+  default:
+    return "Unknown";
   }
 }
 
@@ -106,16 +114,16 @@ static const char *state_name(xIceState s) {
 typedef struct AgentCtx AgentCtx;
 
 struct AgentCtx {
-  const char *label;       /* "A (controlling)" or "B (controlled)" */
-  xIceAgent   self;        /* own agent handle                      */
-  AgentCtx   *peer_ctx;    /* peer context (set after create)       */
-  xEventLoop  loop;        /* shared event loop                     */
-  int         connected;   /* set to 1 when Connected/Completed     */
+  const char *label;          /* "A (controlling)" or "B (controlled)" */
+  xIceAgent   self;           /* own agent handle                      */
+  AgentCtx   *peer_ctx;       /* peer context (set after create)       */
+  xEventLoop  loop;           /* shared event loop                     */
+  int         connected;      /* set to 1 when Connected/Completed     */
   int         gathering_done; /* set to 1 when gathering complete   */
 
   /* Buffered candidates (collected during gathering) */
-  char        candidates[MAX_BUFFERED_CANDIDATES][MAX_CANDIDATE_LEN];
-  int         candidate_count;
+  char candidates[MAX_BUFFERED_CANDIDATES][MAX_CANDIDATE_LEN];
+  int  candidate_count;
 };
 
 /* Forward declaration */
@@ -148,8 +156,7 @@ static void on_state_change(xIceAgent agent, xIceState state, void *arg) {
   }
 }
 
-static void on_candidate(xIceAgent agent, const char *candidate_sdp,
-                          void *arg) {
+static void on_candidate(xIceAgent agent, const char *candidate_sdp, void *arg) {
   AgentCtx *ctx = (AgentCtx *)arg;
   (void)agent;
 
@@ -158,8 +165,7 @@ static void on_candidate(xIceAgent agent, const char *candidate_sdp,
 
     /* Buffer the candidate */
     if (ctx->candidate_count < MAX_BUFFERED_CANDIDATES) {
-      snprintf(ctx->candidates[ctx->candidate_count], MAX_CANDIDATE_LEN,
-               "%s", candidate_sdp);
+      snprintf(ctx->candidates[ctx->candidate_count], MAX_CANDIDATE_LEN, "%s", candidate_sdp);
       ctx->candidate_count++;
     }
   } else {
@@ -171,17 +177,14 @@ static void on_candidate(xIceAgent agent, const char *candidate_sdp,
   }
 }
 
-static void on_data(xIceAgent agent, const uint8_t *data, size_t len,
-                     void *arg) {
+static void on_data(xIceAgent agent, const uint8_t *data, size_t len, void *arg) {
   AgentCtx *ctx = (AgentCtx *)arg;
   (void)agent;
-  printf("[%s] received (%zu bytes): %.*s\n",
-         ctx->label, len, (int)len, (const char *)data);
+  printf("[%s] received (%zu bytes): %.*s\n", ctx->label, len, (int)len, (const char *)data);
 
   /* Echo back if we are the controlled side */
   if (strstr(ctx->label, "controlled")) {
-    printf("[%s] echoing back: %.*s\n", ctx->label, (int)len,
-           (const char *)data);
+    printf("[%s] echoing back: %.*s\n", ctx->label, (int)len, (const char *)data);
     xErrno err = xIceAgentSend(ctx->self, data, len);
     if (err != xErrno_Ok) {
       printf("[%s] echo send failed: %d\n", ctx->label, err);
@@ -221,8 +224,7 @@ static void try_exchange(AgentCtx *ctx) {
     /* Apply candidate type filter if set */
     char *filtered_offer = filter_sdp_candidates(offer, g_cand_type_filter);
     printf("\n[demo] offer:\n%s\n", filtered_offer ? filtered_offer : offer);
-    xIceAgentSetRemoteDescription(b_ctx->self,
-                                   filtered_offer ? filtered_offer : offer);
+    xIceAgentSetRemoteDescription(b_ctx->self, filtered_offer ? filtered_offer : offer);
     free(offer);
     free(filtered_offer);
   }
@@ -232,8 +234,7 @@ static void try_exchange(AgentCtx *ctx) {
     /* Apply candidate type filter if set */
     char *filtered_answer = filter_sdp_candidates(answer, g_cand_type_filter);
     printf("[demo] answer:\n%s\n", filtered_answer ? filtered_answer : answer);
-    xIceAgentSetRemoteDescription(a_ctx->self,
-                                   filtered_answer ? filtered_answer : answer);
+    xIceAgentSetRemoteDescription(a_ctx->self, filtered_answer ? filtered_answer : answer);
     free(answer);
     free(filtered_answer);
   }
@@ -269,17 +270,14 @@ int main(int argc, char *argv[]) {
       g_enable_ipv6 = true;
       break;
     default:
-      fprintf(stderr,
-              "Usage: %s [-s stun_server:port] [-f candidate_type] [-6]\n",
-              argv[0]);
+      fprintf(stderr, "Usage: %s [-s stun_server:port] [-f candidate_type] [-6]\n", argv[0]);
       return 1;
     }
   }
 
   printf("=== ICE Loopback Echo Demo ===\n");
   printf("[demo] STUN server: %s\n", stun_server ? stun_server : "(none)");
-  printf("[demo] candidate filter: %s\n",
-         g_cand_type_filter ? g_cand_type_filter : "(all)");
+  printf("[demo] candidate filter: %s\n", g_cand_type_filter ? g_cand_type_filter : "(all)");
   printf("[demo] IPv6: %s\n\n", g_enable_ipv6 ? "enabled" : "disabled");
 
   xEventLoop loop = xEventLoopCreate();
@@ -308,7 +306,7 @@ int main(int argc, char *argv[]) {
   conf_a.on_candidate    = on_candidate;
   conf_a.on_data         = on_data;
   conf_a.enable_ipv6     = g_enable_ipv6;
-  conf_a.ctx    = &ctx_a;
+  conf_a.ctx             = &ctx_a;
 
   xIceConf conf_b;
   memset(&conf_b, 0, sizeof(conf_b));
@@ -318,7 +316,7 @@ int main(int argc, char *argv[]) {
   conf_b.on_candidate    = on_candidate;
   conf_b.on_data         = on_data;
   conf_b.enable_ipv6     = g_enable_ipv6;
-  conf_b.ctx    = &ctx_b;
+  conf_b.ctx             = &ctx_b;
 
   xIceAgent agent_a = xIceAgentCreate(loop, &conf_a);
   xIceAgent agent_b = xIceAgentCreate(loop, &conf_b);

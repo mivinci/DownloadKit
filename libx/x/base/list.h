@@ -121,8 +121,7 @@ XCAPI_INLINE(bool) xListEmpty(xList *head) {
  * @param pos  The pointer to use as the iterator (xList *).
  * @param head The head of the list.
  */
-#define xListForEach(pos, head) \
-  for ((pos) = (head)->next; (pos) != (head); (pos) = (pos)->next)
+#define xListForEach(pos, head) for ((pos) = (head)->next; (pos) != (head); (pos) = (pos)->next)
 
 /**
  * @brief Macro to iterate over a list safely (allows deletion during
@@ -151,9 +150,8 @@ XCAPI_INLINE(bool) xListEmpty(xList *head) {
 #define xListTypeof(expr) typeof(expr)
 #endif
 
-#define xListForEachEntry(pos, head, member)                            \
-  for ((pos) = xContainerOf((head)->next, xListTypeof(*(pos)), member); \
-       &(pos)->member != (head);                                        \
+#define xListForEachEntry(pos, head, member)                                                      \
+  for ((pos) = xContainerOf((head)->next, xListTypeof(*(pos)), member); &(pos)->member != (head); \
        (pos) = xContainerOf((pos)->member.next, xListTypeof(*(pos)), member))
 
 /**
@@ -167,7 +165,7 @@ XCAPI_INLINE(bool) xListEmpty(xList *head) {
 #define xListForEachEntrySafe(pos, tmp, head, member)                         \
   for ((pos) = xContainerOf((head)->next, xListTypeof(*(pos)), member),       \
       (tmp)  = xContainerOf((pos)->member.next, xListTypeof(*(tmp)), member); \
-       &(pos)->member != (head); (pos) = (tmp),                              \
-      (tmp) = xContainerOf((pos)->member.next, xListTypeof(*(tmp)), member))
+       &(pos)->member != (head);                                              \
+       (pos) = (tmp), (tmp) = xContainerOf((pos)->member.next, xListTypeof(*(tmp)), member))
 
 #endif // XBASE_LIST_H

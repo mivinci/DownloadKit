@@ -36,7 +36,7 @@
 /**
  * Low-water mark: resume sending when buffered amount drops to this.
  */
-#define XFER_SEND_LOW_WATER_MARK  (64 * 1024)  /* 64 KB */
+#define XFER_SEND_LOW_WATER_MARK (64 * 1024) /* 64 KB */
 
 /**
  * Bitmap persistence interval: persist the receiver bitmap every N chunks
@@ -48,12 +48,12 @@
 /* ───────────────────── Internal State ───────────────────── */
 
 XDEF_STRUCT(xTransfer_) {
-  xEventLoop      loop;
-  xTransferConf   conf;
-  xTransferState  state;
-  xTransferRole   role;
-  xPeerConnection pc;
-  xDataChannel    dc;
+  xEventLoop          loop;
+  xTransferConf       conf;
+  xTransferState      state;
+  xTransferRole       role;
+  xPeerConnection     pc;
+  xDataChannel        dc;
   const xTransferVfs *vfs; /**< Active VFS (never NULL). */
 
   /* Sender state */
@@ -80,7 +80,7 @@ XDEF_STRUCT(xTransfer_) {
   uint32_t recv_chunks_received;
   uint64_t recv_bytes_received;
   uint8_t  recv_sha1[XFER_SHA1_SIZE];
-  xBitmap  recv_bitmap;         /**< Tracks which chunks received.  */
+  xBitmap  recv_bitmap;            /**< Tracks which chunks received.  */
   char     recv_bitmap_path[1024]; /**< Path to .bitmap file.       */
 
   /* Code for signaling */
@@ -98,30 +98,26 @@ XDEF_STRUCT(xTransfer_) {
 
 /* ── Shared helpers (defined in xfer.c) ────────────────── */
 
-void xfer_set_state(xTransfer_ *impl, xTransferState state);
-void xfer_report_error(xTransfer_ *impl, xErrno err, const char *msg);
-void xfer_report_progress(xTransfer_ *impl, uint64_t transferred,
-                          uint64_t total);
-xErrno xfer_compute_file_sha1(const xTransferVfs *vfs, const char *path,
-                              uint8_t *digest);
+void   xfer_set_state(xTransfer_ *impl, xTransferState state);
+void   xfer_report_error(xTransfer_ *impl, xErrno err, const char *msg);
+void   xfer_report_progress(xTransfer_ *impl, uint64_t transferred, uint64_t total);
+xErrno xfer_compute_file_sha1(const xTransferVfs *vfs, const char *path, uint8_t *digest);
 
 /* ── Bitmap persistence helpers (defined in xfer.c) ────── */
 
-xErrno xfer_bitmap_save(const xBitmap *bm, uint32_t total_chunks,
-                        const char *path);
-xErrno xfer_bitmap_load(xBitmap *bm, uint32_t *total_chunks,
-                        const char *path);
+xErrno xfer_bitmap_save(const xBitmap *bm, uint32_t total_chunks, const char *path);
+xErrno xfer_bitmap_load(xBitmap *bm, uint32_t *total_chunks, const char *path);
 
 /* ── Sender callbacks (defined in xfer_sender.c) ──────── */
 
 void sender_on_dc_open(xDataChannel channel, void *ctx);
-void sender_on_dc_message(xDataChannel channel, xDataChannelMsgType type,
-                          const uint8_t *data, size_t len, void *ctx);
+void sender_on_dc_message(xDataChannel channel, xDataChannelMsgType type, const uint8_t *data,
+                          size_t len, void *ctx);
 void sender_on_buffered_amount_low(xDataChannel channel, void *ctx);
 
 /* ── Receiver callbacks (defined in xfer_receiver.c) ──── */
 
-void receiver_on_dc_message(xDataChannel channel, xDataChannelMsgType type,
-                            const uint8_t *data, size_t len, void *ctx);
+void receiver_on_dc_message(xDataChannel channel, xDataChannelMsgType type, const uint8_t *data,
+                            size_t len, void *ctx);
 
 #endif /* XFER_PRIVATE_H */

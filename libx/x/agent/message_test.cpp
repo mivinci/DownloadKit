@@ -44,8 +44,8 @@ TEST(XaiMessage, ContentTextNullIsAccepted) {
 
 TEST(XaiMessage, ContentTextUtf8LengthIsBytes) {
   /* "你好" is 6 bytes in UTF-8; len must report byte count, not chars. */
-  const char *s = "\xe4\xbd\xa0\xe5\xa5\xbd"; /* 你好 */
-  xAgentContent  c = xAgentContentText(s);
+  const char   *s = "\xe4\xbd\xa0\xe5\xa5\xbd"; /* 你好 */
+  xAgentContent c = xAgentContentText(s);
   EXPECT_EQ(c.u.text.len, 6u);
 }
 
@@ -106,12 +106,12 @@ TEST(XaiMessage, FromTextIsThreadLocal) {
    * their slot pointers, then let them exit. */
   const xAgentContent *a_slot = nullptr;
   const xAgentContent *b_slot = nullptr;
-  std::atomic<int>  captured{0};
-  std::atomic<bool> release{false};
+  std::atomic<int>     captured{0};
+  std::atomic<bool>    release{false};
 
   auto body = [&](const char *tag, const xAgentContent **out) {
     xAgentMessage m = xAgentMessageFromText(tag);
-    *out         = m.contents;
+    *out            = m.contents;
     captured.fetch_add(1, std::memory_order_acq_rel);
     /* Busy-wait until the test thread has observed both pointers
      * and tells us to exit, so TLS addresses cannot alias. */

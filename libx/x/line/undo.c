@@ -10,7 +10,6 @@
 
 #include "color.h"
 #include "completions.h"
-#include <x/base/log.h>
 #include "env.h"
 #include "line.h"
 #include "platform.h"
@@ -18,6 +17,7 @@
 #include "stringbuf.h"
 #include "undo.h"
 #include "unicode.h"
+#include <x/base/log.h>
 
 //-------------------------------------------------------------
 // edit state
@@ -42,8 +42,7 @@ ic_private void editstate_done(editstate_t **es) {
   *es = NULL;
 }
 
-ic_private void editstate_capture(editstate_t **es,
-                                  const char *input, ssize_t pos) {
+ic_private void editstate_capture(editstate_t **es, const char *input, ssize_t pos) {
   if (input == NULL) input = "";
   // alloc
   editstate_t *entry = (editstate_t *)calloc(1, sizeof(editstate_t));
@@ -61,8 +60,7 @@ ic_private void editstate_capture(editstate_t **es,
 }
 
 // caller should free *input
-ic_private bool editstate_restore(editstate_t **es,
-                                  const char **input, ssize_t *pos) {
+ic_private bool editstate_restore(editstate_t **es, const char **input, ssize_t *pos) {
   if (*es == NULL) return false;
   // pop
   editstate_t *entry = *es;

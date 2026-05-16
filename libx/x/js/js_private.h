@@ -268,13 +268,11 @@ void xjs_propagate_exception(JSContext *qctx, xJSValueRef *exception);
 
 /* Minimal UTF-8 → UTF-16 decoder (BMP + surrogates).  Returns number
  * of UTF-16 code units needed (or written when dst != NULL). */
-size_t xjs_utf8_to_utf16(const char *src, size_t srclen, uint16_t *dst,
-                         size_t dstcap);
+size_t xjs_utf8_to_utf16(const char *src, size_t srclen, uint16_t *dst, size_t dstcap);
 
 /* UTF-16 → UTF-8.  Returns number of bytes written (not counting NUL)
  * when dst is non-NULL; total bytes needed otherwise. */
-size_t xjs_utf16_to_utf8(const uint16_t *src, size_t srclen, char *dst,
-                         size_t dstcap);
+size_t xjs_utf16_to_utf8(const uint16_t *src, size_t srclen, char *dst, size_t dstcap);
 
 /* Build a freshly-owned QuickJS string JSValue from an xJSStringRef. */
 JSValue xjs_qv_from_string(JSContext *qctx, xJSStringRef s);

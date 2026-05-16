@@ -68,8 +68,7 @@ TEST(SdpTest, EncodeCandidateSrflx) {
 }
 
 TEST(SdpTest, DecodeCandidateHost) {
-  const char *line =
-    "a=candidate:12345 1 UDP 2130706431 192.168.1.100 5000 typ host";
+  const char   *line = "a=candidate:12345 1 UDP 2130706431 192.168.1.100 5000 typ host";
   xIceCandidate cand;
   ASSERT_EQ(xIceSdpDecodeCandidate(line, &cand), xErrno_Ok);
 
@@ -88,8 +87,8 @@ TEST(SdpTest, DecodeCandidateHost) {
 }
 
 TEST(SdpTest, DecodeCandidateSrflx) {
-  const char *line = "a=candidate:99999 1 UDP 1694498815 203.0.113.5 3000 typ "
-                     "srflx raddr 192.168.1.100 rport 5000";
+  const char   *line = "a=candidate:99999 1 UDP 1694498815 203.0.113.5 3000 typ "
+                       "srflx raddr 192.168.1.100 rport 5000";
   xIceCandidate cand;
   ASSERT_EQ(xIceSdpDecodeCandidate(line, &cand), xErrno_Ok);
 
@@ -159,8 +158,7 @@ TEST(SdpTest, FullSdpEncodeDecodeRoundTrip) {
   inet_pton(AF_INET, "192.168.1.1", &r1->sin_addr);
 
   char sdp[XSDP_MAX_SIZE];
-  int  len = xIceSdpEncode("myufrag", "mysupersecretpassword22", cands, 2, true,
-                           sdp, sizeof(sdp));
+  int  len = xIceSdpEncode("myufrag", "mysupersecretpassword22", cands, 2, true, sdp, sizeof(sdp));
   ASSERT_GT(len, 0);
 
   xIceSdp parsed;

@@ -48,8 +48,8 @@ XDEF_STRUCT(xH2StreamData) {
 /**
  * nghttp2 send callback: write frame data to conn->write_buf.
  */
-static ssize_t h2_send_callback(nghttp2_session *session, const uint8_t *data,
-                                size_t length, int flags, void *user_data) {
+static ssize_t h2_send_callback(nghttp2_session *session, const uint8_t *data, size_t length,
+                                int flags, void *user_data) {
   (void)session;
   (void)flags;
   struct xHttpConn_ *conn = (struct xHttpConn_ *)user_data;
@@ -61,13 +61,11 @@ static ssize_t h2_send_callback(nghttp2_session *session, const uint8_t *data,
  * Called when nghttp2 begins receiving headers for a new stream.
  * Creates a new xHttpStream_ for this stream.
  */
-static int h2_on_begin_headers_callback(nghttp2_session     *session,
-                                        const nghttp2_frame *frame,
-                                        void                *user_data) {
+static int h2_on_begin_headers_callback(nghttp2_session *session, const nghttp2_frame *frame,
+                                        void *user_data) {
   struct xHttpConn_ *conn = (struct xHttpConn_ *)user_data;
 
-  if (frame->hd.type != NGHTTP2_HEADERS ||
-      frame->headers.cat != NGHTTP2_HCAT_REQUEST) {
+  if (frame->hd.type != NGHTTP2_HEADERS || frame->headers.cat != NGHTTP2_HCAT_REQUEST) {
     return 0;
   }
 
@@ -100,21 +98,18 @@ static int h2_on_begin_headers_callback(nghttp2_session     *session,
  * Pseudo-headers (:method, :path) are stored specially;
  * regular headers go into headers_raw.
  */
-static int h2_on_header_callback(nghttp2_session     *session,
-                                 const nghttp2_frame *frame,
-                                 const uint8_t *name, size_t namelen,
-                                 const uint8_t *value, size_t valuelen,
-                                 uint8_t flags, void *user_data) {
+static int h2_on_header_callback(nghttp2_session *session, const nghttp2_frame *frame,
+                                 const uint8_t *name, size_t namelen, const uint8_t *value,
+                                 size_t valuelen, uint8_t flags, void *user_data) {
   (void)flags;
   (void)user_data;
 
-  if (frame->hd.type != NGHTTP2_HEADERS ||
-      frame->headers.cat != NGHTTP2_HCAT_REQUEST) {
+  if (frame->hd.type != NGHTTP2_HEADERS || frame->headers.cat != NGHTTP2_HCAT_REQUEST) {
     return 0;
   }
 
-  xH2StreamData *sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
-    session, frame->hd.stream_id);
+  xH2StreamData *sd =
+    (xH2StreamData *)nghttp2_session_get_stream_user_data(session, frame->hd.stream_id);
   if (!sd) return 0;
 
   struct xHttpStream_ *stream = sd->stream;
@@ -130,8 +125,7 @@ static int h2_on_header_callback(nghttp2_session     *session,
       if (!stream->url) stream->url = xBufferCreate(256);
       if (!stream->url) return NGHTTP2_ERR_CALLBACK_FAILURE;
       xBufferReset(stream->url);
-      if (xBufferAppend(&stream->url, (const char *)value, valuelen) !=
-          xErrno_Ok)
+      if (xBufferAppend(&stream->url, (const char *)value, valuelen) != xErrno_Ok)
         return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
     /* :scheme and :authority are ignored for now */
@@ -140,13 +134,11 @@ static int h2_on_header_callback(nghttp2_session     *session,
     if (!stream->headers_raw) stream->headers_raw = xBufferCreate(512);
     if (!stream->headers_raw) return NGHTTP2_ERR_CALLBACK_FAILURE;
 
-    if (xBufferAppend(&stream->headers_raw, (const char *)name, namelen) !=
-        xErrno_Ok)
+    if (xBufferAppend(&stream->headers_raw, (const char *)name, namelen) != xErrno_Ok)
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     if (xBufferAppend(&stream->headers_raw, ": ", 2) != xErrno_Ok)
       return NGHTTP2_ERR_CALLBACK_FAILURE;
-    if (xBufferAppend(&stream->headers_raw, (const char *)value, valuelen) !=
-        xErrno_Ok)
+    if (xBufferAppend(&stream->headers_raw, (const char *)value, valuelen) != xErrno_Ok)
       return NGHTTP2_ERR_CALLBACK_FAILURE;
     if (xBufferAppend(&stream->headers_raw, "\r\n", 2) != xErrno_Ok)
       return NGHTTP2_ERR_CALLBACK_FAILURE;
@@ -160,15 +152,13 @@ static int h2_on_header_callback(nghttp2_session     *session,
 /**
  * Called when a chunk of request body data is received.
  */
-static int h2_on_data_chunk_recv_callback(nghttp2_session *session,
-                                          uint8_t flags, int32_t stream_id,
-                                          const uint8_t *data, size_t len,
+static int h2_on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flags,
+                                          int32_t stream_id, const uint8_t *data, size_t len,
                                           void *user_data) {
   (void)flags;
   (void)user_data;
 
-  xH2StreamData *sd =
-    (xH2StreamData *)nghttp2_session_get_stream_user_data(session, stream_id);
+  xH2StreamData *sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(session, stream_id);
   if (!sd) return 0;
 
   struct xHttpStream_ *stream = sd->stream;
@@ -186,9 +176,8 @@ static int h2_on_data_chunk_recv_callback(nghttp2_session *session,
  * When HEADERS or DATA frame with END_STREAM flag is received,
  * the request is complete and should be dispatched.
  */
-static int h2_on_frame_recv_callback(nghttp2_session     *session,
-                                     const nghttp2_frame *frame,
-                                     void                *user_data) {
+static int h2_on_frame_recv_callback(nghttp2_session *session, const nghttp2_frame *frame,
+                                     void *user_data) {
   struct xHttpConn_ *conn = (struct xHttpConn_ *)user_data;
   xHttpProtoH2      *h2   = (xHttpProtoH2 *)conn->proto.state;
   xH2StreamData     *sd;
@@ -198,8 +187,7 @@ static int h2_on_frame_recv_callback(nghttp2_session     *session,
   case NGHTTP2_DATA:
     /* Check for END_STREAM flag */
     if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-      sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
-        session, frame->hd.stream_id);
+      sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(session, frame->hd.stream_id);
       if (sd && sd->stream) {
         sd->stream->request_complete = 1;
         /* Queue for dispatch after mem_recv returns (avoid re-entrancy) */
@@ -220,14 +208,12 @@ static int h2_on_frame_recv_callback(nghttp2_session     *session,
  * Called when a stream is closed.
  * Frees the per-stream data.
  */
-static int h2_on_stream_close_callback(nghttp2_session *session,
-                                       int32_t stream_id, uint32_t error_code,
-                                       void *user_data) {
+static int h2_on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
+                                       uint32_t error_code, void *user_data) {
   (void)error_code;
   (void)user_data;
 
-  xH2StreamData *sd =
-    (xH2StreamData *)nghttp2_session_get_stream_user_data(session, stream_id);
+  xH2StreamData *sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(session, stream_id);
   if (sd) {
     if (sd->stream) {
       struct xHttpConn_ *conn = sd->stream->conn;
@@ -271,16 +257,14 @@ static int h2_on_data(struct xHttpConn_ *conn, const char *buf, size_t len) {
 
   ssize_t rv = nghttp2_session_mem_recv(h2->session, (const uint8_t *)buf, len);
   if (rv < 0) {
-    xLog(false, "xhttp h2: nghttp2_session_mem_recv error: %s",
-         nghttp2_strerror((int)rv));
+    xLog(false, "xhttp h2: nghttp2_session_mem_recv error: %s", nghttp2_strerror((int)rv));
     return -1;
   }
 
   /* Send any pending frames (e.g. SETTINGS ACK) */
   rv = nghttp2_session_send(h2->session);
   if (rv != 0) {
-    xLog(false, "xhttp h2: nghttp2_session_send error: %s",
-         nghttp2_strerror((int)rv));
+    xLog(false, "xhttp h2: nghttp2_session_send error: %s", nghttp2_strerror((int)rv));
     return -1;
   }
 
@@ -342,8 +326,8 @@ static const char *h2_method(struct xHttpStream_ *stream) {
   xHttpProtoH2 *h2 = (xHttpProtoH2 *)stream->conn->proto.state;
   if (!h2 || !h2->session) return "GET";
 
-  xH2StreamData *sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
-    h2->session, stream->stream_id);
+  xH2StreamData *sd =
+    (xH2StreamData *)nghttp2_session_get_stream_user_data(h2->session, stream->stream_id);
   if (sd && sd->method) {
     return sd->method;
   }
@@ -374,11 +358,9 @@ XDEF_STRUCT(h2_body_source) {
 /**
  * nghttp2 data provider read callback: feeds body data to nghttp2.
  */
-static ssize_t h2_body_read_callback(nghttp2_session *session,
-                                     int32_t stream_id, uint8_t *buf,
+static ssize_t h2_body_read_callback(nghttp2_session *session, int32_t stream_id, uint8_t *buf,
                                      size_t length, uint32_t *data_flags,
-                                     nghttp2_data_source *source,
-                                     void                *user_data) {
+                                     nghttp2_data_source *source, void *user_data) {
   (void)session;
   (void)stream_id;
   (void)user_data;
@@ -405,9 +387,8 @@ static ssize_t h2_body_read_callback(nghttp2_session *session,
 /**
  * H2 send_response: submit response headers and body via nghttp2.
  */
-static int h2_send_response(struct xHttpStream_ *stream, int status,
-                            struct xHttpHeader_ *headers, const char *body,
-                            size_t body_len) {
+static int h2_send_response(struct xHttpStream_ *stream, int status, struct xHttpHeader_ *headers,
+                            const char *body, size_t body_len) {
   struct xHttpConn_ *conn = stream->conn;
   xHttpProtoH2      *h2   = (xHttpProtoH2 *)conn->proto.state;
 
@@ -444,7 +425,7 @@ static int h2_send_response(struct xHttpStream_ *stream, int status,
     nva[i].namelen  = strlen(h->key);
     nva[i].value    = (uint8_t *)h->value;
     nva[i].valuelen = strlen(h->value);
-    nva[i].flags = NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE;
+    nva[i].flags    = NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE;
     i++;
     h = h->next;
   }
@@ -473,8 +454,7 @@ static int h2_send_response(struct xHttpStream_ *stream, int status,
     data_prd.source.ptr    = src;
     data_prd.read_callback = h2_body_read_callback;
 
-    rv = nghttp2_submit_response(h2->session, stream->stream_id, nva,
-                                 (size_t)nheader, &data_prd);
+    rv = nghttp2_submit_response(h2->session, stream->stream_id, nva, (size_t)nheader, &data_prd);
     free(nva);
     if (rv != 0) {
       free(src);
@@ -482,8 +462,7 @@ static int h2_send_response(struct xHttpStream_ *stream, int status,
     }
   } else {
     /* No body: submit response (nghttp2 will set END_STREAM on HEADERS) */
-    rv = nghttp2_submit_response(h2->session, stream->stream_id, nva,
-                                 (size_t)nheader, NULL);
+    rv = nghttp2_submit_response(h2->session, stream->stream_id, nva, (size_t)nheader, NULL);
     free(nva);
     if (rv != 0) return -1;
   }
@@ -500,11 +479,9 @@ static int h2_send_response(struct xHttpStream_ *stream, int status,
  * Reads from the per-stream xIOBuffer. Returns NGHTTP2_ERR_DEFERRED
  * when the buffer is empty and EOF has not been signalled yet.
  */
-static ssize_t h2_streaming_read_callback(nghttp2_session *session,
-                                          int32_t stream_id, uint8_t *buf,
+static ssize_t h2_streaming_read_callback(nghttp2_session *session, int32_t stream_id, uint8_t *buf,
                                           size_t length, uint32_t *data_flags,
-                                          nghttp2_data_source *source,
-                                          void                *user_data) {
+                                          nghttp2_data_source *source, void *user_data) {
   (void)session;
   (void)stream_id;
   (void)user_data;
@@ -537,15 +514,14 @@ static ssize_t h2_streaming_read_callback(nghttp2_session *session,
  * the per-stream buffer. Subsequent calls append data and resume the
  * deferred data provider.
  */
-static int h2_write_data(struct xHttpStream_ *stream, const char *data,
-                         size_t len) {
+static int h2_write_data(struct xHttpStream_ *stream, const char *data, size_t len) {
   struct xHttpConn_           *conn = stream->conn;
   xHttpProtoH2                *h2   = (xHttpProtoH2 *)conn->proto.state;
   struct xHttpResponseWriter_ *w    = &stream->writer;
 
   /* Retrieve per-stream data */
-  xH2StreamData *sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
-    h2->session, stream->stream_id);
+  xH2StreamData *sd =
+    (xH2StreamData *)nghttp2_session_get_stream_user_data(h2->session, stream->stream_id);
   if (!sd) return -1;
 
   /* First call: submit HEADERS + data provider, enter streaming mode */
@@ -566,8 +542,7 @@ static int h2_write_data(struct xHttpStream_ *stream, const char *data,
     if (!nva) return -1;
 
     char status_str[16];
-    int  status_len =
-      snprintf(status_str, sizeof(status_str), "%d", w->status_code);
+    int  status_len = snprintf(status_str, sizeof(status_str), "%d", w->status_code);
     nva[0].name     = (uint8_t *)":status";
     nva[0].namelen  = 7;
     nva[0].value    = (uint8_t *)status_str;
@@ -583,8 +558,7 @@ static int h2_write_data(struct xHttpStream_ *stream, const char *data,
       nva[i].namelen  = strlen(h->key);
       nva[i].value    = (uint8_t *)h->value;
       nva[i].valuelen = strlen(h->value);
-      nva[i].flags =
-        NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE;
+      nva[i].flags    = NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE;
       i++;
       h = h->next;
     }
@@ -593,8 +567,8 @@ static int h2_write_data(struct xHttpStream_ *stream, const char *data,
     data_prd.source.ptr    = sd;
     data_prd.read_callback = h2_streaming_read_callback;
 
-    int rv = nghttp2_submit_response(h2->session, stream->stream_id, nva,
-                                     (size_t)nheader, &data_prd);
+    int rv =
+      nghttp2_submit_response(h2->session, stream->stream_id, nva, (size_t)nheader, &data_prd);
     free(nva);
     if (rv != 0) return -1;
   }
@@ -627,8 +601,8 @@ static int h2_end_stream(struct xHttpStream_ *stream) {
    * trigger h2_on_stream_close_callback which destroys the stream. */
   stream->writer.sent = 1;
 
-  xH2StreamData *sd = (xH2StreamData *)nghttp2_session_get_stream_user_data(
-    h2->session, stream->stream_id);
+  xH2StreamData *sd =
+    (xH2StreamData *)nghttp2_session_get_stream_user_data(h2->session, stream->stream_id);
   if (sd) {
     sd->stream_eof = 1;
     nghttp2_session_resume_data(h2->session, stream->stream_id);
@@ -656,16 +630,12 @@ int xHttpProtoH2Init(struct xHttpConn_ *conn) {
   }
 
   nghttp2_session_callbacks_set_send_callback(callbacks, h2_send_callback);
-  nghttp2_session_callbacks_set_on_begin_headers_callback(
-    callbacks, h2_on_begin_headers_callback);
-  nghttp2_session_callbacks_set_on_header_callback(callbacks,
-                                                   h2_on_header_callback);
-  nghttp2_session_callbacks_set_on_data_chunk_recv_callback(
-    callbacks, h2_on_data_chunk_recv_callback);
-  nghttp2_session_callbacks_set_on_frame_recv_callback(
-    callbacks, h2_on_frame_recv_callback);
-  nghttp2_session_callbacks_set_on_stream_close_callback(
-    callbacks, h2_on_stream_close_callback);
+  nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks, h2_on_begin_headers_callback);
+  nghttp2_session_callbacks_set_on_header_callback(callbacks, h2_on_header_callback);
+  nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks,
+                                                            h2_on_data_chunk_recv_callback);
+  nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks, h2_on_frame_recv_callback);
+  nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, h2_on_stream_close_callback);
 
   /* Create server session */
   rv = nghttp2_session_server_new(&h2->session, callbacks, conn);

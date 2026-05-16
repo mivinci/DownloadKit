@@ -52,8 +52,8 @@ static std::atomic<bool> g_done{false};
 
 static xDataChannel g_dc = nullptr;
 
-static const char *g_stun_server  = "stun.l.google.com:19302";
-static bool        g_enable_ipv6  = false;
+static const char *g_stun_server = "stun.l.google.com:19302";
+static bool        g_enable_ipv6 = false;
 
 /* ── Simple JSON helpers (no dependency) ───────────────── */
 
@@ -178,8 +178,7 @@ static char *json_get(const char *json, const char *key) {
 
 /* ── PeerConnection callbacks ──────────────────────────── */
 
-static void on_pc_state_change(xPeerConnection pc, xPeerConnectionState state,
-                               void *arg) {
+static void on_pc_state_change(xPeerConnection pc, xPeerConnectionState state, void *arg) {
   (void)pc;
   (void)arg;
   const char *s;
@@ -209,8 +208,7 @@ static void on_pc_state_change(xPeerConnection pc, xPeerConnectionState state,
   printf("[pc] state: %s\n", s);
 }
 
-static void on_ice_candidate(xPeerConnection pc, const char *candidate,
-                             void *arg) {
+static void on_ice_candidate(xPeerConnection pc, const char *candidate, void *arg) {
   (void)pc;
   (void)arg;
   if (candidate) {
@@ -244,8 +242,7 @@ static void on_ice_candidate(xPeerConnection pc, const char *candidate,
   }
 }
 
-static void on_datachannel(xPeerConnection pc, xDataChannel channel,
-                           void *arg) {
+static void on_datachannel(xPeerConnection pc, xDataChannel channel, void *arg) {
   (void)pc;
   (void)arg;
   printf("[pc] remote DataChannel: \"%s\"\n", xDataChannelGetLabel(channel));
@@ -262,8 +259,8 @@ static void on_dc_open(xDataChannel channel, void *arg) {
          "(\"quit\" to close)\n");
 }
 
-static void on_dc_message(xDataChannel channel, xDataChannelMsgType type,
-                          const uint8_t *data, size_t len, void *arg) {
+static void on_dc_message(xDataChannel channel, xDataChannelMsgType type, const uint8_t *data,
+                          size_t len, void *arg) {
   (void)channel;
   (void)arg;
   if (type == xDataChannelMsgType_String) {
@@ -287,8 +284,7 @@ static void close_dc_on_loop(void *arg) {
   }
   /* Fallback: stop the loop after 2s in case the remote peer
      never acknowledges the SCTP stream reset. */
-  xEventLoopTimerAfter(g_loop, [](void *) { xEventLoopStop(g_loop); },
-                       nullptr, 2000);
+  xEventLoopTimerAfter(g_loop, [](void *) { xEventLoopStop(g_loop); }, nullptr, 2000);
 }
 
 static void on_dc_close(xDataChannel channel, void *arg) {
@@ -302,8 +298,7 @@ static void on_dc_close(xDataChannel channel, void *arg) {
      SCTP RESET_STREAMS packet has time to reach the remote peer
      through the DTLS/ICE transport. */
   if (g_done) {
-    xEventLoopTimerAfter(
-      g_loop, [](void *) { xEventLoopStop(g_loop); }, nullptr, 500);
+    xEventLoopTimerAfter(g_loop, [](void *) { xEventLoopStop(g_loop); }, nullptr, 500);
   }
 }
 
@@ -366,8 +361,8 @@ static void ws_on_open(xWsConn conn, void *arg) {
   xIceAgentGather(xPeerConnectionGetIceAgent(g_pc));
 }
 
-static void ws_on_message(xWsConn conn, xWsOpcode opcode, const void *payload,
-                          size_t len, void *arg) {
+static void ws_on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len,
+                          void *arg) {
   (void)conn;
   (void)opcode;
   (void)arg;
@@ -426,8 +421,7 @@ static void ws_on_message(xWsConn conn, xWsOpcode opcode, const void *payload,
   free(json);
 }
 
-static void ws_on_close(xWsConn conn, uint16_t code, const char *reason,
-                        size_t len, void *arg) {
+static void ws_on_close(xWsConn conn, uint16_t code, const char *reason, size_t len, void *arg) {
   (void)conn;
   (void)arg;
   printf("[ws] disconnected (code=%u", code);
@@ -511,8 +505,7 @@ int main(int argc, char *argv[]) {
       g_enable_ipv6 = true;
       break;
     default:
-      fprintf(stderr, "Usage: %s [-u signal_url] [-s stun_server] [-6]\n",
-              argv[0]);
+      fprintf(stderr, "Usage: %s [-u signal_url] [-s stun_server] [-6]\n", argv[0]);
       return 1;
     }
   }

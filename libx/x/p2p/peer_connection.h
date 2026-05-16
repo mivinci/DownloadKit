@@ -51,8 +51,7 @@ XDEF_ENUM(xPeerConnectionState){
 /**
  * @brief Called when the overall connection state changes.
  */
-typedef void (*xPeerConnectionOnStateChange)(xPeerConnection pc,
-                                             xPeerConnectionState state,
+typedef void (*xPeerConnectionOnStateChange)(xPeerConnection pc, xPeerConnectionState state,
                                              void *arg);
 
 /**
@@ -60,27 +59,24 @@ typedef void (*xPeerConnectionOnStateChange)(xPeerConnection pc,
  *
  * When @p candidate_sdp is NULL, gathering is complete.
  */
-typedef void (*xPeerConnectionOnIceCandidate)(xPeerConnection pc,
-                                              const char *candidate_sdp,
+typedef void (*xPeerConnectionOnIceCandidate)(xPeerConnection pc, const char *candidate_sdp,
                                               void *arg);
 
 /**
  * @brief Called when the remote peer opens a DataChannel.
  */
-typedef void (*xPeerConnectionOnDataChannel)(xPeerConnection pc,
-                                             xDataChannel channel,
-                                             void *arg);
+typedef void (*xPeerConnectionOnDataChannel)(xPeerConnection pc, xDataChannel channel, void *arg);
 
 /* ───────────────────── Configuration ───────────────────── */
 
 XDEF_STRUCT(xPeerConnectionConf) {
   /** ICE configuration. */
-  const char *stun_server;     /**< STUN server(s) "host:port" or comma-separated
-                                    list for port prediction, or NULL.  */
-  const char *turn_server;     /**< TURN server "host:port" or NULL.       */
-  const char *turn_username;   /**< TURN credential username.              */
-  const char *turn_password;   /**< TURN credential password.              */
-  bool        enable_ipv6;    /**< Enable IPv6 candidates (default: false). */
+  const char *stun_server;   /**< STUN server(s) "host:port" or comma-separated
+                                  list for port prediction, or NULL.  */
+  const char *turn_server;   /**< TURN server "host:port" or NULL.       */
+  const char *turn_username; /**< TURN credential username.              */
+  const char *turn_password; /**< TURN credential password.              */
+  bool        enable_ipv6;   /**< Enable IPv6 candidates (default: false). */
 
   /** SCTP port (0 = default 5000). */
   uint16_t sctp_port;
@@ -109,8 +105,7 @@ XDEF_STRUCT(xPeerConnectionConf) {
  * @param conf  Configuration (required).
  * @return      PeerConnection handle, or NULL on failure.
  */
-XCAPI(xPeerConnection) xPeerConnectionCreate(xEventLoop                 loop,
-                                             const xPeerConnectionConf *conf);
+XCAPI(xPeerConnection) xPeerConnectionCreate(xEventLoop loop, const xPeerConnectionConf *conf);
 
 /**
  * @brief Destroy a PeerConnection and all owned resources.
@@ -156,8 +151,7 @@ XCAPI(char *) xPeerConnectionCreateAnswer(xPeerConnection pc);
  * @param sdp  Local SDP string (offer or answer).
  * @return     xErrno_Ok on success.
  */
-XCAPI(xErrno) xPeerConnectionSetLocalDescription(xPeerConnection pc,
-                                                  const char     *sdp);
+XCAPI(xErrno) xPeerConnectionSetLocalDescription(xPeerConnection pc, const char *sdp);
 
 /**
  * @brief Set the remote SDP description.
@@ -169,8 +163,7 @@ XCAPI(xErrno) xPeerConnectionSetLocalDescription(xPeerConnection pc,
  * @param sdp  Remote SDP string.
  * @return     xErrno_Ok on success.
  */
-XCAPI(xErrno) xPeerConnectionSetRemoteDescription(xPeerConnection pc,
-                                                   const char     *sdp);
+XCAPI(xErrno) xPeerConnectionSetRemoteDescription(xPeerConnection pc, const char *sdp);
 
 /**
  * @brief Add a remote ICE candidate (Trickle ICE).
@@ -179,8 +172,7 @@ XCAPI(xErrno) xPeerConnectionSetRemoteDescription(xPeerConnection pc,
  * @param candidate_sdp  SDP candidate line (e.g. "candidate:...").
  * @return               xErrno_Ok on success.
  */
-XCAPI(xErrno) xPeerConnectionAddIceCandidate(xPeerConnection pc,
-                                             const char     *candidate_sdp);
+XCAPI(xErrno) xPeerConnectionAddIceCandidate(xPeerConnection pc, const char *candidate_sdp);
 
 /* ───────────────────── DataChannel ───────────────────── */
 
@@ -193,8 +185,8 @@ XCAPI(xErrno) xPeerConnectionAddIceCandidate(xPeerConnection pc,
  * @param conf  DataChannel configuration.
  * @return      DataChannel handle, or NULL on failure.
  */
-XCAPI(xDataChannel) xPeerConnectionCreateDataChannel(
-  xPeerConnection pc, const xDataChannelConf *conf);
+XCAPI(xDataChannel) xPeerConnectionCreateDataChannel(xPeerConnection         pc,
+                                                     const xDataChannelConf *conf);
 
 /* ───────────────────── Accessors ───────────────────── */
 

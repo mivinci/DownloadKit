@@ -37,8 +37,7 @@ typedef enum {
  * @param arg           User argument.
  */
 typedef void (*xTurnOnAllocated)(const struct sockaddr *relayed_addr,
-                                 const struct sockaddr *mapped_addr,
-                                 uint32_t lifetime, void *arg);
+                                 const struct sockaddr *mapped_addr, uint32_t lifetime, void *arg);
 
 /**
  * @brief Callback when TURN allocation fails.
@@ -48,8 +47,8 @@ typedef void (*xTurnOnFailed)(xErrno err, void *arg);
 /**
  * @brief Callback when data is received via TURN relay.
  */
-typedef void (*xTurnOnData)(const uint8_t *data, size_t len,
-                            const struct sockaddr *from, void *arg);
+typedef void (*xTurnOnData)(const uint8_t *data, size_t len, const struct sockaddr *from,
+                            void *arg);
 
 /**
  * @brief TURN client configuration.
@@ -102,8 +101,7 @@ XDEF_STRUCT(xTurnClient) {
 /**
  * @brief Initialize a TURN client.
  */
-void xTurnClientInit(xTurnClient *tc, xEventLoop loop,
-                     const xTurnConfig *config);
+void xTurnClientInit(xTurnClient *tc, xEventLoop loop, const xTurnConfig *config);
 
 /**
  * @brief Destroy a TURN client, releasing all resources.
@@ -118,8 +116,7 @@ xErrno xTurnClientAllocate(xTurnClient *tc);
 /**
  * @brief Create a permission for a peer address.
  */
-xErrno xTurnClientCreatePermission(xTurnClient           *tc,
-                                   const struct sockaddr *peer);
+xErrno xTurnClientCreatePermission(xTurnClient *tc, const struct sockaddr *peer);
 
 /**
  * @brief Bind a channel to a peer address.
@@ -135,17 +132,16 @@ int xTurnClientChannelBind(xTurnClient *tc, const struct sockaddr *peer);
  *
  * Uses ChannelData if a channel is bound, otherwise Send Indication.
  */
-xErrno xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer,
-                           const uint8_t *data, size_t len);
+xErrno xTurnClientSendData(xTurnClient *tc, const struct sockaddr *peer, const uint8_t *data,
+                           size_t len);
 
 /**
  * @brief Handle an incoming STUN message for the TURN client.
  *
  * @return true if the message was handled by the TURN client.
  */
-bool xTurnClientOnMessage(xTurnClient *tc, const xStunMsg *msg,
-                          const uint8_t *raw_buf, size_t raw_len,
-                          const struct sockaddr *from);
+bool xTurnClientOnMessage(xTurnClient *tc, const xStunMsg *msg, const uint8_t *raw_buf,
+                          size_t raw_len, const struct sockaddr *from);
 
 /**
  * @brief Handle incoming ChannelData.

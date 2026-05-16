@@ -20,8 +20,8 @@ static void *posix_open(void *ctx, const char *path, const char *mode) {
   return (void *)fopen(path, mode);
 }
 
-static xErrno posix_pread(void *ctx, void *handle, uint8_t *buf, size_t len,
-                          uint64_t offset, size_t *nread) {
+static xErrno posix_pread(void *ctx, void *handle, uint8_t *buf, size_t len, uint64_t offset,
+                          size_t *nread) {
   (void)ctx;
   FILE *fp = (FILE *)handle;
   if (fseek(fp, (long)offset, SEEK_SET) != 0) return xErrno_SysError;
@@ -29,8 +29,8 @@ static xErrno posix_pread(void *ctx, void *handle, uint8_t *buf, size_t len,
   return ferror(fp) ? xErrno_SysError : xErrno_Ok;
 }
 
-static xErrno posix_pwrite(void *ctx, void *handle, const uint8_t *buf,
-                           size_t len, uint64_t offset, size_t *nwritten) {
+static xErrno posix_pwrite(void *ctx, void *handle, const uint8_t *buf, size_t len, uint64_t offset,
+                           size_t *nwritten) {
   (void)ctx;
   FILE *fp = (FILE *)handle;
   if (fseek(fp, (long)offset, SEEK_SET) != 0) return xErrno_SysError;
@@ -40,12 +40,15 @@ static xErrno posix_pwrite(void *ctx, void *handle, const uint8_t *buf,
 
 static xErrno posix_size(void *ctx, void *handle, uint64_t *out_size) {
   (void)ctx;
-  FILE *fp = (FILE *)handle;
-  long cur = ftell(fp);
+  FILE *fp  = (FILE *)handle;
+  long  cur = ftell(fp);
   if (cur < 0) return xErrno_SysError;
   if (fseek(fp, 0, SEEK_END) != 0) return xErrno_SysError;
   long end = ftell(fp);
-  if (end < 0) { fseek(fp, cur, SEEK_SET); return xErrno_SysError; }
+  if (end < 0) {
+    fseek(fp, cur, SEEK_SET);
+    return xErrno_SysError;
+  }
   fseek(fp, cur, SEEK_SET);
   *out_size = (uint64_t)end;
   return xErrno_Ok;
@@ -97,4 +100,6 @@ static const xTransferVfs g_posix_vfs = {
   .remove   = posix_remove,
 };
 
-const xTransferVfs *xTransferPosixVfs(void) { return &g_posix_vfs; }
+const xTransferVfs *xTransferPosixVfs(void) {
+  return &g_posix_vfs;
+}

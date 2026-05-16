@@ -43,8 +43,7 @@ protected:
   TestNode *Pop() {
     xMpsc *n = xMpscPop(&head, &tail);
     if (!n) return nullptr;
-    return reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) -
-                                        offsetof(TestNode, mpsc));
+    return reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
   }
 };
 
@@ -219,8 +218,8 @@ TEST_F(MpscTest, ConcurrentMultiProducerSingleConsumer) {
     while (consumed.size() < static_cast<size_t>(TOTAL_NODES)) {
       xMpsc *n = xMpscPop(&head, &tail);
       if (n) {
-        TestNode *tn = reinterpret_cast<TestNode *>(
-          reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
+        TestNode *tn =
+          reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
         consumed.push_back(tn->value);
         empty_spins = 0;
       } else {
@@ -286,8 +285,8 @@ TEST_F(MpscTest, ConcurrentPushThenSequentialPop) {
   while (true) {
     xMpsc *n = xMpscPop(&head, &tail);
     if (!n) break;
-    TestNode *tn = reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) -
-                                                offsetof(TestNode, mpsc));
+    TestNode *tn =
+      reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
     consumed_set.insert(tn->value);
     count++;
   }
@@ -378,8 +377,8 @@ TEST_F(MpscTest, SingleProducerSingleConsumer) {
     while (true) {
       xMpsc *n = xMpscPop(&head, &tail);
       if (n) {
-        TestNode *tn = reinterpret_cast<TestNode *>(
-          reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
+        TestNode *tn =
+          reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
         consumed.push_back(tn->value);
       } else if (producer_done.load(std::memory_order_acquire)) {
         /* producer is done, drain remaining nodes.
@@ -389,8 +388,8 @@ TEST_F(MpscTest, SingleProducerSingleConsumer) {
         while (empty_spins < 1000) {
           n = xMpscPop(&head, &tail);
           if (n) {
-            TestNode *tn = reinterpret_cast<TestNode *>(
-              reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
+            TestNode *tn =
+              reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
             consumed.push_back(tn->value);
             empty_spins = 0;
           } else {
@@ -409,8 +408,7 @@ TEST_F(MpscTest, SingleProducerSingleConsumer) {
   /* 单生产者场景下，pop 顺序应与 push 顺序一致 */
   EXPECT_EQ(consumed.size(), static_cast<size_t>(N));
   for (size_t i = 0; i < consumed.size(); i++) {
-    EXPECT_EQ(consumed[i], static_cast<int>(i))
-      << "FIFO 顺序在第 " << i << " 个节点处不一致";
+    EXPECT_EQ(consumed[i], static_cast<int>(i)) << "FIFO 顺序在第 " << i << " 个节点处不一致";
   }
 }
 
@@ -448,17 +446,16 @@ TEST_F(MpscTest, PerProducerFIFOOrder) {
   while (true) {
     xMpsc *n = xMpscPop(&head, &tail);
     if (!n) break;
-    TestNode *tn = reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) -
-                                                offsetof(TestNode, mpsc));
-    int       producer_id = (tn->value >> 16) & 0xFFFF;
-    int       seq         = tn->value & 0xFFFF;
+    TestNode *tn =
+      reinterpret_cast<TestNode *>(reinterpret_cast<char *>(n) - offsetof(TestNode, mpsc));
+    int producer_id = (tn->value >> 16) & 0xFFFF;
+    int seq         = tn->value & 0xFFFF;
     per_producer_order[producer_id].push_back(seq);
   }
 
   /* 验证每个生产者内部的节点保持 FIFO 顺序 */
   for (int p = 0; p < NUM_PRODUCERS; p++) {
-    ASSERT_EQ(per_producer_order[p].size(),
-              static_cast<size_t>(NODES_PER_PRODUCER))
+    ASSERT_EQ(per_producer_order[p].size(), static_cast<size_t>(NODES_PER_PRODUCER))
       << "生产者 " << p << " 的节点数量不正确";
     for (int i = 0; i < NODES_PER_PRODUCER; i++) {
       EXPECT_EQ(per_producer_order[p][i], i)

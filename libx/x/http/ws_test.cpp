@@ -17,9 +17,9 @@
 extern "C" {
 #include "ws_crypto.h"
 #include "ws_frame.h"
+#include <x/buf/io.h>
 #include <x/http/server.h>
 #include <x/http/ws.h>
-#include <x/buf/io.h>
 }
 
 #include <arpa/inet.h>
@@ -48,13 +48,16 @@ TEST(WsCrypto, SHA1_KnownVector) {
 TEST(WsCrypto, SHA1_HelloWorld) {
   /* SHA-1("Hello, World!") known value */
   unsigned char digest[XWS_SHA1_DIGEST_SIZE];
-  const char *input = "Hello, World!";
+  const char   *input = "Hello, World!";
   xWsSHA1((const unsigned char *)input, strlen(input), digest);
 
   /* Verify it's not all zeros (basic sanity) */
   bool all_zero = true;
   for (int i = 0; i < XWS_SHA1_DIGEST_SIZE; i++) {
-    if (digest[i] != 0) { all_zero = false; break; }
+    if (digest[i] != 0) {
+      all_zero = false;
+      break;
+    }
   }
   EXPECT_FALSE(all_zero);
 }
@@ -63,25 +66,22 @@ TEST(WsCrypto, SHA1_WebSocketAccept) {
   /* RFC 6455 §4.2.2 example:
    * Key = "dGhlIHNhbXBsZSBub25jZQ=="
    * Accept = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=" */
-  const char *key = "dGhlIHNhbXBsZSBub25jZQ==";
+  const char *key  = "dGhlIHNhbXBsZSBub25jZQ==";
   const char *guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-  std::string concat = std::string(key) + guid;
+  std::string   concat = std::string(key) + guid;
   unsigned char digest[XWS_SHA1_DIGEST_SIZE];
-  xWsSHA1((const unsigned char *)concat.c_str(),
-          concat.size(), digest);
+  xWsSHA1((const unsigned char *)concat.c_str(), concat.size(), digest);
 
   char b64[64];
-  int n = xWsBase64Encode(digest, XWS_SHA1_DIGEST_SIZE,
-                          b64, sizeof(b64));
+  int  n = xWsBase64Encode(digest, XWS_SHA1_DIGEST_SIZE, b64, sizeof(b64));
   ASSERT_GT(n, 0);
   EXPECT_STREQ(b64, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
 }
 
 TEST(WsCrypto, Base64_Empty) {
   char out[8];
-  int n = xWsBase64Encode((const unsigned char *)"", 0,
-                          out, sizeof(out));
+  int  n = xWsBase64Encode((const unsigned char *)"", 0, out, sizeof(out));
   ASSERT_GE(n, 0);
   EXPECT_STREQ(out, "");
 }
@@ -89,28 +89,24 @@ TEST(WsCrypto, Base64_Empty) {
 TEST(WsCrypto, Base64_Padding) {
   /* "a" -> "YQ==" */
   char out[8];
-  int n = xWsBase64Encode((const unsigned char *)"a", 1,
-                          out, sizeof(out));
+  int  n = xWsBase64Encode((const unsigned char *)"a", 1, out, sizeof(out));
   ASSERT_GT(n, 0);
   EXPECT_STREQ(out, "YQ==");
 
   /* "ab" -> "YWI=" */
-  n = xWsBase64Encode((const unsigned char *)"ab", 2,
-                      out, sizeof(out));
+  n = xWsBase64Encode((const unsigned char *)"ab", 2, out, sizeof(out));
   ASSERT_GT(n, 0);
   EXPECT_STREQ(out, "YWI=");
 
   /* "abc" -> "YWJj" */
-  n = xWsBase64Encode((const unsigned char *)"abc", 3,
-                      out, sizeof(out));
+  n = xWsBase64Encode((const unsigned char *)"abc", 3, out, sizeof(out));
   ASSERT_GT(n, 0);
   EXPECT_STREQ(out, "YWJj");
 }
 
 TEST(WsCrypto, Base64_BufferTooSmall) {
   char out[2]; /* Too small */
-  int n = xWsBase64Encode((const unsigned char *)"abc", 3,
-                          out, sizeof(out));
+  int  n = xWsBase64Encode((const unsigned char *)"abc", 3, out, sizeof(out));
   EXPECT_EQ(n, -1);
 }
 
@@ -120,10 +116,8 @@ TEST(WsCrypto, Base64_BufferTooSmall) {
  */
 
 /* Helper: build a masked client frame in a buffer */
-static std::vector<uint8_t> build_client_frame(
-    uint8_t fin, uint8_t opcode,
-    const void *payload, size_t len,
-    const uint8_t mask_key[4]) {
+static std::vector<uint8_t> build_client_frame(uint8_t fin, uint8_t opcode, const void *payload,
+                                               size_t len, const uint8_t mask_key[4]) {
   std::vector<uint8_t> frame;
 
   frame.push_back((uint8_t)((fin ? 0x80 : 0x00) | (opcode & 0x0F)));
@@ -159,8 +153,7 @@ TEST(WsFrame, ParseTextFrame) {
   xIOBufferInit(&io);
 
   uint8_t mask_key[4] = {0x12, 0x34, 0x56, 0x78};
-  auto frame_data = build_client_frame(
-    1, XWS_OPCODE_TEXT, "Hello", 5, mask_key);
+  auto    frame_data  = build_client_frame(1, XWS_OPCODE_TEXT, "Hello", 5, mask_key);
 
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
@@ -183,9 +176,8 @@ TEST(WsFrame, ParseBinaryFrame) {
   xIOBufferInit(&io);
 
   uint8_t mask_key[4] = {0xAA, 0xBB, 0xCC, 0xDD};
-  uint8_t data[] = {0x01, 0x02, 0x03, 0x04, 0x05};
-  auto frame_data = build_client_frame(
-    1, XWS_OPCODE_BINARY, data, sizeof(data), mask_key);
+  uint8_t data[]      = {0x01, 0x02, 0x03, 0x04, 0x05};
+  auto    frame_data  = build_client_frame(1, XWS_OPCODE_BINARY, data, sizeof(data), mask_key);
 
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
@@ -207,8 +199,7 @@ TEST(WsFrame, ParseEmptyFrame) {
   xIOBufferInit(&io);
 
   uint8_t mask_key[4] = {0x00, 0x00, 0x00, 0x00};
-  auto frame_data = build_client_frame(
-    1, XWS_OPCODE_TEXT, nullptr, 0, mask_key);
+  auto    frame_data  = build_client_frame(1, XWS_OPCODE_TEXT, nullptr, 0, mask_key);
 
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
@@ -229,9 +220,9 @@ TEST(WsFrame, ParseMediumPayload) {
   xIOBufferInit(&io);
 
   std::string payload(200, 'X');
-  uint8_t mask_key[4] = {0x11, 0x22, 0x33, 0x44};
-  auto frame_data = build_client_frame(
-    1, XWS_OPCODE_TEXT, payload.data(), payload.size(), mask_key);
+  uint8_t     mask_key[4] = {0x11, 0x22, 0x33, 0x44};
+  auto        frame_data =
+    build_client_frame(1, XWS_OPCODE_TEXT, payload.data(), payload.size(), mask_key);
 
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
@@ -253,9 +244,8 @@ TEST(WsFrame, ParseCloseFrame) {
 
   /* Close frame with status code 1000 */
   uint8_t close_payload[] = {0x03, 0xE8}; /* 1000 in big-endian */
-  uint8_t mask_key[4] = {0x00, 0x00, 0x00, 0x00};
-  auto frame_data = build_client_frame(
-    1, XWS_OPCODE_CLOSE, close_payload, 2, mask_key);
+  uint8_t mask_key[4]     = {0x00, 0x00, 0x00, 0x00};
+  auto    frame_data      = build_client_frame(1, XWS_OPCODE_CLOSE, close_payload, 2, mask_key);
 
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
@@ -267,8 +257,7 @@ TEST(WsFrame, ParseCloseFrame) {
   EXPECT_EQ(parser.frame.opcode, XWS_OPCODE_CLOSE);
   EXPECT_EQ(parser.frame.payload_len, 2u);
 
-  uint16_t code = (uint16_t)((parser.frame.payload[0] << 8) |
-                              parser.frame.payload[1]);
+  uint16_t code = (uint16_t)((parser.frame.payload[0] << 8) | parser.frame.payload[1]);
   EXPECT_EQ(code, 1000);
 
   free(parser.frame.payload);
@@ -280,8 +269,7 @@ TEST(WsFrame, ParsePingFrame) {
   xIOBufferInit(&io);
 
   uint8_t mask_key[4] = {0x55, 0x66, 0x77, 0x88};
-  auto frame_data = build_client_frame(
-    1, XWS_OPCODE_PING, "ping", 4, mask_key);
+  auto    frame_data  = build_client_frame(1, XWS_OPCODE_PING, "ping", 4, mask_key);
 
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
@@ -321,8 +309,7 @@ TEST(WsFrame, RejectFragmentedControlFrame) {
 
   /* Ping frame with FIN=0 (fragmented control frame = protocol error) */
   uint8_t mask_key[4] = {0x00, 0x00, 0x00, 0x00};
-  auto frame_data = build_client_frame(
-    0, XWS_OPCODE_PING, "ping", 4, mask_key);
+  auto    frame_data  = build_client_frame(0, XWS_OPCODE_PING, "ping", 4, mask_key);
 
   xIOBufferAppend(&io, frame_data.data(), frame_data.size());
 
@@ -356,8 +343,7 @@ TEST(WsFrame, EncodeTextFrame) {
   xIOBuffer io;
   xIOBufferInit(&io);
 
-  int ret = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT, "Hello", 5,
-                           0);
+  int ret = xWsFrameEncode(&io, 1, XWS_OPCODE_TEXT, "Hello", 5, 0);
   ASSERT_EQ(ret, 0);
 
   /* Server frame: FIN=1, TEXT, no mask, len=5 */
@@ -418,8 +404,7 @@ static void ws_test_on_open(xWsConn conn, void *arg) {
   ctx->last_conn = conn;
 }
 
-static void ws_test_on_message(xWsConn conn, xWsOpcode opcode,
-                               const void *payload, size_t len,
+static void ws_test_on_message(xWsConn conn, xWsOpcode opcode, const void *payload, size_t len,
                                void *arg) {
   (void)conn;
   auto *ctx = (WsTestCtx *)arg;
@@ -432,8 +417,7 @@ static void ws_test_on_message(xWsConn conn, xWsOpcode opcode,
   }
 }
 
-static void ws_test_on_close(xWsConn conn, uint16_t code,
-                             const char *reason, size_t len,
+static void ws_test_on_close(xWsConn conn, uint16_t code, const char *reason, size_t len,
                              void *arg) {
   (void)conn;
   (void)reason;
@@ -445,7 +429,8 @@ static void ws_test_on_close(xWsConn conn, uint16_t code,
 
 /* Helper: perform WebSocket handshake on a raw socket */
 static std::string ws_handshake_request(const std::string &path) {
-  return "GET " + path + " HTTP/1.1\r\n"
+  return "GET " + path +
+         " HTTP/1.1\r\n"
          "Host: localhost\r\n"
          "Upgrade: websocket\r\n"
          "Connection: Upgrade\r\n"
@@ -455,12 +440,10 @@ static std::string ws_handshake_request(const std::string &path) {
 }
 
 /* Helper: send a masked client frame over a raw socket */
-static bool ws_send_frame(int fd, uint8_t fin, uint8_t opcode,
-                          const void *payload, size_t len) {
+static bool ws_send_frame(int fd, uint8_t fin, uint8_t opcode, const void *payload, size_t len) {
   uint8_t mask_key[4] = {0x37, 0xfa, 0x21, 0x3d};
-  auto frame = build_client_frame(fin, opcode, payload, len,
-                                  mask_key);
-  ssize_t n = send(fd, frame.data(), frame.size(), 0);
+  auto    frame       = build_client_frame(fin, opcode, payload, len, mask_key);
+  ssize_t n           = send(fd, frame.data(), frame.size(), 0);
   return n == (ssize_t)frame.size();
 }
 
@@ -485,10 +468,10 @@ static RecvFrame ws_recv_frame(int fd, int timeout_ms = 2000) {
   ssize_t n = recv(fd, hdr, 2, MSG_WAITALL);
   if (n != 2) return result;
 
-  result.fin    = (hdr[0] >> 7) & 1;
-  result.opcode = hdr[0] & 0x0F;
-  uint8_t len7  = hdr[1] & 0x7F;
-  bool masked   = (hdr[1] >> 7) & 1;
+  result.fin     = (hdr[0] >> 7) & 1;
+  result.opcode  = hdr[0] & 0x0F;
+  uint8_t len7   = hdr[1] & 0x7F;
+  bool    masked = (hdr[1] >> 7) & 1;
 
   uint64_t payload_len = len7;
   if (len7 == 126) {
@@ -512,8 +495,7 @@ static RecvFrame ws_recv_frame(int fd, int timeout_ms = 2000) {
   /* Read payload */
   if (payload_len > 0) {
     result.payload.resize((size_t)payload_len);
-    n = recv(fd, &result.payload[0], (size_t)payload_len,
-             MSG_WAITALL);
+    n = recv(fd, &result.payload[0], (size_t)payload_len, MSG_WAITALL);
     if (n != (ssize_t)payload_len) return result;
   }
 
@@ -522,14 +504,12 @@ static RecvFrame ws_recv_frame(int fd, int timeout_ms = 2000) {
 }
 
 /* Handler that upgrades to WebSocket */
-static void ws_upgrade_handler(xHttpResponseWriter writer,
-                               const xHttpRequest *req,
-                               void *arg) {
-  WsTestCtx *ctx = (WsTestCtx *)arg;
+static void ws_upgrade_handler(xHttpResponseWriter writer, const xHttpRequest *req, void *arg) {
+  WsTestCtx   *ctx = (WsTestCtx *)arg;
   xWsCallbacks cbs = {};
-  cbs.on_open    = ws_test_on_open;
-  cbs.on_message = ws_test_on_message;
-  cbs.on_close   = ws_test_on_close;
+  cbs.on_open      = ws_test_on_open;
+  cbs.on_message   = ws_test_on_message;
+  cbs.on_close     = ws_test_on_close;
 
   xWsUpgrade(writer, req, &cbs, ctx);
 }
@@ -540,8 +520,7 @@ protected:
 
   void SetUpWsRoute(const std::string &path = "/ws") {
     std::string pattern = "GET " + path;
-    xErrno err = xHttpServerRoute(server, pattern.c_str(),
-                                  ws_upgrade_handler, &ws_ctx);
+    xErrno      err     = xHttpServerRoute(server, pattern.c_str(), ws_upgrade_handler, &ws_ctx);
     ASSERT_EQ(err, xErrno_Ok);
   }
 
@@ -592,17 +571,15 @@ TEST_F(WsServerTest, HandshakeMissingHeaders) {
   ASSERT_GE(fd, 0);
 
   /* Send a GET without WebSocket headers */
-  std::string req =
-    "GET /ws HTTP/1.1\r\n"
-    "Host: localhost\r\n"
-    "\r\n";
+  std::string req = "GET /ws HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "\r\n";
   ASSERT_TRUE(send_str(fd, req));
 
   pump_loop(loop, 50);
 
   std::string resp = recv_all(fd, 1000);
-  EXPECT_NE(resp.find("400"), std::string::npos)
-    << "Expected 400 Bad Request, got: " << resp;
+  EXPECT_NE(resp.find("400"), std::string::npos) << "Expected 400 Bad Request, got: " << resp;
 
   close(fd);
   pump_loop(loop, 50);
@@ -615,21 +592,19 @@ TEST_F(WsServerTest, HandshakeWrongVersion) {
   int fd = connect_to(port);
   ASSERT_GE(fd, 0);
 
-  std::string req =
-    "GET /ws HTTP/1.1\r\n"
-    "Host: localhost\r\n"
-    "Upgrade: websocket\r\n"
-    "Connection: Upgrade\r\n"
-    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-    "Sec-WebSocket-Version: 8\r\n"
-    "\r\n";
+  std::string req = "GET /ws HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "Upgrade: websocket\r\n"
+                    "Connection: Upgrade\r\n"
+                    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                    "Sec-WebSocket-Version: 8\r\n"
+                    "\r\n";
   ASSERT_TRUE(send_str(fd, req));
 
   pump_loop(loop, 50);
 
   std::string resp = recv_all(fd, 1000);
-  EXPECT_NE(resp.find("400"), std::string::npos)
-    << "Expected 400 for wrong version, got: " << resp;
+  EXPECT_NE(resp.find("400"), std::string::npos) << "Expected 400 for wrong version, got: " << resp;
 
   close(fd);
   pump_loop(loop, 50);
@@ -643,22 +618,20 @@ TEST_F(WsServerTest, HandshakeWrongMethod) {
   ASSERT_GE(fd, 0);
 
   /* POST to a GET-only route should get 405 from the router */
-  std::string req =
-    "POST /ws HTTP/1.1\r\n"
-    "Host: localhost\r\n"
-    "Upgrade: websocket\r\n"
-    "Connection: Upgrade\r\n"
-    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-    "Sec-WebSocket-Version: 13\r\n"
-    "\r\n";
+  std::string req = "POST /ws HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "Upgrade: websocket\r\n"
+                    "Connection: Upgrade\r\n"
+                    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                    "Sec-WebSocket-Version: 13\r\n"
+                    "\r\n";
   ASSERT_TRUE(send_str(fd, req));
 
   pump_loop(loop, 50);
 
   std::string resp = recv_all(fd, 1000);
   /* Router returns 405 because path matches but method doesn't */
-  EXPECT_TRUE(resp.find("405") != std::string::npos ||
-              resp.find("404") != std::string::npos)
+  EXPECT_TRUE(resp.find("405") != std::string::npos || resp.find("404") != std::string::npos)
     << "Expected 405 or 404 for POST, got: " << resp;
 
   close(fd);
@@ -674,8 +647,7 @@ TEST_F(WsServerTest, TextMessage) {
   pump_loop(loop, 50);
 
   /* Send a text message */
-  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_TEXT,
-                            "Hello WS", 8));
+  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_TEXT, "Hello WS", 8));
   pump_loop(loop, 100);
 
   EXPECT_EQ(ws_ctx.message_count.load(), 1);
@@ -695,8 +667,7 @@ TEST_F(WsServerTest, BinaryMessage) {
   pump_loop(loop, 50);
 
   uint8_t data[] = {0x01, 0x02, 0x03, 0x04};
-  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_BINARY,
-                            data, sizeof(data)));
+  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_BINARY, data, sizeof(data)));
   pump_loop(loop, 100);
 
   EXPECT_EQ(ws_ctx.message_count.load(), 1);
@@ -716,8 +687,7 @@ TEST_F(WsServerTest, PingPong) {
   pump_loop(loop, 50);
 
   /* Send a Ping */
-  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_PING,
-                            "ping", 4));
+  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_PING, "ping", 4));
   pump_loop(loop, 100);
 
   /* Should receive a Pong with same payload */
@@ -740,8 +710,7 @@ TEST_F(WsServerTest, CloseHandshake) {
 
   /* Send Close frame with code 1000 */
   uint8_t close_payload[] = {0x03, 0xE8}; /* 1000 */
-  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_CLOSE,
-                            close_payload, 2));
+  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_CLOSE, close_payload, 2));
   pump_loop(loop, 100);
 
   /* Should receive a Close frame back */
@@ -767,8 +736,7 @@ TEST_F(WsServerTest, ServerSend) {
 
   /* Send a message from server to client */
   ASSERT_NE(ws_ctx.last_conn, nullptr);
-  xErrno err = xWsSend(ws_ctx.last_conn, xWsOpcode_Text,
-                       "from server", 11);
+  xErrno err = xWsSend(ws_ctx.last_conn, xWsOpcode_Text, "from server", 11);
   EXPECT_EQ(err, xErrno_Ok);
   pump_loop(loop, 100);
 
@@ -792,21 +760,17 @@ TEST_F(WsServerTest, FragmentedMessage) {
 
   /* Send fragmented message: "Hello" + " " + "World" */
   /* Fragment 1: TEXT, FIN=0 */
-  ASSERT_TRUE(ws_send_frame(fd, 0, XWS_OPCODE_TEXT,
-                            "Hello", 5));
+  ASSERT_TRUE(ws_send_frame(fd, 0, XWS_OPCODE_TEXT, "Hello", 5));
   pump_loop(loop, 50);
-  EXPECT_EQ(ws_ctx.message_count.load(), 0)
-    << "Should not deliver until final fragment";
+  EXPECT_EQ(ws_ctx.message_count.load(), 0) << "Should not deliver until final fragment";
 
   /* Fragment 2: CONTINUATION, FIN=0 */
-  ASSERT_TRUE(ws_send_frame(fd, 0, XWS_OPCODE_CONTINUATION,
-                            " ", 1));
+  ASSERT_TRUE(ws_send_frame(fd, 0, XWS_OPCODE_CONTINUATION, " ", 1));
   pump_loop(loop, 50);
   EXPECT_EQ(ws_ctx.message_count.load(), 0);
 
   /* Fragment 3: CONTINUATION, FIN=1 */
-  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_CONTINUATION,
-                            "World", 5));
+  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_CONTINUATION, "World", 5));
   pump_loop(loop, 100);
 
   EXPECT_EQ(ws_ctx.message_count.load(), 1);
@@ -838,8 +802,7 @@ TEST_F(WsServerTest, ServerInitiatedClose) {
 
   /* Client responds with Close */
   uint8_t close_payload[] = {0x03, 0xE8};
-  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_CLOSE,
-                            close_payload, 2));
+  ASSERT_TRUE(ws_send_frame(fd, 1, XWS_OPCODE_CLOSE, close_payload, 2));
   pump_loop(loop, 100);
 
   EXPECT_EQ(ws_ctx.close_count.load(), 1);

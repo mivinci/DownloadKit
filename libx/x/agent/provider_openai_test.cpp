@@ -39,11 +39,8 @@ extern "C" {
 
 using ms = std::chrono::milliseconds;
 
-static void pump_until(xEventLoop loop, std::atomic<bool> &flag,
-                       int max_ms = 5000) {
-  for (int elapsed = 0;
-       elapsed < max_ms && !flag.load(std::memory_order_acquire);
-       elapsed += 10) {
+static void pump_until(xEventLoop loop, std::atomic<bool> &flag, int max_ms = 5000) {
+  for (int elapsed = 0; elapsed < max_ms && !flag.load(std::memory_order_acquire); elapsed += 10) {
     xEventWait(loop, 10);
   }
 }
@@ -94,8 +91,12 @@ public:
     }
   }
 
-  const std::string &base_url() const { return base_url_; }
-  const std::string &request() const { return request_; }
+  const std::string &base_url() const {
+    return base_url_;
+  }
+  const std::string &request() const {
+    return request_;
+  }
 
 private:
   void serve() {
@@ -110,8 +111,7 @@ private:
 
     std::string response;
     if (err_code_ > 0) {
-      response = "HTTP/1.1 " + std::to_string(err_code_) + " " +
-                 err_reason_ +
+      response = "HTTP/1.1 " + std::to_string(err_code_) + " " + err_reason_ +
                  "\r\n"
                  "Content-Type: application/json\r\n"
                  "Content-Length: " +
@@ -146,20 +146,20 @@ private:
 /* ── Stream-callback recorder ─────────────────────────────────────────── */
 
 struct Recorder {
-  std::string                          text;
-  std::string                          thinking;
-  std::vector<std::string>             tool_ids;
-  std::vector<std::string>             tool_names;
-  std::vector<std::string>             tool_args;
-  std::atomic<bool>                    done_fired{false};
-  xAgentProviderStopReason                done_reason = xAgentProviderStop_EndTurn;
-  xErrno                               done_err    = xErrno_Ok;
+  std::string              text;
+  std::string              thinking;
+  std::vector<std::string> tool_ids;
+  std::vector<std::string> tool_names;
+  std::vector<std::string> tool_args;
+  std::atomic<bool>        done_fired{false};
+  xAgentProviderStopReason done_reason = xAgentProviderStop_EndTurn;
+  xErrno                   done_err    = xErrno_Ok;
   /* Usage snapshot captured on on_done. has_usage stays false when
    * the provider hands NULL (no usage ever reported by server);
    * otherwise the copy holds the last round's numbers, with -1 for
    * fields the server omitted. */
-  bool                                 has_usage = false;
-  xAgentUsage                             usage{-1, -1, -1};
+  bool        has_usage = false;
+  xAgentUsage usage{-1, -1, -1};
 };
 
 static void on_text(const char *chunk, size_t len, void *arg) {
@@ -176,15 +176,13 @@ static void on_tool(const xAgentContent *call, void *arg) {
   auto *r = static_cast<Recorder *>(arg);
   if (call && call->type == xAgentContentType_ToolUse) {
     r->tool_ids.emplace_back(call->u.tool_use.id ? call->u.tool_use.id : "");
-    r->tool_names.emplace_back(
-      call->u.tool_use.name ? call->u.tool_use.name : "");
-    r->tool_args.emplace_back(
-      call->u.tool_use.args_json ? call->u.tool_use.args_json : "");
+    r->tool_names.emplace_back(call->u.tool_use.name ? call->u.tool_use.name : "");
+    r->tool_args.emplace_back(call->u.tool_use.args_json ? call->u.tool_use.args_json : "");
   }
 }
 
-static void on_done(xAgentProviderStopReason reason, xErrno err,
-                    const xAgentUsage *usage, const char *errmsg, void *arg) {
+static void on_done(xAgentProviderStopReason reason, xErrno err, const xAgentUsage *usage,
+                    const char *errmsg, void *arg) {
   auto *r        = static_cast<Recorder *>(arg);
   r->done_reason = reason;
   r->done_err    = err;
@@ -200,8 +198,8 @@ static void on_done(xAgentProviderStopReason reason, xErrno err,
 
 class OpenAIProviderTest : public ::testing::Test {
 protected:
-  xEventLoop  loop   = nullptr;
-  xHttpClient http   = nullptr;
+  xEventLoop  loop = nullptr;
+  xHttpClient http = nullptr;
 
   void SetUp() override {
     loop = xEventLoopCreate();
@@ -217,9 +215,9 @@ protected:
 
   xAgentProvider make_provider(const std::string &base_url) {
     xAgentOpenAIConf conf = {};
-    conf.api_key       = "sk-test";
-    conf.base_url      = base_url.c_str();
-    conf.default_model = "gpt-test";
+    conf.api_key          = "sk-test";
+    conf.base_url         = base_url.c_str();
+    conf.default_model    = "gpt-test";
     return xAgentProviderOpenAICreate(loop, http, &conf);
   }
 };
@@ -228,7 +226,7 @@ protected:
 
 TEST_F(OpenAIProviderTest, CreateRejectsNullArgs) {
   xAgentOpenAIConf conf = {};
-  conf.api_key       = "sk-test";
+  conf.api_key          = "sk-test";
 
   EXPECT_EQ(xAgentProviderOpenAICreate(nullptr, http, &conf), nullptr);
   EXPECT_EQ(xAgentProviderOpenAICreate(loop, nullptr, &conf), nullptr);
@@ -240,7 +238,7 @@ TEST_F(OpenAIProviderTest, CreateRejectsNullArgs) {
 
 TEST_F(OpenAIProviderTest, CreateAcceptsMinimalConf) {
   xAgentOpenAIConf conf = {};
-  conf.api_key       = "sk-test";
+  conf.api_key          = "sk-test";
   xAgentProvider pvd    = xAgentProviderOpenAICreate(loop, http, &conf);
   ASSERT_NE(pvd, nullptr);
   xAgentProviderDestroy(pvd);
@@ -253,12 +251,11 @@ TEST_F(OpenAIProviderTest, DestroyNullIsNoop) {
 /* ── Stream parsing: plain text ───────────────────────────────────────── */
 
 TEST_F(OpenAIProviderTest, StreamsTextAndFinishesWithEndTurn) {
-  std::string body =
-    "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n"
-    "data: {\"choices\":[{\"delta\":{\"content\":\"lo \"}}]}\n\n"
-    "data: {\"choices\":[{\"delta\":{\"content\":\"world\"},"
-         "\"finish_reason\":\"stop\"}]}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n"
+                     "data: {\"choices\":[{\"delta\":{\"content\":\"lo \"}}]}\n\n"
+                     "data: {\"choices\":[{\"delta\":{\"content\":\"world\"},"
+                     "\"finish_reason\":\"stop\"}]}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -269,16 +266,16 @@ TEST_F(OpenAIProviderTest, StreamsTextAndFinishesWithEndTurn) {
   xAgentContent user_c = xAgentContentText("hi");
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages              = &user_m;
-  conf.n_messages            = 1;
-  conf.temperature           = -1.0;
+  conf.messages                 = &user_m;
+  conf.n_messages               = 1;
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_text      = on_text;
-  cbs.on_tool_call = on_tool;
-  cbs.on_done      = on_done;
+  cbs.on_text                       = on_text;
+  cbs.on_tool_call                  = on_tool;
+  cbs.on_done                       = on_done;
 
   /* Use module-internal dispatcher via the same symbol the session
    * layer would — but we can also go through the public handle by
@@ -287,7 +284,7 @@ TEST_F(OpenAIProviderTest, StreamsTextAndFinishesWithEndTurn) {
    * manual cast that mirrors provider_private.h. */
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto  *base = reinterpret_cast<ProviderBase *>(pvd);
   xErrno err  = base->vt->submit(base->ctx, &conf, &cbs, &rec);
@@ -310,17 +307,16 @@ TEST_F(OpenAIProviderTest, StreamsTextAndFinishesWithEndTurn) {
 TEST_F(OpenAIProviderTest, AssemblesFragmentedToolCall) {
   /* Tool-call arguments fragmented across three deltas, terminated
    * by finish_reason=tool_calls. */
-  std::string body =
-    "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{"
-      "\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"add\","
-      "\"arguments\":\"{\\\"a\\\":\"}}]}}]}\n\n"
-    "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{"
-      "\"index\":0,\"function\":{\"arguments\":\"1,\\\"b\\\":\"}}]}}]}\n\n"
-    "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{"
-      "\"index\":0,\"function\":{\"arguments\":\"2}\"}}]}}]}\n\n"
-    "data: {\"choices\":[{\"delta\":{},"
-         "\"finish_reason\":\"tool_calls\"}]}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{"
+                     "\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"add\","
+                     "\"arguments\":\"{\\\"a\\\":\"}}]}}]}\n\n"
+                     "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{"
+                     "\"index\":0,\"function\":{\"arguments\":\"1,\\\"b\\\":\"}}]}}]}\n\n"
+                     "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{"
+                     "\"index\":0,\"function\":{\"arguments\":\"2}\"}}]}}]}\n\n"
+                     "data: {\"choices\":[{\"delta\":{},"
+                     "\"finish_reason\":\"tool_calls\"}]}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -331,20 +327,20 @@ TEST_F(OpenAIProviderTest, AssemblesFragmentedToolCall) {
   xAgentContent user_c = xAgentContentText("add 1 and 2");
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages   = &user_m;
-  conf.n_messages = 1;
-  conf.temperature = -1.0;
+  conf.messages                 = &user_m;
+  conf.n_messages               = 1;
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_text      = on_text;
-  cbs.on_tool_call = on_tool;
-  cbs.on_done      = on_done;
+  cbs.on_text                       = on_text;
+  cbs.on_tool_call                  = on_tool;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
@@ -354,10 +350,10 @@ TEST_F(OpenAIProviderTest, AssemblesFragmentedToolCall) {
 
   EXPECT_EQ(rec.text, "");
   ASSERT_EQ(rec.tool_ids.size(), 1u);
-  EXPECT_EQ(rec.tool_ids[0],   "call_1");
+  EXPECT_EQ(rec.tool_ids[0], "call_1");
   EXPECT_EQ(rec.tool_names[0], "add");
-  EXPECT_EQ(rec.tool_args[0],  "{\"a\":1,\"b\":2}");
-  EXPECT_EQ(rec.done_reason,   xAgentProviderStop_ToolUse);
+  EXPECT_EQ(rec.tool_args[0], "{\"a\":1,\"b\":2}");
+  EXPECT_EQ(rec.done_reason, xAgentProviderStop_ToolUse);
 
   xAgentProviderDestroy(pvd);
   srv.join();
@@ -366,10 +362,9 @@ TEST_F(OpenAIProviderTest, AssemblesFragmentedToolCall) {
 /* ── Stream parsing: finish_reason=length → MaxTokens ─────────────────── */
 
 TEST_F(OpenAIProviderTest, MapsLengthFinishReason) {
-  std::string body =
-    "data: {\"choices\":[{\"delta\":{\"content\":\"x\"},"
-         "\"finish_reason\":\"length\"}]}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":{\"content\":\"x\"},"
+                     "\"finish_reason\":\"length\"}]}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -380,19 +375,19 @@ TEST_F(OpenAIProviderTest, MapsLengthFinishReason) {
   xAgentContent user_c = xAgentContentText("hi");
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages   = &user_m;
-  conf.n_messages = 1;
-  conf.temperature = -1.0;
+  conf.messages                 = &user_m;
+  conf.n_messages               = 1;
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_text = on_text;
-  cbs.on_done = on_done;
+  cbs.on_text                       = on_text;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
@@ -400,7 +395,7 @@ TEST_F(OpenAIProviderTest, MapsLengthFinishReason) {
   pump_until(loop, rec.done_fired, 5000);
   ASSERT_TRUE(rec.done_fired.load());
   EXPECT_EQ(rec.done_reason, xAgentProviderStop_MaxTokens);
-  EXPECT_EQ(rec.done_err,    xErrno_Ok);
+  EXPECT_EQ(rec.done_err, xErrno_Ok);
 
   xAgentProviderDestroy(pvd);
   srv.join();
@@ -414,10 +409,9 @@ TEST_F(OpenAIProviderTest, SecondSubmitWhileInFlightReturnsInvalidState) {
    * arrives piecewise is not needed — we just need to call submit
    * twice before the event loop has a chance to drive the stream
    * to completion. */
-  std::string body =
-    "data: {\"choices\":[{\"delta\":{\"content\":\"a\"},"
-         "\"finish_reason\":\"stop\"}]}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":{\"content\":\"a\"},"
+                     "\"finish_reason\":\"stop\"}]}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -428,29 +422,28 @@ TEST_F(OpenAIProviderTest, SecondSubmitWhileInFlightReturnsInvalidState) {
   xAgentContent user_c = xAgentContentText("hi");
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages   = &user_m;
-  conf.n_messages = 1;
-  conf.temperature = -1.0;
+  conf.messages                 = &user_m;
+  conf.n_messages               = 1;
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_done = on_done;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
 
   /* Immediately try again: must be rejected because we haven't
    * driven the loop yet (so on_done hasn't fired). */
-  Recorder rec2;
+  Recorder                      rec2;
   xAgentProviderStreamCallbacks cbs2 = {};
-  cbs2.on_done = on_done;
-  EXPECT_EQ(base->vt->submit(base->ctx, &conf, &cbs2, &rec2),
-            xErrno_InvalidState);
+  cbs2.on_done                       = on_done;
+  EXPECT_EQ(base->vt->submit(base->ctx, &conf, &cbs2, &rec2), xErrno_InvalidState);
 
   /* Drain the first flight to avoid leaking a pending request. */
   pump_until(loop, rec.done_fired, 5000);
@@ -469,9 +462,8 @@ TEST_F(OpenAIProviderTest, CancelFiresDoneWithCancelledReason) {
    * even if the stream completes first, the provider must still
    * only fire on_done once and should honour the cancel flag when
    * it observes it. */
-  std::string body =
-    "data: {\"choices\":[{\"delta\":{\"content\":\"ignored\"}}]}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":{\"content\":\"ignored\"}}]}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -482,19 +474,19 @@ TEST_F(OpenAIProviderTest, CancelFiresDoneWithCancelledReason) {
   xAgentContent user_c = xAgentContentText("hi");
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages   = &user_m;
-  conf.n_messages = 1;
-  conf.temperature = -1.0;
+  conf.messages                 = &user_m;
+  conf.n_messages               = 1;
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_text = on_text;
-  cbs.on_done = on_done;
+  cbs.on_text                       = on_text;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
@@ -518,10 +510,9 @@ TEST_F(OpenAIProviderTest, CancelFiresDoneWithCancelledReason) {
 /* ── Request body inspection: model & messages show up on the wire ────── */
 
 TEST_F(OpenAIProviderTest, RequestBodyCarriesModelAndMessages) {
-  std::string body =
-    "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},"
-         "\"finish_reason\":\"stop\"}]}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},"
+                     "\"finish_reason\":\"stop\"}]}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -535,20 +526,20 @@ TEST_F(OpenAIProviderTest, RequestBodyCarriesModelAndMessages) {
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
   xAgentMessage msgs[] = {sys_m, user_m};
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.model       = "gpt-override";
-  conf.messages    = msgs;
-  conf.n_messages  = 2;
-  conf.temperature = 0.5;
-  conf.max_tokens  = 16;
+  conf.model                    = "gpt-override";
+  conf.messages                 = msgs;
+  conf.n_messages               = 2;
+  conf.temperature              = 0.5;
+  conf.max_tokens               = 16;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_done = on_done;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
@@ -594,10 +585,9 @@ static xErrno noop_tool_handler(xAgentQuery, const xAgentContent *, xAgentConten
 }
 
 TEST_F(OpenAIProviderTest, RequestBodyEncodesTools) {
-  std::string body =
-    "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},"
-         "\"finish_reason\":\"stop\"}]}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},"
+                     "\"finish_reason\":\"stop\"}]}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -607,24 +597,23 @@ TEST_F(OpenAIProviderTest, RequestBodyEncodesTools) {
 
   /* Tool A: no-arg time getter (schema = NULL → empty object). */
   xAgentToolConf tconf_time = {};
-  tconf_time.name        = "get_time";
-  tconf_time.description = "Return current local time";
-  tconf_time.handler     = noop_tool_handler;
-  xAgentTool t_time = xAgentToolCreate(&tconf_time);
+  tconf_time.name           = "get_time";
+  tconf_time.description    = "Return current local time";
+  tconf_time.handler        = noop_tool_handler;
+  xAgentTool t_time         = xAgentToolCreate(&tconf_time);
   ASSERT_NE(t_time, nullptr);
 
   /* Tool B: two-arg add (schema provided → parsed into parameters). */
-  const char *add_schema =
-    "{\"type\":\"object\","
-     "\"properties\":{\"a\":{\"type\":\"integer\"},"
-                     "\"b\":{\"type\":\"integer\"}},"
-     "\"required\":[\"a\",\"b\"]}";
-  xAgentToolConf tconf_add = {};
-  tconf_add.name        = "add";
-  tconf_add.description = "Add two integers";
-  tconf_add.json_schema = add_schema;
-  tconf_add.handler     = noop_tool_handler;
-  xAgentTool t_add = xAgentToolCreate(&tconf_add);
+  const char    *add_schema = "{\"type\":\"object\","
+                              "\"properties\":{\"a\":{\"type\":\"integer\"},"
+                              "\"b\":{\"type\":\"integer\"}},"
+                              "\"required\":[\"a\",\"b\"]}";
+  xAgentToolConf tconf_add  = {};
+  tconf_add.name            = "add";
+  tconf_add.description     = "Add two integers";
+  tconf_add.json_schema     = add_schema;
+  tconf_add.handler         = noop_tool_handler;
+  xAgentTool t_add          = xAgentToolCreate(&tconf_add);
   ASSERT_NE(t_add, nullptr);
 
   /* This is exactly how examples/ai_openai.cpp advertises tools —
@@ -635,20 +624,20 @@ TEST_F(OpenAIProviderTest, RequestBodyEncodesTools) {
   xAgentContent user_c = xAgentContentText("ping");
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages    = &user_m;
-  conf.n_messages  = 1;
-  conf.tools       = tools;
-  conf.tools_count = sizeof(tools) / sizeof(tools[0]);
-  conf.temperature = -1.0;
+  conf.messages                 = &user_m;
+  conf.n_messages               = 1;
+  conf.tools                    = tools;
+  conf.tools_count              = sizeof(tools) / sizeof(tools[0]);
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_done = on_done;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
@@ -659,27 +648,25 @@ TEST_F(OpenAIProviderTest, RequestBodyEncodesTools) {
   const std::string &req = srv.request();
 
   /* Positive assertions: every field oai_tool_to_json() writes. */
-  EXPECT_NE(req.find("\"tools\":["),                 std::string::npos);
-  EXPECT_NE(req.find("\"type\":\"function\""),       std::string::npos);
-  EXPECT_NE(req.find("\"name\":\"get_time\""),       std::string::npos);
-  EXPECT_NE(req.find("\"description\":\"Return current local time\""),
-            std::string::npos);
-  EXPECT_NE(req.find("\"name\":\"add\""),            std::string::npos);
-  EXPECT_NE(req.find("\"description\":\"Add two integers\""),
-            std::string::npos);
+  EXPECT_NE(req.find("\"tools\":["), std::string::npos);
+  EXPECT_NE(req.find("\"type\":\"function\""), std::string::npos);
+  EXPECT_NE(req.find("\"name\":\"get_time\""), std::string::npos);
+  EXPECT_NE(req.find("\"description\":\"Return current local time\""), std::string::npos);
+  EXPECT_NE(req.find("\"name\":\"add\""), std::string::npos);
+  EXPECT_NE(req.find("\"description\":\"Add two integers\""), std::string::npos);
   /* The `add` schema is pre-parsed + re-emitted, so the exact byte
    * order may differ from the input string. Assert on distinctive
    * fragments only. */
-  EXPECT_NE(req.find("\"parameters\":{"),            std::string::npos);
-  EXPECT_NE(req.find("\"type\":\"object\""),         std::string::npos);
-  EXPECT_NE(req.find("\"required\":[\"a\",\"b\"]"),  std::string::npos);
+  EXPECT_NE(req.find("\"parameters\":{"), std::string::npos);
+  EXPECT_NE(req.find("\"type\":\"object\""), std::string::npos);
+  EXPECT_NE(req.find("\"required\":[\"a\",\"b\"]"), std::string::npos);
 
   /* Negative assertions: the pre-fix bug manifested as empty or
    * missing `name` (ai_tool_name() returned garbage / NULL, which
    * cJSON_AddStringToObject coerced to ""). These three lines would
    * have failed on the pre-57ddc48 code. */
-  EXPECT_EQ(req.find("\"name\":\"\""),               std::string::npos);
-  EXPECT_EQ(req.find("\"name\":null"),               std::string::npos);
+  EXPECT_EQ(req.find("\"name\":\"\""), std::string::npos);
+  EXPECT_EQ(req.find("\"name\":null"), std::string::npos);
   /* And of course no uninitialised garbage should leak into the
    * request as stray bytes. A canary: the SSE body we wired above
    * contains the literal "ok"; if random heap bytes ended up in the
@@ -720,10 +707,9 @@ TEST_F(OpenAIProviderTest, RequestBodyEncodesTools) {
 TEST_F(OpenAIProviderTest, HttpErrorIsNotSilentlyTreatedAsEndTurn) {
   /* The body here is what moonshot/openai-compatible endpoints
    * typically return on 400. It is NOT SSE. */
-  std::string err_body =
-    "{\"error\":{\"message\":\"Invalid request: tool_call_id not "
-    "found\",\"type\":\"invalid_request_error\",\"code\":"
-    "\"invalid_parameter\"}}";
+  std::string err_body = "{\"error\":{\"message\":\"Invalid request: tool_call_id not "
+                         "found\",\"type\":\"invalid_request_error\",\"code\":"
+                         "\"invalid_parameter\"}}";
 
   MiniOpenAIServer srv(err_body);
   srv.set_error_status(400, "Bad Request");
@@ -735,20 +721,20 @@ TEST_F(OpenAIProviderTest, HttpErrorIsNotSilentlyTreatedAsEndTurn) {
   xAgentContent user_c = xAgentContentText("hi");
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages    = &user_m;
-  conf.n_messages  = 1;
-  conf.temperature = -1.0;
+  conf.messages                 = &user_m;
+  conf.n_messages               = 1;
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_text      = on_text;
-  cbs.on_tool_call = on_tool;
-  cbs.on_done      = on_done;
+  cbs.on_text                       = on_text;
+  cbs.on_tool_call                  = on_tool;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
@@ -765,11 +751,9 @@ TEST_F(OpenAIProviderTest, HttpErrorIsNotSilentlyTreatedAsEndTurn) {
    * Either the reason shifts to Error, or the errno becomes
    * non-Ok — but the combination (EndTurn, Ok) is a lie. */
   bool reported_as_error =
-    (rec.done_reason == xAgentProviderStop_Error) ||
-    (rec.done_err != xErrno_Ok);
+    (rec.done_reason == xAgentProviderStop_Error) || (rec.done_err != xErrno_Ok);
   EXPECT_TRUE(reported_as_error)
-    << "HTTP 400 was silently reported as reason="
-    << static_cast<int>(rec.done_reason)
+    << "HTTP 400 was silently reported as reason=" << static_cast<int>(rec.done_reason)
     << ", err=" << static_cast<int>(rec.done_err)
     << ". This is the 2026-04-23 'reply_bytes=0 reason=completed' bug.";
 
@@ -795,15 +779,14 @@ TEST_F(OpenAIProviderTest, StreamsReasoningContent) {
   /* Two reasoning deltas, one text delta, and a stop. Ordering matters:
    * thinking-capable APIs typically emit reasoning first, then the
    * final answer. */
-  std::string body =
-    "data: {\"choices\":[{\"delta\":"
-         "{\"reasoning_content\":\"I think \"}}]}\n\n"
-    "data: {\"choices\":[{\"delta\":"
-         "{\"reasoning_content\":\"therefore I am.\"}}]}\n\n"
-    "data: {\"choices\":[{\"delta\":"
-         "{\"content\":\"Hi.\"},"
-         "\"finish_reason\":\"stop\"}]}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":"
+                     "{\"reasoning_content\":\"I think \"}}]}\n\n"
+                     "data: {\"choices\":[{\"delta\":"
+                     "{\"reasoning_content\":\"therefore I am.\"}}]}\n\n"
+                     "data: {\"choices\":[{\"delta\":"
+                     "{\"content\":\"Hi.\"},"
+                     "\"finish_reason\":\"stop\"}]}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -814,20 +797,20 @@ TEST_F(OpenAIProviderTest, StreamsReasoningContent) {
   xAgentContent user_c = xAgentContentText("hi");
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages    = &user_m;
-  conf.n_messages  = 1;
-  conf.temperature = -1.0;
+  conf.messages                 = &user_m;
+  conf.n_messages               = 1;
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_text     = on_text;
-  cbs.on_thinking = on_thinking;
-  cbs.on_done     = on_done;
+  cbs.on_text                       = on_text;
+  cbs.on_thinking                   = on_thinking;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
@@ -838,9 +821,9 @@ TEST_F(OpenAIProviderTest, StreamsReasoningContent) {
   /* Reasoning assembled in arrival order. */
   EXPECT_EQ(rec.thinking, "I think therefore I am.");
   /* And it did NOT bleed into on_text. */
-  EXPECT_EQ(rec.text,     "Hi.");
+  EXPECT_EQ(rec.text, "Hi.");
   EXPECT_EQ(rec.done_reason, xAgentProviderStop_EndTurn);
-  EXPECT_EQ(rec.done_err,    xErrno_Ok);
+  EXPECT_EQ(rec.done_err, xErrno_Ok);
 
   xAgentProviderDestroy(pvd);
   srv.join();
@@ -863,10 +846,9 @@ TEST_F(OpenAIProviderTest, StreamsReasoningContent) {
  * ToolUse → `tool_calls`.                                              */
 
 TEST_F(OpenAIProviderTest, AssistantMessageSerialisesReasoningContent) {
-  std::string body =
-    "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},"
-         "\"finish_reason\":\"stop\"}]}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},"
+                     "\"finish_reason\":\"stop\"}]}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -888,40 +870,40 @@ TEST_F(OpenAIProviderTest, AssistantMessageSerialisesReasoningContent) {
   xAgentContent u0 = xAgentContentText("weather in SF?");
   xAgentMessage m0 = xAgentMessageFromContent(xAgentRole_User, &u0, 1);
 
-  xAgentContent a_blocks[2] = {};
-  a_blocks[0].type              = xAgentContentType_Thinking;
-  a_blocks[0].u.thinking.text   = "I should call get_weather.";
-  a_blocks[0].u.thinking.len    = strlen(a_blocks[0].u.thinking.text);
-  a_blocks[1].type              = xAgentContentType_ToolUse;
+  xAgentContent a_blocks[2]        = {};
+  a_blocks[0].type                 = xAgentContentType_Thinking;
+  a_blocks[0].u.thinking.text      = "I should call get_weather.";
+  a_blocks[0].u.thinking.len       = strlen(a_blocks[0].u.thinking.text);
+  a_blocks[1].type                 = xAgentContentType_ToolUse;
   a_blocks[1].u.tool_use.id        = "call_1";
   a_blocks[1].u.tool_use.name      = "get_weather";
   a_blocks[1].u.tool_use.args_json = "{\"city\":\"SF\"}";
-  xAgentMessage m1 = xAgentMessageFromContent(xAgentRole_Assistant, a_blocks, 2);
+  xAgentMessage m1                 = xAgentMessageFromContent(xAgentRole_Assistant, a_blocks, 2);
 
-  xAgentContent t_block = {};
+  xAgentContent t_block            = {};
   t_block.type                     = xAgentContentType_ToolResult;
   t_block.u.tool_result.id         = "call_1";
   t_block.u.tool_result.output     = "sunny";
   t_block.u.tool_result.output_len = 5;
-  xAgentMessage m2 = xAgentMessageFromContent(xAgentRole_Tool, &t_block, 1);
+  xAgentMessage m2                 = xAgentMessageFromContent(xAgentRole_Tool, &t_block, 1);
 
   xAgentContent u3 = xAgentContentText("thanks");
   xAgentMessage m3 = xAgentMessageFromContent(xAgentRole_User, &u3, 1);
 
   xAgentMessage msgs[] = {m0, m1, m2, m3};
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages    = msgs;
-  conf.n_messages  = sizeof(msgs) / sizeof(msgs[0]);
-  conf.temperature = -1.0;
+  conf.messages                 = msgs;
+  conf.n_messages               = sizeof(msgs) / sizeof(msgs[0]);
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_done = on_done;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
@@ -933,27 +915,25 @@ TEST_F(OpenAIProviderTest, AssistantMessageSerialisesReasoningContent) {
 
   /* Positive: Thinking made it out as reasoning_content on the
    * assistant message. */
-  EXPECT_NE(req.find("\"reasoning_content\":\"I should call get_weather.\""),
-            std::string::npos)
+  EXPECT_NE(req.find("\"reasoning_content\":\"I should call get_weather.\""), std::string::npos)
     << "assistant Thinking block was NOT serialised as reasoning_content. "
        "kimi-k2.6 / DeepSeek-R1 will 400 the next round. Request was:\n"
     << req;
 
   /* Positive: ToolUse still rendered alongside. */
-  EXPECT_NE(req.find("\"tool_calls\":["),        std::string::npos);
+  EXPECT_NE(req.find("\"tool_calls\":["), std::string::npos);
   EXPECT_NE(req.find("\"name\":\"get_weather\""), std::string::npos);
-  EXPECT_NE(req.find("\"id\":\"call_1\""),        std::string::npos);
+  EXPECT_NE(req.find("\"id\":\"call_1\""), std::string::npos);
 
   /* Positive: assistant's `content` is null when there is no Text
    * block (matching OpenAI's wire convention for tool_call-only
    * turns). */
   EXPECT_NE(req.find("\"role\":\"assistant\""), std::string::npos);
-  EXPECT_NE(req.find("\"content\":null"),       std::string::npos);
+  EXPECT_NE(req.find("\"content\":null"), std::string::npos);
 
   /* Negative: the reasoning must NOT accidentally land on the user
    * or tool messages, nor duplicate as `content`. */
-  EXPECT_EQ(req.find("\"content\":\"I should call get_weather.\""),
-            std::string::npos);
+  EXPECT_EQ(req.find("\"content\":\"I should call get_weather.\""), std::string::npos);
 
   xAgentProviderDestroy(pvd);
   srv.join();
@@ -978,12 +958,11 @@ TEST_F(OpenAIProviderTest, AssistantMessageSerialisesReasoningContent) {
  * xAgentUsage* pointer.                                                 */
 
 TEST_F(OpenAIProviderTest, ForwardsUsageOnDone) {
-  std::string body =
-    "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},"
-         "\"finish_reason\":\"stop\"}]}\n\n"
-    "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":12,"
-         "\"completion_tokens\":7,\"total_tokens\":19}}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},"
+                     "\"finish_reason\":\"stop\"}]}\n\n"
+                     "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":12,"
+                     "\"completion_tokens\":7,\"total_tokens\":19}}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -994,19 +973,19 @@ TEST_F(OpenAIProviderTest, ForwardsUsageOnDone) {
   xAgentContent user_c = xAgentContentText("hi");
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages    = &user_m;
-  conf.n_messages  = 1;
-  conf.temperature = -1.0;
+  conf.messages                 = &user_m;
+  conf.n_messages               = 1;
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_text = on_text;
-  cbs.on_done = on_done;
+  cbs.on_text                       = on_text;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
@@ -1027,13 +1006,12 @@ TEST_F(OpenAIProviderTest, ForwardsUsageOnDone) {
    * trip intact. */
   EXPECT_EQ(rec.text, "hi");
   EXPECT_EQ(rec.done_reason, xAgentProviderStop_EndTurn);
-  ASSERT_TRUE(rec.has_usage)
-    << "provider did not forward usage to on_done — either the "
-       "parser missed `usage` on a choices-empty chunk, or "
-       "oai_finish_flight failed to pass the pointer.";
-  EXPECT_EQ(rec.usage.prompt_tokens,     12);
+  ASSERT_TRUE(rec.has_usage) << "provider did not forward usage to on_done — either the "
+                                "parser missed `usage` on a choices-empty chunk, or "
+                                "oai_finish_flight failed to pass the pointer.";
+  EXPECT_EQ(rec.usage.prompt_tokens, 12);
   EXPECT_EQ(rec.usage.completion_tokens, 7);
-  EXPECT_EQ(rec.usage.total_tokens,      19);
+  EXPECT_EQ(rec.usage.total_tokens, 19);
 
   xAgentProviderDestroy(pvd);
   srv.join();
@@ -1047,10 +1025,9 @@ TEST_F(OpenAIProviderTest, ForwardsUsageOnDone) {
  * which would misrepresent "no data" as "zero tokens used".        */
 
 TEST_F(OpenAIProviderTest, NoUsageChunkYieldsNullUsage) {
-  std::string body =
-    "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},"
-         "\"finish_reason\":\"stop\"}]}\n\n"
-    "data: [DONE]\n\n";
+  std::string body = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},"
+                     "\"finish_reason\":\"stop\"}]}\n\n"
+                     "data: [DONE]\n\n";
 
   MiniOpenAIServer srv(body);
   srv.start();
@@ -1061,18 +1038,18 @@ TEST_F(OpenAIProviderTest, NoUsageChunkYieldsNullUsage) {
   xAgentContent user_c = xAgentContentText("hi");
   xAgentMessage user_m = xAgentMessageFromContent(xAgentRole_User, &user_c, 1);
 
-  Recorder rec;
+  Recorder                 rec;
   xAgentProviderSubmitConf conf = {};
-  conf.messages    = &user_m;
-  conf.n_messages  = 1;
-  conf.temperature = -1.0;
+  conf.messages                 = &user_m;
+  conf.n_messages               = 1;
+  conf.temperature              = -1.0;
 
   xAgentProviderStreamCallbacks cbs = {};
-  cbs.on_done = on_done;
+  cbs.on_done                       = on_done;
 
   struct ProviderBase {
     const xAgentProviderVtable *vt;
-    void                    *ctx;
+    void                       *ctx;
   };
   auto *base = reinterpret_cast<ProviderBase *>(pvd);
   ASSERT_EQ(base->vt->submit(base->ctx, &conf, &cbs, &rec), xErrno_Ok);
@@ -1080,9 +1057,8 @@ TEST_F(OpenAIProviderTest, NoUsageChunkYieldsNullUsage) {
   pump_until(loop, rec.done_fired, 5000);
   ASSERT_TRUE(rec.done_fired.load());
 
-  EXPECT_FALSE(rec.has_usage)
-    << "provider fabricated a usage struct out of thin air; the "
-       "caller has no way to tell 'unknown' from 'zero' apart.";
+  EXPECT_FALSE(rec.has_usage) << "provider fabricated a usage struct out of thin air; the "
+                                 "caller has no way to tell 'unknown' from 'zero' apart.";
 
   xAgentProviderDestroy(pvd);
   srv.join();

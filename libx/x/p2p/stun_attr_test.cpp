@@ -32,8 +32,7 @@ protected:
     xStunMsgEncode(&msg, msg_buf, sizeof(msg_buf));
 
     /* Init writer at attribute area */
-    xStunAttrWriterInit(&writer, msg_buf + XSTUN_HEADER_SIZE,
-                        sizeof(msg_buf) - XSTUN_HEADER_SIZE);
+    xStunAttrWriterInit(&writer, msg_buf + XSTUN_HEADER_SIZE, sizeof(msg_buf) - XSTUN_HEADER_SIZE);
   }
 
   /* Helper: build a decodable message from current writer state */
@@ -52,8 +51,7 @@ TEST_F(StunAttrTest, XorMappedAddressIPv4RoundTrip) {
   addr.sin_port   = htons(12345);
   inet_pton(AF_INET, "192.168.1.100", &addr.sin_addr);
 
-  xErrno err =
-    xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr, txn_id);
+  xErrno err = xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr, txn_id);
   ASSERT_EQ(err, xErrno_Ok);
 
   /* Decode */
@@ -85,8 +83,7 @@ TEST_F(StunAttrTest, XorMappedAddressIPv6RoundTrip) {
   addr.sin6_port   = htons(54321);
   inet_pton(AF_INET6, "2001:db8::1", &addr.sin6_addr);
 
-  xErrno err =
-    xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr, txn_id);
+  xErrno err = xStunAttrWriteXorMappedAddress(&writer, (struct sockaddr *)&addr, txn_id);
   ASSERT_EQ(err, xErrno_Ok);
 
   size_t total;
@@ -213,8 +210,7 @@ TEST_F(StunAttrTest, ErrorCodeRoundTrip) {
   int         code;
   const char *reason;
   size_t      reason_len;
-  ASSERT_EQ(xStunAttrDecodeErrorCode(&attr, &code, &reason, &reason_len),
-            xErrno_Ok);
+  ASSERT_EQ(xStunAttrDecodeErrorCode(&attr, &code, &reason, &reason_len), xErrno_Ok);
   EXPECT_EQ(code, 401);
   EXPECT_EQ(std::string(reason, reason_len), "Unauthorized");
 }
@@ -228,8 +224,7 @@ TEST_F(StunAttrTest, MessageIntegrityWriteAndVerify) {
 
   /* Write some attributes first */
   ASSERT_EQ(xStunAttrWritePriority(&writer, 0x12345678), xErrno_Ok);
-  ASSERT_EQ(xStunAttrWriteMessageIntegrity(&writer, msg_buf, key, key_len),
-            xErrno_Ok);
+  ASSERT_EQ(xStunAttrWriteMessageIntegrity(&writer, msg_buf, key, key_len), xErrno_Ok);
 
   size_t total;
   FinalizeMsg(&total);
@@ -251,14 +246,11 @@ TEST_F(StunAttrTest, MessageIntegrityWriteAndVerify) {
   EXPECT_EQ(attr.type, xStunAttrType_MessageIntegrity);
   EXPECT_EQ(attr.length, XSTUN_SHA1_DIGEST_SIZE);
 
-  EXPECT_EQ(
-    xStunAttrVerifyMessageIntegrity(msg_buf, total, &attr, key, key_len),
-    xErrno_Ok);
+  EXPECT_EQ(xStunAttrVerifyMessageIntegrity(msg_buf, total, &attr, key, key_len), xErrno_Ok);
 
   /* Verify with wrong key should fail */
   const char *wrong_key = "wrong_password";
-  EXPECT_NE(xStunAttrVerifyMessageIntegrity(msg_buf, total, &attr,
-                                            (const uint8_t *)wrong_key,
+  EXPECT_NE(xStunAttrVerifyMessageIntegrity(msg_buf, total, &attr, (const uint8_t *)wrong_key,
                                             strlen(wrong_key)),
             xErrno_Ok);
 }
@@ -365,8 +357,7 @@ TEST_F(StunAttrTest, LifetimeRoundTrip) {
 }
 
 TEST_F(StunAttrTest, RequestedTransportRoundTrip) {
-  ASSERT_EQ(xStunAttrWriteRequestedTransport(&writer, XTURN_TRANSPORT_UDP),
-            xErrno_Ok);
+  ASSERT_EQ(xStunAttrWriteRequestedTransport(&writer, XTURN_TRANSPORT_UDP), xErrno_Ok);
 
   size_t total;
   FinalizeMsg(&total);

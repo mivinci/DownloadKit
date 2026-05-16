@@ -20,20 +20,15 @@ XDEF_STRUCT(xWsServeCtx) {
   void        *user_arg;
 };
 
-static void ws_serve_handler(xHttpResponseWriter w,
-                             const xHttpRequest *req,
-                             void *arg) {
+static void ws_serve_handler(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
   xWsServeCtx *ctx = (xWsServeCtx *)arg;
   xWsUpgrade(w, req, &ctx->callbacks, ctx->user_arg);
 }
 
 /* ── Public API ────────────────────────────────────────── */
 
-xHttpServer xWsServe(xEventLoop loop,
-                     const char *host,
-                     uint16_t port,
-                     const xWsCallbacks *callbacks,
-                     void *arg) {
+xHttpServer xWsServe(xEventLoop loop, const char *host, uint16_t port,
+                     const xWsCallbacks *callbacks, void *arg) {
   if (!loop || !callbacks) return NULL;
 
   xHttpServer server = xHttpServerCreate(loop);
@@ -43,8 +38,7 @@ xHttpServer xWsServe(xEventLoop loop,
    * Freed when the server is destroyed (the route's arg
    * is opaque to the server, so we rely on the caller
    * to destroy the server via xHttpServerDestroy). */
-  xWsServeCtx *ctx =
-    (xWsServeCtx *)calloc(1, sizeof(xWsServeCtx));
+  xWsServeCtx *ctx = (xWsServeCtx *)calloc(1, sizeof(xWsServeCtx));
   if (!ctx) {
     xHttpServerDestroy(server);
     return NULL;
@@ -56,11 +50,10 @@ xHttpServer xWsServe(xEventLoop loop,
   /* Attach ctx to the server so it is freed automatically
    * when xHttpServerDestroy() is called. */
   struct xHttpServer_ *s = (struct xHttpServer_ *)server;
-  s->aux_data = ctx;
-  s->aux_free = free;
+  s->aux_data            = ctx;
+  s->aux_free            = free;
 
-  xErrno err = xHttpServerRoute(
-    server, "GET /", ws_serve_handler, ctx);
+  xErrno err = xHttpServerRoute(server, "GET /", ws_serve_handler, ctx);
   if (err != xErrno_Ok) {
     s->aux_data = NULL;
     s->aux_free = NULL;

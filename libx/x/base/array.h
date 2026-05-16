@@ -104,8 +104,7 @@ XDEF_STRUCT(xArrayCallbacks) {
  * @param cbs         Callbacks (may be NULL for no callbacks).
  * @return A new array, or NULL on allocation failure or invalid args.
  */
-XCAPI(xArray) xArrayCreate(size_t elem_size, size_t initial_cap,
-                           const xArrayCallbacks *cbs);
+XCAPI(xArray) xArrayCreate(size_t elem_size, size_t initial_cap, const xArrayCallbacks *cbs);
 
 /**
  * @brief Destroy an array, releasing all memory.

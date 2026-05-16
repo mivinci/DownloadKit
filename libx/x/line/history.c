@@ -10,24 +10,24 @@
 #include <sys/stat.h>
 
 #include "color.h"
-#include <x/base/log.h>
 #include "history.h"
 #include "line.h"
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h"
 #include "unicode.h"
+#include <x/base/log.h>
 
 #define IC_MAX_HISTORY (200)
 
 struct history_s {
-  ssize_t      count; // current number of entries in use
-  ssize_t      len;   // size of elems
-  const char **elems; // history items (up to count)
-  bool        *transient; // parallel to elems; if true, entry stays in
-                          // memory but is skipped on save
-  const char  *fname; // history file
-  bool         allow_duplicates; // allow duplicate entries?
+  ssize_t      count;           // current number of entries in use
+  ssize_t      len;             // size of elems
+  const char **elems;           // history items (up to count)
+  bool        *transient;       // parallel to elems; if true, entry stays in
+                                // memory but is skipped on save
+  const char *fname;            // history file
+  bool        allow_duplicates; // allow duplicate entries?
 };
 
 ic_private history_t *history_new(void) {
@@ -135,9 +135,8 @@ ic_private const char *history_get(const history_t *h, ssize_t n) {
   return h->elems[h->count - n - 1];
 }
 
-ic_private bool history_search(const history_t *h, ssize_t from /*including*/,
-                               const char *search, bool backward, ssize_t *hidx,
-                               ssize_t *hpos) {
+ic_private bool history_search(const history_t *h, ssize_t from /*including*/, const char *search,
+                               bool backward, ssize_t *hidx, ssize_t *hpos) {
   const char *p = NULL;
   ssize_t     i;
   if (backward) {
@@ -161,16 +160,14 @@ ic_private bool history_search(const history_t *h, ssize_t from /*including*/,
 //
 //-------------------------------------------------------------
 
-ic_private void history_load_from(history_t *h, const char *fname,
-                                  long max_entries) {
+ic_private void history_load_from(history_t *h, const char *fname, long max_entries) {
   history_clear(h);
   h->fname = ic_strdup(fname);
   if (max_entries == 0) {
     assert(h->elems == NULL);
     return;
   }
-  if (max_entries < 0 || max_entries > IC_MAX_HISTORY)
-    max_entries = IC_MAX_HISTORY;
+  if (max_entries < 0 || max_entries > IC_MAX_HISTORY) max_entries = IC_MAX_HISTORY;
   h->elems = (const char **)calloc(to_size_t(max_entries), sizeof(char *));
   if (h->elems == NULL) return;
   h->transient = (bool *)calloc(to_size_t(max_entries), sizeof(bool));
@@ -201,8 +198,7 @@ static char to_xdigit(uint8_t c) {
 }
 
 static bool ic_isxdigit(int c) {
-  return ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') ||
-          (c >= '0' && c <= '9'));
+  return ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || (c >= '0' && c <= '9'));
 }
 
 static bool history_read_entry(history_t *h, FILE *f, stringbuf_t *sbuf) {

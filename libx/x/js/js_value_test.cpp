@@ -131,14 +131,12 @@ TEST_F(XjsValueTest, MakeSymbolWithDescription) {
   /* ECMA ToString(Symbol) throws TypeError, so we can't use
    * xJSValueToStringCopy directly.  Instead read sym.description via
    * JS, which returns the plain string passed to the constructor. */
-  xJSStringRef getDescSrc = xJSStringCreateWithUTF8CString(
-    "(function(sym){ return sym.description; })");
-  xJSValueRef fn =
-    xJSEvaluateScript(ctx_, getDescSrc, nullptr, nullptr, 0, nullptr);
+  xJSStringRef getDescSrc =
+    xJSStringCreateWithUTF8CString("(function(sym){ return sym.description; })");
+  xJSValueRef fn = xJSEvaluateScript(ctx_, getDescSrc, nullptr, nullptr, 0, nullptr);
   ASSERT_NE(fn, nullptr);
   xJSValueRef arg = s;
-  xJSValueRef out =
-    xJSObjectCallAsFunction(ctx_, (xJSObjectRef)fn, nullptr, 1, &arg, nullptr);
+  xJSValueRef out = xJSObjectCallAsFunction(ctx_, (xJSObjectRef)fn, nullptr, 1, &arg, nullptr);
   ASSERT_NE(out, nullptr);
   xJSStringRef back = xJSValueToStringCopy(ctx_, out, nullptr);
   ASSERT_NE(back, nullptr);
@@ -162,9 +160,9 @@ TEST_F(XjsValueTest, MakeSymbolWithoutDescription) {
 }
 
 TEST_F(XjsValueTest, MakeSymbolProducesUniqueIdentity) {
-  xJSStringRef d  = xJSStringCreateWithUTF8CString("x");
-  xJSValueRef  a  = xJSValueMakeSymbol(ctx_, d);
-  xJSValueRef  b  = xJSValueMakeSymbol(ctx_, d);
+  xJSStringRef d = xJSStringCreateWithUTF8CString("x");
+  xJSValueRef  a = xJSValueMakeSymbol(ctx_, d);
+  xJSValueRef  b = xJSValueMakeSymbol(ctx_, d);
   ASSERT_NE(a, nullptr);
   ASSERT_NE(b, nullptr);
   /* Symbol() always mints a fresh, un-interned symbol — even with the
@@ -245,8 +243,8 @@ TEST_F(XjsValueTest, IsObjectOfClassMatchesOwnClass) {
   xJSClassRef cls        = xJSClassCreate(&def);
   ASSERT_NE(cls, nullptr);
 
-  int dummy = 0;
-  xJSObjectRef obj = xJSObjectMake(ctx_, cls, &dummy);
+  int          dummy = 0;
+  xJSObjectRef obj   = xJSObjectMake(ctx_, cls, &dummy);
   ASSERT_NE(obj, nullptr);
   EXPECT_TRUE(xJSValueIsObjectOfClass(ctx_, (xJSValueRef)obj, cls));
 
@@ -257,12 +255,12 @@ TEST_F(XjsValueTest, IsObjectOfClassMatchesOwnClass) {
 TEST_F(XjsValueTest, IsObjectOfClassRejectsOtherClass) {
   xJSClassDefinition defA = kXJSClassDefinitionEmpty;
   defA.className          = "A";
-  xJSClassRef A           = xJSClassCreate(&defA);
+  xJSClassRef        A    = xJSClassCreate(&defA);
   xJSClassDefinition defB = kXJSClassDefinitionEmpty;
   defB.className          = "B";
   xJSClassRef B           = xJSClassCreate(&defB);
 
-  int d = 0;
+  int          d = 0;
   xJSObjectRef a = xJSObjectMake(ctx_, A, &d);
   ASSERT_NE(a, nullptr);
   EXPECT_TRUE(xJSValueIsObjectOfClass(ctx_, (xJSValueRef)a, A));
@@ -367,8 +365,7 @@ TEST_F(XjsValueTest, AbstractEqualBoolCoercesToNumber) {
 TEST_F(XjsValueTest, AbstractEqualThrowingToPrimitivePropagates) {
   /* Object whose @@toPrimitive throws — JS_IsEqual must surface that
    * through the exception out-parameter, not silently swallow it. */
-  xJSValueRef o = eval(
-    "({ [Symbol.toPrimitive]() { throw new Error('boom'); } })");
+  xJSValueRef o = eval("({ [Symbol.toPrimitive]() { throw new Error('boom'); } })");
   ASSERT_TRUE(o);
   xJSValueRef n   = xJSValueMakeNumber(ctx_, 1);
   xJSValueRef exc = nullptr;
@@ -529,8 +526,7 @@ TEST_F(XjsValueTest, ToObjectBoxesString) {
   EXPECT_TRUE(xJSValueIsObject(ctx_, (xJSValueRef)obj));
 
   /* Round-trip back to string to prove the box wraps the original. */
-  xJSStringRef back =
-    xJSValueToStringCopy(ctx_, (xJSValueRef)obj, nullptr);
+  xJSStringRef back = xJSValueToStringCopy(ctx_, (xJSValueRef)obj, nullptr);
   ASSERT_NE(back, nullptr);
   EXPECT_TRUE(xJSStringIsEqualToUTF8CString(back, "hey"));
 
@@ -561,8 +557,7 @@ TEST_F(XjsValueTest, ToObjectFromUndefinedThrowsTypeError) {
   char buf[64] = {0};
   xJSStringGetUTF8CString(s, buf, sizeof(buf));
   /* QuickJS wording contains "TypeError". */
-  EXPECT_TRUE(strstr(buf, "TypeError") != nullptr ||
-              strstr(buf, "convert")   != nullptr);
+  EXPECT_TRUE(strstr(buf, "TypeError") != nullptr || strstr(buf, "convert") != nullptr);
   xJSStringRelease(s);
   xjs_slot_release(exc);
   xjs_slot_release(u);

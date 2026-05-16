@@ -19,9 +19,9 @@ XDEF_STRUCT(xDataChannel_) {
   uint16_t          stream_id;
   xDataChannelState state;
   xDataChannelConf  conf;
-  xDataChannelMgr   mgr; /* Back-pointer to owning manager */
+  xDataChannelMgr   mgr;                           /* Back-pointer to owning manager */
   size_t            buffered_amount;               /**< Tracked send-buffer usage. */
-  size_t            buffered_amount_low_threshold;  /**< Low-water mark.            */
+  size_t            buffered_amount_low_threshold; /**< Low-water mark.            */
 };
 
 XDEF_STRUCT(xDataChannelMgr_) {
@@ -55,8 +55,7 @@ XDEF_STRUCT(xDataChannelMgr_) {
  *  |                                                               |
  *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
-static int dcep_encode_open(const xDataChannelConf *conf, uint8_t *buf,
-                            size_t cap) {
+static int dcep_encode_open(const xDataChannelConf *conf, uint8_t *buf, size_t cap) {
   size_t label_len    = strlen(conf->label);
   size_t protocol_len = strlen(conf->protocol);
   size_t total        = 12 + label_len + protocol_len;
@@ -69,14 +68,13 @@ static int dcep_encode_open(const xDataChannelConf *conf, uint8_t *buf,
   /* Channel Type */
   uint8_t channel_type;
   if (conf->max_retransmits > 0) {
-    channel_type = conf->ordered ? XDCEP_CHANNEL_PARTIAL_RTXS
-                                 : XDCEP_CHANNEL_PARTIAL_RTXS_UNORDERED;
+    channel_type =
+      conf->ordered ? XDCEP_CHANNEL_PARTIAL_RTXS : XDCEP_CHANNEL_PARTIAL_RTXS_UNORDERED;
   } else if (conf->max_packet_life_time > 0) {
-    channel_type = conf->ordered ? XDCEP_CHANNEL_PARTIAL_TIME
-                                 : XDCEP_CHANNEL_PARTIAL_TIME_UNORDERED;
+    channel_type =
+      conf->ordered ? XDCEP_CHANNEL_PARTIAL_TIME : XDCEP_CHANNEL_PARTIAL_TIME_UNORDERED;
   } else {
-    channel_type = conf->ordered ? XDCEP_CHANNEL_RELIABLE
-                                 : XDCEP_CHANNEL_RELIABLE_UNORDERED;
+    channel_type = conf->ordered ? XDCEP_CHANNEL_RELIABLE : XDCEP_CHANNEL_RELIABLE_UNORDERED;
   }
   buf[1] = channel_type;
 
@@ -120,8 +118,7 @@ static int dcep_encode_open(const xDataChannelConf *conf, uint8_t *buf,
 /**
  * @brief Decode a DATA_CHANNEL_OPEN message.
  */
-static xErrno dcep_decode_open(const uint8_t *data, size_t len,
-                               xDataChannelConf *out) {
+static xErrno dcep_decode_open(const uint8_t *data, size_t len, xDataChannelConf *out) {
   if (len < 12) return xErrno_InvalidArg;
   if (data[0] != XDCEP_DATA_CHANNEL_OPEN) return xErrno_InvalidArg;
 
@@ -133,9 +130,8 @@ static xErrno dcep_decode_open(const uint8_t *data, size_t len,
   out->ordered = !(channel_type & 0x80);
 
   /* Decode reliability */
-  uint32_t reliability =
-    ((uint32_t)data[4] << 24) | ((uint32_t)data[5] << 16) |
-    ((uint32_t)data[6] << 8) | (uint32_t)data[7];
+  uint32_t reliability = ((uint32_t)data[4] << 24) | ((uint32_t)data[5] << 16) |
+                         ((uint32_t)data[6] << 8) | (uint32_t)data[7];
 
   uint8_t base_type = channel_type & 0x7F;
   if (base_type == 0x01) {
@@ -177,8 +173,7 @@ static int dcep_encode_ack(uint8_t *buf, size_t cap) {
 xDataChannelMgr xDataChannelMgrCreate(const xDataChannelMgrConf *conf) {
   if (!conf || !conf->sctp) return NULL;
 
-  xDataChannelMgr_ *mgr =
-    (xDataChannelMgr_ *)calloc(1, sizeof(xDataChannelMgr_));
+  xDataChannelMgr_ *mgr = (xDataChannelMgr_ *)calloc(1, sizeof(xDataChannelMgr_));
   if (!mgr) return NULL;
 
   mgr->conf = *conf;
@@ -201,8 +196,7 @@ void xDataChannelMgrDestroy(xDataChannelMgr mgr_handle) {
   free(mgr);
 }
 
-static xDataChannel_ *find_channel(xDataChannelMgr_ *mgr,
-                                    uint16_t          stream_id) {
+static xDataChannel_ *find_channel(xDataChannelMgr_ *mgr, uint16_t stream_id) {
   for (int i = 0; i < mgr->channel_count; i++) {
     if (mgr->channels[i] && mgr->channels[i]->stream_id == stream_id) {
       return mgr->channels[i];
@@ -212,7 +206,7 @@ static xDataChannel_ *find_channel(xDataChannelMgr_ *mgr,
 }
 
 static xDataChannel_ *add_channel(xDataChannelMgr_ *mgr, uint16_t stream_id,
-                                   const xDataChannelConf *conf) {
+                                  const xDataChannelConf *conf) {
   if (mgr->channel_count >= XDC_MAX_CHANNELS) return NULL;
 
   xDataChannel_ *ch = (xDataChannel_ *)calloc(1, sizeof(xDataChannel_));
@@ -227,8 +221,8 @@ static xDataChannel_ *add_channel(xDataChannelMgr_ *mgr, uint16_t stream_id,
   return ch;
 }
 
-void xDataChannelMgrOnData(xDataChannelMgr mgr_handle, uint16_t stream_id,
-                            uint32_t ppid, const uint8_t *data, size_t len) {
+void xDataChannelMgrOnData(xDataChannelMgr mgr_handle, uint16_t stream_id, uint32_t ppid,
+                           const uint8_t *data, size_t len) {
   if (!mgr_handle || !data) return;
   xDataChannelMgr_ *mgr = (xDataChannelMgr_ *)mgr_handle;
 
@@ -255,8 +249,8 @@ void xDataChannelMgrOnData(xDataChannelMgr mgr_handle, uint16_t stream_id,
       uint8_t ack_buf[1];
       int     ack_len = dcep_encode_ack(ack_buf, sizeof(ack_buf));
       if (ack_len > 0) {
-        xSctpTransportSend(mgr->conf.sctp, stream_id, XSCTP_PPID_DCEP,
-                           ack_buf, (size_t)ack_len, true);
+        xSctpTransportSend(mgr->conf.sctp, stream_id, XSCTP_PPID_DCEP, ack_buf, (size_t)ack_len,
+                           true);
       }
 
       ch->state = xDataChannelState_Open;
@@ -298,8 +292,7 @@ void xDataChannelMgrOnData(xDataChannelMgr mgr_handle, uint16_t stream_id,
   }
 }
 
-void xDataChannelMgrOnStreamClose(xDataChannelMgr mgr_handle,
-                                   uint16_t        stream_id) {
+void xDataChannelMgrOnStreamClose(xDataChannelMgr mgr_handle, uint16_t stream_id) {
   if (!mgr_handle) return;
   xDataChannelMgr_ *mgr = (xDataChannelMgr_ *)mgr_handle;
 
@@ -314,8 +307,7 @@ void xDataChannelMgrOnStreamClose(xDataChannelMgr mgr_handle,
 
 /* ───────────────────── Channel API ───────────────────── */
 
-xDataChannel xDataChannelCreate(xDataChannelMgr        mgr_handle,
-                                 const xDataChannelConf *conf) {
+xDataChannel xDataChannelCreate(xDataChannelMgr mgr_handle, const xDataChannelConf *conf) {
   if (!mgr_handle || !conf) return NULL;
   xDataChannelMgr_ *mgr = (xDataChannelMgr_ *)mgr_handle;
 
@@ -335,8 +327,8 @@ xDataChannel xDataChannelCreate(xDataChannelMgr        mgr_handle,
     return NULL;
   }
 
-  xErrno err = xSctpTransportSend(mgr->conf.sctp, stream_id, XSCTP_PPID_DCEP,
-                                  open_buf, (size_t)open_len, true);
+  xErrno err = xSctpTransportSend(mgr->conf.sctp, stream_id, XSCTP_PPID_DCEP, open_buf,
+                                  (size_t)open_len, true);
   if (err != xErrno_Ok) {
     mgr->channel_count--;
     free(ch);
@@ -346,8 +338,7 @@ xDataChannel xDataChannelCreate(xDataChannelMgr        mgr_handle,
   return (xDataChannel)ch;
 }
 
-xErrno xDataChannelSendString(xDataChannel channel, const char *str,
-                               size_t len) {
+xErrno xDataChannelSendString(xDataChannel channel, const char *str, size_t len) {
   if (!channel || !str) return xErrno_InvalidArg;
   xDataChannel_    *ch  = (xDataChannel_ *)channel;
   xDataChannelMgr_ *mgr = (xDataChannelMgr_ *)ch->mgr;
@@ -355,12 +346,11 @@ xErrno xDataChannelSendString(xDataChannel channel, const char *str,
   if (ch->state != xDataChannelState_Open) return xErrno_InvalidArg;
 
   uint32_t ppid = (len == 0) ? XSCTP_PPID_STRING_EMPTY : XSCTP_PPID_STRING;
-  return xSctpTransportSend(mgr->conf.sctp, ch->stream_id, ppid,
-                            (const uint8_t *)str, len, ch->conf.ordered);
+  return xSctpTransportSend(mgr->conf.sctp, ch->stream_id, ppid, (const uint8_t *)str, len,
+                            ch->conf.ordered);
 }
 
-xErrno xDataChannelSendBinary(xDataChannel channel, const uint8_t *data,
-                               size_t len) {
+xErrno xDataChannelSendBinary(xDataChannel channel, const uint8_t *data, size_t len) {
   if (!channel || !data) return xErrno_InvalidArg;
   xDataChannel_    *ch  = (xDataChannel_ *)channel;
   xDataChannelMgr_ *mgr = (xDataChannelMgr_ *)ch->mgr;
@@ -368,8 +358,7 @@ xErrno xDataChannelSendBinary(xDataChannel channel, const uint8_t *data,
   if (ch->state != xDataChannelState_Open) return xErrno_InvalidArg;
 
   uint32_t ppid = (len == 0) ? XSCTP_PPID_BINARY_EMPTY : XSCTP_PPID_BINARY;
-  xErrno err = xSctpTransportSend(mgr->conf.sctp, ch->stream_id, ppid, data,
-                                  len, ch->conf.ordered);
+  xErrno err = xSctpTransportSend(mgr->conf.sctp, ch->stream_id, ppid, data, len, ch->conf.ordered);
   if (err == xErrno_Ok) {
     ch->buffered_amount += len;
   }
@@ -411,10 +400,9 @@ size_t xDataChannelGetBufferedAmount(xDataChannel channel) {
   return ch->buffered_amount;
 }
 
-void xDataChannelSetBufferedAmountLowThreshold(xDataChannel channel,
-                                                size_t threshold) {
+void xDataChannelSetBufferedAmountLowThreshold(xDataChannel channel, size_t threshold) {
   if (!channel) return;
-  xDataChannel_ *ch = (xDataChannel_ *)channel;
+  xDataChannel_ *ch                 = (xDataChannel_ *)channel;
   ch->buffered_amount_low_threshold = threshold;
 }
 

@@ -9,7 +9,9 @@
 #include <gtest/gtest.h>
 
 #ifdef _WIN32
-TEST(Io, SkipOnWindows) { GTEST_SKIP() << "IO tests are POSIX-only"; }
+TEST(Io, SkipOnWindows) {
+  GTEST_SKIP() << "IO tests are POSIX-only";
+}
 #else
 
 #include <cerrno>
@@ -53,8 +55,7 @@ static ssize_t mock_read(void *ctx, void *buf, size_t len) {
 
   size_t to_read = len;
   if (to_read > avail) to_read = avail;
-  if (m->chunk_size > 0 && to_read > m->chunk_size)
-    to_read = m->chunk_size;
+  if (m->chunk_size > 0 && to_read > m->chunk_size) to_read = m->chunk_size;
 
   memcpy(buf, m->data + m->pos, to_read);
   m->pos += to_read;
@@ -69,7 +70,7 @@ struct MockWriteCtx {
 };
 
 static ssize_t mock_writev(void *ctx, const struct iovec *iov, int iovcnt) {
-  auto  *m    = static_cast<MockWriteCtx *>(ctx);
+  auto *m = static_cast<MockWriteCtx *>(ctx);
   m->call_count++;
   m->last_iovcnt = iovcnt;
   ssize_t total  = 0;
@@ -91,13 +92,18 @@ static off_t mock_seek(void *ctx, off_t offset, int whence) {
   auto *m = static_cast<MockSeekCtx *>(ctx);
   m->call_count++;
   switch (whence) {
-  case SEEK_SET: m->current = offset; break;
-  case SEEK_CUR: m->current += offset; break;
+  case SEEK_SET:
+    m->current = offset;
+    break;
+  case SEEK_CUR:
+    m->current += offset;
+    break;
   case SEEK_END:
     /* Simulate a 1000-byte "file" */
     m->current = 1000 + offset;
     break;
-  default: return (off_t)-1;
+  default:
+    return (off_t)-1;
   }
   return m->current;
 }
@@ -140,8 +146,8 @@ TEST(IoTest, WriteSingleBuffer) {
   MockWriteCtx ctx = {};
   xWriter      w   = {mock_writev, &ctx};
 
-  const char  data[] = "world";
-  ssize_t     n      = xWrite(w, data, 5);
+  const char data[] = "world";
+  ssize_t    n      = xWrite(w, data, 5);
   EXPECT_EQ(n, 5);
   EXPECT_EQ(ctx.call_count, 1);
   EXPECT_EQ(ctx.last_iovcnt, 1); /* Single buffer wrapped as 1 iovec */
@@ -317,8 +323,8 @@ TEST(IoTest, ReadAllError) {
 
 TEST(IoTest, ReadAllLargeWithExpansion) {
   /* Create data larger than initial 4096 to trigger buffer expansion */
-  const size_t       total = 10000;
-  std::vector<char>  data(total);
+  const size_t      total = 10000;
+  std::vector<char> data(total);
   for (size_t i = 0; i < total; i++) {
     data[i] = (char)('A' + (i % 26));
   }

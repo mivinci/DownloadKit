@@ -39,9 +39,7 @@ TEST(HmacSha256, Rfc4231_1) {
   const char *data = "Hi There";
   uint8_t     digest[XCRYPTO_SHA256_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha256(key, sizeof(key), (const uint8_t *)data, strlen(data),
-                         digest),
-            xErrno_Ok);
+  ASSERT_EQ(xHmacSha256(key, sizeof(key), (const uint8_t *)data, strlen(data), digest), xErrno_Ok);
   EXPECT_EQ(hex(digest, XCRYPTO_SHA256_DIGEST_SIZE),
             "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
 }
@@ -52,9 +50,9 @@ TEST(HmacSha256, Rfc4231_2) {
   const char *data = "what do ya want for nothing?";
   uint8_t     digest[XCRYPTO_SHA256_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha256((const uint8_t *)key, strlen(key),
-                         (const uint8_t *)data, strlen(data), digest),
-            xErrno_Ok);
+  ASSERT_EQ(
+    xHmacSha256((const uint8_t *)key, strlen(key), (const uint8_t *)data, strlen(data), digest),
+    xErrno_Ok);
   EXPECT_EQ(hex(digest, XCRYPTO_SHA256_DIGEST_SIZE),
             "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
 }
@@ -67,20 +65,16 @@ TEST(HmacSha256, Rfc4231_3) {
   memset(data, 0xdd, sizeof(data));
   uint8_t digest[XCRYPTO_SHA256_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha256(key, sizeof(key), data, sizeof(data), digest),
-            xErrno_Ok);
+  ASSERT_EQ(xHmacSha256(key, sizeof(key), data, sizeof(data), digest), xErrno_Ok);
   EXPECT_EQ(hex(digest, XCRYPTO_SHA256_DIGEST_SIZE),
             "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe");
 }
 
 TEST(HmacSha256, NullArgs) {
   uint8_t digest[XCRYPTO_SHA256_DIGEST_SIZE];
-  EXPECT_EQ(xHmacSha256(NULL, 4, (const uint8_t *)"x", 1, digest),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xHmacSha256((const uint8_t *)"k", 1, NULL, 0, digest),
-            xErrno_InvalidArg);
-  EXPECT_EQ(xHmacSha256((const uint8_t *)"k", 1, (const uint8_t *)"x", 1, NULL),
-            xErrno_InvalidArg);
+  EXPECT_EQ(xHmacSha256(NULL, 4, (const uint8_t *)"x", 1, digest), xErrno_InvalidArg);
+  EXPECT_EQ(xHmacSha256((const uint8_t *)"k", 1, NULL, 0, digest), xErrno_InvalidArg);
+  EXPECT_EQ(xHmacSha256((const uint8_t *)"k", 1, (const uint8_t *)"x", 1, NULL), xErrno_InvalidArg);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -94,11 +88,10 @@ TEST(HmacSha256, GenericMatchesWrapper) {
   uint8_t     d1[XCRYPTO_SHA256_DIGEST_SIZE];
   uint8_t     d2[XCRYPTO_SHA256_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha256((const uint8_t *)key, strlen(key),
-                         (const uint8_t *)data, strlen(data), d1),
+  ASSERT_EQ(xHmacSha256((const uint8_t *)key, strlen(key), (const uint8_t *)data, strlen(data), d1),
             xErrno_Ok);
-  ASSERT_EQ(xHmac(&xHashVtableSha256, (const uint8_t *)key, strlen(key),
-                   (const uint8_t *)data, strlen(data), d2),
+  ASSERT_EQ(xHmac(&xHashVtableSha256, (const uint8_t *)key, strlen(key), (const uint8_t *)data,
+                  strlen(data), d2),
             xErrno_Ok);
   EXPECT_EQ(memcmp(d1, d2, XCRYPTO_SHA256_DIGEST_SIZE), 0);
 }
@@ -114,16 +107,13 @@ TEST(HmacSha256Streaming, MatchesOneShot) {
   uint8_t     d_oneshot[XCRYPTO_SHA256_DIGEST_SIZE];
   uint8_t     d_stream[XCRYPTO_SHA256_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha256((const uint8_t *)key, strlen(key),
-                         (const uint8_t *)data, strlen(data), d_oneshot),
-            xErrno_Ok);
+  ASSERT_EQ(
+    xHmacSha256((const uint8_t *)key, strlen(key), (const uint8_t *)data, strlen(data), d_oneshot),
+    xErrno_Ok);
 
   xHmacCtx ctx;
-  ASSERT_EQ(xHmacInit(&ctx, &xHashVtableSha256,
-                       (const uint8_t *)key, strlen(key)),
-            xErrno_Ok);
-  ASSERT_EQ(xHmacUpdate(&ctx, (const uint8_t *)data, strlen(data)),
-            xErrno_Ok);
+  ASSERT_EQ(xHmacInit(&ctx, &xHashVtableSha256, (const uint8_t *)key, strlen(key)), xErrno_Ok);
+  ASSERT_EQ(xHmacUpdate(&ctx, (const uint8_t *)data, strlen(data)), xErrno_Ok);
   ASSERT_EQ(xHmacFinal(&ctx, d_stream), xErrno_Ok);
 
   EXPECT_EQ(memcmp(d_oneshot, d_stream, XCRYPTO_SHA256_DIGEST_SIZE), 0);
@@ -137,8 +127,7 @@ TEST(HmacSha256Streaming, MultipleUpdates) {
   uint8_t     d_oneshot[XCRYPTO_SHA256_DIGEST_SIZE];
   uint8_t     d_stream[XCRYPTO_SHA256_DIGEST_SIZE];
 
-  ASSERT_EQ(xHmacSha256(key, sizeof(key), (const uint8_t *)data, strlen(data),
-                         d_oneshot),
+  ASSERT_EQ(xHmacSha256(key, sizeof(key), (const uint8_t *)data, strlen(data), d_oneshot),
             xErrno_Ok);
 
   xHmacCtx ctx;

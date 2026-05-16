@@ -6,9 +6,9 @@
  * dns.c - Asynchronous DNS resolution via thread-pool offload
  */
 
-#include <xnet/dns.h>
+#include <x/net/dns.h>
 
-#include <xbase/atomic.h>
+#include <x/base/atomic.h>
 
 #include <arpa/inet.h>
 #include <stdlib.h>

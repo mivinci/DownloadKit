@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <xbase/hex.h>
+#include <x/base/hex.h>
 }
 
 #include <cstring>

@@ -15,7 +15,7 @@
 
 #include "ctx.h"
 
-#include <xline/line.h>
+#include <x/line/line.h>
 
 /* Register the slash-command completer with xline. Called once from
  * main() after xLineSetHistory. `ctx` is stashed as the xline

@@ -30,13 +30,13 @@
 
 #include <stddef.h>
 
-#include <xagent/message.h>  /* xAgentMessage                                */
-#include <xagent/provider.h> /* xAgentProviderStopReason, xAgentUsage           */
-#include <xagent/query.h>    /* xAgentQueryCallbacks                         */
-#include <xagent/session.h>  /* xAgentDoneReason                             */
-#include <xbase/array.h>
-#include <xbase/error.h>
-#include <xbuf/buf.h> /* xBuffer                                    */
+#include <x/agent/message.h>  /* xAgentMessage                                */
+#include <x/agent/provider.h> /* xAgentProviderStopReason, xAgentUsage           */
+#include <x/agent/query.h>    /* xAgentQueryCallbacks                         */
+#include <x/agent/session.h>  /* xAgentDoneReason                             */
+#include <x/base/array.h>
+#include <x/base/error.h>
+#include <x/buf/buf.h> /* xBuffer                                    */
 
 #include "turn_private.h" /* struct xAgentSessionMsg_                     */
 

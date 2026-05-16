@@ -11,7 +11,7 @@
 #include <cstdlib>
 
 extern "C" {
-#include <xbase/array.h>
+#include <x/base/array.h>
 }
 
 /* ── Test element ── */

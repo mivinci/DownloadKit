@@ -114,7 +114,7 @@ Number of bytes written (excluding trailing `\0`), or 0 if `buf` is NULL or `siz
 
 ```c
 #include <stdio.h>
-#include <xbase/backtrace.h>
+#include <x/base/backtrace.h>
 
 void foo(void) {
     char buf[4096];
@@ -144,7 +144,7 @@ Stack trace:
 ### Skip Wrapper Frames
 
 ```c
-#include <xbase/backtrace.h>
+#include <x/base/backtrace.h>
 
 // Custom error reporter that skips its own frame
 void report_error(const char *msg) {

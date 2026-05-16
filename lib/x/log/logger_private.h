@@ -9,11 +9,11 @@
 #ifndef XLOG_LOGGER_PRIVATE_H
 #define XLOG_LOGGER_PRIVATE_H
 
-#include <xlog/logger.h>
+#include <x/log/logger.h>
 
 #include <stdio.h>
 
-#include <xbase/mpsc.h>
+#include <x/base/mpsc.h>
 
 /* ── Default flush interval (ms) ── */
 

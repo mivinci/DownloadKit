@@ -14,7 +14,7 @@
 #include <string.h>
 #include <sys/uio.h>
 #include <unistd.h>
-#include <xbase/log.h>
+#include <x/base/log.h>
 
 /* Maximum iovec entries for writev */
 #define XWS_MAX_IOV 64

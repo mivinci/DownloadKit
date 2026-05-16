@@ -14,7 +14,7 @@
 #define XBASE_BACKTRACE_H
 
 #include <stddef.h>
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 /**
  * @brief Capture the current call stack into @p buf.

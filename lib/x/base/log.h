@@ -16,7 +16,7 @@
 
 #include <stdarg.h>
 #include <stdbool.h>
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 /**
  * @brief Default format buffer size (bytes). Override at compile time

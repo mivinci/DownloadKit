@@ -13,8 +13,8 @@
  *   ./nat_probe -t 5000
  */
 
-#include <xbase/event.h>
-#include <xp2p/nat_probe.h>
+#include <x/base/event.h>
+#include <x/p2p/nat_probe.h>
 
 #include <signal.h>
 #include <stdio.h>

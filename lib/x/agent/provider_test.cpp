@@ -13,7 +13,7 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <xagent/provider.h>
+#include <x/agent/provider.h>
 #include "provider_private.h"
 }
 

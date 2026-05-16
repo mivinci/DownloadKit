@@ -9,9 +9,9 @@
 #ifndef XNET_DNS_H
 #define XNET_DNS_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 
 #include <netdb.h>
 #include <sys/socket.h>

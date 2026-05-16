@@ -15,7 +15,7 @@ The PeerConnection manages:
 ## Header
 
 ```c
-#include <xp2p/peer_connection.h>
+#include <x/p2p/peer_connection.h>
 ```
 
 ## Architecture
@@ -282,8 +282,8 @@ sequenceDiagram
 The `examples/pc_echo.c` demo creates two PeerConnections in the same process, exchanges SDP between them, and echoes a DataChannel message:
 
 ```c
-#include <xbase/event.h>
-#include <xp2p/peer_connection.h>
+#include <x/base/event.h>
+#include <x/p2p/peer_connection.h>
 
 #include <stdio.h>
 #include <stdlib.h>

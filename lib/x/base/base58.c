@@ -6,7 +6,7 @@
  * base58.c - Base58 encoding and decoding (Bitcoin alphabet)
  */
 
-#include <xbase/base58.h>
+#include <x/base/base58.h>
 
 #include <stdlib.h>
 #include <string.h>

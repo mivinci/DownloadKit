@@ -6,8 +6,8 @@
  * io.c - Reference-counted block-chain I/O buffer implementation
  */
 
-#include <xbase/atomic.h>
-#include <xbuf/io.h>
+#include <x/base/atomic.h>
+#include <x/buf/io.h>
 
 #include <assert.h>
 #include <errno.h>

@@ -67,7 +67,7 @@ bytes.
 ### Basic Encode and Decode
 
 ```c
-#include <xbase/hex.h>
+#include <x/base/hex.h>
 #include <stdio.h>
 #include <stdlib.h>
 

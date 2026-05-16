@@ -170,8 +170,8 @@ An `xCommandExecutor` can only run one command at a time. Calling `xCommandExecu
 
 ```c
 #include <stdio.h>
-#include <xbase/command.h>
-#include <xbase/event.h>
+#include <x/base/command.h>
+#include <x/base/event.h>
 
 static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
     xEventLoop loop = (xEventLoop)ud;
@@ -205,8 +205,8 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/command.h>
-#include <xbase/event.h>
+#include <x/base/command.h>
+#include <x/base/event.h>
 
 static void on_stdout(xCommandExecutor exec, const char *data, size_t len, void *ud) {
     fwrite(data, 1, len, stdout);
@@ -241,8 +241,8 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/command.h>
-#include <xbase/event.h>
+#include <x/base/command.h>
+#include <x/base/event.h>
 
 static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
     xEventLoop loop = (xEventLoop)ud;
@@ -280,8 +280,8 @@ int main(void) {
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <xbase/command.h>
-#include <xbase/event.h>
+#include <x/base/command.h>
+#include <x/base/event.h>
 
 static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
     xEventLoop loop = (xEventLoop)ud;
@@ -328,8 +328,8 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/command.h>
-#include <xbase/event.h>
+#include <x/base/command.h>
+#include <x/base/event.h>
 
 static void on_done(xCommandExecutor exec, const xCommandResult *result, void *ud) {
     xEventLoop loop = (xEventLoop)ud;

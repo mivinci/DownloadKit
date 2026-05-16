@@ -17,8 +17,8 @@
  *   ./pc_echo -6
  */
 
-#include <xbase/event.h>
-#include <xp2p/peer_connection.h>
+#include <x/base/event.h>
+#include <x/p2p/peer_connection.h>
 
 #include <stdio.h>
 #include <stdlib.h>

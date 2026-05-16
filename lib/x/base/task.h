@@ -13,8 +13,8 @@
 #define XBASE_TASK_H
 
 #include <stddef.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /**
  * @brief Task function signature.

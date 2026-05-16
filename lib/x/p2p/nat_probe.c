@@ -13,8 +13,8 @@
 #include "nat_probe.h"
 #include "stun_attr.h"
 #include "stun_msg.h"
-#include <xbase/log.h>
-#include <xnet/dns.h>
+#include <x/base/log.h>
+#include <x/net/dns.h>
 
 #include <arpa/inet.h>
 #include <errno.h>

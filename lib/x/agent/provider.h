@@ -23,18 +23,18 @@
  *      that works for every provider.
  *
  * Concrete providers are created through vendor-specific headers
- * (e.g. <xagent/provider_openai.h> exposes xAgentProviderOpenAICreate).
+ * (e.g. <x/agent/provider_openai.h> exposes xAgentProviderOpenAICreate).
  */
 
 #ifndef XAGENT_PROVIDER_H
 #define XAGENT_PROVIDER_H
 
 #include <stddef.h>
-#include <xagent/message.h>
-#include <xagent/tool.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
+#include <x/agent/message.h>
+#include <x/agent/tool.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 
 /**
  * @brief Opaque handle to a provider instance.

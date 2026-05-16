@@ -315,8 +315,8 @@ When `ca` is set and `skip_verify` is `0` (default), the server performs mutual 
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
-#include <xhttp/server.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
 
 static void on_hello(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
     (void)req; (void)arg;
@@ -345,8 +345,8 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xbase/event.h>
-#include <xhttp/server.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
 
 static void on_echo(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
     (void)arg;
@@ -384,8 +384,8 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xbase/event.h>
-#include <xhttp/server.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
 
 static void on_events(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
     (void)req; (void)arg;
@@ -418,8 +418,8 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xbase/event.h>
-#include <xhttp/server.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
 
 static void on_get_user(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
     (void)arg;
@@ -454,8 +454,8 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
-#include <xhttp/server.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
 
 static void on_hello(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
     (void)req; (void)arg;
@@ -489,8 +489,8 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
-#include <xhttp/server.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
 
 static void on_secure(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
     (void)req; (void)arg;
@@ -525,8 +525,8 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
-#include <xhttp/server.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
 
 static void on_hello(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
     (void)req; (void)arg;
@@ -562,8 +562,8 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
-#include <xhttp/server.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
 
 typedef struct {
     int counter;

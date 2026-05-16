@@ -132,7 +132,7 @@ flowchart TD
 
 ```c
 #include <stdio.h>
-#include <xbuf/buf.h>
+#include <x/buf/buf.h>
 
 int main(void) {
     xBuffer buf = xBufferCreate(256);
@@ -163,7 +163,7 @@ int main(void) {
 ### Network I/O
 
 ```c
-#include <xbuf/buf.h>
+#include <x/buf/buf.h>
 #include <unistd.h>
 
 void handle_connection(int sockfd) {

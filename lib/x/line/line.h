@@ -16,7 +16,7 @@ extern "C" {
 #include <stddef.h>  // size_t
 #include <stdint.h>  // uint32_t
 
-#include <xbase/base.h> // XDEF_HANDLE, XDEF_ENUM
+#include <x/base/base.h> // XDEF_HANDLE, XDEF_ENUM
 
 /*! \mainpage
 Isocline C API reference.

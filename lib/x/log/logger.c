@@ -10,7 +10,7 @@
  * bridging.
  */
 
-#include <xlog/logger.h>
+#include <x/log/logger.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -21,10 +21,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <xbase/atomic.h>
-#include <xbase/log.h>
-#include <xbase/mpsc.h>
-#include <xbase/time.h>
+#include <x/base/atomic.h>
+#include <x/base/log.h>
+#include <x/base/mpsc.h>
+#include <x/base/time.h>
 
 #include "logger_private.h"
 

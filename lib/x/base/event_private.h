@@ -9,11 +9,11 @@
 #ifndef XBASE_EVENT_PRIVATE_H
 #define XBASE_EVENT_PRIVATE_H
 
-#include <xbase/atomic.h>
-#include <xbase/event.h>
-#include <xbase/heap.h>
-#include <xbase/mpsc.h>
-#include <xbase/task.h>
+#include <x/base/atomic.h>
+#include <x/base/event.h>
+#include <x/base/heap.h>
+#include <x/base/mpsc.h>
+#include <x/base/task.h>
 
 #include <stdint.h>
 #include <stdlib.h>

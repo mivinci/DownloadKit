@@ -17,7 +17,7 @@
 #include <vector>
 
 extern "C" {
-#include <xbase/slab.h>
+#include <x/base/slab.h>
 }
 
 namespace {

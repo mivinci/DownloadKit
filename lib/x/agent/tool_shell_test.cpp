@@ -9,11 +9,11 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <xagent/tool_shell.h>
-#include <xagent/tool.h>
-#include <xagent/message.h>
-#include <xbase/event.h>
-#include <xbase/error.h>
+#include <x/agent/tool_shell.h>
+#include <x/agent/tool.h>
+#include <x/agent/message.h>
+#include <x/base/event.h>
+#include <x/base/error.h>
 #include "tool_private.h"
 }
 

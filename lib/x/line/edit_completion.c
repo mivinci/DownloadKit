@@ -11,7 +11,7 @@
 
 #include "bbcode.h"
 #include "completions.h"
-#include <xbase/log.h>
+#include <x/base/log.h>
 #include "edit.h"
 #include "env.h"
 #include "platform.h"

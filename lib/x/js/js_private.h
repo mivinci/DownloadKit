@@ -53,9 +53,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <xbase/event.h>
-#include <xbase/memory.h>
-#include <xbase/slab.h>
+#include <x/base/event.h>
+#include <x/base/memory.h>
+#include <x/base/slab.h>
 
 #include "js.h"
 

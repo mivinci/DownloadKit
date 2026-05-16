@@ -8,7 +8,7 @@
 #include "attr.h"
 #include "bbcode.h"
 #include "color.h"
-#include <xbase/log.h>
+#include <x/base/log.h>
 #include "line.h"
 #include "platform.h"
 #include "str.h"

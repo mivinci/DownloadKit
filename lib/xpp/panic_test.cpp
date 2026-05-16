@@ -17,7 +17,7 @@
 #include "variant.h"
 
 extern "C" {
-#include <xbase/log.h>
+#include <x/base/log.h>
 }
 
 /* ── XPP_PANIC ── */

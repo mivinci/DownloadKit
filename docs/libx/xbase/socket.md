@@ -128,7 +128,7 @@ sequenceDiagram
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <xbase/socket.h>
+#include <x/base/socket.h>
 
 static xEventLoop g_loop;
 
@@ -189,7 +189,7 @@ int main(void) {
 #include <stdio.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <xbase/socket.h>
+#include <x/base/socket.h>
 
 static void on_udp(xSocket sock, xEventMask mask, void *arg) {
     xEventLoop loop = (xEventLoop)arg;

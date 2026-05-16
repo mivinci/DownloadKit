@@ -17,9 +17,9 @@
 
 #include <gtest/gtest.h>
 
-#include <xagent/memory.h>
-#include <xagent/message.h>
-#include <xagent/session.h>
+#include <x/agent/memory.h>
+#include <x/agent/message.h>
+#include <x/agent/session.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>

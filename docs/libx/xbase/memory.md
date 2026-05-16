@@ -157,7 +157,7 @@ sequenceDiagram
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xbase/memory.h>
+#include <x/base/memory.h>
 
 typedef struct Connection Connection;
 struct Connection {
@@ -201,7 +201,7 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xbase/memory.h>
+#include <x/base/memory.h>
 
 typedef struct Buffer Buffer;
 struct Buffer {

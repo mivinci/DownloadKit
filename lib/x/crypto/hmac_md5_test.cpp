@@ -6,9 +6,9 @@
  * hmac_md5_test.cpp - Unit tests for HMAC-MD5
  */
 
-#include <xcrypto/hmac.h>
-#include <xcrypto/hmac_md5.h>
-#include <xcrypto/md5.h>
+#include <x/crypto/hmac.h>
+#include <x/crypto/hmac_md5.h>
+#include <x/crypto/md5.h>
 
 #include <gtest/gtest.h>
 

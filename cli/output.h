@@ -15,7 +15,7 @@
 #include "ctx.h"
 
 #include <cstddef>
-#include <xline/line.h>
+#include <x/line/line.h>
 
 /* printf-style wrapper around xLinePrintAbove. Appends a trailing
  * newline via xLinePrintAbove's own policy, so callers should NOT

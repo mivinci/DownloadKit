@@ -15,7 +15,7 @@
 #ifndef XBASE_HEX_H
 #define XBASE_HEX_H
 
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 #include <stddef.h>
 #include <stdint.h>

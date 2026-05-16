@@ -15,7 +15,7 @@
 #include <pthread.h>
 
 extern "C" {
-#include <xnet/dns.h>
+#include <x/net/dns.h>
 }
 
 /* ───────────────────── Helpers ───────────────────── */

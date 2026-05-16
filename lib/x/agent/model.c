@@ -12,7 +12,7 @@
  * the event-loop thread that owns the agent using the registry.
  */
 
-#include <xagent/model.h>
+#include <x/agent/model.h>
 
 #include <stdlib.h>
 #include <string.h>

@@ -65,15 +65,15 @@
 #include "budget_private.h"
 #include "tool_private.h"
 
-#include <xagent/memory.h>
-#include <xagent/message.h>
-#include <xagent/provider.h>
-#include <xagent/query.h>
-#include <xagent/session.h>
-#include <xbase/array.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/time.h>
+#include <x/agent/memory.h>
+#include <x/agent/message.h>
+#include <x/agent/provider.h>
+#include <x/agent/query.h>
+#include <x/agent/session.h>
+#include <x/base/array.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/time.h>
 
 #include <limits.h>
 #include <stdio.h>

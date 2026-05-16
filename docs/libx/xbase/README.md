@@ -150,7 +150,7 @@ A minimal example that creates an event loop, schedules a one-shot timer, and ru
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
+#include <x/base/event.h>
 
 static void on_timer(void *arg) {
     printf("Timer fired!\n");

@@ -17,9 +17,9 @@
 #include "xfer_protocol.h"
 #include "xfer_signal.h"
 
-#include <xbase/bitmap.h>
-#include <xbase/event.h>
-#include <xp2p/peer_connection.h>
+#include <x/base/bitmap.h>
+#include <x/base/event.h>
+#include <x/p2p/peer_connection.h>
 
 #include <stdbool.h>
 #include <stdint.h>

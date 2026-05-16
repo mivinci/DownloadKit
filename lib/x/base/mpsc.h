@@ -9,7 +9,7 @@
 #ifndef XBASE_MPSC_H
 #define XBASE_MPSC_H
 
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 /**
  * @brief Multi-producer single-consumer queue.

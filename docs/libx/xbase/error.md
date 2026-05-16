@@ -98,8 +98,8 @@ if (err != xErrno_Ok) {
 
 ```c
 #include <stdio.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
@@ -122,8 +122,8 @@ int main(void) {
 ### Propagating Errors
 
 ```c
-#include <xbase/error.h>
-#include <xbase/socket.h>
+#include <x/base/error.h>
+#include <x/base/socket.h>
 
 xErrno setup_socket(xEventLoop loop, xSocket *out) {
     xSocket sock = xSocketCreate(loop, AF_INET, SOCK_STREAM, 0,

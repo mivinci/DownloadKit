@@ -13,10 +13,10 @@
 #ifndef XP2P_ICE_PRIVATE_H
 #define XP2P_ICE_PRIVATE_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
-#include <xbase/socket.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
+#include <x/base/socket.h>
 
 #include <stdint.h>
 #include <string.h>

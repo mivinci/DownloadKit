@@ -20,13 +20,13 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <xagent/agent.h>
-#include <xagent/memory.h>
-#include <xagent/provider.h>
-#include <xagent/session.h>
-#include <xagent/tool.h>
-#include <xbase/array.h>
-#include <xbase/event.h>
+#include <x/agent/agent.h>
+#include <x/agent/memory.h>
+#include <x/agent/provider.h>
+#include <x/agent/session.h>
+#include <x/agent/tool.h>
+#include <x/base/array.h>
+#include <x/base/event.h>
 #include "agent_private.h"
 #include "provider_private.h"
 #include "session_private.h"

@@ -16,7 +16,7 @@ target_compile_features(xpp PUBLIC cxx_std_14)
 target_link_libraries(xpp PUBLIC xbase)
 target_include_directories(xpp PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/libx
+  ${CMAKE_SOURCE_DIR}/lib
 )
 
 if(XPP_BUILD_TESTS)

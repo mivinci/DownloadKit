@@ -40,8 +40,8 @@
 #ifndef XBUF_IO_H
 #define XBUF_IO_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #include <stddef.h>
 #include <sys/types.h>

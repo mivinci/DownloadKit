@@ -37,9 +37,9 @@
 #include <cstring>
 #include <string>
 
-#include <xagent/session.h>
-#include <xbase/time.h>
-#include <xline/line.h>
+#include <x/agent/session.h>
+#include <x/base/time.h>
+#include <x/line/line.h>
 
 typedef void (*SlashCmdFunc)(ReplCtx *ctx, const char *args);
 

@@ -23,7 +23,7 @@
 #include <vector>
 
 extern "C" {
-#include <xbase/event.h>
+#include <x/base/event.h>
 }
 
 #ifdef MOO_HAS_LIBUV

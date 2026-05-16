@@ -19,12 +19,12 @@
 #ifndef MOO_APPS_CLI_CTX_H
 #define MOO_APPS_CLI_CTX_H
 
-#include <xagent/model.h>
-#include <xagent/session.h>
-#include <xagent/tool.h>
-#include <xbase/event.h>
-#include <xline/line.h>
-#include <xtui/md.h>
+#include <x/agent/model.h>
+#include <x/agent/session.h>
+#include <x/agent/tool.h>
+#include <x/base/event.h>
+#include <x/line/line.h>
+#include <x/tui/md.h>
 
 #include <deque>
 #include <string>

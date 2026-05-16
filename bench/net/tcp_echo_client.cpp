@@ -26,7 +26,7 @@
 #include <vector>
 
 extern "C" {
-#include <xbase/time.h>
+#include <x/base/time.h>
 }
 
 static double run_client(const char *host, uint16_t port, size_t msg_size,

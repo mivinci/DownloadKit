@@ -6,10 +6,10 @@
  * timer.c - Monotonic timer implementation
  */
 
-#include <xbase/heap.h>
-#include <xbase/mpsc.h>
-#include <xbase/slab.h>
-#include <xbase/timer.h>
+#include <x/base/heap.h>
+#include <x/base/mpsc.h>
+#include <x/base/slab.h>
+#include <x/base/timer.h>
 
 #include <stdlib.h>
 #include <string.h>

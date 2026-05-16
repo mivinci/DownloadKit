@@ -16,13 +16,13 @@
 #include <stdint.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
-#include <xbase/io.h>
-#include <xbase/socket.h>
-#include <xnet/tls.h>
-#include <xnet/transport.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
+#include <x/base/io.h>
+#include <x/base/socket.h>
+#include <x/net/tls.h>
+#include <x/net/transport.h>
 
 /* ═══════════════════════════════════════════════════════════════════
  *  xTcpConn — connection resource wrapper

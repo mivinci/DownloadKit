@@ -139,7 +139,7 @@ All pointers reference the single raw_ copy.
 
 ```c
 #include <stdio.h>
-#include <xnet/url.h>
+#include <x/net/url.h>
 
 int main(void) {
     xUrl url;

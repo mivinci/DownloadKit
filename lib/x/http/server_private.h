@@ -9,15 +9,15 @@
 #ifndef XHTTP_SERVER_PRIVATE_H
 #define XHTTP_SERVER_PRIVATE_H
 
-#include <xnet/transport.h>
+#include <x/net/transport.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <xbase/base.h>
-#include <xbase/event.h>
-#include <xbase/socket.h>
-#include <xbuf/buf.h>
-#include <xbuf/io.h>
-#include <xhttp/server.h>
+#include <x/base/base.h>
+#include <x/base/event.h>
+#include <x/base/socket.h>
+#include <x/buf/buf.h>
+#include <x/buf/io.h>
+#include <x/http/server.h>
 
 /* ───────────────────── Default configuration ───────────────────── */
 

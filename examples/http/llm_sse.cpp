@@ -11,8 +11,8 @@
  * time via Server-Sent Events. Press Ctrl-D or type "exit" to quit.
  */
 
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 #include <cstdio>
 #include <cstdlib>

@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <xbase/log.h>
+#include <x/base/log.h>
 #include "env.h"
 #include "line.h"
 #include "platform.h"

@@ -116,7 +116,7 @@ Right child of i: 2 * i + 2
 ```c
 #include <stdio.h>
 #include <stdlib.h>
-#include <xbase/heap.h>
+#include <x/base/heap.h>
 
 typedef struct {
     uint64_t deadline;

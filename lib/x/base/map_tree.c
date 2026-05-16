@@ -14,7 +14,7 @@
 
 #include <stdlib.h>
 
-#include <xbase/slab.h>
+#include <x/base/slab.h>
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Internal types

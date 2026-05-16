@@ -14,7 +14,7 @@
 
 extern "C" {
 #include "ws_frame.h"
-#include <xbuf/io.h>
+#include <x/buf/io.h>
 }
 
 /* ═══════════════════════════════════════════════════════════════════

@@ -27,15 +27,15 @@
  * The InvokeCtx is freed after ai_query_async_tool_complete returns.
  */
 
-#include <xagent/tool_shell.h>
+#include <x/agent/tool_shell.h>
 
 #include "query_private.h"
 
 #include <cJSON.h>
-#include <xbase/command.h>
-#include <xbase/log.h>
-#include <xbase/map.h>
-#include <xbase/string.h>
+#include <x/base/command.h>
+#include <x/base/log.h>
+#include <x/base/map.h>
+#include <x/base/string.h>
 
 #include <errno.h>
 #include <stdio.h>

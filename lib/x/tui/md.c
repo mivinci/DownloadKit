@@ -56,7 +56,7 @@
  * so a late \e[24m is a visual no-op, not a full-row repaint.
  */
 
-#include <xtui/md.h>
+#include <x/tui/md.h>
 
 #include <string.h>
 

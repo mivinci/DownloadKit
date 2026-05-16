@@ -263,8 +263,8 @@ echo "Generated: ca.pem, server.pem, server-key.pem, client.pem, client-key.pem"
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xbase/event.h>
-#include <xhttp/server.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
 
 static void on_secure(xHttpResponseWriter w, const xHttpRequest *req, void *arg) {
     (void)req; (void)arg;
@@ -298,8 +298,8 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 static void on_response(const xHttpResponse *resp, void *arg) {
     (void)arg;

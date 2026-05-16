@@ -7,14 +7,14 @@
  */
 
 #include <stdlib.h>
-#include <xbase/command.h>
+#include <x/base/command.h>
 
 #ifdef _WIN32
 /* Windows implementation is in command_windows.c */
 #else /* POSIX implementation */
 
-#include <xbase/command.h>
-#include <xbase/string.h>
+#include <x/base/command.h>
+#include <x/base/string.h>
 
 #include <errno.h>
 #include <fcntl.h>

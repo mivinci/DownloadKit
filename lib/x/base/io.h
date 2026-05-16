@@ -34,7 +34,7 @@
  *
  * ── Integration with xTcpConn ───────────────────────────────────────
  *
- * xTcpConn (declared in <xnet/tcp.h>) provides two adapter functions
+ * xTcpConn (declared in <x/net/tcp.h>) provides two adapter functions
  * that return lightweight value-type interfaces bound to the connection's
  * internal xTransport:
  *
@@ -70,7 +70,7 @@
 #ifndef XBASE_IO_H
 #define XBASE_IO_H
 
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 #include <stddef.h>
 

@@ -48,10 +48,10 @@
 #define XAGENT_MEMORY_H
 
 #include <stddef.h>
-#include <xagent/message.h> /* xAgentRole                           */
-#include <xagent/session.h> /* xAgentSessionMsg, xAgentSessionEntryKind */
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/agent/message.h> /* xAgentRole                           */
+#include <x/agent/session.h> /* xAgentSessionMsg, xAgentSessionEntryKind */
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /**
  * @brief Opaque handle to a memory store.

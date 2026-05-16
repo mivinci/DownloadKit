@@ -9,8 +9,8 @@
 #ifndef XCRYPTO_HMAC_SHA256_H
 #define XCRYPTO_HMAC_SHA256_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #include <stddef.h>
 #include <stdint.h>

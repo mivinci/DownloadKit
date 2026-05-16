@@ -27,7 +27,7 @@
 
 #include <cJSON.h>
 
-#include <xagent/provider_openai.h>
+#include <x/agent/provider_openai.h>
 
 namespace {
 

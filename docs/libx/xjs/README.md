@@ -75,7 +75,7 @@ The smallest useful program — evaluate a script and print the result.
 ```c
 #include <stdio.h>
 #include <stdlib.h>
-#include <xjs/js.h>
+#include <x/js/js.h>
 
 int main(void) {
     xJSGlobalContextRef ctx = xJSGlobalContextCreate(NULL);

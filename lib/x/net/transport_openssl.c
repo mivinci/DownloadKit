@@ -22,7 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/uio.h>
-#include <xbase/log.h>
+#include <x/base/log.h>
 
 /* ═══════════════════════════════════════════════════════════════════
  *  Per-connection TLS state (shared by server and client)

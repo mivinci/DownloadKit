@@ -11,7 +11,7 @@
 #include <cstring>
 
 extern "C" {
-#include <xbase/bitmap.h>
+#include <x/base/bitmap.h>
 }
 
 /* ═══════════════════ Lifecycle ═══════════════════ */

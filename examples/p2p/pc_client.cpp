@@ -28,10 +28,10 @@
  *   5. Type messages in the terminal to send via DataChannel.
  */
 
-#include <xbase/backtrace.h>
-#include <xbase/event.h>
-#include <xhttp/ws.h>
-#include <xp2p/peer_connection.h>
+#include <x/base/backtrace.h>
+#include <x/base/event.h>
+#include <x/http/ws.h>
+#include <x/p2p/peer_connection.h>
 
 #include <atomic>
 #include <cstdio>

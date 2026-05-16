@@ -6,9 +6,9 @@
  * hmac_sha1_test.cpp - Unit tests for HMAC-SHA1
  */
 
-#include <xcrypto/hmac.h>
-#include <xcrypto/hmac_sha1.h>
-#include <xcrypto/sha1.h>
+#include <x/crypto/hmac.h>
+#include <x/crypto/hmac_sha1.h>
+#include <x/crypto/sha1.h>
 
 #include <gtest/gtest.h>
 

@@ -14,8 +14,8 @@
 #ifndef XNET_URL_H
 #define XNET_URL_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #include <stdint.h>
 

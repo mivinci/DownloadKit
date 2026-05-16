@@ -28,7 +28,7 @@
 #include <cstdarg>
 #include <cstdlib>
 
-#include <xbase/log.h>
+#include <x/base/log.h>
 
 namespace xpp {
 namespace _ {

@@ -12,8 +12,8 @@
 #ifndef XCRYPTO_HASH_PRIVATE_H
 #define XCRYPTO_HASH_PRIVATE_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #include <stddef.h>
 #include <stdint.h>

@@ -213,8 +213,8 @@ Explicit logger variants: `XLOG_DEBUG_L(logger, fmt, ...)`, etc.
 ### Basic File Logging
 
 ```c
-#include <xbase/event.h>
-#include <xlog/logger.h>
+#include <x/base/event.h>
+#include <x/log/logger.h>
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();
@@ -259,7 +259,7 @@ xLoggerConf conf = {
 
 ```c
 #include <pthread.h>
-#include <xlog/logger.h>
+#include <x/log/logger.h>
 
 static xLogger g_logger;
 

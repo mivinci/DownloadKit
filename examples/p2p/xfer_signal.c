@@ -12,8 +12,8 @@
  *   ./xfer_signal -h 0.0.0.0 -p 9000
  */
 
-#include <xbase/event.h>
-#include <xfer/xfer_signal.h>
+#include <x/base/event.h>
+#include <x/fer/xfer_signal.h>
 
 #include <signal.h> /* SIGINT */
 #include <stdio.h>

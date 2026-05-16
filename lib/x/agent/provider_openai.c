@@ -28,16 +28,16 @@
 #include "provider_private.h"
 #include "tool_private.h"
 
-#include <xagent/message.h>
-#include <xagent/provider.h>
-#include <xagent/provider_openai.h>
-#include <xagent/tool.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
-#include <xbase/log.h>
-#include <xbuf/buf.h>
-#include <xhttp/client.h>
+#include <x/agent/message.h>
+#include <x/agent/provider.h>
+#include <x/agent/provider_openai.h>
+#include <x/agent/tool.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
+#include <x/base/log.h>
+#include <x/buf/buf.h>
+#include <x/http/client.h>
 
 #include <cJSON.h>
 

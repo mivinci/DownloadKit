@@ -14,8 +14,8 @@
 #ifndef XFER_VFS_H
 #define XFER_VFS_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #include <stddef.h>
 #include <stdint.h>

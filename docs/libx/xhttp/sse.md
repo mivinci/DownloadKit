@@ -186,8 +186,8 @@ User-provided headers are merged after these defaults.
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 static int on_event(const xSseEvent *ev, void *arg) {
     (void)arg;
@@ -219,8 +219,8 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 static int on_event(const xSseEvent *ev, void *arg) {
     (void)arg;

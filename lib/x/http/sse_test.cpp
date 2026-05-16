@@ -21,7 +21,7 @@
 #include <unistd.h>
 
 extern "C" {
-#include <xhttp/client.h>
+#include <x/http/client.h>
 }
 
 /* ───────────────────── Helpers ───────────────────── */

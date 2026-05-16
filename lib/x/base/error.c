@@ -6,7 +6,7 @@
  * error.c - Error handling implementation
  */
 
-#include <xbase/error.h>
+#include <x/base/error.h>
 
 static const char *xErrnoStrings[] = {
   [xErrno_Ok]            = "ok",

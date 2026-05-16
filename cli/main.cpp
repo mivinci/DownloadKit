@@ -59,18 +59,18 @@
 #include <string>
 #include <unistd.h>
 
-#include <xagent/agent.h>
-#include <xagent/memory.h>
-#include <xagent/model.h>
-#include <xagent/provider.h>
-#include <xagent/session.h>
-#include <xagent/tool.h>
-#include <xagent/tool_shell.h>
-#include <xbase/backtrace.h>
-#include <xbase/event.h>
-#include <xbase/flag.h>
-#include <xhttp/client.h>
-#include <xline/line.h>
+#include <x/agent/agent.h>
+#include <x/agent/memory.h>
+#include <x/agent/model.h>
+#include <x/agent/provider.h>
+#include <x/agent/session.h>
+#include <x/agent/tool.h>
+#include <x/agent/tool_shell.h>
+#include <x/base/backtrace.h>
+#include <x/base/event.h>
+#include <x/base/flag.h>
+#include <x/http/client.h>
+#include <x/line/line.h>
 
 int main(int argc, char *argv[]) {
   xPrintBacktraceOnCrash();

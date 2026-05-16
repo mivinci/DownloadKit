@@ -41,16 +41,16 @@
 #include "provider_private.h" /* ai_provider_submit / ai_provider_cancel   */
 #include "tool_private.h"     /* ai_tool_name / ai_tool_invoke             */
 
-#include <xagent/message.h>
-#include <xagent/provider.h>
-#include <xagent/query.h>
-#include <xagent/session.h>
-#include <xagent/tool.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/array.h>
-#include <xbase/time.h>
-#include <xbuf/buf.h>
+#include <x/agent/message.h>
+#include <x/agent/provider.h>
+#include <x/agent/query.h>
+#include <x/agent/session.h>
+#include <x/agent/tool.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/array.h>
+#include <x/base/time.h>
+#include <x/buf/buf.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1503,7 +1503,7 @@ void xAgentQueryCancel(xAgentQuery q) {
 }
 
 /* Public API: deliver a user decision for a tool-call that was
- * paused on the confirmation gate. See <xagent/query.h>. */
+ * paused on the confirmation gate. See <x/agent/query.h>. */
 void xAgentToolConfirmResolve(xAgentToolConfirmResolver handle,
                               xAgentToolDecision        decision,
                               const char               *reason) {

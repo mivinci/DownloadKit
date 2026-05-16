@@ -12,9 +12,9 @@
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <string.h>
-#include <xbase/base.h>
-#include <xbuf/buf.h>
-#include <xhttp/client.h>
+#include <x/base/base.h>
+#include <x/buf/buf.h>
+#include <x/http/client.h>
 
 /* ───────────────────── Per-socket context ───────────────────── */
 

@@ -18,7 +18,7 @@ TEST(Io, SkipOnWindows) { GTEST_SKIP() << "IO tests are POSIX-only"; }
 #include <vector>
 
 extern "C" {
-#include <xbase/io.h>
+#include <x/base/io.h>
 }
 
 /* ═══════════════════════════════════════════════════════════════════

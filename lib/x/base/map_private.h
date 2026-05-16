@@ -9,7 +9,7 @@
 #ifndef XBASE_MAP_PRIVATE_H
 #define XBASE_MAP_PRIVATE_H
 
-#include <xbase/map.h>
+#include <x/base/map.h>
 
 /* ═══════════════════════════════════════════════════════════════════
  *  VTable

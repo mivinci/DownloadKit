@@ -203,7 +203,7 @@ Not-found results return `XSTRING_NONE` (`(size_t)-1`), consistent with the `ARR
 
 ```c
 #include <stdio.h>
-#include <xbase/string.h>
+#include <x/base/string.h>
 
 int main(void) {
   xString s = xStringCreate("hello");
@@ -221,7 +221,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/string.h>
+#include <x/base/string.h>
 
 int main(void) {
   char data[] = { 'a', 'b', 'c', '\0', 'd', 'e', 'f' };
@@ -243,7 +243,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/string.h>
+#include <x/base/string.h>
 
 int main(void) {
   xString s = xStringCreate("count: ");
@@ -260,7 +260,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/string.h>
+#include <x/base/string.h>
 
 int main(void) {
   xString s = xStringCreate("the quick brown fox");
@@ -284,7 +284,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/string.h>
+#include <x/base/string.h>
 
 int main(void) {
   xString s = xStringCreate("hello");
@@ -307,7 +307,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/string.h>
+#include <x/base/string.h>
 
 int main(void) {
   xString a = xStringCreate("abc");

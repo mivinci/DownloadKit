@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <xbuf/buf.h>
+#include <x/buf/buf.h>
 }
 
 #include <cstring>

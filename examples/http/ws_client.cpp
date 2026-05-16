@@ -14,9 +14,9 @@
  *   ./ws_client ws://127.0.0.1:9000
  */
 
-#include <xbase/backtrace.h>
-#include <xbase/event.h>
-#include <xhttp/ws.h>
+#include <x/base/backtrace.h>
+#include <x/base/event.h>
+#include <x/http/ws.h>
 
 #include <atomic>
 #include <cstdio>

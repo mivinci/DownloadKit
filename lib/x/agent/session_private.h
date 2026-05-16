@@ -15,8 +15,8 @@
 
 #include "query_private.h"
 
-#include <xagent/session.h>
-#include <xbase/array.h>
+#include <x/agent/session.h>
+#include <x/base/array.h>
 
 #include <stddef.h>
 

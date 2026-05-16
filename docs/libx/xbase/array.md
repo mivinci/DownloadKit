@@ -169,7 +169,7 @@ This means any pointer obtained from `xArrayAt` / `xArrayData` is invalidated by
 
 ```c
 #include <stdio.h>
-#include <xbase/array.h>
+#include <x/base/array.h>
 
 int main(void) {
   xArray arr = xArrayCreate(sizeof(int), 0, NULL);
@@ -201,7 +201,7 @@ int main(void) {
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <xbase/array.h>
+#include <x/base/array.h>
 
 struct Entry {
   char *name;
@@ -241,7 +241,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/array.h>
+#include <x/base/array.h>
 
 int main(void) {
   xArray arr = xArrayCreate(sizeof(int), 0, NULL);
@@ -271,7 +271,7 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xbase/array.h>
+#include <x/base/array.h>
 
 struct Item {
   int  id;
@@ -310,7 +310,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/array.h>
+#include <x/base/array.h>
 
 int main(void) {
   xArray arr = xArrayCreate(sizeof(int), 0, NULL);

@@ -6,7 +6,7 @@
  * heap.c - Generic min-heap implementation
  */
 
-#include <xbase/heap.h>
+#include <x/base/heap.h>
 
 #include <stdlib.h>
 

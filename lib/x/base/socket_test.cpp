@@ -11,7 +11,7 @@
 #ifdef _WIN32
 TEST(Socket, SkipOnWindows) { GTEST_SKIP() << "Socket tests need POSIX adapter"; }
 #else
-#include <xbase/socket.h>
+#include <x/base/socket.h>
 
 #include <chrono>
 

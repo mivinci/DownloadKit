@@ -14,7 +14,7 @@
 #include <thread>
 
 extern "C" {
-#include <xbase/log.h>
+#include <x/base/log.h>
 }
 
 /* ── Helpers ── */

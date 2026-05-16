@@ -16,9 +16,9 @@
 #ifndef XFER_XFER_SIGNAL_H
 #define XFER_XFER_SIGNAL_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 
 #include <stdint.h>
 

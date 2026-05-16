@@ -158,7 +158,7 @@ After:   prev ⇄ next   (node: 0xDEAD / 0xBEEF)
 
 ```c
 #include <stdio.h>
-#include <xbase/list.h>
+#include <x/base/list.h>
 
 struct Task {
   xList list;
@@ -199,7 +199,7 @@ int main(void) {
 ### Safe Deletion During Iteration
 
 ```c
-#include <xbase/list.h>
+#include <x/base/list.h>
 
 struct Node {
   xList list;
@@ -218,7 +218,7 @@ void remove_all(xList *head) {
 ### Stack (LIFO) with xListAddHead
 
 ```c
-#include <xbase/list.h>
+#include <x/base/list.h>
 
 struct Item {
   xList list;
@@ -240,7 +240,7 @@ struct Item *stack_pop(xList *stack) {
 ### Queue (FIFO) with xListAddTail
 
 ```c
-#include <xbase/list.h>
+#include <x/base/list.h>
 
 struct Entry {
   xList list;

@@ -137,8 +137,8 @@ Returns a `xDnsQuery` handle, or `NULL` on invalid arguments.
 ```c
 #include <stdio.h>
 #include <arpa/inet.h>
-#include <xbase/event.h>
-#include <xnet/dns.h>
+#include <x/base/event.h>
+#include <x/net/dns.h>
 
 static void on_resolved(xDnsResult *result, void *arg) {
     xEventLoop loop = (xEventLoop)arg;

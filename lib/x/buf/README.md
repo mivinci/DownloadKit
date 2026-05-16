@@ -6,7 +6,7 @@ xbuf 提供三种不同设计的字节缓冲区，用户可根据场景按需选
 
 | | **xBuffer** | **xRingBuffer** | **xIOBuffer** |
 | --- | --- | --- | --- |
-| 头文件 | `<xbuf/buf.h>` | `<xbuf/ring.h>` | `<xbuf/io.h>` |
+| 头文件 | `<x/buf/buf.h>` | `<x/buf/ring.h>` | `<x/buf/io.h>` |
 | 内存模型 | 连续内存，2x 自动扩容 | 固定大小，power-of-2 掩码索引 | 8 KB block 链，引用计数 |
 | 容量 | 动态增长 | 初始化时固定 | 动态增长（按 block 粒度） |
 | 零拷贝 split | ✗ | ✗ | ✓ `xIOBufferCut` |
@@ -23,7 +23,7 @@ xbuf 提供三种不同设计的字节缓冲区，用户可根据场景按需选
 最简单直观的缓冲区。头部元数据和数据区通过 flexible array member 一次 `malloc` 分配，写入时自动 2 倍扩容（`realloc` 整体），读取后可通过 `xBufferCompact` 回收已消费空间。写入类 API 接受 `xBuffer**` 参数，因为扩容可能导致指针变化。
 
 ```c
-#include <xbuf/buf.h>
+#include <x/buf/buf.h>
 
 xBuffer *buf = xBufferCreate(1024);
 
@@ -42,7 +42,7 @@ xBufferDestroy(buf);
 固定容量的环形缓冲区，头部元数据和数据区通过 flexible array member 一次 `malloc` 分配。容量自动向上取整为 2 的幂次以使用位掩码替代取模运算。不会重新分配内存，写满时执行部分写入。
 
 ```c
-#include <xbuf/ring.h>
+#include <x/buf/ring.h>
 
 xRingBuffer *rb = xRingBufferCreate(8192);
 
@@ -65,7 +65,7 @@ xRingBufferDestroy(rb);
 借鉴 brpc IOBuf 的设计，由引用计数的固定大小 block（默认 8 KB）组成链式结构。支持零拷贝的 split 和 append，天然适配 `writev` 的 scatter-gather I/O。
 
 ```c
-#include <xbuf/io.h>
+#include <x/buf/io.h>
 
 xIOBuffer io;
 xIOBufferInit(&io);

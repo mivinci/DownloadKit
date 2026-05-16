@@ -11,7 +11,7 @@
 #include <vector>
 
 extern "C" {
-#include <xbuf/buf.h>
+#include <x/buf/buf.h>
 }
 
 // BM_Buffer_Append: Measure append throughput at different chunk sizes

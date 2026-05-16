@@ -8,8 +8,8 @@
 
 #include <gtest/gtest.h>
 
-#include <xbase/command.h>
-#include <xbase/event.h>
+#include <x/base/command.h>
+#include <x/base/event.h>
 
 #include <string.h>
 

@@ -13,7 +13,7 @@
 
 #include "budget_private.h"
 
-#include <xagent/message.h> /* xAgentRole_User */
+#include <x/agent/message.h> /* xAgentRole_User */
 
 #include <string.h>
 

@@ -13,7 +13,7 @@
 #ifndef XBASE_THREAD_PRIVATE_H
 #define XBASE_THREAD_PRIVATE_H
 
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 /* ──────────────────── Win32 ──────────────────── */
 

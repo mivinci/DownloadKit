@@ -24,9 +24,9 @@
 #include <atomic>
 
 extern "C" {
-#include <xbase/event.h>
-#include <xhttp/server.h>
-#include <xhttp/ws.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
+#include <x/http/ws.h>
 }
 
 static xEventLoop g_loop = nullptr;

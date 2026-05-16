@@ -6,7 +6,7 @@
  * ring.c - Fixed-size ring buffer implementation
  */
 
-#include <xbuf/ring.h>
+#include <x/buf/ring.h>
 
 #include <errno.h>
 #include <stdint.h>

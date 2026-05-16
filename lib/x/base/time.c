@@ -6,7 +6,7 @@
  * time.c - Time utilities
  */
 
-#include <xbase/time.h>
+#include <x/base/time.h>
 
 #ifdef _WIN32
 

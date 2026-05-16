@@ -15,8 +15,8 @@
 
 #include "sctp_transport.h"
 
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #include <stdbool.h>
 #include <stdint.h>

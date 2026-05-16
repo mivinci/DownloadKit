@@ -173,7 +173,7 @@ Shared parameter conventions:
 ```c
 #include <stdio.h>
 #include <stdlib.h>
-#include <xbase/flag.h>
+#include <x/base/flag.h>
 
 int main(int argc, char *argv[]) {
     xFlagSet set = xFlagSetCreate("demo", "a tiny example");
@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
 ```c
 #include <stdio.h>
 #include <stdlib.h>
-#include <xbase/flag.h>
+#include <x/base/flag.h>
 
 int main(int argc, char *argv[]) {
     xFlagSet set = xFlagSetCreate("srv", "demo server");
@@ -256,7 +256,7 @@ srv                                  # uses defaults: port=8080 verbose=0 level=
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <xbase/flag.h>
+#include <x/base/flag.h>
 
 int main(int argc, char *argv[]) {
     xFlagSet set = xFlagSetCreate("tar", "mini tar(1)");
@@ -298,7 +298,7 @@ int main(int argc, char *argv[]) {
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <xbase/flag.h>
+#include <x/base/flag.h>
 
 int main(int argc, char *argv[]) {
     xFlagSet set = xFlagSetCreate("grep", "tiny grep");

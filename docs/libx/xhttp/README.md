@@ -81,8 +81,8 @@ graph TD
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 static void on_response(const xHttpResponse *resp, void *arg) {
     (void)arg;

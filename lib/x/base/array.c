@@ -6,7 +6,7 @@
  * array.c - Generic auto-growing array implementation
  */
 
-#include <xbase/array.h>
+#include <x/base/array.h>
 
 #include <stdint.h>
 #include <stdlib.h>

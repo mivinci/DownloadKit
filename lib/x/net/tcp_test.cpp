@@ -14,9 +14,9 @@
 #include <thread>
 
 extern "C" {
-#include <xbase/io.h>
-#include <xnet/tcp.h>
-#include <xnet/transport.h>
+#include <x/base/io.h>
+#include <x/net/tcp.h>
+#include <x/net/transport.h>
 }
 
 #include <arpa/inet.h>

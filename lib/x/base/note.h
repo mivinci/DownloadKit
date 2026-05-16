@@ -22,8 +22,8 @@
 #ifndef XBASE_NOTE_H
 #define XBASE_NOTE_H
 
-#include <xbase/atomic.h>
-#include <xbase/base.h>
+#include <x/base/atomic.h>
+#include <x/base/base.h>
 
 #if defined(__linux__)
 #include <limits.h>

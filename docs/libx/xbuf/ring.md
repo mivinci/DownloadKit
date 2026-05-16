@@ -186,7 +186,7 @@ flowchart TD
 
 ```c
 #include <stdio.h>
-#include <xbuf/ring.h>
+#include <x/buf/ring.h>
 
 int main(void) {
     // Request 1000 bytes; actual capacity will be 1024 (next power of 2)
@@ -210,7 +210,7 @@ int main(void) {
 ### Network Socket Buffer
 
 ```c
-#include <xbuf/ring.h>
+#include <x/buf/ring.h>
 
 void event_loop_handler(int sockfd) {
     xRingBuffer rb = xRingBufferCreate(65536); // 64KB ring

@@ -20,8 +20,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <xbase/log.h>
-#include <xnet/dns.h>
+#include <x/base/log.h>
+#include <x/net/dns.h>
 
 /* Default connect timeout: 10 seconds */
 #define XTCP_DEFAULT_TIMEOUT_MS 10000

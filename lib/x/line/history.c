@@ -10,7 +10,7 @@
 #include <sys/stat.h>
 
 #include "color.h"
-#include <xbase/log.h>
+#include <x/base/log.h>
 #include "history.h"
 #include "line.h"
 #include "platform.h"

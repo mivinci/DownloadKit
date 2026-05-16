@@ -25,8 +25,8 @@
  * The -6 flag enables IPv6 candidate gathering (disabled by default).
  */
 
-#include <xbase/event.h>
-#include <xp2p/ice_agent.h>
+#include <x/base/event.h>
+#include <x/p2p/ice_agent.h>
 
 #include <stdio.h>
 #include <stdlib.h>

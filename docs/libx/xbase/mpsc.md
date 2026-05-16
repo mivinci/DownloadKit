@@ -139,8 +139,8 @@ flowchart TD
 ```c
 #include <stdio.h>
 #include <pthread.h>
-#include <xbase/mpsc.h>
-#include <xbase/base.h>
+#include <x/base/mpsc.h>
+#include <x/base/base.h>
 
 typedef struct {
     xMpsc node;   // Must embed xMpsc

@@ -6,7 +6,7 @@
  * crc32_test.cpp - Unit tests for xCrc32
  */
 
-#include <xcrypto/crc32.h>
+#include <x/crypto/crc32.h>
 
 #include <gtest/gtest.h>
 

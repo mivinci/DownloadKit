@@ -6,7 +6,7 @@
  * sha256_test.cpp - Unit tests for xSha256
  */
 
-#include <xcrypto/sha256.h>
+#include <x/crypto/sha256.h>
 
 #include <gtest/gtest.h>
 

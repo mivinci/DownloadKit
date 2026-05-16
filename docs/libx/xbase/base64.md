@@ -71,7 +71,7 @@ padding, `*` padding appears in a non-terminal position, `*dst_len` too small.
 ### Basic Encode and Decode
 
 ```c
-#include <xbase/base64.h>
+#include <x/base/base64.h>
 #include <stdio.h>
 #include <stdlib.h>
 

@@ -9,7 +9,7 @@
 #ifndef XBASE_SPEED_TRACKER_H
 #define XBASE_SPEED_TRACKER_H
 
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 #include <stddef.h>
 #include <stdint.h>

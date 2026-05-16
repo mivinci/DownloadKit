@@ -11,7 +11,7 @@
 #include <vector>
 
 extern "C" {
-#include <xbuf/io.h>
+#include <x/buf/io.h>
 }
 
 // BM_IOBuffer_Append: Measure append throughput (block-chain allocation)

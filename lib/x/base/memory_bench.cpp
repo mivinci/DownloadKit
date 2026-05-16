@@ -11,7 +11,7 @@
 #include <cstdlib>
 
 extern "C" {
-#include <xbase/memory.h>
+#include <x/base/memory.h>
 }
 
 namespace {

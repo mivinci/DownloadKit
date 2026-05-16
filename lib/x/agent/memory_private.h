@@ -14,7 +14,7 @@
 #ifndef XAGENT_MEMORY_PRIVATE_H
 #define XAGENT_MEMORY_PRIVATE_H
 
-#include <xagent/memory.h>
+#include <x/agent/memory.h>
 
 #ifdef __cplusplus
 extern "C" {

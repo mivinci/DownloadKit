@@ -183,7 +183,7 @@ sequenceDiagram
 ```c
 #include <stdlib.h>
 #include <string.h>
-#include <xbase/slab.h>
+#include <x/base/slab.h>
 
 typedef struct Node Node;
 struct Node {
@@ -211,7 +211,7 @@ int main(void) {
 ### Multi-threaded: cross-thread task structs
 
 ```c
-#include <xbase/slab.h>
+#include <x/base/slab.h>
 
 static xSlabMt *g_task_pool;
 

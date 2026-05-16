@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <xbase/log.h>
+#include <x/base/log.h>
 #include "str.h"
 #include "tty.h"
 

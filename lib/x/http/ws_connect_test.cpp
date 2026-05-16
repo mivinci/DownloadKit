@@ -15,8 +15,8 @@
 #include <string>
 
 extern "C" {
-#include <xhttp/server.h>
-#include <xhttp/ws.h>
+#include <x/http/server.h>
+#include <x/http/ws.h>
 }
 
 /* ═══════════════════════════════════════════════════════════════════

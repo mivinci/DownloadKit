@@ -4,7 +4,7 @@
  * found in the LICENSE file.
  */
 
-#include <xbase/string.h>
+#include <x/base/string.h>
 
 #include <gtest/gtest.h>
 #include <string>

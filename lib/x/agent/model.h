@@ -31,9 +31,9 @@
 #define XAGENT_MODEL_H
 
 #include <stddef.h>
-#include <xagent/provider.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/agent/provider.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /**
  * @brief Opaque handle to a model registry.

@@ -87,9 +87,9 @@ Need zero-copy operations or scatter-gather I/O for networking?
 
 ```c
 #include <stdio.h>
-#include <xbuf/buf.h>
-#include <xbuf/ring.h>
-#include <xbuf/io.h>
+#include <x/buf/buf.h>
+#include <x/buf/ring.h>
+#include <x/buf/io.h>
 
 int main(void) {
     // 1. Linear buffer: accumulate data

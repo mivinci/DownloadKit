@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <xbase/base58.h>
+#include <x/base/base58.h>
 }
 
 #include <cstring>

@@ -16,9 +16,9 @@
 
 #include "ctx.h"
 
-#include <xagent/session.h>
-#include <xagent/tool.h>
-#include <xbase/error.h>
+#include <x/agent/session.h>
+#include <x/agent/tool.h>
+#include <x/base/error.h>
 
 /* Open / close the async xline editor with the loop-registered fd.
  * `repl_open_line` uses an empty prompt (chat mode); _with_prompt is

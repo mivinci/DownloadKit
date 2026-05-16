@@ -18,9 +18,9 @@
 #include <cerrno>
 
 extern "C" {
-#include <xbase/event.h>
-#include <xbase/socket.h>
-#include <xnet/tcp.h>
+#include <x/base/event.h>
+#include <x/base/socket.h>
+#include <x/net/tcp.h>
 }
 
 static xEventLoop g_loop = nullptr;

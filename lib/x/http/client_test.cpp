@@ -16,7 +16,7 @@
 #include <vector>
 
 extern "C" {
-#include <xhttp/client.h>
+#include <x/http/client.h>
 }
 
 /* Skip network-dependent tests when MOO_SKIP_NETWORK_TESTS=1 */

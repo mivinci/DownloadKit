@@ -72,7 +72,7 @@ int  xTransportTlsServerInit(xTransport *t, xTlsCtx tls_ctx, int fd);
 
 1. Move `xHttpTransport` → `xTransport` in `xnet/transport.h`
 2. Move plain and TLS implementations from `xhttp/` to `xnet/`
-3. Update xhttp to `#include <xnet/transport.h>` and use `xTransport` internally
+3. Update xhttp to `#include <x/net/transport.h>` and use `xTransport` internally
 4. WebSocket client/server already use the vtable — just update the type name
 5. New `xTcpConnect` / `xTcpListener` return connections with `xTransport` attached
 

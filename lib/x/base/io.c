@@ -6,7 +6,7 @@
  * io.c - Abstract I/O interface implementations
  */
 
-#include <xbase/io.h>
+#include <x/base/io.h>
 
 #include <stdlib.h>
 #include <string.h>

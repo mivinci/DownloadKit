@@ -20,8 +20,8 @@
  *   ./xfer_echo -r                  # test resume (cancel at 50%)
  */
 
-#include <xbase/event.h>
-#include <xfer/xfer.h>
+#include <x/base/event.h>
+#include <x/fer/xfer.h>
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -9,7 +9,7 @@
 #include <string.h>
 
 #include "completions.h"
-#include <xbase/log.h>
+#include <x/base/log.h>
 #include "edit.h"
 #include "env.h"
 #include "highlight.h"

@@ -9,7 +9,7 @@
 #include "proto_h1.h"
 #include "proto_h2.h"
 #include "server_private.h"
-#include <xnet/transport_private.h>
+#include <x/net/transport_private.h>
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -22,7 +22,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <unistd.h>
-#include <xbase/log.h>
+#include <x/base/log.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Forward declarations

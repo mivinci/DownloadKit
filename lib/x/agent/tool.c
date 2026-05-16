@@ -12,12 +12,12 @@
  * callers never see tool internals.
  */
 
-#include <xagent/tool.h>
+#include <x/agent/tool.h>
 
 #include "tool_private.h"
 
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #include <stdlib.h>
 #include <string.h>

@@ -25,7 +25,7 @@
 #include <string.h>
 #include <time.h>
 
-#include <xagent/memory.h>
+#include <x/agent/memory.h>
 
 /* ── Simple random session ID generator ──────────────────────────────
  *

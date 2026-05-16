@@ -316,8 +316,8 @@ Initiate a graceful close. Sends a Close frame with the given status code. The c
 ### Echo Server (with xWsServe)
 
 ```c
-#include <xbase/event.h>
-#include <xhttp/ws.h>
+#include <x/base/event.h>
+#include <x/http/ws.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -361,9 +361,9 @@ int main(void) {
 ### Echo Server (with xWsUpgrade)
 
 ```c
-#include <xbase/event.h>
-#include <xhttp/server.h>
-#include <xhttp/ws.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
+#include <x/http/ws.h>
 #include <stdio.h>
 #include <string.h>
 

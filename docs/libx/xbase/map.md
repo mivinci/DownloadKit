@@ -192,7 +192,7 @@ Every backend struct embeds `xMapBase` as its first member. The public API casts
 
 ```c
 #include <stdio.h>
-#include <xbase/map.h>
+#include <x/base/map.h>
 
 int main(void) {
     xMap m = xMapCreate(xMapType_Hash, 0, xMapStrHash, xMapStrEq);
@@ -222,7 +222,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/map.h>
+#include <x/base/map.h>
 
 static bool print_entry(const void *key, void *val, void *arg) {
     (void)arg;
@@ -250,7 +250,7 @@ int main(void) {
 ### Choosing a Backend
 
 ```c
-#include <xbase/map.h>
+#include <x/base/map.h>
 
 void example(void) {
     // General purpose — good default

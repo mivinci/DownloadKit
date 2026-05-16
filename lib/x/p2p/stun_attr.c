@@ -8,8 +8,8 @@
 
 #include "stun_attr.h"
 
-#include <xcrypto/crc32.h>
-#include <xcrypto/hmac_sha1.h>
+#include <x/crypto/crc32.h>
+#include <x/crypto/hmac_sha1.h>
 
 #include <arpa/inet.h>
 #include <stdlib.h>

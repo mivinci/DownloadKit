@@ -16,8 +16,8 @@
 #include "stun_txn.h"
 #include "turn_client.h"
 
-#include <xbase/log.h>
-#include <xnet/dns.h>
+#include <x/base/log.h>
+#include <x/net/dns.h>
 
 #include <arpa/inet.h>
 #include <errno.h>

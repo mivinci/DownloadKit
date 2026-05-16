@@ -12,7 +12,7 @@
 #include <thread>
 
 extern "C" {
-#include <xbase/error.h>
+#include <x/base/error.h>
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

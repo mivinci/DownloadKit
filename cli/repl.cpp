@@ -26,12 +26,12 @@
 #include <string>
 #include <utility>
 
-#include <xagent/message.h>
-#include <xagent/session.h>
-#include <xagent/tool.h>
-#include <xbase/event.h>
-#include <xbase/time.h>
-#include <xline/line.h>
+#include <x/agent/message.h>
+#include <x/agent/session.h>
+#include <x/agent/tool.h>
+#include <x/base/event.h>
+#include <x/base/time.h>
+#include <x/line/line.h>
 
 static void repl_line_cb(int fd, xEventMask mask, void *arg);
 

@@ -25,8 +25,8 @@
 #include <vector>
 
 extern "C" {
-#include <xbase/event.h>
-#include <xhttp/server.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
 }
 
 static xEventLoop g_loop = nullptr;

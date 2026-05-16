@@ -25,8 +25,8 @@
  * per-thread caches when we hand out pointers to other threads.
  */
 
-#include <xbase/atomic.h>
-#include <xbase/slab.h>
+#include <x/base/atomic.h>
+#include <x/base/slab.h>
 
 #include <stdint.h>
 #include <stdlib.h>

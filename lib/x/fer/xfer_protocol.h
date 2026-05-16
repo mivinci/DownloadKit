@@ -15,8 +15,8 @@
 #ifndef XFER_PROTOCOL_H
 #define XFER_PROTOCOL_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #include <stdint.h>
 

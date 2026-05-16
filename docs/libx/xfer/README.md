@@ -279,8 +279,8 @@ stateDiagram-v2
 ### Sending a File
 
 ```c
-#include <xbase/event.h>
-#include <xfer/xfer.h>
+#include <x/base/event.h>
+#include <x/fer/xfer.h>
 
 #include <signal.h>
 #include <stdio.h>
@@ -344,8 +344,8 @@ int main(void) {
 ### Receiving a File
 
 ```c
-#include <xbase/event.h>
-#include <xfer/xfer.h>
+#include <x/base/event.h>
+#include <x/fer/xfer.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -447,7 +447,7 @@ Command-line options:
 The following example shows how to implement a minimal in-memory VFS for testing:
 
 ```c
-#include <xfer/xfer_vfs.h>
+#include <x/fer/xfer_vfs.h>
 #include <stdlib.h>
 #include <string.h>
 

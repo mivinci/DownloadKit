@@ -6,8 +6,8 @@
  * memory.c - Memory allocation and reference counting
  */
 
-#include <xbase/atomic.h>
-#include <xbase/memory.h>
+#include <x/base/atomic.h>
+#include <x/base/memory.h>
 
 #include <stddef.h>
 #include <stdlib.h>

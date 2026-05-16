@@ -6,7 +6,7 @@
  * event_test.cpp - Unit tests for xEventLoop
  */
 
-#include <xbase/event.h>
+#include <x/base/event.h>
 
 #include <atomic>
 #include <chrono>

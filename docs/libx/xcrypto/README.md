@@ -151,7 +151,7 @@ All functions return `xErrno_Ok` on success (except `xCrc32` which returns the c
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xcrypto/sha256.h>
+#include <x/crypto/sha256.h>
 
 int main(void) {
     const char *msg = "Hello, World!";
@@ -174,7 +174,7 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xcrypto/hmac_sha256.h>
+#include <x/crypto/hmac_sha256.h>
 
 int main(void) {
     const char *key = "secret";
@@ -199,8 +199,8 @@ int main(void) {
 ### Streaming HMAC (Generic)
 
 ```c
-#include <xcrypto/hmac.h>
-#include <xcrypto/hmac_sha1.h>  /* for xHashVtableSha1 */
+#include <x/crypto/hmac.h>
+#include <x/crypto/hmac_sha1.h>  /* for xHashVtableSha1 */
 
 int main(void) {
     xHmacCtx ctx;

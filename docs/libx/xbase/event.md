@@ -208,7 +208,7 @@ The self-pipe approach avoids `signalfd`'s requirement to block signals in all t
 
 | Function | Signature | Replacement |
 | --- | --- | --- |
-| `xEventLoopNowMs` | `uint64_t xEventLoopNowMs(void)` | `xMonoMs()` from `<xbase/time.h>` |
+| `xEventLoopNowMs` | `uint64_t xEventLoopNowMs(void)` | `xMonoMs()` from `<x/base/time.h>` |
 
 ## Usage Examples
 
@@ -216,7 +216,7 @@ The self-pipe approach avoids `signalfd`'s requirement to block signals in all t
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
+#include <x/base/event.h>
 
 static void on_timer(void *arg) {
     printf("Timer fired!\n");
@@ -241,7 +241,7 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <unistd.h>
-#include <xbase/event.h>
+#include <x/base/event.h>
 
 static void on_readable(int fd, xEventMask mask, void *arg) {
     char buf[1024];
@@ -273,7 +273,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
+#include <x/base/event.h>
 
 static void on_done(void *arg) {
     printf("Work complete!\n");
@@ -302,7 +302,7 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <pthread.h>
-#include <xbase/event.h>
+#include <x/base/event.h>
 
 static void on_notify(void *arg) {
     // Runs on the event loop thread — safe to access loop state
@@ -335,7 +335,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
+#include <x/base/event.h>
 
 static void *heavy_work(void *arg) {
     // Runs on a worker thread

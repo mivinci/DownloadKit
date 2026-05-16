@@ -17,8 +17,8 @@
 #include <vector>
 
 extern "C" {
-#include <xhttp/client.h>
-#include <xhttp/server.h>
+#include <x/http/client.h>
+#include <x/http/server.h>
 }
 
 #include "server_test_helper.h"

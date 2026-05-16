@@ -10,12 +10,12 @@
  * configured max. Beyond that, tasks are queued.
  */
 
-#include <xbase/task.h>
+#include <x/base/task.h>
 
-#include <xbase/atomic.h>
-#include <xbase/mpsc.h>
-#include <xbase/note.h>
-#include <xbase/slab.h>
+#include <x/base/atomic.h>
+#include <x/base/mpsc.h>
+#include <x/base/note.h>
+#include <x/base/slab.h>
 
 #include <stdlib.h>
 #include <string.h>

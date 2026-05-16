@@ -170,7 +170,7 @@ XCAPI(void)  xHeapDestroy(xHeap h);
 
 - 返回 `xErrno` 枚举值表示成功/失败。
 - 创建函数返回指针/handle，失败返回 `NULL`。
-- 错误码定义在 `<xbase/error.h>` 中，可通过 `xstrerror()` 获取描述。
+- 错误码定义在 `<x/base/error.h>` 中，可通过 `xstrerror()` 获取描述。
 
 ### 4.4 Create / Destroy 配对
 
@@ -282,7 +282,7 @@ fail:
 ## 7. 测试约定
 
 - 使用 **Google Test** 框架，文件后缀 `_test.cpp`。
-- 通过 `extern "C" { #include <xbase/xxx.h> }` 引入 C 头文件。
+- 通过 `extern "C" { #include <x/base/xxx.h> }` 引入 C 头文件。
 - 测试类命名为 PascalCase：`HeapTest`、`TimerTest`。
 - 测试用例命名为 PascalCase：`PushSingleAndPop`、`MinProperty`。
 - 用 `/* ========== Section ========== */` 注释分隔测试组。
@@ -291,12 +291,12 @@ fail:
 
 ## 8. 头文件 include 顺序
 
-1. 对应的公共头文件（如 `time.c` → `#include <xbase/time.h>`）
+1. 对应的公共头文件（如 `time.c` → `#include <x/base/time.h>`）
 2. 标准库头文件（`<stdint.h>`, `<stdlib.h>`, ...）
 3. 系统头文件（`<pthread.h>`, `<unistd.h>`, ...）
 4. 项目内部头文件（`"event_private.h"`）
 
-使用尖括号 `<xbase/xxx.h>` 引用公共头文件，双引号 `"xxx.h"` 引用同目录私有头文件。
+使用尖括号 `<x/base/xxx.h>` 引用公共头文件，双引号 `"xxx.h"` 引用同目录私有头文件。
 
 ---
 

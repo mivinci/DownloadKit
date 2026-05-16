@@ -13,7 +13,7 @@
 #include <vector>
 
 extern "C" {
-#include <xbase/mpsc.h>
+#include <x/base/mpsc.h>
 }
 
 namespace {

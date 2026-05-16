@@ -26,8 +26,8 @@
  * thread and bounce events back with xEventLoopPost().
  */
 
-#include <xbase/event.h>
-#include <xline/line.h>
+#include <x/base/event.h>
+#include <x/line/line.h>
 
 #include <signal.h>
 #include <stdio.h>

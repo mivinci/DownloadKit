@@ -16,8 +16,8 @@
 
 #include <cstddef>
 
-#include <xagent/session.h>
-#include <xbase/error.h>
+#include <x/agent/session.h>
+#include <x/base/error.h>
 
 void on_text(xAgentSession sess, const char *chunk, size_t len, void *ud);
 void on_thinking(xAgentSession sess, const char *chunk, size_t len, void *ud);

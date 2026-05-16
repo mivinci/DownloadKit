@@ -151,7 +151,7 @@ ssize_t xWrite(xWriter w, const void *buf, size_t len) {
 ### Creating a Custom Reader
 
 ```c
-#include <xbase/io.h>
+#include <x/base/io.h>
 #include <unistd.h>
 
 // Adapt a file descriptor into an xReader
@@ -171,7 +171,7 @@ xReader make_fd_reader(int fd) {
 ### Reading Exactly N Bytes
 
 ```c
-#include <xbase/io.h>
+#include <x/base/io.h>
 
 void read_header(xReader r) {
     char header[64];
@@ -189,7 +189,7 @@ void read_header(xReader r) {
 ### Reading All Data Until EOF
 
 ```c
-#include <xbase/io.h>
+#include <x/base/io.h>
 #include <stdlib.h>
 
 void read_body(xReader r) {
@@ -207,11 +207,11 @@ void read_body(xReader r) {
 
 ### Using with xTcpConn
 
-`xTcpConn` (from `<xnet/tcp.h>`) provides adapter functions that return `xReader` and `xWriter` bound to the connection's transport layer. This allows TCP connections to be used with all generic I/O helpers:
+`xTcpConn` (from `<x/net/tcp.h>`) provides adapter functions that return `xReader` and `xWriter` bound to the connection's transport layer. This allows TCP connections to be used with all generic I/O helpers:
 
 ```c
-#include <xbase/io.h>
-#include <xnet/tcp.h>
+#include <x/base/io.h>
+#include <x/net/tcp.h>
 
 void handle_connection(xTcpConn conn) {
     // Get I/O adapters from the TCP connection
@@ -237,7 +237,7 @@ void handle_connection(xTcpConn conn) {
 ### Scatter-Gather Write
 
 ```c
-#include <xbase/io.h>
+#include <x/base/io.h>
 
 void send_http_response(xWriter w) {
     const char *header = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n";

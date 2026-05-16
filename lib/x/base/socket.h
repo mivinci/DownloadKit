@@ -9,9 +9,9 @@
 #ifndef XBASE_SOCKET_H
 #define XBASE_SOCKET_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 
 /* ───────────────────── Types ───────────────────── */
 

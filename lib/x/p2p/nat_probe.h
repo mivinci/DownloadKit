@@ -28,8 +28,8 @@
 #ifndef XP2P_NAT_PROBE_H
 #define XP2P_NAT_PROBE_H
 
-#include <xbase/base.h>
-#include <xbase/event.h>
+#include <x/base/base.h>
+#include <x/base/event.h>
 
 /* ───────────────────── NAT Type ───────────────────── */
 

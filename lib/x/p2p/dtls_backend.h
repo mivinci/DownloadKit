@@ -13,8 +13,8 @@
 #ifndef XP2P_DTLS_BACKEND_H
 #define XP2P_DTLS_BACKEND_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #include <stdbool.h>
 #include <stddef.h>

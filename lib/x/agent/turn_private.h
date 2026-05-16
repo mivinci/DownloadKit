@@ -34,8 +34,8 @@
 #ifndef XAGENT_TURN_PRIVATE_H
 #define XAGENT_TURN_PRIVATE_H
 
-#include <xagent/message.h> /* xAgentRole                                  */
-#include <xbase/error.h>
+#include <x/agent/message.h> /* xAgentRole                                  */
+#include <x/base/error.h>
 
 #include <stddef.h>
 #include <stdint.h>

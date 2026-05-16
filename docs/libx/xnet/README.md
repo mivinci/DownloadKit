@@ -69,10 +69,10 @@ graph TD
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
-#include <xnet/url.h>
-#include <xnet/dns.h>
-#include <xnet/tls.h>
+#include <x/base/event.h>
+#include <x/net/url.h>
+#include <x/net/dns.h>
+#include <x/net/tls.h>
 
 // 1. Parse a URL
 static void url_example(void) {

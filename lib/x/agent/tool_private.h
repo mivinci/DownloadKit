@@ -16,9 +16,9 @@
 #ifndef XAGENT_TOOL_PRIVATE_H
 #define XAGENT_TOOL_PRIVATE_H
 
-#include <xagent/message.h>
-#include <xagent/tool.h>
-#include <xbase/error.h>
+#include <x/agent/message.h>
+#include <x/agent/tool.h>
+#include <x/base/error.h>
 
 #ifdef __cplusplus
 extern "C" {

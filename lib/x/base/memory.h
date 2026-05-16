@@ -10,7 +10,7 @@
 #define XBASE_MEMORY_H
 
 #include <stddef.h>
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 #define XSYM_VTABLE(T) T##VTable
 #define XSYM_CTOR(T)   T##Ctor

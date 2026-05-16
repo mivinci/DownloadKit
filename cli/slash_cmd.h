@@ -15,7 +15,7 @@
 
 #include "ctx.h"
 
-#include <xline/line.h>
+#include <x/line/line.h>
 
 /* /model */
 void slash_cmd_model(ReplCtx *ctx, const char *args);

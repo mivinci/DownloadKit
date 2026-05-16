@@ -13,9 +13,9 @@
 #include "xfer_private.h"
 #include "xfer_signal.h"
 
-#include <xbase/log.h>
-#include <xcrypto/sha1.h>
-#include <xp2p/peer_connection.h>
+#include <x/base/log.h>
+#include <x/crypto/sha1.h>
+#include <x/p2p/peer_connection.h>
 
 #include <stdio.h>
 #include <stdlib.h>

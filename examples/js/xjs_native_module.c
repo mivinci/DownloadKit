@@ -38,7 +38,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <xjs/js.h>
+#include <x/js/js.h>
 
 /* ───────────────────── host state ────────────────────────────────
  *

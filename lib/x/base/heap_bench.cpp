@@ -12,7 +12,7 @@
 #include <vector>
 
 extern "C" {
-#include <xbase/heap.h>
+#include <x/base/heap.h>
 }
 
 namespace {

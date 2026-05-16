@@ -6,8 +6,8 @@
  * string.c - SDS-style dynamic string implementation
  */
 
-#include <xbase/compat.h>
-#include <xbase/string.h>
+#include <x/base/compat.h>
+#include <x/base/string.h>
 
 #include <stdarg.h>
 #include <stdio.h>

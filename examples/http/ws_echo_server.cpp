@@ -9,10 +9,10 @@
  * The server also serves the HTML client at http://localhost:<port>/.
  */
 
-#include <xbase/backtrace.h>
-#include <xbase/event.h>
-#include <xhttp/server.h>
-#include <xhttp/ws.h>
+#include <x/base/backtrace.h>
+#include <x/base/event.h>
+#include <x/http/server.h>
+#include <x/http/ws.h>
 
 #include <cstdio>
 #include <cstdlib>

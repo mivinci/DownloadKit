@@ -14,7 +14,7 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <xagent/model.h>
+#include <x/agent/model.h>
 #include "provider_private.h"
 }
 

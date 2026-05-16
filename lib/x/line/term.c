@@ -11,7 +11,7 @@
 #include <string.h>
 
 #include "color.h"
-#include <xbase/log.h>
+#include <x/base/log.h>
 #include "platform.h"
 #include "str.h"
 #include "stringbuf.h" // str_next_ofs

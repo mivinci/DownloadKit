@@ -8,7 +8,7 @@
 
 #include <cstring>
 #include <gtest/gtest.h>
-#include <xcrypto/md5.h>
+#include <x/crypto/md5.h>
 
 /* ───────────────────── MD5 Tests ───────────────────── */
 

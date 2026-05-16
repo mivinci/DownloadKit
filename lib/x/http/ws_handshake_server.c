@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <xbase/compat.h>
+#include <x/base/compat.h>
 
 /* RFC 6455 §4.2.2: magic GUID for Sec-WebSocket-Accept */
 static const char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";

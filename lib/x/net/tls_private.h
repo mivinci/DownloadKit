@@ -9,7 +9,7 @@
 #ifndef XNET_TLS_PRIVATE_H
 #define XNET_TLS_PRIVATE_H
 
-#include <xnet/tls.h>
+#include <x/net/tls.h>
 
 /**
  * @brief Get the native TLS context pointer.

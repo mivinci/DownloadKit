@@ -65,8 +65,8 @@ graph TD
 ## Quick Start
 
 ```c
-#include <xbase/event.h>
-#include <xlog/logger.h>
+#include <x/base/event.h>
+#include <x/log/logger.h>
 
 int main(void) {
     xEventLoop loop = xEventLoopCreate();

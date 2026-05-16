@@ -12,7 +12,7 @@
  * xAgentContent on their own stack.
  */
 
-#include <xagent/message.h>
+#include <x/agent/message.h>
 
 #include <stddef.h>
 #include <string.h>

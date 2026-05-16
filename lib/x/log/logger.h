@@ -15,9 +15,9 @@
 #define XLOG_LOGGER_H
 
 #include <stdint.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 
 /**
  * @brief Log severity levels (ascending order).

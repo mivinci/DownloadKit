@@ -15,7 +15,7 @@
 #ifndef XBASE_LIST_H
 #define XBASE_LIST_H
 
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 /**
  * @brief Doubly-linked list node.

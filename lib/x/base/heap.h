@@ -14,8 +14,8 @@
 #define XBASE_HEAP_H
 
 #include <stddef.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /**
  * @brief Comparison function for heap elements.

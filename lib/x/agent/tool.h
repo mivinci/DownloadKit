@@ -17,7 +17,7 @@
  *   each tool with xAgentToolDestroy after all agents/sessions using it
  *   are gone.
  *
- * - Handlers receive and produce xAgentContent (see <xagent/message.h>):
+ * - Handlers receive and produce xAgentContent (see <x/agent/message.h>):
  *   the input is a ToolUse content, and the handler must fill a
  *   ToolResult content. This keeps the session-facing API free of
  *   tool-specific structures.
@@ -35,14 +35,14 @@
 #define XAGENT_TOOL_H
 
 #include <stddef.h>
-#include <xagent/message.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/agent/message.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /**
  * @brief Opaque handle to a running query (forward declaration).
  *
- * Full definition in <xagent/query.h>. Declared here so that
+ * Full definition in <x/agent/query.h>. Declared here so that
  * xAgentToolDoneFunc / xAgentToolCancelFunc can accept a Query pointer
  * without pulling in the entire query.h header.
  */

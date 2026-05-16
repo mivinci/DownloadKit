@@ -231,8 +231,8 @@ overridden per-request via `xHttpRequestConf.http_version`.
 
 ```c
 #include <stdio.h>
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 static void on_response(const xHttpResponse *resp, void *arg) {
     (void)arg;
@@ -260,8 +260,8 @@ int main(void) {
 ### HTTPS with TLS Configuration
 
 ```c
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 static void on_response(const xHttpResponse *resp,
                         void *arg) {
@@ -294,8 +294,8 @@ int main(void) {
 ### POST with Custom Headers
 
 ```c
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 static void on_response(const xHttpResponse *resp, void *arg) {
     (void)arg;

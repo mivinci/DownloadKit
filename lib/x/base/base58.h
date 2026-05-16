@@ -16,7 +16,7 @@
 #ifndef XBASE_BASE58_H
 #define XBASE_BASE58_H
 
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 #include <stddef.h>
 #include <stdint.h>

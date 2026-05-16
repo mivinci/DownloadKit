@@ -13,9 +13,9 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <xagent/message.h>
-#include <xagent/tool.h>
-#include <xbase/error.h>
+#include <x/agent/message.h>
+#include <x/agent/tool.h>
+#include <x/base/error.h>
 #include "tool_private.h"
 }
 

@@ -134,7 +134,7 @@ graph LR
 | `xTimerSubmitAt` | `xTimerTask xTimerSubmitAt(xTimer t, xTimerFunc fn, void *arg, uint64_t abs_ms)` | Schedule a callback at an absolute monotonic time. | **Thread-safe** |
 | `xTimerCancel` | `xErrno xTimerCancel(xTimer t, xTimerTask task)` | Cancel a pending entry. Returns `xErrno_Ok` if cancelled, `xErrno_Cancelled` if already fired. | **Thread-safe** |
 | `xTimerPoll` | `int xTimerPoll(xTimer t)` | Execute all due callbacks (poll mode only). Returns count. No-op in push mode. | Not thread-safe |
-| ~~`xTimerNowMs`~~ | `uint64_t xTimerNowMs(void)` | **Deprecated.** Use `xMonoMs()` from `<xbase/time.h>`. | Thread-safe |
+| ~~`xTimerNowMs`~~ | `uint64_t xTimerNowMs(void)` | **Deprecated.** Use `xMonoMs()` from `<x/base/time.h>`. | Thread-safe |
 
 ## Usage Examples
 
@@ -142,8 +142,8 @@ graph LR
 
 ```c
 #include <stdio.h>
-#include <xbase/timer.h>
-#include <xbase/task.h>
+#include <x/base/timer.h>
+#include <x/base/task.h>
 #include <unistd.h>
 
 static void on_timeout(void *arg) {
@@ -169,8 +169,8 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/timer.h>
-#include <xbase/time.h>
+#include <x/base/timer.h>
+#include <x/base/time.h>
 
 static void on_timeout(void *arg) {
     int *count = (int *)arg;

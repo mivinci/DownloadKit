@@ -6,7 +6,7 @@
  * buf.c - Linear auto-growing byte buffer implementation
  */
 
-#include <xbuf/buf.h>
+#include <x/buf/buf.h>
 
 #include <errno.h>
 #include <stdint.h>

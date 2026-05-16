@@ -16,14 +16,14 @@ extern "C" {
 #include "provider_private.h"
 #include "session_private.h"
 
-#include <xagent/agent.h>
-#include <xagent/memory.h>
-#include <xagent/message.h>
-#include <xagent/provider.h>
-#include <xagent/session.h>
-#include <xagent/tool.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
+#include <x/agent/agent.h>
+#include <x/agent/memory.h>
+#include <x/agent/message.h>
+#include <x/agent/provider.h>
+#include <x/agent/session.h>
+#include <x/agent/tool.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 
 #include <time.h> /* nanosleep for created_at_ms tests */
 }

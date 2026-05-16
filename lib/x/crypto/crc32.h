@@ -13,7 +13,7 @@
 #ifndef XCRYPTO_CRC32_H
 #define XCRYPTO_CRC32_H
 
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 #include <stddef.h>
 #include <stdint.h>

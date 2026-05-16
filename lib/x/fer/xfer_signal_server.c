@@ -27,9 +27,9 @@
 
 #include "xfer_signal.h"
 
-#include <xbase/log.h>
-#include <xhttp/server.h>
-#include <xhttp/ws.h>
+#include <x/base/log.h>
+#include <x/http/server.h>
+#include <x/http/ws.h>
 
 #include <cJSON.h>
 

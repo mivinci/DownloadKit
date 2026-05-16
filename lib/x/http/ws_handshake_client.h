@@ -12,8 +12,8 @@
 #ifndef XHTTP_WS_HANDSHAKE_CLIENT_H
 #define XHTTP_WS_HANDSHAKE_CLIENT_H
 
-#include <xbuf/io.h>
-#include <xnet/url.h>
+#include <x/buf/io.h>
+#include <x/net/url.h>
 
 #ifdef XHTTP_WS_DEFLATE
 #include "ws_deflate.h"

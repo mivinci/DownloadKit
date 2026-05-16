@@ -14,7 +14,7 @@
 #include <vector>
 
 extern "C" {
-#include <xbase/memory.h>
+#include <x/base/memory.h>
 }
 
 /* ── Test object ── */

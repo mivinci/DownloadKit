@@ -91,8 +91,8 @@ if (xTlsCtxReload(ctx, &new_tls) == 0) {
 ### One-Way TLS (Client Verifies Server)
 
 ```c
-#include <xnet/tls.h>
-#include <xhttp/client.h>
+#include <x/net/tls.h>
+#include <x/http/client.h>
 
 // Use system CA bundle (zero-init)
 xTlsConf tls = {0};

@@ -22,10 +22,10 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
-#include <xnet/tls.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
+#include <x/net/tls.h>
 
 /* Forward declarations (avoid circular include with server.h) */
 XDEF_HANDLE(xHttpResponseWriter);

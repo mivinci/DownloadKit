@@ -14,9 +14,9 @@
 #ifndef XAGENT_PROVIDER_PRIVATE_H
 #define XAGENT_PROVIDER_PRIVATE_H
 
-#include <xagent/provider.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/agent/provider.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #ifdef __cplusplus
 extern "C" {

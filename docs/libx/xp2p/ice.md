@@ -15,7 +15,7 @@ The agent handles:
 ## Header
 
 ```c
-#include <xp2p/ice_agent.h>
+#include <x/p2p/ice_agent.h>
 ```
 
 ## States

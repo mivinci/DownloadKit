@@ -16,9 +16,9 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include <xagent/session.h>
-#include <xbase/time.h>
-#include <xline/line.h>
+#include <x/agent/session.h>
+#include <x/base/time.h>
+#include <x/line/line.h>
 
 void on_text(xAgentSession sess, const char *chunk, size_t len, void *ud) {
   (void)sess;

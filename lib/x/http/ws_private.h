@@ -9,15 +9,15 @@
 #ifndef XHTTP_WS_PRIVATE_H
 #define XHTTP_WS_PRIVATE_H
 
-#include <xnet/transport.h>
+#include <x/net/transport.h>
 #include "ws_deflate.h"
 #include "ws_frame.h"
-#include <xbase/base.h>
-#include <xbase/event.h>
-#include <xbase/socket.h>
-#include <xbuf/io.h>
-#include <xhttp/server.h>
-#include <xhttp/ws.h>
+#include <x/base/base.h>
+#include <x/base/event.h>
+#include <x/base/socket.h>
+#include <x/buf/io.h>
+#include <x/http/server.h>
+#include <x/http/ws.h>
 
 /* Forward declaration */
 struct xHttpServer_;

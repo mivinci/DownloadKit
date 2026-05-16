@@ -38,15 +38,15 @@
  *     tool result back for another round; we just surface the intent.
  */
 
-#include <xagent/message.h>
-#include <xagent/provider.h>
-#include <xagent/provider_openai.h>
-#include <xagent/tool.h>
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/agent/message.h>
+#include <x/agent/provider.h>
+#include <x/agent/provider_openai.h>
+#include <x/agent/tool.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 /* Internal dispatcher — see file banner for justification. */
-#include <xagent/provider_private.h>
+#include <x/agent/provider_private.h>
 
 #include <csignal>
 #include <cstdio>

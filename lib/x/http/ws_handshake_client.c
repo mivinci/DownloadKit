@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <xbase/compat.h>
+#include <x/base/compat.h>
 
 #ifdef __linux__
 #include <sys/random.h>

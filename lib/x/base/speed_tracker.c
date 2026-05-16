@@ -6,8 +6,8 @@
  * speed_tracker.c - EMA-smoothed speed tracker
  */
 
-#include <xbase/speed_tracker.h>
-#include <xbase/time.h>
+#include <x/base/speed_tracker.h>
+#include <x/base/time.h>
 
 #include <stdio.h>
 

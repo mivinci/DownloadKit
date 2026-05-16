@@ -6,7 +6,7 @@
  * flag.c - Command-line flag parser implementation
  */
 
-#include <xbase/flag.h>
+#include <x/base/flag.h>
 
 #include <ctype.h>
 #include <errno.h>

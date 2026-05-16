@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <xagent/message.h>
+#include <x/agent/message.h>
 }
 
 #include <atomic>

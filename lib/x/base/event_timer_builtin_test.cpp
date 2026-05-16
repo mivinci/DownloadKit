@@ -6,7 +6,7 @@
  * event_timer_builtin_test.cpp - Unit tests for Plan B (builtin timer)
  */
 
-#include <xbase/event.h>
+#include <x/base/event.h>
 
 #include <atomic>
 #include <chrono>

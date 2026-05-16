@@ -163,9 +163,9 @@ Invoked for each accepted connection. The callee takes ownership of `conn`.
 
 ```c
 #include <string.h>
-#include <xbase/event.h>
-#include <xbase/socket.h>
-#include <xnet/tcp.h>
+#include <x/base/event.h>
+#include <x/base/socket.h>
+#include <x/net/tcp.h>
 
 static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
     xTcpConn conn = (xTcpConn)arg;
@@ -214,9 +214,9 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <string.h>
-#include <xbase/event.h>
-#include <xbase/socket.h>
-#include <xnet/tcp.h>
+#include <x/base/event.h>
+#include <x/base/socket.h>
+#include <x/net/tcp.h>
 
 static void on_response(xSocket sock, xEventMask mask, void *arg) {
     xTcpConn conn = (xTcpConn)arg;
@@ -265,8 +265,8 @@ int main(void) {
 ### TLS Client (auto-create context)
 
 ```c
-#include <xnet/tcp.h>
-#include <xnet/tls.h>
+#include <x/net/tcp.h>
+#include <x/net/tls.h>
 
 static void on_tls_connected(xTcpConn conn, xErrno err, void *arg) {
     if (err != xErrno_Ok) { /* handle error */ return; }
@@ -293,8 +293,8 @@ void connect_tls(xEventLoop loop) {
 When making many connections to the same server, share a `xTlsCtx` to avoid reloading certificates each time:
 
 ```c
-#include <xnet/tcp.h>
-#include <xnet/tls.h>
+#include <x/net/tcp.h>
+#include <x/net/tls.h>
 
 static void on_connected(xTcpConn conn, xErrno err, void *arg) {
     if (err != xErrno_Ok) { /* handle error */ return; }
@@ -321,8 +321,8 @@ void connect_with_shared_ctx(xEventLoop loop) {
 ### TLS Server
 
 ```c
-#include <xnet/tcp.h>
-#include <xnet/transport.h>
+#include <x/net/tcp.h>
+#include <x/net/transport.h>
 
 void start_tls_server(xEventLoop loop) {
     xTlsConf tls_conf = {

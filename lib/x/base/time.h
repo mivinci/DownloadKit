@@ -10,7 +10,7 @@
 #define XBASE_TIME_H
 
 #include <stdint.h>
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 /**
  * @brief Return the current monotonic time in milliseconds (CLOCK_MONOTONIC).

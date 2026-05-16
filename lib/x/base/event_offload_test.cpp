@@ -13,8 +13,8 @@
 #include <vector>
 
 extern "C" {
-#include <xbase/event.h>
-#include <xbase/task.h>
+#include <x/base/event.h>
+#include <x/base/task.h>
 }
 
 /* ───────────────────── Fixture ───────────────────── */

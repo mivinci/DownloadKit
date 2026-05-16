@@ -52,11 +52,11 @@
 #include <string>
 #include <vector>
 
-#include <xagent/model.h>
-#include <xagent/provider.h>
-#include <xagent/session.h>
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/agent/model.h>
+#include <x/agent/provider.h>
+#include <x/agent/session.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 /* Flags marking which budget fields were explicitly set by the
  * user. Needed because zero is a valid "use the built-in default"

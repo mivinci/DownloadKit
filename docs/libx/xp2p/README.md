@@ -139,8 +139,8 @@ graph TD
 The `xPeerConnection` API is the recommended entry point for most applications. It orchestrates the full ICE → DTLS → SCTP → DataChannel pipeline:
 
 ```c
-#include <xbase/event.h>
-#include <xp2p/peer_connection.h>
+#include <x/base/event.h>
+#include <x/p2p/peer_connection.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -198,8 +198,8 @@ See [pc.md](pc.md) for the full PeerConnection API reference, DataChannel API, c
 For raw ICE connectivity without DTLS/SCTP/DataChannel, use the ICE agent directly:
 
 ```c
-#include <xbase/event.h>
-#include <xp2p/ice_agent.h>
+#include <x/base/event.h>
+#include <x/p2p/ice_agent.h>
 
 #include <stdio.h>
 #include <string.h>

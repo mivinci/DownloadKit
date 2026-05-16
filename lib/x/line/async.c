@@ -30,7 +30,7 @@
 #include "stringbuf.h"
 #include "term.h"
 #include "tty.h"
-#include <xbase/log.h>
+#include <x/base/log.h>
 
 //-------------------------------------------------------------
 // Trace logging to a side file. Two-stage gate:

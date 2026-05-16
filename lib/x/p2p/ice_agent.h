@@ -13,9 +13,9 @@
 #ifndef XP2P_ICE_AGENT_H
 #define XP2P_ICE_AGENT_H
 
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 
 #include "ice_candidate.h"
 

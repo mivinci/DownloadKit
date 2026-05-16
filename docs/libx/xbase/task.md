@@ -174,7 +174,7 @@ Using a single condition variable caused lost wakeups: `pthread_cond_signal()` c
 
 ```c
 #include <stdio.h>
-#include <xbase/task.h>
+#include <x/base/task.h>
 
 static void *compute(void *arg) {
     int *val = (int *)arg;
@@ -201,7 +201,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/task.h>
+#include <x/base/task.h>
 
 #define N 8
 
@@ -241,7 +241,7 @@ int main(void) {
 ```c
 #include <stdio.h>
 #include <stdlib.h>
-#include <xbase/task.h>
+#include <x/base/task.h>
 
 static void *process(void *arg) {
     int *data = (int *)arg;
@@ -274,7 +274,7 @@ int main(void) {
 
 ```c
 #include <stdio.h>
-#include <xbase/task.h>
+#include <x/base/task.h>
 
 static void *work(void *arg) {
     printf("Running on global pool: %s\n", (char *)arg);

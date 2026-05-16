@@ -19,8 +19,8 @@
  */
 
 extern "C" {
-#include <xagent/query.h>
-#include <xagent/session.h>
+#include <x/agent/query.h>
+#include <x/agent/session.h>
 }
 
 #include <gtest/gtest.h>

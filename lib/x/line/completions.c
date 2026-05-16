@@ -10,7 +10,7 @@
 
 #include "color.h"
 #include "completions.h"
-#include <xbase/log.h>
+#include <x/base/log.h>
 #include "env.h"
 #include "line.h"
 #include "platform.h"

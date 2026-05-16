@@ -19,9 +19,9 @@
 #include <vector>
 
 extern "C" {
-#include <xbase/event.h>
-#include <xbase/log.h>
-#include <xlog/logger.h>
+#include <x/base/event.h>
+#include <x/base/log.h>
+#include <x/log/logger.h>
 }
 
 /* ───────────────────── Helpers ───────────────────── */

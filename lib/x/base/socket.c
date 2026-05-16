@@ -6,7 +6,7 @@
  * socket.c - Async socket abstraction over xEventLoop
  */
 
-#include <xbase/socket.h>
+#include <x/base/socket.h>
 
 #include <stdlib.h>
 

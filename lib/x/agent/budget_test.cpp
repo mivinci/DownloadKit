@@ -13,7 +13,7 @@
 #include <gtest/gtest.h>
 
 extern "C" {
-#include <xagent/message.h> /* xAgentRole_* */
+#include <x/agent/message.h> /* xAgentRole_* */
 }
 
 #include "budget_private.h"

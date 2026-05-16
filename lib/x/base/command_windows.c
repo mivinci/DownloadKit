@@ -21,8 +21,8 @@
 #ifdef _WIN32
 
 #include "event_private.h"
-#include <xbase/command.h>
-#include <xbase/string.h>
+#include <x/base/command.h>
+#include <x/base/string.h>
 
 #define WIN32_LEAN_AND_MEAN
 #include <fcntl.h>

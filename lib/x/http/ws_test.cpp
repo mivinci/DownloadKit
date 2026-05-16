@@ -17,9 +17,9 @@
 extern "C" {
 #include "ws_crypto.h"
 #include "ws_frame.h"
-#include <xhttp/server.h>
-#include <xhttp/ws.h>
-#include <xbuf/io.h>
+#include <x/http/server.h>
+#include <x/http/ws.h>
+#include <x/buf/io.h>
 }
 
 #include <arpa/inet.h>

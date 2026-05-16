@@ -16,7 +16,7 @@
 #include <string>
 
 extern "C" {
-#include <xtui/md.h>
+#include <x/tui/md.h>
 }
 
 namespace {

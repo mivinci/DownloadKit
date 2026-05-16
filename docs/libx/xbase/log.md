@@ -89,8 +89,8 @@ flowchart TD
 The format buffer size can be overridden at compile time:
 
 ```c
-#define XLOG_BUF_SIZE 1024  // Must be defined before #include <xbase/log.h>
-#include <xbase/log.h>
+#define XLOG_BUF_SIZE 1024  // Must be defined before #include <x/base/log.h>
+#include <x/base/log.h>
 ```
 
 ## API Reference
@@ -120,7 +120,7 @@ The format buffer size can be overridden at compile time:
 
 ```c
 #include <stdio.h>
-#include <xbase/log.h>
+#include <x/base/log.h>
 
 static void my_log_handler(const char *msg, const char *backtrace,
                             void *userdata) {
@@ -151,7 +151,7 @@ int main(void) {
 ### Fatal Error with Backtrace
 
 ```c
-#include <xbase/log.h>
+#include <x/base/log.h>
 
 void dangerous_operation(void) {
     // This will print the message, capture a backtrace, and abort()

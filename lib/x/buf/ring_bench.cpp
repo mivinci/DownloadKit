@@ -11,7 +11,7 @@
 #include <vector>
 
 extern "C" {
-#include <xbuf/ring.h>
+#include <x/buf/ring.h>
 }
 
 // BM_Ring_WriteRead: Measure write + read throughput

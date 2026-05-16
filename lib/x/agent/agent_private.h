@@ -15,13 +15,13 @@
 #define XAGENT_AGENT_PRIVATE_H
 
 #include <stddef.h>
-#include <xagent/agent.h>
-#include <xagent/model.h>
-#include <xagent/provider.h>
-#include <xagent/tool.h>
-#include <xbase/base.h>
-#include <xbase/event.h>
-#include <xbase/task.h>
+#include <x/agent/agent.h>
+#include <x/agent/model.h>
+#include <x/agent/provider.h>
+#include <x/agent/tool.h>
+#include <x/base/base.h>
+#include <x/base/event.h>
+#include <x/base/task.h>
 
 struct xAgentSession_; /* forward — full definition in session_private.h */
 

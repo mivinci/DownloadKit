@@ -58,10 +58,10 @@
 #define XAGENT_QUERY_H
 
 #include <stddef.h>
-#include <xagent/agent.h>    /* xAgent, xAgentTool, xAgentProvider, xAgentUsage */
-#include <xagent/message.h>  /* xAgentMessage                               */
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/agent/agent.h>    /* xAgent, xAgentTool, xAgentProvider, xAgentUsage */
+#include <x/agent/message.h>  /* xAgentMessage                               */
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,7 +70,7 @@ extern "C" {
 /**
  * @brief Opaque handle to a session instance (forward declaration).
  *
- * Full definition lives in <xagent/session.h>. The Query only stores
+ * Full definition lives in <x/agent/session.h>. The Query only stores
  * this as an observational back-pointer; it never dereferences it.
  */
 XDEF_HANDLE(xAgentSession);
@@ -444,7 +444,7 @@ XCAPI(void) xAgentQueryDestroy(xAgentQuery q);
 
 /* ── Observing API ────────────────────────────────────────────── */
 
-/* xAgentSessionQuery is declared in <xagent/session.h>. It returns the
+/* xAgentSessionQuery is declared in <x/agent/session.h>. It returns the
  * live Query (if any) on a Session handle, which is a Session-layer
  * concept. */
 

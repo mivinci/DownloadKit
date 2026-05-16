@@ -227,8 +227,8 @@ Initiate a graceful close. Identical to the server-side API.
 ### Connect and Echo
 
 ```c
-#include <xbase/event.h>
-#include <xhttp/ws.h>
+#include <x/base/event.h>
+#include <x/http/ws.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -272,9 +272,9 @@ int main(void) {
 ### Secure Connection (wss://)
 
 ```c
-#include <xbase/event.h>
-#include <xhttp/ws.h>
-#include <xnet/tls.h>
+#include <x/base/event.h>
+#include <x/http/ws.h>
+#include <x/net/tls.h>
 
 static void on_open(xWsConn conn, void *arg) { /* ... */ }
 static void on_message(xWsConn conn, xWsOpcode op, const void *data, size_t len, void *arg) { /* ... */ }
@@ -311,9 +311,9 @@ int main(void) {
 When creating many `wss://` connections (e.g. reconnect loops or connection pools), use a shared `xTlsCtx` to avoid reloading certificates on every connection:
 
 ```c
-#include <xbase/event.h>
-#include <xhttp/ws.h>
-#include <xnet/tls.h>
+#include <x/base/event.h>
+#include <x/http/ws.h>
+#include <x/net/tls.h>
 
 static void on_open(xWsConn conn, void *arg) { /* ... */ }
 static void on_message(xWsConn conn, xWsOpcode op, const void *data, size_t len, void *arg) { /* ... */ }

@@ -9,7 +9,7 @@
 #ifndef XBASE_ERROR_H
 #define XBASE_ERROR_H
 
-#include <xbase/base.h>
+#include <x/base/base.h>
 
 XDEF_ENUM(xErrno){
   xErrno_Ok = 0,        /**< Success                                    */

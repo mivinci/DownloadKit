@@ -11,7 +11,7 @@
  * the tool set, the task pool used for tool execution, and the
  * loop-wide limits (max turns, token budget).
  *
- * One agent can mint many xAgentSession instances (see <xagent/session.h>),
+ * One agent can mint many xAgentSession instances (see <x/agent/session.h>),
  * which are the stateful per-conversation objects. The agent itself
  * holds no conversation history; it is long-lived and safe to share
  * across sessions that live on the same event loop.
@@ -27,18 +27,18 @@
 #define XAGENT_AGENT_H
 
 #include <stddef.h>
-#include <xagent/model.h>
-#include <xagent/provider.h>
-#include <xagent/tool.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
-#include <xbase/task.h>
+#include <x/agent/model.h>
+#include <x/agent/provider.h>
+#include <x/agent/tool.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
+#include <x/base/task.h>
 
 /**
  * @brief Forward handle for the pluggable memory store.
  *
- * The full API lives in <xagent/memory.h>; we forward-declare only
+ * The full API lives in <x/agent/memory.h>; we forward-declare only
  * the handle here to keep agent.h from pulling memory.h (which
  * itself depends on session.h, which depends on agent.h, creating
  * a cycle). C11 allows this same typedef to appear here and in
@@ -50,14 +50,14 @@ XDEF_HANDLE(xAgentMemory);
  * @brief Opaque handle to a session instance.
  *
  * Forward-declared here for xAgentCreateSession(); the full
- * definition lives in <xagent/session.h>.
+ * definition lives in <x/agent/session.h>.
  */
 XDEF_HANDLE(xAgentSession);
 
 /**
  * @brief Forward declaration of session configuration.
  *
- * Defined in <xagent/session.h>; forward-declared here so
+ * Defined in <x/agent/session.h>; forward-declared here so
  * xAgentCreateSession() can accept it without creating a
  * circular include (session.h already includes agent.h).
  */

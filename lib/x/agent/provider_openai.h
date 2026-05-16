@@ -14,10 +14,10 @@
 #ifndef XAGENT_PROVIDER_OPENAI_H
 #define XAGENT_PROVIDER_OPENAI_H
 
-#include <xagent/provider.h>
-#include <xbase/base.h>
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/agent/provider.h>
+#include <x/base/base.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 /**
  * @brief Configuration for an OpenAI-compatible provider.

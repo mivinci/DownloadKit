@@ -14,8 +14,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <xbase/base.h>
-#include <xbuf/io.h>
+#include <x/base/base.h>
+#include <x/buf/io.h>
 
 /* ───────────────────── Opcodes (RFC 6455 §5.2) ───────────────────── */
 

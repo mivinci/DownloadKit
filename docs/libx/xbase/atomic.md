@@ -99,7 +99,7 @@ graph TD
 
 ## API Reference
 
-See the [Operation Macros](#operation-macros) section above for the complete list. All macros are defined in `<xbase/atomic.h>` and require no function calls — they expand directly to compiler builtins.
+See the [Operation Macros](#operation-macros) section above for the complete list. All macros are defined in `<x/base/atomic.h>` and require no function calls — they expand directly to compiler builtins.
 
 ## Usage Examples
 
@@ -108,7 +108,7 @@ See the [Operation Macros](#operation-macros) section above for the complete lis
 ```c
 #include <stdio.h>
 #include <pthread.h>
-#include <xbase/atomic.h>
+#include <x/base/atomic.h>
 
 static int g_counter = 0;
 
@@ -136,7 +136,7 @@ int main(void) {
 ### Spinlock (Educational)
 
 ```c
-#include <xbase/atomic.h>
+#include <x/base/atomic.h>
 
 typedef struct { int locked; } Spinlock;
 

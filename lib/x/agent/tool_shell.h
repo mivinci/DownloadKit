@@ -26,10 +26,10 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <xagent/tool.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
-#include <xbase/event.h>
+#include <x/agent/tool.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
+#include <x/base/event.h>
 
 /**
  * @brief Called before the shell tool executes a command.

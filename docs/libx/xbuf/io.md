@@ -253,7 +253,7 @@ flowchart TD
 
 ```c
 #include <stdio.h>
-#include <xbuf/io.h>
+#include <x/buf/io.h>
 
 int main(void) {
     xIOBuffer io;
@@ -279,7 +279,7 @@ int main(void) {
 ### Zero-Copy Split (Protocol Parsing)
 
 ```c
-#include <xbuf/io.h>
+#include <x/buf/io.h>
 
 void parse_protocol(xIOBuffer *io) {
     // Cut the 4-byte header from the front
@@ -301,7 +301,7 @@ void parse_protocol(xIOBuffer *io) {
 ### High-Throughput Network I/O
 
 ```c
-#include <xbuf/io.h>
+#include <x/buf/io.h>
 
 void handle_data(int sockfd) {
     // Pre-warm the block pool at startup

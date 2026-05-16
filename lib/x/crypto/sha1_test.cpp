@@ -6,7 +6,7 @@
  * sha1_test.cpp - Unit tests for xSha1
  */
 
-#include <xcrypto/sha1.h>
+#include <x/crypto/sha1.h>
 
 #include <gtest/gtest.h>
 

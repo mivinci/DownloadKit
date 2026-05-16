@@ -8,8 +8,8 @@
 
 #include <gtest/gtest.h>
 
-#include <xbase/error.h>
-#include <xbase/flag.h>
+#include <x/base/error.h>
+#include <x/base/flag.h>
 
 #include <stdlib.h>
 #include <string.h>

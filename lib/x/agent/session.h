@@ -37,11 +37,11 @@
 
 #include <stddef.h>
 #include <sys/types.h>
-#include <xagent/agent.h>
-#include <xagent/message.h>
-#include <xagent/query.h>
-#include <xbase/base.h>
-#include <xbase/error.h>
+#include <x/agent/agent.h>
+#include <x/agent/message.h>
+#include <x/agent/query.h>
+#include <x/base/base.h>
+#include <x/base/error.h>
 
 /**
  * @brief Opaque handle to a session instance.
@@ -76,7 +76,7 @@ XDEF_ENUM(xAgentInputOrigin){
 /**
  * @brief Why the session's current run stopped.
  *
- * Defined in <xagent/query.h>. That header is included by this one
+ * Defined in <x/agent/query.h>. That header is included by this one
  * so the type is always available to session.h consumers.
  */
 

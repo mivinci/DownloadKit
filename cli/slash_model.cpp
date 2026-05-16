@@ -15,8 +15,8 @@
 #include <cstring>
 #include <string>
 
-#include <xagent/model.h>
-#include <xagent/session.h>
+#include <x/agent/model.h>
+#include <x/agent/session.h>
 
 /* Render the registry as a "id -> wire model" listing. Used by
  * /model (when no argument is given) so the user can see every

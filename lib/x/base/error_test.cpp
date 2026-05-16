@@ -11,7 +11,7 @@
 #include <cstring>
 
 extern "C" {
-#include <xbase/error.h>
+#include <x/base/error.h>
 }
 
 /* ── Valid error codes return correct strings ── */

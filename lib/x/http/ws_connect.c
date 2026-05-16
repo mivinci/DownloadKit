@@ -9,7 +9,7 @@
  * HTTP Upgrade → xWsConn creation, all fully asynchronous.
  */
 
-#include <xnet/transport_private.h>
+#include <x/net/transport_private.h>
 #include "ws_handshake_client.h"
 #include "ws_private.h"
 
@@ -21,9 +21,9 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#include <xbase/log.h>
-#include <xnet/dns.h>
-#include <xnet/url.h>
+#include <x/base/log.h>
+#include <x/net/dns.h>
+#include <x/net/url.h>
 
 /* Default connect timeout: 10 seconds */
 #define XWS_DEFAULT_TIMEOUT_MS 10000

@@ -6,7 +6,7 @@
  * hex.c - Hex encoding and decoding
  */
 
-#include <xbase/hex.h>
+#include <x/base/hex.h>
 
 #include <string.h>
 

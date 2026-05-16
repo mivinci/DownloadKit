@@ -6,8 +6,8 @@
  * ws_serve.c - WebSocket-only server convenience function
  */
 
-#include <xhttp/server.h>
-#include <xhttp/ws.h>
+#include <x/http/server.h>
+#include <x/http/ws.h>
 
 #include "server_private.h"
 

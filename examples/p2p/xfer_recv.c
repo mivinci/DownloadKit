@@ -15,9 +15,9 @@
  *   ./xfer_recv -c AB12CD -t openrelay.metered.ca:443 -U openrelayproject -P openrelayproject
  */
 
-#include <xbase/event.h>
-#include <xbase/speed_tracker.h>
-#include <xfer/xfer.h>
+#include <x/base/event.h>
+#include <x/base/speed_tracker.h>
+#include <x/fer/xfer.h>
 
 #include <signal.h> /* SIGINT */
 #include <stdio.h>

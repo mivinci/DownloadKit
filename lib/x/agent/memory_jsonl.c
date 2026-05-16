@@ -30,7 +30,7 @@
 
 #include "memory_private.h"
 
-#include <xbase/time.h> /* xWallMs */
+#include <x/base/time.h> /* xWallMs */
 
 #include <ctype.h>
 #include <errno.h>

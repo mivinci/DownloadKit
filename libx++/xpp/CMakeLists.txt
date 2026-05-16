@@ -13,6 +13,7 @@ file(GLOB XPP_TEST_SOURCES "*_test.cpp")
 list(REMOVE_ITEM XPP_SOURCES ${XPP_TEST_SOURCES})
 
 add_library(x++ ${XPP_SOURCES})
+add_library(xpp ALIAS x++)  # convenience alias for downstream consumers
 target_compile_features(x++ PUBLIC cxx_std_14)
 target_link_libraries(x++ PUBLIC xbase)
 target_include_directories(x++ PUBLIC

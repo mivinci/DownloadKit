@@ -57,30 +57,11 @@ endif()
 
 find_package(Libcurl REQUIRED)
 
-include_directories(${CMAKE_SOURCE_DIR}/lib)
+include_directories(${CMAKE_SOURCE_DIR}/libx)
 
-add_subdirectory(lib/x/base)
-add_subdirectory(lib/x/log)
-add_subdirectory(lib/x/buf)
-add_subdirectory(lib/x/net)
-add_subdirectory(lib/x/crypto)
-add_subdirectory(lib/x/http)
-add_subdirectory(lib/x/p2p)
-add_subdirectory(lib/x/fer)
-add_subdirectory(lib/x/agent)
-add_subdirectory(lib/x/js)
-add_subdirectory(lib/x/line)
-add_subdirectory(lib/x/tui)
-add_subdirectory(lib/xpp)
+add_subdirectory(libx)
+add_subdirectory(libx++)
 
 if(MOO_BUILD_APPS)
   add_subdirectory(cli)
-endif()
-
-if(MOO_BUILD_EXAMPLES)
-  add_subdirectory(examples)
-endif()
-
-if(MOO_BUILD_BENCHMARKS)
-  add_subdirectory(bench)
 endif()

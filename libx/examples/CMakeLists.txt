@@ -47,18 +47,18 @@ target_link_libraries(ai_openai PRIVATE xagent xhttp xbase)
 # this include path should be removed and the demo rewritten against
 # xAgentCreate + xAgentSessionCreate.
 target_include_directories(ai_openai PRIVATE
-  ${CMAKE_SOURCE_DIR}/lib)
+  ${CMAKE_SOURCE_DIR}/libx)
 
 # ── JS examples ───────────────────────────────────────────────────────
 
 add_executable(xjs_native_module js/xjs_native_module.c)
 target_link_libraries(xjs_native_module PRIVATE xjs)
 target_include_directories(xjs_native_module PRIVATE
-  ${CMAKE_SOURCE_DIR}/lib)
+  ${CMAKE_SOURCE_DIR}/libx)
 
 # ── Line editor examples ──────────────────────────────────────────────
 
 add_executable(xline_async line/xline_async.c)
 target_link_libraries(xline_async PRIVATE xline xbase)
 target_include_directories(xline_async PRIVATE
-  ${CMAKE_SOURCE_DIR}/lib)
+  ${CMAKE_SOURCE_DIR}/libx)

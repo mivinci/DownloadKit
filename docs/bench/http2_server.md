@@ -20,7 +20,7 @@ End-to-end HTTP/2 (h2c, cleartext) server benchmark comparing **moo** (single-th
 Single-threaded event-loop HTTP/2 server built on `xbase/event.h` + `xhttp/server.h`. Supports h2c (cleartext HTTP/2) via Prior Knowledge — the same binary as the HTTP/1.1 benchmark, since moo auto-detects the protocol on the first bytes of each connection.
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DX_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 ./build/bench/http_bench_server 8080
 ```
@@ -147,7 +147,7 @@ How does HTTP/2 compare to HTTP/1.1 for each server? (GET /ping, 100 connections
 
 ```bash
 # Build moo server
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DX_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 
 # Build Go h2c server

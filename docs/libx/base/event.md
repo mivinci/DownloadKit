@@ -8,7 +8,7 @@
 
 1. **Edge-Triggered Everywhere** — All three backends operate in edge-triggered mode. kqueue uses `EV_CLEAR`, epoll uses `EPOLLET`, and poll emulates edge-triggered behavior by clearing the event mask after each notification (requiring the caller to re-arm via `xEventMod()`). This design encourages callers to drain fds completely, reducing spurious wakeups.
 
-2. **Backend Selection at Compile Time** — The backend is chosen via preprocessor macros (`MOO_HAS_KQUEUE`, `MOO_HAS_EPOLL`), with poll as the universal fallback. This means zero runtime dispatch overhead.
+2. **Backend Selection at Compile Time** — The backend is chosen via preprocessor macros (`X_HAS_KQUEUE`, `X_HAS_EPOLL`), with poll as the universal fallback. This means zero runtime dispatch overhead.
 
 3. **Integrated Timer Heap** — Rather than requiring a separate timer facility, the event loop embeds a min-heap of timer entries. `xEventWait()` automatically adjusts its timeout to fire the earliest timer, providing sub-millisecond timer resolution without a dedicated timer thread.
 
@@ -100,8 +100,8 @@ Each backend is implemented in a separate `.c` file that provides the full publi
 
 | File | Backend | Trigger Mode | Selection |
 | --- | --- | --- | --- |
-| `event_kqueue.c` | kqueue | `EV_CLEAR` (native edge) | `#ifdef MOO_HAS_KQUEUE` |
-| `event_epoll.c` | epoll | `EPOLLET` (native edge) | `#ifdef MOO_HAS_EPOLL` |
+| `event_kqueue.c` | kqueue | `EV_CLEAR` (native edge) | `#ifdef X_HAS_KQUEUE` |
+| `event_epoll.c` | epoll | `EPOLLET` (native edge) | `#ifdef X_HAS_EPOLL` |
 | `event_poll.c` | poll(2) | Emulated edge (mask cleared after dispatch) | Fallback |
 
 All backends share a common base structure (`struct xEventLoop_`) defined in `event_private.h`, which contains:
@@ -110,7 +110,7 @@ All backends share a common base structure (`struct xEventLoop_`) defined in `ev
 - A cross-thread wake mechanism (`EVFILT_USER` on kqueue, `eventfd` on epoll, pipe on poll) with atomic coalescing
 - A min-heap for builtin timers (protected by `timer_mu` mutex)
 - A lock-free MPSC done-queue for offload completion and posted callbacks
-- Signal watch slots (up to `MOO_SIGNAL_MAX = 64`)
+- Signal watch slots (up to `X_SIGNAL_MAX = 64`)
 
 ### Deferred Source Deletion
 

@@ -25,10 +25,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#ifdef MOO_HAS_PTY
-#ifdef MOO_HAS_UTIL_H
+#ifdef X_HAS_PTY
+#ifdef X_HAS_UTIL_H
 #include <util.h> /* forkpty on macOS */
-#elif defined(MOO_HAS_PTY_H)
+#elif defined(X_HAS_PTY_H)
 #include <pty.h> /* forkpty on Linux */
 #endif
 #endif
@@ -165,7 +165,7 @@ static void sigchld_remove(struct xCommandExecutor_ *exec) {
 
 static void on_stdout_readable(int fd, xEventMask mask, void *arg);
 static void on_stderr_readable(int fd, xEventMask mask, void *arg);
-#ifdef MOO_HAS_PTY
+#ifdef X_HAS_PTY
 static void on_pty_readable(int fd, xEventMask mask, void *arg);
 #endif
 static void on_timeout(void *arg);
@@ -174,7 +174,7 @@ static void cmd_check_completion(struct xCommandExecutor_ *exec);
 static void cmd_fire_done(struct xCommandExecutor_ *exec);
 static void cmd_cleanup(struct xCommandExecutor_ *exec);
 static void cmd_kill_pg(struct xCommandExecutor_ *exec, int sig);
-#ifdef MOO_HAS_PTY
+#ifdef X_HAS_PTY
 static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
                                         const xCommandConf       *conf);
 #endif
@@ -210,7 +210,7 @@ fail:
 
 /* ───────────────────── PTY helpers ───────────────────── */
 
-#ifdef MOO_HAS_PTY
+#ifdef X_HAS_PTY
 
 /**
  * Set a fd to non-blocking mode.
@@ -222,7 +222,7 @@ static int fd_set_nonblock(int fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-#endif /* MOO_HAS_PTY */
+#endif /* X_HAS_PTY */
 
 /* ───────────────────── Lifecycle ───────────────────── */
 
@@ -349,7 +349,7 @@ xErrno xCommandExecutorSubmit(xCommandExecutor exec_, const xCommandConf *conf,
 
   /* ── PTY mode ── */
   if (conf->input_mode == xCommandInput_Pty) {
-#ifdef MOO_HAS_PTY
+#ifdef X_HAS_PTY
     return xCommandExecutorSubmitPty(exec, conf);
 #else
     return xErrno_NotSupported;
@@ -556,7 +556,7 @@ fail:
 
 /* ───────────────────── PTY mode execution ───────────────────── */
 
-#ifdef MOO_HAS_PTY
+#ifdef X_HAS_PTY
 
 static xErrno xCommandExecutorSubmitPty(struct xCommandExecutor_ *exec,
                                         const xCommandConf       *conf) {
@@ -745,7 +745,7 @@ fail:
   return xErrno_SysError;
 }
 
-#endif /* MOO_HAS_PTY */
+#endif /* X_HAS_PTY */
 
 /* ───────────────────── Cancel ───────────────────── */
 
@@ -876,7 +876,7 @@ static void on_stderr_readable(int fd, xEventMask mask, void *arg) {
 
 /* ───────────────────── PTY read callback ───────────────────── */
 
-#ifdef MOO_HAS_PTY
+#ifdef X_HAS_PTY
 
 static void on_pty_readable(int fd, xEventMask mask, void *arg) {
   (void)mask;
@@ -924,7 +924,7 @@ static void on_pty_readable(int fd, xEventMask mask, void *arg) {
   }
 }
 
-#endif /* MOO_HAS_PTY */
+#endif /* X_HAS_PTY */
 
 /* ───────────────────── Timeout callback ───────────────────── */
 

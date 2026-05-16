@@ -54,7 +54,7 @@ TEST_F(HttpServerTest, ListenTLS_NullKeyFileReturnsError) {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-#if defined(MOO_HAS_OPENSSL)
+#if defined(X_HAS_OPENSSL)
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -372,7 +372,7 @@ TEST_F(HttpServerTlsTest, SimultaneousHttpAndHttps) {
   close_tls(tls_conn);
 }
 
-#elif defined(MOO_HAS_MBEDTLS)
+#elif defined(X_HAS_MBEDTLS)
 
 /* mbedTLS client-side tests would go here.
  * For now, we only test the stub behavior. */
@@ -387,4 +387,4 @@ TEST_F(HttpServerTest, ListenTLS_NoBackendReturnsNotSupported) {
             xErrno_NotSupported);
 }
 
-#endif /* MOO_HAS_OPENSSL / MOO_HAS_MBEDTLS */
+#endif /* X_HAS_OPENSSL / X_HAS_MBEDTLS */

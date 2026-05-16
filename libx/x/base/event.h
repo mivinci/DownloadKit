@@ -7,8 +7,8 @@
  *
  * Provides a thin abstraction over OS-specific I/O multiplexing:
  *
- *   kqueue   (macOS / BSD)   — selected when MOO_HAS_KQUEUE is defined
- *   epoll    (Linux)         — selected when MOO_HAS_EPOLL  is defined
+ *   kqueue   (macOS / BSD)   — selected when X_HAS_KQUEUE is defined
+ *   epoll    (Linux)         — selected when X_HAS_EPOLL  is defined
  *   poll     (POSIX fallback)— used when neither of the above is available
  *
  * All backends operate in edge-triggered mode. Callers must drain the fd

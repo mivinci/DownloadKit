@@ -6,7 +6,7 @@
  * event_epoll.c - epoll-based event loop (edge-triggered)
  */
 
-#ifdef MOO_HAS_EPOLL
+#ifdef X_HAS_EPOLL
 
 #include "event_private.h"
 
@@ -54,10 +54,10 @@ static uint32_t mask_to_epoll(xEventMask mask) {
  */
 
 /* Global write-end array for the signal handler. */
-static volatile int g_signal_pipe_w[MOO_SIGNAL_MAX];
+static volatile int g_signal_pipe_w[X_SIGNAL_MAX];
 
 static void signal_handler(int signo) {
-  if (signo > 0 && signo < MOO_SIGNAL_MAX) {
+  if (signo > 0 && signo < X_SIGNAL_MAX) {
     int wfd = g_signal_pipe_w[signo];
     if (wfd >= 0) {
       char c = (char)signo;
@@ -72,14 +72,14 @@ struct xEventLoopEpoll_ {
   struct xEventLoop_ base;
   int                epfd;
   /* Self-pipe trick for signal delivery */
-  int signal_pipe_r[MOO_SIGNAL_MAX]; /* read end, -1 = unused */
-  int signal_pipe_w[MOO_SIGNAL_MAX]; /* write end, -1 = unused */
+  int signal_pipe_r[X_SIGNAL_MAX]; /* read end, -1 = unused */
+  int signal_pipe_w[X_SIGNAL_MAX]; /* write end, -1 = unused */
 };
 
 /* Check whether an epoll fd belongs to a signal pipe read end.
  * Returns the signal number, or 0 if not found. */
 static int find_signal_by_fd(struct xEventLoopEpoll_ *loop, int fd) {
-  for (int i = 1; i < MOO_SIGNAL_MAX; i++) {
+  for (int i = 1; i < X_SIGNAL_MAX; i++) {
     if (loop->signal_pipe_r[i] >= 0 && loop->signal_pipe_r[i] == fd) return i;
   }
   return 0;
@@ -113,7 +113,7 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   if (!loop->base.timer_heap) goto fail;
   if (pthread_mutex_init(&loop->base.timer_mu, NULL) != 0) goto fail;
 
-  for (int i = 0; i < MOO_SIGNAL_MAX; i++) {
+  for (int i = 0; i < X_SIGNAL_MAX; i++) {
     loop->signal_pipe_r[i] = -1;
     loop->signal_pipe_w[i] = -1;
   }
@@ -167,7 +167,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
   event_work_pool_destroy(&loop->base);
 
   /* Close any open signal pipes */
-  for (int i = 0; i < MOO_SIGNAL_MAX; i++) {
+  for (int i = 0; i < X_SIGNAL_MAX; i++) {
     if (loop->signal_pipe_r[i] >= 0) {
       epoll_ctl(loop->epfd, EPOLL_CTL_DEL, loop->signal_pipe_r[i], NULL);
       close(loop->signal_pipe_r[i]);
@@ -313,7 +313,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 /* ───────────────────── Signal watch (self-pipe trick) ───────────────────────
  */
 static int signo_valid(int signo) {
-  return signo > 0 && signo < MOO_SIGNAL_MAX && signo != SIGKILL &&
+  return signo > 0 && signo < X_SIGNAL_MAX && signo != SIGKILL &&
          signo != SIGSTOP;
 }
 
@@ -413,4 +413,4 @@ xErrno xEventWake(xEventLoop loop_) {
            : xErrno_SysError;
 }
 
-#endif /* MOO_HAS_EPOLL */
+#endif /* X_HAS_EPOLL */

@@ -7,7 +7,7 @@
 # For micro-benchmarks, use: ./scripts/run_micro_bench.sh
 #
 # Prerequisites:
-#   - Build with: cmake -B build -DMOO_BUILD_BENCHMARKS=ON && cmake --build build
+#   - Build with: cmake -B build -DX_BUILD_BENCHMARKS=ON && cmake --build build
 #   - For HTTP benchmarks: install wrk (https://github.com/wg/wrk)
 
 set -euo pipefail
@@ -42,7 +42,7 @@ run_tcp() {
   local client_bin="$BUILD_DIR/bench/tcp_echo_client"
 
   if [ ! -x "$server_bin" ] || [ ! -x "$client_bin" ]; then
-    error "TCP echo binaries not found. Build with -DMOO_BUILD_BENCHMARKS=ON"
+    error "TCP echo binaries not found. Build with -DX_BUILD_BENCHMARKS=ON"
     return 1
   fi
 
@@ -78,7 +78,7 @@ run_http() {
   local server_bin="$BUILD_DIR/bench/http_bench_server"
 
   if [ ! -x "$server_bin" ]; then
-    error "HTTP bench server not found. Build with -DMOO_BUILD_BENCHMARKS=ON and libcurl"
+    error "HTTP bench server not found. Build with -DX_BUILD_BENCHMARKS=ON and libcurl"
     return 1
   fi
 

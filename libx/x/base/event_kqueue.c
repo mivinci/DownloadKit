@@ -6,7 +6,7 @@
  * event_kqueue.c - kqueue-based event loop (edge-triggered)
  */
 
-#ifdef MOO_HAS_KQUEUE
+#ifdef X_HAS_KQUEUE
 
 #include "event_private.h"
 
@@ -230,7 +230,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
     /* Signal event */
     if (events[i].filter == EVFILT_SIGNAL) {
       int signo = (int)events[i].ident;
-      if (signo > 0 && signo < MOO_SIGNAL_MAX &&
+      if (signo > 0 && signo < X_SIGNAL_MAX &&
           loop->base.signal_watches[signo].fn) {
         loop->base.signal_watches[signo].fn(
           signo, loop->base.signal_watches[signo].arg);
@@ -262,7 +262,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
 /* ───────────────────── Signal watch ───────────────────── */
 
 static int signo_valid(int signo) {
-  return signo > 0 && signo < MOO_SIGNAL_MAX && signo != SIGKILL &&
+  return signo > 0 && signo < X_SIGNAL_MAX && signo != SIGKILL &&
          signo != SIGSTOP;
 }
 
@@ -328,4 +328,4 @@ xErrno xEventWake(xEventLoop loop_) {
   return xErrno_Ok;
 }
 
-#endif /* MOO_HAS_KQUEUE */
+#endif /* X_HAS_KQUEUE */

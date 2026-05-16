@@ -166,7 +166,7 @@ static void generate_random_string(char *buf, size_t len) {
   buf[len] = '\0';
 }
 
-#if MOO_DEBUG_LEVEL >= 1
+#if X_DEBUG_LEVEL >= 1
 static const char *state_name(xIceAgentState s) {
   switch (s) {
   case xIceAgentState_New:
@@ -280,7 +280,7 @@ static xErrno udp_sendto(xSocket sock, const uint8_t *data, size_t len,
   int fd = xSocketFd(sock);
   if (fd < 0) return xErrno_SysError;
   ssize_t n = sendto(fd, data, len, 0, addr, sockaddr_len(addr));
-#if MOO_DEBUG_LEVEL >= 1
+#if X_DEBUG_LEVEL >= 1
   if (n < 0) {
     char dstr[64];
     sockaddr_to_str(addr, dstr, sizeof(dstr));
@@ -391,7 +391,7 @@ static void generate_pairs(xIceAgent_ *a) {
 
   xIcePairSort(a->pairs, a->pair_count);
 
-#if MOO_DEBUG_LEVEL >= 1
+#if X_DEBUG_LEVEL >= 1
   XDEBUGL1("[ice] generated %d candidate pairs (local=%d, remote=%d)",
            a->pair_count, a->local_count, a->remote_count);
   for (int i = 0; i < a->pair_count; i++) {
@@ -436,7 +436,7 @@ static xErrno sock_stun_send(const uint8_t *data, size_t len,
 }
 
 static xErrno send_check(xIceAgent_ *a, xIcePair *pair, bool log) {
-#if MOO_DEBUG_LEVEL >= 1
+#if X_DEBUG_LEVEL >= 1
   if (log) {
     char lstr[64], rstr[64];
     sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
@@ -630,7 +630,7 @@ static void try_nominate(xIceAgent_ *a) {
       a->nominated    = best;
       best->nominated = true;
 
-#if MOO_DEBUG_LEVEL >= 0
+#if X_DEBUG_LEVEL >= 0
       char lstr[64], rstr[64];
       sockaddr_to_str((const struct sockaddr *)&best->local->addr, lstr,
                       sizeof(lstr));
@@ -692,7 +692,7 @@ static void on_check_response(const xStunMsg        *msg,
   xIcePair   *pair  = ctx->pair;
   free(ctx);
 
-#if MOO_DEBUG_LEVEL >= 1
+#if X_DEBUG_LEVEL >= 1
   char lstr[64], rstr[64];
   sockaddr_to_str((const struct sockaddr *)&pair->local->addr, lstr,
                   sizeof(lstr));
@@ -1876,7 +1876,7 @@ static void handle_incoming_binding_request(xIceAgent_ *a, const xStunMsg *msg,
         a->pairs[i].nominated = true;
         a->pairs[i].state     = xIcePairState_Succeeded;
 
-#if MOO_DEBUG_LEVEL >= 0
+#if X_DEBUG_LEVEL >= 0
         char lstr[64], rstr[64];
         sockaddr_to_str((const struct sockaddr *)&a->pairs[i].local->addr, lstr,
                         sizeof(lstr));
@@ -1922,7 +1922,7 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
     size_t                 len  = (size_t)n;
     const struct sockaddr *from = (const struct sockaddr *)&from_addr;
 
-#if MOO_DEBUG_LEVEL >= 2
+#if X_DEBUG_LEVEL >= 2
     char fstr[64];
     sockaddr_to_str(from, fstr, sizeof(fstr));
     XDEBUGL2("[ice] on_udp_recv: %zu bytes from %s (first_byte=0x%02x)", len,
@@ -1952,7 +1952,7 @@ static void on_udp_recv(xSocket sock, xEventMask mask, void *arg) {
       uint8_t msg_class = XSTUN_MSG_CLASS(msg.type);
 
       if (xStunMsgIsRequest(msg.type)) {
-#if MOO_DEBUG_LEVEL >= 1
+#if X_DEBUG_LEVEL >= 1
         char fstr[64];
         sockaddr_to_str(from, fstr, sizeof(fstr));
         XDEBUGL1("[ice] recv STUN request from %s", fstr);

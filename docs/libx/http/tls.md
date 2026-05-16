@@ -5,13 +5,13 @@ This guide covers end-to-end TLS deployment for xhttp, including certificate gen
 ## Prerequisites
 
 - **OpenSSL CLI** — Used for certificate generation (`openssl` command).
-- **TLS backend compiled** — moo must be built with `MOO_TLS_BACKEND=openssl` (or `mbedtls`). Without a TLS backend, `xHttpServerListenTls()` returns `xErrno_NotSupported`.
+- **TLS backend compiled** — moo must be built with `X_TLS_BACKEND=openssl` (or `mbedtls`). Without a TLS backend, `xHttpServerListenTls()` returns `xErrno_NotSupported`.
 
 Check your build:
 
 ```bash
-# If MOO_HAS_OPENSSL is defined, TLS is available
-grep -r "MOO_HAS_OPENSSL" xhttp/
+# If X_HAS_OPENSSL is defined, TLS is available
+grep -r "X_HAS_OPENSSL" xhttp/
 ```
 
 ## Certificate Generation
@@ -368,7 +368,7 @@ This is transparent to application code — the same routes and handlers work re
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `xErrno_NotSupported` from `ListenTls` | No TLS backend compiled | Rebuild with `MOO_TLS_BACKEND=openssl` |
+| `xErrno_NotSupported` from `ListenTls` | No TLS backend compiled | Rebuild with `X_TLS_BACKEND=openssl` |
 | Client gets `curl_code != 0`, `status_code == 0` | TLS handshake failed | Check cert paths, CA trust, and `skip_verify` settings |
 | Self-signed cert rejected | Client verifies against system CA bundle | Set `ca` to the self-signed cert, or use `skip_verify = 1` for dev |
 | mTLS handshake fails | Client didn't provide cert, or cert not signed by server's `ca` | Ensure client cert is signed by the same CA specified in server's `ca` |

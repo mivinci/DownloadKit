@@ -260,7 +260,7 @@ if [[ "$CI_MODE" -eq 1 ]]; then
 
     step "Configuring build (TLS=$TLS_BACKEND, type=$BUILD_TYPE, CI mode)"
 
-    CMAKE_EXTRA_ARGS="-DMOO_TLS_BACKEND=$TLS_BACKEND"
+    CMAKE_EXTRA_ARGS="-DX_TLS_BACKEND=$TLS_BACKEND"
     if [[ $ASAN -eq 1 ]]; then
         CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DMOO_ENABLE_ASAN=ON"
     fi
@@ -364,7 +364,7 @@ container run --rm -m "$MEMORY" \
             mkdir -p \$BUILD_DIR && cd \$BUILD_DIR && \
             cmake .. \
               -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-              -DMOO_TLS_BACKEND=$TLS_BACKEND \
+              -DX_TLS_BACKEND=$TLS_BACKEND \
               -DMOO_ENABLE_ASAN=OFF \
               -DFETCHCONTENT_BASE_DIR=/fetchcontent-cache; \
         else \

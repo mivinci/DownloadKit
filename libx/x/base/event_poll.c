@@ -11,7 +11,7 @@
  * the caller to re-arm via xEventMod().
  */
 
-#if !defined(MOO_HAS_KQUEUE) && !defined(MOO_HAS_EPOLL)
+#if !defined(X_HAS_KQUEUE) && !defined(X_HAS_EPOLL)
 
 #include "event_private.h"
 
@@ -48,8 +48,8 @@ struct xEventLoopPoll_ {
   size_t         pfd_cap;
 
   /* Self-pipe trick for signal delivery */
-  int signal_pipe_r[MOO_SIGNAL_MAX]; /* read end, -1 = unused */
-  int signal_pipe_w[MOO_SIGNAL_MAX]; /* write end, -1 = unused */
+  int signal_pipe_r[X_SIGNAL_MAX]; /* read end, -1 = unused */
+  int signal_pipe_w[X_SIGNAL_MAX]; /* write end, -1 = unused */
 };
 
 static int pfd_grow(struct xEventLoopPoll_ *loop) {
@@ -66,7 +66,7 @@ static int pfd_grow(struct xEventLoopPoll_ *loop) {
 static void pfd_rebuild(struct xEventLoopPoll_ *loop) {
   /* Count active signal pipes */
   size_t nsig = 0;
-  for (int i = 1; i < MOO_SIGNAL_MAX; i++) {
+  for (int i = 1; i < X_SIGNAL_MAX; i++) {
     if (loop->signal_pipe_r[i] >= 0) nsig++;
   }
 
@@ -89,7 +89,7 @@ static void pfd_rebuild(struct xEventLoopPoll_ *loop) {
 
   /* Append signal pipe read ends */
   size_t idx = 1 + loop->base.sources.len;
-  for (int i = 1; i < MOO_SIGNAL_MAX; i++) {
+  for (int i = 1; i < X_SIGNAL_MAX; i++) {
     if (loop->signal_pipe_r[i] >= 0) {
       loop->pollfds[idx].fd      = loop->signal_pipe_r[i];
       loop->pollfds[idx].events  = POLLIN;
@@ -131,7 +131,7 @@ xEventLoop xEventLoopCreateWithGroup(xTaskGroup group) {
   if (set_nonblock(loop->base.wake_rfd) != 0) goto fail;
   if (set_nonblock(loop->base.wake_wfd) != 0) goto fail;
 
-  for (int i = 0; i < MOO_SIGNAL_MAX; i++) {
+  for (int i = 0; i < X_SIGNAL_MAX; i++) {
     loop->signal_pipe_r[i] = -1;
     loop->signal_pipe_w[i] = -1;
   }
@@ -170,7 +170,7 @@ void xEventLoopDestroy(xEventLoop loop_) {
   event_work_pool_destroy(&loop->base);
 
   /* Close signal pipes */
-  for (int i = 0; i < MOO_SIGNAL_MAX; i++) {
+  for (int i = 0; i < X_SIGNAL_MAX; i++) {
     if (loop->signal_pipe_r[i] >= 0) close(loop->signal_pipe_r[i]);
     if (loop->signal_pipe_w[i] >= 0) close(loop->signal_pipe_w[i]);
   }
@@ -293,7 +293,7 @@ int xEventWait(xEventLoop loop_, int timeout_ms) {
   /* Check signal pipes */
   size_t sig_base = 1 + loop->base.sources.len;
   size_t sig_idx  = 0;
-  for (int s = 1; s < MOO_SIGNAL_MAX; s++) {
+  for (int s = 1; s < X_SIGNAL_MAX; s++) {
     if (loop->signal_pipe_r[s] < 0) continue;
     struct pollfd *pfd = &loop->pollfds[sig_base + sig_idx];
     sig_idx++;
@@ -338,10 +338,10 @@ xErrno xEventWake(xEventLoop loop_) {
 /* ───────────────────── Signal watch (self-pipe trick) ───────────────────── */
 
 /* Global write-end array for the signal handler (async-signal-safe). */
-static volatile int g_signal_pipe_w[MOO_SIGNAL_MAX];
+static volatile int g_signal_pipe_w[X_SIGNAL_MAX];
 
 static void signal_handler(int signo) {
-  if (signo > 0 && signo < MOO_SIGNAL_MAX) {
+  if (signo > 0 && signo < X_SIGNAL_MAX) {
     int wfd = g_signal_pipe_w[signo];
     if (wfd >= 0) {
       char c = (char)signo;
@@ -351,7 +351,7 @@ static void signal_handler(int signo) {
 }
 
 static int signo_valid(int signo) {
-  return signo > 0 && signo < MOO_SIGNAL_MAX && signo != SIGKILL &&
+  return signo > 0 && signo < X_SIGNAL_MAX && signo != SIGKILL &&
          signo != SIGSTOP;
 }
 
@@ -419,4 +419,4 @@ xErrno xEventLoopSignalWatch(xEventLoop loop_, int signo, xEventSignalFunc fn,
   return xErrno_Ok;
 }
 
-#endif /* !MOO_HAS_KQUEUE && !MOO_HAS_EPOLL */
+#endif /* !X_HAS_KQUEUE && !X_HAS_EPOLL */

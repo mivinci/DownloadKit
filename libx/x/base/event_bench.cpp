@@ -12,7 +12,7 @@
  *   - Timer scheduling (single + batch)
  *   - Offload round-trip (submit work → done callback on loop thread)
  *
- * When MOO_HAS_LIBUV is defined, libuv baselines are included for
+ * When X_HAS_LIBUV is defined, libuv baselines are included for
  * wake latency, timer, and offload benchmarks.
  */
 
@@ -26,7 +26,7 @@ extern "C" {
 #include <x/base/event.h>
 }
 
-#ifdef MOO_HAS_LIBUV
+#ifdef X_HAS_LIBUV
 #include <uv.h>
 #endif
 
@@ -200,9 +200,9 @@ static void BM_EventLoop_OffloadBatch(benchmark::State &state) {
 BENCHMARK(BM_EventLoop_OffloadBatch)->Arg(10)->Arg(100)->Arg(1000);
 
 /* ═══════════════════════════════════════════════════════════════════
- *  libuv baseline benchmarks (compiled only when MOO_HAS_LIBUV is set)
+ *  libuv baseline benchmarks (compiled only when X_HAS_LIBUV is set)
  * ═══════════════════════════════════════════════════════════════════ */
-#ifdef MOO_HAS_LIBUV
+#ifdef X_HAS_LIBUV
 
 /* ── BM_Libuv_WakeLatency ──
  *
@@ -366,4 +366,4 @@ static void BM_Libuv_OffloadBatch(benchmark::State &state) {
 }
 BENCHMARK(BM_Libuv_OffloadBatch)->Arg(10)->Arg(100)->Arg(1000);
 
-#endif /* MOO_HAS_LIBUV */
+#endif /* X_HAS_LIBUV */

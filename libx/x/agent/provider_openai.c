@@ -687,7 +687,7 @@ static xErrno oai_submit(void                             *impl_p,
    * quiet on the follow-up round of a tool loop (reply_bytes=0 but
    * no explicit error), but verbose enough that it visually competes
    * with stdout in interactive REPLs — keep at L3 together with the
-   * per-chunk dump. Flip MOO_DEBUG_LEVEL to 3 when you need wire-level
+   * per-chunk dump. Flip X_DEBUG_LEVEL to 3 when you need wire-level
    * tracing. */
   XDEBUGL3("[xai/openai] POST %s body=%s", url, body);
 

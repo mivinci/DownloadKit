@@ -283,7 +283,7 @@ fi
 # ── CMake configure ────────────────────────────────────────────────────
 step "Configuring build (TLS=$TLS_BACKEND, type=$BUILD_TYPE)"
 
-CMAKE_EXTRA_ARGS=(-DMOO_TLS_BACKEND=$TLS_BACKEND)
+CMAKE_EXTRA_ARGS=(-DX_TLS_BACKEND=$TLS_BACKEND)
 
 if [[ $ASAN -eq 1 ]]; then
     CMAKE_EXTRA_ARGS+=(-DMOO_ENABLE_ASAN=ON)

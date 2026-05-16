@@ -9,7 +9,7 @@
  * SHA-1 implementation follows FIPS 180-4.
  */
 
-#if !defined(MOO_HAS_OPENSSL) && !defined(MOO_HAS_MBEDTLS)
+#if !defined(X_HAS_OPENSSL) && !defined(X_HAS_MBEDTLS)
 
 #include "ws_crypto.h"
 
@@ -166,4 +166,4 @@ int xWsBase64Encode(const unsigned char *input, size_t in_len,
   return (int)o;
 }
 
-#endif /* !MOO_HAS_OPENSSL && !MOO_HAS_MBEDTLS */
+#endif /* !X_HAS_OPENSSL && !X_HAS_MBEDTLS */

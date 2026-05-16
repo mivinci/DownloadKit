@@ -156,7 +156,7 @@ TEST(HttpsClientConfig, SetTlsWithAllFields) {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-#if defined(MOO_HAS_OPENSSL)
+#if defined(X_HAS_OPENSSL)
 
 /* ── Response context ──────────────────────────────────────────────────── */
 
@@ -903,4 +903,4 @@ TEST(HttpsIntegration, SkippedNoTlsBackend) {
   GTEST_SKIP() << "No TLS backend available, HTTPS tests skipped";
 }
 
-#endif /* MOO_HAS_OPENSSL */
+#endif /* X_HAS_OPENSSL */

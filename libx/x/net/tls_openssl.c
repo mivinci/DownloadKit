@@ -9,7 +9,7 @@
  * xTlsCtxGetNative for the OpenSSL backend.
  */
 
-#ifdef MOO_HAS_OPENSSL
+#ifdef X_HAS_OPENSSL
 
 #include "tls_private.h"
 
@@ -281,4 +281,4 @@ int xTlsCtxIsServer(xTlsCtx raw) {
   return ctx->is_server;
 }
 
-#endif /* MOO_HAS_OPENSSL */
+#endif /* X_HAS_OPENSSL */

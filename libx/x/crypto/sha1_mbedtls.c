@@ -26,17 +26,17 @@
  */
 #if __has_include(<mbedtls/sha1.h>)
 #include <mbedtls/sha1.h>
-#define MOO_MBEDTLS_HAS_SHA1_H 1
+#define X_MBEDTLS_HAS_SHA1_H 1
 #else
 #include <mbedtls/md.h>
-#define MOO_MBEDTLS_HAS_SHA1_H 0
+#define X_MBEDTLS_HAS_SHA1_H 0
 #endif
 
 #include <string.h>
 
 /* ── Internal layout stored in xSha1Ctx.opaque ─────────── */
 
-#if MOO_MBEDTLS_HAS_SHA1_H
+#if X_MBEDTLS_HAS_SHA1_H
 
 typedef struct {
   mbedtls_sha1_context mctx;
@@ -55,7 +55,7 @@ _Static_assert(sizeof(xSha1MbedTLS_) <= sizeof(((xSha1Ctx *)0)->opaque),
 
 /* ── Streaming API ─────────────────────────────────────── */
 
-#if MOO_MBEDTLS_HAS_SHA1_H
+#if X_MBEDTLS_HAS_SHA1_H
 /* mbedTLS 2.x / 3.x: standalone SHA-1 context */
 
 xErrno xSha1Init(xSha1Ctx *ctx) {
@@ -180,4 +180,4 @@ xErrno xSha1(const uint8_t *data, size_t len, uint8_t *digest) {
   return (ret == 0) ? xErrno_Ok : xErrno_SysError;
 }
 
-#endif /* MOO_MBEDTLS_HAS_SHA1_H */
+#endif /* X_MBEDTLS_HAS_SHA1_H */

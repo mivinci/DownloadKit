@@ -8,7 +8,7 @@
 file(GLOB_RECURSE XAGENT_HEADERS "*.h")
 file(GLOB_RECURSE XAGENT_SOURCES "*.c")
 
-add_library(xagent ${MOO_LIB_TYPE} ${XAGENT_SOURCES} ${XAGENT_HEADERS})
+add_library(xagent ${X_LIB_TYPE} ${XAGENT_SOURCES} ${XAGENT_HEADERS})
 
 # cJSON is a PRIVATE dep: provider_openai.c builds the request body
 # and parses the SSE delta stream with it, but none of xagent's installed
@@ -23,7 +23,7 @@ message(STATUS "xagent: LLM agent core enabled "
                "(message + tool + provider + openai)")
 
 # ── Tests ──────────────────────────────────────────────────────────────
-option(XAGENT_BUILD_TESTS "Build xagent tests" ${MOO_BUILD_TESTS})
+option(XAGENT_BUILD_TESTS "Build xagent tests" ${X_BUILD_TESTS})
 if(XAGENT_BUILD_TESTS)
   file(GLOB_RECURSE XAGENT_TEST_SOURCES "*_test.cpp")
   if(XAGENT_TEST_SOURCES)

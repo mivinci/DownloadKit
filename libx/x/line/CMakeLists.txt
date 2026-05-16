@@ -14,7 +14,7 @@
 file(GLOB XLINE_SOURCES "*.c")
 file(GLOB XLINE_HEADERS "*.h")
 
-add_library(xline ${MOO_LIB_TYPE}
+add_library(xline ${X_LIB_TYPE}
   ${XLINE_SOURCES}
   ${XLINE_HEADERS})
 

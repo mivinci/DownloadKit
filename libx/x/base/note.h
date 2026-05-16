@@ -37,8 +37,8 @@
 extern int __ulock_wait(uint32_t op, void *addr, uint64_t val,
                         uint32_t timeout);
 extern int __ulock_wake(uint32_t op, void *addr, uint64_t val);
-#define MOO_UL_COMPARE_AND_WAIT 1
-#define MOO_ULF_WAKE_ALL        0x00000100
+#define X_UL_COMPARE_AND_WAIT 1
+#define X_ULF_WAKE_ALL        0x00000100
 #elif defined(_WIN32)
 #include <windows.h>
 #else
@@ -92,7 +92,7 @@ static inline void xNoteSignal(xNote *n) {
   /* futex wake — no-op if nobody is waiting (doesn't enter kernel). */
   syscall(SYS_futex, &n->state, FUTEX_WAKE, INT_MAX, NULL, NULL, 0);
 #elif defined(__APPLE__)
-  __ulock_wake(MOO_UL_COMPARE_AND_WAIT | MOO_ULF_WAKE_ALL, &n->state, 0);
+  __ulock_wake(X_UL_COMPARE_AND_WAIT | X_ULF_WAKE_ALL, &n->state, 0);
 #elif defined(_WIN32)
   /* WakeByAddressAll requires all waiters to be in WakeByAddressSingleWait
    * — since our Level 3 uses SwitchToThread, no explicit wake needed. */
@@ -137,7 +137,7 @@ static inline void xNoteWait(xNote *n) {
   }
 #elif defined(__APPLE__)
   while (xAtomicLoad(&n->state, xAtomicAcquire) == 0) {
-    __ulock_wait(MOO_UL_COMPARE_AND_WAIT, &n->state, 0, 0);
+    __ulock_wait(X_UL_COMPARE_AND_WAIT, &n->state, 0, 0);
   }
 #elif defined(_WIN32)
   /* Windows fallback: yield loop. SwitchToThread() is equivalent to

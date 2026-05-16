@@ -107,7 +107,7 @@ if(GBenchmark_FOUND)
   find_package(Threads QUIET)
 
   if(NOT TARGET GBenchmark::benchmark)
-    add_library(GBenchmark::benchmark UNKNOWN IMPORTED)
+    add_library(GBenchmark::benchmark UNKNOWN IMPORTED GLOBAL)
     set_target_properties(GBenchmark::benchmark PROPERTIES
       IMPORTED_LOCATION             "${GBenchmark_LIBRARIES}"
       INTERFACE_INCLUDE_DIRECTORIES "${GBenchmark_INCLUDE_DIRS}"
@@ -120,7 +120,7 @@ if(GBenchmark_FOUND)
   endif()
 
   if(GBenchmark_MAIN_LIBRARIES AND NOT TARGET GBenchmark::benchmark_main)
-    add_library(GBenchmark::benchmark_main UNKNOWN IMPORTED)
+    add_library(GBenchmark::benchmark_main UNKNOWN IMPORTED GLOBAL)
     set_target_properties(GBenchmark::benchmark_main PROPERTIES
       IMPORTED_LOCATION             "${GBenchmark_MAIN_LIBRARIES}"
       INTERFACE_INCLUDE_DIRECTORIES "${GBenchmark_INCLUDE_DIRS}"

@@ -16,19 +16,11 @@ endif()
 
 message(STATUS "moo: Building ${MOO_VERSION}")
 
-option(MOO_BUILD_STATIC "Build moo as static libraries" OFF)
-option(MOO_BUILD_TESTS "Build moo tests" ON)
-option(MOO_BUILD_BENCHMARKS "Build moo benchmarks" ON)
-option(MOO_BUILD_APPS "Build moo applications (apps/)" OFF)
-option(MOO_BUILD_EXAMPLES "Build moo example programs" OFF)
-option(MOO_ENABLE_ASAN "Enable AddressSanitizer" OFF)
-option(MOO_DEBUG_LEVEL "Debug logging level (0-3, higher means more verbose)" 0)
-
-if(MOO_BUILD_STATIC)
-  set(MOO_LIB_TYPE STATIC)
-else()
-  set(MOO_LIB_TYPE SHARED)
-endif()
+# moo-app-level toggles. Library-build toggles (tests, benchmarks, TLS
+# backend, debug level, static vs shared, ...) live in libx/CMakeLists.txt
+# under the X_* namespace.
+option(MOO_BUILD_APPS  "Build moo applications (apps/)" OFF)
+option(MOO_ENABLE_ASAN "Enable AddressSanitizer"        OFF)
 
 if(MSVC)
   add_compile_options(/W3)
@@ -41,18 +33,6 @@ if(MOO_ENABLE_ASAN AND NOT MSVC)
   message(STATUS "moo: AddressSanitizer enabled")
   add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address)
-endif()
-
-# Pass debug level to source code
-add_compile_definitions(MOO_DEBUG_LEVEL=${MOO_DEBUG_LEVEL})
-
-if(MOO_BUILD_TESTS)
-  enable_testing()
-  find_package(GTest REQUIRED)
-endif()
-
-if(MOO_BUILD_BENCHMARKS)
-  find_package(GBenchmark REQUIRED)
 endif()
 
 find_package(Libcurl REQUIRED)

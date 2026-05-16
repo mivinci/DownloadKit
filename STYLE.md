@@ -93,7 +93,7 @@ docs/           # 文档站点源文件
 | 维度 | `cli/` | `examples/` |
 | ------ | ------ | ------ |
 | 定位 | 正式产物（`cli`、未来的 `server` 等） | 最小用法样例、API 诊断 |
-| 默认构建 | 仅当 `MOO_BUILD_APPS=ON` 时构建（默认 `OFF`） | 仅当 `MOO_BUILD_EXAMPLES=ON` 时构建 |
+| 默认构建 | 仅当 `MOO_BUILD_APPS=ON` 时构建（默认 `OFF`） | 仅当 `X_BUILD_EXAMPLES=ON` 时构建 |
 | 规模 | 可跨多个 TU，按职责拆分子文件 | 单文件为主 |
 | 语言 | C / C++ 均可（选最合适的） | 跟随所演示模块的语言 |
 | 依赖 | 可依赖任意 `libx/*` 公共库 | 同左 |
@@ -131,8 +131,8 @@ cli/
 | 内部/static 函数 | snake_case | `submit_timer`, `sources_add`, `loop_drain_wake` |
 | 局部变量 | snake_case | `delay_ms`, `abs_ms`, `wake_rfd` |
 | 结构体字段 | snake_case | `status_code`, `body_len`, `heap_idx` |
-| 编译定义 | `MOO_` + UPPER_CASE | `MOO_HAS_KQUEUE`, `MOO_HAS_EPOLL` |
-| CMake 选项 | `MOO_` + UPPER_CASE | `MOO_BUILD_TESTS` |
+| 编译定义 | `MOO_` + UPPER_CASE | `X_HAS_KQUEUE`, `X_HAS_EPOLL` |
+| CMake 选项 | `MOO_` + UPPER_CASE | `X_BUILD_TESTS` |
 
 ### 3.2 命名原则
 
@@ -432,20 +432,20 @@ MAJOR.MINOR.PATCH[-CHANNEL.BUILDNO]
 所有编译选项通过 `option` 注册：
 
 ```cmake
-option(MOO_BUILD_TESTS "Build moo tests" ON)
-option(MOO_BUILD_BENCHMARKS "Build moo benchmarks" ON)
-option(MOO_BUILD_EXAMPLES "Build moo example programs" OFF)
+option(X_BUILD_TESTS "Build moo tests" ON)
+option(X_BUILD_BENCHMARKS "Build moo benchmarks" ON)
+option(X_BUILD_EXAMPLES "Build moo example programs" OFF)
 option(MOO_ENABLE_ASAN "Enable AddressSanitizer" OFF)
-option(MOO_DEBUG_LEVEL "Debug logging level (0-3)" 0)
+option(X_DEBUG_LEVEL "Debug logging level (0-3)" 0)
 ```
 
 ### 12.2 平台检测
 
-使用 CMake 的 `check_include_file` 进行平台特性检测，编译定义统一为 `MOO_HAS_<FEATURE>`：
+使用 CMake 的 `check_include_file` 进行平台特性检测，编译定义统一为 `X_HAS_<FEATURE>`：
 
 ```cmake
-check_include_file(sys/event.h HAS_SYS_EVENT_H)   # → MOO_HAS_KQUEUE
-check_include_file(sys/epoll.h HAS_SYS_EPOLL_H)   # → MOO_HAS_EPOLL
+check_include_file(sys/event.h HAS_SYS_EVENT_H)   # → X_HAS_KQUEUE
+check_include_file(sys/epoll.h HAS_SYS_EPOLL_H)   # → X_HAS_EPOLL
 ```
 
 ### 12.3 模块 CMakeLists
@@ -454,7 +454,7 @@ check_include_file(sys/epoll.h HAS_SYS_EPOLL_H)   # → MOO_HAS_EPOLL
 
 - 收集源文件（`file(GLOB_RECURSE ...)`）
 - 构建共享库（`add_library(... SHARED ...)`）
-- 条件编译测试（`if(MOO_BUILD_TESTS) ... endif()`）
+- 条件编译测试（`if(X_BUILD_TESTS) ... endif()`）
 
 ---
 

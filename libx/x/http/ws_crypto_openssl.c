@@ -6,7 +6,7 @@
  * ws_crypto_openssl.c - SHA-1 / Base64 via OpenSSL
  */
 
-#ifdef MOO_HAS_OPENSSL
+#ifdef X_HAS_OPENSSL
 
 #include "ws_crypto.h"
 
@@ -31,4 +31,4 @@ int xWsBase64Encode(const unsigned char *input, size_t in_len,
   return n;
 }
 
-#endif /* MOO_HAS_OPENSSL */
+#endif /* X_HAS_OPENSSL */

@@ -87,38 +87,38 @@ XCAPI(void) xLogV(bool fatal, const char *fmt, va_list ap);
 /**
  * @brief Level-based debug logging macros.
  *
- * Controlled by the compile-time integer MOO_DEBUG_LEVEL (default 0).
+ * Controlled by the compile-time integer X_DEBUG_LEVEL (default 0).
  *
- * XDEBUGL0: Critical debug messages  (shown if MOO_DEBUG_LEVEL >= 0)
- * XDEBUGL1: Important debug messages  (shown if MOO_DEBUG_LEVEL >= 1)
- * XDEBUGL2: Detailed debug messages   (shown if MOO_DEBUG_LEVEL >= 2)
- * XDEBUGL3: Verbose debug messages    (shown if MOO_DEBUG_LEVEL >= 3)
+ * XDEBUGL0: Critical debug messages  (shown if X_DEBUG_LEVEL >= 0)
+ * XDEBUGL1: Important debug messages  (shown if X_DEBUG_LEVEL >= 1)
+ * XDEBUGL2: Detailed debug messages   (shown if X_DEBUG_LEVEL >= 2)
+ * XDEBUGL3: Verbose debug messages    (shown if X_DEBUG_LEVEL >= 3)
  *
  * XDEBUG is an alias for XDEBUGL3 for backward compatibility.
  */
-#ifndef MOO_DEBUG_LEVEL
-#define MOO_DEBUG_LEVEL 0
+#ifndef X_DEBUG_LEVEL
+#define X_DEBUG_LEVEL 0
 #endif
 
-#if MOO_DEBUG_LEVEL >= 0
+#if X_DEBUG_LEVEL >= 0
 #define XDEBUGL0(...) xLog(false, __VA_ARGS__)
 #else
 #define XDEBUGL0(...) ((void)0)
 #endif
 
-#if MOO_DEBUG_LEVEL >= 1
+#if X_DEBUG_LEVEL >= 1
 #define XDEBUGL1(...) xLog(false, __VA_ARGS__)
 #else
 #define XDEBUGL1(...) ((void)0)
 #endif
 
-#if MOO_DEBUG_LEVEL >= 2
+#if X_DEBUG_LEVEL >= 2
 #define XDEBUGL2(...) xLog(false, __VA_ARGS__)
 #else
 #define XDEBUGL2(...) ((void)0)
 #endif
 
-#if MOO_DEBUG_LEVEL >= 3
+#if X_DEBUG_LEVEL >= 3
 #define XDEBUGL3(...) xLog(false, __VA_ARGS__)
 #else
 #define XDEBUGL3(...) ((void)0)

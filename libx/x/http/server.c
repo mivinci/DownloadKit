@@ -1307,7 +1307,7 @@ void xHttpConnTryFlush(struct xHttpConn_ *conn) {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-#if defined(MOO_HAS_OPENSSL) || defined(MOO_HAS_MBEDTLS)
+#if defined(X_HAS_OPENSSL) || defined(X_HAS_MBEDTLS)
 static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg);
 #endif
 
@@ -1317,7 +1317,7 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
   if (!config) return xErrno_InvalidArg;
   if (!config->cert || !config->key) return xErrno_InvalidArg;
 
-#if !defined(MOO_HAS_OPENSSL) && !defined(MOO_HAS_MBEDTLS)
+#if !defined(X_HAS_OPENSSL) && !defined(X_HAS_MBEDTLS)
   (void)host;
   (void)port;
   return xErrno_NotSupported;
@@ -1384,10 +1384,10 @@ xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
   s->tls_ctx         = tls_ctx;
 
   return xErrno_Ok;
-#endif /* MOO_HAS_OPENSSL || MOO_HAS_MBEDTLS */
+#endif /* X_HAS_OPENSSL || X_HAS_MBEDTLS */
 }
 
-#if defined(MOO_HAS_OPENSSL) || defined(MOO_HAS_MBEDTLS)
+#if defined(X_HAS_OPENSSL) || defined(X_HAS_MBEDTLS)
 /**
  * Accept callback for TLS listening socket.
  * Creates a TLS transport for each accepted connection.
@@ -1461,4 +1461,4 @@ static void on_tls_listen_event(xSocket sock, xEventMask mask, void *arg) {
     s->conns = conn;
   }
 }
-#endif /* MOO_HAS_OPENSSL || MOO_HAS_MBEDTLS */
+#endif /* X_HAS_OPENSSL || X_HAS_MBEDTLS */

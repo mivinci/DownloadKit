@@ -7,39 +7,39 @@ list(FILTER XNET_SOURCES EXCLUDE REGEX "tls_openssl")
 list(FILTER XNET_SOURCES EXCLUDE REGEX "tls_mbedtls")
 list(FILTER XNET_SOURCES EXCLUDE REGEX "transport_openssl")
 list(FILTER XNET_SOURCES EXCLUDE REGEX "transport_mbedtls")
-add_library(xnet ${MOO_LIB_TYPE} ${XNET_SOURCES} ${XNET_HEADERS})
+add_library(xnet ${X_LIB_TYPE} ${XNET_SOURCES} ${XNET_HEADERS})
 target_link_libraries(xnet PUBLIC xbase xbuf)
 
 # ── TLS backend detection (mirrors xhttp pattern) ─────────────────────
-# Reuses the MOO_TLS_BACKEND cache variable set by xhttp or the user.
-if(NOT DEFINED MOO_TLS_BACKEND)
-  set(MOO_TLS_BACKEND "auto" CACHE STRING "TLS backend: auto, openssl, mbedtls, none")
+# Reuses the X_TLS_BACKEND cache variable set by xhttp or the user.
+if(NOT DEFINED X_TLS_BACKEND)
+  set(X_TLS_BACKEND "auto" CACHE STRING "TLS backend: auto, openssl, mbedtls, none")
 endif()
 
-if(MOO_TLS_BACKEND STREQUAL "none")
+if(X_TLS_BACKEND STREQUAL "none")
   message(STATUS "xnet: TLS support disabled by user")
-elseif(MOO_TLS_BACKEND STREQUAL "openssl")
+elseif(X_TLS_BACKEND STREQUAL "openssl")
   find_package(OpenSSL REQUIRED)
-  target_compile_definitions(xnet PUBLIC MOO_HAS_OPENSSL)
+  target_compile_definitions(xnet PUBLIC X_HAS_OPENSSL)
   target_sources(xnet PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tls_openssl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/transport_openssl.c)
   target_link_libraries(xnet PRIVATE OpenSSL::SSL OpenSSL::Crypto)
   message(STATUS "xnet: TLS backend = OpenSSL (forced)")
-elseif(MOO_TLS_BACKEND STREQUAL "mbedtls")
+elseif(X_TLS_BACKEND STREQUAL "mbedtls")
   find_package(MbedTLS REQUIRED)
   set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
-  target_compile_definitions(xnet PUBLIC MOO_HAS_MBEDTLS)
+  target_compile_definitions(xnet PUBLIC X_HAS_MBEDTLS)
   target_sources(xnet PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tls_mbedtls.c
     ${CMAKE_CURRENT_SOURCE_DIR}/transport_mbedtls.c)
   target_include_directories(xnet BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
   target_link_libraries(xnet PRIVATE MbedTLS::MbedTLS)
   message(STATUS "xnet: TLS backend = mbedTLS (forced)")
-elseif(MOO_TLS_BACKEND STREQUAL "auto")
+elseif(X_TLS_BACKEND STREQUAL "auto")
   find_package(OpenSSL QUIET)
   if(OpenSSL_FOUND)
-    target_compile_definitions(xnet PUBLIC MOO_HAS_OPENSSL)
+    target_compile_definitions(xnet PUBLIC X_HAS_OPENSSL)
     target_sources(xnet PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/tls_openssl.c
       ${CMAKE_CURRENT_SOURCE_DIR}/transport_openssl.c)
@@ -49,7 +49,7 @@ elseif(MOO_TLS_BACKEND STREQUAL "auto")
     find_package(MbedTLS QUIET)
     if(MbedTLS_FOUND)
       set_target_properties(MbedTLS::MbedTLS PROPERTIES IMPORTED_NO_SYSTEM TRUE)
-      target_compile_definitions(xnet PUBLIC MOO_HAS_MBEDTLS)
+      target_compile_definitions(xnet PUBLIC X_HAS_MBEDTLS)
       target_sources(xnet PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/tls_mbedtls.c
         ${CMAKE_CURRENT_SOURCE_DIR}/transport_mbedtls.c)
@@ -61,10 +61,10 @@ elseif(MOO_TLS_BACKEND STREQUAL "auto")
     endif()
   endif()
 else()
-  message(WARNING "xnet: Unknown MOO_TLS_BACKEND '${MOO_TLS_BACKEND}', TLS support disabled")
+  message(WARNING "xnet: Unknown X_TLS_BACKEND '${X_TLS_BACKEND}', TLS support disabled")
 endif()
 
-option(XNET_BUILD_TESTS "Build xnet tests" ${MOO_BUILD_TESTS})
+option(XNET_BUILD_TESTS "Build xnet tests" ${X_BUILD_TESTS})
 if(XNET_BUILD_TESTS)
   file(GLOB_RECURSE XNET_TEST_SOURCES "*_test.cpp")
   if(XNET_TEST_SOURCES)

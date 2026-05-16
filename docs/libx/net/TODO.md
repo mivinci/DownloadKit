@@ -79,7 +79,7 @@ int  xTransportTlsServerInit(xTransport *t, xTlsCtx tls_ctx, int fd);
 ### Design Principles
 
 - **Zero-cost for plain TCP** — the plain implementation is just a thin wrapper around `read(2)` / `writev(2)`, no virtual dispatch overhead beyond the function pointer call
-- **Compile-time TLS backend** — `MOO_TLS_BACKEND` selects OpenSSL or mbedTLS at build time, same as today
+- **Compile-time TLS backend** — `X_TLS_BACKEND` selects OpenSSL or mbedTLS at build time, same as today
 - **Composable** — `xTcpConnect()` optionally accepts a `xTlsConf*`; if non-NULL, the returned connection's transport is TLS, otherwise plain
 - **ALPN-aware** — the `alpn()` callback enables automatic HTTP/2 vs HTTP/1.1 detection after TLS handshake, which xhttp already relies on
 

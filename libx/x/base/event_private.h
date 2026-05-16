@@ -29,8 +29,8 @@
 
 /* ───────────────────── Signal watch ───────────────────── */
 
-#ifndef MOO_SIGNAL_MAX
-#define MOO_SIGNAL_MAX 64
+#ifndef X_SIGNAL_MAX
+#define X_SIGNAL_MAX 64
 #endif
 
 struct xSignalWatch_ {
@@ -164,7 +164,7 @@ struct xEventLoop_ {
   int wake_pending;
 
   /* Signal watches (indexed by signal number) */
-  struct xSignalWatch_ signal_watches[MOO_SIGNAL_MAX];
+  struct xSignalWatch_ signal_watches[X_SIGNAL_MAX];
 };
 
 static inline int loop_init_wake(struct xEventLoop_ *loop) {

@@ -18,7 +18,7 @@
 
 6. **Defensive Limits** — Configurable limits on header size (default 8 KiB), body size (default 1 MiB), and idle timeout (default 60 s) protect against slow clients and oversized payloads. Violations produce appropriate 4xx error responses.
 
-7. **Pluggable TLS** — TLS support is provided via `xHttpServerListenTls()` with `xTlsConf`. The TLS backend (OpenSSL or Mbed TLS) is selected at compile time via `MOO_TLS_BACKEND`. ALPN negotiation automatically selects HTTP/1.1 or HTTP/2 over TLS. Mutual TLS (mTLS) is supported when `ca` is set (verification is enabled by default).
+7. **Pluggable TLS** — TLS support is provided via `xHttpServerListenTls()` with `xTlsConf`. The TLS backend (OpenSSL or Mbed TLS) is selected at compile time via `X_TLS_BACKEND`. ALPN negotiation automatically selects HTTP/1.1 or HTTP/2 over TLS. Mutual TLS (mTLS) is supported when `ca` is set (verification is enabled by default).
 
 ## Architecture
 
@@ -638,4 +638,4 @@ int main(void) {
 - **xbuf** — Uses [`xBuffer`](../buf/buf.md) for request parsing accumulation (URL, headers, body) and [`xIOBuffer`](../buf/io.md) for read/write buffering with scatter-gather I/O.
 - **llhttp** — External dependency. Provides incremental HTTP/1.1 request parsing via callbacks, isolated behind the `xHttpProto` vtable in `proto_h1.c`.
 - **nghttp2** — External dependency. Provides HTTP/2 frame processing, HPACK header compression, and stream management, isolated behind the `xHttpProto` vtable in `proto_h2.c`.
-- **OpenSSL / Mbed TLS** — External dependency (TLS backend, compile-time selection via `MOO_TLS_BACKEND`). Provides TLS handshake, encryption, certificate verification, and ALPN negotiation for `xHttpServerListenTls()`.
+- **OpenSSL / Mbed TLS** — External dependency (TLS backend, compile-time selection via `X_TLS_BACKEND`). Provides TLS handshake, encryption, certificate verification, and ALPN negotiation for `xHttpServerListenTls()`.

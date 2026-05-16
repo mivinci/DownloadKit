@@ -389,8 +389,8 @@ The DTLS layer supports two TLS backends, selected at compile time:
 
 | Backend | CMake Option | Description |
 | --- | --- | --- |
-| OpenSSL | `-DMOO_TLS_BACKEND=openssl` (default) | Uses OpenSSL for DTLS 1.2 handshake and encryption. |
-| mbedTLS | `-DMOO_TLS_BACKEND=mbedtls` | Uses mbedTLS for DTLS 1.2 handshake and encryption. |
+| OpenSSL | `-DX_TLS_BACKEND=openssl` (default) | Uses OpenSSL for DTLS 1.2 handshake and encryption. |
+| mbedTLS | `-DX_TLS_BACKEND=mbedtls` | Uses mbedTLS for DTLS 1.2 handshake and encryption. |
 
 Both backends generate a self-signed ECDSA P-256 certificate at `xPeerConnectionCreate` time and compute a SHA-256 fingerprint for SDP `a=fingerprint`.
 
@@ -448,4 +448,4 @@ Both backends generate a self-signed ECDSA P-256 certificate at `xPeerConnection
 - **xbase** — Uses [`xEventLoop`](../base/event.md) for I/O multiplexing, [`xSocket`](../base/socket.md) for non-blocking UDP socket management, and timers for ICE connectivity checks and DTLS retransmission.
 - **xbuf** — Uses [`xBuffer`](../buf/buf.md) for SDP string assembly and [`xIOBuffer`](../buf/io.md) for DTLS read/write buffering between the ICE and SCTP layers.
 - **usrsctp** — External dependency. Provides user-space SCTP (RFC 4960) for reliable/unreliable message delivery over the DTLS tunnel. Runs its own timer thread for retransmission.
-- **OpenSSL / mbedTLS** — External dependency (DTLS backend, compile-time selection via `MOO_TLS_BACKEND`). Provides DTLS 1.2 handshake, encryption, self-signed certificate generation, and SHA-256 fingerprint computation for SDP.
+- **OpenSSL / mbedTLS** — External dependency (DTLS backend, compile-time selection via `X_TLS_BACKEND`). Provides DTLS 1.2 handshake, encryption, self-signed certificate generation, and SHA-256 fingerprint computation for SDP.

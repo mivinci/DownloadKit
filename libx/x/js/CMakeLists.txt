@@ -7,7 +7,7 @@
 file(GLOB_RECURSE XJS_HEADERS "*.h")
 file(GLOB_RECURSE XJS_SOURCES "*.c")
 
-add_library(xjs ${MOO_LIB_TYPE} ${XJS_SOURCES} ${XJS_HEADERS})
+add_library(xjs ${X_LIB_TYPE} ${XJS_SOURCES} ${XJS_HEADERS})
 
 # QuickJS is a PRIVATE dep: xjs implementation wraps the QuickJS
 # API internally, but none of xjs's installed headers reference
@@ -21,7 +21,7 @@ target_link_libraries(xjs
 message(STATUS "xjs: JavaScript scripting engine enabled (QuickJS)")
 
 # ── Tests ──────────────────────────────────────────────────────────────
-option(XJS_BUILD_TESTS "Build xjs tests" ${MOO_BUILD_TESTS})
+option(XJS_BUILD_TESTS "Build xjs tests" ${X_BUILD_TESTS})
 if(XJS_BUILD_TESTS)
   file(GLOB_RECURSE XJS_TEST_SOURCES "*_test.cpp")
   if(XJS_TEST_SOURCES)

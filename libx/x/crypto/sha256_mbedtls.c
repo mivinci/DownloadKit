@@ -26,17 +26,17 @@
  */
 #if __has_include(<mbedtls/sha256.h>)
 #include <mbedtls/sha256.h>
-#define MOO_MBEDTLS_HAS_SHA256_H 1
+#define X_MBEDTLS_HAS_SHA256_H 1
 #else
 #include <mbedtls/md.h>
-#define MOO_MBEDTLS_HAS_SHA256_H 0
+#define X_MBEDTLS_HAS_SHA256_H 0
 #endif
 
 #include <string.h>
 
 /* ── Internal layout stored in xSha256Ctx.opaque ─────────── */
 
-#if MOO_MBEDTLS_HAS_SHA256_H
+#if X_MBEDTLS_HAS_SHA256_H
 
 typedef struct {
   mbedtls_sha256_context mctx;
@@ -55,7 +55,7 @@ _Static_assert(sizeof(xSha256MbedTLS_) <= sizeof(((xSha256Ctx *)0)->opaque),
 
 /* ── Streaming API ─────────────────────────────────────── */
 
-#if MOO_MBEDTLS_HAS_SHA256_H
+#if X_MBEDTLS_HAS_SHA256_H
 /* mbedTLS 2.x / 3.x: standalone SHA-256 context */
 
 xErrno xSha256Init(xSha256Ctx *ctx) {
@@ -181,4 +181,4 @@ xErrno xSha256(const uint8_t *data, size_t len, uint8_t *digest) {
   return (ret == 0) ? xErrno_Ok : xErrno_SysError;
 }
 
-#endif /* MOO_MBEDTLS_HAS_SHA256_H */
+#endif /* X_MBEDTLS_HAS_SHA256_H */

@@ -19,7 +19,7 @@ extern "C" {
 #include <x/base/task.h>
 }
 
-#ifdef MOO_HAS_LIBUV
+#ifdef X_HAS_LIBUV
 #include <uv.h>
 #endif
 
@@ -185,7 +185,7 @@ static void BM_Task_WorkerScaling(benchmark::State &state) {
 BENCHMARK(BM_Task_WorkerScaling)->Arg(1)->Arg(2)->Arg(4)->Arg(8);
 
 /* ═══════════════════════════════════════════════════════════════════
- *  libuv baseline benchmarks (compiled only when MOO_HAS_LIBUV is set)
+ *  libuv baseline benchmarks (compiled only when X_HAS_LIBUV is set)
  *
  *  These mirror the xTask benchmarks above using libuv's uv_queue_work
  *  API for a fair apples-to-apples comparison.
@@ -194,7 +194,7 @@ BENCHMARK(BM_Task_WorkerScaling)->Arg(1)->Arg(2)->Arg(4)->Arg(8);
  *  fires on the loop thread, so we run uv_run() on a dedicated thread
  *  and use a semaphore / counter to synchronize.
  * ═══════════════════════════════════════════════════════════════════ */
-#ifdef MOO_HAS_LIBUV
+#ifdef X_HAS_LIBUV
 
 /* ── libuv helpers ── */
 
@@ -315,4 +315,4 @@ static void BM_Libuv_SubmitWaitBatch(benchmark::State &state) {
 }
 BENCHMARK(BM_Libuv_SubmitWaitBatch)->Arg(10)->Arg(100)->Arg(1000);
 
-#endif /* MOO_HAS_LIBUV */
+#endif /* X_HAS_LIBUV */

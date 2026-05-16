@@ -1,6 +1,6 @@
 file(GLOB_RECURSE XTUI_HEADERS "*.h")
 file(GLOB_RECURSE XTUI_SOURCES "*.c")
-add_library(xtui ${MOO_LIB_TYPE} ${XTUI_SOURCES} ${XTUI_HEADERS})
+add_library(xtui ${X_LIB_TYPE} ${XTUI_SOURCES} ${XTUI_HEADERS})
 
 # xtui only uses xbase for the XCAPI / XDEF_STRUCT macros (no link
 # dependency at runtime), but we still link PUBLIC so downstream
@@ -9,7 +9,7 @@ target_link_libraries(xtui PUBLIC xbase)
 
 message(STATUS "xtui: terminal UI primitives enabled")
 
-option(XTUI_BUILD_TESTS "Build xtui tests" ${MOO_BUILD_TESTS})
+option(XTUI_BUILD_TESTS "Build xtui tests" ${X_BUILD_TESTS})
 if(XTUI_BUILD_TESTS)
   file(GLOB_RECURSE XTUI_TEST_SOURCES "*_test.cpp")
   if(XTUI_TEST_SOURCES)

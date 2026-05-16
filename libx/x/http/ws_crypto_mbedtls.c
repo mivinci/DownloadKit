@@ -6,7 +6,7 @@
  * ws_crypto_mbedtls.c - SHA-1 / Base64 via mbedTLS
  */
 
-#ifdef MOO_HAS_MBEDTLS
+#ifdef X_HAS_MBEDTLS
 
 #include "ws_crypto.h"
 
@@ -24,15 +24,15 @@
  */
 #if __has_include(<mbedtls/sha1.h>)
 #include <mbedtls/sha1.h>
-#define MOO_MBEDTLS_HAS_SHA1_H 1
+#define X_MBEDTLS_HAS_SHA1_H 1
 #else
 #include <mbedtls/md.h>
-#define MOO_MBEDTLS_HAS_SHA1_H 0
+#define X_MBEDTLS_HAS_SHA1_H 0
 #endif
 
 void xWsSHA1(const unsigned char *input, size_t len,
              unsigned char *output) {
-#if !MOO_MBEDTLS_HAS_SHA1_H
+#if !X_MBEDTLS_HAS_SHA1_H
   /* mbedTLS 4.x: use the generic MD API */
   mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA1),
              input, len, output);
@@ -58,4 +58,4 @@ int xWsBase64Encode(const unsigned char *input, size_t in_len,
   return (int)olen;
 }
 
-#endif /* MOO_HAS_MBEDTLS */
+#endif /* X_HAS_MBEDTLS */

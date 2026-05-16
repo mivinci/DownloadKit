@@ -1,13 +1,13 @@
 file(GLOB_RECURSE XBUF_HEADERS "*.h")
 file(GLOB_RECURSE XBUF_SOURCES "*.c")
-add_library(xbuf ${MOO_LIB_TYPE} ${XBUF_SOURCES} ${XBUF_HEADERS})
+add_library(xbuf ${X_LIB_TYPE} ${XBUF_SOURCES} ${XBUF_HEADERS})
 
 target_link_libraries(xbuf PUBLIC xbase)
 
 message(STATUS "xbuf: buffer module enabled (xBuffer + xRingBuffer + xIOBuffer)")
 
-option(XBUF_BUILD_TESTS      "Build xbuf tests"      ${MOO_BUILD_TESTS})
-option(XBUF_BUILD_BENCHMARKS "Build xbuf benchmarks" ${MOO_BUILD_BENCHMARKS})
+option(XBUF_BUILD_TESTS      "Build xbuf tests"      ${X_BUILD_TESTS})
+option(XBUF_BUILD_BENCHMARKS "Build xbuf benchmarks" ${X_BUILD_BENCHMARKS})
 
 if(XBUF_BUILD_TESTS)
   file(GLOB_RECURSE XBUF_TEST_SOURCES "*_test.cpp")

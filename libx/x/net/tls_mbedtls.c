@@ -9,7 +9,7 @@
  * xTlsCtxGetNative for the mbedTLS backend.
  */
 
-#ifdef MOO_HAS_MBEDTLS
+#ifdef X_HAS_MBEDTLS
 
 #include "tls_private.h"
 
@@ -33,11 +33,11 @@
 /* mbedTLS version compatibility */
 #if MBEDTLS_VERSION_NUMBER >= 0x03000000
 /* mbedTLS 3.x/4.x */
-#define MOO_MBEDTLS_SET_MIN_TLS12(conf) \
+#define X_MBEDTLS_SET_MIN_TLS12(conf) \
   mbedtls_ssl_conf_min_tls_version((conf), MBEDTLS_SSL_VERSION_TLS1_2)
 #else
 /* mbedTLS 2.x */
-#define MOO_MBEDTLS_SET_MIN_TLS12(conf)                              \
+#define X_MBEDTLS_SET_MIN_TLS12(conf)                              \
   mbedtls_ssl_conf_min_version((conf), MBEDTLS_SSL_MAJOR_VERSION_3, \
                                MBEDTLS_SSL_MINOR_VERSION_3)
 #endif
@@ -110,7 +110,7 @@ xTlsCtx xTlsCtxCreate(const xTlsConf *config) {
 #endif
 
   /* Set minimum TLS version to 1.2 */
-  MOO_MBEDTLS_SET_MIN_TLS12(&ctx->conf);
+  X_MBEDTLS_SET_MIN_TLS12(&ctx->conf);
 
   if (is_server) {
     /* ── Server mode ── */
@@ -369,4 +369,4 @@ int xTlsCtxIsServer(xTlsCtx raw) {
   return ctx->is_server;
 }
 
-#endif /* MOO_HAS_MBEDTLS */
+#endif /* X_HAS_MBEDTLS */

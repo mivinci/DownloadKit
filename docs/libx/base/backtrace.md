@@ -6,7 +6,7 @@
 
 ## Design Philosophy
 
-1. **Build-Time Backend Selection** — The backend is chosen via CMake-detected macros (`MOO_HAS_LIBUNWIND`, `MOO_HAS_EXECINFO`). This avoids runtime overhead and ensures the best available unwinder is used on each platform.
+1. **Build-Time Backend Selection** — The backend is chosen via CMake-detected macros (`X_HAS_LIBUNWIND`, `X_HAS_EXECINFO`). This avoids runtime overhead and ensures the best available unwinder is used on each platform.
 
 2. **Graceful Degradation** — On platforms without libunwind or execinfo, a stub backend returns a "not supported" message rather than crashing. This ensures `xBacktrace()` is always safe to call.
 
@@ -26,8 +26,8 @@ graph TD
     BUF["User buffer<br/>(formatted output)"]
 
     API --> SELECT
-    SELECT -->|MOO_HAS_LIBUNWIND| LIBUNWIND
-    SELECT -->|MOO_HAS_EXECINFO| EXECINFO
+    SELECT -->|X_HAS_LIBUNWIND| LIBUNWIND
+    SELECT -->|X_HAS_EXECINFO| EXECINFO
     SELECT -->|fallback| STUB
     LIBUNWIND --> BUF
     EXECINFO --> BUF
@@ -44,8 +44,8 @@ graph TD
 
 | Backend | Macro | Platform | Quality |
 | --- | --- | --- | --- |
-| libunwind | `MOO_HAS_LIBUNWIND` | Linux (with libunwind installed) | Best — accurate unwinding, symbol + offset |
-| execinfo | `MOO_HAS_EXECINFO` | macOS, Linux (glibc) | Good — requires `-rdynamic` on Linux for symbols |
+| libunwind | `X_HAS_LIBUNWIND` | Linux (with libunwind installed) | Best — accurate unwinding, symbol + offset |
+| execinfo | `X_HAS_EXECINFO` | macOS, Linux (glibc) | Good — requires `-rdynamic` on Linux for symbols |
 | stub | (fallback) | Any | Minimal — returns "not supported" message |
 
 ### Output Format

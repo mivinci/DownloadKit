@@ -8,11 +8,11 @@
 - **Checksum**: CRC-32
 - **HMAC**: Generic HMAC (RFC 2104) with streaming API, plus convenience wrappers for HMAC-SHA1, HMAC-SHA256, and HMAC-MD5
 
-SHA-1 and SHA-256 support three backends selected at build time via `MOO_TLS_BACKEND`: **OpenSSL**, **mbedTLS**, and a **pure-C builtin fallback**. MD5 and CRC-32 are always pure-C with no external dependencies.
+SHA-1 and SHA-256 support three backends selected at build time via `X_TLS_BACKEND`: **OpenSSL**, **mbedTLS**, and a **pure-C builtin fallback**. MD5 and CRC-32 are always pure-C with no external dependencies.
 
 ## Design Philosophy
 
-1. **Backend Abstraction** — Hash headers (`sha1.h`, `sha256.h`) expose a unified API regardless of the underlying crypto library. The backend is selected at build time via `MOO_TLS_BACKEND`, keeping runtime overhead at zero and the public interface stable.
+1. **Backend Abstraction** — Hash headers (`sha1.h`, `sha256.h`) expose a unified API regardless of the underlying crypto library. The backend is selected at build time via `X_TLS_BACKEND`, keeping runtime overhead at zero and the public interface stable.
 
 2. **Zero Heap Allocation** — All context structures (`xSha1Ctx`, `xSha256Ctx`, `xMd5Ctx`, `xHmacCtx`) use fixed-size opaque buffers large enough to hold any backend's internal state. No dynamic allocation is needed.
 
@@ -83,9 +83,9 @@ graph TD
 
 ## Backend Selection
 
-SHA-1 and SHA-256 backends are chosen via the `MOO_TLS_BACKEND` CMake variable. MD5 and CRC-32 are always pure-C.
+SHA-1 and SHA-256 backends are chosen via the `X_TLS_BACKEND` CMake variable. MD5 and CRC-32 are always pure-C.
 
-| `MOO_TLS_BACKEND` | SHA-1 / SHA-256 Backend | External Dependency |
+| `X_TLS_BACKEND` | SHA-1 / SHA-256 Backend | External Dependency |
 | --- | --- | --- |
 | `openssl` | OpenSSL EVP API | `libssl`, `libcrypto` |
 | `mbedtls` | mbedTLS | `libmbedtls` |

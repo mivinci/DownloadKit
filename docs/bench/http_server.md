@@ -20,7 +20,7 @@ End-to-end HTTP/1.1 server benchmark comparing **moo** (single-threaded event-lo
 Single-threaded event-loop HTTP/1.1 server built on `xbase/event.h` + `xhttp/server.h`. Uses kqueue on macOS, epoll on Linux. All I/O is handled in one thread — no thread pool, no goroutines.
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DX_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 ./build/bench/http_bench_server 8080
 ```
@@ -138,7 +138,7 @@ Tests request body parsing and echo throughput. Fixed at 100 connections.
 
 ```bash
 # Build moo server
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DX_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 
 # Build Go server

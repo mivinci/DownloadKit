@@ -9,7 +9,7 @@
  * (init/update/final) API for computing SHA-1 digests.
  *
  * The underlying implementation is selected at build time based on
- * MOO_TLS_BACKEND (OpenSSL, mbedTLS, or a built-in pure-C fallback).
+ * X_TLS_BACKEND (OpenSSL, mbedTLS, or a built-in pure-C fallback).
  */
 
 #ifndef XCRYPTO_SHA1_H

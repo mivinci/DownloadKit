@@ -3,9 +3,10 @@
 # Thin C++ wrappers that RAII-ify the C API in libx/.
 
 # ── Sub-project options (decoupled from top-level MOO_* switches) ──
-# Defaults inherit from the top-level switches when invoked from the root
-# build, but can be set independently when libxpp is consumed standalone.
-option(XPP_BUILD_TESTS "Build libxpp tests" ${MOO_BUILD_TESTS})
+# Defaults inherit from the libx X_BUILD_TESTS switch when invoked from
+# the root build, but can be set independently when libxpp is consumed
+# standalone.
+option(XPP_BUILD_TESTS "Build libxpp tests" ${X_BUILD_TESTS})
 
 file(GLOB XPP_SOURCES "*.cpp")
 file(GLOB XPP_TEST_SOURCES "*_test.cpp")

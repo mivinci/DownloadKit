@@ -11,7 +11,7 @@
 #include <cstring>
 
 extern "C" {
-#if defined(MOO_HAS_OPENSSL) || defined(MOO_HAS_MBEDTLS)
+#if defined(X_HAS_OPENSSL) || defined(X_HAS_MBEDTLS)
 #include "tls_private.h"
 #endif
 #include "transport_private.h"
@@ -123,7 +123,7 @@ TEST_F(PlainTransportTest, NullTransportIsSafe) {
  * ═══════════════════════════════════════════════════════════════════
  */
 
-#if defined(MOO_HAS_OPENSSL) || defined(MOO_HAS_MBEDTLS)
+#if defined(X_HAS_OPENSSL) || defined(X_HAS_MBEDTLS)
 
 TEST(TlsCtxTest, CreateWithNullConfReturnsNull) {
   xTlsCtx ctx = xTlsCtxCreate(nullptr);
@@ -178,4 +178,4 @@ TEST(TlsCtxTest, ClientCtxCreateWithDefaults) {
   xTlsCtxDestroy(ctx);
 }
 
-#endif /* MOO_HAS_OPENSSL || MOO_HAS_MBEDTLS */
+#endif /* X_HAS_OPENSSL || X_HAS_MBEDTLS */

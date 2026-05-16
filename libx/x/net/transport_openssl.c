@@ -9,7 +9,7 @@
  * TLS context management (xTlsCtxCreate etc.) lives in tls_openssl.c.
  */
 
-#ifdef MOO_HAS_OPENSSL
+#ifdef X_HAS_OPENSSL
 
 #include "tls_private.h"
 #include "transport.h"
@@ -243,4 +243,4 @@ int xTransportTlsClientInit(xTransport *transport, xTlsCtx tls_ctx,
   return 0;
 }
 
-#endif /* MOO_HAS_OPENSSL */
+#endif /* X_HAS_OPENSSL */

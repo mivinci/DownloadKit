@@ -6,9 +6,9 @@
  * backtrace.c - Platform-adaptive stack backtrace implementation
  *
  * Backend priority (selected at build time via CMake):
- *   1. libunwind  (MOO_HAS_LIBUNWIND)
- *   2. execinfo   (MOO_HAS_EXECINFO)  — macOS / Linux glibc
- *   3. DbgHelp    (MOO_HAS_DBGHELP)   — Windows
+ *   1. libunwind  (X_HAS_LIBUNWIND)
+ *   2. execinfo   (X_HAS_EXECINFO)  — macOS / Linux glibc
+ *   3. DbgHelp    (X_HAS_DBGHELP)   — Windows
  *   4. stub       (fallback)
  */
 
@@ -31,7 +31,7 @@
 /* ═══════════════════════════════════════════════════════════════════
  * Backend 1: libunwind
  * ═══════════════════════════════════════════════════════════════════ */
-#if defined(MOO_HAS_LIBUNWIND)
+#if defined(X_HAS_LIBUNWIND)
 
 #define UNW_LOCAL_ONLY
 #include <libunwind.h>
@@ -85,7 +85,7 @@ static int bt_capture(int skip, char *buf, size_t size) {
  *
  * NOTE: Link with -rdynamic on Linux for meaningful symbol names.
  * ═══════════════════════════════════════════════════════════════════ */
-#elif defined(MOO_HAS_EXECINFO)
+#elif defined(X_HAS_EXECINFO)
 
 #include <execinfo.h>
 #include <stdlib.h>
@@ -138,7 +138,7 @@ static int bt_capture(int skip, char *buf, size_t size) {
  * Uses CaptureStackBackTrace() for frame capture and SymFromAddr()
  * for symbol resolution.  Requires dbghelp.lib.
  * ═══════════════════════════════════════════════════════════════════ */
-#elif defined(MOO_HAS_DBGHELP)
+#elif defined(X_HAS_DBGHELP)
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

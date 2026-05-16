@@ -26,7 +26,7 @@ All servers implement the same behavior: accept WebSocket connections and echo e
 Single-threaded event-loop WebSocket server built on `xbase/event.h` + `xhttp/ws.h`. Uses `xWsServe()` for a one-line WebSocket-only server. All frame parsing, masking, ping/pong, and close handshake are handled automatically.
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DX_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 ./build/bench/ws_bench_server 9090
 ```
@@ -289,7 +289,7 @@ How much does TLS reduce throughput? (100 connections, 64B)
 
 ```bash
 # Build moo servers
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DX_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 
 # Build Go servers and client

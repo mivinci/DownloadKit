@@ -59,7 +59,7 @@ change.
 ```bash
 # 1. Configure + build the app (cli/ is off by default)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-      -DMOO_BUILD_APPS=ON -DMOO_BUILD_TESTS=OFF -DMOO_BUILD_BENCHMARKS=OFF
+      -DMOO_BUILD_APPS=ON -DX_BUILD_TESTS=OFF -DX_BUILD_BENCHMARKS=OFF
 cmake --build build --parallel
 
 # 2. Point it at a data directory and drop a models.json in there
@@ -201,7 +201,7 @@ cmake --build build --parallel
 
 # App only, Release
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-      -DMOO_BUILD_APPS=ON -DMOO_BUILD_TESTS=OFF -DMOO_BUILD_BENCHMARKS=OFF
+      -DMOO_BUILD_APPS=ON -DX_BUILD_TESTS=OFF -DX_BUILD_BENCHMARKS=OFF
 cmake --build build --parallel
 ```
 
@@ -210,13 +210,13 @@ Useful options:
 | Option | Default | Purpose |
 | ------ | ------- | ------- |
 | `MOO_BUILD_APPS` | `OFF` | Build `cli/` (the `moo` CLI lives here) |
-| `MOO_BUILD_TESTS` | `ON` | Build unit tests |
-| `MOO_BUILD_BENCHMARKS` | `ON` | Build micro- and end-to-end benchmarks |
-| `MOO_BUILD_EXAMPLES` | `OFF` | Build example programs |
-| `MOO_BUILD_STATIC` | `OFF` | Build libraries as static archives |
-| `MOO_TLS_BACKEND` | `openssl` | TLS backend: `openssl` or `mbedtls` |
+| `X_BUILD_TESTS` | `ON` | Build unit tests |
+| `X_BUILD_BENCHMARKS` | `ON` | Build micro- and end-to-end benchmarks |
+| `X_BUILD_EXAMPLES` | `OFF` | Build example programs |
+| `X_BUILD_STATIC` | `OFF` | Build libraries as static archives |
+| `X_TLS_BACKEND` | `openssl` | TLS backend: `openssl` or `mbedtls` |
 | `MOO_ENABLE_ASAN` | `OFF` | AddressSanitizer |
-| `MOO_DEBUG_LEVEL` | `0` | Debug-log verbosity (0–3) |
+| `X_DEBUG_LEVEL` | `0` | Debug-log verbosity (0–3) |
 
 ## Test
 
@@ -230,11 +230,11 @@ To test both TLS backends in one session, configure two build dirs and
 run ctest in each:
 
 ```bash
-cmake -S . -B build-openssl -DMOO_TLS_BACKEND=openssl && \
+cmake -S . -B build-openssl -DX_TLS_BACKEND=openssl && \
   cmake --build build-openssl --parallel && \
   ctest --test-dir build-openssl --output-on-failure --parallel 4
 
-cmake -S . -B build-mbedtls -DMOO_TLS_BACKEND=mbedtls && \
+cmake -S . -B build-mbedtls -DX_TLS_BACKEND=mbedtls && \
   cmake --build build-mbedtls --parallel && \
   ctest --test-dir build-mbedtls --output-on-failure --parallel 4
 ```

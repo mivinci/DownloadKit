@@ -10,19 +10,19 @@ set(XCRYPTO_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/md5.c
 )
 
-add_library(xcrypto ${MOO_LIB_TYPE} ${XCRYPTO_SOURCES} ${XCRYPTO_HEADERS})
+add_library(xcrypto ${X_LIB_TYPE} ${XCRYPTO_SOURCES} ${XCRYPTO_HEADERS})
 
 target_link_libraries(xcrypto PUBLIC xbase)
 
-# ── Hash backend selection (reuses MOO_TLS_BACKEND) ───────────────────
-if(MOO_TLS_BACKEND STREQUAL "openssl")
+# ── Hash backend selection (reuses X_TLS_BACKEND) ───────────────────
+if(X_TLS_BACKEND STREQUAL "openssl")
   find_package(OpenSSL REQUIRED)
   target_sources(xcrypto PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sha1_openssl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/sha256_openssl.c)
   target_link_libraries(xcrypto PRIVATE OpenSSL::SSL OpenSSL::Crypto)
   message(STATUS "xcrypto: hash backend = OpenSSL")
-elseif(MOO_TLS_BACKEND STREQUAL "mbedtls")
+elseif(X_TLS_BACKEND STREQUAL "mbedtls")
   find_package(MbedTLS REQUIRED)
   target_sources(xcrypto PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sha1_mbedtls.c
@@ -30,7 +30,7 @@ elseif(MOO_TLS_BACKEND STREQUAL "mbedtls")
   target_include_directories(xcrypto BEFORE PRIVATE ${MbedTLS_INCLUDE_DIRS})
   target_link_libraries(xcrypto PRIVATE MbedTLS::MbedTLS)
   message(STATUS "xcrypto: hash backend = mbedTLS")
-elseif(MOO_TLS_BACKEND STREQUAL "auto")
+elseif(X_TLS_BACKEND STREQUAL "auto")
   find_package(OpenSSL QUIET)
   if(OpenSSL_FOUND)
     target_sources(xcrypto PRIVATE
@@ -64,7 +64,7 @@ endif()
 message(STATUS "xcrypto: crypto module enabled (SHA-1, SHA-256, MD5, CRC-32, HMAC)")
 
 # ── Tests ──────────────────────────────────────────────────────────────
-option(XCRYPTO_BUILD_TESTS "Build xcrypto tests" ${MOO_BUILD_TESTS})
+option(XCRYPTO_BUILD_TESTS "Build xcrypto tests" ${X_BUILD_TESTS})
 if(XCRYPTO_BUILD_TESTS)
   file(GLOB_RECURSE XCRYPTO_TEST_SOURCES "*_test.cpp")
   if(XCRYPTO_TEST_SOURCES)

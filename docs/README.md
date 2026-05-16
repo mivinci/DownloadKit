@@ -364,7 +364,7 @@ cmake --build build --parallel
 
 # Build the moo CLI (cli/ is OFF by default)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-      -DMOO_BUILD_APPS=ON -DMOO_BUILD_TESTS=OFF -DMOO_BUILD_BENCHMARKS=OFF
+      -DMOO_BUILD_APPS=ON -DX_BUILD_TESTS=OFF -DX_BUILD_BENCHMARKS=OFF
 cmake --build build --parallel
 
 # Run tests

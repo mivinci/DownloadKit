@@ -205,7 +205,7 @@ typedef struct xDtlsBackend {
  * @brief Get the compiled-in TLS backend.
  *
  * Returns the OpenSSL or mbedTLS backend depending on which was
- * selected at build time via MOO_TLS_BACKEND.
+ * selected at build time via X_TLS_BACKEND.
  */
 const xDtlsBackend *xDtlsBackendGet(void);
 

@@ -11,30 +11,7 @@
 #   internal helpers cross TU boundaries while still staying out of the
 #   shared library's public symbol table.
 
-set(XLINE_SOURCES
-  async.c
-  attr.c
-  bbcode.c
-  bbcode_colors.c
-  completers.c
-  completions.c
-  edit.c
-  edit_completion.c
-  edit_help.c
-  edit_history.c
-  highlight.c
-  history.c
-  line.c
-  str.c
-  stringbuf.c
-  term.c
-  term_color.c
-  tty.c
-  tty_esc.c
-  undo.c
-  unicode.c
-  wcwidth.c)
-
+file(GLOB XLINE_SOURCES "*.c")
 file(GLOB XLINE_HEADERS "*.h")
 
 add_library(xline ${MOO_LIB_TYPE}

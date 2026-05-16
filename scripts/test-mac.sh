@@ -198,27 +198,47 @@ detect_changed_modules() {
 
     # Map changed files to modules
     local -A changed_mods=([__none__]=1)
+    local libxpp_changed=0
     for f in "${changed_files[@]}"; do
-        if [[ "$f" == libx/*/* ]]; then
-            local mod="${f#libx/}"
-            mod="${mod%%/*}"
-            # Only count if it's a known module
+        if [[ "$f" == libx/x/*/* ]]; then
+            # libx/x/<mod>/...  -> module key is "x<mod>" (xbase, xlog, ...)
+            local rest="${f#libx/x/}"
+            local mod="x${rest%%/*}"
             for m in "${ALL_MODULES[@]}"; do
                 if [[ "$mod" == "$m" ]]; then
                     changed_mods[$mod]=1
                     break
                 fi
             done
-        elif [[ "$f" == examples/* ]]; then
-            # Example / demo changes do not affect module tests
+        elif [[ "$f" == libx/examples/* || "$f" == libx/bench/* ]]; then
+            # Example / bench changes do not affect module tests
             continue
-        elif [[ "$f" =~ ^(CMakeLists\.txt|cmake/) ]]; then
-            # Root CMake change affects everything
-            info "Root build system changed, testing all modules"
+        elif [[ "$f" == libx/cmake/* ]]; then
+            # libx-internal CMake helpers — affect every libx module (and libx++)
+            info "libx CMake helpers changed, testing all modules"
             printf '%s\n' "${ALL_MODULES[@]}"
+            printf '%s\n' "__libxpp__"
+            return
+        elif [[ "$f" == libx/CMakeLists.txt ]]; then
+            info "libx top-level CMake changed, testing all modules"
+            printf '%s\n' "${ALL_MODULES[@]}"
+            printf '%s\n' "__libxpp__"
+            return
+        elif [[ "$f" == libx++/* ]]; then
+            libxpp_changed=1
+        elif [[ "$f" =~ ^(CMakeLists\.txt|cmake/) ]]; then
+            # Repo-root CMake change affects everything (libx + libx++)
+            info "Root build system changed, testing all modules"
+            libxpp_changed=1
+            printf '%s\n' "${ALL_MODULES[@]}"
+            printf '%s\n' "__libxpp__"
             return
         fi
     done
+
+    if [[ $libxpp_changed -eq 1 ]]; then
+        changed_mods[__libxpp__]=1
+    fi
 
     unset 'changed_mods[__none__]'
     if [[ ${#changed_mods[@]} -eq 0 ]]; then
@@ -233,9 +253,21 @@ detect_changed_modules() {
     done
     info "Directly changed: $direct_changes"
 
+    # Pop libx++ pseudo-module before computing libx-graph dependents
+    local include_libxpp=0
+    if [[ -n "${changed_mods[__libxpp__]+_}" ]]; then
+        include_libxpp=1
+        unset 'changed_mods[__libxpp__]'
+    fi
+
     # Expand to include dependents
     local affected
-    affected=$(compute_affected "${(@k)changed_mods[@]}")
+    if [[ ${#changed_mods[@]} -gt 0 ]]; then
+        affected=$(compute_affected "${(@k)changed_mods[@]}")
+    fi
+    if [[ $include_libxpp -eq 1 ]]; then
+        affected="${affected}"$'\n'"__libxpp__"
+    fi
     info "Affected modules (with dependents): $(echo $affected | tr '\n' ' ')"
 
     echo "$affected"
@@ -256,13 +288,23 @@ fi
 
 # --detect-only: just print affected module names and exit
 if [[ $DETECT_ONLY -eq 1 ]]; then
-    printf '%s\n' "${AFFECTED[@]}"
+    for m in "${AFFECTED[@]}"; do
+        if [[ "$m" == "__libxpp__" ]]; then
+            echo "libx++"
+        else
+            echo "$m"
+        fi
+    done
     exit 0
 fi
 
 # Collect test targets (skip modules with no test binary)
 TEST_TARGETS=()
 for m in "${AFFECTED[@]}"; do
+    if [[ "$m" == "__libxpp__" ]]; then
+        TEST_TARGETS+=("x++_test")
+        continue
+    fi
     skip=0
     for nt in "${NO_TEST_MODULES[@]}"; do
         if [[ "$m" == "$nt" ]]; then skip=1; break; fi

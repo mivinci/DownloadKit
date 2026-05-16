@@ -185,24 +185,42 @@ detect_changed_modules() {
     fi
 
     local -A changed_mods=([__none__]=1)
+    local libxpp_changed=0
     for f in $changed_files; do
-        if [[ "$f" =~ ^libx/([^/]+)/ ]]; then
-            local mod="${BASH_REMATCH[1]}"
+        if [[ "$f" =~ ^libx/x/([^/]+)/ ]]; then
+            local mod="x${BASH_REMATCH[1]}"
             for m in "${ALL_MODULES[@]}"; do
                 if [[ "$mod" == "$m" ]]; then
                     changed_mods[$mod]=1
                     break
                 fi
             done
-        elif [[ "$f" =~ ^examples/ ]]; then
-            # Example / demo changes do not affect module tests
+        elif [[ "$f" =~ ^libx/(examples|bench)/ ]]; then
+            # Example / bench changes do not affect module tests
             continue
+        elif [[ "$f" =~ ^libx/cmake/ ]]; then
+            info "libx CMake helpers changed, testing all modules"
+            printf '%s\n' "${ALL_MODULES[@]}"
+            printf '%s\n' "__libxpp__"
+            return
+        elif [[ "$f" == "libx/CMakeLists.txt" ]]; then
+            info "libx top-level CMake changed, testing all modules"
+            printf '%s\n' "${ALL_MODULES[@]}"
+            printf '%s\n' "__libxpp__"
+            return
+        elif [[ "$f" =~ ^libx\+\+/ ]]; then
+            libxpp_changed=1
         elif [[ "$f" =~ ^(CMakeLists\.txt|cmake/) ]]; then
             info "Root build system changed, testing all modules"
             printf '%s\n' "${ALL_MODULES[@]}"
+            printf '%s\n' "__libxpp__"
             return
         fi
     done
+
+    if [[ $libxpp_changed -eq 1 ]]; then
+        changed_mods[__libxpp__]=1
+    fi
 
     unset 'changed_mods[__none__]'
     if [[ ${#changed_mods[@]} -eq 0 ]]; then
@@ -213,8 +231,20 @@ detect_changed_modules() {
     local direct_changes="${!changed_mods[*]}"
     info "Directly changed: $direct_changes"
 
-    local affected
-    affected=$(compute_affected ${!changed_mods[@]})
+    # Pop libx++ pseudo-module before computing libx-graph dependents
+    local include_libxpp=0
+    if [[ -n "${changed_mods[__libxpp__]+_}" ]]; then
+        include_libxpp=1
+        unset 'changed_mods[__libxpp__]'
+    fi
+
+    local affected=""
+    if [[ ${#changed_mods[@]} -gt 0 ]]; then
+        affected=$(compute_affected ${!changed_mods[@]})
+    fi
+    if [[ $include_libxpp -eq 1 ]]; then
+        affected="${affected:+$affected$'\n'}__libxpp__"
+    fi
     info "Affected modules (with dependents): $(echo $affected | tr '\n' ' ')"
 
     echo "$affected"
@@ -230,13 +260,23 @@ fi
 
 # --detect-only: just print affected module names and exit
 if [[ $DETECT_ONLY -eq 1 ]]; then
-    echo "$AFFECTED"
+    for m in $AFFECTED; do
+        if [[ "$m" == "__libxpp__" ]]; then
+            echo "libx++"
+        else
+            echo "$m"
+        fi
+    done
     exit 0
 fi
 
 # Collect test targets (skip modules with no test binary)
 TEST_TARGETS=()
 for m in $AFFECTED; do
+    if [[ "$m" == "__libxpp__" ]]; then
+        TEST_TARGETS+=("x++_test")
+        continue
+    fi
     skip=0
     for nt in "${NO_TEST_MODULES[@]}"; do
         if [[ "$m" == "$nt" ]]; then skip=1; break; fi
@@ -334,11 +374,9 @@ fi
 BUILD_DIR="build-linux-${TLS_BACKEND}"
 
 # Build the test target list for the container command
-TEST_TARGETS_STR=""
-for m in $AFFECTED; do
-    TEST_TARGETS_STR="${TEST_TARGETS_STR} ${m}_test"
-done
-TEST_TARGETS_STR="${TEST_TARGETS_STR# }"  # trim leading space
+# Reuse the already-filtered TEST_TARGETS array (handles __libxpp__ → x++_test
+# and skips NO_TEST_MODULES like xline).
+TEST_TARGETS_STR="${TEST_TARGETS[*]}"
 
 # ── Run tests in container ─────────────────────────────────────────────
 step "Running Linux tests in container (TLS=$TLS_BACKEND)"

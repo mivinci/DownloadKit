@@ -122,6 +122,6 @@ int main(void) {
 
 ## Relationship with Other Modules
 
-- **xbase** — `xIOBuffer` uses [`atomic.h`](../xbase/atomic.md) for lock-free block pool management and reference counting.
-- **xhttp** — The HTTP client ([`client.h`](../xhttp/client.md)) uses `xIOBuffer` for response body accumulation and SSE stream parsing.
-- **xlog** — The async logger ([`logger.h`](../xlog/logger.md)) may use `xBuffer` for log message formatting.
+- **xbase** — `xIOBuffer` uses [`atomic.h`](../base/atomic.md) for lock-free block pool management and reference counting.
+- **xhttp** — The HTTP client ([`client.h`](../http/client.md)) uses `xIOBuffer` for response body accumulation and SSE stream parsing.
+- **xlog** — The async logger ([`logger.h`](../log/logger.md)) may use `xBuffer` for log message formatting.

@@ -187,7 +187,7 @@ int main(void) {
 
 2. **Event Loop Offload** — The event loop's offload mechanism ([`event.h`](event.md)) uses an MPSC queue to deliver completed work items from worker threads to the event loop thread.
 
-3. **xlog Async Logger** — [`logger.h`](../xlog/logger.md) uses the MPSC queue to pass log messages from application threads to the logger's flush thread.
+3. **xlog Async Logger** — [`logger.h`](../log/logger.md) uses the MPSC queue to pass log messages from application threads to the logger's flush thread.
 
 ## Best Practices
 

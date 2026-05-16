@@ -45,8 +45,8 @@ BENCH_NAMES=(
 
 # Search directories for benchmark binaries
 SEARCH_DIRS=(
-  "$BUILD_DIR/libx/xbase"
-  "$BUILD_DIR/libx/xbuf"
+  "$BUILD_DIR/libx/x/base"
+  "$BUILD_DIR/libx/x/buf"
   "$BUILD_DIR"
 )
 

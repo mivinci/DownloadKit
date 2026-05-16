@@ -445,7 +445,7 @@ Both backends generate a self-signed ECDSA P-256 certificate at `xPeerConnection
 
 ## Relationship with Other Modules
 
-- **xbase** — Uses [`xEventLoop`](../xbase/event.md) for I/O multiplexing, [`xSocket`](../xbase/socket.md) for non-blocking UDP socket management, and timers for ICE connectivity checks and DTLS retransmission.
-- **xbuf** — Uses [`xBuffer`](../xbuf/buf.md) for SDP string assembly and [`xIOBuffer`](../xbuf/io.md) for DTLS read/write buffering between the ICE and SCTP layers.
+- **xbase** — Uses [`xEventLoop`](../base/event.md) for I/O multiplexing, [`xSocket`](../base/socket.md) for non-blocking UDP socket management, and timers for ICE connectivity checks and DTLS retransmission.
+- **xbuf** — Uses [`xBuffer`](../buf/buf.md) for SDP string assembly and [`xIOBuffer`](../buf/io.md) for DTLS read/write buffering between the ICE and SCTP layers.
 - **usrsctp** — External dependency. Provides user-space SCTP (RFC 4960) for reliable/unreliable message delivery over the DTLS tunnel. Runs its own timer thread for retransmission.
 - **OpenSSL / mbedTLS** — External dependency (DTLS backend, compile-time selection via `MOO_TLS_BACKEND`). Provides DTLS 1.2 handshake, encryption, self-signed certificate generation, and SHA-256 fingerprint computation for SDP.

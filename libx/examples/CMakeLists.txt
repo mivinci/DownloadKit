@@ -42,7 +42,7 @@ target_link_libraries(nat_probe PRIVATE xp2p xbase)
 
 add_executable(ai_openai agent/ai_openai.cpp)
 target_link_libraries(ai_openai PRIVATE xagent xhttp xbase)
-# Demo reaches into libx/xagent/provider_private.h for the internal
+# Demo reaches into libx/x/agent/provider_private.h for the internal
 # dispatcher because session.c has not landed yet. Once session lands,
 # this include path should be removed and the demo rewritten against
 # xAgentCreate + xAgentSessionCreate.

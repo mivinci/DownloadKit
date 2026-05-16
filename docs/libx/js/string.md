@@ -73,7 +73,7 @@ Both are code-unit-exact comparisons (no normalisation). `IsEqualToUTF8CString` 
 
 - xjs does not (yet) expose an API for inspecting UTF-8 byte length independently of the worst-case upper bound. If you need tight sizing, transcode once and measure.
 - `xJSStringIsEqualToUTF8CString` allocates on every call (it builds a transient UTF-16 copy). For hot-path comparisons, cache the UTF-16 form with `xJSStringCreateWithUTF8CString` up front.
-- There is no string *slice*, *concat*, or *index-of* API at the xjs layer — such operations belong in JS. If you need to manipulate strings in host code, transcode to UTF-8 once and use xbase's [`xString`](../xbase/string.md) helpers.
+- There is no string *slice*, *concat*, or *index-of* API at the xjs layer — such operations belong in JS. If you need to manipulate strings in host code, transcode to UTF-8 once and use xbase's [`xString`](../base/string.md) helpers.
 
 ## Worked Example — Calling with a UTF-8 property name
 

@@ -6,15 +6,15 @@
 
 ## Design Philosophy
 
-1. **Single-Threaded Event-Driven I/O** — The server registers listening and client sockets with [`xEventLoop`](../xbase/event.md). Accept, read, parse, dispatch, and write all happen on the event loop thread, eliminating synchronization overhead.
+1. **Single-Threaded Event-Driven I/O** — The server registers listening and client sockets with [`xEventLoop`](../base/event.md). Accept, read, parse, dispatch, and write all happen on the event loop thread, eliminating synchronization overhead.
 
-2. **Protocol-Abstracted Parsing** — Request parsing is delegated to a protocol handler behind the `xHttpProto` vtable interface. HTTP/1.1 (`proto_h1.c`) uses llhttp; HTTP/2 (`proto_h2.c`) uses nghttp2. Incremental callbacks accumulate URL, headers, and body into [`xBuffer`](../xbuf/buf.md) instances. This abstraction allows both protocols to share the same connection management, routing, and response serialization layers.
+2. **Protocol-Abstracted Parsing** — Request parsing is delegated to a protocol handler behind the `xHttpProto` vtable interface. HTTP/1.1 (`proto_h1.c`) uses llhttp; HTTP/2 (`proto_h2.c`) uses nghttp2. Incremental callbacks accumulate URL, headers, and body into [`xBuffer`](../buf/buf.md) instances. This abstraction allows both protocols to share the same connection management, routing, and response serialization layers.
 
 3. **Automatic Protocol Detection** — On each new connection, the server inspects the first bytes of incoming data. If the 24-byte HTTP/2 connection preface (`PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n`) is detected, the connection is upgraded to HTTP/2; otherwise, HTTP/1.1 is used. This enables h2c (cleartext HTTP/2) via Prior Knowledge — ideal for internal service-to-service communication.
 
 4. **First-Match Routing** — Routes are registered as pattern strings (e.g. `"GET /users/:id"` or `"/any"`) and matched in registration order. If the pattern starts with `/`, it matches any HTTP method; otherwise the first token is the method. Path patterns support both exact segments and `:param` segments.
 
-5. **Writer-Based Response API** — Handlers receive an `xHttpResponseWriter` handle to set status, headers, and body. The response is serialized into an [`xIOBuffer`](../xbuf/io.md) and flushed asynchronously, with backpressure handled automatically.
+5. **Writer-Based Response API** — Handlers receive an `xHttpResponseWriter` handle to set status, headers, and body. The response is serialized into an [`xIOBuffer`](../buf/io.md) and flushed asynchronously, with backpressure handled automatically.
 
 6. **Defensive Limits** — Configurable limits on header size (default 8 KiB), body size (default 1 MiB), and idle timeout (default 60 s) protect against slow clients and oversized payloads. Violations produce appropriate 4xx error responses.
 
@@ -634,8 +634,8 @@ int main(void) {
 
 ## Relationship with Other Modules
 
-- **xbase** — Uses [`xEventLoop`](../xbase/event.md) for I/O multiplexing, [`xSocket`](../xbase/socket.md) for non-blocking socket management, and socket timeouts for idle connection detection.
-- **xbuf** — Uses [`xBuffer`](../xbuf/buf.md) for request parsing accumulation (URL, headers, body) and [`xIOBuffer`](../xbuf/io.md) for read/write buffering with scatter-gather I/O.
+- **xbase** — Uses [`xEventLoop`](../base/event.md) for I/O multiplexing, [`xSocket`](../base/socket.md) for non-blocking socket management, and socket timeouts for idle connection detection.
+- **xbuf** — Uses [`xBuffer`](../buf/buf.md) for request parsing accumulation (URL, headers, body) and [`xIOBuffer`](../buf/io.md) for read/write buffering with scatter-gather I/O.
 - **llhttp** — External dependency. Provides incremental HTTP/1.1 request parsing via callbacks, isolated behind the `xHttpProto` vtable in `proto_h1.c`.
 - **nghttp2** — External dependency. Provides HTTP/2 frame processing, HPACK header compression, and stream management, isolated behind the `xHttpProto` vtable in `proto_h2.c`.
 - **OpenSSL / Mbed TLS** — External dependency (TLS backend, compile-time selection via `MOO_TLS_BACKEND`). Provides TLS handshake, encryption, certificate verification, and ALPN negotiation for `xHttpServerListenTls()`.

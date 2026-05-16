@@ -257,8 +257,8 @@ See [ice.md](ice.md) for the full ICE agent API reference.
 
 ## Relationship with Other Modules
 
-- **xbase** — Uses [`xEventLoop`](../xbase/event.md) for I/O multiplexing, [`xSocket`](../xbase/socket.md) for non-blocking UDP socket management, and timers for ICE connectivity checks and DTLS retransmission.
-- **xbuf** — Uses [`xBuffer`](../xbuf/buf.md) for SDP string assembly and [`xIOBuffer`](../xbuf/io.md) for DTLS read/write buffering between the ICE and SCTP layers.
+- **xbase** — Uses [`xEventLoop`](../base/event.md) for I/O multiplexing, [`xSocket`](../base/socket.md) for non-blocking UDP socket management, and timers for ICE connectivity checks and DTLS retransmission.
+- **xbuf** — Uses [`xBuffer`](../buf/buf.md) for SDP string assembly and [`xIOBuffer`](../buf/io.md) for DTLS read/write buffering between the ICE and SCTP layers.
 - **xnet** — Links against xnet for shared networking types.
 - **usrsctp** — External dependency. Provides user-space SCTP (RFC 4960) for reliable/unreliable message delivery over the DTLS tunnel.
 - **OpenSSL / mbedTLS** — External dependency (DTLS backend, compile-time selection). Provides DTLS 1.2 handshake, encryption, self-signed certificate generation, and SHA-256 fingerprint computation for SDP.

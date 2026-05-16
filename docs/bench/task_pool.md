@@ -6,7 +6,7 @@ Micro-benchmark comparison of `xTaskSubmit` / `xTaskWait` throughput **before** 
 2. **TLS Freelist** — Per-thread task struct freelist eliminates `malloc`/`free` in the common submit-then-wait-on-same-thread path.
 3. **xMpsc Done-Queue** — Replace mutex-protected done list with a lock-free MPSC queue so workers push completed tasks without contending on `qlock`.
 
-> **Historical note.** The "TLS Freelist" referenced below was the first iteration of the allocation optimisation. It has since been replaced by the shared multi-threaded slab allocator (`xSlabMt`, see [slab.md](../libx/xbase/slab.md)), which removes the per-thread warm-up cost and handles cross-thread frees without falling back to `malloc`. Updated numbers under the current implementation are in the [Post-Slab Update](#post-slab-update-2026-05) section at the end of this document.
+> **Historical note.** The "TLS Freelist" referenced below was the first iteration of the allocation optimisation. It has since been replaced by the shared multi-threaded slab allocator (`xSlabMt`, see [slab.md](../libx/base/slab.md)), which removes the per-thread warm-up cost and handles cross-thread frees without falling back to `malloc`. Updated numbers under the current implementation are in the [Post-Slab Update](#post-slab-update-2026-05) section at the end of this document.
 
 ## Test Environment
 
@@ -201,7 +201,7 @@ Comparison against libuv 1.52.1's `uv_queue_work` API. libuv uses a global threa
 
 ## Post-Slab Update (2026-05)
 
-The original measurements above were taken when task struct allocation went through a per-thread TLS freelist layered on top of `malloc`. That freelist has since been replaced by the new shared `xSlabMt` allocator (see [slab.md](../libx/xbase/slab.md)), which removes the "first use pays `malloc`" cost on every thread and makes cross-thread free paths allocator-aware.
+The original measurements above were taken when task struct allocation went through a per-thread TLS freelist layered on top of `malloc`. That freelist has since been replaced by the new shared `xSlabMt` allocator (see [slab.md](../libx/base/slab.md)), which removes the "first use pays `malloc`" cost on every thread and makes cross-thread free paths allocator-aware.
 
 ### Test Environment (Post-Slab)
 

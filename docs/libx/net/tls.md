@@ -152,7 +152,7 @@ xHttpClient client = xHttpClientCreate(loop, &conf);
 ## Relationship with Other Modules
 
 - **xnet** — `xTlsCtxCreate()` / `xTlsCtxDestroy()` / `xTlsCtxReload()` are declared in `tls.h` and implemented in the TLS backend files (`transport_openssl.c`, `transport_mbedtls.c`). The TCP listener uses `xTlsCtx` via `xTcpListenerConf.tls_ctx`, and the TCP connector uses it via `xTcpConnectConf.tls_ctx`.
-- **xhttp** — The HTTP server calls `xTlsCtxCreate()` internally when `xHttpServerListenTls()` is invoked, automatically setting ALPN to `{"h2", "http/1.1"}`. The HTTP client uses libcurl for TLS management and consumes `xTlsConf` directly. The WebSocket client supports both `xTlsConf` (auto-creates a context) and a pre-created `xTlsCtx` (shared across connections) via `xWsConnectConf.tls_ctx`. See the [TLS Deployment Guide](../xhttp/tls.md) for end-to-end examples.
+- **xhttp** — The HTTP server calls `xTlsCtxCreate()` internally when `xHttpServerListenTls()` is invoked, automatically setting ALPN to `{"h2", "http/1.1"}`. The HTTP client uses libcurl for TLS management and consumes `xTlsConf` directly. The WebSocket client supports both `xTlsConf` (auto-creates a context) and a pre-created `xTlsCtx` (shared across connections) via `xWsConnectConf.tls_ctx`. See the [TLS Deployment Guide](../http/tls.md) for end-to-end examples.
 
 ## Security Notes
 

@@ -142,7 +142,7 @@ Here's what a session looks like:
    (WebRTC + DataChannel file transfer) — supporting infra.
 ```
 
-### The agent (`libx/xagent`)
+### The agent (`libx/x/agent`)
 
 | Module | Role |
 | ------ | ---- |
@@ -155,28 +155,28 @@ Here's what a session looks like:
 | `tool.{h,c}` · `tool_shell.{h,c}` | Tool definition ABI + a built-in shell tool with confirmation hooks. |
 | `budget.{h,c}` | Prompt-size estimator, rolling trimmer, auto-calibrator. |
 
-See [`libx/xagent/agent.h`](libx/xagent/agent.h) for the entry point, and
+See [`libx/x/agent/agent.h`](libx/x/agent/agent.h) for the entry point, and
 [`docs/design/`](docs/design) for the design notes
 (context budget, layered memory, three-layer conversation model).
 
 ### The foundation libraries
 
-Everything in `libx/` below `xagent` is shared, reusable, and independently
+Everything in `libx/x/` outside `agent/` is shared, reusable, and independently
 testable — you can link any of them into your own C project without
 pulling in the agent.
 
 | Library | What you get |
 | ------- | ------------ |
-| **[xbase](https://le0.me/moo/libx/xbase)** | Event loop, timers, tasks, async sockets, lock-free structures |
-| **[xbuf](https://le0.me/moo/libx/xbuf)** | Linear, ring, and block-chain I/O buffers |
-| **[xnet](https://le0.me/moo/libx/xnet)** | URL parser, async DNS, TCP, shared TLS config |
-| **[xhttp](https://le0.me/moo/libx/xhttp)** | libcurl multi-socket client with SSE; HTTP/1.1 + HTTP/2 server; WebSocket |
-| **[xline](https://le0.me/moo/libx/xline)** | CJK-aware line editor with persistent history and reverse search |
-| **[xlog](https://le0.me/moo/libx/xlog)** | Async MPSC logger with rotation |
-| **[xjs](https://le0.me/moo/libx/xjs)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped API |
-| **[xcrypto](https://le0.me/moo/libx/xcrypto)** | SHA-1 / SHA-256 / MD5 / CRC-32 / HMAC |
-| **[xp2p](https://le0.me/moo/libx/xp2p)** | ICE · STUN/TURN · SDP · DTLS · SCTP · DataChannel |
-| **[xfer](https://le0.me/moo/libx/xfer)** | Zero-config P2P file transfer over WebRTC DataChannel |
+| **[xbase](https://le0.me/moo/libx/base)** | Event loop, timers, tasks, async sockets, lock-free structures |
+| **[xbuf](https://le0.me/moo/libx/buf)** | Linear, ring, and block-chain I/O buffers |
+| **[xnet](https://le0.me/moo/libx/net)** | URL parser, async DNS, TCP, shared TLS config |
+| **[xhttp](https://le0.me/moo/libx/http)** | libcurl multi-socket client with SSE; HTTP/1.1 + HTTP/2 server; WebSocket |
+| **[xline](https://github.com/mivinci/moo/tree/main/libx/x/line)** | CJK-aware line editor with persistent history and reverse search |
+| **[xlog](https://le0.me/moo/libx/log)** | Async MPSC logger with rotation |
+| **[xjs](https://le0.me/moo/libx/js)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped API |
+| **[xcrypto](https://le0.me/moo/libx/crypto)** | SHA-1 / SHA-256 / MD5 / CRC-32 / HMAC |
+| **[xp2p](https://le0.me/moo/libx/p2p)** | ICE · STUN/TURN · SDP · DTLS · SCTP · DataChannel |
+| **[xfer](https://le0.me/moo/libx/fer)** | Zero-config P2P file transfer over WebRTC DataChannel |
 
 ## Prerequisites
 

@@ -10,7 +10,7 @@
 
 2. **Three Modes for Different Needs** — Timer mode batches writes for throughput; Notify mode uses a pipe for low-latency delivery; Mixed mode combines both, using the timer for normal messages and the pipe for high-severity entries.
 
-3. **Event Loop Integration** — The logger is bound to an [`xEventLoop`](../xbase/event.md) and uses its timer and I/O facilities. This means no dedicated logging thread — the event loop thread handles both I/O and log flushing.
+3. **Event Loop Integration** — The logger is bound to an [`xEventLoop`](../base/event.md) and uses its timer and I/O facilities. This means no dedicated logging thread — the event loop thread handles both I/O and log flushing.
 
 4. **Thread-Local Context** — `xLoggerEnter()` sets the current thread's logger, enabling the `XLOG_*()` macros and bridging xbase's internal `xLog()` calls to the async pipeline.
 
@@ -99,7 +99,7 @@ int main(void) {
 
 ## Relationship with Other Modules
 
-- **xbase/event.h** — The logger is bound to an [`xEventLoop`](../xbase/event.md) for timer-driven and pipe-driven flush.
-- **xbase/mpsc.h** — Uses the lock-free [`MPSC queue`](../xbase/mpsc.md) to pass log entries from producer threads to the event loop thread.
-- **xbase/log.h** — `xLoggerEnter()` bridges xbase's internal [`xLog()`](../xbase/log.md) calls to the async logger via the thread-local callback mechanism.
-- **xbase/atomic.h** — Uses [`atomic operations`](../xbase/atomic.md) for the lock-free entry freelist.
+- **xbase/event.h** — The logger is bound to an [`xEventLoop`](../base/event.md) for timer-driven and pipe-driven flush.
+- **xbase/mpsc.h** — Uses the lock-free [`MPSC queue`](../base/mpsc.md) to pass log entries from producer threads to the event loop thread.
+- **xbase/log.h** — `xLoggerEnter()` bridges xbase's internal [`xLog()`](../base/log.md) calls to the async logger via the thread-local callback mechanism.
+- **xbase/atomic.h** — Uses [`atomic operations`](../base/atomic.md) for the lock-free entry freelist.

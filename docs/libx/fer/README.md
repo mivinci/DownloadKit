@@ -2,7 +2,7 @@
 
 ## Introduction
 
-**xfer** is moo's peer-to-peer file transfer module, providing a high-level API for sending and receiving files over WebRTC DataChannels. Built on top of [xp2p](../xp2p/README.md), it handles the full transfer pipeline — signaling server rendezvous, SDP/ICE exchange, file chunking, integrity verification (SHA-1), progress reporting, and resume support — all driven by the moo event loop.
+**xfer** is moo's peer-to-peer file transfer module, providing a high-level API for sending and receiving files over WebRTC DataChannels. Built on top of [xp2p](../p2p/README.md), it handles the full transfer pipeline — signaling server rendezvous, SDP/ICE exchange, file chunking, integrity verification (SHA-1), progress reporting, and resume support — all driven by the moo event loop.
 
 The module ships with a built-in signaling server (`xSignalServer`) and client (`xSignalClient`) that handle session creation, peer pairing, and SDP/ICE relay over WebSocket. Applications only need to provide a file path (sender) or a transfer code (receiver) to initiate a transfer. The transfer code (e.g. `AB12CD`) is a short, plain session ID assigned by the signaling server. Both sender and receiver must connect to the same signaling server.
 
@@ -436,11 +436,11 @@ Command-line options:
 
 ## Relationship with Other Modules
 
-- **[xp2p](../xp2p/README.md)** — Uses `xPeerConnection` for the full WebRTC DataChannel stack (ICE + DTLS + SCTP + DataChannel). xfer creates a PeerConnection internally and sends/receives file data over a DataChannel.
-- **[xhttp](../xhttp/README.md)** — The signaling server and client use xhttp's WebSocket server and client for SDP/ICE relay.
-- **[xbase](../xbase/README.md)** — Uses [`xEventLoop`](../xbase/event.md) for I/O multiplexing and the single-threaded callback model.
-- **[xcrypto](../xcrypto/README.md)** — Uses SHA-1 for file integrity verification.
-- **[xnet](../xnet/README.md)** — Uses URL parsing for signaling server addresses.
+- **[xp2p](../p2p/README.md)** — Uses `xPeerConnection` for the full WebRTC DataChannel stack (ICE + DTLS + SCTP + DataChannel). xfer creates a PeerConnection internally and sends/receives file data over a DataChannel.
+- **[xhttp](../http/README.md)** — The signaling server and client use xhttp's WebSocket server and client for SDP/ICE relay.
+- **[xbase](../base/README.md)** — Uses [`xEventLoop`](../base/event.md) for I/O multiplexing and the single-threaded callback model.
+- **[xcrypto](../crypto/README.md)** — Uses SHA-1 for file integrity verification.
+- **[xnet](../net/README.md)** — Uses URL parsing for signaling server addresses.
 
 ## Custom VFS Example
 

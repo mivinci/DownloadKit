@@ -12,7 +12,7 @@
 
 3. **Fatal with Backtrace** — When `fatal = true`, `xLog()` captures a stack trace via [`xBacktrace()`](backtrace.md) before calling `abort()`. This provides immediate diagnostic information for unrecoverable errors.
 
-4. **Bridge to xlog** — The callback mechanism is designed to integrate with the higher-level [`xlog`](../xlog/index.html) module. The xlog logger registers itself as the thread's log callback, so internal moo errors are automatically routed through the async logging pipeline.
+4. **Bridge to xlog** — The callback mechanism is designed to integrate with the higher-level [`xlog`](../log/index.html) module. The xlog logger registers itself as the thread's log callback, so internal moo errors are automatically routed through the async logging pipeline.
 
 ## Architecture
 
@@ -164,7 +164,7 @@ void dangerous_operation(void) {
 
 1. **moo Internal Error Reporting** — All moo modules use `xLog()` to report internal errors (e.g., allocation failures, invalid states). By registering a callback, applications can capture these messages in their logging pipeline.
 
-2. **xlog Integration** — The [`xlog`](../xlog/index.html) module registers its logger as the thread's callback via `xLogSetCallback()`, routing all internal moo messages through the async logging system.
+2. **xlog Integration** — The [`xlog`](../log/index.html) module registers its logger as the thread's callback via `xLogSetCallback()`, routing all internal moo messages through the async logging system.
 
 3. **Test Frameworks** — Test harnesses can register a callback that captures log messages for assertion, rather than letting them go to stderr.
 

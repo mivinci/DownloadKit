@@ -326,7 +326,7 @@ void handle_data(int sockfd) {
 
 ## Use Cases
 
-1. **HTTP Response Body** — The [`xhttp`](../xhttp/index.html) module uses `xIOBuffer` to accumulate response chunks from libcurl without copying between buffers.
+1. **HTTP Response Body** — The [`xhttp`](../http/index.html) module uses `xIOBuffer` to accumulate response chunks from libcurl without copying between buffers.
 
 2. **Protocol Framing** — Use `xIOBufferCut()` to split headers from body in a zero-copy fashion, then process each part independently.
 

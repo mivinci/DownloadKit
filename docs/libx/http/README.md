@@ -10,11 +10,11 @@
 
 ## Design Philosophy
 
-1. **Event Loop Integration** — Instead of blocking threads, xhttp registers libcurl's sockets with [`xEventLoop`](../xbase/event.md) and uses event-driven I/O. All callbacks are dispatched on the event loop thread, eliminating the need for synchronization.
+1. **Event Loop Integration** — Instead of blocking threads, xhttp registers libcurl's sockets with [`xEventLoop`](../base/event.md) and uses event-driven I/O. All callbacks are dispatched on the event loop thread, eliminating the need for synchronization.
 
 2. **Vtable-Based Request Polymorphism** — Internally, different request types (oneshot HTTP, SSE streaming) share the same curl multi handle but use different vtables for completion and cleanup. This avoids code duplication while supporting diverse response handling patterns.
 
-3. **Zero-Copy Response Delivery** — Response headers and body are accumulated in [`xBuffer`](../xbuf/buf.md) instances and delivered to the callback as pointers. No extra copies are made.
+3. **Zero-Copy Response Delivery** — Response headers and body are accumulated in [`xBuffer`](../buf/buf.md) instances and delivered to the callback as pointers. No extra copies are made.
 
 4. **Automatic Resource Management** — Request contexts, curl easy handles, and buffers are automatically cleaned up after the completion callback returns. In-flight requests are cancelled with error callbacks when the client is destroyed.
 
@@ -110,8 +110,8 @@ int main(void) {
 
 ## Relationship with Other Modules
 
-- **xbase** — Uses [`xEventLoop`](../xbase/event.md) for I/O multiplexing and [`xEventLoopTimerAfter`](../xbase/timer.md) for curl timeout management.
-- **xbuf** — Uses [`xBuffer`](../xbuf/buf.md) for response header and body accumulation.
+- **xbase** — Uses [`xEventLoop`](../base/event.md) for I/O multiplexing and [`xEventLoopTimerAfter`](../base/timer.md) for curl timeout management.
+- **xbuf** — Uses [`xBuffer`](../buf/buf.md) for response header and body accumulation.
 - **libcurl** — External dependency (client). Uses the multi-socket API (`curl_multi_socket_action`) for non-blocking HTTP.
 - **llhttp** — External dependency (server). Provides incremental HTTP/1.1 request parsing, isolated behind the `xHttpProto` vtable in `proto_h1.c`.
 - **nghttp2** — External dependency (server). Provides HTTP/2 frame processing and HPACK header compression, isolated behind the `xHttpProto` vtable in `proto_h2.c`.

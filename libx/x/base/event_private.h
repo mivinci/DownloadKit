@@ -14,13 +14,12 @@
 #include <x/base/heap.h>
 #include <x/base/mpsc.h>
 #include <x/base/task.h>
+#include <x/base/thread.h>
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-#include "thread_private.h"
 
 #ifndef _WIN32
 #include <fcntl.h>

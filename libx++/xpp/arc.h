@@ -62,6 +62,83 @@
  *   strong = number of Arc<T>     pointing at this inner
  *   weak   = number of ArcWeak<T> + 1 for the set of all live Arcs
  *
+ * ── Worked example: thread-safe observer registry ───────────────────
+ *
+ * ArcWeak<T> shines in publish/subscribe across threads: the
+ * Publisher hands out callbacks that observe a Subscriber, but
+ * holding the callback must NOT keep the Subscriber alive — once the
+ * Subscriber's owner drops it, the callback should silently no-op.
+ * Strong refs in both directions would deadlock the lifetime; Arc +
+ * ArcWeak breaks the cycle the same way Rc/Weak does, but safely
+ * across threads.
+ *
+ *   //  BAD — strong cycle, never freed (and across threads no less)
+ *   struct Subscriber { … };
+ *   struct Publisher {
+ *     std::vector<Arc<Subscriber>>  subs;          // strong → subs
+ *   };
+ *   // Each Subscriber happens to also hold an Arc<Publisher> for
+ *   // posting back; now publisher and subscriber pin each other
+ *   // alive forever, and the leak survives every thread exiting.
+ *
+ *   //  GOOD — publisher holds ArcWeak, callbacks check at fire time
+ *   struct Subscriber {
+ *     void onEvent(const Event &e);
+ *   };
+ *
+ *   class Publisher {
+ *   public:
+ *     void subscribe(const Arc<Subscriber> &s) {
+ *       std::lock_guard<std::mutex> lk(m_lock);
+ *       m_subs.push_back(Arc<Subscriber>::downgrade(s));
+ *     }
+ *
+ *     void publish(const Event &e) {
+ *       std::lock_guard<std::mutex> lk(m_lock);
+ *       // Walk the weak list; upgrade returns None for any
+ *       // Subscriber whose last Arc has already dropped. Drop those
+ *       // entries lazily during this same walk.
+ *       auto write = m_subs.begin();
+ *       for (auto read = m_subs.begin(); read != m_subs.end(); ++read) {
+ *         Option<Arc<Subscriber>> live = read->upgrade();
+ *         if (live.isSome()) {
+ *           Arc<Subscriber> s = std::move(live).unwrap();
+ *           s->onEvent(e);                          // safe; we hold a strong
+ *           *write++ = std::move(*read);
+ *         }
+ *         // else: subscriber already dropped, skip and don't copy.
+ *       }
+ *       m_subs.erase(write, m_subs.end());
+ *     }
+ *
+ *   private:
+ *     std::mutex                          m_lock;
+ *     std::vector<ArcWeak<Subscriber>>    m_subs;
+ *   };
+ *
+ *   // Producer thread:
+ *   auto sub = makeArc<Subscriber>();
+ *   pub.subscribe(sub);
+ *
+ *   // Some other thread drops `sub` whenever it wants. Inside the
+ *   // publisher, upgrade() races atomically with that drop:
+ *   //   - If publish() arrives first, it bumps strong via the CAS,
+ *   //     gets a valid Arc, and fires onEvent. The Subscriber stays
+ *   //     alive for the duration of the call.
+ *   //   - If the last Arc drops first, upgrade() returns None and
+ *   //     publish() skips the entry. No use-after-free either way.
+ *
+ * Rule of thumb (cross-thread variant of the Rc rule): the side
+ * that **outlives** the subscription keeps Arc; the side that
+ * **observes** keeps ArcWeak and upgrades on demand. Publisher
+ * does NOT own its subscribers; subscribers own themselves (or are
+ * owned by their domain).
+ *
+ * For single-thread cycle-breaking use Rc<T> + Weak<T> (xpp/rc.h,
+ * xpp/weak.h).
+ *
+ * ───────────────────────────────────────────────────────────────────
+ *
  * C++11-compatible. Header-only.
  */
 
@@ -73,7 +150,6 @@
 
 #include <atomic>
 #include <cstddef>
-#include <new>
 #include <type_traits>
 #include <utility>
 

@@ -18,13 +18,61 @@
  * keeps the T alive — only Rc does. The inner's memory stays around
  * until the last Weak goes too, so upgrade() can still safely peek.
  *
- * Use Weak<T> to break reference cycles:
+ * ── Worked example: parent ⇄ child tree ─────────────────────────────
  *
+ * The canonical use of Weak<T> is breaking the cycle that appears
+ * any time a tree node wants to walk back up to its parent. A
+ * naive design ends up with strong both ways and leaks the tree on
+ * drop:
+ *
+ *   //  BAD — strong cycle, never freed
  *   struct Node {
- *     Option<Rc<Node>> next;          // strong forward edge
- *     Weak<Node>       prev;          // weak back-edge — does not
- *                                     // keep the previous node alive
+ *     Option<Rc<Node>>              parent;   // strong upward
+ *     std::vector<Rc<Node>>         children; // strong downward
  *   };
+ *
+ *   Rc<Node> root  = makeRc<Node>();
+ *   Rc<Node> child = makeRc<Node>();
+ *   root->children.push_back(child);      // root → child  (root.strong = 1, child.strong = 2)
+ *   child->parent  = Option<Rc<Node>>(root); // child → root (root.strong = 2)
+ *
+ *   // When `root` and `child` go out of scope each still has +1 from the
+ *   // other; their strong counts never reach 0 and both nodes leak.
+ *
+ * Flip the back-edge to Weak and the cycle dissolves cleanly:
+ *
+ *   //  GOOD — Rc<Child>, Weak<Parent>
+ *   struct Node {
+ *     Weak<Node>                    parent;   // weak upward
+ *     std::vector<Rc<Node>>         children; // strong downward
+ *   };
+ *
+ *   Rc<Node> root  = makeRc<Node>();
+ *   Rc<Node> child = makeRc<Node>();
+ *   child->parent = Rc<Node>::downgrade(root);   // Weak does not bump strong
+ *   root->children.push_back(std::move(child));
+ *
+ *   // root.strongCount() == 1, root.weakCount() == 1
+ *   // child.strongCount() == 1 (held by root->children alone)
+ *
+ *   // To walk back up:
+ *   if (Option<Rc<Node>> p = some_child->parent.upgrade()) {
+ *     p.unwrap()->doSomething();           // got a strong handle, parent alive
+ *   } else {
+ *     // parent already dropped; do nothing.
+ *   }
+ *
+ *   // On `root` dropping, the strong count goes to 0, all children
+ *   // are destroyed (releasing their Weak<Node> parent), and finally
+ *   // the inner block is freed. No leak.
+ *
+ * Rule of thumb: in any **owner ↔ observer** pair, owner holds Rc,
+ * observer holds Weak. parent ⇄ child, list-with-back-pointer, model
+ * ⇄ view, callback registries — same pattern.
+ *
+ * For cross-thread cycle-breaking use ArcWeak<T> (see xpp/arc.h).
+ *
+ * ────────────────────────────────────────────────────────────────────
  *
  * Reading semantics:
  *   - default ctor / Weak{} → null

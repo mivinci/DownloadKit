@@ -25,8 +25,10 @@ xpp/
   nonnull.h      # NonNull<T>            — pointer that can't be null
   nonnull_own.h  # NonNullOwn<T, D>      — owning, move-only, never null
   own.h          # Own<T, D>             — nullable owning pointer
-  rc.h           # Rc<T>                 — shared owning (Rust-style Rc)
+  rc.h           # Rc<T>                 — single-thread shared owning
                  # Option<Rc<T>>         — niche-optimised to sizeof(T*)
+  weak.h         # Weak<T>               — non-owning observer of an Rc
+  arc.h          # Arc<T> / ArcWeak<T>   — atomic, thread-safe counterparts
   panic.h        # XPP_PANIC / XPP_ASSERT — bug-trap, not error path
   handle.h       # CRTP base for opaque-handle RAII wrappers
   base/          # RAII wrappers around libx/x/base (event/timer/task)
@@ -42,14 +44,30 @@ xpp/
   `Rc<T>::clone(&r)` to make "+1 on the count" loud at the call
   site; the implicit copy ctor remains available for the common
   case. There is no implicit deep-copy of T.
+- **Single-thread vs cross-thread, explicit.** `Rc<T>` is
+  single-thread; sharing one across threads is UB. `Arc<T>` (in
+  `xpp/arc.h`) is the thread-safe counterpart with the same shape
+  and atomic strong/weak counts under the hood — same trade-off
+  Rust draws between `std::rc::Rc` and `std::sync::Arc`. Pick the
+  cheap one when you can, pay for atomic only when you must.
+- **Weak references break cycles.** Build trees / DAGs with `Rc<T>`
+  on forward edges and `Weak<T>` on back-edges — exactly Rust's
+  `Rc<T>` / `Weak<T>` idiom. `Weak::upgrade()` returns
+  `Option<Rc<T>>`: `Some` if at least one strong is still around,
+  `None` otherwise. `Arc<T>` has its matching `ArcWeak<T>` with a
+  CAS-loop upgrade for cross-thread soundness.
 - **Type-level non-null.** `NonNull<T>` and `NonNullOwn<T>` make
   "this pointer is not null" a compile-time fact. The same idea
-  applies to `Rc<T>`: an `Rc<T>` always points at a live T (its
-  count is ≥ 1), and nullability is opted into by wrapping it in
-  `Option<Rc<T>>`. `Option<NonNull<T>>`, `Option<NonNullOwn<T>>`,
-  and `Option<Rc<T>>` are all **niche-optimised** to `sizeof(T*)` —
-  matching Rust's `Option<&T>`, `Option<Box<T>>`, and `Option<Rc<T>>`
-  respectively. Verified by `static_assert` in the headers.
+  applies to `Rc<T>` / `Arc<T>`: each always points at a live T
+  (strong ≥ 1), and nullability is opted into by wrapping it in
+  `Option<Rc<T>>` / `Option<Arc<T>>`. `Option<NonNull<T>>`,
+  `Option<NonNullOwn<T>>`, `Option<Rc<T>>`, and `Option<Arc<T>>`
+  are all **niche-optimised** to `sizeof(T*)` — matching Rust's
+  `Option<&T>`, `Option<Box<T>>`, `Option<Rc<T>>`, and
+  `Option<Arc<T>>` respectively. `Weak<T>` and `ArcWeak<T>` are
+  already nullable by definition (default-constructed = null), so
+  no Option wrapping is needed — same as Rust. Verified by
+  `static_assert` in each header.
 - **Errors are values.** `Result<T, E>` is the recoverable-error
   channel — no exceptions, no `errno`. Combinators read like Rust:
   `map`, `mapErr`, `andThen`, `orElse`, `inspect`, `transpose`,
@@ -62,9 +80,10 @@ xpp/
 - **Zero overhead.** No virtual dispatch, no extra allocation on the
   hot path. EBO on stateless deleters; `sizeof(Own<T>) == sizeof(T*)`
   and `sizeof(NonNullOwn<T>) == sizeof(T*)` for the default deleter.
-  `sizeof(Rc<T>) == sizeof(T*)` too — single heap allocation per
-  `makeRc`, control block (just a strong count) co-located with T,
-  no separate control block like `std::shared_ptr`.
+  `sizeof(Rc<T>) == sizeof(Arc<T>) == sizeof(Weak<T>) ==
+  sizeof(ArcWeak<T>) == sizeof(T*)` too — single heap allocation per
+  `makeRc`/`makeArc`, control block (strong + weak counts) co-located
+  with T, no separate control block like `std::shared_ptr`.
 
 ## What doesn't translate
 
@@ -76,16 +95,10 @@ expect them:
   this". Aliasing, lifetimes, and use-after-free remain your problem.
 - **Moved-from objects still exist.** Move construction leaves a
   defined-but-unspecified state behind, just like `std::unique_ptr`.
-  `NonNullOwn`'s and `Rc`'s "moved-from" state holds a null
+  `NonNullOwn`'s, `Rc`'s, and `Arc`'s "moved-from" state holds a null
   internally — visible to the destructor only; using `get() /
   operator* / operator->` on a moved-from value is UB. Same contract
   as the standard library.
-- **No `Weak<T>` yet.** `Rc<T>` is strong-only. A reference cycle
-  built out of `Rc`s leaks — there's no garbage collector and no
-  weak escape hatch. For tree / DAG ownership this is fine; for
-  graphs with back-edges, store back-edges as raw pointers (the
-  forward `Rc` chain keeps everything alive) or wait for `Weak<T>`
-  to land.
 - **No native pattern matching.** `Variant<Ts...>` exists, but you
   visit it with functor structs or hand-written `if (v.is<T>())`
   chains. C++11 has no `match` and no generic lambdas (the latter

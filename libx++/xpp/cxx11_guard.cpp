@@ -16,6 +16,7 @@
  * runtime check — the compiler IS the check.
  */
 
+#include <xpp/arc.h>
 #include <xpp/compiler.h>
 #include <xpp/error.h>
 #include <xpp/handle.h>
@@ -28,6 +29,7 @@
 #include <xpp/rc.h>
 #include <xpp/result.h>
 #include <xpp/variant.h>
+#include <xpp/weak.h>
 
 #include <xpp/base/event.h>
 #include <xpp/base/task.h>
@@ -62,14 +64,29 @@ void instantiate_templates() {
   (void) e.code();
   (void) rv;
 
-  // Rc + Option<Rc>: exercises makeRc, copy ctor (+1), and the
-  // niche-optimised Option<Rc<T>> partial specialisation. Drops both
-  // back to None at scope exit so the runtime path also runs.
+  // Rc + Option<Rc> + Weak: exercises makeRc, copy ctor (+1), the
+  // niche-optimised Option<Rc<T>> specialisation, and the Weak ↔ Rc
+  // bridging via downgrade()/upgrade(). Drops back to None at scope
+  // exit so the runtime path also runs.
   xpp::Rc<int>              r1 = xpp::makeRc<int>(7);
   xpp::Rc<int>              r2 = r1.clone();
   xpp::Option<xpp::Rc<int>> opt(r1);
+  xpp::Weak<int>            w  = xpp::Rc<int>::downgrade(r1);
+  xpp::Option<xpp::Rc<int>> up = w.upgrade();
   (void) r2;
   (void) opt;
+  (void) up;
+
+  // Arc + Option<Arc> + ArcWeak: the atomic counterpart. Same
+  // operations, std::atomic counters under the hood.
+  xpp::Arc<int>              a1 = xpp::makeArc<int>(9);
+  xpp::Arc<int>              a2 = a1.clone();
+  xpp::Option<xpp::Arc<int>> aopt(a1);
+  xpp::ArcWeak<int>          aw  = xpp::Arc<int>::downgrade(a1);
+  xpp::Option<xpp::Arc<int>> aup = aw.upgrade();
+  (void) a2;
+  (void) aopt;
+  (void) aup;
 }
 
 } // namespace

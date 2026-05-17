@@ -144,6 +144,9 @@ libx++/xpp/
   own.h                 # Own<T> aka unique_ptr-with-niches
   rc.h                  # Rc<T> shared owning (Rust-style Rc, co-located)
                         # Option<Rc<T>> niche-optimized to sizeof(T*)
+  weak.h                # Weak<T> non-owning observer of an Rc<T>
+  arc.h                 # Arc<T> + ArcWeak<T> (thread-safe Rc/Weak)
+                        # Option<Arc<T>> niche-optimized to sizeof(T*)
   cxx11_guard.cpp       # strict-mode compile guard (off by default)
   base/                 # wrappers over libx/x/base
     event.h / event.cpp

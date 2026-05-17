@@ -13,8 +13,8 @@
  * Design analogue: Rust's std::rc::Rc<T> + Option<Rc<T>>. Like Rust's
  * Rc, libx++'s Rc is **co-located but NOT intrusive**: T does not
  * need to inherit from anything. makeRc<T>(args...) is the only
- * construction entry — the inner block carries the strong count and
- * stores T inline, so the whole thing is a single heap allocation.
+ * construction entry — the inner block carries the strong and weak
+ * counts next to T, so the whole thing is a single heap allocation.
  *
  * The name "Rc" is deliberate. C++ already has "Ref" overloaded
  * across libraries (WebKit's WTF::Ref is intrusive; Qt's QRef is yet
@@ -25,20 +25,33 @@
  *   - Ownership is shared (the same T is reachable from several places).
  *   - You want sizeof == sizeof(T*) per handle, not the 2-word
  *     std::shared_ptr layout.
- *   - You don't need weak references or cycle breaking. (libx++'s Rc
- *     deliberately omits Weak<T> in this version — keep your graphs
- *     acyclic, or move to xpp::Own<T> + raw borrowing.)
+ *   - Single-thread. Cross-thread sharing is undefined behaviour;
+ *     use Arc<T> (see xpp/arc.h) for that.
  *
  * Choose Own<T> instead when ownership is unique.
  * Choose NonNull<T> / Option<NonNull<T>> for non-owning references.
  *
+ * Cycle breaking:
+ *   Reference cycles built out of Rcs alone will leak. Break them
+ *   with Weak<T> on the back-edge (see xpp/weak.h). Rust does the
+ *   same trick.
+ *
+ * Reference-count layout (matches Rust):
+ *
+ *   strong = number of Rc<T>      pointing at this inner
+ *   weak   = number of Weak<T>    pointing at this inner, **plus one**
+ *            for the set of all live Rc<T>s. That extra +1 means we
+ *            never need to special-case "any strong alive?" — when
+ *            the last Rc drops it decrements weak normally, and the
+ *            inner is deallocated iff weak hits zero. T's destructor
+ *            runs at the strong→0 transition; the inner's memory is
+ *            freed at the weak→0 transition. Those two events can be
+ *            the same call when no Weak ever existed.
+ *
  * Thread safety:
- *   This version's strong count is NOT atomic. Sharing a single Rc<T>
- *   across threads (or having Rc<T>s on multiple threads that point
- *   at the same T) is undefined behaviour. A future Arc<T> would add
- *   the atomic variant in xpp/arc.h with its own ArcInner<T> using
- *   std::atomic<size_t>; today, keep Rc<T> within a single thread or
- *   wrap moves through an explicit handoff.
+ *   Rc<T> is **single-thread**. Both counts are plain size_t and
+ *   sharing a single Rc<T> (or its Weak<T>) across threads is UB.
+ *   For thread-safe shared ownership use Arc<T> in xpp/arc.h.
  *
  * C++11-compatible. Header-only. Trivially nothing — Rc carries
  * non-trivial copy/destroy semantics that ref-count the inner.
@@ -57,29 +70,65 @@
 namespace xpp {
 
 template <class T> class Rc;
+template <class T> class Weak;
 
 namespace _ {
 
 /**
  * @brief Heap-allocated control block + value, the storage Rc<T>
- *        points at. Single allocation; the strong count lives next to
- *        the value so cache lines are shared.
+ *        and Weak<T> share.
  *
- * Layout matters: `value` follows the count. The compiler folds
- * `&inner->value` into a constant-offset addressing mode, so deref()
- * is as cheap as for a raw T*.
+ * Layout: { strong, weak, value }. The value is co-located so deref()
+ * folds to a constant-offset load on the Rc side, and so the count
+ * cache lines are warm whenever the value is.
  *
- * `strong` is a plain `size_t` — Rc<T> is single-thread for now. If
- * Arc<T> arrives later it lives in its own header with its own
- * ArcInner<T> using std::atomic<size_t>, so this struct stays small.
+ * Lifecycle:
+ *   - makeRc<T>(...) allocates the inner with strong=1, weak=1.
+ *   - Each new Rc<T> bumps strong; each new Weak<T> bumps weak.
+ *   - The last Rc to drop destroys T in place (~value), then
+ *     decrements weak as if it were a Weak (the "all-strongs-count-
+ *     as-one-weak" trick).
+ *   - The last Weak to drop deallocates the inner block.
+ *
+ * `strong` and `weak` are plain size_t — Rc is single-thread. Arc
+ * has its own ArcInner with std::atomic<size_t> in xpp/arc.h.
  */
 template <class T> struct RcInner {
   size_t strong;
+  size_t weak;
   T      value;
 
   template <class... Args>
-  explicit RcInner(Args &&...args) : strong(1), value(std::forward<Args>(args)...) {}
+  explicit RcInner(Args &&...args)
+      : strong(1), weak(1), value(std::forward<Args>(args)...) {}
 };
+
+/**
+ * @brief Drop the +1 on the "all strongs" weak side and possibly
+ *        deallocate the inner block.
+ *
+ * Called twice in the lifecycle: once when a Weak drops, once when
+ * the last Rc drops (after destroying T). Factored out so both call
+ * sites use exactly the same end-of-life decision.
+ */
+template <class T> inline void rcDecWeakAndMaybeDealloc(RcInner<T> *inner) noexcept {
+  XPP_DEBUG_ASSERT(inner != nullptr, "internal: rcDecWeak called with null inner");
+  if (--inner->weak == 0) ::operator delete(inner);
+}
+
+/**
+ * @brief Drop a strong reference. Destroy T in place when the last
+ *        strong leaves, then decrement weak (the +1 for "any strong
+ *        alive"). The inner block itself dies at weak->0, possibly
+ *        in a different call if a Weak is still observing.
+ */
+template <class T> inline void rcDecStrong(RcInner<T> *inner) noexcept {
+  XPP_DEBUG_ASSERT(inner != nullptr, "internal: rcDecStrong called with null inner");
+  if (--inner->strong == 0) {
+    inner->value.~T();
+    rcDecWeakAndMaybeDealloc(inner);
+  }
+}
 
 } // namespace _
 
@@ -101,11 +150,11 @@ public:
   using value_type = T;
 
   /**
-   * @brief Copy constructor: +1 on the shared count.
+   * @brief Copy constructor: +1 on the shared strong count.
    *
    * Implicit on purpose. For hot-path code where "this is a new
    * owner" should be visually obvious, call `.clone()` or the
-   * Rust-style `Rc::clone(&r)` static helper instead — both do
+   * Rust-style `Rc<T>::clone(&r)` static helper instead — both do
    * the same thing as copy construction but read as deliberate.
    */
   Rc(const Rc &o) noexcept : m_inner(o.m_inner) {
@@ -123,9 +172,6 @@ public:
 
   /**
    * @brief Covariant copy: Rc<Derived> → Rc<Base>.
-   *
-   * Static-checks U is convertible to T; the inner block's layout is
-   * unchanged, only the pointer type narrows.
    */
   template <class U, typename = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
   Rc(const Rc<U> &o) noexcept : m_inner(reinterpret_cast<_::RcInner<T> *>(o.innerRaw())) {
@@ -158,12 +204,12 @@ public:
   }
 
   ~Rc() noexcept {
-    if (m_inner) decRefAndMaybeDestroy();
+    if (m_inner) _::rcDecStrong(m_inner);
   }
 
   /**
-   * @brief Explicit +1, member-style. See also free function
-   *        Rc::clone(const Rc<T>&) for the Rust calling convention.
+   * @brief Explicit +1, member-style. See also the static
+   *        Rc<T>::clone(&r) for the Rust calling convention.
    */
   Rc clone() const noexcept {
     return Rc(*this);
@@ -181,6 +227,18 @@ public:
     return m_inner->strong;
   }
 
+  /**
+   * @brief Weak reference count (debugging only).
+   *
+   * Counts the live Weak<T>s observing this inner. The "all strongs
+   * count as one weak" +1 is NOT included — when only Rcs exist this
+   * reads 0, matching Rust's `Rc::weak_count`.
+   */
+  size_t weakCount() const noexcept {
+    XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
+    return m_inner->weak - 1;
+  }
+
   T &operator*() const noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     return m_inner->value;
@@ -190,12 +248,6 @@ public:
     return &m_inner->value;
   }
 
-  /**
-   * @brief Borrow the contained T as a raw pointer.
-   *
-   * The pointer is valid as long as some Rc to this object exists;
-   * do NOT store it past the lifetime of the Rcs.
-   */
   T *get() const noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     return &m_inner->value;
@@ -207,8 +259,6 @@ public:
     o.m_inner          = tmp;
   }
 
-  /* Pointer-identity equality. Two Rcs compare equal iff they point
-   * at the same inner allocation. */
   bool operator==(const Rc &o) const noexcept {
     return m_inner == o.m_inner;
   }
@@ -221,12 +271,20 @@ public:
    *
    * Static method that takes a `const Rc<T>&` and returns a new
    * Rc<T>. Same semantics as the member `.clone()` and copy
-   * construction — provided for users who prefer the Rust calling
-   * convention `Rc::clone(&r)` over `r.clone()`.
+   * construction.
    */
   static Rc clone(const Rc &r) noexcept {
     return r.clone();
   }
+
+  /**
+   * @brief Drop a strong reference, return a non-owning Weak.
+   *
+   * Same as `Weak<T>(r)`. Rust spells this `Rc::downgrade(&r)`. The
+   * caller still owns the original strong reference; the new Weak
+   * adds +1 to the weak count.
+   */
+  static Weak<T> downgrade(const Rc &r) noexcept;
 
   /* ── internals exposed only to friends / templates ───────────────── */
 
@@ -239,24 +297,17 @@ public:
   }
 
 private:
-  // Constructed only by makeRc and the friend Option specialization.
+  // Constructed only by makeRc, the friend Option specialization,
+  // and Weak<T>::upgrade. m_inner is always non-null at this point.
   explicit Rc(_::RcInner<T> *inner) noexcept : m_inner(inner) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
-  }
-
-  void decRefAndMaybeDestroy() noexcept {
-    if (--m_inner->strong == 0) {
-      // Destroy in place, then deallocate the inner block.
-      m_inner->~RcInner();
-      ::operator delete(m_inner);
-    }
-    m_inner = nullptr;
   }
 
   _::RcInner<T> *m_inner;
 
   template <class U, class... Args> friend Rc<U> makeRc(Args &&...args);
   template <class U> friend class Rc;
+  template <class U> friend class Weak;
   friend class Option<Rc<T>>;
 };
 
@@ -264,7 +315,8 @@ private:
  * @brief Construct an Rc<T> in place.
  *
  * Single heap allocation: the inner block holds the strong count
- * (initialised to 1) and constructs T from @p args.
+ * (=1), the weak count (=1, the implicit "all strongs are one weak"
+ * marker), and a freshly-constructed T.
  *
  * libx++ does not use exceptions for control flow (see README), so
  * makeRc expects T's constructor not to throw. If T can fail to
@@ -272,8 +324,7 @@ private:
  * Result<T, Error> and call makeRc on the unwrapped success path.
  *
  * The only public construction entry point. Rc has no constructor
- * from a raw T* — if you have a T and want it ref-counted, pass it
- * (or its ctor args) to makeRc.
+ * from a raw T*.
  */
 template <class T, class... Args> Rc<T> makeRc(Args &&...args) {
   void          *mem   = ::operator new(sizeof(_::RcInner<T>));
@@ -291,19 +342,12 @@ template <class T> void swap(Rc<T> &a, Rc<T> &b) noexcept {
  *
  *   sizeof(Option<Rc<T>>) == sizeof(T*)
  *
- * Owns a +1 on the inner block whenever it is Some, releases it on
- * destruction or when overwritten with None. Unlike the generic
- * Option<T>, this specialisation does not store a bool tag — the
- * pointer's null-ness IS the tag.
- *
- * Copies behave like Rc copies: each new Some increments the count.
- * Moves do not touch the count.
+ * Owns a +1 on the strong count whenever it is Some, releases it on
+ * destruction or when overwritten with None.
  */
 template <class T> class Option<Rc<T>> {
 public:
   using value_type = Rc<T>;
-
-  /* ── ctors / dtor / assignment ───────────────────────────────────── */
 
   constexpr Option() noexcept : m_inner(nullptr) {}
   constexpr Option(None) noexcept : m_inner(nullptr) {}
@@ -339,16 +383,14 @@ public:
     return *this;
   }
   Option &operator=(None) noexcept {
-    Option tmp; // empty
+    Option tmp;
     swap(tmp);
     return *this;
   }
 
   ~Option() noexcept {
-    decRefIfSome();
+    if (m_inner) _::rcDecStrong(m_inner);
   }
-
-  /* ── predicates ──────────────────────────────────────────────────── */
 
   bool isSome() const noexcept {
     return m_inner != nullptr;
@@ -359,8 +401,6 @@ public:
   explicit operator bool() const noexcept {
     return m_inner != nullptr;
   }
-
-  /* ── unwrap (returns Rc<T> by value; the Option becomes None) ─────── */
 
   Rc<T> unwrap() && {
     XPP_ASSERT(m_inner != nullptr, "unwrap() on None Option");
@@ -376,12 +416,6 @@ public:
     return Rc<T>(taken);
   }
 
-  /**
-   * @brief Take the Rc out, leaving None behind.
-   *
-   * Identical to `std::move(opt).unwrap()` but reads naturally when
-   * the Option is an lvalue (e.g. an element in a container).
-   */
   Rc<T> take() {
     return std::move(*this).unwrap();
   }
@@ -393,17 +427,9 @@ public:
   }
 
 private:
-  void decRefIfSome() noexcept {
-    if (m_inner) {
-      if (--m_inner->strong == 0) {
-        m_inner->~RcInner();
-        ::operator delete(m_inner);
-      }
-      m_inner = nullptr;
-    }
-  }
-
   _::RcInner<T> *m_inner;
+
+  friend class Weak<T>; // for Weak::upgrade() to construct directly
 };
 
 template <class T> void swap(Option<Rc<T>> &a, Option<Rc<T>> &b) noexcept {
@@ -413,7 +439,8 @@ template <class T> void swap(Option<Rc<T>> &a, Option<Rc<T>> &b) noexcept {
 /* ── invariants pinned at compile time ────────────────────────────── */
 
 static_assert(sizeof(Rc<int>) == sizeof(int *), "Rc<T> must be sizeof(T*)");
-static_assert(sizeof(Option<Rc<int>>) == sizeof(int *), "Option<Rc<T>> niche optimisation broken");
+static_assert(sizeof(Option<Rc<int>>) == sizeof(int *),
+              "Option<Rc<T>> niche optimisation broken");
 
 } // namespace xpp
 

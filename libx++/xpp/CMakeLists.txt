@@ -13,19 +13,21 @@ option(XPP_BUILD_TESTS "Build libx++ tests" ${X_BUILD_TESTS})
 # default build doesn't pay the small extra compile; CI flips it on.
 option(XPP_CXX11_GUARD "Build the libx++ C++11 strict-mode compile guard" OFF)
 
+file(GLOB_RECURSE XPP_SOURCES "*.cpp")
 file(GLOB_RECURSE XPP_TEST_SOURCES "*_test.cpp")
+list(REMOVE_ITEM XPP_SOURCES ${XPP_TEST_SOURCES})
+list(REMOVE_ITEM XPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cxx11_guard.cpp")
 
-# libx++ is header-only — the public surface (Option / Result /
-# Variant / NonNull / Own / Rc / Weak / Arc / ArcWeak / Error /
-# panic) compiles into the consumer's TU.  panic.h still routes
-# fatal messages through libx's xLog, so the INTERFACE library
-# transitively links xbase; everything else is template instantiation
-# in the caller.
-add_library(x++ INTERFACE)
+# The public surface (Option / Result / Variant / NonNull / Own / Rc
+# / Weak / Arc / ArcWeak / Error) is header-only and instantiates in
+# the consumer's TU.  Only panic.cpp lands here — it routes fatal
+# messages through libx's xLog, and lives out-of-line so consumers'
+# headers don't transitively pick up <x/base/log.h>.
+add_library(x++ ${XPP_SOURCES})
 add_library(xpp ALIAS x++)  # convenience alias for downstream consumers
-target_compile_features(x++ INTERFACE cxx_std_11)
-target_link_libraries(x++ INTERFACE xbase)
-target_include_directories(x++ INTERFACE
+target_compile_features(x++ PUBLIC cxx_std_11)
+target_link_libraries(x++ PUBLIC xbase)
+target_include_directories(x++ PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_SOURCE_DIR}/libx
   ${CMAKE_SOURCE_DIR}/libx++

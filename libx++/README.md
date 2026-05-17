@@ -173,14 +173,17 @@ cmake -S . -B build
 cmake --build build --target x++_test    # GoogleTest unit tests
 ```
 
-The library target itself (`x++`) is INTERFACE-only — there is no
-.cpp to build today, only headers. The interface library carries the
-include path, the `cxx_std_11` feature requirement, and (because
-`panic.h` routes fatal messages through `xLog`) a transitive link to
-`xbase`. Anyone depending on `x++` gets all three.
+The library target itself (`x++`) is a tiny static archive built
+from a single TU (`panic.cpp`), which implements the panic-message
+routing. Every other primitive is header-only and instantiates in
+the consumer's TU. `x++` also carries the include path, the
+`cxx_std_11` feature requirement, and a transitive link to `xbase`
+(because `panic.cpp` dispatches through `xLog`). Anyone depending
+on `x++` gets all three.
 
 Standalone consumption — libx++ currently depends on libx through
-the panic-to-xLog path, so a downstream CMake project pulls in both:
+the panic-to-xLog implementation, so a downstream CMake project
+pulls in both:
 
 ```cmake
 add_subdirectory(third_party/moo/libx)     # provides xbase, etc.

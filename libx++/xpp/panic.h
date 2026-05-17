@@ -3,16 +3,17 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * panic.h - Fatal-error mechanism for libxpp.
+ * panic.h - Fatal-error mechanism for libx++.
  *
  * Provides XPP_PANIC / XPP_ASSERT / XPP_DEBUG_ASSERT macros for reporting
  * unrecoverable contract violations (e.g. unwrap() on a None Option).
  *
- * Panics dispatch through xbase/log's fatal channel (xLog with fatal=true),
- * which routes to the per-thread callback if installed and otherwise
- * prints to stderr, then collects a backtrace and calls abort(). A
- * per-thread recursion guard in xLog ensures a panic inside a panic
- * handler aborts cleanly without unbounded recursion.
+ * Panics print the message and terminate the process. Where the panic
+ * is routed (stderr only, an installed log callback, with or without a
+ * backtrace) is the linked panic implementation's choice — see
+ * panic.cpp for the current routing. The header itself stays free of
+ * any logging-library dependency so consumers don't transitively
+ * acquire one from a primitive type's `unwrap()` call site.
  *
  * For recoverable errors, use Result<T, E> instead — panics are for bugs,
  * not for runtime conditions the caller is expected to handle.
@@ -25,20 +26,15 @@
 
 #include <xpp/compiler.h>
 
-#include <cstdarg>
-#include <cstdlib>
-
-#include <x/base/log.h>
-
 namespace xpp {
 namespace _ {
 
 /**
  * @brief Dispatch a panic message and terminate the process.
  *
- * Forwards a printf-style format string and arguments to xLogV(fatal=true),
- * which invokes the thread's xLog callback (if any) with a backtrace, then
- * aborts. Never returns.
+ * Defined out-of-line in panic.cpp so the routing dependency (today
+ * the libx xLog channel) doesn't leak into every TU that uses
+ * XPP_PANIC / XPP_ASSERT through a header. Never returns.
  *
  * Prefer the XPP_PANIC / XPP_ASSERT macros over calling this directly;
  * they prepend a "panic at __FILE__:__LINE__: " prefix to the format
@@ -51,16 +47,7 @@ XPP_NORETURN
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((format(printf, 1, 2)))
 #endif
-inline void
-doPanic(const char *fmt, ...) {
-  va_list ap;
-  va_start(ap, fmt);
-  xLogV(/*fatal=*/true, fmt, ap);
-  va_end(ap);
-  // xLogV(fatal=true) calls abort() and never returns. The std::abort()
-  // below is unreachable but satisfies XPP_NORETURN on every code path.
-  std::abort();
-}
+void doPanic(const char *fmt, ...);
 
 } // namespace _
 } // namespace xpp

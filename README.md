@@ -62,33 +62,40 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
       -DMOO_BUILD_APPS=ON -DX_BUILD_TESTS=OFF -DX_BUILD_BENCHMARKS=OFF
 cmake --build build --parallel
 
-# 2. Point it at a data directory and drop a models.json in there
-mkdir -p ~/.moo
-cat > ~/.moo/models.json <<'JSON'
+# 2. First run scaffolds a models.json template into the data dir
+#    (defaults to the current working directory; pass --data-dir to
+#    point somewhere else, e.g. ~/.moo)
+./build/cli/moo --data-dir ~/.moo
+# moo will write ~/.moo/models.json on first launch, then exit with a
+# "please configure me" hint. Edit the file in place.
+```
+
+The scaffolded `models.json` looks like this — fill in the angle-bracket
+placeholders to enable chat:
+
+```json
 {
   "default": "kimi",
   "max_turns": 64,
-  "budget": {
-    "context_window": 8192,
-    "keep_head_turns": 1,
-    "keep_recent_turns": 2
-  },
+  "budget": { "context_window": 8192 },
   "models": [
     { "id": "kimi", "provider": "openai",
       "model": "kimi-k2.6",
-      "api_key": "sk-...",
+      "api_key": "<your-api-key>",
       "base_url": "https://api.moonshot.cn/v1",
       "budget": { "context_window": 131072 } },
     { "id": "glm",  "provider": "openai",
       "model": "glm-4.5",
-      "api_key": "sk-...",
+      "api_key": "<your-api-key>",
       "base_url": "https://open.bigmodel.cn/api/paas/v4",
       "budget": { "context_window": 131072 } }
   ]
 }
-JSON
+```
 
-# 3. Talk to it
+Run again once `models.json` is filled in:
+
+```bash
 ./build/cli/moo --data-dir ~/.moo
 ```
 
@@ -102,7 +109,9 @@ Inside the REPL, slash commands are available:
 | `/cancel` | Interrupt the active AI run |
 | `/history` | Dump input history |
 | `/clear` | Clear the terminal |
-| `/bypass` | Auto-approve tool calls for the current turn |
+| `/bypass on --yes \| off` | Skip tool-call confirmation for the session (`--yes` is mandatory to enable) |
+| `/renderer md \| raw` | Switch between markdown→ANSI and raw output |
+| `/verbose on \| off` | Toggle full vs truncated tool-output display |
 | `/version` | Build version |
 | `/exit` | Quit |
 

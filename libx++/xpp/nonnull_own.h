@@ -107,7 +107,7 @@ template <class T, class D> struct CompressedPair<T, D, true> : private D {
  * Move-only. No reset (would imply nullable storage).
  *
  * Construction:
- *   - newUnchecked(T*, D = D{})   — caller asserts non-null (debug-checked)
+ *   - new_unchecked(T*, D = D{})   — caller asserts non-null (debug-checked)
  *   - from(T*, D = D{})           — checked, returns Option<NonNullOwn>
  *
  * @tparam T        Pointee type. T = void supported (operator*, ->
@@ -165,8 +165,8 @@ public:
   }
 
   /** @brief Wrap a raw pointer; caller asserts non-null. */
-  static NonNullOwn newUnchecked(T *p, Deleter d = Deleter{}) noexcept {
-    XPP_DEBUG_ASSERT(p != nullptr, "NonNullOwn::newUnchecked: pointer is null");
+  static NonNullOwn new_unchecked(T *p, Deleter d = Deleter{}) noexcept {
+    XPP_DEBUG_ASSERT(p != nullptr, "NonNullOwn::new_unchecked: pointer is null");
     return NonNullOwn(p, std::move(d), _PrivateTag{});
   }
 
@@ -187,16 +187,16 @@ public:
     return m_storage.p;
   }
 
-  Deleter &getDeleter() noexcept {
+  Deleter &get_deleter() noexcept {
     return m_storage.deleter();
   }
-  const Deleter &getDeleter() const noexcept {
+  const Deleter &get_deleter() const noexcept {
     return m_storage.deleter();
   }
 
   /** @brief Borrow as a non-owning NonNull view. */
-  NonNull<T> asNonNull() const noexcept {
-    return NonNull<T>::newUnchecked(m_storage.p);
+  NonNull<T> as_nonnull() const noexcept {
+    return NonNull<T>::new_unchecked(m_storage.p);
   }
 
   /**
@@ -225,7 +225,7 @@ private:
   Storage m_storage;
 
   // Allow Option<NonNullOwn<...>> (any instantiation) to access storage —
-  // needed by both the matching specialization's takeOwned() and by the
+  // needed by both the matching specialization's take_owned() and by the
   // covariant ctor on Option<NonNullOwn<Base>> reaching into a moved-from
   // Option<NonNullOwn<Derived>>.
   template <class> friend class Option;
@@ -246,7 +246,7 @@ private:
  *                because no owning value lives in storage.
  *   - &&       → returns NonNullOwn<T, D> by move (consumes).
  *
- * Combinators map() / andThen() / filter() / inspect():
+ * Combinators map() / and_then() / filter() / inspect():
  *   - const & overload  → fn receives NonNull<T> (non-owning view)
  *   - && overload       → fn receives NonNullOwn<T, D>&& (consumes)
  */
@@ -309,10 +309,10 @@ public:
     reset_internal();
   }
 
-  bool isSome() const noexcept {
+  bool is_some() const noexcept {
     return m_storage.p != nullptr;
   }
-  bool isNone() const noexcept {
+  bool is_none() const noexcept {
     return m_storage.p == nullptr;
   }
   explicit operator bool() const noexcept {
@@ -327,20 +327,20 @@ public:
   }
   NonNullOwn<T, Deleter> unwrap() && {
     XPP_ASSERT(m_storage.p != nullptr, "unwrap() on None Option");
-    return takeOwned();
+    return take_owned();
   }
 
-  T *unwrapUnchecked() const & noexcept {
+  T *unwrap_unchecked() const & noexcept {
     XPP_DEBUG_ASSERT(m_storage.p, "internal: Option must be Some");
     return m_storage.p;
   }
-  NonNullOwn<T, Deleter> unwrapUnchecked() && noexcept {
+  NonNullOwn<T, Deleter> unwrap_unchecked() && noexcept {
     XPP_DEBUG_ASSERT(m_storage.p, "internal: Option must be Some");
-    return takeOwned();
+    return take_owned();
   }
 
-  NonNullOwn<T, Deleter> unwrapOr(NonNullOwn<T, Deleter> &&fallback) && {
-    if (m_storage.p) return takeOwned();
+  NonNullOwn<T, Deleter> unwrap_or(NonNullOwn<T, Deleter> &&fallback) && {
+    if (m_storage.p) return take_owned();
     return std::move(fallback);
   }
 
@@ -354,7 +354,7 @@ public:
   }
   NonNullOwn<T, Deleter> expect(const char *msg) && {
     XPP_ASSERT(m_storage.p != nullptr, "expect: %s", msg);
-    return takeOwned();
+    return take_owned();
   }
 
   /* ── combinators ────────────────────────────────────────────────── */
@@ -362,36 +362,36 @@ public:
   template <class Func>
   auto map(Func &&fn) const & -> Option<decltype(fn(std::declval<NonNull<T>>()))> {
     using U = decltype(fn(std::declval<NonNull<T>>()));
-    return m_storage.p ? Option<U>(fn(NonNull<T>::newUnchecked(m_storage.p))) : Option<U>(none);
+    return m_storage.p ? Option<U>(fn(NonNull<T>::new_unchecked(m_storage.p))) : Option<U>(none);
   }
   template <class Func>
   auto map(Func &&fn) && -> Option<decltype(fn(std::declval<NonNullOwn<T, Deleter> &&>()))> {
     using U = decltype(fn(std::declval<NonNullOwn<T, Deleter> &&>()));
     if (!m_storage.p) return Option<U>(none);
-    NonNullOwn<T, Deleter> owned = takeOwned();
+    NonNullOwn<T, Deleter> owned = take_owned();
     return Option<U>(fn(std::move(owned)));
   }
 
   template <class Func>
-  auto andThen(Func &&fn) && -> decltype(fn(std::declval<NonNullOwn<T, Deleter> &&>())) {
+  auto and_then(Func &&fn) && -> decltype(fn(std::declval<NonNullOwn<T, Deleter> &&>())) {
     using R = decltype(fn(std::declval<NonNullOwn<T, Deleter> &&>()));
     if (!m_storage.p) return R(none);
-    NonNullOwn<T, Deleter> owned = takeOwned();
+    NonNullOwn<T, Deleter> owned = take_owned();
     return fn(std::move(owned));
   }
 
-  template <class Func> Option orElse(Func &&fn) && {
+  template <class Func> Option or_else(Func &&fn) && {
     if (m_storage.p) return std::move(*this);
     return fn();
   }
 
-  template <class Func> NonNullOwn<T, Deleter> unwrapOrElse(Func &&fn) && {
-    if (m_storage.p) return takeOwned();
+  template <class Func> NonNullOwn<T, Deleter> unwrap_or_else(Func &&fn) && {
+    if (m_storage.p) return take_owned();
     return fn();
   }
 
   template <class Func> Option filter(Func &&pred) && {
-    if (m_storage.p && pred(NonNull<T>::newUnchecked(m_storage.p))) {
+    if (m_storage.p && pred(NonNull<T>::new_unchecked(m_storage.p))) {
       return std::move(*this);
     }
     reset_internal();
@@ -399,11 +399,11 @@ public:
   }
 
   template <class Func> const Option &inspect(Func &&fn) const & {
-    if (m_storage.p) fn(NonNull<T>::newUnchecked(m_storage.p));
+    if (m_storage.p) fn(NonNull<T>::new_unchecked(m_storage.p));
     return *this;
   }
   template <class Func> Option inspect(Func &&fn) && {
-    if (m_storage.p) fn(NonNull<T>::newUnchecked(m_storage.p));
+    if (m_storage.p) fn(NonNull<T>::new_unchecked(m_storage.p));
     return std::move(*this);
   }
 
@@ -416,9 +416,9 @@ private:
   }
 
   /** Move ownership out of storage; storage left empty. Caller has checked p != null. */
-  NonNullOwn<T, Deleter> takeOwned() noexcept {
+  NonNullOwn<T, Deleter> take_owned() noexcept {
     NonNullOwn<T, Deleter> r =
-      NonNullOwn<T, Deleter>::newUnchecked(m_storage.p, std::move(m_storage.deleter()));
+      NonNullOwn<T, Deleter>::new_unchecked(m_storage.p, std::move(m_storage.deleter()));
     m_storage.p = nullptr;
     return r;
   }

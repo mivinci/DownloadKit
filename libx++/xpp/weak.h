@@ -31,8 +31,8 @@
  *     std::vector<Rc<Node>>         children; // strong downward
  *   };
  *
- *   Rc<Node> root  = makeRc<Node>();
- *   Rc<Node> child = makeRc<Node>();
+ *   Rc<Node> root  = make_rc<Node>();
+ *   Rc<Node> child = make_rc<Node>();
  *   root->children.push_back(child);      // root → child  (root.strong = 1, child.strong = 2)
  *   child->parent  = Option<Rc<Node>>(root); // child → root (root.strong = 2)
  *
@@ -47,17 +47,17 @@
  *     std::vector<Rc<Node>>         children; // strong downward
  *   };
  *
- *   Rc<Node> root  = makeRc<Node>();
- *   Rc<Node> child = makeRc<Node>();
+ *   Rc<Node> root  = make_rc<Node>();
+ *   Rc<Node> child = make_rc<Node>();
  *   child->parent = Rc<Node>::downgrade(root);   // Weak does not bump strong
  *   root->children.push_back(std::move(child));
  *
- *   // root.strongCount() == 1, root.weakCount() == 1
- *   // child.strongCount() == 1 (held by root->children alone)
+ *   // root.strong_count() == 1, root.weak_count() == 1
+ *   // child.strong_count() == 1 (held by root->children alone)
  *
  *   // To walk back up:
  *   if (Option<Rc<Node>> p = some_child->parent.upgrade()) {
- *     p.unwrap()->doSomething();           // got a strong handle, parent alive
+ *     p.unwrap()->do_something();           // got a strong handle, parent alive
  *   } else {
  *     // parent already dropped; do nothing.
  *   }
@@ -118,7 +118,7 @@ public:
    * Bumps the inner's weak count by 1. The Rc keeps its strong on
    * the same inner; the Weak does not affect strong.
    */
-  explicit Weak(const Rc<T> &r) noexcept : m_inner(r.innerRaw()) {
+  explicit Weak(const Rc<T> &r) noexcept : m_inner(r.inner_raw()) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     ++m_inner->weak;
   }
@@ -146,7 +146,7 @@ public:
   }
 
   ~Weak() noexcept {
-    if (m_inner) _::rcDecWeakAndMaybeDealloc(m_inner);
+    if (m_inner) _::rc_dec_weak_and_maybe_dealloc(m_inner);
   }
 
   /**
@@ -177,7 +177,7 @@ public:
    *
    * Reads 0 if the Weak is null or the underlying T is gone.
    */
-  size_t strongCount() const noexcept {
+  size_t strong_count() const noexcept {
     return m_inner ? m_inner->strong : 0;
   }
 
@@ -185,15 +185,15 @@ public:
    * @brief Weak count of the observed inner (for tests/debug).
    *
    * Subtracts the implicit "all-strongs-count-as-one-weak" +1 when
-   * any strong is alive — same convention as Rc::weakCount() and
+   * any strong is alive — same convention as Rc::weak_count() and
    * Rust's Weak::weak_count.
    */
-  size_t weakCount() const noexcept {
+  size_t weak_count() const noexcept {
     if (!m_inner) return 0;
     return m_inner->strong > 0 ? m_inner->weak - 1 : m_inner->weak;
   }
 
-  bool isExpired() const noexcept {
+  bool is_expired() const noexcept {
     return !m_inner || m_inner->strong == 0;
   }
 

@@ -69,37 +69,37 @@ protected:
   }
 };
 
-/* ── Basics: makeArc, copy/move, strong count, drop ──────────────────── */
+/* ── Basics: make_arc, copy/move, strong count, drop ──────────────────── */
 
 TEST_F(ArcTrackerTest, MakeArcCountStartsAtOne) {
   {
-    xpp::Arc<Tracker> a = xpp::makeArc<Tracker>(42);
+    xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(42);
     EXPECT_EQ(a->value, 42);
-    EXPECT_EQ(a.strongCount(), 1u);
-    EXPECT_EQ(a.weakCount(), 0u);
+    EXPECT_EQ(a.strong_count(), 1u);
+    EXPECT_EQ(a.weak_count(), 0u);
   }
   EXPECT_EQ(Tracker::alive.load(), 0);
 }
 
 TEST_F(ArcTrackerTest, CopyBumpsStrong) {
   {
-    xpp::Arc<Tracker> a = xpp::makeArc<Tracker>(7);
+    xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(7);
     {
       xpp::Arc<Tracker> b = a;
-      EXPECT_EQ(a.strongCount(), 2u);
-      EXPECT_EQ(b.strongCount(), 2u);
+      EXPECT_EQ(a.strong_count(), 2u);
+      EXPECT_EQ(b.strong_count(), 2u);
       EXPECT_EQ(a.get(), b.get());
     }
-    EXPECT_EQ(a.strongCount(), 1u);
+    EXPECT_EQ(a.strong_count(), 1u);
   }
   EXPECT_EQ(Tracker::alive.load(), 0);
 }
 
 TEST_F(ArcTrackerTest, MoveDoesNotBumpStrong) {
   {
-    xpp::Arc<Tracker> a = xpp::makeArc<Tracker>(5);
+    xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(5);
     xpp::Arc<Tracker> b = std::move(a);
-    EXPECT_EQ(b.strongCount(), 1u);
+    EXPECT_EQ(b.strong_count(), 1u);
     EXPECT_EQ(b->value, 5);
   }
   EXPECT_EQ(Tracker::alive.load(), 0);
@@ -107,10 +107,10 @@ TEST_F(ArcTrackerTest, MoveDoesNotBumpStrong) {
 
 TEST_F(ArcTrackerTest, CloneEqualsCopy) {
   {
-    xpp::Arc<Tracker> a = xpp::makeArc<Tracker>(1);
+    xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(1);
     xpp::Arc<Tracker> b = a.clone();
     xpp::Arc<Tracker> c = xpp::Arc<Tracker>::clone(a); // Rust spelling
-    EXPECT_EQ(a.strongCount(), 3u);
+    EXPECT_EQ(a.strong_count(), 3u);
   }
   EXPECT_EQ(Tracker::alive.load(), 0);
 }
@@ -119,28 +119,28 @@ TEST_F(ArcTrackerTest, CloneEqualsCopy) {
 
 TEST_F(ArcTrackerTest, OptionArcDefaultIsNone) {
   xpp::Option<xpp::Arc<Tracker>> o;
-  EXPECT_TRUE(o.isNone());
+  EXPECT_TRUE(o.is_none());
 }
 
 TEST_F(ArcTrackerTest, OptionArcFromArcBumpsStrong) {
   {
-    xpp::Arc<Tracker>              a = xpp::makeArc<Tracker>(3);
+    xpp::Arc<Tracker>              a = xpp::make_arc<Tracker>(3);
     xpp::Option<xpp::Arc<Tracker>> o(a);
-    EXPECT_TRUE(o.isSome());
-    EXPECT_EQ(a.strongCount(), 2u);
+    EXPECT_TRUE(o.is_some());
+    EXPECT_EQ(a.strong_count(), 2u);
   }
   EXPECT_EQ(Tracker::alive.load(), 0);
 }
 
 TEST_F(ArcTrackerTest, OptionArcTakeDoesNotChangeStrong) {
   {
-    xpp::Arc<Tracker>              a = xpp::makeArc<Tracker>(8);
+    xpp::Arc<Tracker>              a = xpp::make_arc<Tracker>(8);
     xpp::Option<xpp::Arc<Tracker>> o(a);
-    EXPECT_EQ(a.strongCount(), 2u);
+    EXPECT_EQ(a.strong_count(), 2u);
 
     xpp::Arc<Tracker> taken = o.take();
-    EXPECT_TRUE(o.isNone());
-    EXPECT_EQ(a.strongCount(), 2u) << "take is move, not clone";
+    EXPECT_TRUE(o.is_none());
+    EXPECT_EQ(a.strong_count(), 2u) << "take is move, not clone";
     EXPECT_EQ(taken.get(), a.get());
   }
   EXPECT_EQ(Tracker::alive.load(), 0);
@@ -150,20 +150,20 @@ TEST_F(ArcTrackerTest, OptionArcTakeDoesNotChangeStrong) {
 
 TEST_F(ArcTrackerTest, ArcWeakDefaultIsNull) {
   xpp::ArcWeak<Tracker> w;
-  EXPECT_TRUE(w.isExpired());
-  EXPECT_TRUE(w.upgrade().isNone());
+  EXPECT_TRUE(w.is_expired());
+  EXPECT_TRUE(w.upgrade().is_none());
 }
 
 TEST_F(ArcTrackerTest, ArcDowngradeAndUpgrade) {
   {
-    xpp::Arc<Tracker>     a = xpp::makeArc<Tracker>(11);
+    xpp::Arc<Tracker>     a = xpp::make_arc<Tracker>(11);
     xpp::ArcWeak<Tracker> w = xpp::Arc<Tracker>::downgrade(a);
-    EXPECT_EQ(a.weakCount(), 1u);
-    EXPECT_FALSE(w.isExpired());
+    EXPECT_EQ(a.weak_count(), 1u);
+    EXPECT_FALSE(w.is_expired());
 
     xpp::Option<xpp::Arc<Tracker>> upgraded = w.upgrade();
-    ASSERT_TRUE(upgraded.isSome());
-    EXPECT_EQ(a.strongCount(), 2u);
+    ASSERT_TRUE(upgraded.is_some());
+    EXPECT_EQ(a.strong_count(), 2u);
 
     xpp::Arc<Tracker> b = std::move(upgraded).unwrap();
     EXPECT_EQ(b->value, 11);
@@ -174,23 +174,23 @@ TEST_F(ArcTrackerTest, ArcDowngradeAndUpgrade) {
 TEST_F(ArcTrackerTest, ArcWeakUpgradeAfterAllStrongsGoneIsNone) {
   xpp::ArcWeak<Tracker> w;
   {
-    xpp::Arc<Tracker> a = xpp::makeArc<Tracker>(13);
+    xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(13);
     w                   = xpp::ArcWeak<Tracker>(a);
   } // strong gone, Tracker destroyed
   EXPECT_EQ(Tracker::alive.load(), 0);
-  EXPECT_TRUE(w.isExpired());
-  EXPECT_TRUE(w.upgrade().isNone());
+  EXPECT_TRUE(w.is_expired());
+  EXPECT_TRUE(w.upgrade().is_none());
 }
 
 TEST_F(ArcTrackerTest, ArcWeakOutlivingAllStrongsDoesNotLeakInner) {
   {
     xpp::ArcWeak<Tracker> w;
     {
-      xpp::Arc<Tracker> a = xpp::makeArc<Tracker>(17);
+      xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(17);
       w                   = xpp::ArcWeak<Tracker>(a);
     }
     EXPECT_EQ(Tracker::alive.load(), 0);
-    EXPECT_TRUE(w.isExpired());
+    EXPECT_TRUE(w.is_expired());
   } // w dies → inner deallocated; ASan in CI confirms no leak
   EXPECT_EQ(Tracker::alive.load(), 0);
 }
@@ -198,20 +198,20 @@ TEST_F(ArcTrackerTest, ArcWeakOutlivingAllStrongsDoesNotLeakInner) {
 /* ── Concurrency smoke test ──────────────────────────────────────────── */
 
 TEST_F(ArcTrackerTest, ClonesAndDropsAcrossThreadsDoNotLeak) {
-  constexpr int kThreads        = 8;
-  constexpr int kIterations     = 10000;
+  constexpr int k_threads        = 8;
+  constexpr int k_iterations     = 10000;
 
   {
-    xpp::Arc<Tracker>        root = xpp::makeArc<Tracker>(0);
+    xpp::Arc<Tracker>        root = xpp::make_arc<Tracker>(0);
     std::vector<std::thread> ts;
-    ts.reserve(kThreads);
+    ts.reserve(k_threads);
 
-    for (int i = 0; i < kThreads; ++i) {
+    for (int i = 0; i < k_threads; ++i) {
       ts.emplace_back([root]() {
         // Each thread takes a copy on entry, then clones & drops in a
         // loop. If any drop/clone races corrupt the count, total
         // alive Trackers at the end won't be 1.
-        for (int j = 0; j < kIterations; ++j) {
+        for (int j = 0; j < k_iterations; ++j) {
           xpp::Arc<Tracker> local = root.clone();
           (void) local; // dropped immediately
         }
@@ -220,7 +220,7 @@ TEST_F(ArcTrackerTest, ClonesAndDropsAcrossThreadsDoNotLeak) {
     for (auto &t : ts) t.join();
 
     // After every thread joined, only `root` should hold the Arc.
-    EXPECT_EQ(root.strongCount(), 1u);
+    EXPECT_EQ(root.strong_count(), 1u);
     EXPECT_EQ(Tracker::alive.load(), 1);
   }
   EXPECT_EQ(Tracker::alive.load(), 0);
@@ -231,20 +231,20 @@ TEST_F(ArcTrackerTest, UpgradeRacesWithLastDropEitherSomeOrNone) {
   // thread. Result of any single upgrade is either Some (we got
   // there before the last drop completed) or None (we didn't), and
   // either is OK — what matters is no UB / no count drift.
-  constexpr int kThreads = 8;
+  constexpr int k_threads = 8;
 
   for (int trial = 0; trial < 200; ++trial) {
-    xpp::Arc<Tracker>     a = xpp::makeArc<Tracker>(trial);
+    xpp::Arc<Tracker>     a = xpp::make_arc<Tracker>(trial);
     xpp::ArcWeak<Tracker> w = xpp::Arc<Tracker>::downgrade(a);
 
     std::atomic<int>         observed_some{0};
     std::vector<std::thread> ts;
-    ts.reserve(kThreads);
+    ts.reserve(k_threads);
 
-    for (int i = 0; i < kThreads; ++i) {
+    for (int i = 0; i < k_threads; ++i) {
       ts.emplace_back([&w, &observed_some]() {
         xpp::Option<xpp::Arc<Tracker>> r = w.upgrade();
-        if (r.isSome()) {
+        if (r.is_some()) {
           observed_some.fetch_add(1, std::memory_order_relaxed);
           // dropped here
         }
@@ -253,7 +253,7 @@ TEST_F(ArcTrackerTest, UpgradeRacesWithLastDropEitherSomeOrNone) {
 
     // Main thread drops the only strong reference concurrent with
     // the upgrade attempts.
-    a = xpp::makeArc<Tracker>(-1); // overwrite drops original
+    a = xpp::make_arc<Tracker>(-1); // overwrite drops original
     (void) a;                      // suppress unused warning in release
 
     for (auto &t : ts) t.join();

@@ -83,7 +83,7 @@
  *
  *   //  GOOD — publisher holds ArcWeak, callbacks check at fire time
  *   struct Subscriber {
- *     void onEvent(const Event &e);
+ *     void on_event(const Event &e);
  *   };
  *
  *   class Publisher {
@@ -101,9 +101,9 @@
  *       auto write = m_subs.begin();
  *       for (auto read = m_subs.begin(); read != m_subs.end(); ++read) {
  *         Option<Arc<Subscriber>> live = read->upgrade();
- *         if (live.isSome()) {
+ *         if (live.is_some()) {
  *           Arc<Subscriber> s = std::move(live).unwrap();
- *           s->onEvent(e);                          // safe; we hold a strong
+ *           s->on_event(e);                          // safe; we hold a strong
  *           *write++ = std::move(*read);
  *         }
  *         // else: subscriber already dropped, skip and don't copy.
@@ -117,13 +117,13 @@
  *   };
  *
  *   // Producer thread:
- *   auto sub = makeArc<Subscriber>();
+ *   auto sub = make_arc<Subscriber>();
  *   pub.subscribe(sub);
  *
  *   // Some other thread drops `sub` whenever it wants. Inside the
  *   // publisher, upgrade() races atomically with that drop:
  *   //   - If publish() arrives first, it bumps strong via the CAS,
- *   //     gets a valid Arc, and fires onEvent. The Subscriber stays
+ *   //     gets a valid Arc, and fires on_event. The Subscriber stays
  *   //     alive for the duration of the call.
  *   //   - If the last Arc drops first, upgrade() returns None and
  *   //     publish() skips the entry. No use-after-free either way.
@@ -185,8 +185,8 @@ template <class T> struct ArcInner {
  * decrements to 0) can `acquire` and see every previous owner's
  * stores to the inner block.
  */
-template <class T> inline void arcDecWeakAndMaybeDealloc(ArcInner<T> *inner) noexcept {
-  XPP_DEBUG_ASSERT(inner != nullptr, "internal: arcDecWeak called with null inner");
+template <class T> inline void arc_dec_weak_and_maybe_dealloc(ArcInner<T> *inner) noexcept {
+  XPP_DEBUG_ASSERT(inner != nullptr, "internal: arc_dec_weak called with null inner");
   if (inner->weak.fetch_sub(1, std::memory_order_release) == 1) {
     std::atomic_thread_fence(std::memory_order_acquire);
     ::operator delete(inner);
@@ -197,15 +197,15 @@ template <class T> inline void arcDecWeakAndMaybeDealloc(ArcInner<T> *inner) noe
  * @brief Drop a strong reference. Same two-stage strategy as the
  *        Rc helper, but with the atomic ordering pattern above.
  */
-template <class T> inline void arcDecStrong(ArcInner<T> *inner) noexcept {
-  XPP_DEBUG_ASSERT(inner != nullptr, "internal: arcDecStrong called with null inner");
+template <class T> inline void arc_dec_strong(ArcInner<T> *inner) noexcept {
+  XPP_DEBUG_ASSERT(inner != nullptr, "internal: arc_dec_strong called with null inner");
   if (inner->strong.fetch_sub(1, std::memory_order_release) == 1) {
     // Last strong gone. Acquire-fence to see every prior owner's
     // writes to *T*, then destroy T in place. The inner's memory
     // sticks around until the weak count also hits zero.
     std::atomic_thread_fence(std::memory_order_acquire);
     inner->value.~T();
-    arcDecWeakAndMaybeDealloc(inner);
+    arc_dec_weak_and_maybe_dealloc(inner);
   }
 }
 
@@ -222,7 +222,7 @@ template <class T> inline void arcDecStrong(ArcInner<T> *inner) noexcept {
  * exactly once and with a happens-before of every prior owner's
  * stores to T.
  *
- * Use makeArc<T>(args...) to construct.
+ * Use make_arc<T>(args...) to construct.
  */
 template <class T> class Arc {
 public:
@@ -240,14 +240,14 @@ public:
   }
 
   template <class U, typename = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
-  Arc(const Arc<U> &o) noexcept : m_inner(reinterpret_cast<_::ArcInner<T> *>(o.innerRaw())) {
+  Arc(const Arc<U> &o) noexcept : m_inner(reinterpret_cast<_::ArcInner<T> *>(o.inner_raw())) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     m_inner->strong.fetch_add(1, std::memory_order_relaxed);
   }
 
   template <class U, typename = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
-  Arc(Arc<U> &&o) noexcept : m_inner(reinterpret_cast<_::ArcInner<T> *>(o.innerRaw())) {
-    o.innerRawReset();
+  Arc(Arc<U> &&o) noexcept : m_inner(reinterpret_cast<_::ArcInner<T> *>(o.inner_raw())) {
+    o.inner_raw_reset();
   }
 
   Arc &operator=(const Arc &o) noexcept {
@@ -267,7 +267,7 @@ public:
   }
 
   ~Arc() noexcept {
-    if (m_inner) _::arcDecStrong(m_inner);
+    if (m_inner) _::arc_dec_strong(m_inner);
   }
 
   Arc clone() const noexcept {
@@ -280,7 +280,7 @@ public:
    * Loads with relaxed — by the time you read it another thread may
    * have changed it, so don't branch on the result.
    */
-  size_t strongCount() const noexcept {
+  size_t strong_count() const noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     return m_inner->strong.load(std::memory_order_relaxed);
   }
@@ -289,7 +289,7 @@ public:
    * @brief Weak count (debugging only). Subtracts the +1 for "all
    *        strongs", matching Rust's Arc::weak_count.
    */
-  size_t weakCount() const noexcept {
+  size_t weak_count() const noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     const size_t w = m_inner->weak.load(std::memory_order_relaxed);
     return w - 1;
@@ -329,10 +329,10 @@ public:
 
   /* ── internals exposed only to friends / templates ───────────────── */
 
-  _::ArcInner<T> *innerRaw() const noexcept {
+  _::ArcInner<T> *inner_raw() const noexcept {
     return m_inner;
   }
-  void innerRawReset() noexcept {
+  void inner_raw_reset() noexcept {
     m_inner = nullptr;
   }
 
@@ -343,7 +343,7 @@ private:
 
   _::ArcInner<T> *m_inner;
 
-  template <class U, class... Args> friend Arc<U> makeArc(Args &&...args);
+  template <class U, class... Args> friend Arc<U> make_arc(Args &&...args);
   template <class U> friend class Arc;
   template <class U> friend class ArcWeak;
   friend class Option<Arc<T>>;
@@ -356,7 +356,7 @@ private:
  * weak count (=1, the "all strongs as one weak" marker), and T
  * constructed from @p args.
  */
-template <class T, class... Args> Arc<T> makeArc(Args &&...args) {
+template <class T, class... Args> Arc<T> make_arc(Args &&...args) {
   void           *mem   = ::operator new(sizeof(_::ArcInner<T>));
   _::ArcInner<T> *inner = ::new (mem) _::ArcInner<T>(std::forward<Args>(args)...);
   return Arc<T>(inner);
@@ -414,13 +414,13 @@ public:
   }
 
   ~Option() noexcept {
-    if (m_inner) _::arcDecStrong(m_inner);
+    if (m_inner) _::arc_dec_strong(m_inner);
   }
 
-  bool isSome() const noexcept {
+  bool is_some() const noexcept {
     return m_inner != nullptr;
   }
-  bool isNone() const noexcept {
+  bool is_none() const noexcept {
     return m_inner == nullptr;
   }
   explicit operator bool() const noexcept {
@@ -434,7 +434,7 @@ public:
     return Arc<T>(taken);
   }
 
-  Arc<T> unwrapUnchecked() && noexcept {
+  Arc<T> unwrap_unchecked() && noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Option must be Some");
     _::ArcInner<T> *taken = m_inner;
     m_inner               = nullptr;
@@ -473,7 +473,7 @@ template <class T> class ArcWeak {
 public:
   constexpr ArcWeak() noexcept : m_inner(nullptr) {}
 
-  explicit ArcWeak(const Arc<T> &r) noexcept : m_inner(r.innerRaw()) {
+  explicit ArcWeak(const Arc<T> &r) noexcept : m_inner(r.inner_raw()) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Arc must own an inner");
     m_inner->weak.fetch_add(1, std::memory_order_relaxed);
   }
@@ -501,7 +501,7 @@ public:
   }
 
   ~ArcWeak() noexcept {
-    if (m_inner) _::arcDecWeakAndMaybeDealloc(m_inner);
+    if (m_inner) _::arc_dec_weak_and_maybe_dealloc(m_inner);
   }
 
   /**
@@ -533,18 +533,18 @@ public:
     }
   }
 
-  size_t strongCount() const noexcept {
+  size_t strong_count() const noexcept {
     return m_inner ? m_inner->strong.load(std::memory_order_relaxed) : 0;
   }
 
-  size_t weakCount() const noexcept {
+  size_t weak_count() const noexcept {
     if (!m_inner) return 0;
     const size_t s = m_inner->strong.load(std::memory_order_relaxed);
     const size_t w = m_inner->weak.load(std::memory_order_relaxed);
     return s > 0 ? w - 1 : w;
   }
 
-  bool isExpired() const noexcept {
+  bool is_expired() const noexcept {
     return !m_inner || m_inner->strong.load(std::memory_order_relaxed) == 0;
   }
 

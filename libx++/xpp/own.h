@@ -15,7 +15,7 @@
  *                       operator* and operator-> debug-assert on null.
  *   - NonNullOwn<T>   — type-level non-null. No reset, no default ctor, no null state.
  *   - Bridge:
- *       std::move(own).intoNonNull()           -> Option<NonNullOwn<T, D>>
+ *       std::move(own).into_nonnull()           -> Option<NonNullOwn<T, D>>
  *       Own<T>(std::move(opt_nonnullown))      <- adopt back from Option
  *
  * Choose Own<T> when you want C++/Rust-idiomatic ownership (operator*, reset,
@@ -125,8 +125,8 @@ public:
    * Rust-style name. Equivalent to `release()`.
    */
   T *take() noexcept {
-    if (m_inner.isNone()) return nullptr;
-    return std::move(m_inner).unwrapUnchecked().release();
+    if (m_inner.is_none()) return nullptr;
+    return std::move(m_inner).unwrap_unchecked().release();
   }
 
   /**
@@ -140,41 +140,41 @@ public:
 
   /** @brief Get raw pointer; null if empty. */
   T *get() const noexcept {
-    return m_inner.isSome() ? m_inner.unwrapUnchecked() : nullptr;
+    return m_inner.is_some() ? m_inner.unwrap_unchecked() : nullptr;
   }
 
   /** @brief Dereference. Debug-asserts non-empty; UB in release on empty. */
   template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   U &operator*() const noexcept {
-    XPP_DEBUG_ASSERT(m_inner.isSome(), "Own::operator* on empty Own");
-    return *m_inner.unwrapUnchecked();
+    XPP_DEBUG_ASSERT(m_inner.is_some(), "Own::operator* on empty Own");
+    return *m_inner.unwrap_unchecked();
   }
 
   template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
   U *operator->() const noexcept {
-    XPP_DEBUG_ASSERT(m_inner.isSome(), "Own::operator-> on empty Own");
-    return m_inner.unwrapUnchecked();
+    XPP_DEBUG_ASSERT(m_inner.is_some(), "Own::operator-> on empty Own");
+    return m_inner.unwrap_unchecked();
   }
 
   /** @brief True iff non-empty. */
   explicit operator bool() const noexcept {
-    return m_inner.isSome();
+    return m_inner.is_some();
   }
 
   bool operator==(std::nullptr_t) const noexcept {
-    return m_inner.isNone();
+    return m_inner.is_none();
   }
   bool operator!=(std::nullptr_t) const noexcept {
-    return m_inner.isSome();
+    return m_inner.is_some();
   }
 
   /**
    * @brief Consume into Option<NonNullOwn>. Bridges to the Rust-style API.
    *
    * If the Own was empty, returns None. Otherwise Some(NonNullOwn). To
-   * inspect or take the deleter, do `std::move(own).intoNonNull().unwrap().getDeleter()`.
+   * inspect or take the deleter, do `std::move(own).into_nonnull().unwrap().get_deleter()`.
    */
-  Option<NonNullOwn<T, Deleter>> intoNonNull() && noexcept {
+  Option<NonNullOwn<T, Deleter>> into_nonnull() && noexcept {
     return std::move(m_inner);
   }
 

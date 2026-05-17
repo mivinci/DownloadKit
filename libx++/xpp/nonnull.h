@@ -37,7 +37,7 @@ template <class T> class NonNull;
  * NonNull is a thin wrapper around T*. Construction always proves
  * non-nullness:
  *   - NonNull(T &ref)            — bind to an existing referent (always safe)
- *   - NonNull::newUnchecked(T*)  — caller asserts non-null (debug-checked)
+ *   - NonNull::new_unchecked(T*)  — caller asserts non-null (debug-checked)
  *   - NonNull::from(T*)          — checked, returns Option<NonNull<T>>
  *
  * There is no constructor that takes a raw T* and panics on null —
@@ -81,8 +81,8 @@ public:
    * Mirrors Rust's NonNull::new_unchecked. Debug builds verify the
    * precondition; release builds elide the check entirely.
    */
-  static NonNull newUnchecked(T *p) noexcept {
-    XPP_DEBUG_ASSERT(p != nullptr, "NonNull::newUnchecked: pointer is null");
+  static NonNull new_unchecked(T *p) noexcept {
+    XPP_DEBUG_ASSERT(p != nullptr, "NonNull::new_unchecked: pointer is null");
     return NonNull(p, _PrivateTag{});
   }
 
@@ -165,10 +165,10 @@ public:
   }
   ~Option() = default;
 
-  bool isSome() const noexcept {
+  bool is_some() const noexcept {
     return m_ptr != nullptr;
   }
-  bool isNone() const noexcept {
+  bool is_none() const noexcept {
     return m_ptr == nullptr;
   }
   explicit operator bool() const noexcept {
@@ -179,32 +179,32 @@ public:
 
   NonNull<T> unwrap() const & {
     XPP_ASSERT(m_ptr != nullptr, "unwrap() on None Option");
-    return NonNull<T>::newUnchecked(m_ptr);
+    return NonNull<T>::new_unchecked(m_ptr);
   }
   NonNull<T> unwrap() && {
     XPP_ASSERT(m_ptr != nullptr, "unwrap() on None Option");
-    NonNull<T> r = NonNull<T>::newUnchecked(m_ptr);
+    NonNull<T> r = NonNull<T>::new_unchecked(m_ptr);
     m_ptr        = nullptr;
     return r;
   }
 
-  NonNull<T> unwrapUnchecked() const & noexcept {
+  NonNull<T> unwrap_unchecked() const & noexcept {
     XPP_DEBUG_ASSERT(m_ptr != nullptr, "internal: Option must be Some");
-    return NonNull<T>::newUnchecked(m_ptr);
+    return NonNull<T>::new_unchecked(m_ptr);
   }
-  NonNull<T> unwrapUnchecked() && noexcept {
+  NonNull<T> unwrap_unchecked() && noexcept {
     XPP_DEBUG_ASSERT(m_ptr != nullptr, "internal: Option must be Some");
-    NonNull<T> r = NonNull<T>::newUnchecked(m_ptr);
+    NonNull<T> r = NonNull<T>::new_unchecked(m_ptr);
     m_ptr        = nullptr;
     return r;
   }
 
-  NonNull<T> unwrapOr(NonNull<T> fallback) const & noexcept {
-    return m_ptr ? NonNull<T>::newUnchecked(m_ptr) : fallback;
+  NonNull<T> unwrap_or(NonNull<T> fallback) const & noexcept {
+    return m_ptr ? NonNull<T>::new_unchecked(m_ptr) : fallback;
   }
-  NonNull<T> unwrapOr(NonNull<T> fallback) && noexcept {
+  NonNull<T> unwrap_or(NonNull<T> fallback) && noexcept {
     if (m_ptr) {
-      NonNull<T> r = NonNull<T>::newUnchecked(m_ptr);
+      NonNull<T> r = NonNull<T>::new_unchecked(m_ptr);
       m_ptr        = nullptr;
       return r;
     }
@@ -219,11 +219,11 @@ public:
 
   NonNull<T> expect(const char *msg) const & {
     XPP_ASSERT(m_ptr != nullptr, "expect: %s", msg);
-    return NonNull<T>::newUnchecked(m_ptr);
+    return NonNull<T>::new_unchecked(m_ptr);
   }
   NonNull<T> expect(const char *msg) && {
     XPP_ASSERT(m_ptr != nullptr, "expect: %s", msg);
-    NonNull<T> r = NonNull<T>::newUnchecked(m_ptr);
+    NonNull<T> r = NonNull<T>::new_unchecked(m_ptr);
     m_ptr        = nullptr;
     return r;
   }
@@ -233,33 +233,33 @@ public:
   template <class Func>
   auto map(Func &&fn) const & -> Option<decltype(fn(std::declval<NonNull<T>>()))> {
     using U = decltype(fn(std::declval<NonNull<T>>()));
-    return m_ptr ? Option<U>(fn(NonNull<T>::newUnchecked(m_ptr))) : Option<U>(none);
+    return m_ptr ? Option<U>(fn(NonNull<T>::new_unchecked(m_ptr))) : Option<U>(none);
   }
   template <class Func> auto map(Func &&fn) && -> Option<decltype(fn(std::declval<NonNull<T>>()))> {
     using U = decltype(fn(std::declval<NonNull<T>>()));
     if (!m_ptr) return Option<U>(none);
-    NonNull<T> p = NonNull<T>::newUnchecked(m_ptr);
+    NonNull<T> p = NonNull<T>::new_unchecked(m_ptr);
     m_ptr        = nullptr;
     return Option<U>(fn(p));
   }
 
   template <class Func>
-  auto andThen(Func &&fn) const & -> decltype(fn(std::declval<NonNull<T>>())) {
+  auto and_then(Func &&fn) const & -> decltype(fn(std::declval<NonNull<T>>())) {
     using R = decltype(fn(std::declval<NonNull<T>>()));
-    return m_ptr ? fn(NonNull<T>::newUnchecked(m_ptr)) : R(none);
+    return m_ptr ? fn(NonNull<T>::new_unchecked(m_ptr)) : R(none);
   }
-  template <class Func> auto andThen(Func &&fn) && -> decltype(fn(std::declval<NonNull<T>>())) {
+  template <class Func> auto and_then(Func &&fn) && -> decltype(fn(std::declval<NonNull<T>>())) {
     using R = decltype(fn(std::declval<NonNull<T>>()));
     if (!m_ptr) return R(none);
-    NonNull<T> p = NonNull<T>::newUnchecked(m_ptr);
+    NonNull<T> p = NonNull<T>::new_unchecked(m_ptr);
     m_ptr        = nullptr;
     return fn(p);
   }
 
-  template <class Func> Option orElse(Func &&fn) const & {
+  template <class Func> Option or_else(Func &&fn) const & {
     return m_ptr ? *this : fn();
   }
-  template <class Func> Option orElse(Func &&fn) && {
+  template <class Func> Option or_else(Func &&fn) && {
     if (m_ptr) {
       Option r = *this;
       m_ptr    = nullptr;
@@ -268,9 +268,9 @@ public:
     return fn();
   }
 
-  template <class Func> NonNull<T> unwrapOrElse(Func &&fn) && {
+  template <class Func> NonNull<T> unwrap_or_else(Func &&fn) && {
     if (m_ptr) {
-      NonNull<T> r = NonNull<T>::newUnchecked(m_ptr);
+      NonNull<T> r = NonNull<T>::new_unchecked(m_ptr);
       m_ptr        = nullptr;
       return r;
     }
@@ -278,7 +278,7 @@ public:
   }
 
   template <class Func> Option filter(Func &&pred) && {
-    if (m_ptr && pred(NonNull<T>::newUnchecked(m_ptr))) {
+    if (m_ptr && pred(NonNull<T>::new_unchecked(m_ptr))) {
       Option r = *this;
       m_ptr    = nullptr;
       return r;
@@ -288,15 +288,15 @@ public:
   }
 
   template <class Func> Option &inspect(Func &&fn) & {
-    if (m_ptr) fn(NonNull<T>::newUnchecked(m_ptr));
+    if (m_ptr) fn(NonNull<T>::new_unchecked(m_ptr));
     return *this;
   }
   template <class Func> const Option &inspect(Func &&fn) const & {
-    if (m_ptr) fn(NonNull<T>::newUnchecked(m_ptr));
+    if (m_ptr) fn(NonNull<T>::new_unchecked(m_ptr));
     return *this;
   }
   template <class Func> Option inspect(Func &&fn) && {
-    if (m_ptr) fn(NonNull<T>::newUnchecked(m_ptr));
+    if (m_ptr) fn(NonNull<T>::new_unchecked(m_ptr));
     return std::move(*this);
   }
 

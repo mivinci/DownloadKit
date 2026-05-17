@@ -6,7 +6,7 @@
  * result.h - Result<T, E>: a value or an error (like std::expected).
  *
  * No empty state — a Result is always Ok or Err.
- * Misuse (unwrap on Err, unwrapErr on Ok) panics via xbase/log.
+ * Misuse (unwrap on Err, unwrap_err on Ok) panics via xbase/log.
  * C++11-compatible.
  */
 
@@ -70,12 +70,12 @@ public:
   Result(Err, E &&e) : m_data(InPlaceIndex<1>{}, std::move(e)) {}
 
   /** True if this holds an Ok value. */
-  bool isOk() const noexcept {
+  bool is_ok() const noexcept {
     return m_data.index() == 0;
   }
 
   /** True if this holds an Err value. */
-  bool isErr() const noexcept {
+  bool is_err() const noexcept {
     return m_data.index() == 1;
   }
 
@@ -83,44 +83,44 @@ public:
    * @brief Get the Ok value, aborting if Err.
    *
    * Like Rust's Result::unwrap(): always checks, even in release builds.
-   * For zero-cost access when the caller guarantees Ok, use unwrapUnchecked().
+   * For zero-cost access when the caller guarantees Ok, use unwrap_unchecked().
    *
    * @return Reference to the held value.
    */
   T &unwrap() & {
-    XPP_ASSERT(isOk(), "unwrap() on Err Result");
-    return m_data.template getUnchecked<0>();
+    XPP_ASSERT(is_ok(), "unwrap() on Err Result");
+    return m_data.template get_unchecked<0>();
   }
 
   const T &unwrap() const & {
-    XPP_ASSERT(isOk(), "unwrap() on Err Result");
-    return m_data.template getUnchecked<0>();
+    XPP_ASSERT(is_ok(), "unwrap() on Err Result");
+    return m_data.template get_unchecked<0>();
   }
 
   T &&unwrap() && {
-    XPP_ASSERT(isOk(), "unwrap() on Err Result");
-    return std::move(m_data.template getUnchecked<0>());
+    XPP_ASSERT(is_ok(), "unwrap() on Err Result");
+    return std::move(m_data.template get_unchecked<0>());
   }
 
   /**
-   * @brief Get the Ok value without checking. UB if isErr().
+   * @brief Get the Ok value without checking. UB if is_err().
    *
    * Like Rust's Result::unwrap_unchecked(). Debug builds assert; release
-   * builds elide the check. Caller must ensure isOk().
+   * builds elide the check. Caller must ensure is_ok().
    */
-  T &unwrapUnchecked() & noexcept {
-    XPP_DEBUG_ASSERT(isOk(), "internal: Result must be Ok");
-    return m_data.template getUnchecked<0>();
+  T &unwrap_unchecked() & noexcept {
+    XPP_DEBUG_ASSERT(is_ok(), "internal: Result must be Ok");
+    return m_data.template get_unchecked<0>();
   }
 
-  const T &unwrapUnchecked() const & noexcept {
-    XPP_DEBUG_ASSERT(isOk(), "internal: Result must be Ok");
-    return m_data.template getUnchecked<0>();
+  const T &unwrap_unchecked() const & noexcept {
+    XPP_DEBUG_ASSERT(is_ok(), "internal: Result must be Ok");
+    return m_data.template get_unchecked<0>();
   }
 
-  T &&unwrapUnchecked() && noexcept {
-    XPP_DEBUG_ASSERT(isOk(), "internal: Result must be Ok");
-    return std::move(m_data.template getUnchecked<0>());
+  T &&unwrap_unchecked() && noexcept {
+    XPP_DEBUG_ASSERT(is_ok(), "internal: Result must be Ok");
+    return std::move(m_data.template get_unchecked<0>());
   }
 
   /**
@@ -128,39 +128,39 @@ public:
    *
    * Like Rust's Result::unwrap_err().
    */
-  E &unwrapErr() & {
-    XPP_ASSERT(isErr(), "unwrapErr() on Ok Result");
-    return m_data.template getUnchecked<1>();
+  E &unwrap_err() & {
+    XPP_ASSERT(is_err(), "unwrap_err() on Ok Result");
+    return m_data.template get_unchecked<1>();
   }
 
-  const E &unwrapErr() const & {
-    XPP_ASSERT(isErr(), "unwrapErr() on Ok Result");
-    return m_data.template getUnchecked<1>();
+  const E &unwrap_err() const & {
+    XPP_ASSERT(is_err(), "unwrap_err() on Ok Result");
+    return m_data.template get_unchecked<1>();
   }
 
-  E &&unwrapErr() && {
-    XPP_ASSERT(isErr(), "unwrapErr() on Ok Result");
-    return std::move(m_data.template getUnchecked<1>());
+  E &&unwrap_err() && {
+    XPP_ASSERT(is_err(), "unwrap_err() on Ok Result");
+    return std::move(m_data.template get_unchecked<1>());
   }
 
   /**
-   * @brief Get the Err value without checking. UB if isOk().
+   * @brief Get the Err value without checking. UB if is_ok().
    *
    * Like Rust's Result::unwrap_err_unchecked().
    */
-  E &unwrapErrUnchecked() & noexcept {
-    XPP_DEBUG_ASSERT(isErr(), "internal: Result must be Err");
-    return m_data.template getUnchecked<1>();
+  E &unwrap_err_unchecked() & noexcept {
+    XPP_DEBUG_ASSERT(is_err(), "internal: Result must be Err");
+    return m_data.template get_unchecked<1>();
   }
 
-  const E &unwrapErrUnchecked() const & noexcept {
-    XPP_DEBUG_ASSERT(isErr(), "internal: Result must be Err");
-    return m_data.template getUnchecked<1>();
+  const E &unwrap_err_unchecked() const & noexcept {
+    XPP_DEBUG_ASSERT(is_err(), "internal: Result must be Err");
+    return m_data.template get_unchecked<1>();
   }
 
-  E &&unwrapErrUnchecked() && noexcept {
-    XPP_DEBUG_ASSERT(isErr(), "internal: Result must be Err");
-    return std::move(m_data.template getUnchecked<1>());
+  E &&unwrap_err_unchecked() && noexcept {
+    XPP_DEBUG_ASSERT(is_err(), "internal: Result must be Err");
+    return std::move(m_data.template get_unchecked<1>());
   }
 
   /**
@@ -177,7 +177,7 @@ public:
    * @return Option<T> containing the value, or None.
    */
   Option<T> ok() && {
-    return isOk() ? Option<T>(std::move(m_data.template getUnchecked<0>())) : Option<T>(none);
+    return is_ok() ? Option<T>(std::move(m_data.template get_unchecked<0>())) : Option<T>(none);
   }
 
   /**
@@ -189,7 +189,7 @@ public:
    * @return Option<E> containing the error, or None.
    */
   Option<E> err() && {
-    return isErr() ? Option<E>(std::move(m_data.template getUnchecked<1>())) : Option<E>(none);
+    return is_err() ? Option<E>(std::move(m_data.template get_unchecked<1>())) : Option<E>(none);
   }
 
   /**
@@ -197,36 +197,36 @@ public:
    * @param fallback  Value to return if Err.
    * @return          Reference to the value, or @p fallback.
    */
-  const T &unwrapOr(const T &fallback) const & {
-    return isOk() ? unwrapUnchecked() : fallback;
+  const T &unwrap_or(const T &fallback) const & {
+    return is_ok() ? unwrap_unchecked() : fallback;
   }
 
-  T unwrapOr(T &&fallback) && {
-    return isOk() ? std::move(unwrapUnchecked()) : std::move(fallback);
+  T unwrap_or(T &&fallback) && {
+    return is_ok() ? std::move(unwrap_unchecked()) : std::move(fallback);
   }
 
-  /** Dereference: returns the Ok value. UB if isErr(). */
+  /** Dereference: returns the Ok value. UB if is_err(). */
   T &operator*() & {
-    return unwrapUnchecked();
+    return unwrap_unchecked();
   }
   const T &operator*() const & {
-    return unwrapUnchecked();
+    return unwrap_unchecked();
   }
   T &&operator*() && {
-    return std::move(unwrapUnchecked());
+    return std::move(unwrap_unchecked());
   }
 
-  /** Arrow access to the Ok value. UB if isErr(). */
+  /** Arrow access to the Ok value. UB if is_err(). */
   T *operator->() {
-    return &unwrapUnchecked();
+    return &unwrap_unchecked();
   }
   const T *operator->() const {
-    return &unwrapUnchecked();
+    return &unwrap_unchecked();
   }
 
   /** Bool conversion: true if Ok. */
   explicit operator bool() const noexcept {
-    return isOk();
+    return is_ok();
   }
 
   /**
@@ -238,14 +238,14 @@ public:
   template <class Func>
   auto map(Func &&fn) const & -> Result<decltype(fn(std::declval<const T &>())), E> {
     using U = decltype(fn(std::declval<const T &>()));
-    return isOk() ? Result<U, E>(xpp::ok, fn(unwrapUnchecked()))
-                  : Result<U, E>(xpp::err, unwrapErrUnchecked());
+    return is_ok() ? Result<U, E>(xpp::ok, fn(unwrap_unchecked()))
+                  : Result<U, E>(xpp::err, unwrap_err_unchecked());
   }
 
   template <class Func> auto map(Func &&fn) && -> Result<decltype(fn(std::declval<T &&>())), E> {
     using U = decltype(fn(std::declval<T &&>()));
-    return isOk() ? Result<U, E>(xpp::ok, fn(std::move(unwrapUnchecked())))
-                  : Result<U, E>(xpp::err, std::move(unwrapErrUnchecked()));
+    return is_ok() ? Result<U, E>(xpp::ok, fn(std::move(unwrap_unchecked())))
+                  : Result<U, E>(xpp::err, std::move(unwrap_err_unchecked()));
   }
 
   /**
@@ -265,11 +265,11 @@ public:
   template <class U = T, typename = typename std::enable_if<_::is_option<U>::value>::type>
   Option<Result<typename U::value_type, E>> transpose() && {
     using Inner = typename U::value_type;
-    if (isErr()) {
-      return Some(Result<Inner, E>(xpp::err, std::move(*this).unwrapErr()));
+    if (is_err()) {
+      return Some(Result<Inner, E>(xpp::err, std::move(*this).unwrap_err()));
     }
     Option<Inner> inner = std::move(*this).unwrap();
-    if (inner.isNone()) return none;
+    if (inner.is_none()) return none;
     return Some(Result<Inner, E>(xpp::ok, std::move(inner).unwrap()));
   }
 
@@ -279,16 +279,16 @@ public:
    * Like Rust's Result::expect.
    */
   T &expect(const char *msg) & {
-    XPP_ASSERT(isOk(), "expect: %s", msg);
-    return m_data.template getUnchecked<0>();
+    XPP_ASSERT(is_ok(), "expect: %s", msg);
+    return m_data.template get_unchecked<0>();
   }
   const T &expect(const char *msg) const & {
-    XPP_ASSERT(isOk(), "expect: %s", msg);
-    return m_data.template getUnchecked<0>();
+    XPP_ASSERT(is_ok(), "expect: %s", msg);
+    return m_data.template get_unchecked<0>();
   }
   T &&expect(const char *msg) && {
-    XPP_ASSERT(isOk(), "expect: %s", msg);
-    return std::move(m_data.template getUnchecked<0>());
+    XPP_ASSERT(is_ok(), "expect: %s", msg);
+    return std::move(m_data.template get_unchecked<0>());
   }
 
   /**
@@ -296,17 +296,17 @@ public:
    *
    * Like Rust's Result::expect_err.
    */
-  E &expectErr(const char *msg) & {
-    XPP_ASSERT(isErr(), "expectErr: %s", msg);
-    return m_data.template getUnchecked<1>();
+  E &expect_err(const char *msg) & {
+    XPP_ASSERT(is_err(), "expect_err: %s", msg);
+    return m_data.template get_unchecked<1>();
   }
-  const E &expectErr(const char *msg) const & {
-    XPP_ASSERT(isErr(), "expectErr: %s", msg);
-    return m_data.template getUnchecked<1>();
+  const E &expect_err(const char *msg) const & {
+    XPP_ASSERT(is_err(), "expect_err: %s", msg);
+    return m_data.template get_unchecked<1>();
   }
-  E &&expectErr(const char *msg) && {
-    XPP_ASSERT(isErr(), "expectErr: %s", msg);
-    return std::move(m_data.template getUnchecked<1>());
+  E &&expect_err(const char *msg) && {
+    XPP_ASSERT(is_err(), "expect_err: %s", msg);
+    return std::move(m_data.template get_unchecked<1>());
   }
 
   /**
@@ -315,16 +315,16 @@ public:
    * Mirrors Rust's Result::map_err.
    */
   template <class Func>
-  auto mapErr(Func &&fn) const & -> Result<T, decltype(fn(std::declval<const E &>()))> {
+  auto map_err(Func &&fn) const & -> Result<T, decltype(fn(std::declval<const E &>()))> {
     using F = decltype(fn(std::declval<const E &>()));
-    return isOk() ? Result<T, F>(xpp::ok, unwrapUnchecked())
-                  : Result<T, F>(xpp::err, fn(unwrapErrUnchecked()));
+    return is_ok() ? Result<T, F>(xpp::ok, unwrap_unchecked())
+                  : Result<T, F>(xpp::err, fn(unwrap_err_unchecked()));
   }
   template <class Func>
-  auto mapErr(Func &&fn) && -> Result<T, decltype(fn(std::declval<E &&>()))> {
+  auto map_err(Func &&fn) && -> Result<T, decltype(fn(std::declval<E &&>()))> {
     using F = decltype(fn(std::declval<E &&>()));
-    return isOk() ? Result<T, F>(xpp::ok, std::move(unwrapUnchecked()))
-                  : Result<T, F>(xpp::err, fn(std::move(unwrapErrUnchecked())));
+    return is_ok() ? Result<T, F>(xpp::ok, std::move(unwrap_unchecked()))
+                  : Result<T, F>(xpp::err, fn(std::move(unwrap_err_unchecked())));
   }
 
   /**
@@ -333,13 +333,13 @@ public:
    * Mirrors Rust's Result::and_then. fn must return some Result<U, E>.
    */
   template <class Func>
-  auto andThen(Func &&fn) const & -> decltype(fn(std::declval<const T &>())) {
+  auto and_then(Func &&fn) const & -> decltype(fn(std::declval<const T &>())) {
     using R = decltype(fn(std::declval<const T &>()));
-    return isOk() ? fn(unwrapUnchecked()) : R(xpp::err, unwrapErrUnchecked());
+    return is_ok() ? fn(unwrap_unchecked()) : R(xpp::err, unwrap_err_unchecked());
   }
-  template <class Func> auto andThen(Func &&fn) && -> decltype(fn(std::declval<T &&>())) {
+  template <class Func> auto and_then(Func &&fn) && -> decltype(fn(std::declval<T &&>())) {
     using R = decltype(fn(std::declval<T &&>()));
-    return isOk() ? fn(std::move(unwrapUnchecked())) : R(xpp::err, std::move(unwrapErrUnchecked()));
+    return is_ok() ? fn(std::move(unwrap_unchecked())) : R(xpp::err, std::move(unwrap_err_unchecked()));
   }
 
   /**
@@ -348,13 +348,13 @@ public:
    * Mirrors Rust's Result::or_else.
    */
   template <class Func>
-  auto orElse(Func &&fn) const & -> decltype(fn(std::declval<const E &>())) {
+  auto or_else(Func &&fn) const & -> decltype(fn(std::declval<const E &>())) {
     using R = decltype(fn(std::declval<const E &>()));
-    return isOk() ? R(xpp::ok, unwrapUnchecked()) : fn(unwrapErrUnchecked());
+    return is_ok() ? R(xpp::ok, unwrap_unchecked()) : fn(unwrap_err_unchecked());
   }
-  template <class Func> auto orElse(Func &&fn) && -> decltype(fn(std::declval<E &&>())) {
+  template <class Func> auto or_else(Func &&fn) && -> decltype(fn(std::declval<E &&>())) {
     using R = decltype(fn(std::declval<E &&>()));
-    return isOk() ? R(xpp::ok, std::move(unwrapUnchecked())) : fn(std::move(unwrapErrUnchecked()));
+    return is_ok() ? R(xpp::ok, std::move(unwrap_unchecked())) : fn(std::move(unwrap_err_unchecked()));
   }
 
   /**
@@ -362,8 +362,8 @@ public:
    *
    * Mirrors Rust's Result::unwrap_or_else. Consuming overload only.
    */
-  template <class Func> T unwrapOrElse(Func &&fn) && {
-    return isOk() ? std::move(unwrapUnchecked()) : fn(std::move(unwrapErrUnchecked()));
+  template <class Func> T unwrap_or_else(Func &&fn) && {
+    return is_ok() ? std::move(unwrap_unchecked()) : fn(std::move(unwrap_err_unchecked()));
   }
 
   /**
@@ -372,15 +372,15 @@ public:
    * Mirrors Rust's Result::inspect.
    */
   template <class Func> Result &inspect(Func &&fn) & {
-    if (isOk()) fn(unwrapUnchecked());
+    if (is_ok()) fn(unwrap_unchecked());
     return *this;
   }
   template <class Func> const Result &inspect(Func &&fn) const & {
-    if (isOk()) fn(unwrapUnchecked());
+    if (is_ok()) fn(unwrap_unchecked());
     return *this;
   }
   template <class Func> Result inspect(Func &&fn) && {
-    if (isOk()) fn(unwrapUnchecked());
+    if (is_ok()) fn(unwrap_unchecked());
     return std::move(*this);
   }
 
@@ -389,16 +389,16 @@ public:
    *
    * Mirrors Rust's Result::inspect_err.
    */
-  template <class Func> Result &inspectErr(Func &&fn) & {
-    if (isErr()) fn(unwrapErrUnchecked());
+  template <class Func> Result &inspect_err(Func &&fn) & {
+    if (is_err()) fn(unwrap_err_unchecked());
     return *this;
   }
-  template <class Func> const Result &inspectErr(Func &&fn) const & {
-    if (isErr()) fn(unwrapErrUnchecked());
+  template <class Func> const Result &inspect_err(Func &&fn) const & {
+    if (is_err()) fn(unwrap_err_unchecked());
     return *this;
   }
-  template <class Func> Result inspectErr(Func &&fn) && {
-    if (isErr()) fn(unwrapErrUnchecked());
+  template <class Func> Result inspect_err(Func &&fn) && {
+    if (is_err()) fn(unwrap_err_unchecked());
     return std::move(*this);
   }
 
@@ -420,10 +420,10 @@ public:
   Result(Err, const E &e) : m_data(e) {}
   Result(Err, E &&e) : m_data(std::move(e)) {}
 
-  bool isOk() const noexcept {
+  bool is_ok() const noexcept {
     return m_data.template is<OkSentinel>();
   }
-  bool isErr() const noexcept {
+  bool is_err() const noexcept {
     return m_data.template is<E>();
   }
 
@@ -431,37 +431,37 @@ public:
    * @brief Get the Err value, aborting if Ok.
    * @return Reference to the held error.
    */
-  E &unwrapErr() & {
-    XPP_ASSERT(isErr(), "unwrapErr() on Ok Result");
-    return m_data.template getUnchecked<1>();
+  E &unwrap_err() & {
+    XPP_ASSERT(is_err(), "unwrap_err() on Ok Result");
+    return m_data.template get_unchecked<1>();
   }
 
-  const E &unwrapErr() const & {
-    XPP_ASSERT(isErr(), "unwrapErr() on Ok Result");
-    return m_data.template getUnchecked<1>();
+  const E &unwrap_err() const & {
+    XPP_ASSERT(is_err(), "unwrap_err() on Ok Result");
+    return m_data.template get_unchecked<1>();
   }
 
-  E &&unwrapErr() && {
-    XPP_ASSERT(isErr(), "unwrapErr() on Ok Result");
-    return std::move(m_data.template getUnchecked<1>());
+  E &&unwrap_err() && {
+    XPP_ASSERT(is_err(), "unwrap_err() on Ok Result");
+    return std::move(m_data.template get_unchecked<1>());
   }
 
   /**
-   * @brief Get the Err value without checking. UB if isOk().
+   * @brief Get the Err value without checking. UB if is_ok().
    */
-  E &unwrapErrUnchecked() & noexcept {
-    XPP_DEBUG_ASSERT(isErr(), "internal: Result must be Err");
-    return m_data.template getUnchecked<1>();
+  E &unwrap_err_unchecked() & noexcept {
+    XPP_DEBUG_ASSERT(is_err(), "internal: Result must be Err");
+    return m_data.template get_unchecked<1>();
   }
 
-  const E &unwrapErrUnchecked() const & noexcept {
-    XPP_DEBUG_ASSERT(isErr(), "internal: Result must be Err");
-    return m_data.template getUnchecked<1>();
+  const E &unwrap_err_unchecked() const & noexcept {
+    XPP_DEBUG_ASSERT(is_err(), "internal: Result must be Err");
+    return m_data.template get_unchecked<1>();
   }
 
-  E &&unwrapErrUnchecked() && noexcept {
-    XPP_DEBUG_ASSERT(isErr(), "internal: Result must be Err");
-    return std::move(m_data.template getUnchecked<1>());
+  E &&unwrap_err_unchecked() && noexcept {
+    XPP_DEBUG_ASSERT(is_err(), "internal: Result must be Err");
+    return std::move(m_data.template get_unchecked<1>());
   }
 
   /**
@@ -477,72 +477,72 @@ public:
    * @return Option<E> containing the error, or None.
    */
   Option<E> err() && {
-    return isErr() ? Option<E>(std::move(m_data.template getUnchecked<1>())) : Option<E>(none);
+    return is_err() ? Option<E>(std::move(m_data.template get_unchecked<1>())) : Option<E>(none);
   }
 
   explicit operator bool() const noexcept {
-    return isOk();
+    return is_ok();
   }
 
   /** Like Rust's Result::expect_err. */
-  E &expectErr(const char *msg) & {
-    XPP_ASSERT(isErr(), "expectErr: %s", msg);
-    return m_data.template getUnchecked<1>();
+  E &expect_err(const char *msg) & {
+    XPP_ASSERT(is_err(), "expect_err: %s", msg);
+    return m_data.template get_unchecked<1>();
   }
-  const E &expectErr(const char *msg) const & {
-    XPP_ASSERT(isErr(), "expectErr: %s", msg);
-    return m_data.template getUnchecked<1>();
+  const E &expect_err(const char *msg) const & {
+    XPP_ASSERT(is_err(), "expect_err: %s", msg);
+    return m_data.template get_unchecked<1>();
   }
-  E &&expectErr(const char *msg) && {
-    XPP_ASSERT(isErr(), "expectErr: %s", msg);
-    return std::move(m_data.template getUnchecked<1>());
+  E &&expect_err(const char *msg) && {
+    XPP_ASSERT(is_err(), "expect_err: %s", msg);
+    return std::move(m_data.template get_unchecked<1>());
   }
 
   /** Map E -> F. */
   template <class Func>
-  auto mapErr(Func &&fn) const & -> Result<void, decltype(fn(std::declval<const E &>()))> {
+  auto map_err(Func &&fn) const & -> Result<void, decltype(fn(std::declval<const E &>()))> {
     using F = decltype(fn(std::declval<const E &>()));
-    return isOk() ? Result<void, F>(xpp::ok) : Result<void, F>(xpp::err, fn(unwrapErrUnchecked()));
+    return is_ok() ? Result<void, F>(xpp::ok) : Result<void, F>(xpp::err, fn(unwrap_err_unchecked()));
   }
   template <class Func>
-  auto mapErr(Func &&fn) && -> Result<void, decltype(fn(std::declval<E &&>()))> {
+  auto map_err(Func &&fn) && -> Result<void, decltype(fn(std::declval<E &&>()))> {
     using F = decltype(fn(std::declval<E &&>()));
-    return isOk() ? Result<void, F>(xpp::ok)
-                  : Result<void, F>(xpp::err, fn(std::move(unwrapErrUnchecked())));
+    return is_ok() ? Result<void, F>(xpp::ok)
+                  : Result<void, F>(xpp::err, fn(std::move(unwrap_err_unchecked())));
   }
 
   /** Monadic bind: fn takes no args and returns Result<U, E>. */
-  template <class Func> auto andThen(Func &&fn) const & -> decltype(fn()) {
+  template <class Func> auto and_then(Func &&fn) const & -> decltype(fn()) {
     using R = decltype(fn());
-    return isOk() ? fn() : R(xpp::err, unwrapErrUnchecked());
+    return is_ok() ? fn() : R(xpp::err, unwrap_err_unchecked());
   }
-  template <class Func> auto andThen(Func &&fn) && -> decltype(fn()) {
+  template <class Func> auto and_then(Func &&fn) && -> decltype(fn()) {
     using R = decltype(fn());
-    return isOk() ? fn() : R(xpp::err, std::move(unwrapErrUnchecked()));
+    return is_ok() ? fn() : R(xpp::err, std::move(unwrap_err_unchecked()));
   }
 
   /** If Err, recover via fn(err) -> Result<void, F>. */
   template <class Func>
-  auto orElse(Func &&fn) const & -> decltype(fn(std::declval<const E &>())) {
+  auto or_else(Func &&fn) const & -> decltype(fn(std::declval<const E &>())) {
     using R = decltype(fn(std::declval<const E &>()));
-    return isOk() ? R(xpp::ok) : fn(unwrapErrUnchecked());
+    return is_ok() ? R(xpp::ok) : fn(unwrap_err_unchecked());
   }
-  template <class Func> auto orElse(Func &&fn) && -> decltype(fn(std::declval<E &&>())) {
+  template <class Func> auto or_else(Func &&fn) && -> decltype(fn(std::declval<E &&>())) {
     using R = decltype(fn(std::declval<E &&>()));
-    return isOk() ? R(xpp::ok) : fn(std::move(unwrapErrUnchecked()));
+    return is_ok() ? R(xpp::ok) : fn(std::move(unwrap_err_unchecked()));
   }
 
   /** Chainable side-effect on Err. */
-  template <class Func> Result &inspectErr(Func &&fn) & {
-    if (isErr()) fn(unwrapErrUnchecked());
+  template <class Func> Result &inspect_err(Func &&fn) & {
+    if (is_err()) fn(unwrap_err_unchecked());
     return *this;
   }
-  template <class Func> const Result &inspectErr(Func &&fn) const & {
-    if (isErr()) fn(unwrapErrUnchecked());
+  template <class Func> const Result &inspect_err(Func &&fn) const & {
+    if (is_err()) fn(unwrap_err_unchecked());
     return *this;
   }
-  template <class Func> Result inspectErr(Func &&fn) && {
-    if (isErr()) fn(unwrapErrUnchecked());
+  template <class Func> Result inspect_err(Func &&fn) && {
+    if (is_err()) fn(unwrap_err_unchecked());
     return std::move(*this);
   }
 
@@ -550,18 +550,18 @@ private:
   Variant<OkSentinel, E> m_data;
 };
 
-/* ── Option::okOr / okOrElse: out-of-line because they depend on Result. ── */
+/* ── Option::ok_or / ok_or_else: out-of-line because they depend on Result. ── */
 
-template <class T> template <class E> Result<T, E> Option<T>::okOr(E e) && {
-  return m_hasValue ? Result<T, E>(xpp::ok, std::move(unwrapUnchecked()))
+template <class T> template <class E> Result<T, E> Option<T>::ok_or(E e) && {
+  return m_has_value ? Result<T, E>(xpp::ok, std::move(unwrap_unchecked()))
                     : Result<T, E>(xpp::err, std::move(e));
 }
 
 template <class T>
 template <class Func>
-auto Option<T>::okOrElse(Func &&fn) && -> Result<T, decltype(fn())> {
+auto Option<T>::ok_or_else(Func &&fn) && -> Result<T, decltype(fn())> {
   using E = decltype(fn());
-  return m_hasValue ? Result<T, E>(xpp::ok, std::move(unwrapUnchecked()))
+  return m_has_value ? Result<T, E>(xpp::ok, std::move(unwrap_unchecked()))
                     : Result<T, E>(xpp::err, fn());
 }
 

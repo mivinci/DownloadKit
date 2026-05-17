@@ -32,6 +32,8 @@ xpp/
                  # Option<Rc<T>>         — niche-optimised to sizeof(T*)
   weak.h         # Weak<T>               — non-owning observer of an Rc
   arc.h          # Arc<T> / ArcWeak<T>   — atomic, thread-safe counterparts
+  mutex.h        # Mutex<T> / MutexGuard<T> — data + lock fusion
+  cond.h         # Condvar                  — condition variable companion
   panic.h        # XPP_PANIC / XPP_ASSERT — bug-trap, not error path
   handle.h       # CRTP base for opaque-handle RAII wrappers
   compiler.h     # portable attribute / intrinsic macros
@@ -62,6 +64,16 @@ xpp/
   CAS-loop upgrade for cross-thread soundness. Worked examples in
   the header docstrings of `xpp/weak.h` (parent ⇄ child tree) and
   `xpp/arc.h` (thread-safe publisher / subscriber).
+- **Data + lock fusion.** `Mutex<T>` (in `xpp/mutex.h`) wraps the T
+  it protects with the lock that protects it; the only way to
+  touch the data is through a `MutexGuard<T>` returned by `lock()`
+  / `try_lock()`. The compiler-enforced "you can't reach the value
+  without taking the lock" matches Rust's `std::sync::Mutex<T>`.
+  `Condvar` (in `xpp/cond.h`) is the companion condition
+  variable, split into its own header the way Rust splits
+  `std::sync::Mutex` and `std::sync::Condvar`. `wait(guard)`
+  atomically releases the lock + sleeps + re-acquires, matching
+  Rust's `Condvar::wait`.
 - **Type-level non-null.** `NonNull<T>` and `NonNullOwn<T>` make
   "this pointer is not null" a compile-time fact. The same idea
   applies to `Rc<T>` / `Arc<T>`: each always points at a live T
@@ -76,8 +88,8 @@ xpp/
   `static_assert` in each header.
 - **Errors are values.** `Result<T, E>` is the recoverable-error
   channel — no exceptions, no `errno`. Combinators read like Rust:
-  `map`, `mapErr`, `andThen`, `orElse`, `inspect`, `transpose`,
-  `unwrap`, `unwrapOr`, `unwrapErr`, `okOr`, `take`. Pattern-matching
+  `map`, `map_err`, `and_then`, `or_else`, `inspect`, `transpose`,
+  `unwrap`, `unwrap_or`, `unwrap_err`, `ok_or`, `take`. Pattern-matching
   on `Variant<Ts...>` is the closest C++11 gets to `match`. `Error`
   in `xpp/error.h` is the canonical error type — a thin newtype
   over an int-like code that lets you bridge any foreign-API
@@ -92,7 +104,7 @@ xpp/
   and `sizeof(NonNullOwn<T>) == sizeof(T*)` for the default deleter.
   `sizeof(Rc<T>) == sizeof(Arc<T>) == sizeof(Weak<T>) ==
   sizeof(ArcWeak<T>) == sizeof(T*)` too — single heap allocation per
-  `makeRc`/`makeArc`, control block (strong + weak counts) co-located
+  `make_rc`/`make_arc`, control block (strong + weak counts) co-located
   with T, no separate control block like `std::shared_ptr`.
 
 ## What doesn't translate
@@ -148,15 +160,15 @@ Namespace is `xpp`. Headers are scoped:
 
 Method names lean Rust:
 
-| Operation              | libx++                              | Rust                          |
-|------------------------|-------------------------------------|-------------------------------|
-| Construct in place     | `makeRc<T>(args...)`                | `Rc::new(T::new(...))`        |
-| Explicit +1            | `r.clone()` / `Rc<T>::clone(&r)`    | `r.clone()` / `Rc::clone(&r)` |
-| Strong count           | `r.strongCount()`                   | `Rc::strong_count(&r)`        |
-| Weak count             | `r.weakCount()`                     | `Rc::weak_count(&r)`          |
-| Downgrade to Weak      | `Rc<T>::downgrade(r)`               | `Rc::downgrade(&r)`           |
+| Operation              | libx++                              | Rust                            |
+|------------------------|-------------------------------------|---------------------------------|
+| Construct in place     | `make_rc<T>(args...)`                | `Rc::new(T::new(...))`          |
+| Explicit +1            | `r.clone()` / `Rc<T>::clone(&r)`    | `r.clone()` / `Rc::clone(&r)`   |
+| Strong count           | `r.strong_count()`                   | `Rc::strong_count(&r)`          |
+| Weak count             | `r.weak_count()`                     | `Rc::weak_count(&r)`            |
+| Downgrade to Weak      | `Rc<T>::downgrade(r)`               | `Rc::downgrade(&r)`             |
 | Upgrade from Weak      | `w.upgrade()` → `Option<Rc<T>>`     | `w.upgrade()` → `Option<Rc<T>>` |
-| Result combinators     | `.map / .mapErr / .andThen / .orElse / .unwrap / .unwrapOr` | identical |
+| Result combinators     | `.map / .map_err / .and_then / .or_else / .unwrap / .unwrap_or` | identical |
 
 Where the C++ standard library has a strongly-settled spelling
 (`r.get()` for the raw pointer, copy ctor for the common

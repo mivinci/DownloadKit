@@ -52,7 +52,7 @@ TEST(NonNullTest, ConstructFromReference) {
 
 TEST(NonNullTest, NewUncheckedHappyPath) {
   int  x = 7;
-  auto p = xpp::NonNull<int>::newUnchecked(&x);
+  auto p = xpp::NonNull<int>::new_unchecked(&x);
   EXPECT_EQ(p.get(), &x);
   EXPECT_EQ(*p, 7);
 }
@@ -60,22 +60,22 @@ TEST(NonNullTest, NewUncheckedHappyPath) {
 #ifndef NDEBUG
 TEST(NonNullDeathTest, NewUncheckedOnNullDebug) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
-  EXPECT_DEATH(([] { (void)xpp::NonNull<int>::newUnchecked(nullptr); }()),
-               "NonNull::newUnchecked: pointer is null");
+  EXPECT_DEATH(([] { (void)xpp::NonNull<int>::new_unchecked(nullptr); }()),
+               "NonNull::new_unchecked: pointer is null");
 }
 #endif
 
 TEST(NonNullTest, FromNonNullReturnsSome) {
   int  x   = 99;
   auto opt = xpp::NonNull<int>::from(&x);
-  EXPECT_TRUE(opt.isSome());
+  EXPECT_TRUE(opt.is_some());
   EXPECT_EQ(opt.unwrap().get(), &x);
 }
 
 TEST(NonNullTest, FromNullptrReturnsNone) {
   int *p   = nullptr;
   auto opt = xpp::NonNull<int>::from(p);
-  EXPECT_TRUE(opt.isNone());
+  EXPECT_TRUE(opt.is_none());
 }
 
 TEST(NonNullTest, ArrowAccessor) {
@@ -100,30 +100,30 @@ TEST(NonNullTest, VoidVariantCompiles) {
   int   x   = 1;
   void *raw = &x;
   auto  opt = xpp::NonNull<void>::from(raw);
-  EXPECT_TRUE(opt.isSome());
+  EXPECT_TRUE(opt.is_some());
   EXPECT_EQ(opt.unwrap().get(), raw);
 
   auto empty = xpp::NonNull<void>::from(nullptr);
-  EXPECT_TRUE(empty.isNone());
+  EXPECT_TRUE(empty.is_none());
 }
 
 /* ── Option<NonNull<T>> construction ─────────────────────────────────── */
 
 TEST(OptionNonNullTest, DefaultIsNone) {
   xpp::Option<xpp::NonNull<int>> o;
-  EXPECT_TRUE(o.isNone());
+  EXPECT_TRUE(o.is_none());
   EXPECT_FALSE(static_cast<bool>(o));
 }
 
 TEST(OptionNonNullTest, NoneTagIsNone) {
   xpp::Option<xpp::NonNull<int>> o(xpp::none);
-  EXPECT_TRUE(o.isNone());
+  EXPECT_TRUE(o.is_none());
 }
 
 TEST(OptionNonNullTest, FromNonNullIsSome) {
   int                            x = 3;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
-  EXPECT_TRUE(o.isSome());
+  EXPECT_TRUE(o.is_some());
   EXPECT_EQ(o.unwrap().get(), &x);
 }
 
@@ -131,18 +131,18 @@ TEST(OptionNonNullTest, MoveCtorClearsSource) {
   int                            x = 5;
   xpp::Option<xpp::NonNull<int>> a(xpp::NonNull<int>{x});
   xpp::Option<xpp::NonNull<int>> b(std::move(a));
-  EXPECT_TRUE(b.isSome());
-  EXPECT_TRUE(a.isNone());
+  EXPECT_TRUE(b.is_some());
+  EXPECT_TRUE(a.is_none());
 }
 
 TEST(OptionNonNullTest, AssignNoneClears) {
   int                            x = 5;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
   o = xpp::none;
-  EXPECT_TRUE(o.isNone());
+  EXPECT_TRUE(o.is_none());
 }
 
-/* ── unwrap / unwrapOr / take / expect ───────────────────────────────── */
+/* ── unwrap / unwrap_or / take / expect ───────────────────────────────── */
 
 TEST(OptionNonNullTest, UnwrapHappyPath) {
   int                            x = 7;
@@ -155,7 +155,7 @@ TEST(OptionNonNullTest, UnwrapRvalueClears) {
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
   auto                           p = std::move(o).unwrap();
   EXPECT_EQ(p.get(), &x);
-  EXPECT_TRUE(o.isNone());
+  EXPECT_TRUE(o.is_none());
 }
 
 TEST(OptionNonNullDeathTest, UnwrapOnNoneAborts) {
@@ -170,26 +170,26 @@ TEST(OptionNonNullDeathTest, UnwrapOnNoneAborts) {
 TEST(OptionNonNullTest, UnwrapOrReturnsValueWhenSome) {
   int                            x = 1, fb = 99;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
-  EXPECT_EQ(o.unwrapOr(xpp::NonNull<int>{fb}).get(), &x);
+  EXPECT_EQ(o.unwrap_or(xpp::NonNull<int>{fb}).get(), &x);
 }
 
 TEST(OptionNonNullTest, UnwrapOrReturnsFallbackWhenNone) {
   int                            fb = 99;
   xpp::Option<xpp::NonNull<int>> o;
-  EXPECT_EQ(o.unwrapOr(xpp::NonNull<int>{fb}).get(), &fb);
+  EXPECT_EQ(o.unwrap_or(xpp::NonNull<int>{fb}).get(), &fb);
 }
 
 TEST(OptionNonNullTest, TakeReturnsSomeAndClears) {
   int                            x = 7;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
   auto                           taken = o.take();
-  EXPECT_TRUE(taken.isSome());
-  EXPECT_TRUE(o.isNone());
+  EXPECT_TRUE(taken.is_some());
+  EXPECT_TRUE(o.is_none());
 }
 
 TEST(OptionNonNullTest, TakeOnNoneStaysNone) {
   xpp::Option<xpp::NonNull<int>> o;
-  EXPECT_TRUE(o.take().isNone());
+  EXPECT_TRUE(o.take().is_none());
 }
 
 TEST(OptionNonNullTest, ExpectHappyPath) {
@@ -213,14 +213,14 @@ TEST(OptionNonNullTest, MapAppliesWhenSome) {
   int                            x = 4;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
   auto                           r = o.map([](xpp::NonNull<int> p) { return *p * 2; });
-  EXPECT_TRUE(r.isSome());
+  EXPECT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), 8);
 }
 
 TEST(OptionNonNullTest, MapPassesThroughNone) {
   xpp::Option<xpp::NonNull<int>> o;
   auto                           r = o.map([](xpp::NonNull<int> p) { return *p + 1; });
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
 TEST(OptionNonNullTest, MapChangesType) {
@@ -231,40 +231,40 @@ TEST(OptionNonNullTest, MapChangesType) {
   EXPECT_EQ(r.unwrap(), "7");
 }
 
-/* ── andThen ─────────────────────────────────────────────────────────── */
+/* ── and_then ─────────────────────────────────────────────────────────── */
 
 TEST(OptionNonNullTest, AndThenChainsSome) {
   int                            x = 4;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
-  auto r = o.andThen([](xpp::NonNull<int> p) { return xpp::Option<int>(*p + 1); });
+  auto r = o.and_then([](xpp::NonNull<int> p) { return xpp::Option<int>(*p + 1); });
   EXPECT_EQ(r.unwrap(), 5);
 }
 
 TEST(OptionNonNullTest, AndThenReturnsNoneFromFn) {
   int                            x = 4;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
-  auto r = o.andThen([](xpp::NonNull<int>) { return xpp::Option<int>(xpp::none); });
-  EXPECT_TRUE(r.isNone());
+  auto r = o.and_then([](xpp::NonNull<int>) { return xpp::Option<int>(xpp::none); });
+  EXPECT_TRUE(r.is_none());
 }
 
 TEST(OptionNonNullTest, AndThenPassesThroughNone) {
   xpp::Option<xpp::NonNull<int>> o;
   bool                           called = false;
-  auto                           r      = o.andThen([&](xpp::NonNull<int>) {
+  auto                           r      = o.and_then([&](xpp::NonNull<int>) {
     called = true;
     return xpp::Option<int>(0);
   });
   EXPECT_FALSE(called);
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
-/* ── orElse ──────────────────────────────────────────────────────────── */
+/* ── or_else ──────────────────────────────────────────────────────────── */
 
 TEST(OptionNonNullTest, OrElsePassesThroughSome) {
   int                            x = 7;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
   bool                           called = false;
-  auto                           r      = o.orElse([&] {
+  auto                           r      = o.or_else([&] {
     called = true;
     return xpp::Option<xpp::NonNull<int>>(xpp::none);
   });
@@ -275,23 +275,23 @@ TEST(OptionNonNullTest, OrElsePassesThroughSome) {
 TEST(OptionNonNullTest, OrElseSubstitutesOnNone) {
   int                            fb = 5;
   xpp::Option<xpp::NonNull<int>> o;
-  auto r = o.orElse([&] { return xpp::Option<xpp::NonNull<int>>(xpp::NonNull<int>{fb}); });
+  auto r = o.or_else([&] { return xpp::Option<xpp::NonNull<int>>(xpp::NonNull<int>{fb}); });
   EXPECT_EQ(r.unwrap().get(), &fb);
 }
 
-/* ── unwrapOrElse / filter / inspect ─────────────────────────────────── */
+/* ── unwrap_or_else / filter / inspect ─────────────────────────────────── */
 
 TEST(OptionNonNullTest, UnwrapOrElseReturnsValueWhenSome) {
   int                            x = 1, fb = 99;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
-  auto p = std::move(o).unwrapOrElse([&] { return xpp::NonNull<int>{fb}; });
+  auto p = std::move(o).unwrap_or_else([&] { return xpp::NonNull<int>{fb}; });
   EXPECT_EQ(p.get(), &x);
 }
 
 TEST(OptionNonNullTest, UnwrapOrElseCallsFnWhenNone) {
   int                            fb = 99;
   xpp::Option<xpp::NonNull<int>> o;
-  auto p = std::move(o).unwrapOrElse([&] { return xpp::NonNull<int>{fb}; });
+  auto p = std::move(o).unwrap_or_else([&] { return xpp::NonNull<int>{fb}; });
   EXPECT_EQ(p.get(), &fb);
 }
 
@@ -299,14 +299,14 @@ TEST(OptionNonNullTest, FilterKeepsWhenPredTrue) {
   int                            x = 10;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
   auto r = std::move(o).filter([](xpp::NonNull<int> p) { return *p > 5; });
-  EXPECT_TRUE(r.isSome());
+  EXPECT_TRUE(r.is_some());
 }
 
 TEST(OptionNonNullTest, FilterDropsWhenPredFalse) {
   int                            x = 3;
   xpp::Option<xpp::NonNull<int>> o(xpp::NonNull<int>{x});
   auto r = std::move(o).filter([](xpp::NonNull<int> p) { return *p > 5; });
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
 TEST(OptionNonNullTest, FilterOnNoneStaysNone) {
@@ -317,7 +317,7 @@ TEST(OptionNonNullTest, FilterOnNoneStaysNone) {
     return true;
   });
   EXPECT_FALSE(called);
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
 TEST(OptionNonNullTest, InspectCallsFnWhenSome) {
@@ -326,7 +326,7 @@ TEST(OptionNonNullTest, InspectCallsFnWhenSome) {
   int                            seen = 0;
   o.inspect([&](xpp::NonNull<int> p) { seen = *p; });
   EXPECT_EQ(seen, 7);
-  EXPECT_TRUE(o.isSome());
+  EXPECT_TRUE(o.is_some());
 }
 
 TEST(OptionNonNullTest, InspectSkipsWhenNone) {

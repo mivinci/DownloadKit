@@ -29,7 +29,7 @@
  *
  *   // C++ caller
  *   auto r = loop.wait(100);
- *   if (r.isErr() && r.unwrapErr().code() == xErrno_Timeout) { ... }
+ *   if (r.is_err() && r.unwrap_err().code() == xErrno_Timeout) { ... }
  *
  * The caller's `e.code() == xErrno_Timeout` line is the place where
  * the C-side vocabulary re-enters explicitly; nothing about Error

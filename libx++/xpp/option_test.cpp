@@ -91,26 +91,26 @@ protected:
 
 TEST(OptionTest, DefaultConstructIsNone) {
   xpp::Option<int> o;
-  EXPECT_TRUE(o.isNone());
-  EXPECT_FALSE(o.isSome());
+  EXPECT_TRUE(o.is_none());
+  EXPECT_FALSE(o.is_some());
   EXPECT_FALSE(static_cast<bool>(o));
 }
 
 TEST(OptionTest, NoneTagConstructIsNone) {
   xpp::Option<int> o(xpp::none);
-  EXPECT_TRUE(o.isNone());
+  EXPECT_TRUE(o.is_none());
 }
 
 TEST(OptionTest, ValueConstructIsSome) {
   xpp::Option<int> o(42);
-  EXPECT_TRUE(o.isSome());
+  EXPECT_TRUE(o.is_some());
   EXPECT_EQ(o.unwrap(), 42);
 }
 
 TEST(OptionTest, RvalueConstruct) {
   std::string              s = "hi";
   xpp::Option<std::string> o(std::move(s));
-  EXPECT_TRUE(o.isSome());
+  EXPECT_TRUE(o.is_some());
   EXPECT_EQ(o.unwrap(), "hi");
 }
 
@@ -145,8 +145,8 @@ TEST_F(TrackerTest, CopyOfSome) {
   xpp::Option<Tracker> a(Tracker(1));
   Tracker::copies = 0;
   xpp::Option<Tracker> b(a);
-  EXPECT_TRUE(a.isSome());
-  EXPECT_TRUE(b.isSome());
+  EXPECT_TRUE(a.is_some());
+  EXPECT_TRUE(b.is_some());
   EXPECT_EQ(a.unwrap().value, 1);
   EXPECT_EQ(b.unwrap().value, 1);
   EXPECT_EQ(Tracker::copies, 1);
@@ -155,8 +155,8 @@ TEST_F(TrackerTest, CopyOfSome) {
 TEST_F(TrackerTest, CopyOfNone) {
   xpp::Option<Tracker> a;
   xpp::Option<Tracker> b(a);
-  EXPECT_TRUE(a.isNone());
-  EXPECT_TRUE(b.isNone());
+  EXPECT_TRUE(a.is_none());
+  EXPECT_TRUE(b.is_none());
   EXPECT_EQ(Tracker::alive, 0);
   EXPECT_EQ(Tracker::copies, 0);
 }
@@ -166,8 +166,8 @@ TEST_F(TrackerTest, MoveOfSomeLeavesSourceNone) {
   Tracker::copies = 0;
   Tracker::moves  = 0;
   xpp::Option<Tracker> b(std::move(a));
-  EXPECT_TRUE(a.isNone());
-  EXPECT_TRUE(b.isSome());
+  EXPECT_TRUE(a.is_none());
+  EXPECT_TRUE(b.is_some());
   EXPECT_EQ(b.unwrap().value, 2);
   EXPECT_EQ(Tracker::copies, 0);
   EXPECT_GE(Tracker::moves, 1);
@@ -176,8 +176,8 @@ TEST_F(TrackerTest, MoveOfSomeLeavesSourceNone) {
 TEST_F(TrackerTest, MoveOfNone) {
   xpp::Option<Tracker> a;
   xpp::Option<Tracker> b(std::move(a));
-  EXPECT_TRUE(a.isNone());
-  EXPECT_TRUE(b.isNone());
+  EXPECT_TRUE(a.is_none());
+  EXPECT_TRUE(b.is_none());
   EXPECT_EQ(Tracker::alive, 0);
 }
 
@@ -186,7 +186,7 @@ TEST_F(TrackerTest, SelfCopyAssignNoOp) {
   // Through a reference to defeat -Wself-assign-overloaded.
   xpp::Option<Tracker> &ref = a;
   a                         = ref;
-  EXPECT_TRUE(a.isSome());
+  EXPECT_TRUE(a.is_some());
   EXPECT_EQ(a.unwrap().value, 3);
   EXPECT_EQ(Tracker::alive, 1);
 }
@@ -213,7 +213,7 @@ TEST_F(TrackerTest, CopyAssignNoneToSome) {
   xpp::Option<Tracker> a;
   xpp::Option<Tracker> b(Tracker(5));
   a = b;
-  EXPECT_TRUE(a.isSome());
+  EXPECT_TRUE(a.is_some());
   EXPECT_EQ(a.unwrap().value, 5);
   EXPECT_EQ(Tracker::alive, 2);
 }
@@ -222,7 +222,7 @@ TEST_F(TrackerTest, CopyAssignSomeToNone) {
   xpp::Option<Tracker> a(Tracker(5));
   xpp::Option<Tracker> b;
   a = b;
-  EXPECT_TRUE(a.isNone());
+  EXPECT_TRUE(a.is_none());
   EXPECT_EQ(Tracker::alive, 0);
 }
 
@@ -230,8 +230,8 @@ TEST_F(TrackerTest, CopyAssignNoneToNone) {
   xpp::Option<Tracker> a;
   xpp::Option<Tracker> b;
   a = b;
-  EXPECT_TRUE(a.isNone());
-  EXPECT_TRUE(b.isNone());
+  EXPECT_TRUE(a.is_none());
+  EXPECT_TRUE(b.is_none());
   EXPECT_EQ(Tracker::alive, 0);
 }
 
@@ -240,7 +240,7 @@ TEST_F(TrackerTest, MoveAssignSomeToSome) {
   xpp::Option<Tracker> b(Tracker(20));
   a = std::move(b);
   EXPECT_EQ(a.unwrap().value, 20);
-  EXPECT_TRUE(b.isNone()); // source becomes None
+  EXPECT_TRUE(b.is_none()); // source becomes None
   EXPECT_EQ(Tracker::alive, 1);
 }
 
@@ -248,9 +248,9 @@ TEST_F(TrackerTest, MoveAssignNoneToSome) {
   xpp::Option<Tracker> a;
   xpp::Option<Tracker> b(Tracker(5));
   a = std::move(b);
-  EXPECT_TRUE(a.isSome());
+  EXPECT_TRUE(a.is_some());
   EXPECT_EQ(a.unwrap().value, 5);
-  EXPECT_TRUE(b.isNone());
+  EXPECT_TRUE(b.is_none());
   EXPECT_EQ(Tracker::alive, 1);
 }
 
@@ -258,8 +258,8 @@ TEST_F(TrackerTest, MoveAssignSomeToNone) {
   xpp::Option<Tracker> a(Tracker(5));
   xpp::Option<Tracker> b;
   a = std::move(b);
-  EXPECT_TRUE(a.isNone());
-  EXPECT_TRUE(b.isNone());
+  EXPECT_TRUE(a.is_none());
+  EXPECT_TRUE(b.is_none());
   EXPECT_EQ(Tracker::alive, 0);
 }
 
@@ -267,8 +267,8 @@ TEST_F(TrackerTest, MoveAssignNoneToNone) {
   xpp::Option<Tracker> a;
   xpp::Option<Tracker> b;
   a = std::move(b);
-  EXPECT_TRUE(a.isNone());
-  EXPECT_TRUE(b.isNone());
+  EXPECT_TRUE(a.is_none());
+  EXPECT_TRUE(b.is_none());
   EXPECT_EQ(Tracker::alive, 0);
 }
 
@@ -276,7 +276,7 @@ TEST_F(TrackerTest, AssignNoneTagClearsSome) {
   xpp::Option<Tracker> a(Tracker(99));
   EXPECT_EQ(Tracker::alive, 1);
   a = xpp::none;
-  EXPECT_TRUE(a.isNone());
+  EXPECT_TRUE(a.is_none());
   EXPECT_EQ(Tracker::alive, 0);
 }
 
@@ -284,13 +284,13 @@ TEST_F(TrackerTest, AssignNoneTagClearsSome) {
 
 TEST(OptionTest, ObserverConsistency) {
   xpp::Option<int> some(1);
-  EXPECT_TRUE(some.isSome());
-  EXPECT_FALSE(some.isNone());
+  EXPECT_TRUE(some.is_some());
+  EXPECT_FALSE(some.is_none());
   EXPECT_TRUE(static_cast<bool>(some));
 
   xpp::Option<int> nothing;
-  EXPECT_FALSE(nothing.isSome());
-  EXPECT_TRUE(nothing.isNone());
+  EXPECT_FALSE(nothing.is_some());
+  EXPECT_TRUE(nothing.is_none());
   EXPECT_FALSE(static_cast<bool>(nothing));
 }
 
@@ -327,9 +327,9 @@ TEST(OptionDeathTest, UnwrapOnNone) {
 
 TEST(OptionTest, UnwrapUncheckedHappyPath) {
   xpp::Option<int> o(11);
-  EXPECT_EQ(o.unwrapUnchecked(), 11);
+  EXPECT_EQ(o.unwrap_unchecked(), 11);
   const xpp::Option<int> co(12);
-  EXPECT_EQ(co.unwrapUnchecked(), 12);
+  EXPECT_EQ(co.unwrap_unchecked(), 12);
 }
 
 #ifndef NDEBUG
@@ -338,7 +338,7 @@ TEST(OptionDeathTest, UnwrapUncheckedOnNoneInDebug) {
   EXPECT_DEATH(
     {
       xpp::Option<int> o;
-      (void)o.unwrapUnchecked();
+      (void)o.unwrap_unchecked();
     },
     "internal: Option must be Some");
 }
@@ -346,12 +346,12 @@ TEST(OptionDeathTest, UnwrapUncheckedOnNoneInDebug) {
 
 TEST(OptionTest, UnwrapOrSomeReturnsHeld) {
   xpp::Option<int> o(7);
-  EXPECT_EQ(o.unwrapOr(99), 7);
+  EXPECT_EQ(o.unwrap_or(99), 7);
 }
 
 TEST(OptionTest, UnwrapOrNoneReturnsFallback) {
   xpp::Option<int> o;
-  EXPECT_EQ(o.unwrapOr(99), 99);
+  EXPECT_EQ(o.unwrap_or(99), 99);
 }
 
 TEST_F(TrackerTest, UnwrapOrRvalueOverloadMovesFallback) {
@@ -359,7 +359,7 @@ TEST_F(TrackerTest, UnwrapOrRvalueOverloadMovesFallback) {
   Tracker::copies = 0;
   Tracker::moves  = 0;
   Tracker fallback(42);
-  Tracker out = std::move(o).unwrapOr(std::move(fallback));
+  Tracker out = std::move(o).unwrap_or(std::move(fallback));
   EXPECT_EQ(out.value, 42);
   EXPECT_EQ(Tracker::copies, 0);
 }
@@ -370,8 +370,8 @@ TEST_F(TrackerTest, TakeOnSomeReturnsValueAndClears) {
   xpp::Option<Tracker> a(Tracker(50));
   Tracker::copies        = 0;
   xpp::Option<Tracker> b = a.take();
-  EXPECT_TRUE(a.isNone());
-  EXPECT_TRUE(b.isSome());
+  EXPECT_TRUE(a.is_none());
+  EXPECT_TRUE(b.is_some());
   EXPECT_EQ(b.unwrap().value, 50);
   EXPECT_EQ(Tracker::copies, 0);
   EXPECT_EQ(Tracker::alive, 1);
@@ -380,15 +380,15 @@ TEST_F(TrackerTest, TakeOnSomeReturnsValueAndClears) {
 TEST(OptionTest, TakeOnNoneReturnsNone) {
   xpp::Option<int> a;
   xpp::Option<int> b = a.take();
-  EXPECT_TRUE(a.isNone());
-  EXPECT_TRUE(b.isNone());
+  EXPECT_TRUE(a.is_none());
+  EXPECT_TRUE(b.is_none());
 }
 
 TEST_F(TrackerTest, TakeNoLeakOrDoubleFree) {
   {
     xpp::Option<Tracker> a(Tracker(1));
     xpp::Option<Tracker> b = a.take();
-    EXPECT_TRUE(a.isNone());
+    EXPECT_TRUE(a.is_none());
     EXPECT_EQ(Tracker::alive, 1);
   }
   EXPECT_EQ(Tracker::alive, 0);
@@ -409,7 +409,7 @@ TEST_F(TrackerTest, MoveFromNoneConstructsNothing) {
   EXPECT_EQ(Tracker::alive, 0);
   xpp::Option<Tracker> b(std::move(a));
   EXPECT_EQ(Tracker::alive, 0);
-  EXPECT_TRUE(b.isNone());
+  EXPECT_TRUE(b.is_none());
 }
 
 namespace {
@@ -422,11 +422,11 @@ struct NoDefault {
 
 TEST(OptionTest, WorksWithNonDefaultConstructibleType) {
   xpp::Option<NoDefault> o(NoDefault(7));
-  EXPECT_TRUE(o.isSome());
+  EXPECT_TRUE(o.is_some());
   EXPECT_EQ(o.unwrap().v, 7);
 
   xpp::Option<NoDefault> empty;
-  EXPECT_TRUE(empty.isNone());
+  EXPECT_TRUE(empty.is_none());
 }
 
 /* ── expect ───────────────────────────────────────────────────────────── */
@@ -457,14 +457,14 @@ TEST(OptionDeathTest, ExpectOnNoneAborts) {
 TEST(OptionTest, MapAppliesFunctionWhenSome) {
   xpp::Option<int> o(3);
   auto             r = o.map([](int x) { return x * 2; });
-  EXPECT_TRUE(r.isSome());
+  EXPECT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), 6);
 }
 
 TEST(OptionTest, MapPassesThroughNone) {
   xpp::Option<int> o;
   auto             r = o.map([](int x) { return x * 2; });
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
 TEST(OptionTest, MapChangesType) {
@@ -481,51 +481,51 @@ TEST_F(TrackerTest, MapRvalueMovesValueIntoFn) {
     Tracker::moves  = 0;
     auto r          = std::move(o).map([](Tracker &&t) { return Tracker(t.value + 1); });
     EXPECT_EQ(Tracker::copies, 0);
-    EXPECT_TRUE(r.isSome());
+    EXPECT_TRUE(r.is_some());
     EXPECT_EQ(r.unwrap().value, 6);
   }
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-/* ── andThen ──────────────────────────────────────────────────────────── */
+/* ── and_then ──────────────────────────────────────────────────────────── */
 
 TEST(OptionTest, AndThenChainsSome) {
   xpp::Option<int> o(4);
-  auto             r = o.andThen([](int x) { return xpp::Option<int>(x + 1); });
-  EXPECT_TRUE(r.isSome());
+  auto             r = o.and_then([](int x) { return xpp::Option<int>(x + 1); });
+  EXPECT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), 5);
 }
 
 TEST(OptionTest, AndThenReturnsNoneFromFn) {
   xpp::Option<int> o(4);
-  auto             r = o.andThen([](int) { return xpp::Option<int>(xpp::none); });
-  EXPECT_TRUE(r.isNone());
+  auto             r = o.and_then([](int) { return xpp::Option<int>(xpp::none); });
+  EXPECT_TRUE(r.is_none());
 }
 
 TEST(OptionTest, AndThenPassesThroughNone) {
   xpp::Option<int> o;
   bool             called = false;
-  auto             r      = o.andThen([&](int x) {
+  auto             r      = o.and_then([&](int x) {
     called = true;
     return xpp::Option<int>(x);
   });
   EXPECT_FALSE(called);
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
 TEST(OptionTest, AndThenChangesType) {
   xpp::Option<int> o(3);
-  auto             r = o.andThen([](int x) { return xpp::Option<std::string>(std::to_string(x)); });
+  auto             r = o.and_then([](int x) { return xpp::Option<std::string>(std::to_string(x)); });
   static_assert(std::is_same<decltype(r), xpp::Option<std::string>>::value, "");
   EXPECT_EQ(r.unwrap(), "3");
 }
 
-/* ── orElse ───────────────────────────────────────────────────────────── */
+/* ── or_else ───────────────────────────────────────────────────────────── */
 
 TEST(OptionTest, OrElsePassesThroughSome) {
   xpp::Option<int> o(7);
   bool             called = false;
-  auto             r      = o.orElse([&] {
+  auto             r      = o.or_else([&] {
     called = true;
     return xpp::Option<int>(99);
   });
@@ -535,26 +535,26 @@ TEST(OptionTest, OrElsePassesThroughSome) {
 
 TEST(OptionTest, OrElseSubstitutesOnNone) {
   xpp::Option<int> o;
-  auto             r = o.orElse([] { return xpp::Option<int>(99); });
+  auto             r = o.or_else([] { return xpp::Option<int>(99); });
   EXPECT_EQ(r.unwrap(), 99);
 }
 
 TEST(OptionTest, OrElseFnCanReturnNone) {
   xpp::Option<int> o;
-  auto             r = o.orElse([] { return xpp::Option<int>(xpp::none); });
-  EXPECT_TRUE(r.isNone());
+  auto             r = o.or_else([] { return xpp::Option<int>(xpp::none); });
+  EXPECT_TRUE(r.is_none());
 }
 
-/* ── unwrapOrElse ─────────────────────────────────────────────────────── */
+/* ── unwrap_or_else ─────────────────────────────────────────────────────── */
 
 TEST(OptionTest, UnwrapOrElseReturnsValueWhenSome) {
   xpp::Option<int> o(5);
-  EXPECT_EQ(std::move(o).unwrapOrElse([] { return 99; }), 5);
+  EXPECT_EQ(std::move(o).unwrap_or_else([] { return 99; }), 5);
 }
 
 TEST(OptionTest, UnwrapOrElseCallsFnWhenNone) {
   xpp::Option<int> o;
-  EXPECT_EQ(std::move(o).unwrapOrElse([] { return 99; }), 99);
+  EXPECT_EQ(std::move(o).unwrap_or_else([] { return 99; }), 99);
 }
 
 /* ── filter ───────────────────────────────────────────────────────────── */
@@ -562,14 +562,14 @@ TEST(OptionTest, UnwrapOrElseCallsFnWhenNone) {
 TEST(OptionTest, FilterKeepsValueWhenPredTrue) {
   xpp::Option<int> o(10);
   auto             r = std::move(o).filter([](int x) { return x > 5; });
-  EXPECT_TRUE(r.isSome());
+  EXPECT_TRUE(r.is_some());
   EXPECT_EQ(r.unwrap(), 10);
 }
 
 TEST(OptionTest, FilterDropsValueWhenPredFalse) {
   xpp::Option<int> o(3);
   auto             r = std::move(o).filter([](int x) { return x > 5; });
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
 TEST(OptionTest, FilterOnNoneStaysNone) {
@@ -580,7 +580,7 @@ TEST(OptionTest, FilterOnNoneStaysNone) {
     return true;
   });
   EXPECT_FALSE(called);
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
 /* ── inspect ──────────────────────────────────────────────────────────── */
@@ -590,7 +590,7 @@ TEST(OptionTest, InspectCallsFnWhenSome) {
   int              seen = 0;
   o.inspect([&](const int &x) { seen = x; });
   EXPECT_EQ(seen, 7);
-  EXPECT_TRUE(o.isSome());
+  EXPECT_TRUE(o.is_some());
 }
 
 TEST(OptionTest, InspectSkipsWhenNone) {
@@ -608,39 +608,39 @@ TEST(OptionTest, InspectIsChainable) {
   EXPECT_EQ(r.unwrap(), 11);
 }
 
-/* ── okOr ─────────────────────────────────────────────────────────────── */
+/* ── ok_or ─────────────────────────────────────────────────────────────── */
 
 TEST(OptionTest, OkOrReturnsOkWhenSome) {
   xpp::Option<int>              o(42);
-  xpp::Result<int, std::string> r = std::move(o).okOr<std::string>("nope");
-  EXPECT_TRUE(r.isOk());
+  xpp::Result<int, std::string> r = std::move(o).ok_or<std::string>("nope");
+  EXPECT_TRUE(r.is_ok());
   EXPECT_EQ(r.unwrap(), 42);
 }
 
 TEST(OptionTest, OkOrReturnsErrWhenNone) {
   xpp::Option<int>              o;
-  xpp::Result<int, std::string> r = std::move(o).okOr<std::string>("nope");
-  EXPECT_TRUE(r.isErr());
-  EXPECT_EQ(r.unwrapErr(), "nope");
+  xpp::Result<int, std::string> r = std::move(o).ok_or<std::string>("nope");
+  EXPECT_TRUE(r.is_err());
+  EXPECT_EQ(r.unwrap_err(), "nope");
 }
 
-/* ── okOrElse ─────────────────────────────────────────────────────────── */
+/* ── ok_or_else ─────────────────────────────────────────────────────────── */
 
 TEST(OptionTest, OkOrElseReturnsOkWhenSome) {
   xpp::Option<int> o(42);
   bool             called = false;
-  auto             r      = std::move(o).okOrElse([&] {
+  auto             r      = std::move(o).ok_or_else([&] {
     called = true;
     return std::string("nope");
   });
   EXPECT_FALSE(called);
-  EXPECT_TRUE(r.isOk());
+  EXPECT_TRUE(r.is_ok());
   EXPECT_EQ(r.unwrap(), 42);
 }
 
 TEST(OptionTest, OkOrElseCallsFnWhenNone) {
   xpp::Option<int> o;
-  auto             r = std::move(o).okOrElse([] { return std::string("nope"); });
-  EXPECT_TRUE(r.isErr());
-  EXPECT_EQ(r.unwrapErr(), "nope");
+  auto             r = std::move(o).ok_or_else([] { return std::string("nope"); });
+  EXPECT_TRUE(r.is_err());
+  EXPECT_EQ(r.unwrap_err(), "nope");
 }

@@ -22,7 +22,7 @@
  * if(o)). Choose NonNullOwn<T> + Option when you want type-level guarantees
  * and Rust-style combinators.
  *
- * C++14-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_OWN_H

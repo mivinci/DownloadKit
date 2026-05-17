@@ -5,7 +5,7 @@
  *
  * option.h - Option<T>: a value or nothing (like std::optional).
  *
- * C++14-compatible.
+ * C++11-compatible.
  */
 
 #ifndef XPP_OPTION_H

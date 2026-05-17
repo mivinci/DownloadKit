@@ -15,7 +15,7 @@
  * type level. Use it for hot data structures (intrusive lists, trees)
  * and API boundaries where "must be non-null" is a documented contract.
  *
- * C++14-compatible. Header-only.
+ * C++11-compatible. Header-only.
  */
 
 #ifndef XPP_NONNULL_H

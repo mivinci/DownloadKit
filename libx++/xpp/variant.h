@@ -88,7 +88,7 @@ template <class Storage> struct MoveConstructVisitor {
 /**
  * @brief Type-safe tagged union holding exactly one of Types...
  *
- * Always holds a value (no empty/default state). C++14-compatible.
+ * Always holds a value (no empty/default state). C++11-compatible.
  *
  * Usage:
  *   Variant<int, float> a(42);       // holds int

@@ -13,6 +13,7 @@
 
 #include <xpp/panic.h>
 
+#include <new>  // IWYU pragma: keep  (placement new: `new (ptr) T(...)`)
 #include <utility>
 
 namespace xpp {

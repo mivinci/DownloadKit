@@ -15,26 +15,22 @@
 
 #include "ctx.h"
 
-#include <xline/line.h>
+#include <x/line/line.h>
 
 /* /model */
 void slash_cmd_model(ReplCtx *ctx, const char *args);
-void slash_argc_model(xLineCompletionEnv cenv, ReplCtx *ctx,
-                      const char *token);
+void slash_argc_model(xLineCompletionEnv cenv, ReplCtx *ctx, const char *token);
 
 /* /bypass */
 void slash_cmd_bypass(ReplCtx *ctx, const char *args);
-void slash_argc_bypass(xLineCompletionEnv cenv, ReplCtx *ctx,
-                       const char *token);
+void slash_argc_bypass(xLineCompletionEnv cenv, ReplCtx *ctx, const char *token);
 
 /* /renderer */
 void slash_cmd_renderer(ReplCtx *ctx, const char *args);
-void slash_argc_renderer(xLineCompletionEnv cenv, ReplCtx *ctx,
-                         const char *token);
+void slash_argc_renderer(xLineCompletionEnv cenv, ReplCtx *ctx, const char *token);
 
 /* /verbose */
 void slash_cmd_verbose(ReplCtx *ctx, const char *args);
-void slash_argc_verbose(xLineCompletionEnv cenv, ReplCtx *ctx,
-                        const char *token);
+void slash_argc_verbose(xLineCompletionEnv cenv, ReplCtx *ctx, const char *token);
 
 #endif /* MOO_CLI_SLASH_CMD_H */

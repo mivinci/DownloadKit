@@ -76,7 +76,7 @@ graph TD
 
 ## Module Index
 
-### [xagent](libx/xagent/index.html) — The Agent
+### [xagent](https://github.com/mivinci/moo/tree/main/libx/x/agent) — The Agent
 
 moo's headline module: a non-blocking, single-loop AI agent runtime. No GC, no green threads, no hidden allocations on the hot path.
 
@@ -97,97 +97,97 @@ Design notes: [context budget](design/context_budget.md) · [layered memory](des
 
 A terminal app built on `xagent` + `xline`. Streaming output, slash commands (`/help` `/model` `/tokens` `/cancel` `/bypass` …), tool-call confirmation prompts, persistent history with reverse search, and model hot-swap via `models.json`. See the project [README](../README.md#quick-start) for the quick start.
 
-### [xbase](libx/xbase/index.html) — Core Primitives
+### [xbase](libx/base/index.html) — Core Primitives
 
 The foundation every other module sits on. Event loop, timers, tasks, async sockets, memory, lock-free structures, plus a few batteries-included utilities.
 
 | Sub-Module | Description |
 | --- | --- |
-| [event.h](libx/xbase/event.md) | Cross-platform event loop — kqueue (macOS) / epoll (Linux) / poll (fallback) |
-| [timer.h](libx/xbase/timer.md) | Monotonic timer with Push (thread-pool) and Poll (lock-free MPSC) fire modes |
-| [task.h](libx/xbase/task.md) | N:M task model — lightweight tasks multiplexed onto a thread pool |
-| [socket.h](libx/xbase/socket.md) | Async socket abstraction with idle-timeout support |
-| [command.h](libx/xbase/command.md) | Async subprocess execution (used by `xagent`'s shell tool) |
-| [flag.h](libx/xbase/flag.md) | GNU-style command-line flag parser |
-| [memory.h](libx/xbase/memory.md) | Reference-counted allocation with vtable-driven lifecycle |
-| [string.h](libx/xbase/string.md) | Small-string-optimized mutable byte string |
-| [array.h](libx/xbase/array.md) / [list.h](libx/xbase/list.md) / [map.h](libx/xbase/map.md) / [slab.h](libx/xbase/slab.md) | Generic containers |
-| [error.h](libx/xbase/error.md) | Unified error codes and human-readable messages |
-| [heap.h](libx/xbase/heap.md) | Min-heap with index tracking (used by timer subsystem) |
-| [mpsc.h](libx/xbase/mpsc.md) | Lock-free multi-producer / single-consumer queue |
-| [atomic.h](libx/xbase/atomic.md) | Compiler-portable atomic operations (GCC/Clang builtins) |
-| [log.h](libx/xbase/log.md) | Per-thread callback-based logging with optional backtrace |
-| [backtrace.h](libx/xbase/backtrace.md) | Platform-adaptive stack trace (libunwind > execinfo > stub) |
-| [base64.h](libx/xbase/base64.md) / [hex.h](libx/xbase/hex.md) | Binary-to-text codecs |
+| [event.h](libx/base/event.md) | Cross-platform event loop — kqueue (macOS) / epoll (Linux) / poll (fallback) |
+| [timer.h](libx/base/timer.md) | Monotonic timer with Push (thread-pool) and Poll (lock-free MPSC) fire modes |
+| [task.h](libx/base/task.md) | N:M task model — lightweight tasks multiplexed onto a thread pool |
+| [socket.h](libx/base/socket.md) | Async socket abstraction with idle-timeout support |
+| [command.h](libx/base/command.md) | Async subprocess execution (used by `xagent`'s shell tool) |
+| [flag.h](libx/base/flag.md) | GNU-style command-line flag parser |
+| [memory.h](libx/base/memory.md) | Reference-counted allocation with vtable-driven lifecycle |
+| [string.h](libx/base/string.md) | Small-string-optimized mutable byte string |
+| [array.h](libx/base/array.md) / [list.h](libx/base/list.md) / [map.h](libx/base/map.md) / [slab.h](libx/base/slab.md) | Generic containers |
+| [error.h](libx/base/error.md) | Unified error codes and human-readable messages |
+| [heap.h](libx/base/heap.md) | Min-heap with index tracking (used by timer subsystem) |
+| [mpsc.h](libx/base/mpsc.md) | Lock-free multi-producer / single-consumer queue |
+| [atomic.h](libx/base/atomic.md) | Compiler-portable atomic operations (GCC/Clang builtins) |
+| [log.h](libx/base/log.md) | Per-thread callback-based logging with optional backtrace |
+| [backtrace.h](libx/base/backtrace.md) | Platform-adaptive stack trace (libunwind > execinfo > stub) |
+| [base64.h](libx/base/base64.md) / [hex.h](libx/base/hex.md) | Binary-to-text codecs |
 | `time.h` | Time utilities: `xMonoMs()` (monotonic) and `xWallMs()` (wall-clock) |
 
-### [xbuf](libx/xbuf/index.html) — Buffer Primitives
+### [xbuf](libx/buf/index.html) — Buffer Primitives
 
 Three buffer types for different I/O patterns — linear, ring, and block-chain.
 
 | Sub-Module | Description |
 | --- | --- |
-| [buf.h](libx/xbuf/buf.md) | Linear auto-growing byte buffer with 2× expansion |
-| [ring.h](libx/xbuf/ring.md) | Fixed-size ring buffer with power-of-2 mask indexing |
-| [io.h](libx/xbuf/io.md) | Reference-counted block-chain I/O buffer with zero-copy split/cut |
+| [buf.h](libx/buf/buf.md) | Linear auto-growing byte buffer with 2× expansion |
+| [ring.h](libx/buf/ring.md) | Fixed-size ring buffer with power-of-2 mask indexing |
+| [io.h](libx/buf/io.md) | Reference-counted block-chain I/O buffer with zero-copy split/cut |
 
-### [xnet](libx/xnet/index.html) — Networking Primitives
+### [xnet](libx/net/index.html) — Networking Primitives
 
 Shared networking utilities: URL parser, async DNS resolver, and TLS configuration types used by higher-level modules.
 
 | Sub-Module | Description |
 | --- | --- |
-| [url.h](libx/xnet/url.md) | Lightweight URL parser with zero-copy component extraction |
-| [dns.h](libx/xnet/dns.md) | Async DNS resolution via thread-pool offload |
-| [tls.h](libx/xnet/tls.md) | Shared TLS configuration types (client & server) |
-| [tcp.h](libx/xnet/tcp.md) | Async TCP connection, connector & listener with optional TLS |
+| [url.h](libx/net/url.md) | Lightweight URL parser with zero-copy component extraction |
+| [dns.h](libx/net/dns.md) | Async DNS resolution via thread-pool offload |
+| [tls.h](libx/net/tls.md) | Shared TLS configuration types (client & server) |
+| [tcp.h](libx/net/tcp.md) | Async TCP connection, connector & listener with optional TLS |
 
-### [xhttp](libx/xhttp/index.html) — Async HTTP Client & Server & WebSocket
+### [xhttp](libx/http/index.html) — Async HTTP Client & Server & WebSocket
 
 Full-featured async HTTP framework: libcurl-powered client with SSE streaming (which `xagent` uses to stream model responses), event-driven server with HTTP/1.1 & HTTP/2 (h2c), TLS support (OpenSSL / mbedTLS), and RFC 6455 WebSocket (server & client).
 
 | Sub-Module | Description |
 | --- | --- |
-| [client.h](libx/xhttp/client.md) | Async HTTP client (GET / POST / PUT / DELETE / PATCH / HEAD) |
-| [sse.c](libx/xhttp/sse.md) | SSE streaming client with W3C-compliant event parsing |
-| [server.h](libx/xhttp/server.md) | Event-driven HTTP server with HTTP/1.1 and HTTP/2 (h2c) |
-| [ws.h](libx/xhttp/ws_server.md) | RFC 6455 WebSocket server with handler-initiated upgrade |
-| [ws.h](libx/xhttp/ws_client.md) | RFC 6455 WebSocket client with async connect |
-| [transport.h](libx/xhttp/tls.md) | Pluggable TLS transport layer (OpenSSL / mbedTLS / plain) |
+| [client.h](libx/http/client.md) | Async HTTP client (GET / POST / PUT / DELETE / PATCH / HEAD) |
+| [sse.c](libx/http/sse.md) | SSE streaming client with W3C-compliant event parsing |
+| [server.h](libx/http/server.md) | Event-driven HTTP server with HTTP/1.1 and HTTP/2 (h2c) |
+| [ws.h](libx/http/ws_server.md) | RFC 6455 WebSocket server with handler-initiated upgrade |
+| [ws.h](libx/http/ws_client.md) | RFC 6455 WebSocket client with async connect |
+| [transport.h](libx/http/tls.md) | Pluggable TLS transport layer (OpenSSL / mbedTLS / plain) |
 
 ### xline — CJK-Aware Line Editor
 
 Powers the `moo` REPL's input: Unicode-width-aware editing, persistent history, reverse search (`Ctrl-R`), and redraw-while-streaming so the prompt stays put while the AI is typing above it. Docs TBD.
 
-### [xlog](libx/xlog/index.html) — Async Logging
+### [xlog](libx/log/index.html) — Async Logging
 
 High-performance async logger with MPSC queue, three flush modes, and file rotation.
 
 | Sub-Module | Description |
 | --- | --- |
-| [logger.h](libx/xlog/logger.md) | Async logger with Timer / Notify / Mixed modes and `XLOG_*` macros |
+| [logger.h](libx/log/logger.md) | Async logger with Timer / Notify / Mixed modes and `XLOG_*` macros |
 
-### [xjs](libx/xjs/index.html) — Embeddable JavaScript Engine
+### [xjs](libx/js/index.html) — Embeddable JavaScript Engine
 
 QuickJS-ng backend behind a JSC-shaped C API: ES modules, native class wrappers, stable value types.
 
-### [xcrypto](libx/xcrypto/index.html) — Cryptographic Primitives
+### [xcrypto](libx/crypto/index.html) — Cryptographic Primitives
 
 SHA-1, SHA-256 (OpenSSL / mbedTLS / builtin), MD5, CRC-32, and generic HMAC (HMAC-SHA1 / HMAC-SHA256 / HMAC-MD5).
 
-### [xp2p](libx/xp2p/index.html) — P2P Connectivity
+### [xp2p](libx/p2p/index.html) — P2P Connectivity
 
 ICE-based peer-to-peer connectivity with full STUN/TURN client stack, SDP codec, and NAT traversal. Ships with DTLS + SCTP + DataChannel for WebRTC browser interop.
 
 | Sub-Module | Description |
 | --- | --- |
-| [ice_agent.h](libx/xp2p/ice.md) | Full ICE agent — candidate gathering, connectivity checks, nomination, data transport |
-| [peer_connection.h](libx/xp2p/pc.md) | High-level peer connection (DTLS + SCTP + DataChannel) |
+| [ice_agent.h](libx/p2p/ice.md) | Full ICE agent — candidate gathering, connectivity checks, nomination, data transport |
+| [peer_connection.h](libx/p2p/pc.md) | High-level peer connection (DTLS + SCTP + DataChannel) |
 | `stun_msg.h` / `stun_attr.h` / `stun_txn.h` | STUN message / attribute / transaction (RFC 5389) |
 | `turn_client.h` | TURN allocation, permissions, channel bindings (RFC 5766) |
 | `sdp.h` | SDP offer/answer encoding and decoding (RFC 4566) |
 
-### [xfer](libx/xfer/index.html) — P2P File Transfer
+### [xfer](libx/fer/index.html) — P2P File Transfer
 
 Zero-config send/receive over WebRTC DataChannel — signaling, chunking, SHA-1 verification, resume support.
 
@@ -208,30 +208,30 @@ End-to-end benchmark results comparing moo's foundation libs against other frame
 | I want to... | Start here |
 | --- | --- |
 | **Run the `moo` agent** | Project [README — Quick Start](../README.md#quick-start) |
-| **Embed the agent in my own app** | `libx/xagent/agent.h` + `session.h` (docs TBD) |
-| **Add a tool to the agent** | `libx/xagent/tool.h` (shell tool as reference: `tool_shell.h`) |
-| **Plug in a new LLM provider** | `libx/xagent/provider.h` + `provider_openai.c` as reference |
+| **Embed the agent in my own app** | `libx/x/agent/agent.h` + `session.h` (docs TBD) |
+| **Add a tool to the agent** | `libx/x/agent/tool.h` (shell tool as reference: `tool_shell.h`) |
+| **Plug in a new LLM provider** | `libx/x/agent/provider.h` + `provider_openai.c` as reference |
 | **Understand context budgeting** | [design/context_budget.md](design/context_budget.md) |
 | **Understand layered memory** | [design/layered_memory.md](design/layered_memory.md) |
-| Build an event-driven server | [xbase/event.h](libx/xbase/event.md) → [xbase/socket.h](libx/xbase/socket.md) |
-| Schedule timers | [xbase/timer.h](libx/xbase/timer.md) |
-| Run tasks on a thread pool | [xbase/task.h](libx/xbase/task.md) |
-| Spawn subprocesses | [xbase/command.h](libx/xbase/command.md) |
-| Parse command-line flags | [xbase/flag.h](libx/xbase/flag.md) |
-| Make async HTTP requests | [xhttp/client.h](libx/xhttp/client.md) |
-| Stream LLM API responses (SSE) | [xhttp/sse.c](libx/xhttp/sse.md) |
-| Build an HTTP server | [xhttp/server.h](libx/xhttp/server.md) |
-| Add WebSocket server / client | [xhttp/ws.h](libx/xhttp/ws_server.md) · [ws_client](libx/xhttp/ws_client.md) |
-| Parse a URL · resolve DNS · make TCP / TLS connections | [xnet](libx/xnet/) |
-| Add async logging | [xlog/logger.h](libx/xlog/logger.md) |
-| Manage object lifecycles | [xbase/memory.h](libx/xbase/memory.md) |
-| Choose the right buffer type | [xbuf overview](libx/xbuf/index.html) |
-| Build a lock-free producer/consumer pipeline | [xbase/mpsc.h](libx/xbase/mpsc.md) |
-| Embed JavaScript | [xjs overview](libx/xjs/index.html) |
-| Hash / HMAC / CRC | [xcrypto overview](libx/xcrypto/index.html) |
-| Establish P2P connectivity | [xp2p/ice_agent.h](libx/xp2p/ice.md) · [peer_connection.h](libx/xp2p/pc.md) |
-| P2P file transfer | [xfer overview](libx/xfer/index.html) |
-| See micro-benchmark results | Each module doc has a **Benchmark** section (e.g. [mpsc.h](libx/xbase/mpsc.md#benchmark)) |
+| Build an event-driven server | [xbase/event.h](libx/base/event.md) → [xbase/socket.h](libx/base/socket.md) |
+| Schedule timers | [xbase/timer.h](libx/base/timer.md) |
+| Run tasks on a thread pool | [xbase/task.h](libx/base/task.md) |
+| Spawn subprocesses | [xbase/command.h](libx/base/command.md) |
+| Parse command-line flags | [xbase/flag.h](libx/base/flag.md) |
+| Make async HTTP requests | [xhttp/client.h](libx/http/client.md) |
+| Stream LLM API responses (SSE) | [xhttp/sse.c](libx/http/sse.md) |
+| Build an HTTP server | [xhttp/server.h](libx/http/server.md) |
+| Add WebSocket server / client | [xhttp/ws.h](libx/http/ws_server.md) · [ws_client](libx/http/ws_client.md) |
+| Parse a URL · resolve DNS · make TCP / TLS connections | [xnet](libx/net/) |
+| Add async logging | [xlog/logger.h](libx/log/logger.md) |
+| Manage object lifecycles | [xbase/memory.h](libx/base/memory.md) |
+| Choose the right buffer type | [xbuf overview](libx/buf/index.html) |
+| Build a lock-free producer/consumer pipeline | [xbase/mpsc.h](libx/base/mpsc.md) |
+| Embed JavaScript | [xjs overview](libx/js/index.html) |
+| Hash / HMAC / CRC | [xcrypto overview](libx/crypto/index.html) |
+| Establish P2P connectivity | [xp2p/ice_agent.h](libx/p2p/ice.md) · [peer_connection.h](libx/p2p/pc.md) |
+| P2P file transfer | [xfer overview](libx/fer/index.html) |
+| See micro-benchmark results | Each module doc has a **Benchmark** section (e.g. [mpsc.h](libx/base/mpsc.md#benchmark)) |
 | See HTTP server benchmarks | [HTTP/1.1](bench/http_server.md) · [HTTP/2](bench/http2_server.md) · [HTTPS](bench/https_server.md) |
 
 ### By Dependency Level (foundation libs)
@@ -364,7 +364,7 @@ cmake --build build --parallel
 
 # Build the moo CLI (cli/ is OFF by default)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-      -DMOO_BUILD_APPS=ON -DMOO_BUILD_TESTS=OFF -DMOO_BUILD_BENCHMARKS=OFF
+      -DMOO_BUILD_APPS=ON -DX_BUILD_TESTS=OFF -DX_BUILD_BENCHMARKS=OFF
 cmake --build build --parallel
 
 # Run tests
@@ -375,7 +375,7 @@ See the project [README](../README.md) for full build instructions, the complete
 
 ## Benchmark
 
-Micro-benchmark results are included in each module's documentation page (see the **Benchmark** section at the bottom of each page, e.g. [mpsc.h](libx/xbase/mpsc.md#benchmark), [buf.h](libx/xbuf/buf.md#benchmark)).
+Micro-benchmark results are included in each module's documentation page (see the **Benchmark** section at the bottom of each page, e.g. [mpsc.h](libx/base/mpsc.md#benchmark), [buf.h](libx/buf/buf.md#benchmark)).
 
 End-to-end benchmarks:
 

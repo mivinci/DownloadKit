@@ -23,12 +23,13 @@
  * swap the vtable. */
 void slash_cmd_renderer(ReplCtx *ctx, const char *args) {
   /* Trim leading whitespace. */
-  while (*args == ' ' || *args == '\t') args++;
+  while (*args == ' ' || *args == '\t')
+    args++;
 
   /* No argument: show current mode + usage, matching /model's layout. */
   if (!*args) {
     const char *mode = ctx->renderer_name ? ctx->renderer_name : "md";
-    char body[256];
+    char        body[256];
     std::snprintf(body, sizeof(body),
                   "current: %s\n\n"
                   "usage:\n"
@@ -55,14 +56,13 @@ void slash_cmd_renderer(ReplCtx *ctx, const char *args) {
   }
 }
 
-void slash_argc_renderer(xLineCompletionEnv cenv, ReplCtx *ctx,
-                         const char *token) {
+void slash_argc_renderer(xLineCompletionEnv cenv, ReplCtx *ctx, const char *token) {
   (void)ctx;
   static const struct {
     const char *name;
     const char *help;
   } cands[] = {
-    {"md",  "markdown → ANSI rendering"},
+    {"md", "markdown → ANSI rendering"},
     {"raw", "verbatim (no formatting)"},
   };
   for (const auto &c : cands) {

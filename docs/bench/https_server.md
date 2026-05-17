@@ -22,7 +22,7 @@ End-to-end HTTPS server benchmark comparing **moo** (single-threaded event-loop,
 Single-threaded event-loop HTTPS server built on `xbase/event.h` + `xhttp/server.h` + OpenSSL. Uses `xHttpServerListenTls()` which automatically sets ALPN to `{"h2", "http/1.1"}`, so the same server handles both HTTPS/1.1 and HTTPS/2 depending on client negotiation.
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DX_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 openssl req -x509 -newkey rsa:2048 -keyout bench_key.pem -out bench_cert.pem \
   -days 365 -nodes -subj '/CN=localhost'
@@ -166,7 +166,7 @@ How does TLS affect performance for each protocol? (GET /ping, 100 connections)
 
 ```bash
 # Build moo server
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOO_BUILD_BENCHMARKS=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DX_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 
 # Build Go HTTPS server

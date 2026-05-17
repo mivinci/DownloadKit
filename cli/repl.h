@@ -16,9 +16,9 @@
 
 #include "ctx.h"
 
-#include <xagent/session.h>
-#include <xagent/tool.h>
-#include <xbase/error.h>
+#include <x/agent/session.h>
+#include <x/agent/tool.h>
+#include <x/base/error.h>
 
 /* Open / close the async xline editor with the loop-registered fd.
  * `repl_open_line` uses an empty prompt (chat mode); _with_prompt is
@@ -40,9 +40,8 @@ void repl_drain_confirms_rejected(ReplCtx *ctx, const char *reason);
 
 /* on_tool_confirm session callback — exported because it's installed
  * into xAgentSessionConf.cbs in main(). */
-void on_tool_confirm(xAgentSession sess, const char *tool_name,
-                     const char *tool_use_id, const char *args_json,
-                     xAgentToolConfirmResolver resolver, void *ud);
+void on_tool_confirm(xAgentSession sess, const char *tool_name, const char *tool_use_id,
+                     const char *args_json, xAgentToolConfirmResolver resolver, void *ud);
 
 /* Signal watcher for out-of-band SIGINT (kill -INT etc). The normal
  * in-band ^C arrives through xLineStep as XLINE_STEP_INTERRUPT. */

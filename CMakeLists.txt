@@ -16,19 +16,11 @@ endif()
 
 message(STATUS "moo: Building ${MOO_VERSION}")
 
-option(MOO_BUILD_STATIC "Build moo as static libraries" OFF)
-option(MOO_BUILD_TESTS "Build moo tests" ON)
-option(MOO_BUILD_BENCHMARKS "Build moo benchmarks" ON)
-option(MOO_BUILD_APPS "Build moo applications (apps/)" OFF)
-option(MOO_BUILD_EXAMPLES "Build moo example programs" OFF)
-option(MOO_ENABLE_ASAN "Enable AddressSanitizer" OFF)
-option(MOO_DEBUG_LEVEL "Debug logging level (0-3, higher means more verbose)" 0)
-
-if(MOO_BUILD_STATIC)
-  set(MOO_LIB_TYPE STATIC)
-else()
-  set(MOO_LIB_TYPE SHARED)
-endif()
+# moo-app-level toggles. Library-build toggles (tests, benchmarks, TLS
+# backend, debug level, static vs shared, ...) live in libx/CMakeLists.txt
+# under the X_* namespace.
+option(MOO_BUILD_APPS  "Build moo applications (apps/)" OFF)
+option(MOO_ENABLE_ASAN "Enable AddressSanitizer"        OFF)
 
 if(MSVC)
   add_compile_options(/W3)
@@ -43,43 +35,21 @@ if(MOO_ENABLE_ASAN AND NOT MSVC)
   add_link_options(-fsanitize=address)
 endif()
 
-# Pass debug level to source code
-add_compile_definitions(MOO_DEBUG_LEVEL=${MOO_DEBUG_LEVEL})
-
-if(MOO_BUILD_TESTS)
-  enable_testing()
-  find_package(GTest REQUIRED)
-endif()
-
-if(MOO_BUILD_BENCHMARKS)
-  find_package(GBenchmark REQUIRED)
-endif()
-
 find_package(Libcurl REQUIRED)
 
 include_directories(${CMAKE_SOURCE_DIR}/libx)
 
-add_subdirectory(libx/xbase)
-add_subdirectory(libx/xlog)
-add_subdirectory(libx/xbuf)
-add_subdirectory(libx/xnet)
-add_subdirectory(libx/xcrypto)
-add_subdirectory(libx/xhttp)
-add_subdirectory(libx/xp2p)
-add_subdirectory(libx/xfer)
-add_subdirectory(libx/xagent)
-add_subdirectory(libx/xjs)
-add_subdirectory(libx/xline)
-add_subdirectory(libx/xtui)
+# enable_testing() must be called from the top-level CMakeLists.txt for
+# ctest to discover add_test() calls in sub-projects (libx, libx++).
+# CMake scopes enable_testing() to the current directory and below, so
+# calling it inside libx/CMakeLists.txt only would silently drop libx++
+# tests. Cheap to call unconditionally; the X_BUILD_TESTS / XPP_BUILD_TESTS
+# switches still gate whether any add_test() calls happen at all.
+enable_testing()
+
+add_subdirectory(libx)
+add_subdirectory(libx++)
 
 if(MOO_BUILD_APPS)
   add_subdirectory(cli)
-endif()
-
-if(MOO_BUILD_EXAMPLES)
-  add_subdirectory(examples)
-endif()
-
-if(MOO_BUILD_BENCHMARKS)
-  add_subdirectory(bench)
 endif()

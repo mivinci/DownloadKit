@@ -38,7 +38,7 @@ cp -r /work/bench "$PREFETCH_DIR/"
 cd "$PREFETCH_DIR" && \
     GITHUB_MIRROR="$GITHUB_MIRROR" cmake -S . -B /tmp/moo-build \
       -DCMAKE_BUILD_TYPE=Debug \
-      -DMOO_TLS_BACKEND=openssl \
+      -DX_TLS_BACKEND=openssl \
       -DBUILD_TESTING=ON \
       -DFETCHCONTENT_BASE_DIR=/fetchcontent-cache
 

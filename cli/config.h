@@ -52,11 +52,11 @@
 #include <string>
 #include <vector>
 
-#include <xagent/model.h>
-#include <xagent/provider.h>
-#include <xagent/session.h>
-#include <xbase/event.h>
-#include <xhttp/client.h>
+#include <x/agent/model.h>
+#include <x/agent/provider.h>
+#include <x/agent/session.h>
+#include <x/base/event.h>
+#include <x/http/client.h>
 
 /* Flags marking which budget fields were explicitly set by the
  * user. Needed because zero is a valid "use the built-in default"
@@ -84,11 +84,11 @@ struct CliBudgetConf {
  * per-model overrides; only fields with a true mask bit win against
  * the top-level budget for this entry. */
 struct CliModelEntry {
-  std::string    id;        /* registry key, unique                        */
+  std::string    id;            /* registry key, unique                        */
   std::string    provider_kind; /* "openai" today; future: "anthropic" etc.*/
-  std::string    model;     /* wire name sent to the provider              */
-  CliBudgetConf  budget;    /* per-model overrides; mask says which apply  */
-  xAgentProvider provider;  /* owned; destroyed in cli_model_config_destroy*/
+  std::string    model;         /* wire name sent to the provider              */
+  CliBudgetConf  budget;        /* per-model overrides; mask says which apply  */
+  xAgentProvider provider;      /* owned; destroyed in cli_model_config_destroy*/
 };
 
 /* Fully-loaded model configuration. The registry borrows every
@@ -107,10 +107,10 @@ struct CliModelEntry {
  */
 struct CliModelConfig {
   std::vector<CliModelEntry> entries;
-  xAgentModelRegistry        registry    = nullptr; /* owned */
+  xAgentModelRegistry        registry = nullptr; /* owned */
   std::string                default_id;
-  int                        max_turns   = 0; /* 0 = use built-in default */
-  CliBudgetConf              budget;          /* top-level "budget" block */
+  int                        max_turns = 0; /* 0 = use built-in default */
+  CliBudgetConf              budget;        /* top-level "budget" block */
 };
 
 /* Look up a model entry by id. Returns nullptr when the id is not
@@ -118,8 +118,7 @@ struct CliModelConfig {
  * handful-of-models scale we expect in practice. Exposed so
  * /model-switch code in the CLI can pull the switched-to entry's
  * budget overrides without reparsing the JSON. */
-const CliModelEntry *cli_model_config_find(const CliModelConfig *cfg,
-                                           const char           *id);
+const CliModelEntry *cli_model_config_find(const CliModelConfig *cfg, const char *id);
 
 /* Compose the effective xAgentBudgetConf for a given model, in
  * cascade order: built-in default (everything 0) <- top-level
@@ -128,8 +127,7 @@ const CliModelEntry *cli_model_config_find(const CliModelConfig *cfg,
  * callback pair are left as zero/null so the caller can splice
  * them back in. @p model_id may be NULL or unknown, in which case
  * only the top-level block contributes. */
-xAgentBudgetConf cli_model_config_resolve_budget(const CliModelConfig *cfg,
-                                                 const char           *model_id);
+xAgentBudgetConf cli_model_config_resolve_budget(const CliModelConfig *cfg, const char *model_id);
 
 /* Load `<data_dir>/models.json` and build a CliModelConfig.
  *
@@ -158,11 +156,8 @@ xAgentBudgetConf cli_model_config_resolve_budget(const CliModelConfig *cfg,
  * The backing providers reuse the shared @p loop / @p http so the
  * host doesn't pay for per-model HTTP clients.
  */
-int cli_model_config_load(const char     *data_dir,
-                          xEventLoop      loop,
-                          xHttpClient     http,
-                          CliModelConfig *out,
-                          std::string    *err_out);
+int cli_model_config_load(const char *data_dir, xEventLoop loop, xHttpClient http,
+                          CliModelConfig *out, std::string *err_out);
 
 /* Destroy every provider in @p cfg and the registry that indexes
  * them. Safe to call on a zero-initialised / half-populated cfg;

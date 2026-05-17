@@ -37,9 +37,9 @@
 #include <cstring>
 #include <string>
 
-#include <xagent/session.h>
-#include <xbase/time.h>
-#include <xline/line.h>
+#include <x/agent/session.h>
+#include <x/base/time.h>
+#include <x/line/line.h>
 
 typedef void (*SlashCmdFunc)(ReplCtx *ctx, const char *args);
 
@@ -54,8 +54,7 @@ typedef void (*SlashCmdFunc)(ReplCtx *ctx, const char *args);
  * This is the "xLineSetArgCompleter(\"/foo\", ...)" equivalent: it's a
  * table lookup rather than a separate API, but the ergonomics are
  * the same — one function per command, no shared global state. */
-typedef void (*SlashArgCompleter)(xLineCompletionEnv cenv, ReplCtx *ctx,
-                                  const char *token);
+typedef void (*SlashArgCompleter)(xLineCompletionEnv cenv, ReplCtx *ctx, const char *token);
 
 struct SlashCmd {
   const char       *name; /* including leading '/' */
@@ -81,18 +80,14 @@ static const SlashCmd g_slash_cmds[] = {
   {"/tokens", "show cumulative token usage", slash_cmd_tokens, nullptr},
   {"/cancel", "interrupt the active AI run", slash_cmd_cancel, nullptr},
   {"/version", "show the moo build version", slash_cmd_version, nullptr},
-  {"/model", "show / switch the active model (e.g. /model kimi)",
-   slash_cmd_model, slash_argc_model},
-  {"/bypass",
-   "skip tool confirms (/bypass on --yes | off)",
-   slash_cmd_bypass, slash_argc_bypass},
-  {"/renderer", "set output renderer (md | raw)",
-   slash_cmd_renderer, slash_argc_renderer},
-  {"/verbose", "toggle tool output verbosity (/verbose on | off)",
-   slash_cmd_verbose, slash_argc_verbose},
+  {"/model", "show / switch the active model (e.g. /model kimi)", slash_cmd_model,
+   slash_argc_model},
+  {"/bypass", "skip tool confirms (/bypass on --yes | off)", slash_cmd_bypass, slash_argc_bypass},
+  {"/renderer", "set output renderer (md | raw)", slash_cmd_renderer, slash_argc_renderer},
+  {"/verbose", "toggle tool output verbosity (/verbose on | off)", slash_cmd_verbose,
+   slash_argc_verbose},
 };
-static const size_t g_slash_cmds_count =
-  sizeof(g_slash_cmds) / sizeof(g_slash_cmds[0]);
+static const size_t g_slash_cmds_count = sizeof(g_slash_cmds) / sizeof(g_slash_cmds[0]);
 
 /* Character-class predicate for xLineCompleteWord: returns true when
  * `c` should be considered part of the current completion token.
@@ -104,8 +99,8 @@ static const size_t g_slash_cmds_count =
 static bool is_slash_cmd_char(const char *s, long len) {
   if (len != 1) return false; /* ASCII only; no multi-byte in cmd names */
   char c = s[0];
-  return c == '/' || c == '_' || (c >= 'a' && c <= 'z') ||
-         (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+  return c == '/' || c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+         (c >= '0' && c <= '9');
 }
 
 /* Inner completer invoked by xLineCompleteWord with the already-
@@ -133,8 +128,7 @@ static void slash_completer_inner(xLineCompletionEnv cenv, const char *prefix) {
  * the first character of the argument region (first non-space after
  * the command). Used only for sanity checks; the actual token
  * extraction is handled by xLineCompleteWord downstream. */
-static const SlashCmd *slash_match_cmd_for_arg(const char *prefix,
-                                               size_t     *arg_start_out) {
+static const SlashCmd *slash_match_cmd_for_arg(const char *prefix, size_t *arg_start_out) {
   if (!prefix || prefix[0] != '/') return nullptr;
   /* Walk to the end of the command token. */
   size_t i = 0;
@@ -149,8 +143,7 @@ static const SlashCmd *slash_match_cmd_for_arg(const char *prefix,
   if (arg_start_out) *arg_start_out = i;
   for (size_t k = 0; k < g_slash_cmds_count; ++k) {
     const SlashCmd *c = &g_slash_cmds[k];
-    if (std::strlen(c->name) == cmd_len &&
-        std::strncmp(c->name, prefix, cmd_len) == 0) {
+    if (std::strlen(c->name) == cmd_len && std::strncmp(c->name, prefix, cmd_len) == 0) {
       return c;
     }
   }
@@ -165,10 +158,9 @@ static const SlashCmd *slash_match_cmd_for_arg(const char *prefix,
  * fine: completion is always single-threaded inside xline's event
  * loop and the variable is written then read inside the same call. */
 static thread_local const SlashCmd *tls_arg_cmd;
-static thread_local ReplCtx       *tls_arg_ctx;
+static thread_local ReplCtx        *tls_arg_ctx;
 
-static void slash_arg_completer_inner(xLineCompletionEnv cenv,
-                                      const char        *token) {
+static void slash_arg_completer_inner(xLineCompletionEnv cenv, const char *token) {
   const SlashCmd *c   = tls_arg_cmd;
   ReplCtx        *ctx = tls_arg_ctx;
   if (c && c->arg_completer) c->arg_completer(cenv, ctx, token);
@@ -220,8 +212,7 @@ static void slash_cmd_help(ReplCtx *ctx, const char *args) {
   std::string body;
   for (size_t i = 0; i < g_slash_cmds_count; ++i) {
     char line[128];
-    std::snprintf(line, sizeof(line), "  %-10s %s", g_slash_cmds[i].name,
-                  g_slash_cmds[i].help);
+    std::snprintf(line, sizeof(line), "  %-10s %s", g_slash_cmds[i].name, g_slash_cmds[i].help);
     if (!body.empty()) body.push_back('\n');
     body.append(line);
   }
@@ -282,9 +273,8 @@ static void slash_cmd_history(ReplCtx *ctx, const char *args) {
    * to disk yet. */
   long n = xLineHistoryCount();
   if (n <= 0) {
-    xLineSetBelowPanel(
-      ctx->line, nullptr,
-      "(no history yet \u2014 submit a message and come back)");
+    xLineSetBelowPanel(ctx->line, nullptr,
+                       "(no history yet \u2014 submit a message and come back)");
     return;
   }
   std::string body;
@@ -313,17 +303,13 @@ static void slash_cmd_tokens(ReplCtx *ctx, const char *args) {
     char extra[64];
     extra[0] = '\0';
     if (ctx->last_actual_prompt >= 0) {
-      std::snprintf(extra, sizeof(extra), " last_actual_prompt=%d",
-                    ctx->last_actual_prompt);
+      std::snprintf(extra, sizeof(extra), " last_actual_prompt=%d", ctx->last_actual_prompt);
     }
-    std::snprintf(buf, sizeof(buf),
-                  "\nbudget: remaining=%zu/%zu estimated=%zu%s",
-                  ctx->budget_remaining, ctx->budget_limit,
-                  ctx->budget_estimated, extra);
+    std::snprintf(buf, sizeof(buf), "\nbudget: remaining=%zu/%zu estimated=%zu%s",
+                  ctx->budget_remaining, ctx->budget_limit, ctx->budget_estimated, extra);
     body.append(buf);
   } else {
-    body.append(
-      "\nbudget: (no GatePassed event yet \u2014 submit a message first)");
+    body.append("\nbudget: (no GatePassed event yet \u2014 submit a message first)");
   }
   xLineSetBelowPanel(ctx->line, nullptr, body.c_str());
 }
@@ -349,13 +335,11 @@ bool slash_dispatch(ReplCtx *ctx, const char *line) {
     ++args;
   for (size_t i = 0; i < g_slash_cmds_count; ++i) {
     const SlashCmd *c = &g_slash_cmds[i];
-    if (std::strlen(c->name) == cmd_len &&
-        std::strncmp(c->name, line, cmd_len) == 0) {
+    if (std::strlen(c->name) == cmd_len && std::strncmp(c->name, line, cmd_len) == 0) {
       if (c->fn) c->fn(ctx, args);
       return true;
     }
   }
-  above_printf(ctx->line, "unknown command: %.*s  (try /help)", (int)cmd_len,
-               line);
+  above_printf(ctx->line, "unknown command: %.*s  (try /help)", (int)cmd_len, line);
   return true;
 }

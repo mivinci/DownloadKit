@@ -59,36 +59,43 @@ change.
 ```bash
 # 1. Configure + build the app (cli/ is off by default)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-      -DMOO_BUILD_APPS=ON -DMOO_BUILD_TESTS=OFF -DMOO_BUILD_BENCHMARKS=OFF
+      -DMOO_BUILD_APPS=ON -DX_BUILD_TESTS=OFF -DX_BUILD_BENCHMARKS=OFF
 cmake --build build --parallel
 
-# 2. Point it at a data directory and drop a models.json in there
-mkdir -p ~/.moo
-cat > ~/.moo/models.json <<'JSON'
+# 2. First run scaffolds a models.json template into the data dir
+#    (defaults to the current working directory; pass --data-dir to
+#    point somewhere else, e.g. ~/.moo)
+./build/cli/moo --data-dir ~/.moo
+# moo will write ~/.moo/models.json on first launch, then exit with a
+# "please configure me" hint. Edit the file in place.
+```
+
+The scaffolded `models.json` looks like this — fill in the angle-bracket
+placeholders to enable chat:
+
+```json
 {
   "default": "kimi",
   "max_turns": 64,
-  "budget": {
-    "context_window": 8192,
-    "keep_head_turns": 1,
-    "keep_recent_turns": 2
-  },
+  "budget": { "context_window": 8192 },
   "models": [
     { "id": "kimi", "provider": "openai",
       "model": "kimi-k2.6",
-      "api_key": "sk-...",
+      "api_key": "<your-api-key>",
       "base_url": "https://api.moonshot.cn/v1",
       "budget": { "context_window": 131072 } },
     { "id": "glm",  "provider": "openai",
       "model": "glm-4.5",
-      "api_key": "sk-...",
+      "api_key": "<your-api-key>",
       "base_url": "https://open.bigmodel.cn/api/paas/v4",
       "budget": { "context_window": 131072 } }
   ]
 }
-JSON
+```
 
-# 3. Talk to it
+Run again once `models.json` is filled in:
+
+```bash
 ./build/cli/moo --data-dir ~/.moo
 ```
 
@@ -102,7 +109,9 @@ Inside the REPL, slash commands are available:
 | `/cancel` | Interrupt the active AI run |
 | `/history` | Dump input history |
 | `/clear` | Clear the terminal |
-| `/bypass` | Auto-approve tool calls for the current turn |
+| `/bypass on --yes \| off` | Skip tool-call confirmation for the session (`--yes` is mandatory to enable) |
+| `/renderer md \| raw` | Switch between markdown→ANSI and raw output |
+| `/verbose on \| off` | Toggle full vs truncated tool-output display |
 | `/version` | Build version |
 | `/exit` | Quit |
 
@@ -130,19 +139,19 @@ Here's what a session looks like:
                      │  provider(openai)       │
                      └────────────┬────────────┘
                                   │
-  ┌─────────┬─────────┬───────────┴────────┬─────────┬─────────┐
-  │ xbase   │ xbuf    │ xnet / xhttp       │ xline   │ xlog    │
-  │ loop,   │ linear, │ DNS, TCP, TLS,     │ CJK-    │ async   │
-  │ timer,  │ ring,   │ HTTP/1.1, HTTP/2,  │ aware   │ MPSC    │
-  │ task,   │ chain   │ SSE, WebSocket     │ line    │ logger  │
-  │ atomic… │ bufs    │                    │ editor  │         │
-  └─────────┴─────────┴────────────────────┴─────────┴─────────┘
+  ┌─────────┬─────────┬───────────┴────────┬─────────┬─────────┬─────────┐
+  │ xbase   │ xbuf    │ xnet / xhttp       │ xline   │ xlog    │ xtui    │
+  │ loop,   │ linear, │ DNS, TCP, TLS,     │ CJK-    │ async   │ stream  │
+  │ timer,  │ ring,   │ HTTP/1.1, HTTP/2,  │ aware   │ MPSC    │ md →    │
+  │ task,   │ chain   │ SSE, WebSocket     │ line    │ logger  │ ANSI    │
+  │ atomic… │ bufs    │                    │ editor  │         │         │
+  └─────────┴─────────┴────────────────────┴─────────┴─────────┴─────────┘
 
    plus xcrypto (hashes/HMAC), xjs (QuickJS-ng), xp2p / xfer
    (WebRTC + DataChannel file transfer) — supporting infra.
 ```
 
-### The agent (`libx/xagent`)
+### The agent (`libx/x/agent`)
 
 | Module | Role |
 | ------ | ---- |
@@ -155,28 +164,35 @@ Here's what a session looks like:
 | `tool.{h,c}` · `tool_shell.{h,c}` | Tool definition ABI + a built-in shell tool with confirmation hooks. |
 | `budget.{h,c}` | Prompt-size estimator, rolling trimmer, auto-calibrator. |
 
-See [`libx/xagent/agent.h`](libx/xagent/agent.h) for the entry point, and
+See [`libx/x/agent/agent.h`](libx/x/agent/agent.h) for the entry point, and
 [`docs/design/`](docs/design) for the design notes
 (context budget, layered memory, three-layer conversation model).
 
 ### The foundation libraries
 
-Everything in `libx/` below `xagent` is shared, reusable, and independently
+Everything in `libx/x/` outside `agent/` is shared, reusable, and independently
 testable — you can link any of them into your own C project without
 pulling in the agent.
 
 | Library | What you get |
 | ------- | ------------ |
-| **[xbase](https://le0.me/moo/libx/xbase)** | Event loop, timers, tasks, async sockets, lock-free structures |
-| **[xbuf](https://le0.me/moo/libx/xbuf)** | Linear, ring, and block-chain I/O buffers |
-| **[xnet](https://le0.me/moo/libx/xnet)** | URL parser, async DNS, TCP, shared TLS config |
-| **[xhttp](https://le0.me/moo/libx/xhttp)** | libcurl multi-socket client with SSE; HTTP/1.1 + HTTP/2 server; WebSocket |
-| **[xline](https://le0.me/moo/libx/xline)** | CJK-aware line editor with persistent history and reverse search |
-| **[xlog](https://le0.me/moo/libx/xlog)** | Async MPSC logger with rotation |
-| **[xjs](https://le0.me/moo/libx/xjs)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped API |
-| **[xcrypto](https://le0.me/moo/libx/xcrypto)** | SHA-1 / SHA-256 / MD5 / CRC-32 / HMAC |
-| **[xp2p](https://le0.me/moo/libx/xp2p)** | ICE · STUN/TURN · SDP · DTLS · SCTP · DataChannel |
-| **[xfer](https://le0.me/moo/libx/xfer)** | Zero-config P2P file transfer over WebRTC DataChannel |
+| **[xbase](https://le0.me/moo/libx/base)** | Event loop, timers, tasks, async sockets, lock-free structures |
+| **[xbuf](https://le0.me/moo/libx/buf)** | Linear, ring, and block-chain I/O buffers |
+| **[xnet](https://le0.me/moo/libx/net)** | URL parser, async DNS, TCP, shared TLS config |
+| **[xhttp](https://le0.me/moo/libx/http)** | libcurl multi-socket client with SSE; HTTP/1.1 + HTTP/2 server; WebSocket |
+| **[xline](https://github.com/mivinci/moo/tree/main/libx/x/line)** | CJK-aware line editor with persistent history and reverse search |
+| **[xlog](https://le0.me/moo/libx/log)** | Async MPSC logger with rotation |
+| **[xjs](https://le0.me/moo/libx/js)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped API |
+| **[xcrypto](https://le0.me/moo/libx/crypto)** | SHA-1 / SHA-256 / MD5 / CRC-32 / HMAC |
+| **[xp2p](https://le0.me/moo/libx/p2p)** | ICE · STUN/TURN · SDP · DTLS · SCTP · DataChannel |
+| **[xfer](https://le0.me/moo/libx/fer)** | Zero-config P2P file transfer over WebRTC DataChannel |
+| **[xtui](https://github.com/mivinci/moo/tree/main/libx/x/tui)** | Streaming markdown → ANSI transformer for terminal output |
+
+**`libx++/xpp/`** is an optional C++14 RAII layer over libx — `Own<T>`,
+`NonNull<T>`, `Option<T>`, `Result<T, E>`, and a few thin wrappers around
+the C event/timer/task primitives. The C side stands on its own; pull in
+libx++ only if you want the C++ ergonomics. See
+[libx++/xpp/](libx%2B%2B/xpp/).
 
 ## Prerequisites
 
@@ -201,7 +217,7 @@ cmake --build build --parallel
 
 # App only, Release
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-      -DMOO_BUILD_APPS=ON -DMOO_BUILD_TESTS=OFF -DMOO_BUILD_BENCHMARKS=OFF
+      -DMOO_BUILD_APPS=ON -DX_BUILD_TESTS=OFF -DX_BUILD_BENCHMARKS=OFF
 cmake --build build --parallel
 ```
 
@@ -210,13 +226,13 @@ Useful options:
 | Option | Default | Purpose |
 | ------ | ------- | ------- |
 | `MOO_BUILD_APPS` | `OFF` | Build `cli/` (the `moo` CLI lives here) |
-| `MOO_BUILD_TESTS` | `ON` | Build unit tests |
-| `MOO_BUILD_BENCHMARKS` | `ON` | Build micro- and end-to-end benchmarks |
-| `MOO_BUILD_EXAMPLES` | `OFF` | Build example programs |
-| `MOO_BUILD_STATIC` | `OFF` | Build libraries as static archives |
-| `MOO_TLS_BACKEND` | `openssl` | TLS backend: `openssl` or `mbedtls` |
+| `X_BUILD_TESTS` | `ON` | Build unit tests |
+| `X_BUILD_BENCHMARKS` | `ON` | Build micro- and end-to-end benchmarks |
+| `X_BUILD_EXAMPLES` | `OFF` | Build example programs |
+| `X_BUILD_STATIC` | `OFF` | Build libraries as static archives |
+| `X_TLS_BACKEND` | `openssl` | TLS backend: `openssl` or `mbedtls` |
 | `MOO_ENABLE_ASAN` | `OFF` | AddressSanitizer |
-| `MOO_DEBUG_LEVEL` | `0` | Debug-log verbosity (0–3) |
+| `X_DEBUG_LEVEL` | `0` | Debug-log verbosity (0–3) |
 
 ## Test
 
@@ -230,14 +246,29 @@ To test both TLS backends in one session, configure two build dirs and
 run ctest in each:
 
 ```bash
-cmake -S . -B build-openssl -DMOO_TLS_BACKEND=openssl && \
+cmake -S . -B build-openssl -DX_TLS_BACKEND=openssl && \
   cmake --build build-openssl --parallel && \
   ctest --test-dir build-openssl --output-on-failure --parallel 4
 
-cmake -S . -B build-mbedtls -DMOO_TLS_BACKEND=mbedtls && \
+cmake -S . -B build-mbedtls -DX_TLS_BACKEND=mbedtls && \
   cmake --build build-mbedtls --parallel && \
   ctest --test-dir build-mbedtls --output-on-failure --parallel 4
 ```
+
+### Affected-modules workflow
+
+For a faster local iteration loop, the test scripts diff against a base
+ref (default `origin/main`) and run only the tests for changed libx
+modules and their dependents:
+
+```bash
+./scripts/test-mac.sh                    # macOS, openssl, vs origin/main
+./scripts/test-mac.sh -t mbedtls --all   # force-test every module, mbedTLS
+./scripts/test-linux.sh --ci --base-sha <SHA>   # CI mode, native Linux
+```
+
+Pass `--detect-only` to print just the affected module names without
+building or running anything.
 
 ### Linux via container (macOS host)
 

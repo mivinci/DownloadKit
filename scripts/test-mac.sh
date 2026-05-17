@@ -141,7 +141,8 @@ compute_affected() {
 
 # ── Detect changed modules ─────────────────────────────────────────────
 detect_changed_modules() {
-    step "Detecting changed modules (vs $BASE_REF)"
+    local diff_label="${BASE_SHA:-$BASE_REF}"
+    step "Detecting changed modules (vs $diff_label)"
 
     if [[ $FORCE_ALL -eq 1 ]]; then
         info "Force all mode: testing every module"
@@ -198,27 +199,47 @@ detect_changed_modules() {
 
     # Map changed files to modules
     local -A changed_mods=([__none__]=1)
+    local libxpp_changed=0
     for f in "${changed_files[@]}"; do
-        if [[ "$f" == libx/*/* ]]; then
-            local mod="${f#libx/}"
-            mod="${mod%%/*}"
-            # Only count if it's a known module
+        if [[ "$f" == libx/x/*/* ]]; then
+            # libx/x/<mod>/...  -> module key is "x<mod>" (xbase, xlog, ...)
+            local rest="${f#libx/x/}"
+            local mod="x${rest%%/*}"
             for m in "${ALL_MODULES[@]}"; do
                 if [[ "$mod" == "$m" ]]; then
                     changed_mods[$mod]=1
                     break
                 fi
             done
-        elif [[ "$f" == examples/* ]]; then
-            # Example / demo changes do not affect module tests
+        elif [[ "$f" == libx/examples/* || "$f" == libx/bench/* ]]; then
+            # Example / bench changes do not affect module tests
             continue
-        elif [[ "$f" =~ ^(CMakeLists\.txt|cmake/) ]]; then
-            # Root CMake change affects everything
-            info "Root build system changed, testing all modules"
+        elif [[ "$f" == libx/cmake/* ]]; then
+            # libx-internal CMake helpers — affect every libx module (and libx++)
+            info "libx CMake helpers changed, testing all modules"
             printf '%s\n' "${ALL_MODULES[@]}"
+            printf '%s\n' "__libxpp__"
+            return
+        elif [[ "$f" == libx/CMakeLists.txt ]]; then
+            info "libx top-level CMake changed, testing all modules"
+            printf '%s\n' "${ALL_MODULES[@]}"
+            printf '%s\n' "__libxpp__"
+            return
+        elif [[ "$f" == libx++/* ]]; then
+            libxpp_changed=1
+        elif [[ "$f" =~ ^(CMakeLists\.txt|cmake/) ]]; then
+            # Repo-root CMake change affects everything (libx + libx++)
+            info "Root build system changed, testing all modules"
+            libxpp_changed=1
+            printf '%s\n' "${ALL_MODULES[@]}"
+            printf '%s\n' "__libxpp__"
             return
         fi
     done
+
+    if [[ $libxpp_changed -eq 1 ]]; then
+        changed_mods[__libxpp__]=1
+    fi
 
     unset 'changed_mods[__none__]'
     if [[ ${#changed_mods[@]} -eq 0 ]]; then
@@ -228,15 +249,29 @@ detect_changed_modules() {
 
     local direct_changes=""
     for k in "${(@k)changed_mods[@]}"; do
+        local label="$k"
+        [[ "$k" == "__libxpp__" ]] && label="libx++"
         [[ -n "$direct_changes" ]] && direct_changes+=" "
-        direct_changes+="$k"
+        direct_changes+="$label"
     done
     info "Directly changed: $direct_changes"
 
+    # Pop libx++ pseudo-module before computing libx-graph dependents
+    local include_libxpp=0
+    if [[ -n "${changed_mods[__libxpp__]+_}" ]]; then
+        include_libxpp=1
+        unset 'changed_mods[__libxpp__]'
+    fi
+
     # Expand to include dependents
     local affected
-    affected=$(compute_affected "${(@k)changed_mods[@]}")
-    info "Affected modules (with dependents): $(echo $affected | tr '\n' ' ')"
+    if [[ ${#changed_mods[@]} -gt 0 ]]; then
+        affected=$(compute_affected "${(@k)changed_mods[@]}")
+    fi
+    if [[ $include_libxpp -eq 1 ]]; then
+        affected="${affected}"$'\n'"__libxpp__"
+    fi
+    info "Affected modules (with dependents): $(echo $affected | tr '\n' ' ' | sed 's/__libxpp__/libx++/g')"
 
     echo "$affected"
 }
@@ -256,13 +291,23 @@ fi
 
 # --detect-only: just print affected module names and exit
 if [[ $DETECT_ONLY -eq 1 ]]; then
-    printf '%s\n' "${AFFECTED[@]}"
+    for m in "${AFFECTED[@]}"; do
+        if [[ "$m" == "__libxpp__" ]]; then
+            echo "libx++"
+        else
+            echo "$m"
+        fi
+    done
     exit 0
 fi
 
 # Collect test targets (skip modules with no test binary)
 TEST_TARGETS=()
 for m in "${AFFECTED[@]}"; do
+    if [[ "$m" == "__libxpp__" ]]; then
+        TEST_TARGETS+=("x++_test")
+        continue
+    fi
     skip=0
     for nt in "${NO_TEST_MODULES[@]}"; do
         if [[ "$m" == "$nt" ]]; then skip=1; break; fi
@@ -280,13 +325,28 @@ if [[ ${#TEST_TARGETS[@]} -eq 0 ]]; then
     exit 0
 fi
 
+# When libx++ is in scope, also build the C++11 strict-mode guard so a
+# C++14-only header (generic lambda, std::is_final, …) gets caught at
+# PR time rather than discovered downstream.
+WANT_CXX11_GUARD=0
+for t in "${TEST_TARGETS[@]}"; do
+    if [[ "$t" == "x++_test" ]]; then
+        WANT_CXX11_GUARD=1
+        break
+    fi
+done
+
 # ── CMake configure ────────────────────────────────────────────────────
 step "Configuring build (TLS=$TLS_BACKEND, type=$BUILD_TYPE)"
 
-CMAKE_EXTRA_ARGS=(-DMOO_TLS_BACKEND=$TLS_BACKEND)
+CMAKE_EXTRA_ARGS=(-DX_TLS_BACKEND=$TLS_BACKEND)
 
 if [[ $ASAN -eq 1 ]]; then
     CMAKE_EXTRA_ARGS+=(-DMOO_ENABLE_ASAN=ON)
+fi
+
+if [[ $WANT_CXX11_GUARD -eq 1 ]]; then
+    CMAKE_EXTRA_ARGS+=(-DXPP_CXX11_GUARD=ON)
 fi
 
 # Homebrew OpenSSL / mbedTLS are keg-only
@@ -307,13 +367,22 @@ cmake -S . -B "$BUILD_DIR" \
 # ── Build ──────────────────────────────────────────────────────────────
 step "Building test targets"
 
-cmake --build "$BUILD_DIR" --target ${TEST_TARGETS[@]} --parallel "$JOBS"
+# Extend the build list with the C++11 guard library when in scope.
+# It's a compile-only static lib; ctest doesn't see it.
+BUILD_TARGETS=("${TEST_TARGETS[@]}")
+if [[ $WANT_CXX11_GUARD -eq 1 ]]; then
+    BUILD_TARGETS+=("x++_cxx11_guard")
+fi
+
+cmake --build "$BUILD_DIR" --target ${BUILD_TARGETS[@]} --parallel "$JOBS"
 
 # ── Run tests ──────────────────────────────────────────────────────────
 FAILED=0
 for target in "${TEST_TARGETS[@]}"; do
     step "Running $target"
-    if (cd "$BUILD_DIR" && ctest --output-on-failure -R "^${target}$"); then
+    # Escape regex metacharacters in target name for ctest -R (e.g. x++_test)
+    target_re="${target//+/\\+}"
+    if (cd "$BUILD_DIR" && ctest --output-on-failure -R "^${target_re}$" --no-tests=error); then
         info "$target PASSED"
     else
         error "$target FAILED"

@@ -16,9 +16,9 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include <xagent/session.h>
-#include <xbase/time.h>
-#include <xline/line.h>
+#include <x/agent/session.h>
+#include <x/base/time.h>
+#include <x/line/line.h>
 
 void on_text(xAgentSession sess, const char *chunk, size_t len, void *ud) {
   (void)sess;
@@ -58,19 +58,16 @@ void on_thinking(xAgentSession sess, const char *chunk, size_t len, void *ud) {
   above_chunk(ctx->line, chunk, len);
 }
 
-void on_tool(xAgentSession sess, const char *tool_name, int started,
-             void *ud) {
+void on_tool(xAgentSession sess, const char *tool_name, int started, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
-  above_printf(ctx->line, "\x1b[2m[tool] %s %s\x1b[0m",
-               tool_name ? tool_name : "(null)",
+  above_printf(ctx->line, "\x1b[2m[tool] %s %s\x1b[0m", tool_name ? tool_name : "(null)",
                started ? "starting" : "finished");
 }
 
-void on_tool_output(xAgentSession sess, const char *tool_use_id,
-                    const char *tool_name, const char *data, size_t len,
-                    void *ud) {
+void on_tool_output(xAgentSession sess, const char *tool_use_id, const char *tool_name,
+                    const char *data, size_t len, void *ud) {
   (void)sess;
   (void)tool_use_id;
   (void)tool_name;
@@ -122,8 +119,7 @@ static const char *done_reason_name(xAgentDoneReason r) {
   return "?";
 }
 
-void on_done(xAgentSession sess, xAgentDoneReason reason,
-             const xAgentUsage *usage, void *ud) {
+void on_done(xAgentSession sess, xAgentDoneReason reason, const xAgentUsage *usage, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
@@ -154,22 +150,19 @@ void on_done(xAgentSession sess, xAgentDoneReason reason,
   if (usage) {
     off += std::snprintf(line_buf + off, sizeof(line_buf) - off, " tokens=");
     if (usage->prompt_tokens >= 0) {
-      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "%d",
-                           usage->prompt_tokens);
+      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "%d", usage->prompt_tokens);
     } else {
       off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "?");
     }
     off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "/");
     if (usage->completion_tokens >= 0) {
-      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "%d",
-                           usage->completion_tokens);
+      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "%d", usage->completion_tokens);
     } else {
       off += std::snprintf(line_buf + off, sizeof(line_buf) - off, "?");
     }
     if (usage->total_tokens >= 0) {
       ctx->total_tokens += usage->total_tokens;
-      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, " total=%d",
-                           ctx->total_tokens);
+      off += std::snprintf(line_buf + off, sizeof(line_buf) - off, " total=%d", ctx->total_tokens);
     }
   }
   /* Context-budget snapshot. budget_remaining and budget_limit
@@ -181,10 +174,8 @@ void on_done(xAgentSession sess, xAgentDoneReason reason,
    * the very next input is likely to hit the cap. est is the
    * pre-submit estimate for this round. */
   if (ctx->budget_limit > 0) {
-    off += std::snprintf(line_buf + off, sizeof(line_buf) - off,
-                         " budget=%zu/%zu est=%zu",
-                         ctx->budget_remaining, ctx->budget_limit,
-                         ctx->budget_estimated);
+    off += std::snprintf(line_buf + off, sizeof(line_buf) - off, " budget=%zu/%zu est=%zu",
+                         ctx->budget_remaining, ctx->budget_limit, ctx->budget_estimated);
     if (ctx->last_actual_prompt >= 0) {
       off += std::snprintf(line_buf + off, sizeof(line_buf) - off, " actual=%d",
                            ctx->last_actual_prompt);
@@ -243,8 +234,7 @@ void on_error(xAgentSession sess, xErrno err, const char *msg, void *ud) {
  * surfacing them makes the budget demo much easier to follow — the
  * user sees why a subsequent xAgentSessionInput returned Busy
  * (Compacting) and knows when to retry (CompactDone). */
-void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
-                     const void *info, void *ud) {
+void on_budget_event(xAgentSession sess, xAgentBudgetEvent event, const void *info, void *ud) {
   (void)sess;
   auto *ctx = static_cast<ReplCtx *>(ud);
   end_thinking(ctx);
@@ -252,8 +242,7 @@ void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
   switch (event) {
   case xAgentBudgetEvent_Compacting: {
     auto *ci = static_cast<const xAgentBudgetCompactInfo *>(info);
-    above_printf(ctx->line,
-                 "\x1b[2m[budget] compacting %zu old entries...\x1b[0m",
+    above_printf(ctx->line, "\x1b[2m[budget] compacting %zu old entries...\x1b[0m",
                  ci ? ci->entries_compacted : (size_t)0);
     break;
   }
@@ -270,10 +259,8 @@ void on_budget_event(xAgentSession sess, xAgentBudgetEvent event,
        * session left history untouched. Surface a clear error so the
        * user can decide: /clear, shorten input, or adjust
        * context_window. */
-      above_printf(
-          ctx->line,
-          "\x1b[1;31m[error] compact failed — history unchanged. Try "
-          "/clear or a shorter prompt.\x1b[0m");
+      above_printf(ctx->line, "\x1b[1;31m[error] compact failed — history unchanged. Try "
+                              "/clear or a shorter prompt.\x1b[0m");
     }
     break;
   }

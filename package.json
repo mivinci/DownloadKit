@@ -19,9 +19,9 @@
     "example": "examples"
   },
   "scripts": {
-    "build": "cmake -B build -DMOO_BUILD_APPS=ON -DMOO_BUILD_EXAMPLES=ON -DMOO_DEBUG_LEVEL=1 && cmake --build build",
-    "build-openssl": "cmake -B build-openssl -DMOO_BUILD_APPS=ON -DMOO_BUILD_EXAMPLES=ON -DMOO_TLS_BACKEND=openssl && cmake --build build-openssl",
-    "build-mbedtls": "cmake -B build-mbedtls -DMOO_BUILD_APPS=ON -DMOO_BUILD_EXAMPLES=ON -DMOO_TLS_BACKEND=mbedtls && cmake --build build-mbedtls",
+    "build": "cmake -B build -DMOO_BUILD_APPS=ON -DX_BUILD_EXAMPLES=ON -DX_DEBUG_LEVEL=1 && cmake --build build",
+    "build-openssl": "cmake -B build-openssl -DMOO_BUILD_APPS=ON -DX_BUILD_EXAMPLES=ON -DX_TLS_BACKEND=openssl && cmake --build build-openssl",
+    "build-mbedtls": "cmake -B build-mbedtls -DMOO_BUILD_APPS=ON -DX_BUILD_EXAMPLES=ON -DX_TLS_BACKEND=mbedtls && cmake --build build-mbedtls",
     "test": "ctest --test-dir build --output-on-failure",
     "bench": "ctest --test-dir build -L bench --output-on-failure",
     "build-docs": "mdbook build docs",

@@ -100,7 +100,7 @@ if(GTest_FOUND)
   find_package(Threads QUIET)
 
   if(NOT TARGET GTest::gtest)
-    add_library(GTest::gtest UNKNOWN IMPORTED)
+    add_library(GTest::gtest UNKNOWN IMPORTED GLOBAL)
     set_target_properties(GTest::gtest PROPERTIES
       IMPORTED_LOCATION             "${GTest_LIBRARIES}"
       INTERFACE_INCLUDE_DIRECTORIES "${GTest_INCLUDE_DIRS}"
@@ -113,7 +113,7 @@ if(GTest_FOUND)
   endif()
 
   if(GTest_MAIN_LIBRARIES AND NOT TARGET GTest::gtest_main)
-    add_library(GTest::gtest_main UNKNOWN IMPORTED)
+    add_library(GTest::gtest_main UNKNOWN IMPORTED GLOBAL)
     set_target_properties(GTest::gtest_main PROPERTIES
       IMPORTED_LOCATION             "${GTest_MAIN_LIBRARIES}"
       INTERFACE_INCLUDE_DIRECTORIES "${GTest_INCLUDE_DIRS}"

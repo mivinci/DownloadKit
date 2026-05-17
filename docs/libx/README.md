@@ -30,15 +30,15 @@ moo is organized into nine libraries, layered from low-level core primitives up 
 
 | Library | Description |
 | ------- | ----------- |
-| **[xbase](xbase/README.md)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
-| **[xbuf](xbuf/README.md)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
-| **[xnet](xnet/README.md)** | Networking primitives — URL parser, async DNS resolver, TCP, shared TLS configuration types |
-| **[xhttp](xhttp/README.md)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 & HTTP/2 async server with TLS, WebSocket server & client |
-| **[xlog](xlog/README.md)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
-| **[xjs](xjs/README.md)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped C API, ES modules, native class wrappers |
-| **[xcrypto](xcrypto/README.md)** | Cryptographic primitives — SHA-1, SHA-256 (OpenSSL / mbedTLS / builtin), MD5, CRC-32, generic HMAC with HMAC-SHA1, HMAC-SHA256, HMAC-MD5 |
-| **[xp2p](xp2p/README.md)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
-| **[xfer](xfer/README.md)** | P2P file transfer — chunked transfer over WebRTC DataChannel with signaling, resume, and SHA-1 integrity |
+| **[xbase](base/README.md)** | Core primitives — event loop, timers, tasks, async sockets, memory, lock-free data structures |
+| **[xbuf](buf/README.md)** | Buffer primitives — linear, ring, and block-chain I/O buffers |
+| **[xnet](net/README.md)** | Networking primitives — URL parser, async DNS resolver, TCP, shared TLS configuration types |
+| **[xhttp](http/README.md)** | Async HTTP client & server — libcurl multi-socket client with SSE streaming, HTTP/1.1 & HTTP/2 async server with TLS, WebSocket server & client |
+| **[xlog](log/README.md)** | Async logging — MPSC queue, timer/pipe flush, log rotation |
+| **[xjs](js/README.md)** | Embeddable JavaScript engine — QuickJS-ng backend, JSC-shaped C API, ES modules, native class wrappers |
+| **[xcrypto](crypto/README.md)** | Cryptographic primitives — SHA-1, SHA-256 (OpenSSL / mbedTLS / builtin), MD5, CRC-32, generic HMAC with HMAC-SHA1, HMAC-SHA256, HMAC-MD5 |
+| **[xp2p](p2p/README.md)** | P2P connectivity — ICE agent, STUN/TURN client, SDP codec, NAT traversal |
+| **[xfer](fer/README.md)** | P2P file transfer — chunked transfer over WebRTC DataChannel with signaling, resume, and SHA-1 integrity |
 
 ## Dependency Order
 

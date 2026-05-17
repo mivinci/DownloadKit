@@ -1,28 +1,31 @@
-# libxpp — C++ RAII Wrappers for libx
+# libx++ — Rust-like infrastructure in C++11
 #
-# Thin C++ wrappers that RAII-ify the C API in libx/.
+# Header-mostly value types, RAII wrappers, and a ref-counted family
+# inspired by Rust's std prelude (Option, Result, Variant, NonNull,
+# Own, Rc, Weak, Arc, ArcWeak, Error, panic). Pull this in standalone
+# wherever C++11 is available. Domain-specific bindings (e.g. C-API
+# wrappers around libx) live in separate projects on top of this one.
 
-# ── Sub-project options (decoupled from top-level MOO_* switches) ──
-# Defaults inherit from the libx X_BUILD_TESTS switch when invoked from
-# the root build, but can be set independently when libxpp is consumed
-# standalone.
-option(XPP_BUILD_TESTS "Build libxpp tests" ${X_BUILD_TESTS})
+option(XPP_BUILD_TESTS "Build libx++ tests" ${X_BUILD_TESTS})
 
 # Compile-only smoke target that proves the public headers are
 # C++11-clean in strict (non-GNU-extension) mode. Off by default so a
 # default build doesn't pay the small extra compile; CI flips it on.
 option(XPP_CXX11_GUARD "Build the libx++ C++11 strict-mode compile guard" OFF)
 
-file(GLOB_RECURSE XPP_SOURCES "*.cpp")
 file(GLOB_RECURSE XPP_TEST_SOURCES "*_test.cpp")
-list(REMOVE_ITEM XPP_SOURCES ${XPP_TEST_SOURCES})
-list(REMOVE_ITEM XPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cxx11_guard.cpp")
 
-add_library(x++ ${XPP_SOURCES})
+# libx++ is header-only — the public surface (Option / Result /
+# Variant / NonNull / Own / Rc / Weak / Arc / ArcWeak / Error /
+# panic) compiles into the consumer's TU.  panic.h still routes
+# fatal messages through libx's xLog, so the INTERFACE library
+# transitively links xbase; everything else is template instantiation
+# in the caller.
+add_library(x++ INTERFACE)
 add_library(xpp ALIAS x++)  # convenience alias for downstream consumers
-target_compile_features(x++ PUBLIC cxx_std_11)
-target_link_libraries(x++ PUBLIC xbase)
-target_include_directories(x++ PUBLIC
+target_compile_features(x++ INTERFACE cxx_std_11)
+target_link_libraries(x++ INTERFACE xbase)
+target_include_directories(x++ INTERFACE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_SOURCE_DIR}/libx
   ${CMAKE_SOURCE_DIR}/libx++

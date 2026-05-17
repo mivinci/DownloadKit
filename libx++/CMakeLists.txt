@@ -1,6 +1,7 @@
-# libx++ — C++ wrapper libraries on top of libx
+# libx++ — Rust-like infrastructure in C++11
 #
-# Self-contained, mirroring libx/. Future bench/ and examples/ directories
-# will be added here as the C++ side grows.
+# See xpp/CMakeLists.txt for the actual library target. Header-mostly
+# value types, RAII helpers, and a ref-counted family inspired by
+# Rust's std prelude.
 
 add_subdirectory(xpp)

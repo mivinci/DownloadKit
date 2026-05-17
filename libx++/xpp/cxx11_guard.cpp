@@ -31,10 +31,6 @@
 #include <xpp/variant.h>
 #include <xpp/weak.h>
 
-#include <xpp/base/event.h>
-#include <xpp/base/task.h>
-#include <xpp/base/timer.h>
-
 namespace {
 
 // Force template instantiation of the C++11-sensitive bits.

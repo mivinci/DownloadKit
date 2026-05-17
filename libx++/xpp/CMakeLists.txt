@@ -13,8 +13,8 @@ option(XPP_BUILD_TESTS "Build libxpp tests" ${X_BUILD_TESTS})
 # default build doesn't pay the small extra compile; CI flips it on.
 option(XPP_CXX11_GUARD "Build the libx++ C++11 strict-mode compile guard" OFF)
 
-file(GLOB XPP_SOURCES "*.cpp")
-file(GLOB XPP_TEST_SOURCES "*_test.cpp")
+file(GLOB_RECURSE XPP_SOURCES "*.cpp")
+file(GLOB_RECURSE XPP_TEST_SOURCES "*_test.cpp")
 list(REMOVE_ITEM XPP_SOURCES ${XPP_TEST_SOURCES})
 list(REMOVE_ITEM XPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cxx11_guard.cpp")
 

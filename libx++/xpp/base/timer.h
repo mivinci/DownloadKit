@@ -6,8 +6,8 @@
  * timer.h - C++ RAII wrapper for xTimer.
  */
 
-#ifndef XPP_TIMER_H
-#define XPP_TIMER_H
+#ifndef XPP_BASE_TIMER_H
+#define XPP_BASE_TIMER_H
 
 #include <xpp/handle.h>
 #include <xpp/result.h>
@@ -94,4 +94,4 @@ private:
 
 } // namespace xpp
 
-#endif // XPP_TIMER_H
+#endif // XPP_BASE_TIMER_H

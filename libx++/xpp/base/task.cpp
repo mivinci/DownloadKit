@@ -6,7 +6,7 @@
  * task.cpp - C++ RAII wrappers for xTaskGroup / xTask.
  */
 
-#include <xpp/task.h>
+#include <xpp/base/task.h>
 
 namespace xpp {
 

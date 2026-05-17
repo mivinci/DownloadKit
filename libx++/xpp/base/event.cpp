@@ -6,7 +6,7 @@
  * event.cpp - C++ RAII wrapper for xEventLoop.
  */
 
-#include <xpp/event.h>
+#include <xpp/base/event.h>
 
 namespace xpp {
 

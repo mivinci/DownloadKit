@@ -17,7 +17,6 @@
  */
 
 #include <xpp/compiler.h>
-#include <xpp/event.h>
 #include <xpp/handle.h>
 #include <xpp/in_place.h>
 #include <xpp/nonnull.h>
@@ -26,9 +25,11 @@
 #include <xpp/own.h>
 #include <xpp/panic.h>
 #include <xpp/result.h>
-#include <xpp/task.h>
-#include <xpp/timer.h>
 #include <xpp/variant.h>
+
+#include <xpp/base/event.h>
+#include <xpp/base/task.h>
+#include <xpp/base/timer.h>
 
 namespace {
 

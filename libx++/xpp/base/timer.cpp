@@ -6,7 +6,7 @@
  * timer.cpp - C++ RAII wrapper for xTimer.
  */
 
-#include <xpp/timer.h>
+#include <xpp/base/timer.h>
 
 namespace xpp {
 

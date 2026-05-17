@@ -6,8 +6,8 @@
  * task.h - C++ RAII wrappers for xTaskGroup / xTask.
  */
 
-#ifndef XPP_TASK_H
-#define XPP_TASK_H
+#ifndef XPP_BASE_TASK_H
+#define XPP_BASE_TASK_H
 
 #include <xpp/handle.h>
 #include <xpp/result.h>
@@ -139,4 +139,4 @@ private:
 
 } // namespace xpp
 
-#endif // XPP_TASK_H
+#endif // XPP_BASE_TASK_H

@@ -6,8 +6,8 @@
  * event.h - C++ RAII wrapper for xEventLoop.
  */
 
-#ifndef XPP_EVENT_H
-#define XPP_EVENT_H
+#ifndef XPP_BASE_EVENT_H
+#define XPP_BASE_EVENT_H
 
 #include <xpp/handle.h>
 #include <xpp/result.h>
@@ -239,4 +239,4 @@ private:
 
 } // namespace xpp
 
-#endif // XPP_EVENT_H
+#endif // XPP_BASE_EVENT_H

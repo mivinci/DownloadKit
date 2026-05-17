@@ -26,50 +26,51 @@ Thin C++ wrappers that RAII-ify the C API in `libx/`.
 | `xErrno_Ok`       | no throw                |
 | `xErrno_Busy`     | `xpp::Error{Busy}`      |
 
-Namespace: `xpp`. Headers: `<xpp/event.h>`, `<xpp/timer.h>`, etc.
+Namespace: `xpp`. Headers: `<xpp/base/event.h>`, `<xpp/base/timer.h>`,
+etc. — submodule layout mirrors `libx/x/<module>/`.
 
 ## Modules (planned)
 
 ### Phase 1 — Core
 
-| Module                  | Wraps           | Key Classes                 |
-|-------------------------|-----------------|-----------------------------|
-| `event.h` / `event.cpp` | `xbase/event.h` | `EventLoop`, `EventWatcher` |
-| `timer.h` / `timer.cpp` | `xbase/timer.h` | `Timer`                     |
-| `task.h` / `task.cpp`   | `xbase/task.h`  | `TaskGroup`, `Task`         |
-| `error.h` / `error.cpp` | `xbase/error.h` | `Error` exception class     |
+| Module                            | Wraps             | Key Classes                 |
+|-----------------------------------|-------------------|-----------------------------|
+| `base/event.h` / `base/event.cpp` | `x/base/event.h`  | `EventLoop`, `EventWatcher` |
+| `base/timer.h` / `base/timer.cpp` | `x/base/timer.h`  | `Timer`                     |
+| `base/task.h`  / `base/task.cpp`  | `x/base/task.h`   | `TaskGroup`, `Task`         |
+| `base/error.h` / `base/error.cpp` | `x/base/error.h`  | `Error` exception class     |
 
 ### Phase 2 — Network
 
-| Module              | Wraps        | Key Classes              |
-|---------------------|--------------|--------------------------|
-| `dns.h` / `dns.cpp` | `xnet/dns.h` | `DnsResolver`            |
-| `tcp.h` / `tcp.cpp` | `xnet/tcp.h` | `TcpConn`, `TcpListener` |
-| `tls.h` / `tls.cpp` | `xnet/tls.h` | `TlsConfig`              |
+| Module                        | Wraps          | Key Classes              |
+|-------------------------------|----------------|--------------------------|
+| `net/dns.h` / `net/dns.cpp`   | `x/net/dns.h`  | `DnsResolver`            |
+| `net/tcp.h` / `net/tcp.cpp`   | `x/net/tcp.h`  | `TcpConn`, `TcpListener` |
+| `net/tls.h` / `net/tls.cpp`   | `x/net/tls.h`  | `TlsConfig`              |
 
 ### Phase 3 — HTTP
 
-| Module                              | Wraps            | Key Classes  |
-|-------------------------------------|------------------|--------------|
-| `http_client.h` / `http_client.cpp` | `xhttp/client.h` | `HttpClient` |
-| `http_server.h` / `http_server.cpp` | `xhttp/server.h` | `HttpServer` |
-| `ws.h` / `ws.cpp`                   | `xhttp/ws.h`     | `WebSocket`  |
-| `sse.h` / `sse.cpp`                 | `xhttp/sse.h`    | `SseClient`  |
+| Module                                        | Wraps             | Key Classes  |
+|-----------------------------------------------|-------------------|--------------|
+| `http/http_client.h` / `http/http_client.cpp` | `x/http/client.h` | `HttpClient` |
+| `http/http_server.h` / `http/http_server.cpp` | `x/http/server.h` | `HttpServer` |
+| `http/ws.h`          / `http/ws.cpp`          | `x/http/ws.h`     | `WebSocket`  |
+| `http/sse.h`         / `http/sse.cpp`         | `x/http/sse.h`    | `SseClient`  |
 
 ### Phase 4 — Agent
 
-| Module                      | Wraps              | Key Classes     |
-|-----------------------------|--------------------|-----------------|
-| `agent.h` / `agent.cpp`     | `xagent/agent.h`   | `Agent`         |
-| `session.h` / `session.cpp` | `xagent/session.h` | `Session`       |
-| `model.h` / `model.cpp`     | `xagent/model.h`   | `ModelRegistry` |
+| Module                                  | Wraps                | Key Classes     |
+|-----------------------------------------|----------------------|-----------------|
+| `agent/agent.h`   / `agent/agent.cpp`   | `x/agent/agent.h`    | `Agent`         |
+| `agent/session.h` / `agent/session.cpp` | `x/agent/session.h`  | `Session`       |
+| `agent/model.h`   / `agent/model.cpp`   | `x/agent/model.h`    | `ModelRegistry` |
 
 ## Example Usage (Phase 1)
 
 ```cpp
-#include <xpp/event.h>
-#include <xpp/timer.h>
-#include <xpp/task.h>
+#include <xpp/base/event.h>
+#include <xpp/base/timer.h>
+#include <xpp/base/task.h>
 
 int main() {
   xpp::EventLoop loop;
@@ -123,18 +124,28 @@ target_link_libraries(my_app PRIVATE xpp)
 ## Directory Layout
 
 ```text
-libxpp/
+libx++/xpp/
   TODO.md
   CMakeLists.txt
-  error.h
-  error.cpp
-  event.h
-  event.cpp
-  timer.h
-  timer.cpp
-  task.h
-  task.cpp
-  ...
+  compiler.h            # portable attribute / intrinsic macros
+  handle.h              # raw-handle CRTP base
+  in_place.h            # in-place construction tag types
+  panic.h
+  option.h              # value-only Option<T>
+  result.h              # value-or-error Result<T, E>
+  variant.h             # tagged union
+  nonnull.h             # NonNull<T>
+  nonnull_own.h         # NonNullOwn<T, Deleter>
+  own.h                 # Own<T> aka unique_ptr-with-niches
+  cxx11_guard.cpp       # strict-mode compile guard (off by default)
+  base/                 # wrappers over libx/x/base
+    event.h / event.cpp
+    timer.h / timer.cpp
+    task.h  / task.cpp
+    error.h / error.cpp # planned
+  net/                  # Phase 2 — wrappers over libx/x/net
+  http/                 # Phase 3 — wrappers over libx/x/http
+  agent/                # Phase 4 — wrappers over libx/x/agent
 ```
 
 ## Out of Scope

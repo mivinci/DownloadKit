@@ -53,10 +53,20 @@ public:
   /**
    * @brief Bind to an existing referent. Always safe.
    *
-   * SFINAE-removed when T = void (since `void&` is ill-formed). For
-   * NonNull<void>, use newUnchecked or from instead.
+   * SFINAE constraints:
+   *   1. T is not void (`void&` is ill-formed).
+   *   2. U is the same as T. Without this guard, GCC's overload
+   *      resolution sometimes prefers this templated ctor over the
+   *      implicit copy ctor when an lvalue NonNull<T> is passed by
+   *      value (e.g. as a function parameter), then fails to
+   *      compile because it tries to initialise m_ptr (a T*) from a
+   *      NonNull<T>*. Clang silently picks the copy ctor in the
+   *      same situation. Pinning U = T resolves the ambiguity in
+   *      GCC's favour, no behavioural change anywhere else.
    */
-  template <class U = T, class = typename std::enable_if<!std::is_void<U>::value>::type>
+  template <
+    class U = T,
+    class   = typename std::enable_if<!std::is_void<U>::value && std::is_same<U, T>::value>::type>
   explicit NonNull(U &ref) noexcept : m_ptr(&ref) {}
 
   NonNull(const NonNull &)            = default;

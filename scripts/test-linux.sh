@@ -330,7 +330,9 @@ if [[ "$CI_MODE" -eq 1 ]]; then
     FAILED=0
     for target in "${TEST_TARGETS[@]}"; do
         step "Running $target"
-        if (cd "$BUILD_DIR" && ctest --output-on-failure -R "^${target}$"); then
+        # Escape regex metacharacters in target name for ctest -R (e.g. x++_test)
+        target_re="${target//+/\\+}"
+        if (cd "$BUILD_DIR" && ctest --output-on-failure -R "^${target_re}$" --no-tests=error); then
             info "$target PASSED"
         else
             error "$target FAILED"
@@ -410,8 +412,9 @@ container run --rm -m "$MEMORY" \
         fi && \
         cmake --build . --target $TEST_TARGETS_STR -j$JOBS && \
         for target in $TEST_TARGETS_STR; do \
-            echo '── Running \$target ──' && \
-            ctest --output-on-failure -R \"^\${target}\$\" || exit 1; \
+            echo '── Running '\$target' ──' && \
+            target_re=\${target//+/\\\\+} && \
+            ctest --output-on-failure -R \"^\${target_re}\$\" --no-tests=error || exit 1; \
         done
     "
 

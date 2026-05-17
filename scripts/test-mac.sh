@@ -355,7 +355,9 @@ cmake --build "$BUILD_DIR" --target ${TEST_TARGETS[@]} --parallel "$JOBS"
 FAILED=0
 for target in "${TEST_TARGETS[@]}"; do
     step "Running $target"
-    if (cd "$BUILD_DIR" && ctest --output-on-failure -R "^${target}$"); then
+    # Escape regex metacharacters in target name for ctest -R (e.g. x++_test)
+    target_re="${target//+/\\+}"
+    if (cd "$BUILD_DIR" && ctest --output-on-failure -R "^${target_re}$" --no-tests=error); then
         info "$target PASSED"
     else
         error "$target FAILED"

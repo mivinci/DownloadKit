@@ -39,6 +39,14 @@ find_package(Libcurl REQUIRED)
 
 include_directories(${CMAKE_SOURCE_DIR}/libx)
 
+# enable_testing() must be called from the top-level CMakeLists.txt for
+# ctest to discover add_test() calls in sub-projects (libx, libx++).
+# CMake scopes enable_testing() to the current directory and below, so
+# calling it inside libx/CMakeLists.txt only would silently drop libx++
+# tests. Cheap to call unconditionally; the X_BUILD_TESTS / XPP_BUILD_TESTS
+# switches still gate whether any add_test() calls happen at all.
+enable_testing()
+
 add_subdirectory(libx)
 add_subdirectory(libx++)
 

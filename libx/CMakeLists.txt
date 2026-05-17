@@ -24,7 +24,6 @@ endif()
 add_compile_definitions(X_DEBUG_LEVEL=${X_DEBUG_LEVEL})
 
 if(X_BUILD_TESTS)
-  enable_testing()
   find_package(GTest REQUIRED)
   # Promote IMPORTED targets to GLOBAL so libx++ (a sibling subdir) can
   # link against them too. CMake CONFIG-mode find_package and our

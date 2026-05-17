@@ -25,6 +25,7 @@
 #include <xpp/option.h>
 #include <xpp/own.h>
 #include <xpp/panic.h>
+#include <xpp/ref.h>
 #include <xpp/result.h>
 #include <xpp/variant.h>
 
@@ -60,6 +61,15 @@ void instantiate_templates() {
   xpp::Result<void, xpp::Error> rv(xpp::err, e);
   (void) e.code();
   (void) rv;
+
+  // Ref + Option<Ref>: exercises makeRef, copy ctor (+1), and the
+  // niche-optimised Option<Ref<T>> partial specialisation. Drops both
+  // back to None at scope exit so the runtime path also runs.
+  xpp::Ref<int>              r1 = xpp::makeRef<int>(7);
+  xpp::Ref<int>              r2 = r1.clone();
+  xpp::Option<xpp::Ref<int>> opt(r1);
+  (void) r2;
+  (void) opt;
 }
 
 } // namespace

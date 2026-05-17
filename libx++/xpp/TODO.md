@@ -142,6 +142,8 @@ libx++/xpp/
   nonnull.h             # NonNull<T>
   nonnull_own.h         # NonNullOwn<T, Deleter>
   own.h                 # Own<T> aka unique_ptr-with-niches
+  ref.h                 # Ref<T> shared owning (Rust-style Rc, co-located)
+                        # Option<Ref<T>> niche-optimized to sizeof(T*)
   cxx11_guard.cpp       # strict-mode compile guard (off by default)
   base/                 # wrappers over libx/x/base
     event.h / event.cpp

@@ -141,7 +141,8 @@ compute_affected() {
 
 # ── Detect changed modules ─────────────────────────────────────────────
 detect_changed_modules() {
-    step "Detecting changed modules (vs $BASE_REF)"
+    local diff_label="${BASE_SHA:-$BASE_REF}"
+    step "Detecting changed modules (vs $diff_label)"
 
     if [[ $FORCE_ALL -eq 1 ]]; then
         info "Force all mode: testing every module"
@@ -248,8 +249,10 @@ detect_changed_modules() {
 
     local direct_changes=""
     for k in "${(@k)changed_mods[@]}"; do
+        local label="$k"
+        [[ "$k" == "__libxpp__" ]] && label="libx++"
         [[ -n "$direct_changes" ]] && direct_changes+=" "
-        direct_changes+="$k"
+        direct_changes+="$label"
     done
     info "Directly changed: $direct_changes"
 
@@ -268,7 +271,7 @@ detect_changed_modules() {
     if [[ $include_libxpp -eq 1 ]]; then
         affected="${affected}"$'\n'"__libxpp__"
     fi
-    info "Affected modules (with dependents): $(echo $affected | tr '\n' ' ')"
+    info "Affected modules (with dependents): $(echo $affected | tr '\n' ' ' | sed 's/__libxpp__/libx++/g')"
 
     echo "$affected"
 }

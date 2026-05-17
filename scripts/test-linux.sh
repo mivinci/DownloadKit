@@ -31,6 +31,7 @@ TEST_IMAGE="moo-test:latest"
 BUILD_TYPE="${BUILD_TYPE:-Debug}"
 TLS_BACKEND="openssl"
 BASE_REF="origin/main"
+BUILD_DIR=""
 JOBS="2"
 MEMORY="2G"
 REBUILD_IMAGE=0
@@ -151,7 +152,8 @@ compute_affected() {
 
 # ── Detect changed modules ─────────────────────────────────────────────
 detect_changed_modules() {
-    step "Detecting changed modules (vs $BASE_REF)"
+    local diff_label="${BASE_SHA:-$BASE_REF}"
+    step "Detecting changed modules (vs $diff_label)"
 
     if [[ $FORCE_ALL -eq 1 ]]; then
         info "Force all mode: testing every module"
@@ -228,8 +230,15 @@ detect_changed_modules() {
         return
     fi
 
-    local direct_changes="${!changed_mods[*]}"
-    info "Directly changed: $direct_changes"
+    # Build a human-friendly "directly changed" list (translate the
+    # __libxpp__ sentinel back to its display name).
+    local direct_display=""
+    for k in "${!changed_mods[@]}"; do
+        local label="$k"
+        [[ "$k" == "__libxpp__" ]] && label="libx++"
+        direct_display="${direct_display:+$direct_display }$label"
+    done
+    info "Directly changed: $direct_display"
 
     # Pop libx++ pseudo-module before computing libx-graph dependents
     local include_libxpp=0
@@ -245,7 +254,9 @@ detect_changed_modules() {
     if [[ $include_libxpp -eq 1 ]]; then
         affected="${affected:+$affected$'\n'}__libxpp__"
     fi
-    info "Affected modules (with dependents): $(echo $affected | tr '\n' ' ')"
+    # Echo a friendly version for the log; keep the raw sentinel in the
+    # actual return value so downstream code can dispatch on it.
+    info "Affected modules (with dependents): $(echo $affected | tr '\n' ' ' | sed 's/__libxpp__/libx++/g')"
 
     echo "$affected"
 }
@@ -296,7 +307,7 @@ fi
 
 # ── CI mode: run natively on Linux ─────────────────────────────────────
 if [[ "$CI_MODE" -eq 1 ]]; then
-    BUILD_DIR="${PROJECT_DIR}/build-linux-${TLS_BACKEND}"
+    BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build-linux-${TLS_BACKEND}}"
 
     step "Configuring build (TLS=$TLS_BACKEND, type=$BUILD_TYPE, CI mode)"
 
@@ -373,7 +384,7 @@ elif ! container image ls 2>/dev/null | grep -q "$TEST_IMAGE"; then
     build_image
 fi
 
-BUILD_DIR="build-linux-${TLS_BACKEND}"
+BUILD_DIR="${BUILD_DIR:-build-linux-${TLS_BACKEND}}"
 
 # Build the test target list for the container command
 # Reuse the already-filtered TEST_TARGETS array (handles __libxpp__ → x++_test

@@ -19,7 +19,7 @@
  * on null). Calling get() / operator* / operator-> on a moved-from
  * value is undefined — see std::unique_ptr's analogous contract.
  *
- * C++14-compatible. Header-only. No reset() — the type cannot be null.
+ * C++11-compatible. Header-only. No reset() — the type cannot be null.
  */
 
 #ifndef XPP_NONNULL_OWN_H
@@ -46,7 +46,27 @@ namespace _ {
  * Mirrors the strategy used by libc++ / libstdc++ / MSVC STL inside
  * std::unique_ptr.
  */
-template <class T, class D, bool Empty = std::is_empty<D>::value && !std::is_final<D>::value>
+// std::is_final is C++14. On C++11 toolchains we fall back to the
+// __is_final compiler intrinsic (clang, gcc 4.7+, MSVC) which the
+// stdlib's own is_final wraps; on truly ancient toolchains we
+// degrade to "assume not final", which at worst forces the
+// member-storage specialization for an EBO-eligible deleter (a
+// size-not-correctness issue).
+namespace _ {
+#if __cplusplus >= 201402L
+template <class D> struct IsFinal : std::is_final<D> {};
+#elif defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+template <class D> struct IsFinal {
+  static constexpr bool value = __is_final(D);
+};
+#else
+template <class D> struct IsFinal {
+  static constexpr bool value = false;
+};
+#endif
+} // namespace _
+
+template <class T, class D, bool Empty = std::is_empty<D>::value && !_::IsFinal<D>::value>
 struct CompressedPair {
   T *p;
   D  d;

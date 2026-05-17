@@ -325,6 +325,17 @@ if [[ ${#TEST_TARGETS[@]} -eq 0 ]]; then
     exit 0
 fi
 
+# When libx++ is in scope, also build the C++11 strict-mode guard so a
+# C++14-only header (generic lambda, std::is_final, …) gets caught at
+# PR time rather than discovered downstream.
+WANT_CXX11_GUARD=0
+for t in "${TEST_TARGETS[@]}"; do
+    if [[ "$t" == "x++_test" ]]; then
+        WANT_CXX11_GUARD=1
+        break
+    fi
+done
+
 # ── CMake configure ────────────────────────────────────────────────────
 step "Configuring build (TLS=$TLS_BACKEND, type=$BUILD_TYPE)"
 
@@ -332,6 +343,10 @@ CMAKE_EXTRA_ARGS=(-DX_TLS_BACKEND=$TLS_BACKEND)
 
 if [[ $ASAN -eq 1 ]]; then
     CMAKE_EXTRA_ARGS+=(-DMOO_ENABLE_ASAN=ON)
+fi
+
+if [[ $WANT_CXX11_GUARD -eq 1 ]]; then
+    CMAKE_EXTRA_ARGS+=(-DXPP_CXX11_GUARD=ON)
 fi
 
 # Homebrew OpenSSL / mbedTLS are keg-only
@@ -352,7 +367,14 @@ cmake -S . -B "$BUILD_DIR" \
 # ── Build ──────────────────────────────────────────────────────────────
 step "Building test targets"
 
-cmake --build "$BUILD_DIR" --target ${TEST_TARGETS[@]} --parallel "$JOBS"
+# Extend the build list with the C++11 guard library when in scope.
+# It's a compile-only static lib; ctest doesn't see it.
+BUILD_TARGETS=("${TEST_TARGETS[@]}")
+if [[ $WANT_CXX11_GUARD -eq 1 ]]; then
+    BUILD_TARGETS+=("x++_cxx11_guard")
+fi
+
+cmake --build "$BUILD_DIR" --target ${BUILD_TARGETS[@]} --parallel "$JOBS"
 
 # ── Run tests ──────────────────────────────────────────────────────────
 FAILED=0

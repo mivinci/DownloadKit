@@ -5,7 +5,7 @@
  *
  * variant.h - Type-safe tagged union for exactly one of N types.
  *
- * C++14-compatible replacement for std::variant.
+ * C++11-compatible replacement for std::variant.
  */
 
 #ifndef XPP_VARIANT_H
@@ -22,30 +22,65 @@
 namespace xpp {
 namespace _ {
 
-template <size_t I, typename T, typename... Types> struct TypeIndex;
-template <size_t I, typename T, typename First, typename... Rest>
-struct TypeIndex<I, T, First, Rest...> {
+template <size_t I, class T, class... Types> struct TypeIndex;
+template <size_t I, class T, class First, class... Rest> struct TypeIndex<I, T, First, Rest...> {
   static constexpr size_t kValue =
     std::is_same<T, First>::value ? I : TypeIndex<I + 1, T, Rest...>::kValue;
 };
-template <size_t I, typename T> struct TypeIndex<I, T> {
+template <size_t I, class T> struct TypeIndex<I, T> {
   static constexpr size_t kValue = I;
 };
 
-// Call fn(holder) where holder is a Holder<T> for the active type.
-// fn should return void.
+// Visit the active alternative of a Variant by its runtime index.
+// fn(ptr) is invoked exactly once with a typed pointer to the live
+// object (T* or const T*, mirroring the constness of `storage`); the
+// recursion bottoms out at the matching index. fn should return void.
+//
+// `PointerCast` carries the constness from Storage through to T so
+// reinterpret_cast<T*>(&storage) doesn't silently strip const when
+// the dispatcher is called from a const context (e.g. copyFrom).
+template <class T, class Storage>
+struct PointerCast {
+  using Type = typename std::conditional<std::is_const<Storage>::value, const T *, T *>::type;
+};
+
 template <class Tuple, size_t N> struct VisitByIndex {
-  template <class Fn, typename Storage> static void run(size_t i, Storage &storage, Fn &&fn) {
+  template <class Fn, class Storage> static void run(size_t i, Storage &storage, Fn &&fn) {
     if (i == N - 1) {
       using T = typename std::tuple_element<N - 1, Tuple>::type;
-      fn(reinterpret_cast<T *>(&storage));
+      using P = typename PointerCast<T, Storage>::Type;
+      fn(reinterpret_cast<P>(&storage));
       return;
     }
     VisitByIndex<Tuple, N - 1>::run(i, storage, std::forward<Fn>(fn));
   }
 };
 template <class Tuple> struct VisitByIndex<Tuple, 0> {
-  template <class Fn, typename Storage> static void run(size_t, Storage &, Fn &&) {}
+  template <class Fn, class Storage> static void run(size_t, Storage &, Fn &&) {}
+};
+
+// Functor-style visitors used by Variant. Generic lambdas (C++14)
+// would express these in three lines each; explicit functors keep
+// libx++ buildable on C++11 toolchains.
+
+struct DestroyVisitor {
+  template <class T> void operator()(T *p) const noexcept(noexcept(p->~T())) {
+    p->~T();
+  }
+};
+
+template <class Storage> struct CopyConstructVisitor {
+  Storage                *dst;
+  template <class T> void operator()(const T *src) const {
+    new (dst) T(*src);
+  }
+};
+
+template <class Storage> struct MoveConstructVisitor {
+  Storage                *dst;
+  template <class T> void operator()(T *src) const {
+    new (dst) T(std::move(*src));
+  }
 };
 
 } // namespace _
@@ -68,8 +103,8 @@ template <class... Types> class Variant {
 
 public:
   /** Construct from a value of one of the Types. */
-  template <class T, typename = typename std::enable_if<
-                          !std::is_same<typename std::decay<T>::type, Variant>::value>::type>
+  template <class T, class = typename std::enable_if<
+                       !std::is_same<typename std::decay<T>::type, Variant>::value>::type>
   Variant(T &&val) : m_index(indexOf<typename std::decay<T>::type>()) {
     using D = typename std::decay<T>::type;
     new (&m_storage) D(std::forward<T>(val));
@@ -88,7 +123,7 @@ public:
    * Usage:
    *   Variant<int, std::string> a(InPlaceIndex<1>{}, "hi");
    */
-  template <size_t N, typename... Args> Variant(InPlaceIndex<N>, Args &&...args) : m_index(N) {
+  template <size_t N, class... Args> Variant(InPlaceIndex<N>, Args &&...args) : m_index(N) {
     static_assert(N < kCount, "InPlaceIndex out of range");
     using T = typename std::tuple_element<N, Tuple>::type;
     new (&m_storage) T(std::forward<Args>(args)...);
@@ -244,25 +279,18 @@ private:
   }
 
   void destroy() {
-    _::VisitByIndex<Tuple, kCount>::run(m_index, m_storage, [](auto *ptr) {
-      using T = typename std::remove_pointer<decltype(ptr)>::type;
-      ptr->~T();
-    });
+    _::VisitByIndex<Tuple, kCount>::run(m_index, m_storage, _::DestroyVisitor{});
     m_index = kCount;
   }
 
   void copyFrom(const Variant &o) {
-    _::VisitByIndex<Tuple, kCount>::run(o.m_index, o.m_storage, [this](auto *ptr) {
-      using T = typename std::remove_pointer<decltype(ptr)>::type;
-      new (&m_storage) T(*ptr);
-    });
+    _::VisitByIndex<Tuple, kCount>::run(o.m_index, o.m_storage,
+                                        _::CopyConstructVisitor<Storage>{&m_storage});
   }
 
   void moveFrom(Variant &&o) {
-    _::VisitByIndex<Tuple, kCount>::run(o.m_index, o.m_storage, [this](auto *ptr) {
-      using T = typename std::remove_pointer<decltype(ptr)>::type;
-      new (&m_storage) T(std::move(*ptr));
-    });
+    _::VisitByIndex<Tuple, kCount>::run(o.m_index, o.m_storage,
+                                        _::MoveConstructVisitor<Storage>{&m_storage});
   }
 
   using Storage = typename std::aligned_union<0, Types...>::type;

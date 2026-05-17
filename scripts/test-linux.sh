@@ -305,6 +305,17 @@ if [[ ${#TEST_TARGETS[@]} -eq 0 ]]; then
     exit 0
 fi
 
+# When libx++ is in scope, also build the C++11 strict-mode guard so a
+# C++14-only header (generic lambda, std::is_final, …) gets caught at
+# PR time rather than discovered downstream.
+WANT_CXX11_GUARD=0
+for t in "${TEST_TARGETS[@]}"; do
+    if [[ "$t" == "x++_test" ]]; then
+        WANT_CXX11_GUARD=1
+        break
+    fi
+done
+
 # ── CI mode: run natively on Linux ─────────────────────────────────────
 if [[ "$CI_MODE" -eq 1 ]]; then
     BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build-linux-${TLS_BACKEND}}"
@@ -315,6 +326,9 @@ if [[ "$CI_MODE" -eq 1 ]]; then
     if [[ $ASAN -eq 1 ]]; then
         CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DMOO_ENABLE_ASAN=ON"
     fi
+    if [[ $WANT_CXX11_GUARD -eq 1 ]]; then
+        CMAKE_EXTRA_ARGS="$CMAKE_EXTRA_ARGS -DXPP_CXX11_GUARD=ON"
+    fi
 
     GITHUB_MIRROR="${GITHUB_MIRROR}" cmake -S . -B "$BUILD_DIR" \
         -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
@@ -322,7 +336,11 @@ if [[ "$CI_MODE" -eq 1 ]]; then
         $CMAKE_EXTRA_ARGS
 
     step "Building test targets"
-    cmake --build "$BUILD_DIR" --target ${TEST_TARGETS[@]} -j"$JOBS"
+    BUILD_TARGETS=("${TEST_TARGETS[@]}")
+    if [[ $WANT_CXX11_GUARD -eq 1 ]]; then
+        BUILD_TARGETS+=("x++_cxx11_guard")
+    fi
+    cmake --build "$BUILD_DIR" --target ${BUILD_TARGETS[@]} -j"$JOBS"
 
     # Suppress known third-party library leaks (OpenSSL, libcurl) under ASan
     if [[ $ASAN -eq 1 ]]; then
@@ -390,6 +408,12 @@ BUILD_DIR="${BUILD_DIR:-build-linux-${TLS_BACKEND}}"
 # Reuse the already-filtered TEST_TARGETS array (handles __libxpp__ → x++_test
 # and skips NO_TEST_MODULES like xline).
 TEST_TARGETS_STR="${TEST_TARGETS[*]}"
+BUILD_TARGETS_STR="$TEST_TARGETS_STR"
+GUARD_CMAKE_ARG=""
+if [[ $WANT_CXX11_GUARD -eq 1 ]]; then
+    BUILD_TARGETS_STR="$BUILD_TARGETS_STR x++_cxx11_guard"
+    GUARD_CMAKE_ARG="-DXPP_CXX11_GUARD=ON"
+fi
 
 # ── Run tests in container ─────────────────────────────────────────────
 step "Running Linux tests in container (TLS=$TLS_BACKEND)"
@@ -398,7 +422,7 @@ echo "    Build type:  $BUILD_TYPE"
 echo "    TLS backend: $TLS_BACKEND"
 echo "    Memory:      $MEMORY"
 echo "    Jobs:        $JOBS"
-echo "    Targets:    $TEST_TARGETS_STR"
+echo "    Targets:    $BUILD_TARGETS_STR"
 echo ""
 
 container run --rm -m "$MEMORY" \
@@ -417,11 +441,12 @@ container run --rm -m "$MEMORY" \
               -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
               -DX_TLS_BACKEND=$TLS_BACKEND \
               -DMOO_ENABLE_ASAN=OFF \
+              $GUARD_CMAKE_ARG \
               -DFETCHCONTENT_BASE_DIR=/fetchcontent-cache; \
         else \
             cd \$BUILD_DIR; \
         fi && \
-        cmake --build . --target $TEST_TARGETS_STR -j$JOBS && \
+        cmake --build . --target $BUILD_TARGETS_STR -j$JOBS && \
         for target in $TEST_TARGETS_STR; do \
             echo '── Running '\$target' ──' && \
             target_re=\${target//+/\\\\+} && \

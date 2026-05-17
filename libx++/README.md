@@ -25,8 +25,8 @@ xpp/
   nonnull.h      # NonNull<T>            — pointer that can't be null
   nonnull_own.h  # NonNullOwn<T, D>      — owning, move-only, never null
   own.h          # Own<T, D>             — nullable owning pointer
-  ref.h          # Ref<T>                — shared owning (Rust-style Rc)
-                 # Option<Ref<T>>        — niche-optimised to sizeof(T*)
+  rc.h           # Rc<T>                 — shared owning (Rust-style Rc)
+                 # Option<Rc<T>>         — niche-optimised to sizeof(T*)
   panic.h        # XPP_PANIC / XPP_ASSERT — bug-trap, not error path
   handle.h       # CRTP base for opaque-handle RAII wrappers
   base/          # RAII wrappers around libx/x/base (event/timer/task)
@@ -36,17 +36,18 @@ xpp/
 
 - **Ownership is explicit.** `Own<T>` and `NonNullOwn<T>` are
   move-only (unique ownership); the wrappers in `base/` likewise.
-  `Ref<T>` is shared owning, but its bump on copy is plain to see —
-  there's a `.clone()` alias for hot-path code that wants to call out
-  "+1 on the count" loudly. The standard library default — copy
-  silently does a `shared_ptr` bump — works the same here, just with
-  half the size. There is no implicit deep-copy of T.
+  `Rc<T>` is shared owning (the Rust spelling, on purpose — `Ref` is
+  too overloaded in C++), and its bump on copy is plain to see.
+  Hot-path code can call `.clone()` or the Rust-style static
+  `Rc<T>::clone(&r)` to make "+1 on the count" loud at the call
+  site; the implicit copy ctor remains available for the common
+  case. There is no implicit deep-copy of T.
 - **Type-level non-null.** `NonNull<T>` and `NonNullOwn<T>` make
   "this pointer is not null" a compile-time fact. The same idea
-  applies to `Ref<T>`: a `Ref<T>` always points at a live T (its
+  applies to `Rc<T>`: an `Rc<T>` always points at a live T (its
   count is ≥ 1), and nullability is opted into by wrapping it in
-  `Option<Ref<T>>`. `Option<NonNull<T>>`, `Option<NonNullOwn<T>>`,
-  and `Option<Ref<T>>` are all **niche-optimised** to `sizeof(T*)` —
+  `Option<Rc<T>>`. `Option<NonNull<T>>`, `Option<NonNullOwn<T>>`,
+  and `Option<Rc<T>>` are all **niche-optimised** to `sizeof(T*)` —
   matching Rust's `Option<&T>`, `Option<Box<T>>`, and `Option<Rc<T>>`
   respectively. Verified by `static_assert` in the headers.
 - **Errors are values.** `Result<T, E>` is the recoverable-error
@@ -61,8 +62,8 @@ xpp/
 - **Zero overhead.** No virtual dispatch, no extra allocation on the
   hot path. EBO on stateless deleters; `sizeof(Own<T>) == sizeof(T*)`
   and `sizeof(NonNullOwn<T>) == sizeof(T*)` for the default deleter.
-  `sizeof(Ref<T>) == sizeof(T*)` too — single heap allocation per
-  `makeRef`, control block (just a strong count) co-located with T,
+  `sizeof(Rc<T>) == sizeof(T*)` too — single heap allocation per
+  `makeRc`, control block (just a strong count) co-located with T,
   no separate control block like `std::shared_ptr`.
 
 ## What doesn't translate
@@ -75,15 +76,15 @@ expect them:
   this". Aliasing, lifetimes, and use-after-free remain your problem.
 - **Moved-from objects still exist.** Move construction leaves a
   defined-but-unspecified state behind, just like `std::unique_ptr`.
-  `NonNullOwn`'s and `Ref`'s "moved-from" state holds a null
+  `NonNullOwn`'s and `Rc`'s "moved-from" state holds a null
   internally — visible to the destructor only; using `get() /
   operator* / operator->` on a moved-from value is UB. Same contract
   as the standard library.
-- **No `Weak<T>` yet.** `Ref<T>` is strong-only. A reference cycle
-  built out of `Ref`s leaks — there's no garbage collector and no
+- **No `Weak<T>` yet.** `Rc<T>` is strong-only. A reference cycle
+  built out of `Rc`s leaks — there's no garbage collector and no
   weak escape hatch. For tree / DAG ownership this is fine; for
   graphs with back-edges, store back-edges as raw pointers (the
-  forward `Ref` chain keeps everything alive) or wait for `Weak<T>`
+  forward `Rc` chain keeps everything alive) or wait for `Weak<T>`
   to land.
 - **No native pattern matching.** `Variant<Ts...>` exists, but you
   visit it with functor structs or hand-written `if (v.is<T>())`

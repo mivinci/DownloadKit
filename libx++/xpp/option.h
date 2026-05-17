@@ -13,11 +13,12 @@
 
 #include <xpp/panic.h>
 
+#include <new>  // IWYU pragma: keep  (placement new: `new (ptr) T(...)`)
 #include <utility>
 
 namespace xpp {
 
-/** Forward declaration so Option::okOr / okOrElse can name Result. */
+/** Forward declaration so Option::ok_or / ok_or_else can name Result. */
 template <class T, typename E> class Result;
 
 /**
@@ -42,28 +43,28 @@ public:
   using value_type = T;
 
   /** @brief Construct an empty Option. */
-  constexpr Option() noexcept : m_hasValue(false) {}
+  constexpr Option() noexcept : m_has_value(false) {}
 
   /** @brief Construct an empty Option from none. */
-  constexpr Option(None) noexcept : m_hasValue(false) {}
+  constexpr Option(None) noexcept : m_has_value(false) {}
 
   /** @brief Construct with a value. */
-  Option(const T &val) : m_hasValue(true) {
+  Option(const T &val) : m_has_value(true) {
     new (&m_storage) T(val);
   }
 
-  Option(T &&val) noexcept : m_hasValue(true) {
+  Option(T &&val) noexcept : m_has_value(true) {
     new (&m_storage) T(std::move(val));
   }
 
   /** @brief Copy constructor. */
-  Option(const Option &o) : m_hasValue(o.m_hasValue) {
-    if (m_hasValue) new (&m_storage) T(o.unwrap());
+  Option(const Option &o) : m_has_value(o.m_has_value) {
+    if (m_has_value) new (&m_storage) T(o.unwrap());
   }
 
   /** @brief Move constructor. Source is left empty. */
-  Option(Option &&o) noexcept : m_hasValue(o.m_hasValue) {
-    if (m_hasValue) {
+  Option(Option &&o) noexcept : m_has_value(o.m_has_value) {
+    if (m_has_value) {
       new (&m_storage) T(std::move(o.unwrap()));
       o.clear();
     }
@@ -78,8 +79,8 @@ public:
   Option &operator=(const Option &o) {
     if (this != &o) {
       clear();
-      m_hasValue = o.m_hasValue;
-      if (m_hasValue) new (&m_storage) T(o.unwrap());
+      m_has_value = o.m_has_value;
+      if (m_has_value) new (&m_storage) T(o.unwrap());
     }
     return *this;
   }
@@ -88,8 +89,8 @@ public:
   Option &operator=(Option &&o) noexcept {
     if (this != &o) {
       clear();
-      m_hasValue = o.m_hasValue;
-      if (m_hasValue) {
+      m_has_value = o.m_has_value;
+      if (m_has_value) {
         new (&m_storage) T(std::move(o.unwrap()));
         o.clear();
       }
@@ -104,63 +105,63 @@ public:
   }
 
   /** @brief True if this holds a value. */
-  bool isSome() const noexcept {
-    return m_hasValue;
+  bool is_some() const noexcept {
+    return m_has_value;
   }
 
   /** @brief True if this is empty. */
-  bool isNone() const noexcept {
-    return !m_hasValue;
+  bool is_none() const noexcept {
+    return !m_has_value;
   }
 
   /** @brief Bool conversion: true if some. */
   explicit operator bool() const noexcept {
-    return m_hasValue;
+    return m_has_value;
   }
 
   /**
    * @brief Get the held value, aborting if empty.
    *
    * Like Rust's Option::unwrap(): always checks, even in release builds.
-   * For zero-cost access when the caller guarantees Some, use unwrapUnchecked().
+   * For zero-cost access when the caller guarantees Some, use unwrap_unchecked().
    *
    * @return Reference to the value.
    */
   T &unwrap() & {
-    XPP_ASSERT(m_hasValue, "unwrap() on None Option");
+    XPP_ASSERT(m_has_value, "unwrap() on None Option");
     return *reinterpret_cast<T *>(&m_storage);
   }
 
   const T &unwrap() const & {
-    XPP_ASSERT(m_hasValue, "unwrap() on None Option");
+    XPP_ASSERT(m_has_value, "unwrap() on None Option");
     return *reinterpret_cast<const T *>(&m_storage);
   }
 
   T &&unwrap() && {
-    XPP_ASSERT(m_hasValue, "unwrap() on None Option");
+    XPP_ASSERT(m_has_value, "unwrap() on None Option");
     return std::move(*reinterpret_cast<T *>(&m_storage));
   }
 
   /**
-   * @brief Get the held value without checking. UB if isNone().
+   * @brief Get the held value without checking. UB if is_none().
    *
    * Like Rust's Option::unwrap_unchecked(). Debug builds assert; release
-   * builds elide the check entirely. Caller must ensure isSome().
+   * builds elide the check entirely. Caller must ensure is_some().
    *
    * @return Reference to the value.
    */
-  T &unwrapUnchecked() & noexcept {
-    XPP_DEBUG_ASSERT(m_hasValue, "internal: Option must be Some");
+  T &unwrap_unchecked() & noexcept {
+    XPP_DEBUG_ASSERT(m_has_value, "internal: Option must be Some");
     return *reinterpret_cast<T *>(&m_storage);
   }
 
-  const T &unwrapUnchecked() const & noexcept {
-    XPP_DEBUG_ASSERT(m_hasValue, "internal: Option must be Some");
+  const T &unwrap_unchecked() const & noexcept {
+    XPP_DEBUG_ASSERT(m_has_value, "internal: Option must be Some");
     return *reinterpret_cast<const T *>(&m_storage);
   }
 
-  T &&unwrapUnchecked() && noexcept {
-    XPP_DEBUG_ASSERT(m_hasValue, "internal: Option must be Some");
+  T &&unwrap_unchecked() && noexcept {
+    XPP_DEBUG_ASSERT(m_has_value, "internal: Option must be Some");
     return std::move(*reinterpret_cast<T *>(&m_storage));
   }
 
@@ -169,24 +170,24 @@ public:
    * @param fallback  Value to return if empty.
    * @return          Reference to the value, or @p fallback.
    */
-  const T &unwrapOr(const T &fallback) const & {
-    return m_hasValue ? unwrapUnchecked() : fallback;
+  const T &unwrap_or(const T &fallback) const & {
+    return m_has_value ? unwrap_unchecked() : fallback;
   }
 
-  T unwrapOr(T &&fallback) && {
-    return m_hasValue ? std::move(unwrapUnchecked()) : std::move(fallback);
+  T unwrap_or(T &&fallback) && {
+    return m_has_value ? std::move(unwrap_unchecked()) : std::move(fallback);
   }
 
   /**
    * @brief Take the value out, leaving this Option empty.
    *
-   * After this call isNone() is true. The returned Option owns the value.
+   * After this call is_none() is true. The returned Option owns the value.
    *
    * @return An Option containing the value, or none if this was empty.
    */
   Option take() {
-    if (!m_hasValue) return none;
-    Option r(std::move(unwrapUnchecked()));
+    if (!m_has_value) return none;
+    Option r(std::move(unwrap_unchecked()));
     clear();
     return r;
   }
@@ -201,15 +202,15 @@ public:
    * @return     Reference to the value.
    */
   T &expect(const char *msg) & {
-    XPP_ASSERT(m_hasValue, "expect: %s", msg);
+    XPP_ASSERT(m_has_value, "expect: %s", msg);
     return *reinterpret_cast<T *>(&m_storage);
   }
   const T &expect(const char *msg) const & {
-    XPP_ASSERT(m_hasValue, "expect: %s", msg);
+    XPP_ASSERT(m_has_value, "expect: %s", msg);
     return *reinterpret_cast<const T *>(&m_storage);
   }
   T &&expect(const char *msg) && {
-    XPP_ASSERT(m_hasValue, "expect: %s", msg);
+    XPP_ASSERT(m_has_value, "expect: %s", msg);
     return std::move(*reinterpret_cast<T *>(&m_storage));
   }
 
@@ -221,11 +222,11 @@ public:
   template <class Func>
   auto map(Func &&fn) const & -> Option<decltype(fn(std::declval<const T &>()))> {
     using U = decltype(fn(std::declval<const T &>()));
-    return m_hasValue ? Option<U>(fn(unwrapUnchecked())) : Option<U>(none);
+    return m_has_value ? Option<U>(fn(unwrap_unchecked())) : Option<U>(none);
   }
   template <class Func> auto map(Func &&fn) && -> Option<decltype(fn(std::declval<T &&>()))> {
     using U = decltype(fn(std::declval<T &&>()));
-    return m_hasValue ? Option<U>(fn(std::move(unwrapUnchecked()))) : Option<U>(none);
+    return m_has_value ? Option<U>(fn(std::move(unwrap_unchecked()))) : Option<U>(none);
   }
 
   /**
@@ -236,13 +237,13 @@ public:
    * Returns None unchanged.
    */
   template <class Func>
-  auto andThen(Func &&fn) const & -> decltype(fn(std::declval<const T &>())) {
+  auto and_then(Func &&fn) const & -> decltype(fn(std::declval<const T &>())) {
     using R = decltype(fn(std::declval<const T &>()));
-    return m_hasValue ? fn(unwrapUnchecked()) : R(none);
+    return m_has_value ? fn(unwrap_unchecked()) : R(none);
   }
-  template <class Func> auto andThen(Func &&fn) && -> decltype(fn(std::declval<T &&>())) {
+  template <class Func> auto and_then(Func &&fn) && -> decltype(fn(std::declval<T &&>())) {
     using R = decltype(fn(std::declval<T &&>()));
-    return m_hasValue ? fn(std::move(unwrapUnchecked())) : R(none);
+    return m_has_value ? fn(std::move(unwrap_unchecked())) : R(none);
   }
 
   /**
@@ -250,11 +251,11 @@ public:
    *
    * Mirrors Rust's Option::or_else.
    */
-  template <class Func> Option orElse(Func &&fn) const & {
-    return m_hasValue ? *this : fn();
+  template <class Func> Option or_else(Func &&fn) const & {
+    return m_has_value ? *this : fn();
   }
-  template <class Func> Option orElse(Func &&fn) && {
-    return m_hasValue ? Option(std::move(*this)) : fn();
+  template <class Func> Option or_else(Func &&fn) && {
+    return m_has_value ? Option(std::move(*this)) : fn();
   }
 
   /**
@@ -262,8 +263,8 @@ public:
    *
    * Mirrors Rust's Option::unwrap_or_else. Consuming overload only.
    */
-  template <class Func> T unwrapOrElse(Func &&fn) && {
-    return m_hasValue ? std::move(unwrapUnchecked()) : fn();
+  template <class Func> T unwrap_or_else(Func &&fn) && {
+    return m_has_value ? std::move(unwrap_unchecked()) : fn();
   }
 
   /**
@@ -273,8 +274,8 @@ public:
    * Option by value matches Rust's `self` semantics.
    */
   template <class Func> Option filter(Func &&pred) && {
-    if (m_hasValue && pred(unwrapUnchecked())) {
-      return Option(std::move(unwrapUnchecked()));
+    if (m_has_value && pred(unwrap_unchecked())) {
+      return Option(std::move(unwrap_unchecked()));
     }
     return none;
   }
@@ -286,15 +287,15 @@ public:
    * (logging, debugging) and its return value is discarded.
    */
   template <class Func> Option &inspect(Func &&fn) & {
-    if (m_hasValue) fn(unwrapUnchecked());
+    if (m_has_value) fn(unwrap_unchecked());
     return *this;
   }
   template <class Func> const Option &inspect(Func &&fn) const & {
-    if (m_hasValue) fn(unwrapUnchecked());
+    if (m_has_value) fn(unwrap_unchecked());
     return *this;
   }
   template <class Func> Option inspect(Func &&fn) && {
-    if (m_hasValue) fn(unwrapUnchecked());
+    if (m_has_value) fn(unwrap_unchecked());
     return std::move(*this);
   }
 
@@ -304,24 +305,24 @@ public:
    * Mirrors Rust's Option::ok_or. Caller must have included result.h.
    * Consuming overload only.
    */
-  template <class E> Result<T, E> okOr(E e) &&;
+  template <class E> Result<T, E> ok_or(E e) &&;
 
   /**
-   * @brief Same as okOr but error is computed lazily by @p fn.
+   * @brief Same as ok_or but error is computed lazily by @p fn.
    *
    * Mirrors Rust's Option::ok_or_else. Caller must have included result.h.
    */
-  template <class Func> auto okOrElse(Func &&fn) && -> Result<T, decltype(fn())>;
+  template <class Func> auto ok_or_else(Func &&fn) && -> Result<T, decltype(fn())>;
 
 private:
   void clear() {
-    if (m_hasValue) {
+    if (m_has_value) {
       reinterpret_cast<T *>(&m_storage)->~T();
-      m_hasValue = false;
+      m_has_value = false;
     }
   }
 
-  bool                                                       m_hasValue = false;
+  bool                                                       m_has_value = false;
   typename std::aligned_storage<sizeof(T), alignof(T)>::type m_storage;
 };
 

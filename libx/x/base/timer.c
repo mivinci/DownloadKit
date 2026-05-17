@@ -9,9 +9,9 @@
 #include <x/base/heap.h>
 #include <x/base/mpsc.h>
 #include <x/base/slab.h>
+#include <x/base/thread.h>
 #include <x/base/timer.h>
 
-#include "thread_private.h"
 #include <stdlib.h>
 #include <string.h>
 

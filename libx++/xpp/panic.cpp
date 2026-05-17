@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * panic.cpp - Implementation of xpp::_::doPanic.
+ * panic.cpp - Implementation of xpp::_::do_panic.
  *
  * Kept out of panic.h so the logging-library dependency stays here
  * instead of leaking into every TU that uses XPP_PANIC / XPP_ASSERT
@@ -25,7 +25,7 @@
 namespace xpp {
 namespace _ {
 
-void doPanic(const char *fmt, ...) {
+void do_panic(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   xLogV(/*fatal=*/true, fmt, ap);

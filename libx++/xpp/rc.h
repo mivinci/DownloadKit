@@ -12,7 +12,7 @@
  *
  * Design analogue: Rust's std::rc::Rc<T> + Option<Rc<T>>. Like Rust's
  * Rc, libx++'s Rc is **co-located but NOT intrusive**: T does not
- * need to inherit from anything. makeRc<T>(args...) is the only
+ * need to inherit from anything. make_rc<T>(args...) is the only
  * construction entry — the inner block carries the strong and weak
  * counts next to T, so the whole thing is a single heap allocation.
  *
@@ -83,7 +83,7 @@ namespace _ {
  * cache lines are warm whenever the value is.
  *
  * Lifecycle:
- *   - makeRc<T>(...) allocates the inner with strong=1, weak=1.
+ *   - make_rc<T>(...) allocates the inner with strong=1, weak=1.
  *   - Each new Rc<T> bumps strong; each new Weak<T> bumps weak.
  *   - The last Rc to drop destroys T in place (~value), then
  *     decrements weak as if it were a Weak (the "all-strongs-count-
@@ -99,8 +99,7 @@ template <class T> struct RcInner {
   T      value;
 
   template <class... Args>
-  explicit RcInner(Args &&...args)
-      : strong(1), weak(1), value(std::forward<Args>(args)...) {}
+  explicit RcInner(Args &&...args) : strong(1), weak(1), value(std::forward<Args>(args)...) {}
 };
 
 /**
@@ -111,8 +110,8 @@ template <class T> struct RcInner {
  * the last Rc drops (after destroying T). Factored out so both call
  * sites use exactly the same end-of-life decision.
  */
-template <class T> inline void rcDecWeakAndMaybeDealloc(RcInner<T> *inner) noexcept {
-  XPP_DEBUG_ASSERT(inner != nullptr, "internal: rcDecWeak called with null inner");
+template <class T> inline void rc_dec_weak_and_maybe_dealloc(RcInner<T> *inner) noexcept {
+  XPP_DEBUG_ASSERT(inner != nullptr, "internal: rc_dec_weak called with null inner");
   if (--inner->weak == 0) ::operator delete(inner);
 }
 
@@ -122,11 +121,11 @@ template <class T> inline void rcDecWeakAndMaybeDealloc(RcInner<T> *inner) noexc
  *        alive"). The inner block itself dies at weak->0, possibly
  *        in a different call if a Weak is still observing.
  */
-template <class T> inline void rcDecStrong(RcInner<T> *inner) noexcept {
-  XPP_DEBUG_ASSERT(inner != nullptr, "internal: rcDecStrong called with null inner");
+template <class T> inline void rc_dec_strong(RcInner<T> *inner) noexcept {
+  XPP_DEBUG_ASSERT(inner != nullptr, "internal: rc_dec_strong called with null inner");
   if (--inner->strong == 0) {
     inner->value.~T();
-    rcDecWeakAndMaybeDealloc(inner);
+    rc_dec_weak_and_maybe_dealloc(inner);
   }
 }
 
@@ -141,7 +140,7 @@ template <class T> inline void rcDecStrong(RcInner<T> *inner) noexcept {
  * using the moved-from Rc is undefined; only destruction is safe.
  * Same contract as std::unique_ptr's moved-from state.
  *
- * Use makeRc<T>(args...) to construct. There is no public
+ * Use make_rc<T>(args...) to construct. There is no public
  * constructor from a raw T* — Rc always owns the allocation it was
  * born with, and a stray pointer can't be retro-fitted with a count.
  */
@@ -174,7 +173,7 @@ public:
    * @brief Covariant copy: Rc<Derived> → Rc<Base>.
    */
   template <class U, typename = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
-  Rc(const Rc<U> &o) noexcept : m_inner(reinterpret_cast<_::RcInner<T> *>(o.innerRaw())) {
+  Rc(const Rc<U> &o) noexcept : m_inner(reinterpret_cast<_::RcInner<T> *>(o.inner_raw())) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     ++m_inner->strong;
   }
@@ -183,8 +182,8 @@ public:
    * @brief Covariant move: Rc<Derived> → Rc<Base>.
    */
   template <class U, typename = typename std::enable_if<std::is_convertible<U *, T *>::value>::type>
-  Rc(Rc<U> &&o) noexcept : m_inner(reinterpret_cast<_::RcInner<T> *>(o.innerRaw())) {
-    o.innerRawReset();
+  Rc(Rc<U> &&o) noexcept : m_inner(reinterpret_cast<_::RcInner<T> *>(o.inner_raw())) {
+    o.inner_raw_reset();
   }
 
   Rc &operator=(const Rc &o) noexcept {
@@ -204,7 +203,7 @@ public:
   }
 
   ~Rc() noexcept {
-    if (m_inner) _::rcDecStrong(m_inner);
+    if (m_inner) _::rc_dec_strong(m_inner);
   }
 
   /**
@@ -222,7 +221,7 @@ public:
    * can change it between the read and any decision you make. Mostly
    * useful for assertions and tests ("did this drop?").
    */
-  size_t strongCount() const noexcept {
+  size_t strong_count() const noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     return m_inner->strong;
   }
@@ -234,7 +233,7 @@ public:
    * count as one weak" +1 is NOT included — when only Rcs exist this
    * reads 0, matching Rust's `Rc::weak_count`.
    */
-  size_t weakCount() const noexcept {
+  size_t weak_count() const noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
     return m_inner->weak - 1;
   }
@@ -289,15 +288,15 @@ public:
   /* ── internals exposed only to friends / templates ───────────────── */
 
   // Used by covariant ctor of Rc<Other>; do not call directly.
-  _::RcInner<T> *innerRaw() const noexcept {
+  _::RcInner<T> *inner_raw() const noexcept {
     return m_inner;
   }
-  void innerRawReset() noexcept {
+  void inner_raw_reset() noexcept {
     m_inner = nullptr;
   }
 
 private:
-  // Constructed only by makeRc, the friend Option specialization,
+  // Constructed only by make_rc, the friend Option specialization,
   // and Weak<T>::upgrade. m_inner is always non-null at this point.
   explicit Rc(_::RcInner<T> *inner) noexcept : m_inner(inner) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
@@ -305,7 +304,7 @@ private:
 
   _::RcInner<T> *m_inner;
 
-  template <class U, class... Args> friend Rc<U> makeRc(Args &&...args);
+  template <class U, class... Args> friend Rc<U> make_rc(Args &&...args);
   template <class U> friend class Rc;
   template <class U> friend class Weak;
   friend class Option<Rc<T>>;
@@ -319,14 +318,14 @@ private:
  * marker), and a freshly-constructed T.
  *
  * libx++ does not use exceptions for control flow (see README), so
- * makeRc expects T's constructor not to throw. If T can fail to
+ * make_rc expects T's constructor not to throw. If T can fail to
  * construct, model that with a static factory returning
- * Result<T, Error> and call makeRc on the unwrapped success path.
+ * Result<T, Error> and call make_rc on the unwrapped success path.
  *
  * The only public construction entry point. Rc has no constructor
  * from a raw T*.
  */
-template <class T, class... Args> Rc<T> makeRc(Args &&...args) {
+template <class T, class... Args> Rc<T> make_rc(Args &&...args) {
   void          *mem   = ::operator new(sizeof(_::RcInner<T>));
   _::RcInner<T> *inner = ::new (mem) _::RcInner<T>(std::forward<Args>(args)...);
   return Rc<T>(inner);
@@ -389,13 +388,13 @@ public:
   }
 
   ~Option() noexcept {
-    if (m_inner) _::rcDecStrong(m_inner);
+    if (m_inner) _::rc_dec_strong(m_inner);
   }
 
-  bool isSome() const noexcept {
+  bool is_some() const noexcept {
     return m_inner != nullptr;
   }
-  bool isNone() const noexcept {
+  bool is_none() const noexcept {
     return m_inner == nullptr;
   }
   explicit operator bool() const noexcept {
@@ -409,7 +408,7 @@ public:
     return Rc<T>(taken);
   }
 
-  Rc<T> unwrapUnchecked() && noexcept {
+  Rc<T> unwrap_unchecked() && noexcept {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Option must be Some");
     _::RcInner<T> *taken = m_inner;
     m_inner              = nullptr;
@@ -439,8 +438,7 @@ template <class T> void swap(Option<Rc<T>> &a, Option<Rc<T>> &b) noexcept {
 /* ── invariants pinned at compile time ────────────────────────────── */
 
 static_assert(sizeof(Rc<int>) == sizeof(int *), "Rc<T> must be sizeof(T*)");
-static_assert(sizeof(Option<Rc<int>>) == sizeof(int *),
-              "Option<Rc<T>> niche optimisation broken");
+static_assert(sizeof(Option<Rc<int>>) == sizeof(int *), "Option<Rc<T>> niche optimisation broken");
 
 } // namespace xpp
 

@@ -75,10 +75,10 @@ protected:
 
 TEST_F(WeakTrackerTest, DefaultIsNullAndUpgradesToNone) {
   xpp::Weak<Tracker> w;
-  EXPECT_TRUE(w.isExpired());
-  EXPECT_EQ(w.strongCount(), 0u);
-  EXPECT_EQ(w.weakCount(), 0u);
-  EXPECT_TRUE(w.upgrade().isNone());
+  EXPECT_TRUE(w.is_expired());
+  EXPECT_EQ(w.strong_count(), 0u);
+  EXPECT_EQ(w.weak_count(), 0u);
+  EXPECT_TRUE(w.upgrade().is_none());
   // no Trackers ever allocated; TearDown verifies alive == 0
 }
 
@@ -86,26 +86,26 @@ TEST_F(WeakTrackerTest, DefaultIsNullAndUpgradesToNone) {
 
 TEST_F(WeakTrackerTest, ConstructFromRcBumpsWeak) {
   {
-    xpp::Rc<Tracker> r = xpp::makeRc<Tracker>(42);
-    EXPECT_EQ(r.strongCount(), 1u);
-    EXPECT_EQ(r.weakCount(), 0u) << "no Weaks yet";
+    xpp::Rc<Tracker> r = xpp::make_rc<Tracker>(42);
+    EXPECT_EQ(r.strong_count(), 1u);
+    EXPECT_EQ(r.weak_count(), 0u) << "no Weaks yet";
 
     xpp::Weak<Tracker> w(r);
-    EXPECT_EQ(r.strongCount(), 1u);
-    EXPECT_EQ(r.weakCount(), 1u);
-    EXPECT_FALSE(w.isExpired());
-    EXPECT_EQ(w.strongCount(), 1u);
-    EXPECT_EQ(w.weakCount(), 1u);
+    EXPECT_EQ(r.strong_count(), 1u);
+    EXPECT_EQ(r.weak_count(), 1u);
+    EXPECT_FALSE(w.is_expired());
+    EXPECT_EQ(w.strong_count(), 1u);
+    EXPECT_EQ(w.weak_count(), 1u);
   } // w drops, then r drops, then Tracker destroyed
   EXPECT_EQ(Tracker::alive, 0);
 }
 
 TEST_F(WeakTrackerTest, RcDowngradeEquivalent) {
   {
-    xpp::Rc<Tracker>   r = xpp::makeRc<Tracker>(7);
+    xpp::Rc<Tracker>   r = xpp::make_rc<Tracker>(7);
     xpp::Weak<Tracker> w = xpp::Rc<Tracker>::downgrade(r);
-    EXPECT_EQ(r.weakCount(), 1u);
-    EXPECT_FALSE(w.isExpired());
+    EXPECT_EQ(r.weak_count(), 1u);
+    EXPECT_FALSE(w.is_expired());
   }
   EXPECT_EQ(Tracker::alive, 0);
 }
@@ -114,13 +114,13 @@ TEST_F(WeakTrackerTest, RcDowngradeEquivalent) {
 
 TEST_F(WeakTrackerTest, UpgradeWhileStrongAliveBumpsStrong) {
   {
-    xpp::Rc<Tracker>   r = xpp::makeRc<Tracker>(11);
+    xpp::Rc<Tracker>   r = xpp::make_rc<Tracker>(11);
     xpp::Weak<Tracker> w(r);
 
     xpp::Option<xpp::Rc<Tracker>> upgraded = w.upgrade();
-    EXPECT_TRUE(upgraded.isSome());
-    EXPECT_EQ(r.strongCount(), 2u) << "upgrade should bump strong";
-    EXPECT_EQ(r.weakCount(), 1u) << "weak unchanged by upgrade";
+    EXPECT_TRUE(upgraded.is_some());
+    EXPECT_EQ(r.strong_count(), 2u) << "upgrade should bump strong";
+    EXPECT_EQ(r.weak_count(), 1u) << "weak unchanged by upgrade";
 
     xpp::Rc<Tracker> r2 = std::move(upgraded).unwrap();
     EXPECT_EQ(r2->value, 11);
@@ -134,16 +134,16 @@ TEST_F(WeakTrackerTest, UpgradeWhileStrongAliveBumpsStrong) {
 TEST_F(WeakTrackerTest, UpgradeAfterStrongsGoneReturnsNone) {
   xpp::Weak<Tracker> w;
   {
-    xpp::Rc<Tracker> r = xpp::makeRc<Tracker>(99);
+    xpp::Rc<Tracker> r = xpp::make_rc<Tracker>(99);
     w                  = xpp::Weak<Tracker>(r);
-    EXPECT_FALSE(w.isExpired());
+    EXPECT_FALSE(w.is_expired());
     EXPECT_EQ(Tracker::alive, 1);
   }
   // Strong dropped: Tracker destroyed, but inner still alive because Weak holds it.
   EXPECT_EQ(Tracker::alive, 0) << "Tracker destroyed when last strong drops";
-  EXPECT_TRUE(w.isExpired());
-  EXPECT_EQ(w.strongCount(), 0u);
-  EXPECT_TRUE(w.upgrade().isNone());
+  EXPECT_TRUE(w.is_expired());
+  EXPECT_EQ(w.strong_count(), 0u);
+  EXPECT_TRUE(w.upgrade().is_none());
   // Now w drops at end of scope; inner is deallocated. Nothing observable to assert.
 }
 
@@ -153,11 +153,11 @@ TEST_F(WeakTrackerTest, NoLeakWhenWeakOutlivesAllStrongs) {
   {
     xpp::Weak<Tracker> w;
     {
-      xpp::Rc<Tracker> r = xpp::makeRc<Tracker>(5);
+      xpp::Rc<Tracker> r = xpp::make_rc<Tracker>(5);
       w                  = xpp::Weak<Tracker>(r);
     } // strong gone, Tracker destroyed, inner still alive
     EXPECT_EQ(Tracker::alive, 0);
-    EXPECT_TRUE(w.isExpired());
+    EXPECT_TRUE(w.is_expired());
   } // w gone, inner deallocated — leak-check via valgrind/asan in CI
   EXPECT_EQ(Tracker::alive, 0);
 }
@@ -166,37 +166,37 @@ TEST_F(WeakTrackerTest, NoLeakWhenWeakOutlivesAllStrongs) {
 
 TEST_F(WeakTrackerTest, WeakCopyBumpsWeakCount) {
   {
-    xpp::Rc<Tracker>   r = xpp::makeRc<Tracker>(1);
+    xpp::Rc<Tracker>   r = xpp::make_rc<Tracker>(1);
     xpp::Weak<Tracker> w1(r);
     {
       xpp::Weak<Tracker> w2 = w1;
-      EXPECT_EQ(r.weakCount(), 2u);
+      EXPECT_EQ(r.weak_count(), 2u);
     } // w2 dies
-    EXPECT_EQ(r.weakCount(), 1u);
+    EXPECT_EQ(r.weak_count(), 1u);
   }
   EXPECT_EQ(Tracker::alive, 0);
 }
 
 TEST_F(WeakTrackerTest, WeakMoveDoesNotBumpWeakCount) {
   {
-    xpp::Rc<Tracker>   r = xpp::makeRc<Tracker>(2);
+    xpp::Rc<Tracker>   r = xpp::make_rc<Tracker>(2);
     xpp::Weak<Tracker> w1(r);
-    EXPECT_EQ(r.weakCount(), 1u);
+    EXPECT_EQ(r.weak_count(), 1u);
     xpp::Weak<Tracker> w2 = std::move(w1);
-    EXPECT_EQ(r.weakCount(), 1u);
-    EXPECT_FALSE(w2.isExpired());
+    EXPECT_EQ(r.weak_count(), 1u);
+    EXPECT_FALSE(w2.is_expired());
   }
   EXPECT_EQ(Tracker::alive, 0);
 }
 
 TEST_F(WeakTrackerTest, AssignWeakToNullDropsObservation) {
   {
-    xpp::Rc<Tracker>   r = xpp::makeRc<Tracker>(3);
+    xpp::Rc<Tracker>   r = xpp::make_rc<Tracker>(3);
     xpp::Weak<Tracker> w(r);
-    EXPECT_EQ(r.weakCount(), 1u);
+    EXPECT_EQ(r.weak_count(), 1u);
     w = xpp::Weak<Tracker>(); // null
-    EXPECT_EQ(r.weakCount(), 0u);
-    EXPECT_TRUE(w.isExpired());
+    EXPECT_EQ(r.weak_count(), 0u);
+    EXPECT_TRUE(w.is_expired());
   }
   EXPECT_EQ(Tracker::alive, 0);
 }
@@ -230,15 +230,15 @@ protected:
 
 TEST_F(CycleTest, ForwardRcBackwardWeakReleasesAll) {
   {
-    xpp::Rc<CycleNode> a = xpp::makeRc<CycleNode>(1);
-    xpp::Rc<CycleNode> b = xpp::makeRc<CycleNode>(2);
+    xpp::Rc<CycleNode> a = xpp::make_rc<CycleNode>(1);
+    xpp::Rc<CycleNode> b = xpp::make_rc<CycleNode>(2);
 
     a->next = xpp::Option<xpp::Rc<CycleNode>>(b); // a → b (strong)
     b->prev = xpp::Weak<CycleNode>(a);            // b ⇠ a (weak)
 
-    EXPECT_EQ(a.strongCount(), 1u) << "Weak does not bump strong";
-    EXPECT_EQ(b.strongCount(), 2u) << "a->next holds one + local b holds one";
-    EXPECT_EQ(a.weakCount(), 1u);
+    EXPECT_EQ(a.strong_count(), 1u) << "Weak does not bump strong";
+    EXPECT_EQ(b.strong_count(), 2u) << "a->next holds one + local b holds one";
+    EXPECT_EQ(a.weak_count(), 1u);
     EXPECT_EQ(CycleNode::alive, 2);
   } // a goes out of scope → strong=0, a destroyed; b's prev becomes expired;
     // b's local handle drops, a->next is already gone with a, so b also dies.

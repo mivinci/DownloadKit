@@ -16,8 +16,8 @@
 #include <x/base/mpsc.h>
 #include <x/base/note.h>
 #include <x/base/slab.h>
+#include <x/base/thread.h>
 
-#include "thread_private.h"
 #include <stdlib.h>
 #include <string.h>
 

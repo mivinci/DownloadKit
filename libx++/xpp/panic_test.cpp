@@ -86,14 +86,14 @@ TEST(PanicTest, DebugAssertCompiledOutInReleaseBuild) {
 namespace {
 struct CapturedPanic {
   std::string msg;
-  bool        hadBacktrace = false;
+  bool        had_backtrace = false;
   int         count        = 0;
 };
 
-void capturePanic(const char *msg, const char *backtrace, void *ud) {
+void capture_panic(const char *msg, const char *backtrace, void *ud) {
   auto *cap         = static_cast<CapturedPanic *>(ud);
   cap->msg          = msg ? msg : "";
-  cap->hadBacktrace = (backtrace != nullptr);
+  cap->had_backtrace = (backtrace != nullptr);
   cap->count++;
   // Don't return — the contract says fatal callbacks must abort. Calling
   // std::abort() here is harmless; xLog will call it after we return too.
@@ -106,7 +106,7 @@ TEST(PanicDeathTest, RoutesThroughXLogCallback) {
   EXPECT_DEATH(
     {
       static CapturedPanic cap;
-      xLogSetCallback(capturePanic, &cap);
+      xLogSetCallback(capture_panic, &cap);
       XPP_PANIC("routed");
     },
     "");

@@ -134,7 +134,7 @@ static_assert(sizeof(xpp::NonNullOwn<Tracker, StatefulDeleter>) > sizeof(Tracker
 
 TEST_F(NonNullOwnTrackerTest, NewUncheckedHappyPath) {
   {
-    auto u = xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(7));
+    auto u = xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(7));
     EXPECT_EQ(Tracker::alive, 1);
     EXPECT_EQ(u->value, 7);
     EXPECT_EQ((*u).value, 7);
@@ -145,15 +145,15 @@ TEST_F(NonNullOwnTrackerTest, NewUncheckedHappyPath) {
 #ifndef NDEBUG
 TEST(NonNullOwnDeathTest, NewUncheckedOnNullDebug) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
-  EXPECT_DEATH(([] { (void)xpp::NonNullOwn<int>::newUnchecked(nullptr); }()),
-               "NonNullOwn::newUnchecked: pointer is null");
+  EXPECT_DEATH(([] { (void)xpp::NonNullOwn<int>::new_unchecked(nullptr); }()),
+               "NonNullOwn::new_unchecked: pointer is null");
 }
 #endif
 
 TEST_F(NonNullOwnTrackerTest, FromNonNullReturnsSome) {
   {
     auto opt = xpp::NonNullOwn<Tracker>::from(new Tracker(11));
-    ASSERT_TRUE(opt.isSome());
+    ASSERT_TRUE(opt.is_some());
     EXPECT_EQ(Tracker::alive, 1);
     EXPECT_EQ(opt.unwrap()->value, 11); // unwrap() const& returns Tracker*
   }
@@ -163,14 +163,14 @@ TEST_F(NonNullOwnTrackerTest, FromNonNullReturnsSome) {
 TEST(NonNullOwnTest, FromNullptrReturnsNone) {
   Tracker *p   = nullptr;
   auto     opt = xpp::NonNullOwn<Tracker>::from(p);
-  EXPECT_TRUE(opt.isNone());
+  EXPECT_TRUE(opt.is_none());
 }
 
 /* ── Move semantics ──────────────────────────────────────────────────── */
 
 TEST_F(NonNullOwnTrackerTest, MoveCtorTransfersOwnershipNoDoubleFree) {
   {
-    auto a = xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(1));
+    auto a = xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(1));
     EXPECT_EQ(Tracker::alive, 1);
     auto b = std::move(a);
     EXPECT_EQ(Tracker::alive, 1); // still 1, not 0 (no premature delete)
@@ -181,8 +181,8 @@ TEST_F(NonNullOwnTrackerTest, MoveCtorTransfersOwnershipNoDoubleFree) {
 
 TEST_F(NonNullOwnTrackerTest, MoveAssignReplacesOldTarget) {
   {
-    auto a = xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(1));
-    auto b = xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(2));
+    auto a = xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(1));
+    auto b = xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(2));
     EXPECT_EQ(Tracker::alive, 2);
     b = std::move(a);
     EXPECT_EQ(Tracker::alive, 1); // old target of b deleted
@@ -191,12 +191,12 @@ TEST_F(NonNullOwnTrackerTest, MoveAssignReplacesOldTarget) {
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-/* ── release / asNonNull ─────────────────────────────────────────────── */
+/* ── release / as_nonnull ─────────────────────────────────────────────── */
 
 TEST_F(NonNullOwnTrackerTest, ReleaseRelinquishesOwnership) {
   Tracker *raw;
   {
-    auto u = xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(3));
+    auto u = xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(3));
     raw    = std::move(u).release();
     // u is no longer usable; raw owns the object now.
     EXPECT_EQ(Tracker::alive, 1);
@@ -207,8 +207,8 @@ TEST_F(NonNullOwnTrackerTest, ReleaseRelinquishesOwnership) {
 }
 
 TEST_F(NonNullOwnTrackerTest, AsNonNullBorrows) {
-  auto u    = xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(9));
-  auto view = u.asNonNull();
+  auto u    = xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(9));
+  auto view = u.as_nonnull();
   EXPECT_EQ(view.get(), u.get());
   EXPECT_EQ((*view).value, 9);
   // u still owns; view is non-owning.
@@ -218,19 +218,19 @@ TEST_F(NonNullOwnTrackerTest, AsNonNullBorrows) {
 
 TEST(OptionNonNullOwnTest, DefaultIsNone) {
   xpp::Option<xpp::NonNullOwn<int>> o;
-  EXPECT_TRUE(o.isNone());
+  EXPECT_TRUE(o.is_none());
   EXPECT_FALSE(static_cast<bool>(o));
 }
 
 TEST(OptionNonNullOwnTest, NoneTagIsNone) {
   xpp::Option<xpp::NonNullOwn<int>> o(xpp::none);
-  EXPECT_TRUE(o.isNone());
+  EXPECT_TRUE(o.is_none());
 }
 
 TEST_F(NonNullOwnTrackerTest, FromCtorAndDestructorFreesMemory) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(4)));
-    EXPECT_TRUE(o.isSome());
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(4)));
+    EXPECT_TRUE(o.is_some());
     EXPECT_EQ(Tracker::alive, 1);
   }
   EXPECT_EQ(Tracker::alive, 0);
@@ -238,20 +238,20 @@ TEST_F(NonNullOwnTrackerTest, FromCtorAndDestructorFreesMemory) {
 
 TEST_F(NonNullOwnTrackerTest, OptionMoveCtorTransfersOwnership) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> a(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(5)));
+    xpp::Option<xpp::NonNullOwn<Tracker>> a(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(5)));
     xpp::Option<xpp::NonNullOwn<Tracker>> b(std::move(a));
-    EXPECT_TRUE(b.isSome());
-    EXPECT_TRUE(a.isNone());
+    EXPECT_TRUE(b.is_some());
+    EXPECT_TRUE(a.is_none());
     EXPECT_EQ(Tracker::alive, 1);
   }
   EXPECT_EQ(Tracker::alive, 0);
 }
 
 TEST_F(NonNullOwnTrackerTest, AssignNoneClearsAndFrees) {
-  xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(6)));
+  xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(6)));
   EXPECT_EQ(Tracker::alive, 1);
   o = xpp::none;
-  EXPECT_TRUE(o.isNone());
+  EXPECT_TRUE(o.is_none());
   EXPECT_EQ(Tracker::alive, 0);
 }
 
@@ -259,13 +259,13 @@ TEST_F(NonNullOwnTrackerTest, AssignNoneClearsAndFrees) {
 
 TEST_F(NonNullOwnTrackerTest, UnwrapConstRefBorrows) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(8)));
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(8)));
     const auto                           &cref = o;
     Tracker                              *raw  = cref.unwrap();
     static_assert(std::is_same<decltype(cref.unwrap()), Tracker *>::value,
                   "const& unwrap must return T*");
     EXPECT_EQ(raw->value, 8);
-    EXPECT_TRUE(o.isSome()); // borrow does not consume
+    EXPECT_TRUE(o.is_some()); // borrow does not consume
     EXPECT_EQ(Tracker::alive, 1);
   }
   EXPECT_EQ(Tracker::alive, 0);
@@ -273,12 +273,12 @@ TEST_F(NonNullOwnTrackerTest, UnwrapConstRefBorrows) {
 
 TEST_F(NonNullOwnTrackerTest, UnwrapRvalueConsumes) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(9)));
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(9)));
     auto                                  owned = std::move(o).unwrap();
     static_assert(std::is_same<decltype(std::move(o).unwrap()), xpp::NonNullOwn<Tracker>>::value,
                   "&& unwrap must return NonNullOwn");
     EXPECT_EQ(owned->value, 9);
-    EXPECT_TRUE(o.isNone()); // consumed
+    EXPECT_TRUE(o.is_none()); // consumed
     EXPECT_EQ(Tracker::alive, 1);
   }
   EXPECT_EQ(Tracker::alive, 0);
@@ -298,10 +298,10 @@ TEST(OptionNonNullOwnDeathTest, UnwrapOnNoneAborts) {
 TEST_F(NonNullOwnTrackerTest, ExpectHappyPathConsumes) {
   {
     xpp::Option<xpp::NonNullOwn<Tracker>> o(
-      xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(10)));
+      xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(10)));
     auto owned = std::move(o).expect("must be set");
     EXPECT_EQ(owned->value, 10);
-    EXPECT_TRUE(o.isNone());
+    EXPECT_TRUE(o.is_none());
   }
   EXPECT_EQ(Tracker::alive, 0);
 }
@@ -315,13 +315,13 @@ TEST(OptionNonNullOwnDeathTest, ExpectOnNoneAborts) {
                "missing!");
 }
 
-/* ── unwrapOr / take ─────────────────────────────────────────────────── */
+/* ── unwrap_or / take ─────────────────────────────────────────────────── */
 
 TEST_F(NonNullOwnTrackerTest, UnwrapOrReturnsValueWhenSome) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(1)));
-    auto fb    = xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(99));
-    auto owned = std::move(o).unwrapOr(std::move(fb));
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(1)));
+    auto fb    = xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(99));
+    auto owned = std::move(o).unwrap_or(std::move(fb));
     EXPECT_EQ(owned->value, 1);
     // fb's Tracker(99) was deleted when fb went out of scope (not used).
   }
@@ -331,8 +331,8 @@ TEST_F(NonNullOwnTrackerTest, UnwrapOrReturnsValueWhenSome) {
 TEST_F(NonNullOwnTrackerTest, UnwrapOrReturnsFallbackWhenNone) {
   {
     xpp::Option<xpp::NonNullOwn<Tracker>> o;
-    auto fb    = xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(99));
-    auto owned = std::move(o).unwrapOr(std::move(fb));
+    auto fb    = xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(99));
+    auto owned = std::move(o).unwrap_or(std::move(fb));
     EXPECT_EQ(owned->value, 99);
   }
   EXPECT_EQ(Tracker::alive, 0);
@@ -340,10 +340,10 @@ TEST_F(NonNullOwnTrackerTest, UnwrapOrReturnsFallbackWhenNone) {
 
 TEST_F(NonNullOwnTrackerTest, TakeReturnsSomeAndClears) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(2)));
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(2)));
     auto                                  taken = o.take();
-    EXPECT_TRUE(taken.isSome());
-    EXPECT_TRUE(o.isNone());
+    EXPECT_TRUE(taken.is_some());
+    EXPECT_TRUE(o.is_none());
     EXPECT_EQ(Tracker::alive, 1);
   }
   EXPECT_EQ(Tracker::alive, 0);
@@ -353,11 +353,11 @@ TEST_F(NonNullOwnTrackerTest, TakeReturnsSomeAndClears) {
 
 TEST_F(NonNullOwnTrackerTest, MapConstRefViewDoesNotConsume) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(4)));
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(4)));
     auto r = o.map([](xpp::NonNull<Tracker> p) { return p->value * 2; });
-    EXPECT_TRUE(r.isSome());
+    EXPECT_TRUE(r.is_some());
     EXPECT_EQ(r.unwrap(), 8);
-    EXPECT_TRUE(o.isSome()); // const& map does not consume
+    EXPECT_TRUE(o.is_some()); // const& map does not consume
     EXPECT_EQ(Tracker::alive, 1);
   }
   EXPECT_EQ(Tracker::alive, 0);
@@ -365,12 +365,12 @@ TEST_F(NonNullOwnTrackerTest, MapConstRefViewDoesNotConsume) {
 
 TEST_F(NonNullOwnTrackerTest, MapRvalueConsumes) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(5)));
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(5)));
     auto                                  r =
       std::move(o).map([](xpp::NonNullOwn<Tracker> &&p) { return std::to_string(p->value); });
     static_assert(std::is_same<decltype(r), xpp::Option<std::string>>::value, "");
     EXPECT_EQ(r.unwrap(), "5");
-    EXPECT_TRUE(o.isNone());
+    EXPECT_TRUE(o.is_none());
     // Tracker was deleted when the lambda's parameter went out of scope.
     EXPECT_EQ(Tracker::alive, 0);
   }
@@ -385,20 +385,20 @@ TEST_F(NonNullOwnTrackerTest, MapPassesThroughNone) {
     return 0;
   });
   EXPECT_FALSE(called);
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
-/* ── andThen ─────────────────────────────────────────────────────────── */
+/* ── and_then ─────────────────────────────────────────────────────────── */
 
 TEST_F(NonNullOwnTrackerTest, AndThenChainsAndReturnsOption) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(6)));
-    auto r = std::move(o).andThen([](xpp::NonNullOwn<Tracker> &&p) {
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(6)));
+    auto r = std::move(o).and_then([](xpp::NonNullOwn<Tracker> &&p) {
       // Re-wrap as Option<NonNullOwn<Tracker>> if value is positive.
       if (p->value > 0) return xpp::Option<xpp::NonNullOwn<Tracker>>(std::move(p));
       return xpp::Option<xpp::NonNullOwn<Tracker>>(xpp::none);
     });
-    EXPECT_TRUE(r.isSome());
+    EXPECT_TRUE(r.is_some());
     EXPECT_EQ(r.unwrap()->value, 6);
     EXPECT_EQ(Tracker::alive, 1);
   }
@@ -407,12 +407,12 @@ TEST_F(NonNullOwnTrackerTest, AndThenChainsAndReturnsOption) {
 
 TEST_F(NonNullOwnTrackerTest, AndThenReturnsNoneFromFn) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(6)));
-    auto                                  r = std::move(o).andThen([](xpp::NonNullOwn<Tracker> &&) {
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(6)));
+    auto                                  r = std::move(o).and_then([](xpp::NonNullOwn<Tracker> &&) {
       // Drop the input; return None.
       return xpp::Option<int>(xpp::none);
     });
-    EXPECT_TRUE(r.isNone());
+    EXPECT_TRUE(r.is_none());
     // p was deleted inside the lambda.
     EXPECT_EQ(Tracker::alive, 0);
   }
@@ -422,26 +422,26 @@ TEST_F(NonNullOwnTrackerTest, AndThenReturnsNoneFromFn) {
 TEST(OptionNonNullOwnTest, AndThenPassesThroughNone) {
   xpp::Option<xpp::NonNullOwn<int>> o;
   bool                              called = false;
-  auto                              r      = std::move(o).andThen([&](xpp::NonNullOwn<int> &&) {
+  auto                              r      = std::move(o).and_then([&](xpp::NonNullOwn<int> &&) {
     called = true;
     return xpp::Option<int>(0);
   });
   EXPECT_FALSE(called);
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
-/* ── orElse ──────────────────────────────────────────────────────────── */
+/* ── or_else ──────────────────────────────────────────────────────────── */
 
 TEST_F(NonNullOwnTrackerTest, OrElsePassesThroughSome) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(7)));
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(7)));
     bool                                  called = false;
-    auto                                  r      = std::move(o).orElse([&] {
+    auto                                  r      = std::move(o).or_else([&] {
       called = true;
       return xpp::Option<xpp::NonNullOwn<Tracker>>(xpp::none);
     });
     EXPECT_FALSE(called);
-    EXPECT_TRUE(r.isSome());
+    EXPECT_TRUE(r.is_some());
     EXPECT_EQ(r.unwrap()->value, 7);
   }
   EXPECT_EQ(Tracker::alive, 0);
@@ -450,26 +450,26 @@ TEST_F(NonNullOwnTrackerTest, OrElsePassesThroughSome) {
 TEST_F(NonNullOwnTrackerTest, OrElseSubstitutesOnNone) {
   {
     xpp::Option<xpp::NonNullOwn<Tracker>> o;
-    auto                                  r = std::move(o).orElse([] {
+    auto                                  r = std::move(o).or_else([] {
       return xpp::Option<xpp::NonNullOwn<Tracker>>(
-        xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(8)));
+        xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(8)));
     });
-    EXPECT_TRUE(r.isSome());
+    EXPECT_TRUE(r.is_some());
     EXPECT_EQ(r.unwrap()->value, 8);
   }
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-/* ── unwrapOrElse ────────────────────────────────────────────────────── */
+/* ── unwrap_or_else ────────────────────────────────────────────────────── */
 
 TEST_F(NonNullOwnTrackerTest, UnwrapOrElseReturnsValueWhenSome) {
   {
     xpp::Option<xpp::NonNullOwn<Tracker>> o(
-      xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(11)));
+      xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(11)));
     bool called = false;
-    auto p      = std::move(o).unwrapOrElse([&] {
+    auto p      = std::move(o).unwrap_or_else([&] {
       called = true;
-      return xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(0));
+      return xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(0));
     });
     EXPECT_FALSE(called);
     EXPECT_EQ(p->value, 11);
@@ -480,8 +480,8 @@ TEST_F(NonNullOwnTrackerTest, UnwrapOrElseReturnsValueWhenSome) {
 TEST_F(NonNullOwnTrackerTest, UnwrapOrElseCallsFnWhenNone) {
   {
     xpp::Option<xpp::NonNullOwn<Tracker>> o;
-    auto                                  p = std::move(o).unwrapOrElse(
-      [] { return xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(99)); });
+    auto                                  p = std::move(o).unwrap_or_else(
+      [] { return xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(99)); });
     EXPECT_EQ(p->value, 99);
   }
   EXPECT_EQ(Tracker::alive, 0);
@@ -492,9 +492,9 @@ TEST_F(NonNullOwnTrackerTest, UnwrapOrElseCallsFnWhenNone) {
 TEST_F(NonNullOwnTrackerTest, FilterKeepsWhenPredTrue) {
   {
     xpp::Option<xpp::NonNullOwn<Tracker>> o(
-      xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(10)));
+      xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(10)));
     auto r = std::move(o).filter([](xpp::NonNull<Tracker> p) { return p->value > 5; });
-    EXPECT_TRUE(r.isSome());
+    EXPECT_TRUE(r.is_some());
     EXPECT_EQ(Tracker::alive, 1);
   }
   EXPECT_EQ(Tracker::alive, 0);
@@ -502,9 +502,9 @@ TEST_F(NonNullOwnTrackerTest, FilterKeepsWhenPredTrue) {
 
 TEST_F(NonNullOwnTrackerTest, FilterDropsAndDeletesWhenPredFalse) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(3)));
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(3)));
     auto r = std::move(o).filter([](xpp::NonNull<Tracker> p) { return p->value > 5; });
-    EXPECT_TRUE(r.isNone());
+    EXPECT_TRUE(r.is_none());
     // Object must have been deleted by filter.
     EXPECT_EQ(Tracker::alive, 0);
   }
@@ -519,18 +519,18 @@ TEST(OptionNonNullOwnTest, FilterOnNoneStaysNone) {
     return true;
   });
   EXPECT_FALSE(called);
-  EXPECT_TRUE(r.isNone());
+  EXPECT_TRUE(r.is_none());
 }
 
 /* ── inspect ─────────────────────────────────────────────────────────── */
 
 TEST_F(NonNullOwnTrackerTest, InspectCallsFnWhenSome) {
   {
-    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::newUnchecked(new Tracker(7)));
+    xpp::Option<xpp::NonNullOwn<Tracker>> o(xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(7)));
     int                                   seen = 0;
     o.inspect([&](xpp::NonNull<Tracker> p) { seen = p->value; });
     EXPECT_EQ(seen, 7);
-    EXPECT_TRUE(o.isSome()); // const& inspect does not consume
+    EXPECT_TRUE(o.is_some()); // const& inspect does not consume
   }
   EXPECT_EQ(Tracker::alive, 0);
 }
@@ -547,7 +547,7 @@ TEST(OptionNonNullOwnTest, InspectSkipsWhenNone) {
 TEST_F(NonNullOwnTrackerTest, CustomEmptyDeleterIsInvoked) {
   CountingDeleter::calls = 0;
   {
-    auto u = xpp::NonNullOwn<Tracker, CountingDeleter>::newUnchecked(new Tracker(1));
+    auto u = xpp::NonNullOwn<Tracker, CountingDeleter>::new_unchecked(new Tracker(1));
     EXPECT_EQ(Tracker::alive, 1);
   }
   EXPECT_EQ(CountingDeleter::calls, 1);
@@ -558,8 +558,8 @@ TEST_F(NonNullOwnTrackerTest, CustomEmptyDeleterInOptionIsInvoked) {
   CountingDeleter::calls = 0;
   {
     xpp::Option<xpp::NonNullOwn<Tracker, CountingDeleter>> o(
-      xpp::NonNullOwn<Tracker, CountingDeleter>::newUnchecked(new Tracker(2)));
-    EXPECT_TRUE(o.isSome());
+      xpp::NonNullOwn<Tracker, CountingDeleter>::new_unchecked(new Tracker(2)));
+    EXPECT_TRUE(o.is_some());
   }
   EXPECT_EQ(CountingDeleter::calls, 1);
   EXPECT_EQ(Tracker::alive, 0);
@@ -570,7 +570,7 @@ TEST_F(NonNullOwnTrackerTest, CustomEmptyDeleterInOptionIsInvoked) {
 TEST_F(NonNullOwnTrackerTest, StatefulDeleterCarriesState) {
   int call_count = 0;
   {
-    auto u = xpp::NonNullOwn<Tracker, StatefulDeleter>::newUnchecked(new Tracker(3),
+    auto u = xpp::NonNullOwn<Tracker, StatefulDeleter>::new_unchecked(new Tracker(3),
                                                                      StatefulDeleter{&call_count});
     EXPECT_EQ(Tracker::alive, 1);
   }
@@ -580,7 +580,7 @@ TEST_F(NonNullOwnTrackerTest, StatefulDeleterCarriesState) {
 
 TEST_F(NonNullOwnTrackerTest, StatefulDeleterAccessibleViaGetDeleter) {
   int  call_count = 0;
-  auto u          = xpp::NonNullOwn<Tracker, StatefulDeleter>::newUnchecked(new Tracker(4),
+  auto u          = xpp::NonNullOwn<Tracker, StatefulDeleter>::new_unchecked(new Tracker(4),
                                                                             StatefulDeleter{&call_count});
-  EXPECT_EQ(u.getDeleter().call_count, &call_count);
+  EXPECT_EQ(u.get_deleter().call_count, &call_count);
 }

@@ -24,7 +24,7 @@ namespace xpp {
  *   OneOf<int, int> b(InPlaceIndex<1>{}, 42);  // second int
  */
 template <size_t N> struct InPlaceIndex {
-  static constexpr size_t kValue = N;
+  static constexpr size_t k_value = N;
 };
 
 } // namespace xpp

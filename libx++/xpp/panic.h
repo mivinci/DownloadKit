@@ -47,7 +47,7 @@ XPP_NORETURN
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((format(printf, 1, 2)))
 #endif
-void doPanic(const char *fmt, ...);
+void do_panic(const char *fmt, ...);
 
 } // namespace _
 } // namespace xpp
@@ -64,7 +64,7 @@ void doPanic(const char *fmt, ...);
  *   XPP_PANIC("idx %zu out of range (size=%zu)", idx, size);
  */
 #define XPP_PANIC(fmt, ...) \
-  ::xpp::_::doPanic("panic at %s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
+  ::xpp::_::do_panic("panic at %s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 
 /**
  * @brief Runtime assertion. Panics if @p cond is false.
@@ -83,7 +83,7 @@ void doPanic(const char *fmt, ...);
 #define XPP_ASSERT(cond, fmt, ...)                                                           \
   do {                                                                                       \
     if (XPP_UNLIKELY(!(cond)))                                                               \
-      ::xpp::_::doPanic("panic at %s:%d: assertion failed: " #cond " \u2014 " fmt, __FILE__, \
+      ::xpp::_::do_panic("panic at %s:%d: assertion failed: " #cond " \u2014 " fmt, __FILE__, \
                         __LINE__, ##__VA_ARGS__);                                            \
   } while (0)
 
@@ -94,7 +94,7 @@ void doPanic(const char *fmt, ...);
  * where the caller has already promised the precondition.
  *
  * Usage:
- *   XPP_DEBUG_ASSERT(m_hasValue, "internal: Option storage uninitialized");
+ *   XPP_DEBUG_ASSERT(m_has_value, "internal: Option storage uninitialized");
  *   XPP_DEBUG_ASSERT(idx < size, "idx=%zu size=%zu", idx, size);
  */
 #ifdef NDEBUG

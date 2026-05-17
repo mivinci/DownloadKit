@@ -20,9 +20,16 @@ list(REMOVE_ITEM XPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cxx11_guard.cpp")
 
 # The public surface (Option / Result / Variant / NonNull / Own / Rc
 # / Weak / Arc / ArcWeak / Error) is header-only and instantiates in
-# the consumer's TU.  Only panic.cpp lands here — it routes fatal
-# messages through libx's xLog, and lives out-of-line so consumers'
-# headers don't transitively pick up <x/base/log.h>.
+# the consumer's TU. The .cpp files that land here are out-of-line
+# bridges whose only job is to keep heavy / platform headers out of
+# the public surface:
+#   panic.cpp   - routes fatal messages through libx's xLog, so
+#                 <xpp/panic.h> doesn't pull in <x/base/log.h>.
+#   mutex.cpp / cond.cpp
+#               - bridge xpp::Mutex / xpp::Condvar to libx's xMutex /
+#                 xCond via opaque byte buffers, so <xpp/mutex.h> and
+#                 <xpp/cond.h> don't transitively pull in
+#                 <pthread.h> on POSIX or <windows.h> on Windows.
 add_library(x++ ${XPP_SOURCES})
 add_library(xpp ALIAS x++)  # convenience alias for downstream consumers
 target_compile_features(x++ PUBLIC cxx_std_11)

@@ -130,13 +130,13 @@ Here's what a session looks like:
                      │  provider(openai)       │
                      └────────────┬────────────┘
                                   │
-  ┌─────────┬─────────┬───────────┴────────┬─────────┬─────────┐
-  │ xbase   │ xbuf    │ xnet / xhttp       │ xline   │ xlog    │
-  │ loop,   │ linear, │ DNS, TCP, TLS,     │ CJK-    │ async   │
-  │ timer,  │ ring,   │ HTTP/1.1, HTTP/2,  │ aware   │ MPSC    │
-  │ task,   │ chain   │ SSE, WebSocket     │ line    │ logger  │
-  │ atomic… │ bufs    │                    │ editor  │         │
-  └─────────┴─────────┴────────────────────┴─────────┴─────────┘
+  ┌─────────┬─────────┬───────────┴────────┬─────────┬─────────┬─────────┐
+  │ xbase   │ xbuf    │ xnet / xhttp       │ xline   │ xlog    │ xtui    │
+  │ loop,   │ linear, │ DNS, TCP, TLS,     │ CJK-    │ async   │ stream  │
+  │ timer,  │ ring,   │ HTTP/1.1, HTTP/2,  │ aware   │ MPSC    │ md →    │
+  │ task,   │ chain   │ SSE, WebSocket     │ line    │ logger  │ ANSI    │
+  │ atomic… │ bufs    │                    │ editor  │         │         │
+  └─────────┴─────────┴────────────────────┴─────────┴─────────┴─────────┘
 
    plus xcrypto (hashes/HMAC), xjs (QuickJS-ng), xp2p / xfer
    (WebRTC + DataChannel file transfer) — supporting infra.
@@ -177,6 +177,13 @@ pulling in the agent.
 | **[xcrypto](https://le0.me/moo/libx/crypto)** | SHA-1 / SHA-256 / MD5 / CRC-32 / HMAC |
 | **[xp2p](https://le0.me/moo/libx/p2p)** | ICE · STUN/TURN · SDP · DTLS · SCTP · DataChannel |
 | **[xfer](https://le0.me/moo/libx/fer)** | Zero-config P2P file transfer over WebRTC DataChannel |
+| **[xtui](https://github.com/mivinci/moo/tree/main/libx/x/tui)** | Streaming markdown → ANSI transformer for terminal output |
+
+**`libx++/xpp/`** is an optional C++14 RAII layer over libx — `Own<T>`,
+`NonNull<T>`, `Option<T>`, `Result<T, E>`, and a few thin wrappers around
+the C event/timer/task primitives. The C side stands on its own; pull in
+libx++ only if you want the C++ ergonomics. See
+[libx++/xpp/](libx%2B%2B/xpp/).
 
 ## Prerequisites
 
@@ -238,6 +245,21 @@ cmake -S . -B build-mbedtls -DX_TLS_BACKEND=mbedtls && \
   cmake --build build-mbedtls --parallel && \
   ctest --test-dir build-mbedtls --output-on-failure --parallel 4
 ```
+
+### Affected-modules workflow
+
+For a faster local iteration loop, the test scripts diff against a base
+ref (default `origin/main`) and run only the tests for changed libx
+modules and their dependents:
+
+```bash
+./scripts/test-mac.sh                    # macOS, openssl, vs origin/main
+./scripts/test-mac.sh -t mbedtls --all   # force-test every module, mbedTLS
+./scripts/test-linux.sh --ci --base-sha <SHA>   # CI mode, native Linux
+```
+
+Pass `--detect-only` to print just the affected module names without
+building or running anything.
 
 ### Linux via container (macOS host)
 

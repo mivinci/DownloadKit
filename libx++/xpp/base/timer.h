@@ -9,6 +9,7 @@
 #ifndef XPP_BASE_TIMER_H
 #define XPP_BASE_TIMER_H
 
+#include <xpp/error.h>
 #include <xpp/handle.h>
 #include <xpp/result.h>
 
@@ -40,7 +41,7 @@ public:
    *                 call poll() to execute them on the calling thread.
    * @return       Ok(Timer) on success, Err(xErrno) on failure.
    */
-  static Result<Timer, xErrno> create(xTaskGroup group = nullptr);
+  static Result<Timer, Error> create(xTaskGroup group = nullptr);
 
   using Base::Base;
   using Base::operator=;
@@ -53,7 +54,7 @@ public:
    * @param delay_ms  Delay in milliseconds from now.
    * @return          Ok(xTimerTask) on success, Err(xErrno) on failure.
    */
-  Result<xTimerTask, xErrno> after(xTimerFunc fn, void *arg, uint64_t delay_ms);
+  Result<xTimerTask, Error> after(xTimerFunc fn, void *arg, uint64_t delay_ms);
 
   /**
    * @brief Schedule a callback to fire at an absolute monotonic time.
@@ -63,19 +64,20 @@ public:
    * @param abs_ms  Absolute deadline in milliseconds (CLOCK_MONOTONIC).
    * @return        Ok(xTimerTask) on success, Err(xErrno) on failure.
    */
-  Result<xTimerTask, xErrno> at(xTimerFunc fn, void *arg, uint64_t abs_ms);
+  Result<xTimerTask, Error> at(xTimerFunc fn, void *arg, uint64_t abs_ms);
 
   /**
    * @brief Cancel a pending timer entry.
    *
    * Safe to call concurrently with the timer thread. If the entry has
-   * already fired the cancel is a no-op and xErrno_Unknown is returned.
-   * After a successful cancel the handle must not be used again.
+   * already fired the cancel is a no-op and Err(xErrno_Unknown) is
+   * returned. After a successful cancel the handle must not be used
+   * again.
    *
    * @param task  Handle returned by after() / at().
-   * @return      xErrno_Ok if cancelled before firing, xErrno_Unknown otherwise.
+   * @return      Ok if cancelled before firing, Err(xErrno_Unknown) otherwise.
    */
-  xErrno cancel(xTimerTask task);
+  Result<void, Error> cancel(xTimerTask task);
 
   /**
    * @brief Execute all currently due callbacks (poll mode only).

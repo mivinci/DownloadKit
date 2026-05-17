@@ -9,6 +9,7 @@
 #ifndef XPP_BASE_TASK_H
 #define XPP_BASE_TASK_H
 
+#include <xpp/error.h>
 #include <xpp/handle.h>
 #include <xpp/result.h>
 
@@ -34,17 +35,17 @@ public:
    * @brief Create a task group with the given number of worker threads.
    *
    * @param nthreads  Number of worker threads. 0 = auto-detect.
-   * @return          Ok(TaskGroup) on success, Err(xErrno) on failure.
+   * @return          Ok(TaskGroup) on success, Err on failure.
    */
-  static Result<TaskGroup, xErrno> create(size_t nthreads = 0);
+  static Result<TaskGroup, Error> create(size_t nthreads = 0);
 
   /**
    * @brief Create a task group from a full configuration struct.
    *
    * @param conf  Configuration (nthreads, queue_cap, etc.).
-   * @return      Ok(TaskGroup) on success, Err(xErrno) on failure.
+   * @return      Ok(TaskGroup) on success, Err on failure.
    */
-  static Result<TaskGroup, xErrno> create(const xTaskGroupConf &conf);
+  static Result<TaskGroup, Error> create(const xTaskGroupConf &conf);
 
   using Base::Base;
   using Base::operator=;
@@ -60,9 +61,9 @@ public:
 
   /**
    * @brief Wait for all pending tasks in the group to complete.
-   * @return xErrno_Ok on success.
+   * @return Ok on success, Err on failure.
    */
-  xErrno waitAll();
+  Result<void, Error> waitAll();
 
   /**
    * @brief Get the number of worker threads in the group.
@@ -112,9 +113,9 @@ public:
    * @brief Wait for the task to complete.
    *
    * @param result  If non-NULL, receives the return value of the task function.
-   * @return        xErrno_Ok on success, xErrno_Cancelled if the task was cancelled.
+   * @return        Ok on success, Err(xErrno_Cancelled) if the task was cancelled.
    */
-  xErrno wait(void **result = nullptr);
+  Result<void, Error> wait(void **result = nullptr);
 
   /**
    * @brief Attempt to cancel a queued task.
@@ -124,12 +125,12 @@ public:
    * argument after a successful cancel.
    *
    * If the task is already running or has completed, the cancel fails
-   * and xErrno_Busy is returned. In that case the caller must call
+   * and Err(xErrno_Busy) is returned. In that case the caller must call
    * wait() before releasing the argument.
    *
-   * @return xErrno_Ok if cancelled, xErrno_Busy if already running or finished.
+   * @return Ok if cancelled, Err(xErrno_Busy) if already running or finished.
    */
-  xErrno cancel();
+  Result<void, Error> cancel();
 
 private:
   explicit Task(xTask h) noexcept;

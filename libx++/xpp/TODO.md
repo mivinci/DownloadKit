@@ -35,10 +35,10 @@ etc. — submodule layout mirrors `libx/x/<module>/`.
 
 | Module                            | Wraps             | Key Classes                 |
 |-----------------------------------|-------------------|-----------------------------|
+| `error.h`                         | (none — C-vocabulary-agnostic) | `Error` value type used by every `Result<T, Error>` |
 | `base/event.h` / `base/event.cpp` | `x/base/event.h`  | `EventLoop`, `EventWatcher` |
 | `base/timer.h` / `base/timer.cpp` | `x/base/timer.h`  | `Timer`                     |
 | `base/task.h`  / `base/task.cpp`  | `x/base/task.h`   | `TaskGroup`, `Task`         |
-| `base/error.h` / `base/error.cpp` | `x/base/error.h`  | `Error` exception class     |
 
 ### Phase 2 — Network
 
@@ -103,16 +103,20 @@ if (!loop) { /* handle xErrno */ }
 
 ## Build Integration
 
-CMake target `xpp` (compiled shared/static library):
+CMake target `x++` (with `xpp` ALIAS for downstream symmetry). Source
+list is built from `file(GLOB_RECURSE *.cpp)` so dropping a new
+`<submodule>/<file>.cpp` into the tree picks it up automatically:
 
 ```cmake
-add_library(xpp
-  error.cpp
-  event.cpp
-  timer.cpp
-  task.cpp
+add_library(x++
+  base/event.cpp
+  base/timer.cpp
+  base/task.cpp
+  # error.h is header-only; no error.cpp.
+  # net/, http/, agent/ added as Phases 2-4 land.
 )
-target_link_libraries(xpp PUBLIC xbase)
+add_library(xpp ALIAS x++)
+target_link_libraries(x++ PUBLIC xbase)
 ```
 
 Consumers:
@@ -131,6 +135,7 @@ libx++/xpp/
   handle.h              # raw-handle CRTP base
   in_place.h            # in-place construction tag types
   panic.h
+  error.h               # Error value type — used by every Result<T, Error>
   option.h              # value-only Option<T>
   result.h              # value-or-error Result<T, E>
   variant.h             # tagged union
@@ -142,7 +147,6 @@ libx++/xpp/
     event.h / event.cpp
     timer.h / timer.cpp
     task.h  / task.cpp
-    error.h / error.cpp # planned
   net/                  # Phase 2 — wrappers over libx/x/net
   http/                 # Phase 3 — wrappers over libx/x/http
   agent/                # Phase 4 — wrappers over libx/x/agent

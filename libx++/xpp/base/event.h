@@ -9,6 +9,7 @@
 #ifndef XPP_BASE_EVENT_H
 #define XPP_BASE_EVENT_H
 
+#include <xpp/error.h>
 #include <xpp/handle.h>
 #include <xpp/result.h>
 
@@ -35,7 +36,7 @@ public:
    * @brief Create an event loop.
    * @return Ok(EventLoop) on success, Err(xErrno) on failure.
    */
-  static Result<EventLoop, xErrno> create();
+  static Result<EventLoop, Error> create();
 
   /**
    * @brief Create an event loop with a default task group for offloading.
@@ -46,7 +47,7 @@ public:
    * @param group  Default task group, or NULL (same as create()).
    * @return       Ok(EventLoop) on success, Err(xErrno) on failure.
    */
-  static Result<EventLoop, xErrno> create(xTaskGroup group);
+  static Result<EventLoop, Error> create(xTaskGroup group);
 
   using Base::Base;
   using Base::operator=;
@@ -72,14 +73,18 @@ public:
    *
    * Like run(), but with an overall deadline. The loop repeatedly
    * dispatches events until either:
-   *   - stop() is called (returns xErrno_Ok), or
-   *   - @p timeout_ms elapses (returns xErrno_Timeout).
+   *   - stop() is called (returns Ok), or
+   *   - @p timeout_ms elapses (returns Err(xErrno_Timeout)).
+   *
+   * Note: a timeout is reported as Err for API consistency with other
+   * fallible operations, even though the caller may treat it as a
+   * non-failure outcome — inspect unwrapErr() to distinguish.
    *
    * @param timeout_ms  Maximum total wait in milliseconds.
    *                    -1 = block indefinitely (same as run()).
-   * @return            xErrno_Ok if stopped, xErrno_Timeout if expired.
+   * @return            Ok if stopped, Err(xErrno_Timeout) if expired.
    */
-  xErrno wait(int timeout_ms = -1);
+  Result<void, Error> wait(int timeout_ms = -1);
 
   /**
    * @brief Register a file descriptor for I/O event monitoring.
@@ -90,16 +95,16 @@ public:
    * @param arg   Argument forwarded to @p fn.
    * @return      Ok(xEventSource) on success, Err(xErrno) on failure.
    */
-  Result<xEventSource, xErrno> add(int fd, xEventMask mask, xEventFunc fn, void *arg);
+  Result<xEventSource, Error> add(int fd, xEventMask mask, xEventFunc fn, void *arg);
 
   /**
    * @brief Modify the watched events for an existing source.
    *
    * @param src   Source handle returned by add().
    * @param mask  New event mask.
-   * @return      xErrno_Ok on success.
+   * @return      Ok on success, Err(xErrno) on failure.
    */
-  xErrno mod(xEventSource src, xEventMask mask);
+  Result<void, Error> mod(xEventSource src, xEventMask mask);
 
   /**
    * @brief Remove a registered event source.
@@ -108,9 +113,9 @@ public:
    * is NOT closed.
    *
    * @param src  Source handle to remove.
-   * @return     xErrno_Ok on success.
+   * @return     Ok on success, Err(xErrno) on failure.
    */
-  xErrno del(xEventSource src);
+  Result<void, Error> del(xEventSource src);
 
   /**
    * @brief Wake up a blocked event loop from another thread.
@@ -118,9 +123,9 @@ public:
    * Safe to call from any thread or signal handler. Multiple wakes
    * before the next dispatch are coalesced.
    *
-   * @return xErrno_Ok on success.
+   * @return Ok on success, Err(xErrno) on failure.
    */
-  xErrno wake();
+  Result<void, Error> wake();
 
   /**
    * @brief Schedule a callback to fire after a relative delay.
@@ -133,7 +138,7 @@ public:
    * @param delay_ms  Delay in milliseconds from now.
    * @return          Ok(xEventTimer) on success, Err(xErrno) on failure.
    */
-  Result<xEventTimer, xErrno> timerAfter(xEventTimerFunc fn, void *arg, uint64_t delay_ms);
+  Result<xEventTimer, Error> timerAfter(xEventTimerFunc fn, void *arg, uint64_t delay_ms);
 
   /**
    * @brief Schedule a callback to fire at an absolute monotonic time.
@@ -145,7 +150,7 @@ public:
    * @param abs_ms  Absolute deadline in milliseconds (CLOCK_MONOTONIC).
    * @return        Ok(xEventTimer) on success, Err(xErrno) on failure.
    */
-  Result<xEventTimer, xErrno> timerAt(xEventTimerFunc fn, void *arg, uint64_t abs_ms);
+  Result<xEventTimer, Error> timerAt(xEventTimerFunc fn, void *arg, uint64_t abs_ms);
 
   /**
    * @brief Cancel a pending builtin event timer.
@@ -153,9 +158,9 @@ public:
    * Thread-safe.
    *
    * @param t  Timer handle to cancel.
-   * @return   xErrno_Ok if cancelled before firing, xErrno_Unknown otherwise.
+   * @return   Ok if cancelled before firing, Err(xErrno_Unknown) otherwise.
    */
-  xErrno timerCancel(xEventTimer t);
+  Result<void, Error> timerCancel(xEventTimer t);
 
   /**
    * @brief Submit work to a thread pool; run @p done_fn on the loop
@@ -172,10 +177,10 @@ public:
    * @param arg      Argument forwarded to both @p work_fn and @p done_fn.
    * @param out      If non-NULL, receives an xEventWork handle that can be
    *                 passed to workCancel().
-   * @return         xErrno_Ok on success, or an error code.
+   * @return         Ok on success, Err(xErrno) on failure.
    */
-  xErrno submit(xTaskGroup group, xTaskFunc work_fn, xEventDoneFunc done_fn, void *arg,
-                xEventWork *out = nullptr);
+  Result<void, Error> submit(xTaskGroup group, xTaskFunc work_fn, xEventDoneFunc done_fn,
+                              void *arg, xEventWork *out = nullptr);
 
   /**
    * @brief Cancel a previously submitted offload work item.
@@ -185,16 +190,16 @@ public:
    * argument after a successful cancel.
    *
    * If the work function is already running or has completed, the cancel
-   * fails and xErrno_InvalidState is returned. In that case @p done_fn
+   * fails and Err(xErrno_InvalidState) is returned. In that case @p done_fn
    * will still be called normally on the loop thread.
    *
    * Thread-safe: may be called from any thread.
    *
    * @param w  Work handle returned by submit().
-   * @return   xErrno_Ok if cancelled, xErrno_InvalidState if already
-   *           running or done, xErrno_InvalidArg if arguments are NULL.
+   * @return   Ok if cancelled, Err(xErrno_InvalidState) if already running
+   *           or done, Err(xErrno_InvalidArg) if arguments are NULL.
    */
-  xErrno workCancel(xEventWork w);
+  Result<void, Error> workCancel(xEventWork w);
 
   /**
    * @brief Post a callback to be executed on the event loop thread.
@@ -208,9 +213,9 @@ public:
    *
    * @param fn   Callback to invoke on the loop thread (must not be NULL).
    * @param arg  Argument forwarded to @p fn.
-   * @return     xErrno_Ok on success, or an error code.
+   * @return     Ok on success, Err(xErrno) on failure.
    */
-  xErrno post(xEventPostFunc fn, void *arg);
+  Result<void, Error> post(xEventPostFunc fn, void *arg);
 
   /**
    * @brief Watch for a POSIX signal on the event loop.
@@ -228,10 +233,10 @@ public:
    *               SIGSTOP are rejected.
    * @param fn     Callback, or NULL to cancel.
    * @param arg    Argument forwarded to @p fn.
-   * @return       xErrno_Ok on success, xErrno_InvalidArg for bad arguments,
-   *               xErrno_SysError if the underlying OS call fails.
+   * @return       Ok on success, Err(xErrno_InvalidArg) for bad arguments,
+   *               Err(xErrno_SysError) if the underlying OS call fails.
    */
-  xErrno signalWatch(int signo, xEventSignalFunc fn, void *arg);
+  Result<void, Error> signalWatch(int signo, xEventSignalFunc fn, void *arg);
 
 private:
   EventLoop(xEventLoop h, FromRaw) noexcept : Base(h, FromRaw{}) {}

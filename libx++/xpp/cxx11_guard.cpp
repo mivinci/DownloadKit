@@ -17,6 +17,7 @@
  */
 
 #include <xpp/compiler.h>
+#include <xpp/error.h>
 #include <xpp/handle.h>
 #include <xpp/in_place.h>
 #include <xpp/nonnull.h>
@@ -51,6 +52,14 @@ void instantiate_templates() {
   xpp::Option<int>      o(42);
   (void) r;
   (void) o;
+
+  // Error + Result<void, Error>: the canonical libx++ error channel.
+  // Round-trips a code through Error and back so the int-like
+  // contract gets compiled.
+  xpp::Error             e{42};
+  xpp::Result<void, xpp::Error> rv(xpp::err, e);
+  (void) e.code();
+  (void) rv;
 }
 
 } // namespace

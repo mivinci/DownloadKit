@@ -12,7 +12,7 @@
  *
  * Design analogue: Rust's std::rc::Rc<T> + Option<Rc<T>>. Like Rust's
  * Rc, libx++'s Rc is **co-located but NOT intrusive**: T does not
- * need to inherit from anything. make_rc<T>(args...) is the only
+ * need to inherit from anything. Rc<T>::make(args...) is the only
  * construction entry — the inner block carries the strong and weak
  * counts next to T, so the whole thing is a single heap allocation.
  *
@@ -83,7 +83,7 @@ namespace _ {
  * cache lines are warm whenever the value is.
  *
  * Lifecycle:
- *   - make_rc<T>(...) allocates the inner with strong=1, weak=1.
+ *   - Rc<T>::make(...) allocates the inner with strong=1, weak=1.
  *   - Each new Rc<T> bumps strong; each new Weak<T> bumps weak.
  *   - The last Rc to drop destroys T in place (~value), then
  *     decrements weak as if it were a Weak (the "all-strongs-count-
@@ -140,7 +140,7 @@ template <class T> inline void rc_dec_strong(RcInner<T> *inner) noexcept {
  * using the moved-from Rc is undefined; only destruction is safe.
  * Same contract as std::unique_ptr's moved-from state.
  *
- * Use make_rc<T>(args...) to construct. There is no public
+ * Use Rc<T>::make(args...) to construct. There is no public
  * constructor from a raw T* — Rc always owns the allocation it was
  * born with, and a stray pointer can't be retro-fitted with a count.
  */
@@ -296,7 +296,7 @@ public:
   }
 
 private:
-  // Constructed only by make_rc, the friend Option specialization,
+  // Constructed only by Rc::make, the friend Option specialization,
   // and Weak<T>::upgrade. m_inner is always non-null at this point.
   explicit Rc(_::RcInner<T> *inner) noexcept : m_inner(inner) {
     XPP_DEBUG_ASSERT(m_inner != nullptr, "internal: Rc must own an inner");
@@ -304,32 +304,34 @@ private:
 
   _::RcInner<T> *m_inner;
 
-  template <class U, class... Args> friend Rc<U> make_rc(Args &&...args);
   template <class U> friend class Rc;
   template <class U> friend class Weak;
   friend class Option<Rc<T>>;
+
+public:
+  /**
+   * @brief Construct an Rc<T> in place.
+   *
+   * Single heap allocation: the inner block holds the strong count
+   * (=1), the weak count (=1, the implicit \"all strongs are one weak\"
+   * marker), and a freshly-constructed T.
+   *
+   * libx++ does not use exceptions for control flow (see README), so
+   * make expects T's constructor not to throw. If T can fail to
+   * construct, model that with a static factory returning
+   * Result<T, Error> and call make on the unwrapped success path.
+   *
+   * The only public construction entry point. Rc has no constructor
+   * from a raw T*.
+   */
+  template <class... Args>
+  static Rc<T> make(Args &&...args) {
+    void          *mem   = ::operator new(sizeof(_::RcInner<T>));
+    _::RcInner<T> *inner = ::new (mem) _::RcInner<T>(std::forward<Args>(args)...);
+    return Rc<T>(inner);
+  }
 };
 
-/**
- * @brief Construct an Rc<T> in place.
- *
- * Single heap allocation: the inner block holds the strong count
- * (=1), the weak count (=1, the implicit "all strongs are one weak"
- * marker), and a freshly-constructed T.
- *
- * libx++ does not use exceptions for control flow (see README), so
- * make_rc expects T's constructor not to throw. If T can fail to
- * construct, model that with a static factory returning
- * Result<T, Error> and call make_rc on the unwrapped success path.
- *
- * The only public construction entry point. Rc has no constructor
- * from a raw T*.
- */
-template <class T, class... Args> Rc<T> make_rc(Args &&...args) {
-  void          *mem   = ::operator new(sizeof(_::RcInner<T>));
-  _::RcInner<T> *inner = ::new (mem) _::RcInner<T>(std::forward<Args>(args)...);
-  return Rc<T>(inner);
-}
 
 template <class T> void swap(Rc<T> &a, Rc<T> &b) noexcept {
   a.swap(b);

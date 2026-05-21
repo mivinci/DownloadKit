@@ -69,11 +69,11 @@ protected:
   }
 };
 
-/* ── Basics: make_arc, copy/move, strong count, drop ──────────────────── */
+/* ── Basics: Arc::make, copy/move, strong count, drop ─────────────────── */
 
 TEST_F(ArcTrackerTest, MakeArcCountStartsAtOne) {
   {
-    xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(42);
+    xpp::Arc<Tracker> a = xpp::Arc<Tracker>::make(42);
     EXPECT_EQ(a->value, 42);
     EXPECT_EQ(a.strong_count(), 1u);
     EXPECT_EQ(a.weak_count(), 0u);
@@ -83,7 +83,7 @@ TEST_F(ArcTrackerTest, MakeArcCountStartsAtOne) {
 
 TEST_F(ArcTrackerTest, CopyBumpsStrong) {
   {
-    xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(7);
+    xpp::Arc<Tracker> a = xpp::Arc<Tracker>::make(7);
     {
       xpp::Arc<Tracker> b = a;
       EXPECT_EQ(a.strong_count(), 2u);
@@ -97,7 +97,7 @@ TEST_F(ArcTrackerTest, CopyBumpsStrong) {
 
 TEST_F(ArcTrackerTest, MoveDoesNotBumpStrong) {
   {
-    xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(5);
+    xpp::Arc<Tracker> a = xpp::Arc<Tracker>::make(5);
     xpp::Arc<Tracker> b = std::move(a);
     EXPECT_EQ(b.strong_count(), 1u);
     EXPECT_EQ(b->value, 5);
@@ -107,7 +107,7 @@ TEST_F(ArcTrackerTest, MoveDoesNotBumpStrong) {
 
 TEST_F(ArcTrackerTest, CloneEqualsCopy) {
   {
-    xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(1);
+    xpp::Arc<Tracker> a = xpp::Arc<Tracker>::make(1);
     xpp::Arc<Tracker> b = a.clone();
     xpp::Arc<Tracker> c = xpp::Arc<Tracker>::clone(a); // Rust spelling
     EXPECT_EQ(a.strong_count(), 3u);
@@ -124,7 +124,7 @@ TEST_F(ArcTrackerTest, OptionArcDefaultIsNone) {
 
 TEST_F(ArcTrackerTest, OptionArcFromArcBumpsStrong) {
   {
-    xpp::Arc<Tracker>              a = xpp::make_arc<Tracker>(3);
+    xpp::Arc<Tracker>              a = xpp::Arc<Tracker>::make(3);
     xpp::Option<xpp::Arc<Tracker>> o(a);
     EXPECT_TRUE(o.is_some());
     EXPECT_EQ(a.strong_count(), 2u);
@@ -134,7 +134,7 @@ TEST_F(ArcTrackerTest, OptionArcFromArcBumpsStrong) {
 
 TEST_F(ArcTrackerTest, OptionArcTakeDoesNotChangeStrong) {
   {
-    xpp::Arc<Tracker>              a = xpp::make_arc<Tracker>(8);
+    xpp::Arc<Tracker>              a = xpp::Arc<Tracker>::make(8);
     xpp::Option<xpp::Arc<Tracker>> o(a);
     EXPECT_EQ(a.strong_count(), 2u);
 
@@ -156,7 +156,7 @@ TEST_F(ArcTrackerTest, ArcWeakDefaultIsNull) {
 
 TEST_F(ArcTrackerTest, ArcDowngradeAndUpgrade) {
   {
-    xpp::Arc<Tracker>     a = xpp::make_arc<Tracker>(11);
+    xpp::Arc<Tracker>     a = xpp::Arc<Tracker>::make(11);
     xpp::ArcWeak<Tracker> w = xpp::Arc<Tracker>::downgrade(a);
     EXPECT_EQ(a.weak_count(), 1u);
     EXPECT_FALSE(w.is_expired());
@@ -174,7 +174,7 @@ TEST_F(ArcTrackerTest, ArcDowngradeAndUpgrade) {
 TEST_F(ArcTrackerTest, ArcWeakUpgradeAfterAllStrongsGoneIsNone) {
   xpp::ArcWeak<Tracker> w;
   {
-    xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(13);
+    xpp::Arc<Tracker> a = xpp::Arc<Tracker>::make(13);
     w                   = xpp::ArcWeak<Tracker>(a);
   } // strong gone, Tracker destroyed
   EXPECT_EQ(Tracker::alive.load(), 0);
@@ -186,7 +186,7 @@ TEST_F(ArcTrackerTest, ArcWeakOutlivingAllStrongsDoesNotLeakInner) {
   {
     xpp::ArcWeak<Tracker> w;
     {
-      xpp::Arc<Tracker> a = xpp::make_arc<Tracker>(17);
+      xpp::Arc<Tracker> a = xpp::Arc<Tracker>::make(17);
       w                   = xpp::ArcWeak<Tracker>(a);
     }
     EXPECT_EQ(Tracker::alive.load(), 0);
@@ -202,7 +202,7 @@ TEST_F(ArcTrackerTest, ClonesAndDropsAcrossThreadsDoNotLeak) {
   constexpr int k_iterations     = 10000;
 
   {
-    xpp::Arc<Tracker>        root = xpp::make_arc<Tracker>(0);
+    xpp::Arc<Tracker>        root = xpp::Arc<Tracker>::make(0);
     std::vector<std::thread> ts;
     ts.reserve(k_threads);
 
@@ -234,7 +234,7 @@ TEST_F(ArcTrackerTest, UpgradeRacesWithLastDropEitherSomeOrNone) {
   constexpr int k_threads = 8;
 
   for (int trial = 0; trial < 200; ++trial) {
-    xpp::Arc<Tracker>     a = xpp::make_arc<Tracker>(trial);
+    xpp::Arc<Tracker>     a = xpp::Arc<Tracker>::make(trial);
     xpp::ArcWeak<Tracker> w = xpp::Arc<Tracker>::downgrade(a);
 
     std::atomic<int>         observed_some{0};
@@ -253,7 +253,7 @@ TEST_F(ArcTrackerTest, UpgradeRacesWithLastDropEitherSomeOrNone) {
 
     // Main thread drops the only strong reference concurrent with
     // the upgrade attempts.
-    a = xpp::make_arc<Tracker>(-1); // overwrite drops original
+    a = xpp::Arc<Tracker>::make(-1); // overwrite drops original
     (void) a;                      // suppress unused warning in release
 
     for (auto &t : ts) t.join();

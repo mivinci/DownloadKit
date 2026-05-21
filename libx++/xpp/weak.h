@@ -31,8 +31,8 @@
  *     std::vector<Rc<Node>>         children; // strong downward
  *   };
  *
- *   Rc<Node> root  = make_rc<Node>();
- *   Rc<Node> child = make_rc<Node>();
+ *   Rc<Node> root  = Rc<Node>::make();
+ *   Rc<Node> child = Rc<Node>::make();
  *   root->children.push_back(child);      // root → child  (root.strong = 1, child.strong = 2)
  *   child->parent  = Option<Rc<Node>>(root); // child → root (root.strong = 2)
  *
@@ -47,8 +47,8 @@
  *     std::vector<Rc<Node>>         children; // strong downward
  *   };
  *
- *   Rc<Node> root  = make_rc<Node>();
- *   Rc<Node> child = make_rc<Node>();
+ *   Rc<Node> root  = Rc<Node>::make();
+ *   Rc<Node> child = Rc<Node>::make();
  *   child->parent = Rc<Node>::downgrade(root);   // Weak does not bump strong
  *   root->children.push_back(std::move(child));
  *

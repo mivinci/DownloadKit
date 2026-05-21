@@ -117,7 +117,7 @@
  *   };
  *
  *   // Producer thread:
- *   auto sub = make_arc<Subscriber>();
+ *   auto sub = Arc<Subscriber>::make();
  *   pub.subscribe(sub);
  *
  *   // Some other thread drops `sub` whenever it wants. Inside the
@@ -222,7 +222,7 @@ template <class T> inline void arc_dec_strong(ArcInner<T> *inner) noexcept {
  * exactly once and with a happens-before of every prior owner's
  * stores to T.
  *
- * Use make_arc<T>(args...) to construct.
+ * Use Arc<T>::make(args...) to construct.
  */
 template <class T> class Arc {
 public:
@@ -343,24 +343,26 @@ private:
 
   _::ArcInner<T> *m_inner;
 
-  template <class U, class... Args> friend Arc<U> make_arc(Args &&...args);
   template <class U> friend class Arc;
   template <class U> friend class ArcWeak;
   friend class Option<Arc<T>>;
+
+public:
+  /**
+   * @brief Construct an Arc<T> in place.
+   *
+   * Single heap allocation containing the strong count (=1), the
+   * weak count (=1, the \"all strongs as one weak\" marker), and T
+   * constructed from @p args.
+   */
+  template <class... Args>
+  static Arc<T> make(Args &&...args) {
+    void           *mem   = ::operator new(sizeof(_::ArcInner<T>));
+    _::ArcInner<T> *inner = ::new (mem) _::ArcInner<T>(std::forward<Args>(args)...);
+    return Arc<T>(inner);
+  }
 };
 
-/**
- * @brief Construct an Arc<T> in place.
- *
- * Single heap allocation containing the strong count (=1), the
- * weak count (=1, the "all strongs as one weak" marker), and T
- * constructed from @p args.
- */
-template <class T, class... Args> Arc<T> make_arc(Args &&...args) {
-  void           *mem   = ::operator new(sizeof(_::ArcInner<T>));
-  _::ArcInner<T> *inner = ::new (mem) _::ArcInner<T>(std::forward<Args>(args)...);
-  return Arc<T>(inner);
-}
 
 template <class T> void swap(Arc<T> &a, Arc<T> &b) noexcept {
   a.swap(b);

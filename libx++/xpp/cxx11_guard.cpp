@@ -62,11 +62,11 @@ void instantiate_templates() {
   (void) e.code();
   (void) rv;
 
-  // Rc + Option<Rc> + Weak: exercises make_rc, copy ctor (+1), the
+  // Rc + Option<Rc> + Weak: exercises Rc::make, copy ctor (+1), the
   // niche-optimised Option<Rc<T>> specialisation, and the Weak ↔ Rc
   // bridging via downgrade()/upgrade(). Drops back to None at scope
   // exit so the runtime path also runs.
-  xpp::Rc<int>              r1 = xpp::make_rc<int>(7);
+  xpp::Rc<int>              r1 = xpp::Rc<int>::make(7);
   xpp::Rc<int>              r2 = r1.clone();
   xpp::Option<xpp::Rc<int>> opt(r1);
   xpp::Weak<int>            w  = xpp::Rc<int>::downgrade(r1);
@@ -77,7 +77,7 @@ void instantiate_templates() {
 
   // Arc + Option<Arc> + ArcWeak: the atomic counterpart. Same
   // operations, std::atomic counters under the hood.
-  xpp::Arc<int>              a1 = xpp::make_arc<int>(9);
+  xpp::Arc<int>              a1 = xpp::Arc<int>::make(9);
   xpp::Arc<int>              a2 = a1.clone();
   xpp::Option<xpp::Arc<int>> aopt(a1);
   xpp::ArcWeak<int>          aw  = xpp::Arc<int>::downgrade(a1);

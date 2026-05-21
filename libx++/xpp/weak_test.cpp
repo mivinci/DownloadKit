@@ -86,7 +86,7 @@ TEST_F(WeakTrackerTest, DefaultIsNullAndUpgradesToNone) {
 
 TEST_F(WeakTrackerTest, ConstructFromRcBumpsWeak) {
   {
-    xpp::Rc<Tracker> r = xpp::make_rc<Tracker>(42);
+    xpp::Rc<Tracker> r = xpp::Rc<Tracker>::make(42);
     EXPECT_EQ(r.strong_count(), 1u);
     EXPECT_EQ(r.weak_count(), 0u) << "no Weaks yet";
 
@@ -102,7 +102,7 @@ TEST_F(WeakTrackerTest, ConstructFromRcBumpsWeak) {
 
 TEST_F(WeakTrackerTest, RcDowngradeEquivalent) {
   {
-    xpp::Rc<Tracker>   r = xpp::make_rc<Tracker>(7);
+    xpp::Rc<Tracker>   r = xpp::Rc<Tracker>::make(7);
     xpp::Weak<Tracker> w = xpp::Rc<Tracker>::downgrade(r);
     EXPECT_EQ(r.weak_count(), 1u);
     EXPECT_FALSE(w.is_expired());
@@ -114,7 +114,7 @@ TEST_F(WeakTrackerTest, RcDowngradeEquivalent) {
 
 TEST_F(WeakTrackerTest, UpgradeWhileStrongAliveBumpsStrong) {
   {
-    xpp::Rc<Tracker>   r = xpp::make_rc<Tracker>(11);
+    xpp::Rc<Tracker>   r = xpp::Rc<Tracker>::make(11);
     xpp::Weak<Tracker> w(r);
 
     xpp::Option<xpp::Rc<Tracker>> upgraded = w.upgrade();
@@ -134,7 +134,7 @@ TEST_F(WeakTrackerTest, UpgradeWhileStrongAliveBumpsStrong) {
 TEST_F(WeakTrackerTest, UpgradeAfterStrongsGoneReturnsNone) {
   xpp::Weak<Tracker> w;
   {
-    xpp::Rc<Tracker> r = xpp::make_rc<Tracker>(99);
+    xpp::Rc<Tracker> r = xpp::Rc<Tracker>::make(99);
     w                  = xpp::Weak<Tracker>(r);
     EXPECT_FALSE(w.is_expired());
     EXPECT_EQ(Tracker::alive, 1);
@@ -153,7 +153,7 @@ TEST_F(WeakTrackerTest, NoLeakWhenWeakOutlivesAllStrongs) {
   {
     xpp::Weak<Tracker> w;
     {
-      xpp::Rc<Tracker> r = xpp::make_rc<Tracker>(5);
+      xpp::Rc<Tracker> r = xpp::Rc<Tracker>::make(5);
       w                  = xpp::Weak<Tracker>(r);
     } // strong gone, Tracker destroyed, inner still alive
     EXPECT_EQ(Tracker::alive, 0);
@@ -166,7 +166,7 @@ TEST_F(WeakTrackerTest, NoLeakWhenWeakOutlivesAllStrongs) {
 
 TEST_F(WeakTrackerTest, WeakCopyBumpsWeakCount) {
   {
-    xpp::Rc<Tracker>   r = xpp::make_rc<Tracker>(1);
+    xpp::Rc<Tracker>   r = xpp::Rc<Tracker>::make(1);
     xpp::Weak<Tracker> w1(r);
     {
       xpp::Weak<Tracker> w2 = w1;
@@ -179,7 +179,7 @@ TEST_F(WeakTrackerTest, WeakCopyBumpsWeakCount) {
 
 TEST_F(WeakTrackerTest, WeakMoveDoesNotBumpWeakCount) {
   {
-    xpp::Rc<Tracker>   r = xpp::make_rc<Tracker>(2);
+    xpp::Rc<Tracker>   r = xpp::Rc<Tracker>::make(2);
     xpp::Weak<Tracker> w1(r);
     EXPECT_EQ(r.weak_count(), 1u);
     xpp::Weak<Tracker> w2 = std::move(w1);
@@ -191,7 +191,7 @@ TEST_F(WeakTrackerTest, WeakMoveDoesNotBumpWeakCount) {
 
 TEST_F(WeakTrackerTest, AssignWeakToNullDropsObservation) {
   {
-    xpp::Rc<Tracker>   r = xpp::make_rc<Tracker>(3);
+    xpp::Rc<Tracker>   r = xpp::Rc<Tracker>::make(3);
     xpp::Weak<Tracker> w(r);
     EXPECT_EQ(r.weak_count(), 1u);
     w = xpp::Weak<Tracker>(); // null
@@ -230,8 +230,8 @@ protected:
 
 TEST_F(CycleTest, ForwardRcBackwardWeakReleasesAll) {
   {
-    xpp::Rc<CycleNode> a = xpp::make_rc<CycleNode>(1);
-    xpp::Rc<CycleNode> b = xpp::make_rc<CycleNode>(2);
+    xpp::Rc<CycleNode> a = xpp::Rc<CycleNode>::make(1);
+    xpp::Rc<CycleNode> b = xpp::Rc<CycleNode>::make(2);
 
     a->next = xpp::Option<xpp::Rc<CycleNode>>(b); // a → b (strong)
     b->prev = xpp::Weak<CycleNode>(a);            // b ⇠ a (weak)

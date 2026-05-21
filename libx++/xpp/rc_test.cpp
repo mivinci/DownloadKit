@@ -9,7 +9,7 @@
  * the visible refcount and (via the Tracker fixture) the absence of
  * leaks and double-frees.
  *
- *   - make_rc:        count = 1
+ *   - Rc::make:      count = 1
  *   - copy ctor:     count += 1
  *   - copy assign:   old.count -= 1, new.count += 1
  *   - move ctor:     count unchanged, source invalid
@@ -89,11 +89,11 @@ protected:
   }
 };
 
-/* ── make_rc: count starts at 1, single allocation ────────────────────── */
+/* ── Rc::make: count starts at 1, single allocation ───────────────────── */
 
 TEST_F(RcTrackerTest, MakeRcCountStartsAtOne) {
   {
-    xpp::Rc<Tracker> r = xpp::make_rc<Tracker>(42);
+    xpp::Rc<Tracker> r = xpp::Rc<Tracker>::make(42);
     EXPECT_EQ(r->value, 42);
     EXPECT_EQ(r.strong_count(), 1u);
     EXPECT_EQ(Tracker::alive, 1);
@@ -103,7 +103,7 @@ TEST_F(RcTrackerTest, MakeRcCountStartsAtOne) {
 
 TEST_F(RcTrackerTest, MakeRcWithDefaultCtor) {
   {
-    xpp::Rc<Tracker> r = xpp::make_rc<Tracker>();
+    xpp::Rc<Tracker> r = xpp::Rc<Tracker>::make();
     EXPECT_EQ(r->value, 0);
     EXPECT_EQ(r.strong_count(), 1u);
   }
@@ -114,7 +114,7 @@ TEST_F(RcTrackerTest, MakeRcWithDefaultCtor) {
 
 TEST_F(RcTrackerTest, CopyCtorBumpsCount) {
   {
-    xpp::Rc<Tracker> a = xpp::make_rc<Tracker>(7);
+    xpp::Rc<Tracker> a = xpp::Rc<Tracker>::make(7);
     EXPECT_EQ(a.strong_count(), 1u);
     {
       xpp::Rc<Tracker> b = a; // +1
@@ -132,8 +132,8 @@ TEST_F(RcTrackerTest, CopyCtorBumpsCount) {
 
 TEST_F(RcTrackerTest, CopyAssignBumpsAndDropsCorrectly) {
   {
-    xpp::Rc<Tracker> a = xpp::make_rc<Tracker>(1);
-    xpp::Rc<Tracker> b = xpp::make_rc<Tracker>(2);
+    xpp::Rc<Tracker> a = xpp::Rc<Tracker>::make(1);
+    xpp::Rc<Tracker> b = xpp::Rc<Tracker>::make(2);
     EXPECT_EQ(Tracker::alive, 2);
 
     b = a; // b's old Tracker dropped (count was 1 → 0 → deleted)
@@ -148,7 +148,7 @@ TEST_F(RcTrackerTest, CopyAssignBumpsAndDropsCorrectly) {
 
 TEST_F(RcTrackerTest, SelfAssignIsNoop) {
   {
-    xpp::Rc<Tracker> a = xpp::make_rc<Tracker>(99);
+    xpp::Rc<Tracker> a = xpp::Rc<Tracker>::make(99);
     xpp::Rc<Tracker> &alias = a;
     alias = a; // must not blow up
     EXPECT_EQ(a.strong_count(), 1u);
@@ -161,7 +161,7 @@ TEST_F(RcTrackerTest, SelfAssignIsNoop) {
 
 TEST_F(RcTrackerTest, MoveCtorDoesNotChangeCount) {
   {
-    xpp::Rc<Tracker> a = xpp::make_rc<Tracker>(5);
+    xpp::Rc<Tracker> a = xpp::Rc<Tracker>::make(5);
     EXPECT_EQ(a.strong_count(), 1u);
     xpp::Rc<Tracker> b = std::move(a);
     EXPECT_EQ(b.strong_count(), 1u) << "count unchanged on move";
@@ -174,8 +174,8 @@ TEST_F(RcTrackerTest, MoveCtorDoesNotChangeCount) {
 
 TEST_F(RcTrackerTest, MoveAssignDropsOldRespectsCount) {
   {
-    xpp::Rc<Tracker> a = xpp::make_rc<Tracker>(1);
-    xpp::Rc<Tracker> b = xpp::make_rc<Tracker>(2);
+    xpp::Rc<Tracker> a = xpp::Rc<Tracker>::make(1);
+    xpp::Rc<Tracker> b = xpp::Rc<Tracker>::make(2);
     xpp::Rc<Tracker> c = a; // keep a alive after move
     EXPECT_EQ(a.strong_count(), 2u);
     EXPECT_EQ(Tracker::alive, 2);
@@ -193,7 +193,7 @@ TEST_F(RcTrackerTest, MoveAssignDropsOldRespectsCount) {
 
 TEST_F(RcTrackerTest, CloneEqualsCopy) {
   {
-    xpp::Rc<Tracker> a = xpp::make_rc<Tracker>(11);
+    xpp::Rc<Tracker> a = xpp::Rc<Tracker>::make(11);
     xpp::Rc<Tracker> b = a.clone();
     EXPECT_EQ(a.strong_count(), 2u);
     EXPECT_EQ(b.strong_count(), 2u);
@@ -204,7 +204,7 @@ TEST_F(RcTrackerTest, CloneEqualsCopy) {
 
 TEST_F(RcTrackerTest, StaticCloneEqualsMemberClone) {
   {
-    xpp::Rc<Tracker> a = xpp::make_rc<Tracker>(13);
+    xpp::Rc<Tracker> a = xpp::Rc<Tracker>::make(13);
     xpp::Rc<Tracker> b = xpp::Rc<Tracker>::clone(a); // Rust-style spelling
     EXPECT_EQ(a.strong_count(), 2u);
     EXPECT_EQ(b.strong_count(), 2u);
@@ -217,9 +217,9 @@ TEST_F(RcTrackerTest, StaticCloneEqualsMemberClone) {
 
 TEST_F(RcTrackerTest, EqualityIsPointerIdentity) {
   {
-    xpp::Rc<Tracker> a  = xpp::make_rc<Tracker>(1);
+    xpp::Rc<Tracker> a  = xpp::Rc<Tracker>::make(1);
     xpp::Rc<Tracker> b  = a;
-    xpp::Rc<Tracker> c  = xpp::make_rc<Tracker>(1); // distinct Tracker
+    xpp::Rc<Tracker> c  = xpp::Rc<Tracker>::make(1); // distinct Tracker
     EXPECT_TRUE(a == b);
     EXPECT_FALSE(a == c) << "same value, different object";
     EXPECT_TRUE(a != c);
@@ -261,7 +261,7 @@ protected:
 
 TEST_F(RcCovariantTest, CopyConvertDerivedToBase) {
   {
-    xpp::Rc<Derived> d = xpp::make_rc<Derived>(7, 99);
+    xpp::Rc<Derived> d = xpp::Rc<Derived>::make(7, 99);
     EXPECT_EQ(d.strong_count(), 1u);
     EXPECT_EQ(d->tag, 7);
     EXPECT_EQ(d->extra, 99);
@@ -277,7 +277,7 @@ TEST_F(RcCovariantTest, CopyConvertDerivedToBase) {
 
 TEST_F(RcCovariantTest, MoveConvertDerivedToBase) {
   {
-    xpp::Rc<Derived> d = xpp::make_rc<Derived>(7, 99);
+    xpp::Rc<Derived> d = xpp::Rc<Derived>::make(7, 99);
     xpp::Rc<Base>    b = std::move(d); // count unchanged
     EXPECT_EQ(b.strong_count(), 1u);
     EXPECT_EQ(b->tag, 7);
@@ -307,7 +307,7 @@ TEST_F(OptionRcTrackerTest, DefaultIsNone) {
 
 TEST_F(OptionRcTrackerTest, ConstructFromRcBumpsCount) {
   {
-    xpp::Rc<Tracker> r = xpp::make_rc<Tracker>(8);
+    xpp::Rc<Tracker> r = xpp::Rc<Tracker>::make(8);
     EXPECT_EQ(r.strong_count(), 1u);
     {
       xpp::Option<xpp::Rc<Tracker>> o(r); // copy: +1
@@ -322,7 +322,7 @@ TEST_F(OptionRcTrackerTest, ConstructFromRcBumpsCount) {
 
 TEST_F(OptionRcTrackerTest, ConstructFromRcRvalueDoesNotBumpCount) {
   {
-    xpp::Option<xpp::Rc<Tracker>> o(xpp::make_rc<Tracker>(8));
+    xpp::Option<xpp::Rc<Tracker>> o(xpp::Rc<Tracker>::make(8));
     EXPECT_TRUE(o.is_some());
     EXPECT_EQ(Tracker::alive, 1);
   }
@@ -331,7 +331,7 @@ TEST_F(OptionRcTrackerTest, ConstructFromRcRvalueDoesNotBumpCount) {
 
 TEST_F(OptionRcTrackerTest, AssignNoneDropsRc) {
   {
-    xpp::Option<xpp::Rc<Tracker>> o(xpp::make_rc<Tracker>(1));
+    xpp::Option<xpp::Rc<Tracker>> o(xpp::Rc<Tracker>::make(1));
     EXPECT_EQ(Tracker::alive, 1);
     o = xpp::none;
     EXPECT_TRUE(o.is_none());
@@ -341,7 +341,7 @@ TEST_F(OptionRcTrackerTest, AssignNoneDropsRc) {
 
 TEST_F(OptionRcTrackerTest, CopyOptionBumpsCount) {
   {
-    xpp::Rc<Tracker>              r = xpp::make_rc<Tracker>(3);
+    xpp::Rc<Tracker>              r = xpp::Rc<Tracker>::make(3);
     xpp::Option<xpp::Rc<Tracker>> o1(r);
     xpp::Option<xpp::Rc<Tracker>> o2 = o1; // copy: +1
     EXPECT_EQ(r.strong_count(), 3u);
@@ -351,7 +351,7 @@ TEST_F(OptionRcTrackerTest, CopyOptionBumpsCount) {
 
 TEST_F(OptionRcTrackerTest, MoveOptionDoesNotBumpCount) {
   {
-    xpp::Rc<Tracker>              r = xpp::make_rc<Tracker>(3);
+    xpp::Rc<Tracker>              r = xpp::Rc<Tracker>::make(3);
     xpp::Option<xpp::Rc<Tracker>> o1(r); // count = 2
     EXPECT_EQ(r.strong_count(), 2u);
     xpp::Option<xpp::Rc<Tracker>> o2 = std::move(o1); // count unchanged
@@ -364,7 +364,7 @@ TEST_F(OptionRcTrackerTest, MoveOptionDoesNotBumpCount) {
 
 TEST_F(OptionRcTrackerTest, TakeMovesOutRcCountUnchanged) {
   {
-    xpp::Rc<Tracker>              r = xpp::make_rc<Tracker>(3);
+    xpp::Rc<Tracker>              r = xpp::Rc<Tracker>::make(3);
     xpp::Option<xpp::Rc<Tracker>> o(r);    // count = 2
     EXPECT_EQ(r.strong_count(), 2u);
 
@@ -378,7 +378,7 @@ TEST_F(OptionRcTrackerTest, TakeMovesOutRcCountUnchanged) {
 
 TEST_F(OptionRcTrackerTest, UnwrapOnRvalue) {
   {
-    xpp::Option<xpp::Rc<Tracker>> o(xpp::make_rc<Tracker>(5)); // count = 1
+    xpp::Option<xpp::Rc<Tracker>> o(xpp::Rc<Tracker>::make(5)); // count = 1
     xpp::Rc<Tracker>              r = std::move(o).unwrap();
     EXPECT_EQ(r.strong_count(), 1u);
     EXPECT_EQ(r->value, 5);

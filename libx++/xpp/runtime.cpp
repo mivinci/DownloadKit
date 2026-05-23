@@ -93,6 +93,7 @@ void *Runtime::worker_main(void *arg) {
   auto *w = static_cast<_::Worker *>(arg);
 
   _::tl_current_worker = w;
+  w->rt->enter();
 
   WaitScope scope(w->loop);
 
@@ -128,6 +129,7 @@ void *Runtime::worker_main(void *arg) {
     }
   }
 
+  w->rt->leave();
   _::tl_current_worker = nullptr;
   return nullptr;
 }

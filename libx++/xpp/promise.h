@@ -336,7 +336,7 @@ inline Promise<void> yield() {
 /* ── Promise<T>::discard implementation ──────────────────────────── */
 
 template <class T> Promise<void> Promise<T>::discard() {
-  return Promise<void>(std::move(m_node));
+  return then([](ValueType) {});
 }
 
 /* ── Promise<T>::wait implementation ─────────────────────────────── */

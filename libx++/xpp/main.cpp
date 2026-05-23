@@ -6,7 +6,7 @@
  * main.cpp - Default main() entry point for async applications.
  *
  * Link against xpp::main (or the xpp_main CMake target) to get a
- * pre-built main() that creates a Runtime and calls your main().
+ * pre-built main() that creates a Runtime and calls your xpp::main().
  *
  * You provide:
  *   namespace xpp { Promise<int> main(int argc, char *argv[]); }
@@ -19,7 +19,7 @@
  *   }
  *
  * The Runtime is created with default settings (worker count = CPU
- * cores, lazily spawned). xpp::spawn() is available inside xpp::main
+ * cores, lazily spawned). xpp::spawn() is available inside xpp::main()
  * and any coroutine it calls.
  */
 

@@ -146,7 +146,7 @@ TEST_F(RuntimeTest, SpawnRunsOnWorker) {
 
 #include <gtest/gtest.h>
 
-TEST(RuntimeTest, CoroutinesDisabled) {
+TEST(RuntimeCoroTest, CoroutinesDisabled) {
   GTEST_SKIP() << "C++20 coroutines not available";
 }
 

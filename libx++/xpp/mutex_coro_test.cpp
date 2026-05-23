@@ -147,7 +147,7 @@ TEST_F(AsyncMutexTest, FIFOOrdering) {
 
 #include <gtest/gtest.h>
 
-TEST(AsyncMutexTest, CoroutinesDisabled) {
+TEST(AsyncMutexCoroTest, CoroutinesDisabled) {
   GTEST_SKIP() << "C++20 coroutines not available";
 }
 

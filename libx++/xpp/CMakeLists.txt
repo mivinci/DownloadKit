@@ -19,6 +19,7 @@ file(GLOB_RECURSE XPP_BENCH_SOURCES "*_bench.cpp")
 list(REMOVE_ITEM XPP_SOURCES ${XPP_TEST_SOURCES})
 list(REMOVE_ITEM XPP_SOURCES ${XPP_BENCH_SOURCES})
 list(REMOVE_ITEM XPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cxx11_guard.cpp")
+list(REMOVE_ITEM XPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
 
 # The public surface (Option / Result / Variant / NonNull / Own / Rc
 # / Weak / Arc / ArcWeak / Error) is header-only and instantiates in
@@ -40,6 +41,12 @@ target_include_directories(x++ PUBLIC
   ${CMAKE_SOURCE_DIR}/libx
   ${CMAKE_SOURCE_DIR}/libx++
 )
+
+# xpp::main — link this to get a pre-built main() that calls xpp_main().
+add_library(x++_main STATIC main.cpp)
+add_library(xpp::main ALIAS x++_main)
+target_link_libraries(x++_main PUBLIC x++)
+set_target_properties(x++_main PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 
 if(XPP_BUILD_TESTS)
   add_executable(x++_test ${XPP_TEST_SOURCES})

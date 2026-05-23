@@ -50,6 +50,7 @@
 #include <xpp/panic.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 
 namespace xpp {
@@ -99,6 +100,9 @@ constexpr std::size_t k_mutex_storage_align = alignof(void *) * 2;
 
 struct alignas(k_mutex_storage_align) mutex_storage {
   unsigned char buf[k_mutex_storage_size];
+#if XPP_DEBUG
+  uint64_t lock_id;  /**< Deadlock detection: unique monotonic ID. */
+#endif
 };
 
 /* ── Bridge to libx's xMutex, defined in mutex.cpp ──────────────── */

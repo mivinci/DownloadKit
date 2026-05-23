@@ -644,3 +644,121 @@ TEST(OptionTest, OkOrElseCallsFnWhenNone) {
   EXPECT_TRUE(r.is_err());
   EXPECT_EQ(r.unwrap_err(), "nope");
 }
+
+/* ── Option<T&> specialization ─────────────────────────────────────── */
+
+TEST(OptionRefTest, DefaultIsNone) {
+  xpp::Option<int &> o;
+  EXPECT_TRUE(o.is_none());
+  EXPECT_FALSE(o.is_some());
+  EXPECT_FALSE(static_cast<bool>(o));
+}
+
+TEST(OptionRefTest, ConstructFromRef) {
+  int x = 42;
+  xpp::Option<int &> o(x);
+  EXPECT_TRUE(o.is_some());
+  EXPECT_EQ(o.unwrap(), 42);
+}
+
+TEST(OptionRefTest, MutatesThroughRef) {
+  int x = 1;
+  xpp::Option<int &> o(x);
+  o.unwrap() = 99;
+  EXPECT_EQ(x, 99);
+}
+
+TEST(OptionRefTest, ConstructFromNone) {
+  xpp::Option<int &> o(xpp::none);
+  EXPECT_TRUE(o.is_none());
+}
+
+TEST(OptionRefTest, AssignNone) {
+  int x = 10;
+  xpp::Option<int &> o(x);
+  o = xpp::none;
+  EXPECT_TRUE(o.is_none());
+}
+
+TEST(OptionRefTest, Rebind) {
+  int a = 1, b = 2;
+  xpp::Option<int &> o(a);
+  xpp::Option<int &> p(b);
+  o = p;
+  o.unwrap() = 99;
+  EXPECT_EQ(b, 99);
+  EXPECT_EQ(a, 1);
+}
+
+TEST(OptionRefTest, UnwrapOr) {
+  int fallback = -1;
+  xpp::Option<int &> o;
+  EXPECT_EQ(&o.unwrap_or(fallback), &fallback);
+
+  int x = 42;
+  xpp::Option<int &> p(x);
+  EXPECT_EQ(&p.unwrap_or(fallback), &x);
+}
+
+TEST(OptionRefTest, Take) {
+  int x = 10;
+  xpp::Option<int &> o(x);
+  auto taken = o.take();
+  EXPECT_TRUE(o.is_none());
+  EXPECT_TRUE(taken.is_some());
+  EXPECT_EQ(&taken.unwrap(), &x);
+}
+
+TEST(OptionRefTest, Map) {
+  int x = 5;
+  xpp::Option<int &> o(x);
+  auto doubled = o.map([](int &v) { return v * 2; });
+  EXPECT_TRUE(doubled.is_some());
+  EXPECT_EQ(doubled.unwrap(), 10);
+
+  xpp::Option<int &> empty;
+  auto mapped = empty.map([](int &v) { return v * 2; });
+  EXPECT_TRUE(mapped.is_none());
+}
+
+TEST(OptionRefTest, AndThen) {
+  int x = 42;
+  xpp::Option<int &> o(x);
+  auto result = o.and_then([](int &v) -> xpp::Option<int> {
+    return v > 0 ? xpp::Option<int>(v) : xpp::Option<int>(xpp::none);
+  });
+  EXPECT_TRUE(result.is_some());
+  EXPECT_EQ(result.unwrap(), 42);
+}
+
+TEST(OptionRefTest, Filter) {
+  int x = 10;
+  xpp::Option<int &> o(x);
+  auto pass = o.filter([](int &v) { return v > 5; });
+  EXPECT_TRUE(pass.is_some());
+
+  auto fail = o.filter([](int &v) { return v > 20; });
+  EXPECT_TRUE(fail.is_none());
+}
+
+TEST(OptionRefTest, Inspect) {
+  int x = 7;
+  int seen = 0;
+  xpp::Option<int &> o(x);
+  o.inspect([&](int &v) { seen = v; });
+  EXPECT_EQ(seen, 7);
+
+  xpp::Option<int &> empty;
+  empty.inspect([&](int &) { seen = -1; });
+  EXPECT_EQ(seen, 7);  // not called
+}
+
+TEST(OptionRefTest, ConstRef) {
+  const int x = 100;
+  xpp::Option<const int &> o(x);
+  EXPECT_EQ(o.unwrap(), 100);
+}
+
+TEST(OptionRefTest, SizeofIsPointer) {
+  static_assert(sizeof(xpp::Option<int &>) == sizeof(int *), "");
+}

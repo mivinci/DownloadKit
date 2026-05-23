@@ -15,7 +15,9 @@ option(XPP_CXX11_GUARD "Build the libx++ C++11 strict-mode compile guard" OFF)
 
 file(GLOB_RECURSE XPP_SOURCES "*.cpp")
 file(GLOB_RECURSE XPP_TEST_SOURCES "*_test.cpp")
+file(GLOB_RECURSE XPP_BENCH_SOURCES "*_bench.cpp")
 list(REMOVE_ITEM XPP_SOURCES ${XPP_TEST_SOURCES})
+list(REMOVE_ITEM XPP_SOURCES ${XPP_BENCH_SOURCES})
 list(REMOVE_ITEM XPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cxx11_guard.cpp")
 
 # The public surface (Option / Result / Variant / NonNull / Own / Rc
@@ -58,6 +60,19 @@ if(XPP_CORO_TEST_SOURCES AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU
   )
   target_link_libraries(x++_coro_test PRIVATE x++ GTest::gtest_main)
   add_test(NAME x++_coro_test COMMAND x++_coro_test)
+endif()
+
+if(X_BUILD_BENCHMARKS AND TARGET benchmark::benchmark_main)
+  foreach(src ${XPP_BENCH_SOURCES})
+    get_filename_component(name ${src} NAME_WE)
+    add_executable(x++_${name} ${src})
+    target_link_libraries(x++_${name} PRIVATE x++ benchmark::benchmark_main)
+    target_compile_options(x++_${name} PRIVATE -Wno-error)
+    set_target_properties(x++_${name} PROPERTIES
+      CXX_STANDARD 20
+      CXX_STANDARD_REQUIRED ON
+    )
+  endforeach()
 endif()
 
 if(XPP_CXX11_GUARD)

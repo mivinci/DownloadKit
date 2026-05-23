@@ -42,13 +42,16 @@ template <class Func, class Arg>
 using ReturnType = decltype(std::declval<Func>()(std::declval<Arg>()));
 
 /* Specialization for void argument (Func takes no args) */
-template <class Func>
-using ReturnTypeVoid = decltype(std::declval<Func>()());
+template <class Func> using ReturnTypeVoid = decltype(std::declval<Func>()());
 
 /* ── ReducePromise ───────────────────────────────────────────────── */
 
-template <class T> struct ReducePromise { using Type = T; };
-template <class U> struct ReducePromise<Promise<U>> { using Type = U; };
+template <class T> struct ReducePromise {
+  using Type = T;
+};
+template <class U> struct ReducePromise<Promise<U>> {
+  using Type = U;
+};
 
 namespace _ {
 
@@ -73,9 +76,13 @@ public:
    */
   void arm();
 
-  bool fired() const { return m_fired; }
+  bool fired() const {
+    return m_fired;
+  }
 
-  virtual void fire() { m_fired = true; }
+  virtual void fire() {
+    m_fired = true;
+  }
 
 protected:
   bool m_fired;
@@ -86,7 +93,9 @@ protected:
  */
 class RootEvent final : public Event {
 public:
-  void fire() override { m_fired = true; }
+  void fire() override {
+    m_fired = true;
+  }
 };
 
 /**
@@ -113,11 +122,13 @@ public:
     }
   }
 
-  bool is_ready() const { return m_ready; }
+  bool is_ready() const {
+    return m_ready;
+  }
 
 private:
   Option<Event &> m_event;
-  bool m_ready;
+  bool            m_ready;
 };
 
 /* ── PromiseNode ─────────────────────────────────────────────────── */
@@ -163,8 +174,7 @@ public:
 /**
  * @brief A node that already has its value. poll() fires immediately.
  */
-template <class T>
-class ImmediatePromiseNode final : public PromiseNode {
+template <class T> class ImmediatePromiseNode final : public PromiseNode {
 public:
   explicit ImmediatePromiseNode(T &&value) : m_value(std::move(value)) {}
 
@@ -192,8 +202,7 @@ private:
  * @tparam T     Input type from dependency
  * @tparam Func  Callable T → U
  */
-template <class U, class T, class Func>
-class TransformPromiseNode final : public PromiseNode {
+template <class U, class T, class Func> class TransformPromiseNode final : public PromiseNode {
 public:
   TransformPromiseNode(Own<PromiseNode> dep, Func &&func)
       : m_dep(std::move(dep)), m_func(std::move(func)) {}
@@ -210,7 +219,7 @@ public:
 
 private:
   Own<PromiseNode> m_dep;
-  Func m_func;
+  Func             m_func;
 };
 
 /* Specialization: T=Void (dependency is Promise<void>) */
@@ -232,7 +241,7 @@ public:
 
 private:
   Own<PromiseNode> m_dep;
-  Func m_func;
+  Func             m_func;
 };
 
 /* Specialization: U=Void (func returns void) */
@@ -255,12 +264,11 @@ public:
 
 private:
   Own<PromiseNode> m_dep;
-  Func m_func;
+  Func             m_func;
 };
 
 /* Specialization: both Void → Void */
-template <class Func>
-class TransformPromiseNode<Void, Void, Func> final : public PromiseNode {
+template <class Func> class TransformPromiseNode<Void, Void, Func> final : public PromiseNode {
 public:
   TransformPromiseNode(Own<PromiseNode> dep, Func &&func)
       : m_dep(std::move(dep)), m_func(std::move(func)) {}
@@ -278,7 +286,7 @@ public:
 
 private:
   Own<PromiseNode> m_dep;
-  Func m_func;
+  Func             m_func;
 };
 
 /* ── ChainPromiseNode ────────────────────────────────────────────── */
@@ -292,8 +300,7 @@ private:
  */
 class ChainPromiseNode final : public PromiseNode, public Event {
 public:
-  explicit ChainPromiseNode(Own<PromiseNode> inner)
-      : m_state(Step1), m_inner(std::move(inner)) {
+  explicit ChainPromiseNode(Own<PromiseNode> inner) : m_state(Step1), m_inner(std::move(inner)) {
     m_inner->poll(Option<Event &>(*this));
   }
 
@@ -317,10 +324,13 @@ protected:
   void fire() override;
 
 private:
-  enum State { Step1, Step2 };
-  State m_state;
+  enum State {
+    Step1,
+    Step2
+  };
+  State            m_state;
   Own<PromiseNode> m_inner;
-  Option<Event &> m_outer_event;
+  Option<Event &>  m_outer_event;
 };
 
 /* ── AdapterPromiseNode ──────────────────────────────────────────── */
@@ -331,8 +341,7 @@ private:
  * poll() registers the waiting event; resolve() stores the value and
  * arms the event.
  */
-template <class T>
-class AdapterPromiseNode final : public PromiseNode {
+template <class T> class AdapterPromiseNode final : public PromiseNode {
 public:
   AdapterPromiseNode() : m_resolved(false) {}
 
@@ -351,20 +360,19 @@ public:
 
   void resolve(T &&value) {
     XPP_ASSERT(!m_resolved, "AdapterPromiseNode resolved twice");
-    m_value = std::move(value);
+    m_value    = std::move(value);
     m_resolved = true;
     m_poll.arm();
   }
 
 private:
-  T m_value;
+  T         m_value;
   PollEvent m_poll;
-  bool m_resolved;
+  bool      m_resolved;
 };
 
 /* Specialization for Void */
-template <>
-class AdapterPromiseNode<Void> final : public PromiseNode {
+template <> class AdapterPromiseNode<Void> final : public PromiseNode {
 public:
   AdapterPromiseNode() : m_resolved(false) {}
 
@@ -389,7 +397,7 @@ public:
 
 private:
   PollEvent m_poll;
-  bool m_resolved;
+  bool      m_resolved;
 };
 
 /* ── YieldPromiseNode ────────────────────────────────────────────── */
@@ -408,7 +416,6 @@ public:
   }
 };
 
-
 /* ── CoroutineEvent (C++20 coroutines) ─────────────────────────── */
 
 #if XPP_HAS_COROUTINES
@@ -425,13 +432,15 @@ public:
  */
 class CoroutineEvent final : public Event {
 public:
-  explicit CoroutineEvent(std::coroutine_handle<> handle)
-      : m_handle(handle) {}
+  CoroutineEvent() : m_handle(nullptr) {}
+  explicit CoroutineEvent(std::coroutine_handle<> handle) : m_handle(handle) {}
 
   void fire() override {
-    m_fired = true;
-    if (m_handle) {
-      m_handle.resume();
+    m_fired  = true;
+    auto h   = m_handle;
+    m_handle = nullptr; // prevent double-resume
+    if (h) {
+      h.resume();
     }
   }
 
@@ -442,13 +451,11 @@ private:
 #endif // XPP_HAS_COROUTINES
 /* ── maybe_chain helper ──────────────────────────────────────────── */
 
-template <class T>
-inline Own<PromiseNode> maybe_chain(Own<PromiseNode> node, T *) {
+template <class T> inline Own<PromiseNode> maybe_chain(Own<PromiseNode> node, T *) {
   return node;
 }
 
-template <class T>
-Own<PromiseNode> maybe_chain(Own<PromiseNode> node, Promise<T> *);
+template <class T> Own<PromiseNode> maybe_chain(Own<PromiseNode> node, Promise<T> *);
 // Defined after Promise<T> is complete (in promise.h)
 
 } // namespace _

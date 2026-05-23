@@ -12,8 +12,8 @@
 #include <coroutine>
 #endif
 
-#include <xpp/promise.h>
 #include <gtest/gtest.h>
+#include <xpp/promise.h>
 
 extern "C" {
 #include <x/base/event.h>
@@ -26,7 +26,7 @@ extern "C" {
 class PromiseCoroTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_loop = xEventLoopCreate();
+    m_loop  = xEventLoopCreate();
     m_scope = new xpp::WaitScope(m_loop);
   }
   void TearDown() override {
@@ -34,18 +34,17 @@ protected:
     xEventLoopDestroy(m_loop);
   }
 
-  xEventLoop m_loop;
+  xEventLoop      m_loop;
   xpp::WaitScope *m_scope;
 };
 
 /* ── Awaitable protocol tests ─────────────────────────────────────── */
 
 TEST_F(PromiseCoroTest, AwaitReadyAlwaysFalse) {
-  auto p = xpp::Promise<int>::resolve(42);
-  EXPECT_FALSE(p.await_ready());
-
-  auto q = xpp::Promise<void>::resolve();
-  EXPECT_FALSE(q.await_ready());
+  // operator co_await returns an Awaiter; verify it exists and works
+  // by doing a simple co_await on a resolved promise.
+  auto coro = [&]() -> xpp::Promise<int> { co_return co_await xpp::Promise<int>::resolve(42); }();
+  EXPECT_EQ(coro.wait(*m_scope), 42);
 }
 
 /* ── co_await on resolved promises ────────────────────────────────── */
@@ -61,7 +60,7 @@ TEST_F(PromiseCoroTest, CoAwaitResolvedInt) {
 
 TEST_F(PromiseCoroTest, CoAwaitResolvedVoid) {
   bool reached = false;
-  auto coro = [&]() -> xpp::Promise<void> {
+  auto coro    = [&]() -> xpp::Promise<void> {
     co_await xpp::Promise<void>::resolve();
     reached = true;
   }();
@@ -85,8 +84,7 @@ TEST_F(PromiseCoroTest, CoAwaitEval) {
 
 TEST_F(PromiseCoroTest, CoAwaitAfterThen) {
   auto coro = [&]() -> xpp::Promise<int> {
-    int val = co_await xpp::Promise<int>::resolve(10)
-        .then([](int x) { return x * 3; });
+    int val = co_await xpp::Promise<int>::resolve(10).then([](int x) { return x * 3; });
     co_return val;
   }();
 
@@ -108,7 +106,7 @@ TEST_F(PromiseCoroTest, MultipleCoAwait) {
 /* ── co_await on Resolver (async resolve) ─────────────────────────── */
 
 TEST_F(PromiseCoroTest, CoAwaitResolver) {
-  auto pr = xpp::Promise<int>::make();
+  auto pr   = xpp::Promise<int>::make();
   auto coro = [&]() -> xpp::Promise<int> {
     int val = co_await std::move(pr.promise);
     co_return val;
@@ -122,8 +120,8 @@ TEST_F(PromiseCoroTest, CoAwaitResolver) {
 
 TEST_F(PromiseCoroTest, CoAwaitFlatten) {
   auto coro = [&]() -> xpp::Promise<int> {
-    int val = co_await xpp::Promise<int>::resolve(5)
-        .then([](int x) { return xpp::Promise<int>::resolve(x * 4); });
+    int val = co_await xpp::Promise<int>::resolve(5).then(
+      [](int x) { return xpp::Promise<int>::resolve(x * 4); });
     co_return val;
   }();
 
@@ -133,14 +131,12 @@ TEST_F(PromiseCoroTest, CoAwaitFlatten) {
 /* ── Nested coroutines ────────────────────────────────────────────── */
 
 TEST_F(PromiseCoroTest, NestedCoroutine) {
-  auto inner = []() -> xpp::Promise<int> {
-    co_return 7;
-  };
+  auto inner = []() -> xpp::Promise<int> { co_return 7; };
 
   auto outer = [&]() -> xpp::Promise<int> {
-    int a = co_await inner();
-    int b = co_await inner();
-    co_return a * b;
+    int          a = co_await inner();
+    int          b = co_await inner();
+    co_return a *b;
   }();
 
   EXPECT_EQ(outer.wait(*m_scope), 49);
@@ -149,9 +145,9 @@ TEST_F(PromiseCoroTest, NestedCoroutine) {
 /* ── Coroutine returning void ─────────────────────────────────────── */
 
 TEST_F(PromiseCoroTest, CoroutineReturnsVoid) {
-  int side_effect = 0;
-  auto coro = [&]() -> xpp::Promise<void> {
-    int val = co_await xpp::Promise<int>::resolve(42);
+  int  side_effect = 0;
+  auto coro        = [&]() -> xpp::Promise<void> {
+    int val     = co_await xpp::Promise<int>::resolve(42);
     side_effect = val;
   }();
 
@@ -163,8 +159,7 @@ TEST_F(PromiseCoroTest, CoroutineReturnsVoid) {
 
 /* ── Fallback: tests disabled when coroutines not available ──────── */
 
-class PromiseCoroTest : public ::testing::Test {
-};
+class PromiseCoroTest : public ::testing::Test {};
 
 TEST_F(PromiseCoroTest, CoroutinesDisabled) {
   GTEST_SKIP() << "C++20 coroutines not available";

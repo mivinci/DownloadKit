@@ -22,7 +22,7 @@
  * acquisition, before the actual hang occurs.
  */
 
-#include <xpp/mutex.h>
+#include <xpp/sys/mutex.h>
 
 extern "C" {
 #include <x/base/thread.h>
@@ -33,6 +33,7 @@ extern "C" {
 #endif
 
 namespace xpp {
+namespace sys {
 namespace _ {
 
 static_assert(sizeof(xMutex) <= k_mutex_storage_size,
@@ -71,8 +72,7 @@ static void on_lock(uint64_t id) {
 
   /* Check reentrant: same lock acquired twice on this thread. */
   for (size_t i = 0; i < ts.depth; ++i) {
-    XPP_ASSERT(ts.held[i] != id,
-               "deadlock: mutex %llu locked twice on the same thread (reentrant)",
+    XPP_ASSERT(ts.held[i] != id, "deadlock: mutex %llu locked twice on the same thread (reentrant)",
                (unsigned long long)id);
   }
 
@@ -87,8 +87,8 @@ static void on_lock(uint64_t id) {
   }
 
   /* Push onto held stack. */
-  XPP_ASSERT(ts.depth < kMaxHeldLocks,
-             "deadlock: too many nested locks (%zu), likely a bug", ts.depth);
+  XPP_ASSERT(ts.depth < kMaxHeldLocks, "deadlock: too many nested locks (%zu), likely a bug",
+             ts.depth);
   ts.held[ts.depth++] = id;
 }
 
@@ -144,4 +144,5 @@ void mutex_unlock(mutex_storage *s) noexcept {
 }
 
 } // namespace _
+} // namespace sys
 } // namespace xpp

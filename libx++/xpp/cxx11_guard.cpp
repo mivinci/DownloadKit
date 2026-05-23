@@ -90,16 +90,16 @@ void instantiate_templates() {
   // Variadic ctor forwarding; MutexGuard's operator->/operator*/get;
   // try_lock returning Option<MutexGuard>. Condvar::wait /
   // wait_timeout / notify_one / notify_all all parse + instantiate.
-  xpp::Mutex<int> mtx(11);
+  xpp::sys::Mutex<int> mtx(11);
   {
-    xpp::MutexGuard<int> g = mtx.lock();
+    xpp::sys::MutexGuard<int> g = mtx.lock();
     *g                     = 13;
     int &r                 = g.get();
     (void) r;
   }
-  xpp::Option<xpp::MutexGuard<int>> tg = mtx.try_lock();
+  xpp::Option<xpp::sys::MutexGuard<int>> tg = mtx.try_lock();
   (void) tg;
-  xpp::Condvar cnd;
+  xpp::sys::Condvar cnd;
   cnd.notify_one();
   cnd.notify_all();
 }

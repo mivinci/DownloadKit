@@ -41,8 +41,8 @@
 #define XPP_RUNTIME_H
 
 #include <xpp/compiler.h>
-#include <xpp/mutex.h>
 #include <xpp/promise.h>
+#include <xpp/sys/mutex.h>
 
 #include <atomic>
 #include <deque>
@@ -299,8 +299,8 @@ private:
   std::atomic<size_t>                   m_active_workers;  // currently alive
   _::Worker                            *m_workers;         // pre-allocated array[m_max_workers]
   xTaskGroup                            m_group;
-  xEventLoop                            m_main_loop;
-  Mutex<std::deque<_::SpawnTaskBase *>> m_global_queue;
+  xEventLoop                                 m_main_loop;
+  sys::Mutex<std::deque<_::SpawnTaskBase *>> m_global_queue;
 };
 
 /* ── JoinHandle<T> ───────────────────────────────────────────────── */

@@ -18,9 +18,9 @@
 #include <utility>
 #include <vector>
 
-#include <xpp/cond.h>
 #include <xpp/duration.h>
-#include <xpp/mutex.h>
+#include <xpp/sys/cond.h>
+#include <xpp/sys/mutex.h>
 
 namespace {
 
@@ -30,18 +30,20 @@ TEST(CondvarTest, WaitAndNotifyProducerConsumer) {
     bool             done = false;
   };
 
-  xpp::Mutex<Queue> q;
-  xpp::Condvar      not_empty;
+  xpp::sys::Mutex<Queue> q;
+  xpp::sys::Condvar      not_empty;
 
   std::vector<int> consumed;
 
   std::thread consumer([&] {
     for (;;) {
       auto g = q.lock();
-      while (g->items.empty() && !g->done) not_empty.wait(g);
+      while (g->items.empty() && !g->done)
+        not_empty.wait(g);
       if (g->items.empty() && g->done) return;
       // drain
-      for (int x : g->items) consumed.push_back(x);
+      for (int x : g->items)
+        consumed.push_back(x);
       g->items.clear();
     }
   });
@@ -64,14 +66,15 @@ TEST(CondvarTest, WaitAndNotifyProducerConsumer) {
   EXPECT_EQ(consumed.size(), 100u);
   // The consumer may drain in batches, but items themselves should
   // appear in production order (single producer).
-  for (int i = 0; i < 100; ++i) EXPECT_EQ(consumed[i], i);
+  for (int i = 0; i < 100; ++i)
+    EXPECT_EQ(consumed[i], i);
 }
 
 TEST(CondvarTest, WaitTimeoutReturnsTrueOnTimeout) {
   using namespace xpp::literals;
 
-  xpp::Mutex<int> m(0);
-  xpp::Condvar    c;
+  xpp::sys::Mutex<int> m(0);
+  xpp::sys::Condvar    c;
 
   auto g         = m.lock();
   auto start     = std::chrono::steady_clock::now();
@@ -86,8 +89,8 @@ TEST(CondvarTest, WaitTimeoutReturnsTrueOnTimeout) {
 TEST(CondvarTest, WaitTimeoutReturnsFalseWhenSignalledInTime) {
   using namespace xpp::literals;
 
-  xpp::Mutex<bool> m(false);
-  xpp::Condvar     c;
+  xpp::sys::Mutex<bool> m(false);
+  xpp::sys::Condvar     c;
 
   std::thread waker([&] {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -107,7 +110,7 @@ TEST(CondvarTest, WaitTimeoutReturnsFalseWhenSignalledInTime) {
   // Drop the lock before joining (waker grabs it once).
   {
     auto release = std::move(g);
-    (void) release;
+    (void)release;
   }
   waker.join();
   EXPECT_TRUE(result);

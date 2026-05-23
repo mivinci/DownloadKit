@@ -12,14 +12,15 @@
  * and alignment honest against the real xCond on this platform.
  */
 
-#include <xpp/cond.h>
-#include <xpp/mutex.h>
+#include <xpp/sys/cond.h>
+#include <xpp/sys/mutex.h>
 
 extern "C" {
 #include <x/base/thread.h>
 }
 
 namespace xpp {
+namespace sys {
 namespace _ {
 
 static_assert(sizeof(xCond) <= k_cond_storage_size,
@@ -60,4 +61,5 @@ int cond_timed_wait(cond_storage *c, mutex_storage *m, unsigned timeout_ms) noex
 }
 
 } // namespace _
+} // namespace sys
 } // namespace xpp

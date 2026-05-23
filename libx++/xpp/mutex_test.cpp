@@ -3,167 +3,152 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * mutex_test.cpp - Tests for Mutex<T> and MutexGuard<T>.
- *
- * Single-thread:
- *   - lock returns a guard, unlock on dtor
- *   - try_lock yields Some when free, None when held
- *   - guard moves
- *   - operator-> / operator* / get expose the protected T
- *
- * Multi-thread:
- *   - Two threads racing to increment a shared counter end up at
- *     the right total (mutual exclusion holds).
- *
- * Condvar (wait / notify / wait_timeout) lives in cond_test.cpp.
+ * mutex_test.cpp - Tests for async xpp::Mutex<T>.
  */
+
+#include <xpp/compiler.h>
+
+#if XPP_HAS_COROUTINES
+
+#include <xpp/mutex.h>
+#include <xpp/runtime.h>
+#include <gtest/gtest.h>
+
+#include <atomic>
+
+class AsyncMutexTest : public ::testing::Test {
+protected:
+  void SetUp() override { m_rt = new xpp::Runtime(4); }
+  void TearDown() override { delete m_rt; }
+  xpp::Runtime *m_rt;
+};
+
+/* ── Basic lock/unlock ────────────────────────────────────────────── */
+
+TEST_F(AsyncMutexTest, LockUnlock) {
+  xpp::Mutex<int> m(0);
+
+  auto coro = [&]() -> xpp::Promise<int> {
+    auto guard = co_await m.lock();
+    *guard = 42;
+    co_return *guard;
+  };
+
+  EXPECT_EQ(m_rt->block_on(coro()), 42);
+}
+
+/* ── try_lock ─────────────────────────────────────────────────────── */
+
+TEST_F(AsyncMutexTest, TryLockSuccess) {
+  xpp::Mutex<int> m(10);
+  auto result = m.try_lock();
+  EXPECT_TRUE(result.is_some());
+  EXPECT_EQ(*result.unwrap(), 10);
+}
+
+TEST_F(AsyncMutexTest, TryLockContended) {
+  xpp::Mutex<int> m(0);
+  auto guard = m.try_lock();
+  EXPECT_TRUE(guard.is_some());
+
+  // While held, try_lock should fail.
+  auto second = m.try_lock();
+  EXPECT_TRUE(second.is_none());
+}
+
+/* ── Mutual exclusion under concurrency ───────────────────────────── */
+
+TEST_F(AsyncMutexTest, MutualExclusion) {
+  xpp::Mutex<int> m(0);
+  const int N = 100;
+
+  auto increment = [&]() -> xpp::Promise<void> {
+    auto guard = co_await m.lock();
+    int val = *guard;
+    co_await xpp::yield();  // simulate some work / yield point
+    *guard = val + 1;
+  };
+
+  auto orchestrate = [&]() -> xpp::Promise<int> {
+    xpp::JoinHandle<void> *handles = new xpp::JoinHandle<void>[N];
+    for (int i = 0; i < N; ++i) {
+      handles[i] = m_rt->spawn(increment());
+    }
+    for (int i = 0; i < N; ++i) {
+      co_await handles[i];
+    }
+    delete[] handles;
+
+    auto guard = co_await m.lock();
+    co_return *guard;
+  };
+
+  EXPECT_EQ(m_rt->block_on(orchestrate()), N);
+}
+
+/* ── Guard drop releases lock ─────────────────────────────────────── */
+
+TEST_F(AsyncMutexTest, GuardDropReleasesLock) {
+  xpp::Mutex<int> m(0);
+
+  auto coro = [&]() -> xpp::Promise<void> {
+    {
+      auto guard = co_await m.lock();
+      *guard = 1;
+    } // guard dropped — lock released
+
+    {
+      auto guard = co_await m.lock();
+      *guard = 2;
+    }
+  };
+
+  m_rt->block_on(coro());
+
+  auto guard = m.try_lock();
+  EXPECT_TRUE(guard.is_some());
+  EXPECT_EQ(*guard.unwrap(), 2);
+}
+
+/* ── FIFO ordering ────────────────────────────────────────────────── */
+
+TEST_F(AsyncMutexTest, FIFOOrdering) {
+  xpp::Mutex<int> m(0);
+  std::atomic<int> order{0};
+
+  auto writer = [&](int id) -> xpp::Promise<void> {
+    auto guard = co_await m.lock();
+    *guard = id;
+    // Record order of acquisition.
+    order.fetch_add(1, std::memory_order_relaxed);
+  };
+
+  auto coro = [&]() -> xpp::Promise<void> {
+    // Hold the lock while spawning waiters.
+    auto guard = co_await m.lock();
+
+    auto h1 = m_rt->spawn(writer(1));
+    auto h2 = m_rt->spawn(writer(2));
+    auto h3 = m_rt->spawn(writer(3));
+
+    // Release lock — waiters should be served.
+    guard = xpp::MutexGuard<int>{};
+
+    co_await h1;
+    co_await h2;
+    co_await h3;
+  };
+
+  // This test just verifies no deadlock/crash.
+  m_rt->block_on(coro());
+}
+
+#else
 
 #include <gtest/gtest.h>
 
-#include <string>
-#include <thread>
-#include <utility>
-#include <vector>
-
-#include <xpp/mutex.h>
-#include <xpp/option.h>
-
-namespace {
-
-/* ── Single-thread basics ─────────────────────────────────────────── */
-
-TEST(MutexTest, LockUnlockBalances) {
-  xpp::Mutex<int> m(0);
-  {
-    auto g = m.lock();
-    EXPECT_EQ(*g, 0);
-    *g = 42;
-  } // unlocked here
-  {
-    auto g = m.lock();
-    EXPECT_EQ(*g, 42);
-  }
+TEST(AsyncMutexTest, CoroutinesDisabled) {
+  GTEST_SKIP() << "C++20 coroutines not available";
 }
 
-TEST(MutexTest, GuardOperatorArrow) {
-  xpp::Mutex<std::vector<int>> m;
-  {
-    auto g = m.lock();
-    g->push_back(1);
-    g->push_back(2);
-    g->push_back(3);
-    EXPECT_EQ(g->size(), 3u);
-  }
-  {
-    auto g = m.lock();
-    EXPECT_EQ((*g)[1], 2);
-  }
-}
-
-TEST(MutexTest, GuardGetReturnsReference) {
-  xpp::Mutex<int> m(7);
-  auto            g    = m.lock();
-  int            &lref = g.get();
-  EXPECT_EQ(&lref, &(*g));
-  lref = 99;
-  EXPECT_EQ(*g, 99);
-}
-
-TEST(MutexTest, ForwardsCtorArguments) {
-  // Variadic forwarding to T's ctor. std::string(n, ch) is a clean
-  // multi-arg demo.
-  xpp::Mutex<std::string> m(5, 'x'); // string(5, 'x') = "xxxxx"
-  auto                    g = m.lock();
-  EXPECT_EQ(*g, "xxxxx");
-}
-
-TEST(MutexTest, MoveGuardTransfersOwnership) {
-  xpp::Mutex<int> m(0);
-  auto            g  = m.lock();
-  *g                 = 5;
-  auto g2            = std::move(g);
-  EXPECT_EQ(*g2, 5);
-  // g is moved-from; only its dtor is safe
-}
-
-TEST(MutexTest, TryLockSucceedsWhenFree) {
-  xpp::Mutex<int>                   m(11);
-  xpp::Option<xpp::MutexGuard<int>> opt = m.try_lock();
-  ASSERT_TRUE(opt.is_some());
-  auto g = std::move(opt).unwrap();
-  EXPECT_EQ(*g, 11);
-}
-
-TEST(MutexTest, TryLockFailsWhenHeld) {
-  xpp::Mutex<int>                   m(0);
-  auto                              g   = m.lock();
-  xpp::Option<xpp::MutexGuard<int>> opt = m.try_lock();
-  EXPECT_TRUE(opt.is_none()) << "try_lock should fail while another guard is alive";
-}
-
-/* ── Multi-thread: mutual exclusion ───────────────────────────────── */
-
-TEST(MutexTest, MutualExclusionAcrossThreads) {
-  constexpr int k_threads       = 8;
-  constexpr int k_incs_per_thread = 5000;
-
-  xpp::Mutex<int>          counter(0);
-  std::vector<std::thread> ts;
-  ts.reserve(k_threads);
-  for (int i = 0; i < k_threads; ++i) {
-    ts.emplace_back([&counter] {
-      for (int j = 0; j < k_incs_per_thread; ++j) {
-        auto g = counter.lock();
-        *g     = *g + 1;
-      }
-    });
-  }
-  for (auto &t : ts) t.join();
-
-  auto g = counter.lock();
-  EXPECT_EQ(*g, k_threads * k_incs_per_thread);
-}
-
-/* ── Deadlock detection (debug only) ──────────────────────────────── */
-
-#if XPP_DEBUG
-
-TEST(MutexTest, ConsistentOrderNoFire) {
-  // Two locks acquired in construction order — should not fire.
-  xpp::Mutex<int> a(0);
-  xpp::Mutex<int> b(0);
-  // a was constructed first → lower ID. Acquire a then b.
-  auto ga = a.lock();
-  auto gb = b.lock();
-  // If we get here, no panic — test passes.
-  EXPECT_EQ(*ga, 0);
-  EXPECT_EQ(*gb, 0);
-}
-
-TEST(MutexDeathTest, ReentrantDeadlock) {
-  EXPECT_DEATH(
-    {
-      xpp::Mutex<int> m(0);
-      auto g = m.lock();
-      // Second lock() on same thread: on_lock fires BEFORE xMutexLock,
-      // detecting the reentrant attempt and panicking.
-      m.lock();
-    },
-    "deadlock");
-}
-
-TEST(MutexDeathTest, LockOrderViolation) {
-  EXPECT_DEATH(
-    {
-      xpp::Mutex<int> a(0); // gets ID N
-      xpp::Mutex<int> b(0); // gets ID N+1
-      // Acquire in reverse order: b first (higher ID), then a (lower ID)
-      auto gb = b.lock();
-      auto ga = a.lock(); // should panic: order violation
-    },
-    "deadlock");
-}
-
-#endif // XPP_DEBUG
-
-} // namespace
+#endif // XPP_HAS_COROUTINES

@@ -127,4 +127,26 @@
 #define XPP_NOINLINE
 #endif
 
+/**
+ * @brief Master switch for xpp debug instrumentation.
+ *
+ * Controls all debug-only facilities: XPP_DEBUG_ASSERT, deadlock
+ * detection, bounds-check diagnostics, etc.
+ *
+ * Default behaviour:
+ *   - NDEBUG undefined (Debug build) → XPP_DEBUG = 1
+ *   - NDEBUG defined (Release build) → XPP_DEBUG = 0
+ *
+ * Override from the command line to decouple from build type:
+ *   -DXPP_DEBUG=1   Force enable in Release (diagnostics without rebuild)
+ *   -DXPP_DEBUG=0   Force disable in Debug (benchmark without check overhead)
+ */
+#ifndef XPP_DEBUG
+  #ifdef NDEBUG
+    #define XPP_DEBUG 0
+  #else
+    #define XPP_DEBUG 1
+  #endif
+#endif
+
 #endif // XPP_COMPILER_H

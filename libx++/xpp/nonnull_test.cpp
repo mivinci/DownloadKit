@@ -57,7 +57,7 @@ TEST(NonNullTest, NewUncheckedHappyPath) {
   EXPECT_EQ(*p, 7);
 }
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 TEST(NonNullDeathTest, NewUncheckedOnNullDebug) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(([] { (void)xpp::NonNull<int>::new_unchecked(nullptr); }()),

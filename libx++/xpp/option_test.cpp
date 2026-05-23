@@ -332,7 +332,7 @@ TEST(OptionTest, UnwrapUncheckedHappyPath) {
   EXPECT_EQ(co.unwrap_unchecked(), 12);
 }
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 TEST(OptionDeathTest, UnwrapUncheckedOnNoneInDebug) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(

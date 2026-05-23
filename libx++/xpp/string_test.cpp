@@ -408,7 +408,7 @@ TEST(StringTest, EqualBothEmpty) {
 
 /* ── Death tests (debug only) ──────────────────────────────────────── */
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 
 TEST(StringDeathTest, ConstructFromInvalid) {
   EXPECT_DEATH(String("\xC0\x80"), "");
@@ -429,4 +429,4 @@ TEST(StringDeathTest, TruncateExceedsLen) {
   EXPECT_DEATH(s.truncate(10), "");
 }
 
-#endif // NDEBUG
+#endif // XPP_DEBUG

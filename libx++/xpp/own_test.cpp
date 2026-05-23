@@ -262,7 +262,7 @@ TEST_F(OwnTrackerTest, ReleaseEquivalentToTake) {
 
 /* ── operator* / operator-> debug death tests ────────────────────────── */
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 TEST(OwnDeathTest, DerefStarOnEmpty) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(([] {

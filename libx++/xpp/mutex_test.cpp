@@ -124,4 +124,46 @@ TEST(MutexTest, MutualExclusionAcrossThreads) {
   EXPECT_EQ(*g, k_threads * k_incs_per_thread);
 }
 
+/* ── Deadlock detection (debug only) ──────────────────────────────── */
+
+#if XPP_DEBUG
+
+TEST(MutexTest, ConsistentOrderNoFire) {
+  // Two locks acquired in construction order — should not fire.
+  xpp::Mutex<int> a(0);
+  xpp::Mutex<int> b(0);
+  // a was constructed first → lower ID. Acquire a then b.
+  auto ga = a.lock();
+  auto gb = b.lock();
+  // If we get here, no panic — test passes.
+  EXPECT_EQ(*ga, 0);
+  EXPECT_EQ(*gb, 0);
+}
+
+TEST(MutexDeathTest, ReentrantDeadlock) {
+  EXPECT_DEATH(
+    {
+      xpp::Mutex<int> m(0);
+      auto g = m.lock();
+      // Second lock() on same thread: on_lock fires BEFORE xMutexLock,
+      // detecting the reentrant attempt and panicking.
+      m.lock();
+    },
+    "deadlock");
+}
+
+TEST(MutexDeathTest, LockOrderViolation) {
+  EXPECT_DEATH(
+    {
+      xpp::Mutex<int> a(0); // gets ID N
+      xpp::Mutex<int> b(0); // gets ID N+1
+      // Acquire in reverse order: b first (higher ID), then a (lower ID)
+      auto gb = b.lock();
+      auto ga = a.lock(); // should panic: order violation
+    },
+    "deadlock");
+}
+
+#endif // XPP_DEBUG
+
 } // namespace

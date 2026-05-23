@@ -567,7 +567,7 @@ TEST(VecTest, SizeofGuarantee) {
 
 /* ── Death tests (debug only) ──────────────────────────────────────── */
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 
 TEST(VecDeathTest, SubscriptOutOfBounds) {
   Vec<int> v;
@@ -609,4 +609,4 @@ TEST(VecDeathTest, SwapRemoveOutOfBounds) {
   EXPECT_DEATH(v.swap_remove(1), "");
 }
 
-#endif // NDEBUG
+#endif // XPP_DEBUG

@@ -68,7 +68,7 @@ TEST(PanicDeathTest, AssertFormatsArguments) {
 
 /* ── XPP_DEBUG_ASSERT ── */
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 TEST(PanicDeathTest, DebugAssertAbortsInDebugBuild) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH({ XPP_DEBUG_ASSERT(false, "debug check"); }, "debug check");

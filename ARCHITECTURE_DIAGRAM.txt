@@ -1,0 +1,235 @@
+================================================================================
+                  LIBX++ PROMISE<T> ARCHITECTURE DIAGRAM
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        PUBLIC API (promise.h)                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Promise<T> (move-only)                                                     │
+│  ├─ Static factories:                                                      │
+│  │  ├─ resolve(T) → ImmediatePromiseNode                                   │
+│  │  ├─ eval(Func) → YieldPromiseNode + TransformPromiseNode               │
+│  │  └─ make() → PromiseAndResolver{ promise, resolver }                   │
+│  │                                                                         │
+│  ├─ API methods:                                                           │
+│  │  ├─ .then(Func) → Promise<U>  (creates TransformPromiseNode)           │
+│  │  ├─ .wait(WaitScope&) → T     (blocks event loop)                      │
+│  │  ├─ .discard() → Promise<void>                                         │
+│  │  │                                                                     │
+│  │  └─ [PHASE 2] C++20 coroutine support (conditional):                  │
+│  │     ├─ await_ready() → bool                                            │
+│  │     ├─ await_suspend(handle) → void                                    │
+│  │     └─ await_resume() → T                                              │
+│  │                                                                         │
+│  └─ Internal: Own<_::PromiseNode> m_node                                   │
+│                                                                             │
+│  Resolver<T>  (producer side)                                               │
+│  └─ .resolve(T) → arms AdapterPromiseNode, nulls out self                  │
+│                                                                             │
+│  WaitScope (single per thread)                                              │
+│  ├─ WaitScope(xEventLoop) → registers thread-local                         │
+│  └─ current_loop() → static getter                                         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INTERNAL NODE HIERARCHY (promise_node.h)                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  PromiseNode (virtual base)                                                │
+│  ├─ poll(Option<Event&>) = 0   [Register event to fire when ready]        │
+│  └─ read(void* dest) = 0       [Extract result as type-erased void*]      │
+│                                                                             │
+│  ├─ ImmediatePromiseNode<T> ✓ (resolved now)                              │
+│  │  ├─ T m_value                                                          │
+│  │  ├─ poll() → fire event immediately                                    │
+│  │  └─ read() → copy m_value to dest                                      │
+│  │                                                                         │
+│  ├─ YieldPromiseNode ✓ (deferred, fires next turn)                        │
+│  │  ├─ poll() → fire event immediately (breadth-first)                    │
+│  │  └─ read() → Void{}                                                    │
+│  │                                                                         │
+│  ├─ TransformPromiseNode<U, T, Func> ✓ (applies func to dependency)       │
+│  │  ├─ Own<PromiseNode> m_dep    [dependency]                            │
+│  │  ├─ Func m_func               [transformation]                        │
+│  │  ├─ poll() → delegate to m_dep                                         │
+│  │  └─ read() → read from m_dep, apply m_func, write result              │
+│  │  [4 specializations: Void×Void, T×Void, Void×U, T×U]                  │
+│  │                                                                         │
+│  ├─ AdapterPromiseNode<T> ✓ (externally resolved via Resolver)           │
+│  │  ├─ T m_value                                                          │
+│  │  ├─ PollEvent m_poll          [deferred arm mechanism]                │
+│  │  ├─ bool m_resolved                                                    │
+│  │  ├─ poll() → arm immediately if resolved, else register for later      │
+│  │  ├─ read() → move m_value to dest                                      │
+│  │  └─ resolve() → set m_value, mark resolved, arm poll event            │
+│  │                                                                         │
+│  └─ ChainPromiseNode (flattens Promise<Promise<T>> → Promise<T>)         │
+│     ├─ Own<PromiseNode> m_inner [outer promise initially]                │
+│     ├─ Option<Event&> m_outer_event                                      │
+│     ├─ enum State { Step1, Step2 }                                        │
+│     │                                                                     │
+│     ├─ Construction: m_inner = outer, m_state = Step1                    │
+│     │                m_inner.poll(*this)  [self-register]                │
+│     │                                                                     │
+│     ├─ Step 1 (outer not ready):                                          │
+│     │  └─ poll() stores outer_event, waits for fire()                    │
+│     │                                                                     │
+│     └─ Step 2 (outer ready, now have inner Promise):                     │
+│        ├─ fire() → read outer Promise, extract inner node, adopt it       │
+│        │          transition to Step2, re-poll inner                      │
+│        └─ poll/read() delegate to m_inner                                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  EVENT CLASSES (promise_node.h / promise.cpp)               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Event (virtual)                                                            │
+│  ├─ bool m_fired                                                           │
+│  ├─ arm() → post to xEventLoop (or fire if no loop)                        │
+│  ├─ fired() → get m_fired                                                  │
+│  └─ virtual fire() → set m_fired = true                                    │
+│                                                                             │
+│  ├─ RootEvent (used by wait())                                             │
+│  │  └─ Simple flag setter                                                  │
+│  │                                                                         │
+│  ├─ ChainPromiseNode (inherits Event)                                      │
+│  │  └─ fire() → state machine transition                                   │
+│  │                                                                         │
+│  └─ [PHASE 2] CoroutineEvent (proposed)                                   │
+│     ├─ std::coroutine_handle<> m_handle                                   │
+│     └─ fire() → m_handle.resume()                                         │
+│                                                                             │
+│  PollEvent (deferred arm)                                                   │
+│  ├─ Option<Event&> m_event                                                │
+│  ├─ bool m_ready                                                           │
+│  ├─ init(event) → if ready, arm immediately; else store                   │
+│  └─ arm() → set ready=true, fire stored event, clear                      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      CONTROL FLOW: .wait() EXECUTION                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. promise.wait(scope)                                                     │
+│     ├─ Create RootEvent root                                               │
+│     ├─ m_node->poll(root)        [Register root event with node]          │
+│     │                                                                     │
+│     ├─ [Node implementations]:                                             │
+│     │  ├─ ImmediatePromiseNode → root.arm() immediately                   │
+│     │  ├─ YieldPromiseNode → root.arm() (next turn via xEventLoopPost)   │
+│     │  ├─ TransformPromiseNode → poll dependency recursively             │
+│     │  ├─ ChainPromiseNode → Step1 stores root_event, waits for fire()   │
+│     │  └─ AdapterPromiseNode → if resolved, root.arm(); else store       │
+│     │                                                                     │
+│     └─ while (!root.fired()) {                                             │
+│        └─ xEventWait(loop, -1)  [Block until event callback fires]        │
+│                                                                             │
+│  2. When promise is ready:                                                  │
+│     ├─ Node's event fires                                                 │
+│     ├─ event_post_callback → Event::fire() → root.m_fired = true         │
+│     └─ xEventWait returns, loop condition false                           │
+│                                                                             │
+│  3. ValueType result                                                        │
+│     ├─ m_node->read(&result)   [Extract value via type erasure]          │
+│     └─ return std::move(result)                                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CHAIN EXAMPLE: .then() + .then()                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  auto p = Promise<int>::resolve(10)      // ImmediatePromiseNode<int>     │
+│    .then([](int x) { return x + 1; })    // TransformPromiseNode<int>     │
+│    .then([](int x) { return x * 3; })    // TransformPromiseNode<int>     │
+│                                                                             │
+│  Node structure (linked via m_dep):                                        │
+│                                                                             │
+│    TransformPromiseNode(x * 3)                                             │
+│    ├─ m_func = [](int x) { return x * 3; }                                │
+│    └─ m_dep ─────→ TransformPromiseNode(x + 1)                            │
+│                   ├─ m_func = [](int x) { return x + 1; }                 │
+│                   └─ m_dep ─────→ ImmediatePromiseNode(10)                │
+│                                  └─ m_value = 10                           │
+│                                                                             │
+│  Execution: poll(root) → (x + 1) node → (x * 3) node → Immediate         │
+│             All fire immediately in chain                                  │
+│                                                                             │
+│  read(): (x * 3) → (x + 1) → 10                                           │
+│          30      = 11       * 3  (but: 10 + 1 = 11, 11 * 3 = 33)          │
+│                                                                             │
+│  ⚠️  PHASE 2 WIN: With coroutines, no heap allocation per .then()!        │
+│      Instead, coroutine frame replaces the chain.                          │
+│                                                                             │
+│      auto result = co_await Promise<int>::resolve(10)                     │
+│        .then([](int x) { return x + 1; })  // Only one node on heap       │
+│        .then([](int x) { return x * 3; });                                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    HEAP ALLOCATION PATTERN (Phase 1)                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  p.then(f).then(g).then(h).wait(scope)                                     │
+│                                                                             │
+│  Each .then() allocates:                                                    │
+│  • ImmediatePromiseNode<T>         (existing) ← initial value              │
+│  • TransformPromiseNode<U, T, f>   (heap)  ← then(f)                      │
+│  • TransformPromiseNode<V, U, g>   (heap)  ← then(g)                      │
+│  • TransformPromiseNode<W, V, h>   (heap)  ← then(h)                      │
+│  • RootEvent                       (stack) ← wait()                        │
+│                                                                             │
+│  Total: 4 heap allocations for 3 .then() calls                             │
+│                                                                             │
+│  Problem: Cache misses, GC pressure, unpredictable latency                 │
+│                                                                             │
+│  [PHASE 2 COROUTINE SOLUTION]                                              │
+│  ─────────────────────────────────                                         │
+│                                                                             │
+│  auto coro() -> Promise<W> {                                               │
+│    auto a = co_await Promise<T>::resolve(initial);                         │
+│    auto b = co_await Promise<U>::resolve(f(a));                            │
+│    auto c = co_await Promise<V>::resolve(g(b));                            │
+│    auto d = co_await Promise<W>::resolve(h(c));                            │
+│    co_return d;                                                             │
+│  }                                                                          │
+│                                                                             │
+│  Result: Single coroutine frame (stack), no chain heap allocations         │
+│          More predictable, better cache locality                           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 PROMISE FLATTENING (ChainPromiseNode)                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Case: .then() returns Promise<T>                                           │
+│                                                                             │
+│  Promise<int> inner = Promise<int>::resolve(42);                           │
+│  Promise<Promise<int>> outer = Promise<int>::resolve(10)                   │
+│    .then([&](int x) { return inner; });  // Returns Promise<int>          │
+│                                                                             │
+│  The .then() creates:                                                      │
+│  ├─ TransformPromiseNode<Promise<int>, int, Func>                          │
+│  └─ maybe_chain() wraps it:                                                │
+│     └─ ChainPromiseNode(that node)                                         │
+│                                                                             │
+│  ChainPromiseNode flattens automatically:                                  │
+│  • Step 1: Wait for TransformPromiseNode to compute Promise<int>          │
+│  • fire(): Extract inner Promise's node from the result                    │
+│  • Step 2: Switch to polling the inner node                                │
+│  • Result: Promise<int> directly, not Promise<Promise<int>>                │
+│                                                                             │
+│  Design note: Promise<T> is just { Own<PromiseNode> node; }              │
+│  So ChainPromiseNode::fire() reads it as a "PromiseShell" struct          │
+│  to extract and adopt the inner node. Elegant!                             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================

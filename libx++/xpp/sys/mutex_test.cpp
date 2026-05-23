@@ -25,15 +25,15 @@
 #include <utility>
 #include <vector>
 
-#include <xpp/mutex.h>
 #include <xpp/option.h>
+#include <xpp/sys/mutex.h>
 
 namespace {
 
 /* ── Single-thread basics ─────────────────────────────────────────── */
 
 TEST(MutexTest, LockUnlockBalances) {
-  xpp::Mutex<int> m(0);
+  xpp::sys::Mutex<int> m(0);
   {
     auto g = m.lock();
     EXPECT_EQ(*g, 0);
@@ -46,7 +46,7 @@ TEST(MutexTest, LockUnlockBalances) {
 }
 
 TEST(MutexTest, GuardOperatorArrow) {
-  xpp::Mutex<std::vector<int>> m;
+  xpp::sys::Mutex<std::vector<int>> m;
   {
     auto g = m.lock();
     g->push_back(1);
@@ -61,9 +61,9 @@ TEST(MutexTest, GuardOperatorArrow) {
 }
 
 TEST(MutexTest, GuardGetReturnsReference) {
-  xpp::Mutex<int> m(7);
-  auto            g    = m.lock();
-  int            &lref = g.get();
+  xpp::sys::Mutex<int> m(7);
+  auto                 g    = m.lock();
+  int                 &lref = g.get();
   EXPECT_EQ(&lref, &(*g));
   lref = 99;
   EXPECT_EQ(*g, 99);
@@ -72,42 +72,42 @@ TEST(MutexTest, GuardGetReturnsReference) {
 TEST(MutexTest, ForwardsCtorArguments) {
   // Variadic forwarding to T's ctor. std::string(n, ch) is a clean
   // multi-arg demo.
-  xpp::Mutex<std::string> m(5, 'x'); // string(5, 'x') = "xxxxx"
-  auto                    g = m.lock();
+  xpp::sys::Mutex<std::string> m(5, 'x'); // string(5, 'x') = "xxxxx"
+  auto                         g = m.lock();
   EXPECT_EQ(*g, "xxxxx");
 }
 
 TEST(MutexTest, MoveGuardTransfersOwnership) {
-  xpp::Mutex<int> m(0);
-  auto            g  = m.lock();
-  *g                 = 5;
-  auto g2            = std::move(g);
+  xpp::sys::Mutex<int> m(0);
+  auto                 g = m.lock();
+  *g                     = 5;
+  auto g2                = std::move(g);
   EXPECT_EQ(*g2, 5);
   // g is moved-from; only its dtor is safe
 }
 
 TEST(MutexTest, TryLockSucceedsWhenFree) {
-  xpp::Mutex<int>                   m(11);
-  xpp::Option<xpp::MutexGuard<int>> opt = m.try_lock();
+  xpp::sys::Mutex<int>                   m(11);
+  xpp::Option<xpp::sys::MutexGuard<int>> opt = m.try_lock();
   ASSERT_TRUE(opt.is_some());
   auto g = std::move(opt).unwrap();
   EXPECT_EQ(*g, 11);
 }
 
 TEST(MutexTest, TryLockFailsWhenHeld) {
-  xpp::Mutex<int>                   m(0);
-  auto                              g   = m.lock();
-  xpp::Option<xpp::MutexGuard<int>> opt = m.try_lock();
+  xpp::sys::Mutex<int>                   m(0);
+  auto                                   g   = m.lock();
+  xpp::Option<xpp::sys::MutexGuard<int>> opt = m.try_lock();
   EXPECT_TRUE(opt.is_none()) << "try_lock should fail while another guard is alive";
 }
 
 /* ── Multi-thread: mutual exclusion ───────────────────────────────── */
 
 TEST(MutexTest, MutualExclusionAcrossThreads) {
-  constexpr int k_threads       = 8;
+  constexpr int k_threads         = 8;
   constexpr int k_incs_per_thread = 5000;
 
-  xpp::Mutex<int>          counter(0);
+  xpp::sys::Mutex<int>     counter(0);
   std::vector<std::thread> ts;
   ts.reserve(k_threads);
   for (int i = 0; i < k_threads; ++i) {
@@ -118,7 +118,8 @@ TEST(MutexTest, MutualExclusionAcrossThreads) {
       }
     });
   }
-  for (auto &t : ts) t.join();
+  for (auto &t : ts)
+    t.join();
 
   auto g = counter.lock();
   EXPECT_EQ(*g, k_threads * k_incs_per_thread);
@@ -130,8 +131,8 @@ TEST(MutexTest, MutualExclusionAcrossThreads) {
 
 TEST(MutexTest, ConsistentOrderNoFire) {
   // Two locks acquired in construction order — should not fire.
-  xpp::Mutex<int> a(0);
-  xpp::Mutex<int> b(0);
+  xpp::sys::Mutex<int> a(0);
+  xpp::sys::Mutex<int> b(0);
   // a was constructed first → lower ID. Acquire a then b.
   auto ga = a.lock();
   auto gb = b.lock();
@@ -143,8 +144,8 @@ TEST(MutexTest, ConsistentOrderNoFire) {
 TEST(MutexDeathTest, ReentrantDeadlock) {
   EXPECT_DEATH(
     {
-      xpp::Mutex<int> m(0);
-      auto g = m.lock();
+      xpp::sys::Mutex<int> m(0);
+      auto                 g = m.lock();
       // Second lock() on same thread: on_lock fires BEFORE xMutexLock,
       // detecting the reentrant attempt and panicking.
       m.lock();
@@ -155,8 +156,8 @@ TEST(MutexDeathTest, ReentrantDeadlock) {
 TEST(MutexDeathTest, LockOrderViolation) {
   EXPECT_DEATH(
     {
-      xpp::Mutex<int> a(0); // gets ID N
-      xpp::Mutex<int> b(0); // gets ID N+1
+      xpp::sys::Mutex<int> a(0); // gets ID N
+      xpp::sys::Mutex<int> b(0); // gets ID N+1
       // Acquire in reverse order: b first (higher ID), then a (lower ID)
       auto gb = b.lock();
       auto ga = a.lock(); // should panic: order violation

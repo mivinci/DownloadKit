@@ -305,7 +305,7 @@ fi
 TEST_TARGETS=()
 for m in "${AFFECTED[@]}"; do
     if [[ "$m" == "__libxpp__" ]]; then
-        TEST_TARGETS+=("x++_test")
+        TEST_TARGETS+=("xpp_test")
         continue
     fi
     skip=0
@@ -330,7 +330,7 @@ fi
 # PR time rather than discovered downstream.
 WANT_CXX11_GUARD=0
 for t in "${TEST_TARGETS[@]}"; do
-    if [[ "$t" == "x++_test" ]]; then
+    if [[ "$t" == "xpp_test" ]]; then
         WANT_CXX11_GUARD=1
         break
     fi
@@ -371,7 +371,7 @@ step "Building test targets"
 # It's a compile-only static lib; ctest doesn't see it.
 BUILD_TARGETS=("${TEST_TARGETS[@]}")
 if [[ $WANT_CXX11_GUARD -eq 1 ]]; then
-    BUILD_TARGETS+=("x++_cxx11_guard")
+    BUILD_TARGETS+=("xpp_cxx11_guard")
 fi
 
 cmake --build "$BUILD_DIR" --target ${BUILD_TARGETS[@]} --parallel "$JOBS"
@@ -380,7 +380,7 @@ cmake --build "$BUILD_DIR" --target ${BUILD_TARGETS[@]} --parallel "$JOBS"
 FAILED=0
 for target in "${TEST_TARGETS[@]}"; do
     step "Running $target"
-    # Escape regex metacharacters in target name for ctest -R (e.g. x++_test)
+    # Escape regex metacharacters in target name for ctest -R (e.g. xpp_test)
     target_re="${target//+/\\+}"
     if (cd "$BUILD_DIR" && ctest --output-on-failure -R "^${target_re}$" --no-tests=error); then
         info "$target PASSED"

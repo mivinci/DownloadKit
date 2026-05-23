@@ -44,17 +44,18 @@
  * implementation; the header itself is libx-free.
  */
 
-#ifndef XPP_COND_H
-#define XPP_COND_H
+#ifndef XPP_SYS_COND_H
+#define XPP_SYS_COND_H
 
 #include <xpp/duration.h>
-#include <xpp/mutex.h>
 #include <xpp/panic.h>
+#include <xpp/sys/mutex.h>
 
 #include <climits>
 #include <cstddef>
 
 namespace xpp {
+namespace sys {
 
 namespace _ {
 
@@ -141,8 +142,7 @@ public:
    *   while (!ready) cv.wait(g);
    */
   template <class T> void wait(MutexGuard<T> &guard) noexcept {
-    XPP_DEBUG_ASSERT(guard.m_mutex != nullptr,
-                     "internal: Condvar::wait on moved-from MutexGuard");
+    XPP_DEBUG_ASSERT(guard.m_mutex != nullptr, "internal: Condvar::wait on moved-from MutexGuard");
     _::cond_wait(&m_cond, &guard.m_mutex->m_mutex);
   }
 
@@ -187,6 +187,7 @@ private:
   _::cond_storage m_cond;
 };
 
+} // namespace sys
 } // namespace xpp
 
-#endif // XPP_COND_H
+#endif // XPP_SYS_COND_H

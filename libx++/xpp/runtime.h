@@ -41,8 +41,8 @@
 #define XPP_RUNTIME_H
 
 #include <xpp/compiler.h>
-#include <xpp/mutex.h>
 #include <xpp/promise.h>
+#include <xpp/sys/mutex.h>
 
 #include <atomic>
 #include <deque>
@@ -256,7 +256,22 @@ struct Worker {
 };
 
 /** @brief Thread-local: current worker on this thread (nullptr if not a worker). */
-static thread_local Worker *tl_current_worker = nullptr;
+Worker *&current_worker();
+
+/**
+ * @brief Thread-local pointer to the active Runtime on this thread.
+ *
+ * Why thread-local (not a plain global)?
+ * Tests create/destroy independent Runtimes per fixture. Multiple
+ * Runtimes may coexist in the same process (for isolation). Each
+ * thread — whether it's a worker or the main thread inside block_on
+ * — belongs to exactly one Runtime at a time. Thread-local lets
+ * xpp::spawn() find the right Runtime without passing it explicitly.
+ *
+ * Set by Runtime::enter() (called from block_on and worker_main).
+ * Cleared by Runtime::leave().
+ */
+Runtime *&current_runtime();
 
 } // namespace _
 
@@ -272,7 +287,49 @@ public:
 
   template <class T> JoinHandle<T> spawn(Promise<T> promise);
 
+  /**
+   * @brief Block until a callable's result promise completes.
+   *
+   * Calls enter() first, then invokes func() to create the promise,
+   * then drives the event loop until resolved. Use this form when the
+   * callable creates a coroutine that needs xpp::spawn() (the runtime
+   * context must be active before the coroutine body starts).
+   */
+  template <class Func>
+  auto block_on(Func &&func) -> decltype(func().wait(std::declval<WaitScope &>()));
+
+  /**
+   * @brief Block until an existing promise completes.
+   *
+   * Note: if the promise was created by a coroutine that uses
+   * xpp::spawn(), prefer the Func overload to ensure the runtime
+   * context is active before coroutine creation.
+   */
   template <class T> T block_on(Promise<T> promise);
+
+  /**
+   * @brief Register this runtime on the current thread.
+   *
+   * After enter(), xpp::spawn() can find this runtime via
+   * _::current_runtime(). Must be paired with leave().
+   */
+  void enter() {
+    XPP_ASSERT(_::current_runtime() == nullptr,
+               "Runtime::enter: thread already inside a runtime");
+    _::current_runtime() = this;
+  }
+
+  /**
+   * @brief Unregister this runtime from the current thread.
+   */
+  void leave() {
+    XPP_ASSERT(_::current_runtime() == this,
+               "Runtime::leave: not the active runtime on this thread");
+    _::current_runtime() = nullptr;
+  }
+
+  /** @brief Get the Runtime active on this thread (or nullptr). */
+  static Runtime *current() { return _::current_runtime(); }
 
 private:
   friend struct _::Worker;
@@ -299,8 +356,8 @@ private:
   std::atomic<size_t>                   m_active_workers;  // currently alive
   _::Worker                            *m_workers;         // pre-allocated array[m_max_workers]
   xTaskGroup                            m_group;
-  xEventLoop                            m_main_loop;
-  Mutex<std::deque<_::SpawnTaskBase *>> m_global_queue;
+  xEventLoop                                 m_main_loop;
+  sys::Mutex<std::deque<_::SpawnTaskBase *>> m_global_queue;
 };
 
 /* ── JoinHandle<T> ───────────────────────────────────────────────── */
@@ -402,7 +459,7 @@ template <class T> JoinHandle<T> Runtime::spawn(Promise<T> promise) {
   //   2. If local queue is full (or caller is not a worker), push to global queue.
   // Workers will: pop local → batch grab global → steal other workers.
 
-  _::Worker *w = _::tl_current_worker;
+  _::Worker *w = _::current_worker();
   if (w && w->local_queue.push(task)) {
     // Fast path: pushed to current worker's local queue. No post needed
     // because the worker will see it on its next pop().
@@ -415,14 +472,45 @@ template <class T> JoinHandle<T> Runtime::spawn(Promise<T> promise) {
   return JoinHandle<T>{task, std::move(join_promise)};
 }
 
-template <class T> T Runtime::block_on(Promise<T> promise) {
-  WaitScope scope(m_main_loop);
-  return promise.wait(scope);
+namespace _ {
+
+template <class Promise>
+auto block_on_impl(Runtime *rt, xEventLoop loop, Promise &&p)
+    -> decltype(p.wait(std::declval<WaitScope &>())) {
+  WaitScope scope(loop);
+  auto result = p.wait(scope);
+  rt->leave();
+  return result;
 }
 
-template <> inline void Runtime::block_on<void>(Promise<void> promise) {
+inline void block_on_impl(Runtime *rt, xEventLoop loop, Promise<void> &&p) {
+  WaitScope scope(loop);
+  p.wait(scope);
+  rt->leave();
+}
+
+} // namespace _
+
+template <class Func>
+auto Runtime::block_on(Func &&func) -> decltype(func().wait(std::declval<WaitScope &>())) {
+  enter();
+  auto promise = func();
+  return _::block_on_impl(this, m_main_loop, std::move(promise));
+}
+
+template <class T> T Runtime::block_on(Promise<T> promise) {
+  enter();
+  WaitScope scope(m_main_loop);
+  T result = promise.wait(scope);
+  leave();
+  return result;
+}
+
+template <> inline void Runtime::block_on(Promise<void> promise) {
+  enter();
   WaitScope scope(m_main_loop);
   promise.wait(scope);
+  leave();
 }
 
 /* ── JoinHandle template implementations ─────────────────────────── */
@@ -462,6 +550,26 @@ template <class T> void JoinHandle<T>::release() {
     XPP_DEBUG_ASSERT(false, "JoinHandle dropped without await or detach");
     detach();
   }
+}
+
+/* ── Free spawn function ─────────────────────────────────────────── */
+
+/**
+ * @brief Spawn a task onto the current thread's Runtime.
+ *
+ * Equivalent to Runtime::current()->spawn(promise). Panics if called
+ * outside a runtime context (i.e., not inside block_on or a worker).
+ *
+ * @code
+ *   auto h = xpp::spawn(compute());
+ *   int val = co_await h;
+ * @endcode
+ */
+template <class T>
+JoinHandle<T> spawn(Promise<T> promise) {
+  Runtime *rt = Runtime::current();
+  XPP_ASSERT(rt != nullptr, "xpp::spawn: no active runtime on this thread");
+  return rt->spawn(std::move(promise));
 }
 
 } // namespace xpp

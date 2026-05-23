@@ -3,151 +3,94 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * runtime_test.cpp - Unit tests for xpp::Runtime
+ * runtime_test.cpp - C++11-compatible unit tests for xpp::Runtime.
+ *
+ * These tests use only then()/resolve()/eval() — no coroutines.
+ * Coroutine-based tests (spawn, co_await) live in runtime_coro_test.cpp.
  */
-
-#include <xpp/compiler.h>
-
-#if XPP_HAS_COROUTINES
 
 #include <xpp/runtime.h>
 #include <gtest/gtest.h>
 
 #include <atomic>
-#include <thread>
 
 /* ── Test fixture ─────────────────────────────────────────────────── */
 
 class RuntimeTest : public ::testing::Test {
 protected:
-  void SetUp() override {
-    m_rt = new xpp::Runtime(2);  // 2 workers
-  }
-  void TearDown() override {
-    delete m_rt;
-  }
+  void SetUp() override { m_rt = new xpp::Runtime(2); }
+  void TearDown() override { delete m_rt; }
   xpp::Runtime *m_rt;
 };
 
-/* ── block_on ─────────────────────────────────────────────────────── */
+/* ── block_on with resolved values ────────────────────────────────── */
 
-TEST_F(RuntimeTest, BlockOnResolved) {
+TEST_F(RuntimeTest, BlockOnResolvedInt) {
   int val = m_rt->block_on(xpp::Promise<int>::resolve(42));
   EXPECT_EQ(val, 42);
 }
 
-TEST_F(RuntimeTest, BlockOnVoid) {
+TEST_F(RuntimeTest, BlockOnResolvedVoid) {
   m_rt->block_on(xpp::Promise<void>::resolve());
 }
 
-TEST_F(RuntimeTest, BlockOnCoroutine) {
-  auto coro = []() -> xpp::Promise<int> {
-    co_return 99;
-  };
-  EXPECT_EQ(m_rt->block_on(coro()), 99);
+TEST_F(RuntimeTest, BlockOnResolvedString) {
+  std::string s = m_rt->block_on(xpp::Promise<std::string>::resolve("hello"));
+  EXPECT_EQ(s, "hello");
 }
 
-/* ── spawn + co_await ─────────────────────────────────────────────── */
+/* ── block_on with then() chains ──────────────────────────────────── */
 
-TEST_F(RuntimeTest, SpawnAndAwait) {
-  auto work = []() -> xpp::Promise<int> {
-    co_return 7;
-  };
-
-  auto orchestrate = [&]() -> xpp::Promise<int> {
-    auto handle = m_rt->spawn(work());
-    int result = co_await handle;
-    co_return result;
-  };
-
-  EXPECT_EQ(m_rt->block_on(orchestrate()), 7);
+TEST_F(RuntimeTest, BlockOnThen) {
+  auto p = xpp::Promise<int>::resolve(10).then([](int x) { return x * 2; });
+  EXPECT_EQ(m_rt->block_on(std::move(p)), 20);
 }
 
-TEST_F(RuntimeTest, SpawnVoid) {
-  std::atomic<bool> done{false};
-
-  auto work = [&]() -> xpp::Promise<void> {
-    done.store(true);
-    co_return;
-  };
-
-  auto orchestrate = [&]() -> xpp::Promise<void> {
-    auto handle = m_rt->spawn(work());
-    co_await handle;
-  };
-
-  m_rt->block_on(orchestrate());
-  EXPECT_TRUE(done.load());
+TEST_F(RuntimeTest, BlockOnThenChain) {
+  auto p = xpp::Promise<int>::resolve(3)
+               .then([](int x) { return x + 1; })
+               .then([](int x) { return x * x; });
+  EXPECT_EQ(m_rt->block_on(std::move(p)), 16); // (3+1)^2
 }
 
-/* ── spawn multiple ───────────────────────────────────────────────── */
-
-TEST_F(RuntimeTest, SpawnMultiple) {
-  auto compute = [](int x) -> xpp::Promise<int> {
-    co_return x * x;
-  };
-
-  auto orchestrate = [&]() -> xpp::Promise<int> {
-    auto h1 = m_rt->spawn(compute(3));
-    auto h2 = m_rt->spawn(compute(4));
-    int a = co_await h1;
-    int b = co_await h2;
-    co_return a + b;
-  };
-
-  EXPECT_EQ(m_rt->block_on(orchestrate()), 25);  // 9 + 16
+TEST_F(RuntimeTest, BlockOnThenVoidToInt) {
+  auto p = xpp::Promise<void>::resolve().then([] { return 99; });
+  EXPECT_EQ(m_rt->block_on(std::move(p)), 99);
 }
 
-/* ── detach ───────────────────────────────────────────────────────── */
-
-TEST_F(RuntimeTest, Detach) {
-  std::atomic<int> counter{0};
-
-  auto work = [&]() -> xpp::Promise<void> {
-    counter.fetch_add(1);
-    co_return;
-  };
-
-  auto orchestrate = [&]() -> xpp::Promise<void> {
-    auto handle = m_rt->spawn(work());
-    handle.detach();
-    // Don't await — fire and forget.
-    co_return;
-  };
-
-  m_rt->block_on(orchestrate());
-
-  // Give the detached task time to complete.
-  // (In real code you'd use a barrier or similar.)
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  EXPECT_EQ(counter.load(), 1);
+TEST_F(RuntimeTest, BlockOnThenIntToVoid) {
+  std::atomic<int> side_effect{0};
+  auto p = xpp::Promise<int>::resolve(5).then([&](int x) { side_effect.store(x); });
+  m_rt->block_on(std::move(p));
+  EXPECT_EQ(side_effect.load(), 5);
 }
 
-/* ── spawn runs on different thread ───────────────────────────────── */
+/* ── block_on with eval() ─────────────────────────────────────────── */
 
-TEST_F(RuntimeTest, SpawnRunsOnWorker) {
-  auto main_tid = std::this_thread::get_id();
-
-  // The spawned task's Promise is driven by the worker thread's event
-  // loop. Use Promise::eval to defer the actual computation to the
-  // worker's loop (eval yields first, then runs the lambda).
-  auto orchestrate = [&]() -> xpp::Promise<bool> {
-    auto handle = m_rt->spawn(
-      xpp::Promise<void>::eval([&]() -> bool {
-        return std::this_thread::get_id() != main_tid;
-      }));
-    co_return co_await handle;
-  };
-
-  EXPECT_TRUE(m_rt->block_on(orchestrate()));
+TEST_F(RuntimeTest, BlockOnEval) {
+  auto p = xpp::Promise<void>::eval([] { return 7; });
+  EXPECT_EQ(m_rt->block_on(std::move(p)), 7);
 }
 
-#else
-
-#include <gtest/gtest.h>
-
-TEST(RuntimeTest, CoroutinesDisabled) {
-  GTEST_SKIP() << "C++20 coroutines not available";
+TEST_F(RuntimeTest, BlockOnEvalThenChain) {
+  auto p = xpp::Promise<void>::eval([] { return 2; })
+               .then([](int x) { return x * 3; })
+               .then([](int x) { return x + 1; });
+  EXPECT_EQ(m_rt->block_on(std::move(p)), 7); // 2*3+1
 }
 
-#endif // XPP_HAS_COROUTINES
+/* ── block_on with nested promises (then returning Promise) ───────── */
+
+TEST_F(RuntimeTest, BlockOnThenReturnsPromise) {
+  auto p = xpp::Promise<int>::resolve(5).then([](int x) {
+    return xpp::Promise<int>::resolve(x * 10);
+  });
+  EXPECT_EQ(m_rt->block_on(std::move(p)), 50);
+}
+
+/* ── Runtime basics ───────────────────────────────────────────────── */
+
+TEST_F(RuntimeTest, CurrentOutsideRuntime) {
+  // Outside block_on, no runtime is active on this thread.
+  EXPECT_EQ(xpp::Runtime::current(), nullptr);
+}

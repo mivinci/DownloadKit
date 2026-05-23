@@ -127,4 +127,20 @@
 #define XPP_NOINLINE
 #endif
 
+/**
+ * @brief Annotate a method whose return value borrows from `this`.
+ *
+ * Clang uses this to warn when the return value outlives the object
+ * (e.g. binding a Span from a temporary String). GCC and MSVC silently
+ * ignore the unknown attribute — no portability cost.
+ *
+ * Place after the parameter list, before const/noexcept:
+ *   Span<const char> as_span() const noexcept XPP_LIFETIMEBOUND;
+ */
+#if defined(__clang__) && __has_attribute(lifetimebound)
+#define XPP_LIFETIMEBOUND __attribute__((lifetimebound))
+#else
+#define XPP_LIFETIMEBOUND
+#endif
+
 #endif // XPP_COMPILER_H

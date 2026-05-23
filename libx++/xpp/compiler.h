@@ -142,11 +142,35 @@
  *   -DXPP_DEBUG=0   Force disable in Debug (benchmark without check overhead)
  */
 #ifndef XPP_DEBUG
-  #ifdef NDEBUG
-    #define XPP_DEBUG 0
-  #else
-    #define XPP_DEBUG 1
-  #endif
+#ifdef NDEBUG
+#define XPP_DEBUG 0
+#else
+#define XPP_DEBUG 1
+#endif
+#endif
+
+/**
+ * @brief Feature detection for C++20 coroutines.
+ *
+ * Checks for the __cpp_coroutines or __cpp_impl_coroutine feature test macro.
+ * Set to 1 if coroutines are available, 0 otherwise.
+ *
+ * Note: Different compilers use different macros:
+ *   - GCC/Clang: __cpp_coroutines
+ *   - AppleClang: __cpp_impl_coroutine
+ *   - MSVC: __cpp_coroutines
+ *
+ * Usage:
+ *   #if XPP_HAS_COROUTINES
+ *     #include <coroutine>
+ *     // Coroutine-specific code
+ *   #endif
+ */
+#if (defined(__cpp_coroutines) && __cpp_coroutines >= 201902L) || \
+    (defined(__cpp_impl_coroutine) && __cpp_impl_coroutine >= 201902L)
+  #define XPP_HAS_COROUTINES 1
+#else
+  #define XPP_HAS_COROUTINES 0
 #endif
 
 #endif // XPP_COMPILER_H

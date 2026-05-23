@@ -12,7 +12,7 @@
  * Chain transformations with then(), wait for the result with wait().
  *
  * This is Phase 1 of the async runtime: single-threaded, event-loop
- * driven, with the poll(Option<Event&>) interface designed for future co_await
+ * driven, with the poll(Option<_::Event&>) interface designed for future co_await
  * integration.
  *
  * C++11-compatible.
@@ -22,8 +22,13 @@
 #define XPP_PROMISE_H
 
 #include <xpp/promise_node.h>
+#include <xpp/compiler.h>
 
 #include <utility>
+
+#if XPP_HAS_COROUTINES
+#include <coroutine>
+#endif
 
 namespace xpp {
 
@@ -128,6 +133,72 @@ public:
    *        when this promise completes.
    */
   Promise<void> discard(); // defined below after Promise<void> is complete
+
+  /**
+   * @brief C++20 coroutine support: check if already resolved.
+   *
+   * Returns true if the promise is already resolved and can be
+   * resumed immediately (i.e., no suspension is needed).
+   *
+   * Available only with C++20 coroutines.
+   */
+#if XPP_HAS_COROUTINES
+  bool await_ready() const {
+    // For now, always return false. In an optimized version,
+    // we could check if the node is immediately ready.
+    // This is a simplification; real implementations might
+    // check a PollEvent or similar.
+    return false;
+  }
+#endif
+
+  /**
+   * @brief C++20 coroutine support: suspend and register for resumption.
+   *
+   * Called when co_await expression needs to suspend. Registers the
+   * coroutine to be resumed when the promise is ready.
+   *
+   * @param h  The coroutine handle to resume later
+   * @return   true to suspend, false to immediately continue (not used here)
+   *
+   * Available only with C++20 coroutines.
+   */
+#if XPP_HAS_COROUTINES
+  bool await_suspend(std::coroutine_handle<> h) {
+    XPP_ASSERT(m_node != nullptr, "await_suspend on empty promise");
+    
+    // Create a coroutine-aware event that will resume h when fired
+    auto event = new _::CoroutineEvent(h);
+    
+    // Register it with the node
+    // The event will be armed when the promise is ready,
+    // and its fire() will call h.resume()
+    m_node->poll(Option<_::Event&>(*event));
+    
+    // Return true to indicate we've suspended
+    // (h will be resumed from the event callback)
+    return true;
+  }
+#endif
+
+  /**
+   * @brief C++20 coroutine support: extract and return the result.
+   *
+   * Called when co_await completes. Extracts the promise's value
+   * and returns it to the awaiting coroutine.
+   *
+   * @return The resolved value
+   *
+   * Available only with C++20 coroutines.
+   */
+#if XPP_HAS_COROUTINES
+  T await_resume() {
+    XPP_ASSERT(m_node != nullptr, "await_resume on empty promise");
+    ValueType result;
+    m_node->read(&result);  // Extract result (moves it out)
+    return std::move(result);
+  }
+#endif
 
   /* ── Static factories ───────────────────────────────────────────── */
 
@@ -367,6 +438,34 @@ template <> inline void Promise<void>::wait(WaitScope &scope) {
   Void v;
   m_node->read(&v);
 }
+
+/* ── C++20 Coroutine support for Promise<void> ──────────────────── */
+
+#if XPP_HAS_COROUTINES
+
+template <>
+inline bool Promise<void>::await_ready() const {
+  return false;  // Same as non-void version
+}
+
+template <>
+inline bool Promise<void>::await_suspend(std::coroutine_handle<> h) {
+  XPP_ASSERT(m_node != nullptr, "await_suspend on empty promise");
+  
+  auto event = new _::CoroutineEvent(h);
+  m_node->poll(Option<_::Event&>(*event));
+  
+  return true;
+}
+
+template <>
+inline void Promise<void>::await_resume() {
+  XPP_ASSERT(m_node != nullptr, "await_resume on empty promise");
+  Void v;
+  m_node->read(&v);
+}
+
+#endif // XPP_HAS_COROUTINES
 
 /* ── maybe_chain (deferred from promise_node.h) ──────────────────── */
 

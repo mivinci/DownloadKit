@@ -15,6 +15,7 @@
 #ifndef XPP_PROMISE_NODE_H
 #define XPP_PROMISE_NODE_H
 
+#include <xpp/compiler.h>
 #include <xpp/option.h>
 #include <xpp/own.h>
 #include <xpp/panic.h>
@@ -403,6 +404,40 @@ public:
   }
 };
 
+
+/* ── CoroutineEvent (C++20 coroutines) ─────────────────────────── */
+
+#if XPP_HAS_COROUTINES
+
+#include <coroutine>
+
+/**
+ * @brief Event that resumes a C++20 coroutine when fired.
+ *
+ * Bridges coroutine_handle into the event system. When fire() is called
+ * (from the event loop), it resumes the suspended coroutine.
+ *
+ * Allocated by Promise<T>::await_suspend() when a coroutine awaits
+ * on a promise. The coroutine_handle is stored and resumed from the
+ * event loop callback.
+ */
+class CoroutineEvent final : public Event {
+public:
+  explicit CoroutineEvent(std::coroutine_handle<> handle)
+      : m_handle(handle) {}
+
+  void fire() override {
+    m_fired = true;
+    if (m_handle) {
+      m_handle.resume();
+    }
+  }
+
+private:
+  std::coroutine_handle<> m_handle;
+};
+
+#endif // XPP_HAS_COROUTINES
 /* ── maybe_chain helper ──────────────────────────────────────────── */
 
 template <class T>

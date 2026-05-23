@@ -233,7 +233,7 @@ TEST(ResultTest, UnwrapUncheckedHappyPath) {
   EXPECT_EQ(cr.unwrap_unchecked(), 12);
 }
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 TEST(ResultDeathTest, UnwrapUncheckedOnErrInDebug) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(([] {
@@ -249,7 +249,7 @@ TEST(ResultTest, UnwrapErrUncheckedHappyPath) {
   EXPECT_EQ(r.unwrap_err_unchecked(), 11);
 }
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 TEST(ResultDeathTest, UnwrapErrUncheckedOnOkInDebug) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(([] {
@@ -499,7 +499,7 @@ TEST(ResultVoidTest, UnwrapErrUncheckedHappyPath) {
   EXPECT_EQ(r.unwrap_err_unchecked(), 13);
 }
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 TEST(ResultVoidDeathTest, UnwrapErrUncheckedOnOkInDebug) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(([] {

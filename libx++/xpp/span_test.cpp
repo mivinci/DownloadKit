@@ -263,7 +263,7 @@ TEST(SpanTest, SizeofGuarantee) {
 
 /* ── Death tests (debug only) ──────────────────────────────────────── */
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 
 using SpanDeathTest = ::testing::Test;
 
@@ -307,4 +307,4 @@ TEST(SpanDeathTest, SubspanCountExceedsRemaining) {
   EXPECT_DEATH(s.subspan(1, 5), "");
 }
 
-#endif // NDEBUG
+#endif // XPP_DEBUG

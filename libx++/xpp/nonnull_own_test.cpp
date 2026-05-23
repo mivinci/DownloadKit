@@ -142,7 +142,7 @@ TEST_F(NonNullOwnTrackerTest, NewUncheckedHappyPath) {
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-#ifndef NDEBUG
+#if XPP_DEBUG
 TEST(NonNullOwnDeathTest, NewUncheckedOnNullDebug) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(([] { (void)xpp::NonNullOwn<int>::new_unchecked(nullptr); }()),

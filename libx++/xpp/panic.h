@@ -88,7 +88,7 @@ void do_panic(const char *fmt, ...);
   } while (0)
 
 /**
- * @brief Debug-only assertion. Compiled out when NDEBUG is defined.
+ * @brief Debug-only assertion. Compiled out when XPP_DEBUG is 0.
  *
  * Use for internal invariants on hot paths, or for *Unchecked() APIs
  * where the caller has already promised the precondition.
@@ -97,10 +97,10 @@ void do_panic(const char *fmt, ...);
  *   XPP_DEBUG_ASSERT(m_has_value, "internal: Option storage uninitialized");
  *   XPP_DEBUG_ASSERT(idx < size, "idx=%zu size=%zu", idx, size);
  */
-#ifdef NDEBUG
-#define XPP_DEBUG_ASSERT(cond, fmt, ...) ((void)0)
-#else
+#if XPP_DEBUG
 #define XPP_DEBUG_ASSERT(cond, fmt, ...) XPP_ASSERT(cond, fmt, ##__VA_ARGS__)
+#else
+#define XPP_DEBUG_ASSERT(cond, fmt, ...) ((void)0)
 #endif
 
 #endif // XPP_PANIC_H

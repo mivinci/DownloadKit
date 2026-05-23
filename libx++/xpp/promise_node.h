@@ -24,6 +24,10 @@
 #include <cstddef>
 #include <utility>
 
+#if XPP_HAS_COROUTINES
+#include <coroutine>
+#endif
+
 extern "C" {
 #include <x/base/event.h>
 }
@@ -408,8 +412,6 @@ public:
 /* ── CoroutineEvent (C++20 coroutines) ─────────────────────────── */
 
 #if XPP_HAS_COROUTINES
-
-#include <coroutine>
 
 /**
  * @brief Event that resumes a C++20 coroutine when fired.

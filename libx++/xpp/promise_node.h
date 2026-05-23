@@ -15,11 +15,12 @@
 #ifndef XPP_PROMISE_NODE_H
 #define XPP_PROMISE_NODE_H
 
+#include <xpp/option.h>
 #include <xpp/own.h>
 #include <xpp/panic.h>
+#include <xpp/void.h>
 
 #include <cstddef>
-#include <type_traits>
 #include <utility>
 
 extern "C" {
@@ -29,14 +30,6 @@ extern "C" {
 namespace xpp {
 
 template <class T> class Promise;
-
-/* ── Void placeholder ────────────────────────────────────────────── */
-
-struct Void {};
-
-template <class T> struct FixVoid_ { using Type = T; };
-template <> struct FixVoid_<void> { using Type = Void; };
-template <class T> using FixVoid = typename FixVoid_<T>::Type;
 
 /* ── ReturnType helper ───────────────────────────────────────────── */
 
@@ -97,11 +90,11 @@ public:
  */
 class PollEvent {
 public:
-  PollEvent() : m_event(nullptr), m_ready(false) {}
+  PollEvent() : m_ready(false) {}
 
-  void init(Event *event) {
+  void init(Option<Event &> event) {
     if (m_ready) {
-      if (event) event->arm();
+      if (event.is_some()) event.unwrap().arm();
     } else {
       m_event = event;
     }
@@ -109,24 +102,22 @@ public:
 
   void arm() {
     m_ready = true;
-    if (m_event) {
-      m_event->arm();
-      m_event = nullptr;
+    if (m_event.is_some()) {
+      m_event.unwrap().arm();
+      m_event = none;
     }
   }
 
   bool is_ready() const { return m_ready; }
 
 private:
-  Event *m_event;
+  Option<Event &> m_event;
   bool m_ready;
 };
 
 /* ── PromiseNode ─────────────────────────────────────────────────── */
 
 class PromiseNode;
-using OwnNode = Own<PromiseNode>;
-
 /**
  * @brief Base class for all promise nodes.
  *
@@ -142,12 +133,14 @@ public:
   /**
    * @brief Register an event to be armed when this node is ready.
    *
-   * If already ready, arm immediately. The event pointer is stored
-   * (not owned) and must outlive the node or be disarmed.
+   * If already ready, arm immediately.
    *
-   * @param event  Event to arm, or nullptr to just check readiness.
+   * @param event  Event to arm when ready, or none to skip
+   *               registration. Caller guarantees the referent outlives
+   *               this node (typically stack-allocated in wait() or a
+   *               ChainPromiseNode member).
    */
-  virtual void poll(Event *event) = 0;
+  virtual void poll(Option<Event &> event) = 0;
 
   /**
    * @brief Read the result into a type-erased destination.
@@ -170,8 +163,8 @@ class ImmediatePromiseNode final : public PromiseNode {
 public:
   explicit ImmediatePromiseNode(T &&value) : m_value(std::move(value)) {}
 
-  void poll(Event *event) override {
-    if (event) event->arm();
+  void poll(Option<Event &> event) override {
+    if (event.is_some()) event.unwrap().arm();
   }
 
   void read(void *dest) override {
@@ -190,17 +183,17 @@ private:
  * Created by Promise<T>::then(). Polls the dependency; when ready,
  * read() pulls from dep, applies func, and writes the result.
  *
- * @tparam U     Output type (FixVoid<ReturnType<Func, T>>)
+ * @tparam U     Output type (FixVoid<ReturnType<Func, T>>::Type)
  * @tparam T     Input type from dependency
  * @tparam Func  Callable T → U
  */
 template <class U, class T, class Func>
 class TransformPromiseNode final : public PromiseNode {
 public:
-  TransformPromiseNode(OwnNode dep, Func &&func)
+  TransformPromiseNode(Own<PromiseNode> dep, Func &&func)
       : m_dep(std::move(dep)), m_func(std::move(func)) {}
 
-  void poll(Event *event) override {
+  void poll(Option<Event &> event) override {
     m_dep->poll(event);
   }
 
@@ -211,7 +204,7 @@ public:
   }
 
 private:
-  OwnNode m_dep;
+  Own<PromiseNode> m_dep;
   Func m_func;
 };
 
@@ -219,10 +212,10 @@ private:
 template <class U, class Func>
 class TransformPromiseNode<U, Void, Func> final : public PromiseNode {
 public:
-  TransformPromiseNode(OwnNode dep, Func &&func)
+  TransformPromiseNode(Own<PromiseNode> dep, Func &&func)
       : m_dep(std::move(dep)), m_func(std::move(func)) {}
 
-  void poll(Event *event) override {
+  void poll(Option<Event &> event) override {
     m_dep->poll(event);
   }
 
@@ -233,7 +226,7 @@ public:
   }
 
 private:
-  OwnNode m_dep;
+  Own<PromiseNode> m_dep;
   Func m_func;
 };
 
@@ -241,10 +234,10 @@ private:
 template <class T, class Func>
 class TransformPromiseNode<Void, T, Func> final : public PromiseNode {
 public:
-  TransformPromiseNode(OwnNode dep, Func &&func)
+  TransformPromiseNode(Own<PromiseNode> dep, Func &&func)
       : m_dep(std::move(dep)), m_func(std::move(func)) {}
 
-  void poll(Event *event) override {
+  void poll(Option<Event &> event) override {
     m_dep->poll(event);
   }
 
@@ -256,7 +249,7 @@ public:
   }
 
 private:
-  OwnNode m_dep;
+  Own<PromiseNode> m_dep;
   Func m_func;
 };
 
@@ -264,10 +257,10 @@ private:
 template <class Func>
 class TransformPromiseNode<Void, Void, Func> final : public PromiseNode {
 public:
-  TransformPromiseNode(OwnNode dep, Func &&func)
+  TransformPromiseNode(Own<PromiseNode> dep, Func &&func)
       : m_dep(std::move(dep)), m_func(std::move(func)) {}
 
-  void poll(Event *event) override {
+  void poll(Option<Event &> event) override {
     m_dep->poll(event);
   }
 
@@ -279,7 +272,7 @@ public:
   }
 
 private:
-  OwnNode m_dep;
+  Own<PromiseNode> m_dep;
   Func m_func;
 };
 
@@ -294,12 +287,12 @@ private:
  */
 class ChainPromiseNode final : public PromiseNode, public Event {
 public:
-  explicit ChainPromiseNode(OwnNode inner)
-      : m_state(Step1), m_inner(std::move(inner)), m_outer_event(nullptr) {
-    m_inner->poll(this);
+  explicit ChainPromiseNode(Own<PromiseNode> inner)
+      : m_state(Step1), m_inner(std::move(inner)) {
+    m_inner->poll(Option<Event &>(*this));
   }
 
-  void poll(Event *event) override {
+  void poll(Option<Event &> event) override {
     switch (m_state) {
     case Step1:
       m_outer_event = event;
@@ -321,8 +314,8 @@ protected:
 private:
   enum State { Step1, Step2 };
   State m_state;
-  OwnNode m_inner;
-  Event *m_outer_event;
+  Own<PromiseNode> m_inner;
+  Option<Event &> m_outer_event;
 };
 
 /* ── AdapterPromiseNode ──────────────────────────────────────────── */
@@ -338,9 +331,9 @@ class AdapterPromiseNode final : public PromiseNode {
 public:
   AdapterPromiseNode() : m_resolved(false) {}
 
-  void poll(Event *event) override {
+  void poll(Option<Event &> event) override {
     if (m_resolved) {
-      if (event) event->arm();
+      if (event.is_some()) event.unwrap().arm();
     } else {
       m_poll.init(event);
     }
@@ -370,9 +363,9 @@ class AdapterPromiseNode<Void> final : public PromiseNode {
 public:
   AdapterPromiseNode() : m_resolved(false) {}
 
-  void poll(Event *event) override {
+  void poll(Option<Event &> event) override {
     if (m_resolved) {
-      if (event) event->arm();
+      if (event.is_some()) event.unwrap().arm();
     } else {
       m_poll.init(event);
     }
@@ -401,8 +394,8 @@ private:
  */
 class YieldPromiseNode final : public PromiseNode {
 public:
-  void poll(Event *event) override {
-    if (event) event->arm();
+  void poll(Option<Event &> event) override {
+    if (event.is_some()) event.unwrap().arm();
   }
 
   void read(void *dest) override {
@@ -413,12 +406,12 @@ public:
 /* ── maybe_chain helper ──────────────────────────────────────────── */
 
 template <class T>
-inline OwnNode maybe_chain(OwnNode node, T *) {
+inline Own<PromiseNode> maybe_chain(Own<PromiseNode> node, T *) {
   return node;
 }
 
 template <class T>
-OwnNode maybe_chain(OwnNode node, Promise<T> *);
+Own<PromiseNode> maybe_chain(Own<PromiseNode> node, Promise<T> *);
 // Defined after Promise<T> is complete (in promise.h)
 
 } // namespace _

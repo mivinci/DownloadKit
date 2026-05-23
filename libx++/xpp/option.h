@@ -335,6 +335,101 @@ template <class T> Option<typename std::decay<T>::type> Some(T &&val) {
   return Option<typename std::decay<T>::type>(std::forward<T>(val));
 }
 
+/* ── Option<T&> specialization ─────────────────────────────────────── */
+
+/**
+ * @brief Option holding a reference — a safe nullable reference.
+ *
+ * Zero-overhead: sizeof(Option<T&>) == sizeof(T*).
+ * Replaces raw pointers that express "might be null."
+ *
+ * @code
+ *   int x = 42;
+ *   Option<int&> ref(x);
+ *   ref.unwrap() = 10;  // modifies x
+ *
+ *   Option<int&> empty(none);
+ *   // empty.unwrap();  // panics
+ * @endcode
+ */
+template <class T> class Option<T &> {
+public:
+  using value_type = T &;
+
+  constexpr Option() noexcept : m_ptr(nullptr) {}
+  constexpr Option(None) noexcept : m_ptr(nullptr) {}
+  Option(T &ref) noexcept : m_ptr(&ref) {}
+
+  /* Rebindable (unlike actual C++ references). */
+  Option(const Option &) noexcept = default;
+  Option &operator=(const Option &) noexcept = default;
+
+  Option &operator=(None) noexcept {
+    m_ptr = nullptr;
+    return *this;
+  }
+
+  bool is_some() const noexcept { return m_ptr != nullptr; }
+  bool is_none() const noexcept { return m_ptr == nullptr; }
+  explicit operator bool() const noexcept { return m_ptr != nullptr; }
+
+  T &unwrap() const {
+    XPP_ASSERT(m_ptr != nullptr, "unwrap() on None Option<T&>");
+    return *m_ptr;
+  }
+
+  T &unwrap_unchecked() const noexcept {
+    XPP_DEBUG_ASSERT(m_ptr != nullptr, "internal: Option<T&> must be Some");
+    return *m_ptr;
+  }
+
+  T &unwrap_or(T &fallback) const noexcept {
+    return m_ptr ? *m_ptr : fallback;
+  }
+
+  T &expect(const char *msg) const {
+    XPP_ASSERT(m_ptr != nullptr, "expect: %s", msg);
+    return *m_ptr;
+  }
+
+  /**
+   * @brief Take the reference out, leaving this Option empty.
+   */
+  Option take() noexcept {
+    Option r(*this);
+    m_ptr = nullptr;
+    return r;
+  }
+
+  template <class Func>
+  auto map(Func &&fn) const -> Option<decltype(fn(std::declval<T &>()))> {
+    using U = decltype(fn(std::declval<T &>()));
+    return m_ptr ? Option<U>(fn(*m_ptr)) : Option<U>(none);
+  }
+
+  template <class Func>
+  auto and_then(Func &&fn) const -> decltype(fn(std::declval<T &>())) {
+    using R = decltype(fn(std::declval<T &>()));
+    return m_ptr ? fn(*m_ptr) : R(none);
+  }
+
+  template <class Func> Option or_else(Func &&fn) const {
+    return m_ptr ? *this : fn();
+  }
+
+  template <class Func> Option filter(Func &&pred) const {
+    return (m_ptr && pred(*m_ptr)) ? *this : Option(none);
+  }
+
+  template <class Func> const Option &inspect(Func &&fn) const {
+    if (m_ptr) fn(*m_ptr);
+    return *this;
+  }
+
+private:
+  T *m_ptr;
+};
+
 } // namespace xpp
 
 #endif // XPP_OPTION_H

@@ -5,11 +5,14 @@
  *
  * promise.h - Promise<T>: composable deferred value.
  *
+ * Design inspired by KJ (Cap'n Proto async library):
+ *   https://github.com/capnproto/capnproto/blob/master/c%2B%2B/src/kj/async.h
+ *
  * Promise<T> represents a value that will be available in the future.
  * Chain transformations with then(), wait for the result with wait().
  *
  * This is Phase 1 of the async runtime: single-threaded, event-loop
- * driven, with the poll(Event*) interface designed for future co_await
+ * driven, with the poll(Option<Event&>) interface designed for future co_await
  * integration.
  *
  * C++11-compatible.
@@ -28,6 +31,7 @@ namespace xpp {
 
 class WaitScope;
 template <class T> class Resolver;
+template <class T> struct PromiseAndResolver;
 
 /* ── PromiseForResult ────────────────────────────────────────────── */
 
@@ -41,23 +45,20 @@ using PromiseForResultVoid = Promise<typename ReducePromise<ReturnTypeVoid<Func>
 
 /**
  * @brief A composable deferred value.
+ * @tparam T  The value type. Use void for completion-only promises.
  *
  * @code
- *   int result = xpp::eval_later([] { return 42; })
+ *   int result = xpp::Promise<int>::eval([] { return 42; })
  *     .then([](int x) { return x * 2; })
  *     .wait(scope);
  * @endcode
- *
- * @tparam T  The value type. Use void for completion-only promises.
  */
 template <class T> class Promise {
 public:
-  using ValueType = FixVoid<T>;
+  using ValueType = typename FixVoid<T>::Type;
 
   Promise() : m_node(nullptr) {}
-
-  explicit Promise(_::OwnNode node) : m_node(std::move(node)) {}
-
+  explicit Promise(Own<_::PromiseNode> node) : m_node(std::move(node)) {}
   Promise(Promise &&o) noexcept : m_node(std::move(o.m_node)) {}
   Promise &operator=(Promise &&o) noexcept {
     m_node = std::move(o.m_node);
@@ -82,10 +83,12 @@ public:
   auto then(Func &&func)
     -> Promise<typename ReducePromise<decltype(std::declval<Func>()(std::declval<V>()))>::Type> {
     using RawU     = decltype(std::declval<Func>()(std::declval<V>()));
-    using U        = FixVoid<RawU>;
+    using U        = typename FixVoid<RawU>::Type;
     using ReducedT = typename ReducePromise<RawU>::Type;
 
-    _::OwnNode node(
+    // TODO: each then() heap-allocates a node. Phase 2 (coroutines)
+    // eliminates most chains; remaining hot paths can use an arena.
+    Own<_::PromiseNode> node(
       new _::TransformPromiseNode<U, V, Func>(std::move(m_node), std::forward<Func>(func)));
     node = _::maybe_chain(std::move(node), static_cast<U *>(nullptr));
     return Promise<ReducedT>(std::move(node));
@@ -98,10 +101,11 @@ public:
   auto then(Func &&func)
     -> Promise<typename ReducePromise<decltype(std::declval<Func>()())>::Type> {
     using RawU     = decltype(std::declval<Func>()());
-    using U        = FixVoid<RawU>;
+    using U        = typename FixVoid<RawU>::Type;
     using ReducedT = typename ReducePromise<RawU>::Type;
 
-    _::OwnNode node(
+    // TODO: same as above — heap alloc per then().
+    Own<_::PromiseNode> node(
       new _::TransformPromiseNode<U, Void, Func>(std::move(m_node), std::forward<Func>(func)));
     node = _::maybe_chain(std::move(node), static_cast<U *>(nullptr));
     return Promise<ReducedT>(std::move(node));
@@ -125,13 +129,65 @@ public:
    */
   Promise<void> discard(); // defined below after Promise<void> is complete
 
+  /* ── Static factories ───────────────────────────────────────────── */
+
+  /**
+   * @brief Create an already-resolved promise.
+   *
+   * @code
+   *   auto p = Promise<int>::resolve(42);
+   *   auto q = Promise<void>::resolve();
+   * @endcode
+   */
+  static Promise resolve(ValueType value) {
+    Own<_::PromiseNode> node(new _::ImmediatePromiseNode<ValueType>(std::move(value)));
+    return Promise(std::move(node));
+  }
+
+  /** @brief No-arg overload for Promise<void>::resolve(). */
+  template <class V = ValueType,
+            class   = typename std::enable_if<std::is_same<V, Void>::value>::type>
+  static Promise resolve() {
+    Own<_::PromiseNode> node(new _::ImmediatePromiseNode<Void>(Void{}));
+    return Promise(std::move(node));
+  }
+
+  /**
+   * @brief Defer func to the next event loop turn.
+   *
+   * Only available on Promise<void>. Returns Promise<U> where U is
+   * the return type of func (with automatic flatten if func returns
+   * a Promise).
+   *
+   * @code
+   *   auto p = Promise<void>::eval([] { return 42; });
+   *   int val = p.wait(scope);  // == 42
+   * @endcode
+   */
+  template <class Func, class V = ValueType,
+            class = typename std::enable_if<std::is_same<V, Void>::value>::type>
+  static auto eval(Func &&func) -> Promise<typename ReducePromise<ReturnTypeVoid<Func>>::Type> {
+    return Promise(Own<_::PromiseNode>(new _::YieldPromiseNode())).then(std::forward<Func>(func));
+  }
+
+  /**
+   * @brief Create a promise + resolver pair.
+   *
+   * @code
+   *   auto pr = Promise<int>::make();
+   *   pr.resolver.resolve(42);
+   *   int val = pr.promise.wait(scope);
+   * @endcode
+   */
+  static PromiseAndResolver<T> make(); // defined after PromiseAndResolver
+
   /** @brief Check if this promise has a node (not moved-from). */
   explicit operator bool() const {
     return m_node != nullptr;
   }
 
 private:
-  _::OwnNode m_node;
+  Own<_::PromiseNode> m_node;
 
   template <class U> friend class Promise;
   friend class _::PromiseNode;
@@ -144,14 +200,14 @@ private:
  * @brief Producer end of a promise. Call resolve() to fulfill.
  *
  * @code
- *   auto [promise, resolver] = xpp::create_promise<int>();
- *   resolver->resolve(42);
- *   int val = promise.wait(scope);
+ *   auto pr = Promise<int>::make();
+ *   pr.resolver.resolve(42);
+ *   int val = pr.promise.wait(scope);
  * @endcode
  */
 template <class T> class Resolver {
 public:
-  using ValueType = FixVoid<T>;
+  using ValueType = typename FixVoid<T>::Type;
 
   explicit Resolver(_::AdapterPromiseNode<ValueType> *node) : m_node(node) {}
 
@@ -215,12 +271,20 @@ private:
   _::AdapterPromiseNode<Void> *m_node;
 };
 
-/* ── PromisePair ─────────────────────────────────────────────────── */
+/* ── PromiseAndResolver ─────────────────────────────────────────────────── */
 
-template <class T> struct PromisePair {
+template <class T> struct PromiseAndResolver {
   Promise<T>  promise;
   Resolver<T> resolver;
 };
+
+/* ── Promise<T>::make ──────────────────────────────────────────────── */
+
+template <class T> PromiseAndResolver<T> Promise<T>::make() {
+  auto               *adapter = new _::AdapterPromiseNode<ValueType>();
+  Own<_::PromiseNode> node(adapter);
+  return PromiseAndResolver<T>{Promise(std::move(node)), Resolver<T>(adapter)};
+}
 
 /* ── WaitScope ───────────────────────────────────────────────────── */
 
@@ -256,54 +320,7 @@ private:
   xEventLoop m_loop;
 };
 
-/* ── Factory functions ───────────────────────────────────────────── */
-
-/**
- * @brief Create an already-resolved promise.
- *
- * @code
- *   Promise<int> p = xpp::resolve(42);
- * @endcode
- */
-template <class T> Promise<T> resolve(T value) {
-  using V = FixVoid<T>;
-  _::OwnNode node(new _::ImmediatePromiseNode<V>(std::move(value)));
-  return Promise<T>(std::move(node));
-}
-
-/** @brief Create an already-resolved Promise<void>. */
-inline Promise<void> resolve() {
-  _::OwnNode node(new _::ImmediatePromiseNode<Void>(Void{}));
-  return Promise<void>(std::move(node));
-}
-
-/**
- * @brief Create a promise + resolver pair.
- *
- * @code
- *   auto pair = xpp::create_promise<int>();
- *   pair.resolver.resolve(42);
- *   int val = pair.promise.wait(scope);
- * @endcode
- */
-template <class T> PromisePair<T> create_promise() {
-  using V            = FixVoid<T>;
-  auto      *adapter = new _::AdapterPromiseNode<V>();
-  _::OwnNode node(adapter);
-  return PromisePair<T>{Promise<T>(std::move(node)), Resolver<T>(adapter)};
-}
-
-/**
- * @brief Defer execution to the next event loop turn, then call func.
- *
- * @code
- *   auto p = xpp::eval_later([] { return 42; });
- *   int val = p.wait(scope);  // == 42
- * @endcode
- */
-template <class Func> auto eval_later(Func &&func) -> PromiseForResultVoid<Func> {
-  return Promise<void>(_::OwnNode(new _::YieldPromiseNode())).then(std::forward<Func>(func));
-}
+/* ── Free helper functions ──────────────────────────────────────── */
 
 /**
  * @brief Yield control to the event loop, resuming on the next turn.
@@ -313,7 +330,7 @@ template <class Func> auto eval_later(Func &&func) -> PromiseForResultVoid<Func>
  * @endcode
  */
 inline Promise<void> yield() {
-  return Promise<void>(_::OwnNode(new _::YieldPromiseNode()));
+  return Promise<void>(Own<_::PromiseNode>(new _::YieldPromiseNode()));
 }
 
 /* ── Promise<T>::discard implementation ──────────────────────────── */
@@ -327,7 +344,7 @@ template <class T> Promise<void> Promise<T>::discard() {
 template <class T> T Promise<T>::wait(WaitScope &scope) {
   XPP_ASSERT(m_node != nullptr, "Promise::wait on empty promise");
   _::RootEvent root;
-  m_node->poll(&root);
+  m_node->poll(root);
 
   while (!root.fired()) {
     xEventWait(scope.loop(), -1);
@@ -341,7 +358,7 @@ template <class T> T Promise<T>::wait(WaitScope &scope) {
 template <> inline void Promise<void>::wait(WaitScope &scope) {
   XPP_ASSERT(m_node != nullptr, "Promise::wait on empty promise");
   _::RootEvent root;
-  m_node->poll(&root);
+  m_node->poll(root);
 
   while (!root.fired()) {
     xEventWait(scope.loop(), -1);
@@ -355,8 +372,8 @@ template <> inline void Promise<void>::wait(WaitScope &scope) {
 
 namespace _ {
 
-template <class T> inline OwnNode maybe_chain(OwnNode node, Promise<T> *) {
-  return OwnNode(new ChainPromiseNode(std::move(node)));
+template <class T> inline Own<PromiseNode> maybe_chain(Own<PromiseNode> node, Promise<T> *) {
+  return Own<PromiseNode>(new ChainPromiseNode(std::move(node)));
 }
 
 } // namespace _

@@ -62,6 +62,41 @@ template <class T> class Promise {
 public:
   using ValueType = typename FixVoid<T>::Type;
 
+#if XPP_HAS_COROUTINES
+  /* ── Coroutine promise_type ─────────────────────────────────────── */
+
+  /**
+   * @brief Makes Promise<T> usable as a coroutine return type.
+   *
+   * @code
+   *   Promise<int> fetch_and_add() {
+   *     int a = co_await fetch();
+   *     co_return a + 1;
+   *   }
+   * @endcode
+   */
+  struct promise_type {
+    _::AdapterPromiseNode<ValueType> *adapter;
+
+    promise_type() {
+      adapter = new _::AdapterPromiseNode<ValueType>();
+    }
+
+    Promise get_return_object() {
+      return Promise(Own<_::PromiseNode>(adapter));
+    }
+
+    std::suspend_never initial_suspend() noexcept { return {}; }
+    std::suspend_never final_suspend() noexcept { return {}; }
+
+    void return_value(ValueType value) {
+      adapter->resolve(std::move(value));
+    }
+
+    void unhandled_exception() { std::terminate(); }
+  };
+#endif // XPP_HAS_COROUTINES
+
   Promise() : m_node(nullptr) {}
   explicit Promise(Own<_::PromiseNode> node) : m_node(std::move(node)) {}
   Promise(Promise &&o) noexcept : m_node(std::move(o.m_node)) {}
@@ -464,6 +499,30 @@ inline void Promise<void>::await_resume() {
   Void v;
   m_node->read(&v);
 }
+
+/* ── Promise<void>::promise_type ──────────────────────────────────── */
+
+template <>
+struct Promise<void>::promise_type {
+  _::AdapterPromiseNode<Void> *adapter;
+
+  promise_type() {
+    adapter = new _::AdapterPromiseNode<Void>();
+  }
+
+  Promise<void> get_return_object() {
+    return Promise<void>(Own<_::PromiseNode>(adapter));
+  }
+
+  std::suspend_never initial_suspend() noexcept { return {}; }
+  std::suspend_never final_suspend() noexcept { return {}; }
+
+  void return_void() {
+    adapter->resolve();
+  }
+
+  void unhandled_exception() { std::terminate(); }
+};
 
 #endif // XPP_HAS_COROUTINES
 

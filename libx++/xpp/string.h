@@ -54,38 +54,79 @@ class String {
 public:
   /* ── Construction ──────────────────────────────────────────────── */
 
-  /** @brief Empty string. No allocation. */
+  /**
+   * @brief Construct an empty string. No heap allocation.
+   *
+   * @code
+   *   String s;
+   *   assert(s.is_empty() && s.len() == 0);
+   * @endcode
+   */
   String() noexcept;
 
   /**
    * @brief Construct from a NUL-terminated C string.
    *
-   * Validates UTF-8. Panics if @p s contains invalid sequences.
-   * Use for string literals and known-good sources.
+   * Validates UTF-8 at runtime. Panics if @p s is not valid UTF-8.
+   * Use for string literals and other trusted sources.
+   *
+   * @param s  NUL-terminated C string to copy (nullptr → empty string).
+   *
+   * @code
+   *   String greeting("hello 世界");
+   * @endcode
    */
   explicit String(const char *s);
 
   /**
    * @brief Construct from raw bytes with explicit length.
    *
-   * Validates UTF-8. Panics if the data is invalid.
+   * Validates UTF-8. Panics if the data is not valid.
+   *
+   * @param data  Pointer to UTF-8 bytes (nullptr → empty string).
+   * @param len   Number of bytes to copy.
+   *
+   * @code
+   *   const char buf[] = "hello\x00world";
+   *   String s(buf, 5);  // "hello" (binary-safe length)
+   * @endcode
    */
   String(const char *data, size_t len);
 
   /**
    * @brief Fallible construction from untrusted bytes.
    *
-   * @return Ok(String) if valid UTF-8, Err(Utf8Error) with the byte
-   *         offset of the first invalid byte otherwise.
+   * Validates the entire buffer. On failure, reports the byte offset
+   * of the first invalid sequence.
+   *
+   * @param bytes  Byte span to validate and copy.
+   * @return       Ok(String) if valid, Err(Utf8Error{valid_up_to}) otherwise.
+   *
+   * @code
+   *   auto r = String::from(network_data);
+   *   if (r.is_err()) {
+   *     log("bad UTF-8 at byte %zu", r.unwrap_err().valid_up_to);
+   *   }
+   * @endcode
    */
   static Result<String, Utf8Error> from(Span<const char> bytes);
 
   /**
    * @brief Construct without validation. Caller guarantees UTF-8.
+   *
+   * Use when data is known-valid (e.g. from a trusted codec or
+   * already-validated source). No runtime cost.
+   *
+   * @param s  NUL-terminated C string (nullptr → empty).
    */
   static String from_unchecked(const char *s) noexcept;
 
-  /** @brief Construct without validation from data + length. */
+  /**
+   * @brief Construct without validation from pointer + length.
+   *
+   * @param data  Pointer to bytes (nullptr → empty).
+   * @param len   Number of bytes.
+   */
   static String from_unchecked(const char *data, size_t len) noexcept;
 
   ~String();
@@ -130,29 +171,71 @@ public:
 
   /* ── Mutation ──────────────────────────────────────────────────── */
 
-  /** @brief Append another String (already valid, no check needed). */
+  /**
+   * @brief Append another String. No validation needed (already UTF-8).
+   *
+   * @param other  String to append.
+   *
+   * @code
+   *   String s("hello");
+   *   String w(" world");
+   *   s.append(w);  // s == "hello world"
+   * @endcode
+   */
   void append(const String &other);
 
-  /** @brief Append a NUL-terminated C string. Validates; panics if invalid. */
+  /**
+   * @brief Append a NUL-terminated C string. Validates; panics if invalid.
+   *
+   * @param s  C string to append (nullptr/empty → no-op).
+   */
   void append(const char *s);
 
-  /** @brief Append raw bytes with length. Validates; panics if invalid. */
+  /**
+   * @brief Append raw bytes with explicit length. Validates; panics if invalid.
+   *
+   * @param data  Pointer to UTF-8 bytes.
+   * @param n     Number of bytes to append.
+   */
   void append(const char *data, size_t n);
 
-  /** @brief Try to append bytes. Returns Err with position if not valid UTF-8. */
+  /**
+   * @brief Try to append bytes. Returns error position if not valid UTF-8.
+   *
+   * On failure, the string is unchanged.
+   *
+   * @param bytes  Byte span to validate and append.
+   * @return       Ok(true) on success, Err(Utf8Error{valid_up_to}) on failure.
+   *
+   * @code
+   *   auto r = s.try_append(untrusted_bytes);
+   *   if (r.is_err()) { ... } // string unchanged
+   * @endcode
+   */
   Result<bool, Utf8Error> try_append(Span<const char> bytes);
 
-  /** @brief Clear to empty string (does not free allocation). */
+  /** @brief Clear to empty. Does not free the allocation. */
   void clear();
 
   /**
    * @brief Truncate to @p byte_len bytes.
    *
-   * Debug-asserts that byte_len falls on a UTF-8 character boundary.
+   * Debug-asserts that byte_len <= len() and falls on a UTF-8 char boundary.
+   *
+   * @param byte_len  Target byte length. Must be on a character boundary.
+   *
+   * @code
+   *   String s("hello");
+   *   s.truncate(3);  // s == "hel"
+   * @endcode
    */
   void truncate(size_t byte_len);
 
-  /** @brief Pre-allocate space for at least @p additional more bytes. */
+  /**
+   * @brief Pre-allocate space for at least @p additional more bytes.
+   *
+   * @param additional  Extra byte slots to reserve beyond current len().
+   */
   void reserve(size_t additional);
 
   /** @brief Shrink allocation to fit current content. */
@@ -160,10 +243,25 @@ public:
 
   /* ── Search ────────────────────────────────────────────────────── */
 
-  /** @brief Find first occurrence of NUL-terminated needle. */
+  /**
+   * @brief Find first occurrence of a NUL-terminated needle.
+   *
+   * @param needle  C string to search for.
+   * @return        Some(byte_offset) if found, None otherwise.
+   *
+   * @code
+   *   String s("hello world");
+   *   auto pos = s.find("world");  // Some(6)
+   * @endcode
+   */
   Option<size_t> find(const char *needle) const;
 
-  /** @brief Find first occurrence of a byte span as needle. */
+  /**
+   * @brief Find first occurrence of a byte-span needle.
+   *
+   * @param needle  Span of bytes to search for.
+   * @return        Some(byte_offset) if found, None otherwise.
+   */
   Option<size_t> find(Span<const char> needle) const;
 
   /* ── Comparison ────────────────────────────────────────────────── */

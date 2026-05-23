@@ -11,6 +11,7 @@
 #include <cstring>
 
 extern "C" {
+#include <x/base/compat.h>
 #include <x/base/utf8.h>
 }
 
@@ -140,32 +141,35 @@ void String::shrink_to_fit() {
 
 /* ── Search ────────────────────────────────────────────────────────── */
 
+/** Threshold below which naive memcmp scan beats memmem call overhead. */
+static constexpr size_t kFindThreshold = 32;
+
+static Option<size_t> find_impl(const char *haystack, size_t hlen,
+                                const char *needle, size_t nlen) {
+  if (nlen > hlen) return none;
+  if (nlen < kFindThreshold) {
+    size_t last = hlen - nlen;
+    for (size_t i = 0; i <= last; ++i) {
+      if (std::memcmp(haystack + i, needle, nlen) == 0) {
+        return Option<size_t>(i);
+      }
+    }
+    return none;
+  }
+  const void *found = memmem(haystack, hlen, needle, nlen);
+  return found ? Option<size_t>(static_cast<size_t>(
+                     static_cast<const char *>(found) - haystack))
+               : Option<size_t>(none);
+}
+
 Option<size_t> String::find(const char *needle) const {
   if (m_buf.is_empty() || !needle || *needle == '\0') return none;
-  const char *haystack = m_buf.data();
-  size_t hlen          = m_buf.len();
-  size_t nlen          = std::strlen(needle);
-  if (nlen > hlen) return none;
-  for (size_t i = 0; i <= hlen - nlen; ++i) {
-    if (std::memcmp(haystack + i, needle, nlen) == 0) {
-      return Option<size_t>(i);
-    }
-  }
-  return none;
+  return find_impl(m_buf.data(), m_buf.len(), needle, std::strlen(needle));
 }
 
 Option<size_t> String::find(Span<const char> needle) const {
   if (m_buf.is_empty() || needle.is_empty()) return none;
-  size_t hlen = m_buf.len();
-  size_t nlen = needle.size();
-  if (nlen > hlen) return none;
-  const char *haystack = m_buf.data();
-  for (size_t i = 0; i <= hlen - nlen; ++i) {
-    if (std::memcmp(haystack + i, needle.data(), nlen) == 0) {
-      return Option<size_t>(i);
-    }
-  }
-  return none;
+  return find_impl(m_buf.data(), m_buf.len(), needle.data(), needle.size());
 }
 
 /* ── Comparison ────────────────────────────────────────────────────── */

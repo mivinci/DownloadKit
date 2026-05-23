@@ -13,11 +13,8 @@
 #include <cstring>
 #include <utility>
 
-using xpp::none;
-using xpp::Option;
 using xpp::Span;
 using xpp::String;
-using xpp::Utf8Error;
 
 /* ── Construction ──────────────────────────────────────────────────── */
 
@@ -250,6 +247,18 @@ TEST(StringTest, FindSpanFound) {
   EXPECT_EQ(pos.unwrap(), 2u);
 }
 
+TEST(StringTest, FindSpanNotFound) {
+  String s("hello");
+  const char needle[] = "xyz";
+  EXPECT_TRUE(s.find(Span<const char>(needle, 3)).is_none());
+}
+
+TEST(StringTest, FindOnEmpty) {
+  String s;
+  EXPECT_TRUE(s.find("x").is_none());
+  EXPECT_TRUE(s.find(Span<const char>("x", 1)).is_none());
+}
+
 /* ── Comparison ────────────────────────────────────────────────────── */
 
 TEST(StringTest, EqualStrings) {
@@ -327,6 +336,74 @@ TEST(StringTest, CloneMultibyte) {
   String s("\xF0\x9F\x98\x80 smile");
   String c = s.clone();
   EXPECT_STREQ(c.c_str(), s.c_str());
+}
+
+/* ── Additional edge cases ─────────────────────────────────────────── */
+
+TEST(StringTest, Len) {
+  String s("hello");
+  EXPECT_EQ(s.len(), 5u);
+}
+
+TEST(StringTest, Capacity) {
+  String s("hello");
+  EXPECT_GE(s.capacity(), 5u);
+}
+
+TEST(StringTest, IsEmptyAndEmpty) {
+  String empty;
+  String nonempty("x");
+  EXPECT_TRUE(empty.is_empty());
+  EXPECT_TRUE(empty.empty());
+  EXPECT_FALSE(nonempty.is_empty());
+  EXPECT_FALSE(nonempty.empty());
+}
+
+TEST(StringTest, ShrinkToFit) {
+  String s("hi");
+  s.reserve(1000);
+  EXPECT_GE(s.capacity(), 1000u);
+  s.shrink_to_fit();
+  EXPECT_STREQ(s.c_str(), "hi");
+}
+
+TEST(StringTest, AppendEmpty) {
+  String s("hello");
+  s.append("");
+  s.append(nullptr);
+  EXPECT_STREQ(s.c_str(), "hello");
+}
+
+TEST(StringTest, TryAppendEmpty) {
+  String s("hello");
+  auto r = s.try_append(Span<const char>());
+  EXPECT_TRUE(r.is_ok());
+  EXPECT_STREQ(s.c_str(), "hello");
+}
+
+TEST(StringTest, FromUncheckedNullptr) {
+  auto s = String::from_unchecked(nullptr);
+  EXPECT_TRUE(s.is_empty());
+}
+
+TEST(StringTest, FromUncheckedZeroLen) {
+  auto s = String::from_unchecked("hello", 0);
+  EXPECT_TRUE(s.is_empty());
+}
+
+TEST(StringTest, CloneEmpty) {
+  String s;
+  String c = s.clone();
+  EXPECT_TRUE(c.is_empty());
+  EXPECT_STREQ(c.c_str(), "");
+}
+
+TEST(StringTest, EqualBothEmpty) {
+  String a;
+  String b;
+  EXPECT_TRUE(a == b);
+  EXPECT_TRUE(a == "");
+  EXPECT_TRUE("" == a);
 }
 
 /* ── Death tests (debug only) ──────────────────────────────────────── */

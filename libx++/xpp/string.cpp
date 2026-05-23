@@ -133,10 +133,12 @@ void String::truncate(size_t byte_len) {
 
 void String::reserve(size_t additional) {
   m_buf.reserve(additional + 1); /* +1 for NUL */
+  ensure_nul(); /* realloc may have moved the buffer; rewrite NUL */
 }
 
 void String::shrink_to_fit() {
   m_buf.shrink_to_fit();
+  ensure_nul(); /* same reason */
 }
 
 /* ── Search ────────────────────────────────────────────────────────── */

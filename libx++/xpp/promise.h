@@ -171,69 +171,39 @@ public:
    */
   Promise<void> discard(); // defined below after Promise<void> is complete
 
-  /**
-   * @brief C++20 coroutine support: check if already resolved.
-   *
-   * Returns true if the promise is already resolved and can be
-   * resumed immediately (i.e., no suspension is needed).
-   *
-   * Available only with C++20 coroutines.
-   */
 #if XPP_HAS_COROUTINES
-  bool await_ready() const {
-    // For now, always return false. In an optimized version,
-    // we could check if the node is immediately ready.
-    // This is a simplification; real implementations might
-    // check a PollEvent or similar.
-    return false;
-  }
-#endif
+  /**
+   * @brief Returns an Awaiter that lives on the coroutine frame.
+   *
+   * The Awaiter owns a CoroutineEvent as a member (no heap allocation).
+   * This ensures exactly one event per co_await, with correct lifetime.
+   */
+  auto operator co_await() {
+    struct Awaiter {
+      _::PromiseNode *node;
+      _::CoroutineEvent event{};
 
-  /**
-   * @brief C++20 coroutine support: suspend and register for resumption.
-   *
-   * Called when co_await expression needs to suspend. Registers the
-   * coroutine to be resumed when the promise is ready.
-   *
-   * @param h  The coroutine handle to resume later
-   * @return   true to suspend, false to immediately continue (not used here)
-   *
-   * Available only with C++20 coroutines.
-   */
-#if XPP_HAS_COROUTINES
-  bool await_suspend(std::coroutine_handle<> h) {
-    XPP_ASSERT(m_node != nullptr, "await_suspend on empty promise");
-    
-    // Create a coroutine-aware event that will resume h when fired
-    auto event = new _::CoroutineEvent(h);
-    
-    // Register it with the node
-    // The event will be armed when the promise is ready,
-    // and its fire() will call h.resume()
-    m_node->poll(Option<_::Event&>(*event));
-    
-    // Return true to indicate we've suspended
-    // (h will be resumed from the event callback)
-    return true;
-  }
-#endif
+      bool await_ready() const { return false; }
 
-  /**
-   * @brief C++20 coroutine support: extract and return the result.
-   *
-   * Called when co_await completes. Extracts the promise's value
-   * and returns it to the awaiting coroutine.
-   *
-   * @return The resolved value
-   *
-   * Available only with C++20 coroutines.
-   */
-#if XPP_HAS_COROUTINES
-  T await_resume() {
-    XPP_ASSERT(m_node != nullptr, "await_resume on empty promise");
-    ValueType result;
-    m_node->read(&result);  // Extract result (moves it out)
-    return std::move(result);
+      bool await_suspend(std::coroutine_handle<> h) {
+        event = _::CoroutineEvent(h);
+        node->poll(Option<_::Event &>(event));
+        return true;
+      }
+
+      T await_resume() {
+        if constexpr (std::is_void_v<T>) {
+          Void v;
+          node->read(&v);
+        } else {
+          ValueType result;
+          node->read(&result);
+          return std::move(result);
+        }
+      }
+    };
+    XPP_ASSERT(m_node != nullptr, "co_await on empty promise");
+    return Awaiter{m_node.get()};
   }
 #endif
 
@@ -300,6 +270,7 @@ private:
   template <class U> friend class Promise;
   friend class _::PromiseNode;
   template <class U> friend class Resolver;
+  template <class U> friend class JoinHandle;
 };
 
 /* ── Resolver<T> ─────────────────────────────────────────────────── */
@@ -479,28 +450,6 @@ template <> inline void Promise<void>::wait(WaitScope &scope) {
 /* ── C++20 Coroutine support for Promise<void> ──────────────────── */
 
 #if XPP_HAS_COROUTINES
-
-template <>
-inline bool Promise<void>::await_ready() const {
-  return false;  // Same as non-void version
-}
-
-template <>
-inline bool Promise<void>::await_suspend(std::coroutine_handle<> h) {
-  XPP_ASSERT(m_node != nullptr, "await_suspend on empty promise");
-  
-  auto event = new _::CoroutineEvent(h);
-  m_node->poll(Option<_::Event&>(*event));
-  
-  return true;
-}
-
-template <>
-inline void Promise<void>::await_resume() {
-  XPP_ASSERT(m_node != nullptr, "await_resume on empty promise");
-  Void v;
-  m_node->read(&v);
-}
 
 /* ── Promise<void>::promise_type ──────────────────────────────────── */
 

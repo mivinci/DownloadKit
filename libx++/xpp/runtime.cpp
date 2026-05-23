@@ -112,6 +112,13 @@ void *Runtime::worker_main(void *arg) {
     }
 
     if (task) {
+      // Claim the task atomically — prevents double-execution if the
+      // WorkStealingQueue has a pop/steal race on the last element.
+      bool expected = false;
+      if (!task->claimed.compare_exchange_strong(expected, true,
+              std::memory_order_acq_rel)) {
+        continue;  // another worker already claimed it
+      }
       w->state.store(_::Worker::Running, std::memory_order_relaxed);
       task->execute(scope);
     } else {

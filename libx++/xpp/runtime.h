@@ -161,7 +161,8 @@ struct Worker; // forward declaration
 struct SpawnTaskBase {
   virtual ~SpawnTaskBase()               = default;
   virtual void execute(WaitScope &scope) = 0;
-  Worker      *target_worker; // set by spawn(), used by post callback
+  Worker              *target_worker;
+  std::atomic<bool>    claimed{false};  // prevents double-execution from queue races
 };
 
 /* ── Helpers: void vs non-void dispatch ──────────────────────────── */
@@ -209,12 +210,16 @@ template <class T> struct SpawnTask final : SpawnTaskBase {
   xEventLoop             caller_loop;
   bool                   detached;
   bool                   completed;
+  bool                   executed;
   V                      result{};
 
   SpawnTask(Promise<T> p, AdapterPromiseNode<V> *a, xEventLoop loop)
-      : promise(std::move(p)), adapter(a), caller_loop(loop), detached(false), completed(false) {}
+      : promise(std::move(p)), adapter(a), caller_loop(loop),
+        detached(false), completed(false), executed(false) {}
 
   void execute(WaitScope &scope) override {
+    XPP_ASSERT(!executed, "SpawnTask executed twice!");
+    executed = true;
     result = wait_and_get(promise, scope);
     xEventLoopPost(caller_loop, resolve_on_caller, this);
   }
@@ -327,14 +332,38 @@ public:
   T    wait(WaitScope &scope);
 
 #if XPP_HAS_COROUTINES
-  bool await_ready() const {
-    return false;
-  }
-  bool await_suspend(std::coroutine_handle<> h) {
+  auto operator co_await() {
+    struct Awaiter {
+      _::SpawnTask<T> *&task_ref;
+      _::PromiseNode *node;
+      _::CoroutineEvent event{};
+
+      bool await_ready() const { return false; }
+
+      bool await_suspend(std::coroutine_handle<> h) {
+        event = _::CoroutineEvent(h);
+        node->poll(Option<_::Event &>(event));
+        return true;
+      }
+
+      T await_resume() {
+        if constexpr (std::is_void_v<T>) {
+          Void v;
+          node->read(&v);
+        } else {
+          typename FixVoid<T>::Type result;
+          node->read(&result);
+          delete task_ref;
+          task_ref = nullptr;
+          return std::move(result);
+        }
+        delete task_ref;
+        task_ref = nullptr;
+      }
+    };
     XPP_ASSERT(m_task != nullptr, "co_await on empty JoinHandle");
-    return m_promise.await_suspend(h);
+    return Awaiter{m_task, m_promise.m_node.get()};
   }
-  T await_resume();
 #endif
 
 private:
@@ -415,23 +444,6 @@ template <> inline void JoinHandle<void>::wait(WaitScope &scope) {
   delete m_task;
   m_task = nullptr;
 }
-
-#if XPP_HAS_COROUTINES
-template <class T> T JoinHandle<T>::await_resume() {
-  XPP_ASSERT(m_task != nullptr, "await_resume on empty JoinHandle");
-  T result = m_promise.await_resume();
-  delete m_task;
-  m_task = nullptr;
-  return result;
-}
-
-template <> inline void JoinHandle<void>::await_resume() {
-  XPP_ASSERT(m_task != nullptr, "await_resume on empty JoinHandle");
-  m_promise.await_resume();
-  delete m_task;
-  m_task = nullptr;
-}
-#endif
 
 template <class T> void JoinHandle<T>::release() {
   if (m_task) {

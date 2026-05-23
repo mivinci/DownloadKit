@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * str.h - String: an owned, UTF-8-guaranteed byte string.
+ * string.h - String: an owned, UTF-8-guaranteed byte string.
  *
  * Invariant: the internal buffer is always valid UTF-8. Construction
  * from untrusted data validates; mutation methods preserve validity.
@@ -16,8 +16,8 @@
  * C++11-compatible. Header-only (inlines into xString + xValidateUtf8).
  */
 
-#ifndef XPP_STR_H
-#define XPP_STR_H
+#ifndef XPP_STRING_H
+#define XPP_STRING_H
 
 #include <xpp/option.h>
 #include <xpp/panic.h>
@@ -336,4 +336,4 @@ private:
 
 } // namespace xpp
 
-#endif // XPP_STR_H
+#endif // XPP_STRING_H

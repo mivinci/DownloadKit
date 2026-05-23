@@ -3,10 +3,10 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * str_test.cpp - Unit tests for xpp::String
+ * string_test.cpp - Unit tests for xpp::String
  */
 
-#include <xpp/str.h>
+#include <xpp/string.h>
 
 #include <gtest/gtest.h>
 

@@ -45,6 +45,21 @@ if(XPP_BUILD_TESTS)
   add_test(NAME x++_test COMMAND x++_test)
 endif()
 
+# Optional: C++20 coroutine test target
+# This is separate from the main test binary to allow C++11 and C++20
+# binaries to coexist. When C++20 is available, we build both.
+file(GLOB_RECURSE XPP_CORO_TEST_SOURCES "*_coro_test.cpp")
+if(XPP_CORO_TEST_SOURCES AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
+  # Only attempt C++20 coroutine tests on compilers that support them
+  add_executable(x++_coro_test ${XPP_CORO_TEST_SOURCES})
+  set_target_properties(x++_coro_test PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+  )
+  target_link_libraries(x++_coro_test PRIVATE x++ GTest::gtest_main)
+  add_test(NAME x++_coro_test COMMAND x++_coro_test)
+endif()
+
 if(XPP_CXX11_GUARD)
   # Compile cxx11_guard.cpp on its own, in strict C++11 mode, with no
   # GNU extensions. Linking against x++ would re-import xbase's

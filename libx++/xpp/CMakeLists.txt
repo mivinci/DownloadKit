@@ -35,7 +35,6 @@ add_library(xpp ALIAS x++)  # convenience alias for downstream consumers
 target_compile_features(x++ PUBLIC cxx_std_11)
 target_link_libraries(x++ PUBLIC xbase)
 target_include_directories(x++ PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_SOURCE_DIR}/libx
   ${CMAKE_SOURCE_DIR}/libx++
 )
@@ -55,7 +54,6 @@ if(XPP_CXX11_GUARD)
   # runtime entry point.
   add_library(x++_cxx11_guard STATIC cxx11_guard.cpp)
   target_include_directories(x++_cxx11_guard PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/libx
     ${CMAKE_SOURCE_DIR}/libx++
   )

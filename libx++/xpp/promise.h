@@ -93,7 +93,9 @@ public:
       adapter->resolve(std::move(value));
     }
 
-    void unhandled_exception() { std::terminate(); }
+    void unhandled_exception() {
+      XPP_PANIC("unhandled exception in coroutine returning Promise<T>");
+    }
   };
 #endif // XPP_HAS_COROUTINES
 

@@ -159,10 +159,21 @@ private:
 struct Worker; // forward declaration
 
 struct SpawnTaskBase {
+  /**
+   * @brief Task lifecycle states.
+   *
+   *   Pending   → task queued, not yet picked up by a worker
+   *   Running   → a worker claimed it and is executing
+   *   Completed → execution finished, resolve posted to caller
+   *   Detached  → JoinHandle gave up ownership; self-delete on completion
+   */
+  enum State : uint8_t { Pending, Running, Completed, Detached };
+
   virtual ~SpawnTaskBase()               = default;
   virtual void execute(WaitScope &scope) = 0;
-  Worker              *target_worker;
-  std::atomic<bool>    claimed{false};  // prevents double-execution from queue races
+
+  Worker               *target_worker;
+  std::atomic<uint8_t>  state{Pending};
 };
 
 /* ── Helpers: void vs non-void dispatch ──────────────────────────── */
@@ -208,27 +219,21 @@ template <class T> struct SpawnTask final : SpawnTaskBase {
   Promise<T>             promise;
   AdapterPromiseNode<V> *adapter;
   xEventLoop             caller_loop;
-  bool                   detached;
-  bool                   completed;
-  bool                   executed;
   V                      result{};
 
   SpawnTask(Promise<T> p, AdapterPromiseNode<V> *a, xEventLoop loop)
-      : promise(std::move(p)), adapter(a), caller_loop(loop),
-        detached(false), completed(false), executed(false) {}
+      : promise(std::move(p)), adapter(a), caller_loop(loop) {}
 
   void execute(WaitScope &scope) override {
-    XPP_ASSERT(!executed, "SpawnTask executed twice!");
-    executed = true;
     result = wait_and_get(promise, scope);
+    state.store(Completed, std::memory_order_release);
     xEventLoopPost(caller_loop, resolve_on_caller, this);
   }
 
   static void resolve_on_caller(void *arg) {
-    auto *self      = static_cast<SpawnTask *>(arg);
-    self->completed = true;
+    auto *self = static_cast<SpawnTask *>(arg);
     resolve_adapter(self->adapter, std::move(self->result));
-    if (self->detached) {
+    if (self->state.load(std::memory_order_acquire) == Detached) {
       delete self;
     }
   }
@@ -424,8 +429,15 @@ template <> inline void Runtime::block_on<void>(Promise<void> promise) {
 
 template <class T> void JoinHandle<T>::detach() {
   if (!m_task) return;
-  m_task->detached = true;
-  if (m_task->completed) delete m_task;
+
+  // If already completed, resolve_on_caller already ran — we can delete.
+  // Otherwise, mark as Detached so resolve_on_caller will self-delete.
+  auto prev = m_task->state.exchange(
+      _::SpawnTaskBase::Detached, std::memory_order_acq_rel);
+  if (prev == _::SpawnTaskBase::Completed) {
+    delete m_task;
+  }
+
   m_task    = nullptr;
   m_promise = Promise<T>();
 }

@@ -32,9 +32,9 @@
  *
  * @return Exit code (passed to std::exit).
  */
-extern xpp::Promise<int> xpp_main();
+extern xpp::Promise<int> xpp_main(int argc, char *argv[]);
 
-int main() {
+int main(int argc, char *argv[]) {
   xpp::Runtime rt;
-  return rt.block_on(xpp_main());
+  return rt.block_on(xpp_main(argc, argv));
 }

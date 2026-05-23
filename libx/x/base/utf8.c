@@ -60,12 +60,21 @@ static const uint8_t utf8d[] = {
 #define UTF8_REJECT 12
 
 bool xValidateUtf8(const char *data, size_t len) {
-  if (len == 0) return true;
-  if (!data) return false;
+  return xUtf8ValidPrefix(data, len) == len;
+}
 
-  const uint8_t *p   = (const uint8_t *)data;
-  const uint8_t *end = p + len;
+size_t xUtf8ValidPrefix(const char *data, size_t len) {
+  if (len == 0) return 0;
+  if (!data) return 0;
+
+  const uint8_t *start = (const uint8_t *)data;
+  const uint8_t *p     = start;
+  const uint8_t *end   = start + len;
   uint32_t       state = UTF8_ACCEPT;
+
+  /* Track the last byte position where we were in ACCEPT state —
+   * that's the end of the last complete valid codepoint. */
+  const uint8_t *last_accept = start;
 
   /* ASCII fast-path: skip 8-byte aligned chunks of pure ASCII. */
   while (p + 8 <= end) {
@@ -74,14 +83,22 @@ bool xValidateUtf8(const char *data, size_t len) {
     if (w & UINT64_C(0x8080808080808080)) break;
     p += 8;
   }
+  /* All bytes skipped by ASCII fast-path are valid codepoints. */
+  last_accept = p;
 
   /* Byte-by-byte DFA for the remainder (or non-ASCII regions). */
   while (p < end) {
     uint32_t byte_class = utf8d[*p];
     state = utf8d[256 + state + byte_class];
-    if (state == UTF8_REJECT) return false;
     p++;
+    if (state == UTF8_ACCEPT) {
+      last_accept = p;
+    } else if (state == UTF8_REJECT) {
+      return (size_t)(last_accept - start);
+    }
   }
 
-  return state == UTF8_ACCEPT;
+  /* If we ended mid-sequence (state != ACCEPT), the trailing
+   * incomplete sequence is invalid — return up to last_accept. */
+  return (size_t)(last_accept - start);
 }

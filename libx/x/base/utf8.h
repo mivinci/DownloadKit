@@ -29,4 +29,19 @@
  */
 XCAPI(bool) xValidateUtf8(const char *data, size_t len);
 
+/**
+ * @brief Return the length of the longest valid UTF-8 prefix.
+ *
+ * Scans from the beginning and returns the byte offset of the first
+ * invalid byte. If the entire buffer is valid, returns @p len.
+ *
+ * Useful for error reporting ("invalid at byte N") and for extracting
+ * the valid prefix of a partially-valid buffer.
+ *
+ * @param data  Pointer to bytes (NULL → returns 0).
+ * @param len   Number of bytes to check.
+ * @return Number of leading bytes that form valid UTF-8 (0..len).
+ */
+XCAPI(size_t) xUtf8ValidPrefix(const char *data, size_t len);
+
 #endif /* XBASE_UTF8_H */

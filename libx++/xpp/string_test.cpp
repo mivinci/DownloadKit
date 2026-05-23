@@ -19,14 +19,81 @@ using xpp::Option;
 using xpp::Result;
 using xpp::Span;
 using xpp::String;
+using xpp::Utf8Error;
 
 /* ── Construction ──────────────────────────────────────────────────── */
 
 TEST(StringTest, DefaultConstruction) {
   String s;
   EXPECT_EQ(s.len(), 0u);
+  EXPECT_EQ(s.capacity(), 0u);
   EXPECT_TRUE(s.is_empty());
+  EXPECT_TRUE(s.empty());
   EXPECT_STREQ(s.c_str(), "");
+}
+
+TEST(StringTest, DefaultConstructionAsSpan) {
+  String s;
+  auto sp = s.as_span();
+  EXPECT_EQ(sp.size(), 0u);
+  EXPECT_STREQ(sp.data(), "");
+}
+
+TEST(StringTest, DefaultConstructionFind) {
+  String s;
+  EXPECT_TRUE(s.find("anything").is_none());
+  EXPECT_TRUE(s.find(Span<const char>("x", 1)).is_none());
+}
+
+TEST(StringTest, DefaultConstructionAppend) {
+  /* Append to default-constructed (nullptr inner) should work */
+  String s;
+  s.append("hello");
+  EXPECT_STREQ(s.c_str(), "hello");
+  EXPECT_EQ(s.len(), 5u);
+}
+
+TEST(StringTest, DefaultConstructionClear) {
+  String s;
+  s.clear();  /* no crash */
+  EXPECT_TRUE(s.is_empty());
+}
+
+TEST(StringTest, DefaultConstructionTruncate) {
+  String s;
+  s.truncate(0);  /* truncate to 0 on empty should be no-op */
+  EXPECT_TRUE(s.is_empty());
+}
+
+TEST(StringTest, DefaultConstructionComparison) {
+  String a;
+  String b;
+  EXPECT_TRUE(a == b);
+  EXPECT_TRUE(a == "");
+  EXPECT_TRUE("" == a);
+  EXPECT_FALSE(a != b);
+}
+
+TEST(StringTest, DefaultConstructionClone) {
+  String s;
+  String c = s.clone();
+  EXPECT_TRUE(c.is_empty());
+  EXPECT_STREQ(c.c_str(), "");
+}
+
+TEST(StringTest, DefaultConstructionRelease) {
+  String s;
+  xString raw = s.release();
+  /* raw is nullptr for zero-alloc empty string */
+  EXPECT_EQ(raw, nullptr);
+  EXPECT_TRUE(s.is_empty());
+}
+
+TEST(StringTest, DefaultConstructionReserve) {
+  String s;
+  s.reserve(100);
+  EXPECT_GE(s.capacity(), 100u);
+  EXPECT_TRUE(s.is_empty());  /* length unchanged */
 }
 
 TEST(StringTest, FromCString) {
@@ -72,6 +139,14 @@ TEST(StringTest, FromInvalidBytes) {
   const char data[] = "\xC0\x80";  /* overlong */
   auto r = String::from(Span<const char>(data, 2));
   EXPECT_TRUE(r.is_err());
+  EXPECT_EQ(r.unwrap_err().valid_up_to, 0u);
+}
+
+TEST(StringTest, FromInvalidBytesMiddle) {
+  const char data[] = "abc\xFE xyz";
+  auto r = String::from(Span<const char>(data, 8));
+  EXPECT_TRUE(r.is_err());
+  EXPECT_EQ(r.unwrap_err().valid_up_to, 3u);
 }
 
 TEST(StringTest, FromEmptyBytes) {
@@ -233,9 +308,10 @@ TEST(StringTest, TryAppendValid) {
 
 TEST(StringTest, TryAppendInvalid) {
   String s("hello");
-  const char data[] = "\xC0\x80";
-  auto r = s.try_append(Span<const char>(data, 2));
+  const char data[] = "ok\xC0\x80";
+  auto r = s.try_append(Span<const char>(data, 4));
   EXPECT_TRUE(r.is_err());
+  EXPECT_EQ(r.unwrap_err().valid_up_to, 2u);
   /* s is unchanged */
   EXPECT_STREQ(s.c_str(), "hello");
 }

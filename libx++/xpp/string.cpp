@@ -9,7 +9,6 @@
 #include <xpp/string.h>
 
 #include <cstring>
-#include <utility>
 
 #include <x/base/string.h>
 #include <x/base/utf8.h>
@@ -18,7 +17,7 @@ namespace xpp {
 
 /* ── Construction ──────────────────────────────────────────────────── */
 
-String::String() : m_inner(xStringCreate("")) {}
+String::String() : m_inner(nullptr) {}
 
 String::String(const char *s) : m_inner(nullptr) {
   size_t n = s ? std::strlen(s) : 0;
@@ -31,35 +30,24 @@ String::String(const char *data, size_t len) : m_inner(nullptr) {
   m_inner = xStringCreateLen(data ? data : "", len);
 }
 
-Result<String, int> String::from(Span<const char> bytes) {
-  if (!xValidateUtf8(bytes.data(), bytes.size())) {
-    return Result<String, int>(err, -1);
+Result<String, Utf8Error> String::from(Span<const char> bytes) {
+  size_t valid = xUtf8ValidPrefix(bytes.data(), bytes.size());
+  if (valid != bytes.size()) {
+    return Result<String, Utf8Error>(err, Utf8Error{valid});
   }
-  String s;
-  xStringDestroy(s.m_inner);
-  s.m_inner = xStringCreateLen(bytes.data(), bytes.size());
-  return Result<String, int>(ok, std::move(s));
+  return Result<String, Utf8Error>(ok, String(xStringCreateLen(bytes.data(), bytes.size()), RawTag{}));
 }
 
 String String::from_unchecked(const char *s) noexcept {
-  String r;
-  xStringDestroy(r.m_inner);
-  r.m_inner = xStringCreate(s ? s : "");
-  return r;
+  return String(xStringCreate(s ? s : ""), RawTag{});
 }
 
 String String::from_unchecked(const char *data, size_t len) noexcept {
-  String r;
-  xStringDestroy(r.m_inner);
-  r.m_inner = xStringCreateLen(data ? data : "", len);
-  return r;
+  return String(xStringCreateLen(data ? data : "", len), RawTag{});
 }
 
 String String::from_unchecked(xString raw) noexcept {
-  String r;
-  xStringDestroy(r.m_inner);
-  r.m_inner = raw ? raw : xStringCreate("");
-  return r;
+  return String(raw ? raw : xStringCreate(""), RawTag{});
 }
 
 String String::from_raw(xString raw) noexcept {
@@ -88,10 +76,7 @@ String &String::operator=(String &&o) noexcept {
 /* ── Clone ─────────────────────────────────────────────────────────── */
 
 String String::clone() const {
-  String r;
-  xStringDestroy(r.m_inner);
-  r.m_inner = m_inner ? xStringDup(m_inner) : xStringCreate("");
-  return r;
+  return String(m_inner ? xStringDup(m_inner) : xStringCreate(""), RawTag{});
 }
 
 /* ── Accessors ─────────────────────────────────────────────────────── */
@@ -145,14 +130,15 @@ void String::append(const char *data, size_t n) {
   xStringAppendLen(&m_inner, data, n);
 }
 
-Result<bool, int> String::try_append(Span<const char> bytes) {
-  if (bytes.is_empty()) return Result<bool, int>(ok, true);
-  if (!xValidateUtf8(bytes.data(), bytes.size())) {
-    return Result<bool, int>(err, -1);
+Result<bool, Utf8Error> String::try_append(Span<const char> bytes) {
+  if (bytes.is_empty()) return Result<bool, Utf8Error>(ok, true);
+  size_t valid = xUtf8ValidPrefix(bytes.data(), bytes.size());
+  if (valid != bytes.size()) {
+    return Result<bool, Utf8Error>(err, Utf8Error{valid});
   }
   ensure_inner();
   xStringAppendLen(&m_inner, bytes.data(), bytes.size());
-  return Result<bool, int>(ok, true);
+  return Result<bool, Utf8Error>(ok, true);
 }
 
 void String::clear() {

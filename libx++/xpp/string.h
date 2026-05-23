@@ -31,6 +31,17 @@
 namespace xpp {
 
 /**
+ * @brief Error returned when a byte sequence is not valid UTF-8.
+ *
+ * Carries the byte offset of the first invalid byte, enabling
+ * callers to report position or extract the valid prefix.
+ */
+struct Utf8Error {
+  /** Byte offset of the first invalid byte (0..input_len). */
+  size_t valid_up_to;
+};
+
+/**
  * @brief Owned, UTF-8-guaranteed byte string.
  *
  * All constructors and mutators enforce or assume valid UTF-8.
@@ -66,7 +77,7 @@ public:
    *
    * @return Ok(String) if valid UTF-8, Err(-1) otherwise.
    */
-  static Result<String, int> from(Span<const char> bytes);
+  static Result<String, Utf8Error> from(Span<const char> bytes);
 
   /**
    * @brief Construct without validation. Caller guarantees UTF-8.
@@ -134,8 +145,8 @@ public:
   /** @brief Append raw bytes with length. Validates; panics if invalid. */
   void append(const char *data, size_t n);
 
-  /** @brief Try to append bytes. Returns Err(-1) if not valid UTF-8. */
-  Result<bool, int> try_append(Span<const char> bytes);
+  /** @brief Try to append bytes. Returns Err with position if not valid UTF-8. */
+  Result<bool, Utf8Error> try_append(Span<const char> bytes);
 
   /** @brief Clear to empty string (does not free allocation). */
   void clear();
@@ -189,6 +200,10 @@ private:
   xString m_inner;
 
   void ensure_inner();
+
+  /** @brief Private tag for direct-init from raw xString (no allocation). */
+  struct RawTag {};
+  String(xString raw, RawTag) noexcept : m_inner(raw) {}
 };
 
 } // namespace xpp

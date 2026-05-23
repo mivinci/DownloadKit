@@ -235,3 +235,66 @@ TEST(Utf8ValidateTest, MinFourByte) {
   const char s[] = "\xF0\x90\x80\x80";
   EXPECT_TRUE(xValidateUtf8(s, 4));
 }
+
+/* ── xUtf8ValidPrefix ─────────────────────────────────────────────── */
+
+TEST(Utf8ValidPrefixTest, AllValid) {
+  const char *s = "hello";
+  EXPECT_EQ(xUtf8ValidPrefix(s, 5), 5u);
+}
+
+TEST(Utf8ValidPrefixTest, AllValidMultibyte) {
+  /* "中文" = 6 bytes */
+  const char s[] = "\xE4\xB8\xAD\xE6\x96\x87";
+  EXPECT_EQ(xUtf8ValidPrefix(s, 6), 6u);
+}
+
+TEST(Utf8ValidPrefixTest, Empty) {
+  EXPECT_EQ(xUtf8ValidPrefix("", 0), 0u);
+  EXPECT_EQ(xUtf8ValidPrefix(nullptr, 0), 0u);
+}
+
+TEST(Utf8ValidPrefixTest, InvalidAtStart) {
+  const char s[] = "\xFE hello";
+  EXPECT_EQ(xUtf8ValidPrefix(s, 7), 0u);
+}
+
+TEST(Utf8ValidPrefixTest, InvalidInMiddle) {
+  /* "ab" + invalid + "cd" */
+  const char s[] = "ab\xFE" "cd";
+  EXPECT_EQ(xUtf8ValidPrefix(s, 5), 2u);
+}
+
+TEST(Utf8ValidPrefixTest, InvalidAfterMultibyte) {
+  /* "中" (3 bytes) + invalid */
+  const char s[] = "\xE4\xB8\xAD\xFE";
+  EXPECT_EQ(xUtf8ValidPrefix(s, 4), 3u);
+}
+
+TEST(Utf8ValidPrefixTest, TruncatedAtEnd) {
+  /* "hello" + start of 2-byte sequence with no continuation */
+  const char s[] = "hello\xC3";
+  EXPECT_EQ(xUtf8ValidPrefix(s, 6), 5u);
+}
+
+TEST(Utf8ValidPrefixTest, TruncatedThreeByte) {
+  /* "hi" + 2 of 3 bytes of a CJK char */
+  const char s[] = "hi\xE4\xB8";
+  EXPECT_EQ(xUtf8ValidPrefix(s, 4), 2u);
+}
+
+TEST(Utf8ValidPrefixTest, OverlongInMiddle) {
+  /* "ok" + overlong 0xC0 0x80 + "end" */
+  const char s[] = "ok\xC0\x80" "end";
+  EXPECT_EQ(xUtf8ValidPrefix(s, 7), 2u);
+}
+
+TEST(Utf8ValidPrefixTest, SurrogateInMiddle) {
+  /* "abc" + U+D800 (ED A0 80) + "x" */
+  const char s[] = "abc\xED\xA0\x80x";
+  EXPECT_EQ(xUtf8ValidPrefix(s, 7), 3u);
+}
+
+TEST(Utf8ValidPrefixTest, NullDataNonZeroLen) {
+  EXPECT_EQ(xUtf8ValidPrefix(nullptr, 10), 0u);
+}

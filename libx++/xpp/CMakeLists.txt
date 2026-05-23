@@ -33,25 +33,25 @@ list(REMOVE_ITEM XPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
 #                 xCond via opaque byte buffers, so <xpp/mutex.h> and
 #                 <xpp/cond.h> don't transitively pull in
 #                 <pthread.h> on POSIX or <windows.h> on Windows.
-add_library(x++ ${XPP_SOURCES})
-add_library(xpp ALIAS x++)  # convenience alias for downstream consumers
-target_compile_features(x++ PUBLIC cxx_std_11)
-target_link_libraries(x++ PUBLIC xbase)
-target_include_directories(x++ PUBLIC
+add_library(xpp ${XPP_SOURCES})
+  # convenience alias for downstream consumers
+target_compile_features(xpp PUBLIC cxx_std_11)
+target_link_libraries(xpp PUBLIC xbase)
+target_include_directories(xpp PUBLIC
   ${CMAKE_SOURCE_DIR}/libx
   ${CMAKE_SOURCE_DIR}/libx++
 )
 
 # xpp::main — link this to get a pre-built main() that calls xpp_main().
-add_library(x++_main STATIC main.cpp)
-add_library(xpp::main ALIAS x++_main)
-target_link_libraries(x++_main PUBLIC x++)
-set_target_properties(x++_main PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+add_library(xpp_main STATIC main.cpp)
+add_library(xpp::main ALIAS xpp_main)
+target_link_libraries(xpp_main PUBLIC xpp)
+set_target_properties(xpp_main PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 
 if(XPP_BUILD_TESTS)
-  add_executable(x++_test ${XPP_TEST_SOURCES})
-  target_link_libraries(x++_test PRIVATE x++ GTest::gtest_main)
-  add_test(NAME x++_test COMMAND x++_test)
+  add_executable(xpp_test ${XPP_TEST_SOURCES})
+  target_link_libraries(xpp_test PRIVATE xpp GTest::gtest_main)
+  add_test(NAME xpp_test COMMAND xpp_test)
 endif()
 
 # Optional: C++20 coroutine test target
@@ -60,22 +60,22 @@ endif()
 file(GLOB_RECURSE XPP_CORO_TEST_SOURCES "*_coro_test.cpp")
 if(XPP_CORO_TEST_SOURCES AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
   # Only attempt C++20 coroutine tests on compilers that support them
-  add_executable(x++_coro_test ${XPP_CORO_TEST_SOURCES})
-  set_target_properties(x++_coro_test PROPERTIES
+  add_executable(xpp_coro_test ${XPP_CORO_TEST_SOURCES})
+  set_target_properties(xpp_coro_test PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
   )
-  target_link_libraries(x++_coro_test PRIVATE x++ GTest::gtest_main)
-  add_test(NAME x++_coro_test COMMAND x++_coro_test)
+  target_link_libraries(xpp_coro_test PRIVATE xpp GTest::gtest_main)
+  add_test(NAME xpp_coro_test COMMAND xpp_coro_test)
 endif()
 
 if(X_BUILD_BENCHMARKS AND TARGET benchmark::benchmark_main)
   foreach(src ${XPP_BENCH_SOURCES})
     get_filename_component(name ${src} NAME_WE)
-    add_executable(x++_${name} ${src})
-    target_link_libraries(x++_${name} PRIVATE x++ benchmark::benchmark_main)
-    target_compile_options(x++_${name} PRIVATE -Wno-error)
-    set_target_properties(x++_${name} PROPERTIES
+    add_executable(xpp_${name} ${src})
+    target_link_libraries(xpp_${name} PRIVATE xpp benchmark::benchmark_main)
+    target_compile_options(xpp_${name} PRIVATE -Wno-error)
+    set_target_properties(xpp_${name} PROPERTIES
       CXX_STANDARD 20
       CXX_STANDARD_REQUIRED ON
     )
@@ -89,12 +89,12 @@ if(XPP_CXX11_GUARD)
   # (header-only consumption) by dropping that link and its features
   # propagation. The guard is a compile-only check — there is no
   # runtime entry point.
-  add_library(x++_cxx11_guard STATIC cxx11_guard.cpp)
-  target_include_directories(x++_cxx11_guard PRIVATE
+  add_library(xpp_cxx11_guard STATIC cxx11_guard.cpp)
+  target_include_directories(xpp_cxx11_guard PRIVATE
     ${CMAKE_SOURCE_DIR}/libx
     ${CMAKE_SOURCE_DIR}/libx++
   )
-  set_target_properties(x++_cxx11_guard PROPERTIES
+  set_target_properties(xpp_cxx11_guard PROPERTIES
     CXX_STANDARD 11
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF

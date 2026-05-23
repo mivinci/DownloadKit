@@ -18,11 +18,11 @@
 
 #include <xpp/arc.h>
 #include <xpp/compiler.h>
-#include <xpp/cond.h>
+#include <xpp/sys/cond.h>
 #include <xpp/error.h>
 #include <xpp/handle.h>
 #include <xpp/in_place.h>
-#include <xpp/mutex.h>
+#include <xpp/sys/mutex.h>
 #include <xpp/nonnull.h>
 #include <xpp/nonnull_own.h>
 #include <xpp/option.h>

@@ -5,3 +5,7 @@
 # Rust's std prelude.
 
 add_subdirectory(xpp)
+
+if(X_BUILD_EXAMPLES)
+  add_subdirectory(examples/runtime)
+endif()

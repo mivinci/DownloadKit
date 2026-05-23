@@ -5,24 +5,27 @@
  *
  * main.cpp - Default main() entry point for async applications.
  *
- * Link against xpp::main (or the x++_main CMake target) to get a
- * pre-built main() that creates a Runtime and calls your xpp_main().
+ * Link against xpp::main (or the xpp_main CMake target) to get a
+ * pre-built main() that creates a Runtime and calls your main().
  *
  * You provide:
- *   xpp::Promise<int> xpp_main();
+ *   namespace xpp { Promise<int> main(int argc, char *argv[]); }
  *
  * This file provides the boilerplate:
- *   int main() {
+ *
+ *   int main(int argc, char *argv[]) {
  *     xpp::Runtime rt;
- *     return rt.block_on(xpp_main());
+ *     return rt.block_on([&] { return xpp::main(argc, argv); });
  *   }
  *
  * The Runtime is created with default settings (worker count = CPU
- * cores, lazily spawned). xpp::spawn() is available inside xpp_main
+ * cores, lazily spawned). xpp::spawn() is available inside xpp::main
  * and any coroutine it calls.
  */
 
 #include <xpp/runtime.h>
+
+namespace xpp {
 
 /**
  * @brief User-defined async entry point.
@@ -32,9 +35,11 @@
  *
  * @return Exit code (passed to std::exit).
  */
-extern xpp::Promise<int> xpp_main(int argc, char *argv[]);
+extern Promise<int> main(int argc, char *argv[]);
+
+} // namespace xpp
 
 int main(int argc, char *argv[]) {
   xpp::Runtime rt;
-  return rt.block_on(xpp_main(argc, argv));
+  return rt.block_on([&] { return xpp::main(argc, argv); });
 }

@@ -285,7 +285,7 @@ fi
 TEST_TARGETS=()
 for m in $AFFECTED; do
     if [[ "$m" == "__libxpp__" ]]; then
-        TEST_TARGETS+=("x++_test")
+        TEST_TARGETS+=("xpp_test")
         continue
     fi
     skip=0
@@ -310,7 +310,7 @@ fi
 # PR time rather than discovered downstream.
 WANT_CXX11_GUARD=0
 for t in "${TEST_TARGETS[@]}"; do
-    if [[ "$t" == "x++_test" ]]; then
+    if [[ "$t" == "xpp_test" ]]; then
         WANT_CXX11_GUARD=1
         break
     fi
@@ -338,7 +338,7 @@ if [[ "$CI_MODE" -eq 1 ]]; then
     step "Building test targets"
     BUILD_TARGETS=("${TEST_TARGETS[@]}")
     if [[ $WANT_CXX11_GUARD -eq 1 ]]; then
-        BUILD_TARGETS+=("x++_cxx11_guard")
+        BUILD_TARGETS+=("xpp_cxx11_guard")
     fi
     cmake --build "$BUILD_DIR" --target ${BUILD_TARGETS[@]} -j"$JOBS"
 
@@ -359,7 +359,7 @@ if [[ "$CI_MODE" -eq 1 ]]; then
     FAILED=0
     for target in "${TEST_TARGETS[@]}"; do
         step "Running $target"
-        # Escape regex metacharacters in target name for ctest -R (e.g. x++_test)
+        # Escape regex metacharacters in target name for ctest -R (e.g. xpp_test)
         target_re="${target//+/\\+}"
         if (cd "$BUILD_DIR" && ctest --output-on-failure -R "^${target_re}$" --no-tests=error); then
             info "$target PASSED"
@@ -405,13 +405,13 @@ fi
 BUILD_DIR="${BUILD_DIR:-build-linux-${TLS_BACKEND}}"
 
 # Build the test target list for the container command
-# Reuse the already-filtered TEST_TARGETS array (handles __libxpp__ → x++_test
+# Reuse the already-filtered TEST_TARGETS array (handles __libxpp__ → xpp_test
 # and skips NO_TEST_MODULES like xline).
 TEST_TARGETS_STR="${TEST_TARGETS[*]}"
 BUILD_TARGETS_STR="$TEST_TARGETS_STR"
 GUARD_CMAKE_ARG=""
 if [[ $WANT_CXX11_GUARD -eq 1 ]]; then
-    BUILD_TARGETS_STR="$BUILD_TARGETS_STR x++_cxx11_guard"
+    BUILD_TARGETS_STR="$BUILD_TARGETS_STR xpp_cxx11_guard"
     GUARD_CMAKE_ARG="-DXPP_CXX11_GUARD=ON"
 fi
 

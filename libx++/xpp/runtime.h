@@ -256,7 +256,7 @@ struct Worker {
 };
 
 /** @brief Thread-local: current worker on this thread (nullptr if not a worker). */
-static thread_local Worker *tl_current_worker = nullptr;
+Worker *&current_worker();
 
 /**
  * @brief Thread-local pointer to the active Runtime on this thread.
@@ -271,7 +271,7 @@ static thread_local Worker *tl_current_worker = nullptr;
  * Set by Runtime::enter() (called from block_on and worker_main).
  * Cleared by Runtime::leave().
  */
-static thread_local Runtime *tl_current_runtime = nullptr;
+Runtime *&current_runtime();
 
 } // namespace _
 
@@ -287,31 +287,49 @@ public:
 
   template <class T> JoinHandle<T> spawn(Promise<T> promise);
 
+  /**
+   * @brief Block until a callable's result promise completes.
+   *
+   * Calls enter() first, then invokes func() to create the promise,
+   * then drives the event loop until resolved. Use this form when the
+   * callable creates a coroutine that needs xpp::spawn() (the runtime
+   * context must be active before the coroutine body starts).
+   */
+  template <class Func>
+  auto block_on(Func &&func) -> decltype(func().wait(std::declval<WaitScope &>()));
+
+  /**
+   * @brief Block until an existing promise completes.
+   *
+   * Note: if the promise was created by a coroutine that uses
+   * xpp::spawn(), prefer the Func overload to ensure the runtime
+   * context is active before coroutine creation.
+   */
   template <class T> T block_on(Promise<T> promise);
 
   /**
    * @brief Register this runtime on the current thread.
    *
    * After enter(), xpp::spawn() can find this runtime via
-   * _::tl_current_runtime. Must be paired with leave().
+   * _::current_runtime(). Must be paired with leave().
    */
   void enter() {
-    XPP_ASSERT(_::tl_current_runtime == nullptr,
+    XPP_ASSERT(_::current_runtime() == nullptr,
                "Runtime::enter: thread already inside a runtime");
-    _::tl_current_runtime = this;
+    _::current_runtime() = this;
   }
 
   /**
    * @brief Unregister this runtime from the current thread.
    */
   void leave() {
-    XPP_ASSERT(_::tl_current_runtime == this,
+    XPP_ASSERT(_::current_runtime() == this,
                "Runtime::leave: not the active runtime on this thread");
-    _::tl_current_runtime = nullptr;
+    _::current_runtime() = nullptr;
   }
 
   /** @brief Get the Runtime active on this thread (or nullptr). */
-  static Runtime *current() { return _::tl_current_runtime; }
+  static Runtime *current() { return _::current_runtime(); }
 
 private:
   friend struct _::Worker;
@@ -441,7 +459,7 @@ template <class T> JoinHandle<T> Runtime::spawn(Promise<T> promise) {
   //   2. If local queue is full (or caller is not a worker), push to global queue.
   // Workers will: pop local → batch grab global → steal other workers.
 
-  _::Worker *w = _::tl_current_worker;
+  _::Worker *w = _::current_worker();
   if (w && w->local_queue.push(task)) {
     // Fast path: pushed to current worker's local queue. No post needed
     // because the worker will see it on its next pop().
@@ -454,6 +472,32 @@ template <class T> JoinHandle<T> Runtime::spawn(Promise<T> promise) {
   return JoinHandle<T>{task, std::move(join_promise)};
 }
 
+namespace _ {
+
+template <class Promise>
+auto block_on_impl(Runtime *rt, xEventLoop loop, Promise &&p)
+    -> decltype(p.wait(std::declval<WaitScope &>())) {
+  WaitScope scope(loop);
+  auto result = p.wait(scope);
+  rt->leave();
+  return result;
+}
+
+inline void block_on_impl(Runtime *rt, xEventLoop loop, Promise<void> &&p) {
+  WaitScope scope(loop);
+  p.wait(scope);
+  rt->leave();
+}
+
+} // namespace _
+
+template <class Func>
+auto Runtime::block_on(Func &&func) -> decltype(func().wait(std::declval<WaitScope &>())) {
+  enter();
+  auto promise = func();
+  return _::block_on_impl(this, m_main_loop, std::move(promise));
+}
+
 template <class T> T Runtime::block_on(Promise<T> promise) {
   enter();
   WaitScope scope(m_main_loop);
@@ -462,7 +506,7 @@ template <class T> T Runtime::block_on(Promise<T> promise) {
   return result;
 }
 
-template <> inline void Runtime::block_on<void>(Promise<void> promise) {
+template <> inline void Runtime::block_on(Promise<void> promise) {
   enter();
   WaitScope scope(m_main_loop);
   promise.wait(scope);

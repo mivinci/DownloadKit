@@ -17,6 +17,18 @@ extern "C" {
 
 namespace xpp {
 
+/* ── Thread-local state (single definition) ─────────────────────── */
+
+namespace _ {
+
+static thread_local Worker  *tl_current_worker  = nullptr;
+static thread_local Runtime *tl_current_runtime = nullptr;
+
+Worker  *&current_worker()  { return tl_current_worker; }
+Runtime *&current_runtime() { return tl_current_runtime; }
+
+} // namespace _
+
 /* ── Runtime lifecycle ───────────────────────────────────────────── */
 
 Runtime::Runtime(size_t max_workers) : m_active_workers(0) {
@@ -44,8 +56,6 @@ Runtime::Runtime(size_t max_workers) : m_active_workers(0) {
   xTaskGroupConf conf = {max_workers, 0};
   m_group = xTaskGroupCreate(&conf);
   XPP_ASSERT(m_group != nullptr, "Runtime: failed to create task group");
-
-  // No workers started yet — they'll be spawned on demand.
 }
 
 Runtime::~Runtime() {
@@ -92,7 +102,7 @@ void Runtime::spawn_worker() {
 void *Runtime::worker_main(void *arg) {
   auto *w = static_cast<_::Worker *>(arg);
 
-  _::tl_current_worker = w;
+  _::current_worker() = w;
   w->rt->enter();
 
   WaitScope scope(w->loop);
@@ -130,7 +140,7 @@ void *Runtime::worker_main(void *arg) {
   }
 
   w->rt->leave();
-  _::tl_current_worker = nullptr;
+  _::current_worker() = nullptr;
   return nullptr;
 }
 

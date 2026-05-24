@@ -6,7 +6,6 @@
  * promise.cpp - Non-template Promise infrastructure:
  *   - WaitScope (thread_local registration)
  *   - Event::arm (xEventLoopPost bridge)
- *   - ChainPromiseNode::fire
  */
 
 #include <xpp/promise.h>
@@ -23,8 +22,7 @@ static thread_local xEventLoop tl_current_loop = nullptr;
 
 WaitScope::WaitScope(xEventLoop loop) : m_loop(loop) {
   XPP_ASSERT(loop != nullptr, "WaitScope: loop must not be null");
-  XPP_ASSERT(tl_current_loop == nullptr,
-             "WaitScope: this thread already has an active WaitScope");
+  XPP_ASSERT(tl_current_loop == nullptr, "WaitScope: this thread already has an active WaitScope");
   tl_current_loop = loop;
 }
 
@@ -51,33 +49,8 @@ void Event::arm() {
   if (loop) {
     xEventLoopPost(loop, event_post_callback, this);
   } else {
-    // No loop — fire synchronously (for testing without a loop).
     fire();
   }
-}
-
-/* ── ChainPromiseNode::fire ───────────────────────────────────────── */
-
-void ChainPromiseNode::fire() {
-  XPP_ASSERT(m_state == Step1, "ChainPromiseNode::fire in wrong state");
-
-  // All Promise<T> have the same layout: a single Own<PromiseNode>.
-  // We read the dependency (which produced a Promise<X>) into a shell
-  // struct and steal its node.
-  struct PromiseShell {
-    Own<PromiseNode> node;
-  };
-  PromiseShell shell;
-  m_inner->read(&shell);
-
-  // Adopt the inner node
-  m_inner = std::move(shell.node);
-  m_state = Step2;
-
-  // Now poll the new inner node with the outer event
-  m_inner->poll(m_outer_event);
-
-  m_fired = true;
 }
 
 } // namespace _

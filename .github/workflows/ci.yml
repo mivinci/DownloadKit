@@ -116,10 +116,10 @@ jobs:
           BRANCH: ${{ github.head_ref }}
         run: |
           echo "Branch: $BRANCH"
-          if echo "$BRANCH" | grep -qE '^(main|moo\/|qclaw\/|codebuddy\/|workbuddy\/|claude\/|renovate/)'; then
+          if echo "$BRANCH" | grep -qE '^(main|moo\/|qclaw\/|codebuddy\/|workbuddy\/|claude\/|opencode\/|renovate/)'; then
             echo "✅ Branch name OK"
           else
             echo "❌ Branch name '$BRANCH' does not follow convention."
-            echo "   Expected prefix: moo/, qclaw/, codebuddy/, workbuddy/ or claude/"
+            echo "   Expected prefix: moo/, qclaw/, codebuddy/, workbuddy/, claude/ or opencode/"
             exit 1
           fi

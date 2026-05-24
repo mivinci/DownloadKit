@@ -48,13 +48,12 @@ template <class T> class MutexGuard;
  *
  * @tparam T  The protected data type.
  */
-template <class T>
-class Mutex {
+template <class T> class Mutex {
 public:
   explicit Mutex(T value)
       : m_data(std::move(value)), m_locked(false), m_head(nullptr), m_tail(nullptr) {}
 
-  Mutex(const Mutex &) = delete;
+  Mutex(const Mutex &)            = delete;
   Mutex &operator=(const Mutex &) = delete;
 
   /**
@@ -88,13 +87,13 @@ private:
     m_spin.store(false, std::memory_order_release);
   }
 
-  T m_data;
+  T                 m_data;
   std::atomic<bool> m_spin{false};
-  bool m_locked;
+  bool              m_locked;
 
   struct Waiter {
     _::AdapterPromiseNode<MutexGuard<T>> *adapter;
-    Waiter *next;
+    Waiter                               *next;
   };
   Waiter *m_head;
   Waiter *m_tail;
@@ -108,28 +107,39 @@ private:
  * Dereference (*guard or guard->) to access the data. The lock is
  * released when the guard is destroyed or moved-from.
  */
-template <class T>
-class MutexGuard {
+template <class T> class MutexGuard {
 public:
   MutexGuard() : m_mutex(nullptr) {}
-  MutexGuard(MutexGuard &&o) noexcept : m_mutex(o.m_mutex) { o.m_mutex = nullptr; }
+  MutexGuard(MutexGuard &&o) noexcept : m_mutex(o.m_mutex) {
+    o.m_mutex = nullptr;
+  }
   MutexGuard &operator=(MutexGuard &&o) noexcept {
     if (this != &o) {
       release();
-      m_mutex = o.m_mutex;
+      m_mutex   = o.m_mutex;
       o.m_mutex = nullptr;
     }
     return *this;
   }
-  MutexGuard(const MutexGuard &) = delete;
+  MutexGuard(const MutexGuard &)            = delete;
   MutexGuard &operator=(const MutexGuard &) = delete;
 
-  ~MutexGuard() { release(); }
+  ~MutexGuard() {
+    release();
+  }
 
-  T &operator*() { return m_mutex->m_data; }
-  const T &operator*() const { return m_mutex->m_data; }
-  T *operator->() { return &m_mutex->m_data; }
-  const T *operator->() const { return &m_mutex->m_data; }
+  T &operator*() {
+    return m_mutex->m_data;
+  }
+  const T &operator*() const {
+    return m_mutex->m_data;
+  }
+  T *operator->() {
+    return &m_mutex->m_data;
+  }
+  const T *operator->() const {
+    return &m_mutex->m_data;
+  }
 
 private:
   friend class Mutex<T>;
@@ -147,8 +157,7 @@ private:
 
 /* ── Mutex<T> implementations ────────────────────────────────────── */
 
-template <class T>
-Promise<MutexGuard<T>> Mutex<T>::lock() {
+template <class T> Promise<MutexGuard<T>> Mutex<T>::lock() {
   spin_lock();
 
   if (!m_locked) {
@@ -157,9 +166,9 @@ Promise<MutexGuard<T>> Mutex<T>::lock() {
     return Promise<MutexGuard<T>>::resolve(MutexGuard<T>(this));
   }
 
-  auto *adapter = new _::AdapterPromiseNode<MutexGuard<T>>();
-  Own<_::PromiseNode> node{adapter};
-  Promise<MutexGuard<T>> promise{std::move(node)};
+  auto                              *adapter = new _::AdapterPromiseNode<MutexGuard<T>>();
+  Own<_::PromiseNode<MutexGuard<T>>> node{adapter};
+  Promise<MutexGuard<T>>             promise{std::move(node)};
 
   auto *waiter = new Waiter{adapter, nullptr};
   if (m_tail) {
@@ -173,8 +182,7 @@ Promise<MutexGuard<T>> Mutex<T>::lock() {
   return promise;
 }
 
-template <class T>
-Option<MutexGuard<T>> Mutex<T>::try_lock() {
+template <class T> Option<MutexGuard<T>> Mutex<T>::try_lock() {
   spin_lock();
   if (!m_locked) {
     m_locked = true;
@@ -185,13 +193,12 @@ Option<MutexGuard<T>> Mutex<T>::try_lock() {
   return none;
 }
 
-template <class T>
-void Mutex<T>::unlock() {
+template <class T> void Mutex<T>::unlock() {
   spin_lock();
 
   if (m_head) {
     Waiter *w = m_head;
-    m_head = w->next;
+    m_head    = w->next;
     if (!m_head) m_tail = nullptr;
     spin_unlock();
 

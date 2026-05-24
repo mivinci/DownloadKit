@@ -167,13 +167,18 @@ struct SpawnTaskBase {
    *   Completed → execution finished, resolve posted to caller
    *   Detached  → JoinHandle gave up ownership; self-delete on completion
    */
-  enum State : uint8_t { Pending, Running, Completed, Detached };
+  enum State : uint8_t {
+    Pending,
+    Running,
+    Completed,
+    Detached
+  };
 
   virtual ~SpawnTaskBase()               = default;
   virtual void execute(WaitScope &scope) = 0;
 
-  Worker               *target_worker;
-  std::atomic<uint8_t>  state{Pending};
+  Worker              *target_worker;
+  std::atomic<uint8_t> state{Pending};
 };
 
 /* ── Helpers: void vs non-void dispatch ──────────────────────────── */
@@ -314,8 +319,7 @@ public:
    * _::current_runtime(). Must be paired with leave().
    */
   void enter() {
-    XPP_ASSERT(_::current_runtime() == nullptr,
-               "Runtime::enter: thread already inside a runtime");
+    XPP_ASSERT(_::current_runtime() == nullptr, "Runtime::enter: thread already inside a runtime");
     _::current_runtime() = this;
   }
 
@@ -329,7 +333,9 @@ public:
   }
 
   /** @brief Get the Runtime active on this thread (or nullptr). */
-  static Runtime *current() { return _::current_runtime(); }
+  static Runtime *current() {
+    return _::current_runtime();
+  }
 
 private:
   friend struct _::Worker;
@@ -352,10 +358,10 @@ private:
   /** @brief Worker main loop (runs as xTaskGroup task). */
   static void *worker_main(void *arg);
 
-  size_t                                m_max_workers;     // cap (CPU core count)
-  std::atomic<size_t>                   m_active_workers;  // currently alive
-  _::Worker                            *m_workers;         // pre-allocated array[m_max_workers]
-  xTaskGroup                            m_group;
+  size_t                                     m_max_workers;    // cap (CPU core count)
+  std::atomic<size_t>                        m_active_workers; // currently alive
+  _::Worker                                 *m_workers;        // pre-allocated array[m_max_workers]
+  xTaskGroup                                 m_group;
   xEventLoop                                 m_main_loop;
   sys::Mutex<std::deque<_::SpawnTaskBase *>> m_global_queue;
 };
@@ -396,31 +402,27 @@ public:
 #if XPP_HAS_COROUTINES
   auto operator co_await() {
     struct Awaiter {
-      _::SpawnTask<T> *&task_ref;
-      _::PromiseNode *node;
-      _::CoroutineEvent event{};
+      _::SpawnTask<T>  *&task_ref;
+      _::PromiseNode<T> *node;
+      _::CoroutineEvent  event{};
 
-      bool await_ready() const { return false; }
+      bool await_ready() const {
+        return false;
+      }
 
       bool await_suspend(std::coroutine_handle<> h) {
         event = _::CoroutineEvent(h);
-        node->poll(Option<_::Event &>(event));
+        if (node->poll(_::Waker(event))) {
+          event.arm();
+        }
         return true;
       }
 
-      T await_resume() {
-        if constexpr (std::is_void_v<T>) {
-          Void v;
-          node->read(&v);
-        } else {
-          typename FixVoid<T>::Type result;
-          node->read(&result);
-          delete task_ref;
-          task_ref = nullptr;
-          return std::move(result);
-        }
+      auto await_resume() -> typename _::PromiseNode<T>::ValueType {
+        auto val = node->take();
         delete task_ref;
         task_ref = nullptr;
+        return val;
       }
     };
     XPP_ASSERT(m_task != nullptr, "co_await on empty JoinHandle");
@@ -448,9 +450,9 @@ template <class T> JoinHandle<T> Runtime::spawn(Promise<T> promise) {
   xEventLoop caller_loop = WaitScope::current_loop();
   if (!caller_loop) caller_loop = m_main_loop;
 
-  auto               *adapter = new _::AdapterPromiseNode<V>();
-  Own<_::PromiseNode> node{adapter};
-  Promise<T>          join_promise{std::move(node)};
+  auto                  *adapter = new _::AdapterPromiseNode<V>();
+  Own<_::PromiseNode<T>> node{adapter};
+  Promise<T>             join_promise{std::move(node)};
 
   auto *task = new _::SpawnTask<T>(std::move(promise), adapter, caller_loop);
 
@@ -476,9 +478,9 @@ namespace _ {
 
 template <class Promise>
 auto block_on_impl(Runtime *rt, xEventLoop loop, Promise &&p)
-    -> decltype(p.wait(std::declval<WaitScope &>())) {
+  -> decltype(p.wait(std::declval<WaitScope &>())) {
   WaitScope scope(loop);
-  auto result = p.wait(scope);
+  auto      result = p.wait(scope);
   rt->leave();
   return result;
 }
@@ -501,7 +503,7 @@ auto Runtime::block_on(Func &&func) -> decltype(func().wait(std::declval<WaitSco
 template <class T> T Runtime::block_on(Promise<T> promise) {
   enter();
   WaitScope scope(m_main_loop);
-  T result = promise.wait(scope);
+  T         result = promise.wait(scope);
   leave();
   return result;
 }
@@ -520,8 +522,7 @@ template <class T> void JoinHandle<T>::detach() {
 
   // If already completed, resolve_on_caller already ran — we can delete.
   // Otherwise, mark as Detached so resolve_on_caller will self-delete.
-  auto prev = m_task->state.exchange(
-      _::SpawnTaskBase::Detached, std::memory_order_acq_rel);
+  auto prev = m_task->state.exchange(_::SpawnTaskBase::Detached, std::memory_order_acq_rel);
   if (prev == _::SpawnTaskBase::Completed) {
     delete m_task;
   }
@@ -565,8 +566,7 @@ template <class T> void JoinHandle<T>::release() {
  *   int val = co_await h;
  * @endcode
  */
-template <class T>
-JoinHandle<T> spawn(Promise<T> promise) {
+template <class T> JoinHandle<T> spawn(Promise<T> promise) {
   Runtime *rt = Runtime::current();
   XPP_ASSERT(rt != nullptr, "xpp::spawn: no active runtime on this thread");
   return rt->spawn(std::move(promise));

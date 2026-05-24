@@ -16,6 +16,9 @@
 #ifndef XPP_VOID_H
 #define XPP_VOID_H
 
+#include <type_traits>
+#include <utility>
+
 namespace xpp {
 
 /**
@@ -25,6 +28,40 @@ struct Void {};
 
 template <class T> struct FixVoid { using Type = T; };
 template <> struct FixVoid<void> { using Type = Void; };
+
+namespace _voidwrap {
+
+template <class U, class Func>
+typename std::enable_if<!std::is_void<decltype(std::declval<Func>()())>::value,
+                        typename FixVoid<U>::Type>::type
+call(Func &fn) {
+  return fn();
+}
+
+template <class U, class Func>
+typename std::enable_if<std::is_void<decltype(std::declval<Func>()())>::value,
+                        typename FixVoid<U>::Type>::type
+call(Func &fn) {
+  fn();
+  return Void{};
+}
+
+template <class U, class T, class Func>
+typename std::enable_if<!std::is_void<decltype(std::declval<Func>()(std::declval<T>()))>::value,
+                        typename FixVoid<U>::Type>::type
+call1(Func &fn, T &&arg) {
+  return fn(std::forward<T>(arg));
+}
+
+template <class U, class T, class Func>
+typename std::enable_if<std::is_void<decltype(std::declval<Func>()(std::declval<T>()))>::value,
+                        typename FixVoid<U>::Type>::type
+call1(Func &fn, T &&arg) {
+  fn(std::forward<T>(arg));
+  return Void{};
+}
+
+} // namespace _voidwrap
 
 } // namespace xpp
 

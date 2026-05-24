@@ -12,7 +12,7 @@
  * Chain transformations with then(), wait for the result with wait().
  *
  * This is Phase 1 of the async runtime: single-threaded, event-loop
- * driven, with the poll(Option<_::Event&>) interface designed for future co_await
+ * driven, with the poll(Waker) interface designed for future co_await
  * integration.
  *
  * C++11-compatible.
@@ -21,8 +21,8 @@
 #ifndef XPP_PROMISE_H
 #define XPP_PROMISE_H
 
-#include <xpp/promise_node.h>
 #include <xpp/compiler.h>
+#include <xpp/promise_node.h>
 
 #include <utility>
 
@@ -65,16 +65,6 @@ public:
 #if XPP_HAS_COROUTINES
   /* ── Coroutine promise_type ─────────────────────────────────────── */
 
-  /**
-   * @brief Makes Promise<T> usable as a coroutine return type.
-   *
-   * @code
-   *   Promise<int> fetch_and_add() {
-   *     int a = co_await fetch();
-   *     co_return a + 1;
-   *   }
-   * @endcode
-   */
   struct promise_type {
     _::AdapterPromiseNode<ValueType> *adapter;
 
@@ -83,11 +73,15 @@ public:
     }
 
     Promise get_return_object() {
-      return Promise(Own<_::PromiseNode>(adapter));
+      return Promise(Own<_::PromiseNode<T>>(adapter));
     }
 
-    std::suspend_never initial_suspend() noexcept { return {}; }
-    std::suspend_never final_suspend() noexcept { return {}; }
+    std::suspend_never initial_suspend() noexcept {
+      return {};
+    }
+    std::suspend_never final_suspend() noexcept {
+      return {};
+    }
 
     void return_value(ValueType value) {
       adapter->resolve(std::move(value));
@@ -100,7 +94,7 @@ public:
 #endif // XPP_HAS_COROUTINES
 
   Promise() : m_node(nullptr) {}
-  explicit Promise(Own<_::PromiseNode> node) : m_node(std::move(node)) {}
+  explicit Promise(Own<_::PromiseNode<T>> node) : m_node(std::move(node)) {}
   Promise(Promise &&o) noexcept : m_node(std::move(o.m_node)) {}
   Promise &operator=(Promise &&o) noexcept {
     m_node = std::move(o.m_node);
@@ -109,97 +103,39 @@ public:
   Promise(const Promise &)            = delete;
   Promise &operator=(const Promise &) = delete;
 
-  /**
-   * @brief Chain a transformation function.
-   *
-   * For Promise<T> where T != void: func takes T.
-   * For Promise<void>: func takes no args (use this overload).
-   *
-   * @code
-   *   resolve(10).then([](int x) { return x + 1; });
-   *   resolve().then([] { return 42; });
-   * @endcode
-   */
   template <class Func, class V = ValueType,
             class = typename std::enable_if<!std::is_same<V, Void>::value>::type>
   auto then(Func &&func)
-    -> Promise<typename ReducePromise<decltype(std::declval<Func>()(std::declval<V>()))>::Type> {
-    using RawU     = decltype(std::declval<Func>()(std::declval<V>()));
-    using U        = typename FixVoid<RawU>::Type;
-    using ReducedT = typename ReducePromise<RawU>::Type;
+    -> Promise<typename ReducePromise<decltype(std::declval<Func>()(std::declval<V>()))>::Type>;
 
-    // TODO: each then() heap-allocates a node. Phase 2 (coroutines)
-    // eliminates most chains; remaining hot paths can use an arena.
-    Own<_::PromiseNode> node(
-      new _::TransformPromiseNode<U, V, Func>(std::move(m_node), std::forward<Func>(func)));
-    node = _::maybe_chain(std::move(node), static_cast<U *>(nullptr));
-    return Promise<ReducedT>(std::move(node));
-  }
-
-  /** @brief then() overload for Promise<void> — func takes no args. */
   template <class Func, class V = ValueType,
-            class = typename std::enable_if<std::is_same<V, Void>::value>::type,
-            class = void> /* extra param to disambiguate from above */
-  auto then(Func &&func)
-    -> Promise<typename ReducePromise<decltype(std::declval<Func>()())>::Type> {
-    using RawU     = decltype(std::declval<Func>()());
-    using U        = typename FixVoid<RawU>::Type;
-    using ReducedT = typename ReducePromise<RawU>::Type;
+            class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
+  auto then(Func &&func) -> Promise<typename ReducePromise<decltype(std::declval<Func>()())>::Type>;
 
-    // TODO: same as above — heap alloc per then().
-    Own<_::PromiseNode> node(
-      new _::TransformPromiseNode<U, Void, Func>(std::move(m_node), std::forward<Func>(func)));
-    node = _::maybe_chain(std::move(node), static_cast<U *>(nullptr));
-    return Promise<ReducedT>(std::move(node));
-  }
-
-  /**
-   * @brief Synchronously wait for the result, driving the event loop.
-   *
-   * Blocks the calling thread, running event loop iterations until
-   * this promise is resolved. Must be called from the thread that
-   * owns the WaitScope.
-   *
-   * @param scope  The WaitScope providing the event loop to drive.
-   * @return       The resolved value.
-   */
   T wait(WaitScope &scope);
 
-  /**
-   * @brief Discard the value, returning a Promise<void> that completes
-   *        when this promise completes.
-   */
-  Promise<void> discard(); // defined below after Promise<void> is complete
+  Promise<void> discard();
 
 #if XPP_HAS_COROUTINES
-  /**
-   * @brief Returns an Awaiter that lives on the coroutine frame.
-   *
-   * The Awaiter owns a CoroutineEvent as a member (no heap allocation).
-   * This ensures exactly one event per co_await, with correct lifetime.
-   */
   auto operator co_await() {
     struct Awaiter {
-      _::PromiseNode *node;
-      _::CoroutineEvent event{};
+      _::PromiseNode<T> *node;
+      _::CoroutineEvent  event{};
 
-      bool await_ready() const { return false; }
+      bool await_ready() const {
+        return false;
+      }
 
       bool await_suspend(std::coroutine_handle<> h) {
         event = _::CoroutineEvent(h);
-        node->poll(Option<_::Event &>(event));
+        if (node->poll(_::Waker(event))) {
+          event.arm();
+        }
         return true;
       }
 
-      T await_resume() {
-        if constexpr (std::is_void_v<T>) {
-          Void v;
-          node->read(&v);
-        } else {
-          ValueType result;
-          node->read(&result);
-          return std::move(result);
-        }
+      auto await_resume() -> typename _::PromiseNode<T>::ValueType {
+        return node->take();
       }
     };
     XPP_ASSERT(m_node != nullptr, "co_await on empty promise");
@@ -209,81 +145,42 @@ public:
 
   /* ── Static factories ───────────────────────────────────────────── */
 
-  /**
-   * @brief Create an already-resolved promise.
-   *
-   * @code
-   *   auto p = Promise<int>::resolve(42);
-   *   auto q = Promise<void>::resolve();
-   * @endcode
-   */
   static Promise resolve(ValueType value) {
-    Own<_::PromiseNode> node(new _::ImmediatePromiseNode<ValueType>(std::move(value)));
+    Own<_::PromiseNode<T>> node(new _::ImmediatePromiseNode<T>(std::move(value)));
     return Promise(std::move(node));
   }
 
-  /** @brief No-arg overload for Promise<void>::resolve(). */
   template <class V = ValueType,
             class   = typename std::enable_if<std::is_same<V, Void>::value>::type>
   static Promise resolve() {
-    Own<_::PromiseNode> node(new _::ImmediatePromiseNode<Void>(Void{}));
+    Own<_::PromiseNode<T>> node(new _::ImmediatePromiseNode<void>());
     return Promise(std::move(node));
   }
 
-  /**
-   * @brief Defer func to the next event loop turn.
-   *
-   * Only available on Promise<void>. Returns Promise<U> where U is
-   * the return type of func (with automatic flatten if func returns
-   * a Promise).
-   *
-   * @code
-   *   auto p = Promise<void>::eval([] { return 42; });
-   *   int val = p.wait(scope);  // == 42
-   * @endcode
-   */
   template <class Func, class V = ValueType,
             class = typename std::enable_if<std::is_same<V, Void>::value>::type>
   static auto eval(Func &&func) -> Promise<typename ReducePromise<ReturnTypeVoid<Func>>::Type> {
-    return Promise(Own<_::PromiseNode>(new _::YieldPromiseNode())).then(std::forward<Func>(func));
+    return Promise<void>(Own<_::PromiseNode<void>>(new _::YieldPromiseNode()))
+      .then(std::forward<Func>(func));
   }
 
-  /**
-   * @brief Create a promise + resolver pair.
-   *
-   * @code
-   *   auto pr = Promise<int>::make();
-   *   pr.resolver.resolve(42);
-   *   int val = pr.promise.wait(scope);
-   * @endcode
-   */
-  static PromiseAndResolver<T> make(); // defined after PromiseAndResolver
+  static PromiseAndResolver<T> make();
 
-  /** @brief Check if this promise has a node (not moved-from). */
   explicit operator bool() const {
     return m_node != nullptr;
   }
 
 private:
-  Own<_::PromiseNode> m_node;
+  Own<_::PromiseNode<T>> m_node;
 
   template <class U> friend class Promise;
-  friend class _::PromiseNode;
   template <class U> friend class Resolver;
   template <class U> friend class JoinHandle;
+  template <class U> friend class _::ChainPromiseNode;
 };
 
 /* ── Resolver<T> ─────────────────────────────────────────────────── */
 
-/**
- * @brief Producer end of a promise. Call resolve() to fulfill.
- *
- * @code
- *   auto pr = Promise<int>::make();
- *   pr.resolver.resolve(42);
- *   int val = pr.promise.wait(scope);
- * @endcode
- */
 template <class T> class Resolver {
 public:
   using ValueType = typename FixVoid<T>::Type;
@@ -301,9 +198,6 @@ public:
   Resolver(const Resolver &)            = delete;
   Resolver &operator=(const Resolver &) = delete;
 
-  /**
-   * @brief Resolve the promise with a value.
-   */
   void resolve(ValueType &&value) {
     XPP_ASSERT(m_node != nullptr, "Resolver: already consumed or moved-from");
     m_node->resolve(std::move(value));
@@ -322,7 +216,6 @@ private:
   _::AdapterPromiseNode<ValueType> *m_node;
 };
 
-/* Specialization for void */
 template <> class Resolver<void> {
 public:
   explicit Resolver(_::AdapterPromiseNode<Void> *node) : m_node(node) {}
@@ -360,26 +253,13 @@ template <class T> struct PromiseAndResolver {
 /* ── Promise<T>::make ──────────────────────────────────────────────── */
 
 template <class T> PromiseAndResolver<T> Promise<T>::make() {
-  auto               *adapter = new _::AdapterPromiseNode<ValueType>();
-  Own<_::PromiseNode> node(adapter);
+  auto                  *adapter = new _::AdapterPromiseNode<ValueType>();
+  Own<_::PromiseNode<T>> node(adapter);
   return PromiseAndResolver<T>{Promise(std::move(node)), Resolver<T>(adapter)};
 }
 
 /* ── WaitScope ───────────────────────────────────────────────────── */
 
-/**
- * @brief Provides the event loop context for Promise::wait().
- *
- * Registers the loop into thread-local storage on construction;
- * clears it on destruction. Only one WaitScope per thread.
- *
- * @code
- *   xEventLoop loop = xEventLoopCreate();
- *   xpp::WaitScope scope(loop);
- *   int val = some_promise.wait(scope);
- *   xEventLoopDestroy(loop);
- * @endcode
- */
 class WaitScope {
 public:
   explicit WaitScope(xEventLoop loop);
@@ -392,7 +272,6 @@ public:
     return m_loop;
   }
 
-  /** @brief Get the current thread's event loop (or nullptr). */
   static xEventLoop current_loop();
 
 private:
@@ -401,15 +280,8 @@ private:
 
 /* ── Free helper functions ──────────────────────────────────────── */
 
-/**
- * @brief Yield control to the event loop, resuming on the next turn.
- *
- * @code
- *   xpp::yield().wait(scope);
- * @endcode
- */
 inline Promise<void> yield() {
-  return Promise<void>(Own<_::PromiseNode>(new _::YieldPromiseNode()));
+  return Promise<void>(Own<_::PromiseNode<void>>(new _::YieldPromiseNode()));
 }
 
 /* ── Promise<T>::discard implementation ──────────────────────────── */
@@ -422,39 +294,49 @@ template <class T> Promise<void> Promise<T>::discard() {
 
 template <class T> T Promise<T>::wait(WaitScope &scope) {
   XPP_ASSERT(m_node != nullptr, "Promise::wait on empty promise");
-  _::RootEvent root;
-  m_node->poll(root);
 
-  while (!root.fired()) {
-    xEventWait(scope.loop(), -1);
+  struct WaitEvent : _::Event {
+    void fire() override {
+      m_fired = true;
+    }
+    bool m_fired = false;
+  };
+
+  WaitEvent ev;
+  while (!m_node->poll(_::Waker(ev))) {
+    while (!ev.m_fired)
+      xEventWait(scope.loop(), -1);
+    ev.m_fired = false;
   }
 
-  ValueType result;
-  m_node->read(&result);
-  return std::move(result);
+  return m_node->take();
 }
 
 template <> inline void Promise<void>::wait(WaitScope &scope) {
   XPP_ASSERT(m_node != nullptr, "Promise::wait on empty promise");
-  _::RootEvent root;
-  m_node->poll(root);
 
-  while (!root.fired()) {
-    xEventWait(scope.loop(), -1);
+  struct WaitEvent : _::Event {
+    void fire() override {
+      m_fired = true;
+    }
+    bool m_fired = false;
+  };
+
+  WaitEvent ev;
+  while (!m_node->poll(_::Waker(ev))) {
+    while (!ev.m_fired)
+      xEventWait(scope.loop(), -1);
+    ev.m_fired = false;
   }
 
-  Void v;
-  m_node->read(&v);
+  m_node->take();
 }
 
 /* ── C++20 Coroutine support for Promise<void> ──────────────────── */
 
 #if XPP_HAS_COROUTINES
 
-/* ── Promise<void>::promise_type ──────────────────────────────────── */
-
-template <>
-struct Promise<void>::promise_type {
+template <> struct Promise<void>::promise_type {
   _::AdapterPromiseNode<Void> *adapter;
 
   promise_type() {
@@ -462,30 +344,125 @@ struct Promise<void>::promise_type {
   }
 
   Promise<void> get_return_object() {
-    return Promise<void>(Own<_::PromiseNode>(adapter));
+    return Promise<void>(Own<_::PromiseNode<void>>(adapter));
   }
 
-  std::suspend_never initial_suspend() noexcept { return {}; }
-  std::suspend_never final_suspend() noexcept { return {}; }
+  std::suspend_never initial_suspend() noexcept {
+    return {};
+  }
+  std::suspend_never final_suspend() noexcept {
+    return {};
+  }
 
   void return_void() {
     adapter->resolve();
   }
 
-  void unhandled_exception() { std::terminate(); }
+  void unhandled_exception() {
+    std::terminate();
+  }
 };
 
 #endif // XPP_HAS_COROUTINES
 
-/* ── maybe_chain (deferred from promise_node.h) ──────────────────── */
+/* ── ChainPromiseNode<T> implementation ─────────────────────────── */
 
 namespace _ {
 
-template <class T> inline Own<PromiseNode> maybe_chain(Own<PromiseNode> node, Promise<T> *) {
-  return Own<PromiseNode>(new ChainPromiseNode(std::move(node)));
+template <class T>
+inline Own<PromiseNode<T>> maybe_chain(Own<PromiseNode<Promise<T>>> node, Promise<T> *) {
+  return Own<PromiseNode<T>>(new ChainPromiseNode<T>(std::move(node)));
 }
 
+/* ── ChainPromiseNode<T> implementation ─────────────────────────── */
+
+template <class T>
+ChainPromiseNode<T>::ChainPromiseNode(Own<PromiseNode<Promise<T>>> outer)
+    : m_state(Step1), m_outer(std::move(outer)) {
+  if (m_outer->poll(Waker(*this))) {
+    fire();
+  }
+}
+
+template <class T> bool ChainPromiseNode<T>::poll(Waker waker) {
+  switch (m_state) {
+  case Step1:
+    m_outer_waker = waker;
+    return false;
+  case Step2:
+    return m_inner->poll(waker);
+  }
+  XPP_UNREACHABLE();
+}
+
+template <class T> typename PromiseNode<T>::ValueType ChainPromiseNode<T>::take() {
+  XPP_ASSERT(m_state == Step2, "ChainPromiseNode::take in Step1");
+  return m_inner->take();
+}
+
+template <class T> void ChainPromiseNode<T>::fire() {
+  XPP_ASSERT(m_state == Step1, "ChainPromiseNode::fire in wrong state");
+
+  Promise<T> p = m_outer->take();
+  m_inner      = std::move(p.m_node);
+  m_state      = Step2;
+
+  if (m_inner->poll(m_outer_waker)) {
+    m_outer_waker.wake();
+  }
+}
+
+/* ── chain helper: always returns Own<PromiseNode<ReducedT>> ── */
+
+namespace _chain {
+
+template <class ReducedT, class OutT, class T, class Func>
+typename std::enable_if<std::is_same<OutT, ReducedT>::value, Own<PromiseNode<ReducedT>>>::type
+chain(Own<PromiseNode<T>> dep, Func &&func) {
+  return Own<PromiseNode<ReducedT>>(
+    new TransformPromiseNode<ReducedT, T, Func>(std::move(dep), std::forward<Func>(func)));
+}
+
+template <class ReducedT, class OutT, class T, class Func>
+typename std::enable_if<!std::is_same<OutT, ReducedT>::value, Own<PromiseNode<ReducedT>>>::type
+chain(Own<PromiseNode<T>> dep, Func &&func) {
+  return Own<PromiseNode<ReducedT>>(new ChainPromiseNode<ReducedT>(
+    Own<PromiseNode<Promise<ReducedT>>>(new TransformPromiseNode<Promise<ReducedT>, T, Func>(
+      std::move(dep), std::forward<Func>(func)))));
+}
+
+} // namespace _chain
+
 } // namespace _
+
+/* ── Promise<T>::then implementations ──────────────────────────── */
+
+template <class T>
+template <class Func, class V, class>
+auto Promise<T>::then(Func &&func)
+  -> Promise<typename ReducePromise<decltype(std::declval<Func>()(std::declval<V>()))>::Type> {
+  using RawU     = decltype(std::declval<Func>()(std::declval<V>()));
+  using ReducedT = typename ReducePromise<RawU>::Type;
+  using OutT     = RawU;
+
+  Own<_::PromiseNode<T>> dep(std::move(m_node));
+  auto node = _::_chain::chain<ReducedT, OutT, T, Func>(std::move(dep), std::forward<Func>(func));
+  return Promise<ReducedT>(std::move(node));
+}
+
+template <class T>
+template <class Func, class V, class, class>
+auto Promise<T>::then(Func &&func)
+  -> Promise<typename ReducePromise<decltype(std::declval<Func>()())>::Type> {
+  using RawU     = decltype(std::declval<Func>()());
+  using ReducedT = typename ReducePromise<RawU>::Type;
+  using OutT     = RawU;
+
+  Own<_::PromiseNode<void>> dep(std::move(m_node));
+  auto                      node =
+    _::_chain::chain<ReducedT, OutT, void, Func>(std::move(dep), std::forward<Func>(func));
+  return Promise<ReducedT>(std::move(node));
+}
 
 } // namespace xpp
 

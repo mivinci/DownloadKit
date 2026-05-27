@@ -50,13 +50,11 @@ TEST_F(RuntimeTest, BlockOnCoroutine) {
 /* ── spawn + co_await ─────────────────────────────────────────────── */
 
 TEST_F(RuntimeTest, SpawnAndAwait) {
-  auto work = []() -> xpp::Promise<int> {
-    co_return 7;
-  };
-
   auto orchestrate = [&]() -> xpp::Promise<int> {
-    auto handle = m_rt->spawn(work());
-    int result = co_await handle;
+    auto p = m_rt->spawn([]() -> xpp::Promise<int> {
+      co_return 7;
+    });
+    int result = co_await p;
     co_return result;
   };
 
@@ -66,14 +64,12 @@ TEST_F(RuntimeTest, SpawnAndAwait) {
 TEST_F(RuntimeTest, SpawnVoid) {
   std::atomic<bool> done{false};
 
-  auto work = [&]() -> xpp::Promise<void> {
-    done.store(true);
-    co_return;
-  };
-
   auto orchestrate = [&]() -> xpp::Promise<void> {
-    auto handle = m_rt->spawn(work());
-    co_await handle;
+    auto p = m_rt->spawn([&]() -> xpp::Promise<void> {
+      done.store(true);
+      co_return;
+    });
+    co_await p;
   };
 
   m_rt->block_on(orchestrate());
@@ -83,35 +79,28 @@ TEST_F(RuntimeTest, SpawnVoid) {
 /* ── spawn multiple ───────────────────────────────────────────────── */
 
 TEST_F(RuntimeTest, SpawnMultiple) {
-  auto compute = [](int x) -> xpp::Promise<int> {
-    co_return x * x;
-  };
-
   auto orchestrate = [&]() -> xpp::Promise<int> {
-    auto h1 = m_rt->spawn(compute(3));
-    auto h2 = m_rt->spawn(compute(4));
+    auto h1 = m_rt->spawn([]() -> xpp::Promise<int> { co_return 9; });
+    auto h2 = m_rt->spawn([]() -> xpp::Promise<int> { co_return 16; });
     int a = co_await h1;
     int b = co_await h2;
     co_return a + b;
   };
 
-  EXPECT_EQ(m_rt->block_on(orchestrate()), 25);  // 9 + 16
+  EXPECT_EQ(m_rt->block_on(orchestrate()), 25);
 }
 
-/* ── detach ───────────────────────────────────────────────────────── */
+/* ── detach (drop = detach) ───────────────────────────────────────── */
 
 TEST_F(RuntimeTest, Detach) {
   std::atomic<int> counter{0};
 
-  auto work = [&]() -> xpp::Promise<void> {
-    counter.fetch_add(1);
-    co_return;
-  };
-
   auto orchestrate = [&]() -> xpp::Promise<void> {
-    auto handle = m_rt->spawn(work());
-    handle.detach();
-    // Don't await — fire and forget.
+    // Dropping the Promise detaches the task (runs to completion).
+    m_rt->spawn([&]() -> xpp::Promise<void> {
+      counter.fetch_add(1);
+      co_return;
+    });
     co_return;
   };
 
@@ -128,15 +117,11 @@ TEST_F(RuntimeTest, Detach) {
 TEST_F(RuntimeTest, SpawnRunsOnWorker) {
   auto main_tid = std::this_thread::get_id();
 
-  // The spawned task's Promise is driven by the worker thread's event
-  // loop. Use Promise::eval to defer the actual computation to the
-  // worker's loop (eval yields first, then runs the lambda).
   auto orchestrate = [&]() -> xpp::Promise<bool> {
-    auto handle = m_rt->spawn(
-      xpp::Promise<void>::eval([&]() -> bool {
-        return std::this_thread::get_id() != main_tid;
-      }));
-    co_return co_await handle;
+    auto p = m_rt->spawn([&]() -> xpp::Promise<bool> {
+      co_return std::this_thread::get_id() != main_tid;
+    });
+    co_return co_await p;
   };
 
   EXPECT_TRUE(m_rt->block_on(orchestrate()));

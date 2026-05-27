@@ -24,7 +24,7 @@
 #include <xpp/in_place.h>
 #include <xpp/sys/mutex.h>
 #include <xpp/nonnull.h>
-#include <xpp/nonnull_own.h>
+#include <xpp/box.h>
 #include <xpp/option.h>
 #include <xpp/own.h>
 #include <xpp/panic.h>

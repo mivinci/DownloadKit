@@ -6,7 +6,7 @@
  * promise_test.cpp - Unit tests for xpp::Promise<T>
  */
 
-#include <xpp/promise.h>
+#include <xpp/runtime.h>
 
 #include <gtest/gtest.h>
 
@@ -18,41 +18,41 @@ class PromiseTest : public ::testing::Test {
 protected:
   void SetUp() override {
     m_loop = xEventLoopCreate();
-    m_scope = new xpp::WaitScope(m_loop);
+    m_guard = new xpp::EnterGuard(nullptr, nullptr, m_loop);
   }
   void TearDown() override {
-    delete m_scope;
+    delete m_guard;
     xEventLoopDestroy(m_loop);
   }
 
-  xEventLoop m_loop;
-  xpp::WaitScope *m_scope;
+  xEventLoop    m_loop;
+  xpp::EnterGuard *m_guard;
 };
 
 /* ── resolve + wait ────────────────────────────────────────────────── */
 
 TEST_F(PromiseTest, ResolveInt) {
   auto p = xpp::Promise<int>::resolve(42);
-  EXPECT_EQ(p.wait(*m_scope), 42);
+  EXPECT_EQ(p.wait(*m_guard), 42);
 }
 
 TEST_F(PromiseTest, ResolveVoid) {
   auto p = xpp::Promise<void>::resolve();
-  p.wait(*m_scope);  // should not hang
+  p.wait(*m_guard);  // should not hang
 }
 
 /* ── eval ────────────────────────────────────────────────────── */
 
 TEST_F(PromiseTest, EvalLaterInt) {
   auto p = xpp::Promise<void>::eval([] { return 42; });
-  EXPECT_EQ(p.wait(*m_scope), 42);
+  EXPECT_EQ(p.wait(*m_guard), 42);
 }
 
 TEST_F(PromiseTest, EvalLaterVoid) {
   bool executed = false;
   auto p = xpp::Promise<void>::eval([&] { executed = true; });
   EXPECT_FALSE(executed);
-  p.wait(*m_scope);
+  p.wait(*m_guard);
   EXPECT_TRUE(executed);
 }
 
@@ -61,7 +61,7 @@ TEST_F(PromiseTest, EvalLaterVoid) {
 TEST_F(PromiseTest, ThenIntToInt) {
   int result = xpp::Promise<int>::resolve(10)
     .then([](int x) { return x + 1; })
-    .wait(*m_scope);
+    .wait(*m_guard);
   EXPECT_EQ(result, 11);
 }
 
@@ -69,14 +69,14 @@ TEST_F(PromiseTest, ThenIntToVoid) {
   int captured = 0;
   xpp::Promise<int>::resolve(42)
     .then([&](int x) { captured = x; })
-    .wait(*m_scope);
+    .wait(*m_guard);
   EXPECT_EQ(captured, 42);
 }
 
 TEST_F(PromiseTest, ThenVoidToInt) {
   int result = xpp::Promise<void>::resolve()
     .then([] { return 99; })
-    .wait(*m_scope);
+    .wait(*m_guard);
   EXPECT_EQ(result, 99);
 }
 
@@ -84,7 +84,7 @@ TEST_F(PromiseTest, ThenVoidToVoid) {
   bool done = false;
   xpp::Promise<void>::resolve()
     .then([&] { done = true; })
-    .wait(*m_scope);
+    .wait(*m_guard);
   EXPECT_TRUE(done);
 }
 
@@ -95,7 +95,7 @@ TEST_F(PromiseTest, ThenChain) {
     .then([](int x) { return x + 1; })
     .then([](int x) { return x * 3; })
     .then([](int x) { return x - 1; })
-    .wait(*m_scope);
+    .wait(*m_guard);
   EXPECT_EQ(result, 5);  // (1+1)*3 - 1 = 5
 }
 
@@ -104,7 +104,7 @@ TEST_F(PromiseTest, ThenChain) {
 TEST_F(PromiseTest, EvalLaterThen) {
   int result = xpp::Promise<void>::eval([] { return 10; })
     .then([](int x) { return x * 2; })
-    .wait(*m_scope);
+    .wait(*m_guard);
   EXPECT_EQ(result, 20);
 }
 
@@ -113,19 +113,19 @@ TEST_F(PromiseTest, EvalLaterThen) {
 TEST_F(PromiseTest, ResolverBasic) {
   auto pair = xpp::Promise<int>::make();
   pair.resolver.resolve(99);
-  EXPECT_EQ(pair.promise.wait(*m_scope), 99);
+  EXPECT_EQ(pair.promise.wait(*m_guard), 99);
 }
 
 TEST_F(PromiseTest, ResolverVoid) {
   auto pair = xpp::Promise<void>::make();
   pair.resolver.resolve();
-  pair.promise.wait(*m_scope);  // should not hang
+  pair.promise.wait(*m_guard);  // should not hang
 }
 
 /* ── yield ─────────────────────────────────────────────────────────── */
 
 TEST_F(PromiseTest, Yield) {
-  xpp::yield().wait(*m_scope);  // should not hang
+  xpp::yield().wait(*m_guard);  // should not hang
 }
 
 /* ── flatten (then returns Promise<T>) ────────────────────────────────── */
@@ -135,7 +135,7 @@ TEST_F(PromiseTest, FlattenPromise) {
     .then([](int x) {
       return xpp::Promise<int>::resolve(x + 1);  // returns Promise<int>
     })
-    .wait(*m_scope);
+    .wait(*m_guard);
   EXPECT_EQ(result, 11);
 }
 
@@ -147,7 +147,7 @@ TEST_F(PromiseTest, FlattenPromiseVoid) {
       done = true;
       return xpp::Promise<void>::resolve();  // returns Promise<void>
     })
-    .wait(*m_scope);
+    .wait(*m_guard);
   EXPECT_TRUE(done);
 }
 
@@ -159,7 +159,7 @@ TEST_F(PromiseTest, FlattenChained) {
     .then([](int x) {
       return xpp::Promise<int>::resolve(x + 5);
     })
-    .wait(*m_scope);
+    .wait(*m_guard);
   EXPECT_EQ(result, 15);  // 1*10 + 5
 }
 
@@ -170,7 +170,7 @@ TEST_F(PromiseTest, VoidDiscard) {
   xpp::Promise<void>::eval([&] {
     executed = true;
     return 42;
-  }).discard().wait(*m_scope);
+  }).discard().wait(*m_guard);
   EXPECT_TRUE(executed);
 }
 
@@ -181,7 +181,7 @@ TEST_F(PromiseTest, MovePromise) {
   auto p2 = std::move(p1);
   EXPECT_FALSE(static_cast<bool>(p1));
   EXPECT_TRUE(static_cast<bool>(p2));
-  EXPECT_EQ(p2.wait(*m_scope), 42);
+  EXPECT_EQ(p2.wait(*m_guard), 42);
 }
 
 TEST_F(PromiseTest, MoveAssign) {
@@ -189,7 +189,7 @@ TEST_F(PromiseTest, MoveAssign) {
   auto p2 = xpp::Promise<int>::resolve(2);
   p1 = std::move(p2);
   EXPECT_FALSE(static_cast<bool>(p2));
-  EXPECT_EQ(p1.wait(*m_scope), 2);  // p1 now holds p2's node
+  EXPECT_EQ(p1.wait(*m_guard), 2);  // p1 now holds p2's node
 }
 
 /* ── Resolver with then ───────────────────────────────────────────────── */
@@ -199,5 +199,5 @@ TEST_F(PromiseTest, ResolverThen) {
   auto chained = pair.promise
     .then([](int x) { return x * 2; });
   pair.resolver.resolve(21);
-  EXPECT_EQ(chained.wait(*m_scope), 42);
+  EXPECT_EQ(chained.wait(*m_guard), 42);
 }

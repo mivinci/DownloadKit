@@ -20,9 +20,9 @@ xpp::Promise<int> compute(int x) {
 
 // Fan-out: spawn multiple tasks, await all results.
 xpp::Promise<int> fan_out() {
-  auto h1 = xpp::spawn(compute(3));
-  auto h2 = xpp::spawn(compute(4));
-  auto h3 = xpp::spawn(compute(5));
+  auto h1 = xpp::spawn([] { return compute(3); });
+  auto h2 = xpp::spawn([] { return compute(4); });
+  auto h3 = xpp::spawn([] { return compute(5); });
 
   int a = co_await h1;
   int b = co_await h2;
@@ -45,7 +45,7 @@ Promise<int> main(int argc, char *argv[]) {
   // Sequential spawns.
   int sum = 0;
   for (int i = 1; i <= 10; ++i) {
-    auto h = xpp::spawn(compute(i));
+    auto h = xpp::spawn([i] { return compute(i); });
     sum += co_await h;
   }
   printf("sum of squares 1..10: %d (expected 385)\n", sum);

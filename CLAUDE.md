@@ -20,6 +20,8 @@ cmake --build build --parallel
 
 # Shortcut via package.json (builds apps + examples, debug level 1)
 npm run build
+npm run test          # ctest wrapper
+npm run clean         # rm -rf build build-openssl build-mbedtls book
 ```
 
 Key CMake options: `MOO_BUILD_APPS` (OFF), `X_BUILD_TESTS` (ON), `X_BUILD_BENCHMARKS` (ON), `X_BUILD_EXAMPLES` (OFF), `X_BUILD_STATIC` (OFF), `X_TLS_BACKEND` (auto/openssl/mbedtls/none), `X_DEBUG_LEVEL` (0-3), `MOO_ENABLE_ASAN` (OFF).
@@ -33,9 +35,13 @@ ctest --test-dir build --output-on-failure --parallel 4
 # Run a single test binary directly
 ./build/libx/x/base/xbase_test --gtest_filter="HeapTest.*"
 
+# Note: xline has no test binary; test scripts skip it automatically
+
 # Affected-modules only (faster iteration vs origin/main)
-./scripts/test-mac.sh
-./scripts/test-mac.sh -t mbedtls --all
+./scripts/test-mac.sh                           # diff against origin/main, openssl
+./scripts/test-mac.sh -t mbedtls --all          # force-test every module, mbedTLS
+./scripts/test-mac.sh --detect-only             # print affected module names without building
+./scripts/test-mac.sh --base-sha <SHA>          # override base ref for diff
 
 # Test both TLS backends
 cmake -S . -B build-openssl -DX_TLS_BACKEND=openssl && cmake --build build-openssl --parallel && ctest --test-dir build-openssl --output-on-failure --parallel 4
@@ -103,7 +109,11 @@ libx++/xpp/    → Optional C++14 RAII layer (Own, NonNull, Option, Result)
 - **Formatting**: `.clang-format` (LLVM-based, 100-col, 2-space indent, pointer-right `int *p`)
 - **Naming**: Public API uses `x` prefix + PascalCase (`xHeapPush`, `xEventLoopCreate`). Internal/static functions use snake_case. Callbacks end with `Func`, configs with `Conf`.
 - **File naming**: `<module>.h` (public), `<module>_private.h` (internal), `<module>.c`, `<module>_test.cpp`
-- **Header guards**: `#ifndef XBASE_EVENT_H` / `#define XBASE_EVENT_H`
+- **Header guards**: `#ifndef XBASE_EVENT_H` / `#define XBASE_EVENT_H` for libx; `MOO_CLI_<FILE>_H` for cli/
+- **Internal structs**: trailing underscore: `struct xEventSource_`
+- **Sections**: `/* ── Section ── */` dividers inside `.c` files
+- **File headers**: copyright block + `<filename> - <Brief description>`
+- **Private headers**: `*_private.h` includes its corresponding public header (one-way dependency: private → public)
 - **Include order**: corresponding public header → stdlib → system → project-internal private headers
 - **Public headers**: use `<x/base/xxx.h>` angle-bracket paths; private headers use `"xxx.h"`
 - **Error handling**: Return `xErrno` enum. Create functions return pointer/handle (NULL on failure). Multi-step init uses `goto fail` pattern.
@@ -125,3 +135,12 @@ Scopes: xbase, xbuf, xnet, xhttp, xlog, xcrypto, xp2p, xfer, xagent, cli (or omi
 ## Compiler Warnings
 
 C code compiles with `-Wall -Wextra -Werror`. C++ test/benchmark code uses `-Wall -Wextra` without `-Werror`.
+
+## Platform Notes
+
+- macOS: Homebrew OpenSSL and mbedTLS are keg-only. Manual cmake calls need `-DOPENSSL_ROOT_DIR=$(brew --prefix openssl)` (test scripts handle this automatically).
+- CI runs with ASAN enabled. To reproduce: `cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMOO_ENABLE_ASAN=ON`.
+
+## CI Branch Enforcement
+
+PR branch names must match `<author>/<short-description>` with one of these prefixes: `moo/`, `qclaw/`, `codebuddy/`, `workbuddy/`, `claude/`, `opencode/`, or `renovate/`.

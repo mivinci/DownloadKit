@@ -6,7 +6,7 @@
  * own_test.cpp - Tests for Own<T, Deleter>.
  *
  * Verifies Rust/std::unique_ptr-style API:
- *   - default null, ctor from raw, ctor from NonNullOwn, ctor from Option<NonNullOwn>
+ *   - default null, ctor from raw, ctor from Box, ctor from Option<Box>
  *   - reset / take / release equivalence
  *   - operator* / operator-> / operator bool / nullptr comparisons
  *   - into_nonnull bridge
@@ -25,7 +25,7 @@
 /* ── Compile-time guarantees ─────────────────────────────────────────── */
 
 static_assert(sizeof(xpp::Own<int>) == sizeof(int *),
-              "Own<int> must be sizeof(int*) via niche-optimized Option<NonNullOwn> storage");
+              "Own<int> must be sizeof(int*) via niche-optimized Option<Box> storage");
 
 static_assert(!std::is_copy_constructible<xpp::Own<int>>::value, "Own must not be copyable");
 static_assert(!std::is_copy_assignable<xpp::Own<int>>::value, "Own must not be copy-assignable");
@@ -124,9 +124,9 @@ TEST(OwnTest, RawPtrCtorWithNullIsEmpty) {
   EXPECT_EQ(o.get(), nullptr);
 }
 
-TEST_F(OwnTrackerTest, FromNonNullOwn) {
+TEST_F(OwnTrackerTest, FromBox) {
   {
-    auto              nn = xpp::NonNullOwn<Tracker>::new_unchecked(new Tracker(3));
+    auto              nn = xpp::Box<Tracker>::from_raw(new Tracker(3));
     xpp::Own<Tracker> o(std::move(nn));
     EXPECT_TRUE(static_cast<bool>(o));
     EXPECT_EQ(o->value, 3);
@@ -134,9 +134,9 @@ TEST_F(OwnTrackerTest, FromNonNullOwn) {
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-TEST_F(OwnTrackerTest, FromOptionNonNullOwnSome) {
+TEST_F(OwnTrackerTest, FromOptionBoxSome) {
   {
-    auto              opt = xpp::NonNullOwn<Tracker>::from(new Tracker(4));
+    auto              opt = xpp::Box<Tracker>::try_from_raw(new Tracker(4));
     xpp::Own<Tracker> o(std::move(opt));
     EXPECT_TRUE(static_cast<bool>(o));
     EXPECT_EQ(o->value, 4);
@@ -144,8 +144,8 @@ TEST_F(OwnTrackerTest, FromOptionNonNullOwnSome) {
   EXPECT_EQ(Tracker::alive, 0);
 }
 
-TEST(OwnTest, FromOptionNonNullOwnNoneIsEmpty) {
-  xpp::Option<xpp::NonNullOwn<int>> opt;
+TEST(OwnTest, FromOptionBoxNoneIsEmpty) {
+  xpp::Option<xpp::Box<int>> opt;
   xpp::Own<int>                     o(std::move(opt));
   EXPECT_FALSE(static_cast<bool>(o));
 }
@@ -253,7 +253,7 @@ TEST_F(OwnTrackerTest, ReleaseEquivalentToTake) {
   Tracker *raw;
   {
     xpp::Own<Tracker> o(new Tracker(4));
-    raw = o.release();
+    raw = o.take();
     EXPECT_FALSE(static_cast<bool>(o));
   }
   delete raw;
@@ -290,7 +290,7 @@ TEST(OwnDeathTest, DerefArrowOnEmpty) {
 TEST_F(OwnTrackerTest, IntoNonNullSomeWhenNonEmpty) {
   {
     xpp::Own<Tracker>                     o(new Tracker(11));
-    xpp::Option<xpp::NonNullOwn<Tracker>> opt = std::move(o).into_nonnull();
+    xpp::Option<xpp::Box<Tracker>> opt = std::move(o).into_nonnull();
     EXPECT_TRUE(opt.is_some());
     EXPECT_EQ(opt.unwrap()->value, 11);
     EXPECT_EQ(Tracker::alive, 1);
@@ -300,12 +300,12 @@ TEST_F(OwnTrackerTest, IntoNonNullSomeWhenNonEmpty) {
 
 TEST(OwnTest, IntoNonNullNoneWhenEmpty) {
   xpp::Own<int>                     o;
-  xpp::Option<xpp::NonNullOwn<int>> opt = std::move(o).into_nonnull();
+  xpp::Option<xpp::Box<int>> opt = std::move(o).into_nonnull();
   EXPECT_TRUE(opt.is_none());
 }
 
-TEST_F(OwnTrackerTest, RoundtripThroughNonNullOwn) {
-  // Own → Option<NonNullOwn> → Own: ownership preserved, no leak.
+TEST_F(OwnTrackerTest, RoundtripThroughBox) {
+  // Own → Option<Box> → Own: ownership preserved, no leak.
   {
     xpp::Own<Tracker> a(new Tracker(13));
     auto              opt = std::move(a).into_nonnull();
@@ -384,10 +384,10 @@ protected:
 
 } // namespace
 
-TEST_F(CovarianceTest, NonNullOwnDerivedToBase) {
+TEST_F(CovarianceTest, BoxDerivedToBase) {
   {
-    auto                  d = xpp::NonNullOwn<Derived>::new_unchecked(new Derived(1, 2));
-    xpp::NonNullOwn<Base> b(std::move(d));
+    auto                  d = xpp::Box<Derived>::from_raw(new Derived(1, 2));
+    xpp::Box<Base> b(std::move(d));
     EXPECT_EQ(b->kind(), 2); // virtual dispatch → Derived
     EXPECT_EQ(b->base_value, 1);
     EXPECT_EQ(Base::alive, 1);
@@ -395,10 +395,10 @@ TEST_F(CovarianceTest, NonNullOwnDerivedToBase) {
   EXPECT_EQ(Base::alive, 0); // ~Derived runs through virtual ~Base
 }
 
-TEST_F(CovarianceTest, OptionNonNullOwnDerivedToBase) {
+TEST_F(CovarianceTest, OptionBoxDerivedToBase) {
   {
-    auto                               d_opt = xpp::NonNullOwn<Derived>::from(new Derived(3, 4));
-    xpp::Option<xpp::NonNullOwn<Base>> b_opt(std::move(d_opt));
+    auto                               d_opt = xpp::Box<Derived>::try_from_raw(new Derived(3, 4));
+    xpp::Option<xpp::Box<Base>> b_opt(std::move(d_opt));
     ASSERT_TRUE(b_opt.is_some());
     EXPECT_EQ(b_opt.unwrap()->kind(), 2);
     EXPECT_EQ(Base::alive, 1);
@@ -406,11 +406,11 @@ TEST_F(CovarianceTest, OptionNonNullOwnDerivedToBase) {
   EXPECT_EQ(Base::alive, 0);
 }
 
-TEST_F(CovarianceTest, OptionNonNullOwnFromDerivedNonNull) {
-  // Construct Option<NonNullOwn<Base>> directly from NonNullOwn<Derived>.
+TEST_F(CovarianceTest, OptionBoxFromDerivedNonNull) {
+  // Construct Option<Box<Base>> directly from Box<Derived>.
   {
-    auto d = xpp::NonNullOwn<Derived>::new_unchecked(new Derived(5, 6));
-    xpp::Option<xpp::NonNullOwn<Base>> b_opt(std::move(d));
+    auto d = xpp::Box<Derived>::from_raw(new Derived(5, 6));
+    xpp::Option<xpp::Box<Base>> b_opt(std::move(d));
     ASSERT_TRUE(b_opt.is_some());
     EXPECT_EQ(b_opt.unwrap()->kind(), 2);
   }
@@ -430,20 +430,20 @@ TEST_F(CovarianceTest, OwnDerivedToBase) {
   EXPECT_EQ(Base::alive, 0);
 }
 
-TEST_F(CovarianceTest, OwnFromDerivedNonNullOwn) {
-  // Own<Base>(NonNullOwn<Derived>&&) — covariant adoption ctor.
+TEST_F(CovarianceTest, OwnFromDerivedBox) {
+  // Own<Base>(Box<Derived>&&) — covariant adoption ctor.
   {
-    auto           d = xpp::NonNullOwn<Derived>::new_unchecked(new Derived(9, 10));
+    auto           d = xpp::Box<Derived>::from_raw(new Derived(9, 10));
     xpp::Own<Base> b(std::move(d));
     EXPECT_EQ(b->kind(), 2);
   }
   EXPECT_EQ(Base::alive, 0);
 }
 
-TEST_F(CovarianceTest, OwnFromDerivedOptionNonNullOwn) {
-  // Own<Base>(Option<NonNullOwn<Derived>>&&) — covariant adoption ctor.
+TEST_F(CovarianceTest, OwnFromDerivedOptionBox) {
+  // Own<Base>(Option<Box<Derived>>&&) — covariant adoption ctor.
   {
-    auto           d_opt = xpp::NonNullOwn<Derived>::from(new Derived(11, 12));
+    auto           d_opt = xpp::Box<Derived>::try_from_raw(new Derived(11, 12));
     xpp::Own<Base> b(std::move(d_opt));
     EXPECT_TRUE(static_cast<bool>(b));
     EXPECT_EQ(b->kind(), 2);

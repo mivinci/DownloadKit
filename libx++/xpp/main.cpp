@@ -41,5 +41,7 @@ extern Promise<int> main(int argc, char *argv[]);
 
 int main(int argc, char *argv[]) {
   xpp::Runtime rt;
-  return rt.block_on([&] { return xpp::main(argc, argv); });
+  return rt.block_on([&]() -> xpp::Promise<int> {
+    return xpp::main(argc, argv);
+  });
 }

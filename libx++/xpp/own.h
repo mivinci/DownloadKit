@@ -6,20 +6,20 @@
  * own.h - Own<T, Deleter>: a nullable owning smart pointer with Rust-style
  *        / std::unique_ptr-style API.
  *
- * Storage is Option<NonNullOwn<T, Deleter>> directly, so:
+ * Storage is Option<Box<T, Deleter>> directly, so:
  *   sizeof(Own<T>) == sizeof(T*)              (default_delete is empty → EBO)
  *   sizeof(Own<T, StatefulD>) == sizeof(T*) + sizeof(StatefulD)
  *
- * Relationship to NonNullOwn<T>:
+ * Relationship to Box<T>:
  *   - Own<T>          — may be null. Default ctor → null. reset()/release()/take().
  *                       operator* and operator-> debug-assert on null.
- *   - NonNullOwn<T>   — type-level non-null. No reset, no default ctor, no null state.
+ *   - Box<T>   — type-level non-null. No reset, no default ctor, no null state.
  *   - Bridge:
- *       std::move(own).into_nonnull()           -> Option<NonNullOwn<T, D>>
- *       Own<T>(std::move(opt_nonnullown))      <- adopt back from Option
+ *       std::move(own).into_nonnull()           -> Option<Box<T, D>>
+ *       Own<T>(std::move(opt_box))             <- adopt back from Option
  *
  * Choose Own<T> when you want C++/Rust-idiomatic ownership (operator*, reset,
- * if(o)). Choose NonNullOwn<T> + Option when you want type-level guarantees
+ * if(o)). Choose Box<T> + Option when you want type-level guarantees
  * and Rust-style combinators.
  *
  * C++11-compatible. Header-only.
@@ -28,7 +28,7 @@
 #ifndef XPP_OWN_H
 #define XPP_OWN_H
 
-#include <xpp/nonnull_own.h>
+#include <xpp/box.h>
 #include <xpp/option.h>
 #include <xpp/panic.h>
 
@@ -50,7 +50,7 @@ namespace xpp {
  *                  when non-null. Defaults to std::default_delete<T>.
  */
 template <class T, class Deleter = std::default_delete<T>> class Own {
-  using Inner = Option<NonNullOwn<T, Deleter>>;
+  using Inner = Option<Box<T, Deleter>>;
 
 public:
   using element_type = T;
@@ -68,30 +68,30 @@ public:
    *
    * If `p` is null, the resulting Own is empty. Otherwise it owns `p`.
    */
-  explicit Own(T *p) noexcept : m_inner(NonNullOwn<T, Deleter>::from(p)) {}
+  explicit Own(T *p) noexcept : m_inner(Box<T, Deleter>::try_from_raw(p)) {}
 
   /** @brief Take ownership of a raw pointer with a custom deleter instance. */
-  Own(T *p, Deleter d) noexcept : m_inner(NonNullOwn<T, Deleter>::from(p, std::move(d))) {}
+  Own(T *p, Deleter d) noexcept : m_inner(Box<T, Deleter>::try_from_raw(p, std::move(d))) {}
 
-  /** @brief Adopt an existing NonNullOwn (always non-empty). */
-  Own(NonNullOwn<T, Deleter> &&nn) noexcept : m_inner(std::move(nn)) {}
+  /** @brief Adopt an existing Box (always non-empty). */
+  Own(Box<T, Deleter> &&nn) noexcept : m_inner(std::move(nn)) {}
 
-  /** @brief Adopt from Option<NonNullOwn>. Empty iff the Option is None. */
-  Own(Option<NonNullOwn<T, Deleter>> &&opt) noexcept : m_inner(std::move(opt)) {}
+  /** @brief Adopt from Option<Box>. Empty iff the Option is None. */
+  Own(Option<Box<T, Deleter>> &&opt) noexcept : m_inner(std::move(opt)) {}
 
-  /** @brief Covariant: adopt NonNullOwn<Derived, E>. */
+  /** @brief Covariant: adopt Box<Derived, E>. */
   template <class U, class E,
             class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                             !std::is_same<U, T>::value &&
                                             std::is_convertible<E &&, Deleter>::value>::type>
-  Own(NonNullOwn<U, E> &&nn) noexcept : m_inner(std::move(nn)) {}
+  Own(Box<U, E> &&nn) noexcept : m_inner(std::move(nn)) {}
 
-  /** @brief Covariant: adopt Option<NonNullOwn<Derived, E>>. */
+  /** @brief Covariant: adopt Option<Box<Derived, E>>. */
   template <class U, class E,
             class = typename std::enable_if<std::is_convertible<U *, T *>::value &&
                                             !std::is_same<U, T>::value &&
                                             std::is_convertible<E &&, Deleter>::value>::type>
-  Own(Option<NonNullOwn<U, E>> &&opt) noexcept : m_inner(std::move(opt)) {}
+  Own(Option<Box<U, E>> &&opt) noexcept : m_inner(std::move(opt)) {}
 
   /** @brief Covariant: Own<Derived, E> → Own<Base, D>. */
   template <class U, class E,
@@ -116,7 +116,7 @@ public:
 
   /** @brief Replace held pointer. Old object (if any) is deleted. */
   void reset(T *p = nullptr) noexcept {
-    m_inner = NonNullOwn<T, Deleter>::from(p);
+    m_inner = Box<T, Deleter>::try_from_raw(p);
   }
 
   /**
@@ -126,7 +126,7 @@ public:
    */
   T *take() noexcept {
     if (m_inner.is_none()) return nullptr;
-    return std::move(m_inner).unwrap_unchecked().release();
+    return std::move(m_inner).unwrap_unchecked().into_raw();
   }
 
   /**
@@ -169,12 +169,12 @@ public:
   }
 
   /**
-   * @brief Consume into Option<NonNullOwn>. Bridges to the Rust-style API.
+   * @brief Consume into Option<Box>. Bridges to the Rust-style API.
    *
-   * If the Own was empty, returns None. Otherwise Some(NonNullOwn). To
+   * If the Own was empty, returns None. Otherwise Some(Box). To
    * inspect or take the deleter, do `std::move(own).into_nonnull().unwrap().get_deleter()`.
    */
-  Option<NonNullOwn<T, Deleter>> into_nonnull() && noexcept {
+  Option<Box<T, Deleter>> into_nonnull() && noexcept {
     return std::move(m_inner);
   }
 

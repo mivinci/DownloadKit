@@ -70,9 +70,9 @@ TEST_F(AsyncMutexTest, MutualExclusion) {
   };
 
   auto orchestrate = [&]() -> xpp::Promise<int> {
-    xpp::JoinHandle<void> *handles = new xpp::JoinHandle<void>[N];
+    xpp::Promise<void> *handles = new xpp::Promise<void>[N];
     for (int i = 0; i < N; ++i) {
-      handles[i] = m_rt->spawn(increment());
+      handles[i] = m_rt->spawn(increment);
     }
     for (int i = 0; i < N; ++i) {
       co_await handles[i];
@@ -127,9 +127,9 @@ TEST_F(AsyncMutexTest, FIFOOrdering) {
     // Hold the lock while spawning waiters.
     auto guard = co_await m.lock();
 
-    auto h1 = m_rt->spawn(writer(1));
-    auto h2 = m_rt->spawn(writer(2));
-    auto h3 = m_rt->spawn(writer(3));
+    auto h1 = m_rt->spawn([&]() -> xpp::Promise<void> { return writer(1); });
+    auto h2 = m_rt->spawn([&]() -> xpp::Promise<void> { return writer(2); });
+    auto h3 = m_rt->spawn([&]() -> xpp::Promise<void> { return writer(3); });
 
     // Release lock — waiters should be served.
     guard = xpp::MutexGuard<int>{};

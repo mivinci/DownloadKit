@@ -15,86 +15,102 @@ extern "C" {
 #include <x/base/task.h>
 }
 
+#include <unistd.h>
+
 namespace xpp {
+
+namespace {
+
+size_t resolve_max_workers(size_t n) {
+  if (n == 0) n = std::thread::hardware_concurrency();
+  return n ? n : 4;
+}
+
+xTaskGroup create_task_group(size_t n) {
+  xTaskGroupConf conf = {n, 0};
+  return xTaskGroupCreate(&conf);
+}
+
+} // namespace
 
 /* ── Thread-local state (single definition) ─────────────────────── */
 
 namespace _ {
 
-static thread_local Worker  *tl_current_worker  = nullptr;
-static thread_local Runtime *tl_current_runtime = nullptr;
+static thread_local Context tl_context{nullptr, nullptr, nullptr};
 
-Worker  *&current_worker()  { return tl_current_worker; }
-Runtime *&current_runtime() { return tl_current_runtime; }
+Context &current_context() {
+  return tl_context;
+}
 
 } // namespace _
 
+/* ── EnterGuard ──────────────────────────────────────────────────── */
+
+EnterGuard::EnterGuard(Runtime *rt, _::Worker *w, xEventLoop loop) : m_loop(loop) {
+  XPP_ASSERT(_::tl_context.runtime == nullptr,
+             "EnterGuard: thread already inside a runtime");
+  _::tl_context = {rt, w, loop};
+}
+
+EnterGuard::~EnterGuard() {
+  _::tl_context = {nullptr, nullptr, nullptr};
+}
+
+namespace _ {
+
+void WorkerSchedule::schedule(SpawnTaskBase *task) {
+  if (worker->local_queue().push(task)) return;
+  worker->rt()->push_global(task);
+  worker->rt()->wake_idle_worker();
+}
+
+void WorkerSchedule::yield_now(SpawnTaskBase *task) {
+  schedule(task);
+}
+
+} // namespace _
+
+/* ── GlobalSchedule ──────────────────────────────────────────────── */
+
+void _::GlobalSchedule::schedule(SpawnTaskBase *task) {
+  m_rt->push_global(task);
+  m_rt->wake_idle_worker();
+}
+
 /* ── Runtime lifecycle ───────────────────────────────────────────── */
 
-Runtime::Runtime(size_t max_workers) : m_active_workers(0) {
-  if (max_workers == 0) {
-    max_workers = std::thread::hardware_concurrency();
-    if (max_workers == 0) max_workers = 4;  // fallback
+Runtime::Runtime(size_t num_workers)
+    : m_num_workers(resolve_max_workers(num_workers)),
+      m_workers(Vec<Box<_::Worker>>::with_capacity(m_num_workers)),
+      m_main_loop(Box<void, EventLoopDeleter>::from_raw(xEventLoopCreate())),
+      m_global_sched(this),
+      m_group(Box<void, xpp::TaskGroupDeleter>::from_raw(create_task_group(m_num_workers))) {
+  XPP_ASSERT(m_main_loop.get() != nullptr, "Runtime: failed to create main loop");
+  XPP_ASSERT(m_group.get() != nullptr, "Runtime: failed to create task group");
+
+  for (size_t i = 0; i < m_num_workers; ++i) {
+    auto worker = Box<_::Worker>::from_raw(
+      new _::Worker(i, this, Box<void, EventLoopDeleter>::from_raw(xEventLoopCreate())));
+    _::Worker *w = worker.get();
+    m_workers.push(std::move(worker));
+    xTaskSubmit(m_group.get(), worker_main, w);
   }
-
-  m_max_workers = max_workers;
-  m_workers = new _::Worker[max_workers];
-
-  m_main_loop = xEventLoopCreate();
-  XPP_ASSERT(m_main_loop != nullptr, "Runtime: failed to create main loop");
-
-  // Pre-initialize worker slots (loops created lazily in spawn_worker).
-  for (size_t i = 0; i < max_workers; ++i) {
-    m_workers[i].id = i;
-    m_workers[i].rt = this;
-    m_workers[i].loop = nullptr;  // created on first spawn_worker
-    m_workers[i].running.store(false, std::memory_order_relaxed);
-    m_workers[i].state.store(_::Worker::Idle, std::memory_order_relaxed);
-  }
-
-  // Task group sized to max_workers — threads are created lazily by xTaskGroup.
-  xTaskGroupConf conf = {max_workers, 0};
-  m_group = xTaskGroupCreate(&conf);
-  XPP_ASSERT(m_group != nullptr, "Runtime: failed to create task group");
 }
 
 Runtime::~Runtime() {
-  size_t active = m_active_workers.load(std::memory_order_acquire);
-  for (size_t i = 0; i < active; ++i) {
-    m_workers[i].running.store(false, std::memory_order_release);
-    if (m_workers[i].loop) {
-      xEventWake(m_workers[i].loop);
+  // Signal all workers to stop.
+  for (size_t i = 0; i < m_num_workers; ++i) {
+    m_workers[i]->shutdown(std::memory_order_release);
+    xEventWake(m_workers[i]->loop().get());
+  }
+  // Spin-wake until all workers have acknowledged exit.
+  for (size_t i = 0; i < m_num_workers; ++i) {
+    while (!m_workers[i]->exited(std::memory_order_acquire)) {
+      xEventWake(m_workers[i]->loop().get());
+      usleep(50);
     }
   }
-
-  xTaskGroupDestroy(m_group);
-
-  for (size_t i = 0; i < active; ++i) {
-    if (m_workers[i].loop) {
-      xEventLoopDestroy(m_workers[i].loop);
-    }
-  }
-  delete[] m_workers;
-  xEventLoopDestroy(m_main_loop);
-}
-
-/* ── Worker spawning ─────────────────────────────────────────────── */
-
-void Runtime::spawn_worker() {
-  size_t idx = m_active_workers.fetch_add(1, std::memory_order_acq_rel);
-  if (idx >= m_max_workers) {
-    // Raced past the cap — undo.
-    m_active_workers.fetch_sub(1, std::memory_order_relaxed);
-    return;
-  }
-
-  _::Worker &w = m_workers[idx];
-  w.loop = xEventLoopCreate();
-  XPP_ASSERT(w.loop != nullptr, "Runtime: failed to create worker loop");
-  w.running.store(true, std::memory_order_release);
-  w.state.store(_::Worker::Idle, std::memory_order_relaxed);
-
-  xTaskSubmit(m_group, worker_main, &w);
 }
 
 /* ── Worker main loop ────────────────────────────────────────────── */
@@ -102,45 +118,61 @@ void Runtime::spawn_worker() {
 void *Runtime::worker_main(void *arg) {
   auto *w = static_cast<_::Worker *>(arg);
 
-  _::current_worker() = w;
-  w->rt->enter();
+  EnterGuard guard(w->rt(), w, w->loop().get());
 
-  WaitScope scope(w->loop);
+  while (w->alive(std::memory_order_acquire)) {
+    _::SpawnTaskBase *task = w->local_queue().pop();
 
-  while (w->running.load(std::memory_order_acquire)) {
-    // 1. Pop from local queue (LIFO, cache-warm).
-    _::SpawnTaskBase *task = w->local_queue.pop();
-
-    // 2. If empty, batch-grab from global queue.
-    if (!task) {
-      w->rt->grab_global(*w, 128);
-      task = w->local_queue.pop();
+    // Periodically check the global queue even if local is non-empty,
+    // to prevent starvation of tasks spawned from external threads.
+    if (!task || (w->tick() & 0x3F) == 0) {
+      w->rt()->grab_global(*w, 128);
+      if (!task) task = w->local_queue().pop();
     }
 
-    // 3. If still empty, steal from other workers.
     if (!task) {
-      task = w->rt->try_steal(w->id);
+      task = w->rt()->try_steal(w->id());
     }
 
     if (task) {
-      // Claim: CAS Pending → Running. If another worker already claimed
-      // it (pop/steal race on last element), skip.
       uint8_t expected = _::SpawnTaskBase::Pending;
-      if (!task->state.compare_exchange_strong(expected,
-              _::SpawnTaskBase::Running, std::memory_order_acq_rel)) {
-        continue;
+      if (task->state.compare_exchange_strong(expected, _::SpawnTaskBase::Running,
+                                              std::memory_order_acq_rel)) {
+        goto claimed;
       }
-      w->state.store(_::Worker::Running, std::memory_order_relaxed);
-      task->execute(scope);
+      expected = _::SpawnTaskBase::Detached;
+      if (task->state.compare_exchange_strong(expected, _::SpawnTaskBase::Running,
+                                              std::memory_order_acq_rel)) {
+        goto claimed;
+      }
+      continue;
+
+    claimed:
+      w->set_state(_::Worker::Running, std::memory_order_relaxed);
+      {
+        _::Waker waker(&w->sched(), task);
+        if (task->poll(waker)) {
+          uint8_t prev = task->state.exchange(_::SpawnTaskBase::Completed,
+                                              std::memory_order_acq_rel);
+          task->wake_join();
+          if (prev == _::SpawnTaskBase::Detached) {
+            xEventLoopPost(w->loop().get(),
+                           [](void *arg) { delete static_cast<_::SpawnTaskBase *>(arg); },
+                           task);
+          }
+        } else {
+          task->state.store(_::SpawnTaskBase::Pending, std::memory_order_release);
+        }
+      }
+      w->inc_tick();
+      task = nullptr;
     } else {
-      // No work — park until woken.
-      w->state.store(_::Worker::Idle, std::memory_order_relaxed);
-      xEventWait(w->loop, 100);
+      w->set_state(_::Worker::Idle, std::memory_order_relaxed);
+      xEventWait(w->loop().get(), 100);
     }
   }
 
-  w->rt->leave();
-  _::current_worker() = nullptr;
+  w->mark_exited();
   return nullptr;
 }
 
@@ -151,12 +183,12 @@ void Runtime::push_global(_::SpawnTaskBase *task) {
 }
 
 size_t Runtime::grab_global(_::Worker &w, size_t max_grab) {
-  auto guard = m_global_queue.lock();
-  size_t n = 0;
+  auto   guard = m_global_queue.lock();
+  size_t n     = 0;
   while (n < max_grab && !guard->empty()) {
     _::SpawnTaskBase *task = guard->front();
     guard->pop_front();
-    if (!w.local_queue.push(task)) {
+    if (!w.local_queue().push(task)) {
       guard->push_front(task);
       break;
     }
@@ -165,39 +197,31 @@ size_t Runtime::grab_global(_::Worker &w, size_t max_grab) {
   return n;
 }
 
-/* ── Wake / spawn decision ───────────────────────────────────────── */
+/* ── Wake decision ────────────────────────────────────────────────── */
 
 void Runtime::wake_idle_worker() {
-  size_t active = m_active_workers.load(std::memory_order_acquire);
-
-  // First, try to wake an existing idle worker.
-  for (size_t i = 0; i < active; ++i) {
-    if (m_workers[i].state.load(std::memory_order_relaxed) == _::Worker::Idle) {
-      xEventWake(m_workers[i].loop);
+  for (size_t i = 0; i < m_num_workers; ++i) {
+    if (m_workers[i]->state(std::memory_order_relaxed) == _::Worker::Idle) {
+      xEventWake(m_workers[i]->loop().get());
       return;
     }
   }
-
-  // No idle worker — spawn a new one if under the cap.
-  if (active < m_max_workers) {
-    spawn_worker();
-    return;
-  }
-
-  // At cap, all busy — do nothing. Workers will drain the global
-  // queue naturally after finishing their current task.
 }
 
 /* ── Work stealing ───────────────────────────────────────────────── */
 
 _::SpawnTaskBase *Runtime::try_steal(size_t thief_id) {
-  size_t active = m_active_workers.load(std::memory_order_acquire);
+  size_t active = m_workers.len();
   for (size_t i = 1; i < active; ++i) {
-    size_t victim = (thief_id + i) % active;
-    _::SpawnTaskBase *task = m_workers[victim].local_queue.steal();
+    size_t            victim = (thief_id + i) % active;
+    _::SpawnTaskBase *task   = m_workers[victim]->local_queue().steal();
     if (task) return task;
   }
   return nullptr;
+}
+
+xEventLoop current_event_loop() {
+  return _::current_context().loop;
 }
 
 } // namespace xpp

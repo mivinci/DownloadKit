@@ -52,6 +52,7 @@ if(XPP_BUILD_TESTS)
   add_executable(xpp_test ${XPP_TEST_SOURCES})
   target_link_libraries(xpp_test PRIVATE xpp GTest::gtest_main)
   add_test(NAME xpp_test COMMAND xpp_test)
+  set_tests_properties(xpp_test PROPERTIES TIMEOUT 60)
 endif()
 
 # Optional: C++20 coroutine test target

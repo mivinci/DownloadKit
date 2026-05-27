@@ -481,6 +481,11 @@ public:
     XPP_ASSERT(!m_resolved, "AdapterPromiseNode resolved twice");
     m_val      = std::move(value);
     m_resolved = true;
+    // Seq-cst fence pairs with the acquire load in poll() to prevent
+    // store-load reordering: without it, a CPU may reorder the
+    // m_resolved store past the m_waker load, causing lost wakes on
+    // weakly-ordered architectures (ARM, POWER).
+    std::atomic_thread_fence(std::memory_order_seq_cst);
     m_waker.wake();
   }
 
@@ -508,6 +513,7 @@ public:
   void resolve() {
     XPP_ASSERT(!m_resolved, "AdapterPromiseNode resolved twice");
     m_resolved = true;
+    std::atomic_thread_fence(std::memory_order_seq_cst);
     m_waker.wake();
   }
 

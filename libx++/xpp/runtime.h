@@ -12,7 +12,7 @@
  *
  * Architecture:
  *   Runtime
- *    ├── Worker[0..N]: lazily spawned, capped at CPU core count
+ *    ├── Worker[0..N]: pre-created at construction, capped at CPU core count
  *    ├── Global queue: overflow + external spawn entry point
  *    └── Per-worker: xEventLoop + WorkStealingQueue (local runqueue)
  *
@@ -26,13 +26,13 @@
  *     2. if empty, batch-grab from global queue
  *     3. if still empty, steal from other workers (FIFO)
  *     4. if no work found, park (xEventWait)
- *     5. execute task: promise.wait(scope) drives the worker's loop
- *     6. post result back to caller's loop via xEventLoopPost
+ *     5. poll task: task.poll(waker) drives the promise forward
+ *     6. on completion, wake the JoinHandle
  *
  *   Worker scaling:
- *     - Workers start at 0, created on demand by wake_idle_worker()
+ *     - All workers pre-created at Runtime construction
  *     - Cap = hardware concurrency (or user-specified)
- *     - Workers never shrink (parked idle workers are cheap)
+ *     - Idle workers park cheaply (xEventWait)
  *
  * Design inspired by Tokio (Rust) and Go runtime.
  */
@@ -40,9 +40,12 @@
 #ifndef XPP_RUNTIME_H
 #define XPP_RUNTIME_H
 
+#include <xpp/box.h>
 #include <xpp/compiler.h>
+#include <xpp/own.h>
 #include <xpp/promise.h>
 #include <xpp/sys/mutex.h>
+#include <xpp/vec.h>
 
 #include <atomic>
 #include <deque>
@@ -52,6 +55,22 @@ extern "C" {
 #include <x/base/task.h>
 }
 
+namespace xpp {
+
+struct EventLoopDeleter {
+  void operator()(void *p) const noexcept {
+    xEventLoopDestroy(p);
+  }
+};
+
+struct TaskGroupDeleter {
+  void operator()(void *p) const noexcept {
+    xTaskGroupDestroy(p);
+  }
+};
+
+} // namespace xpp
+
 #if XPP_HAS_COROUTINES
 #include <coroutine>
 #endif
@@ -59,6 +78,7 @@ extern "C" {
 namespace xpp {
 
 class Runtime;
+class EnterGuard;
 template <class T> class JoinHandle;
 
 namespace _ {
@@ -154,131 +174,243 @@ private:
   T                     m_slots[N];
 };
 
-/* ── SpawnTaskBase (type-erased) ─────────────────────────────────── */
-
-struct Worker; // forward declaration
-
-struct SpawnTaskBase {
-  /**
-   * @brief Task lifecycle states.
-   *
-   *   Pending   → task queued, not yet picked up by a worker
-   *   Running   → a worker claimed it and is executing
-   *   Completed → execution finished, resolve posted to caller
-   *   Detached  → JoinHandle gave up ownership; self-delete on completion
-   */
-  enum State : uint8_t {
-    Pending,
-    Running,
-    Completed,
-    Detached
-  };
-
-  virtual ~SpawnTaskBase()               = default;
-  virtual void execute(WaitScope &scope) = 0;
-
-  Worker              *target_worker;
-  std::atomic<uint8_t> state{Pending};
-};
-
-/* ── Helpers: void vs non-void dispatch ──────────────────────────── */
-
-template <class T> typename FixVoid<T>::Type wait_and_get(Promise<T> &p, WaitScope &scope) {
-  return p.wait(scope);
-}
-
-inline Void wait_and_get(Promise<void> &p, WaitScope &scope) {
-  p.wait(scope);
-  return Void{};
-}
-
-template <class V> void resolve_adapter(AdapterPromiseNode<V> *a, V &&val) {
-  a->resolve(std::move(val));
-}
-
-inline void resolve_adapter(AdapterPromiseNode<Void> *a, Void &&) {
-  a->resolve();
-}
-
 /* ── SpawnTask<T> ────────────────────────────────────────────────── */
 
-/**
- * @brief Typed spawned task state.
- *
- * Lifecycle:
- *   1. Created by Runtime::spawn() on the caller thread.
- *   2. Pushed to a worker's local queue.
- *   3. Worker pops it, calls execute() → drives promise to completion.
- *   4. Posts resolve_on_caller back to caller's event loop.
- *   5. Caller's adapter resolves → JoinHandle's co_await/wait unblocks.
- *   6. Deleted by JoinHandle (await/wait) or self (if detached).
- *
- * Thread safety:
- *   - execute() runs exclusively on one worker thread.
- *   - resolve_on_caller() runs on the caller thread (via post).
- *   - No concurrent access to any field.
- */
-template <class T> struct SpawnTask final : SpawnTaskBase {
+template <class T, class Func> struct SpawnTask final : SpawnTaskBase {
   using V = typename FixVoid<T>::Type;
 
-  Promise<T>             promise;
-  AdapterPromiseNode<V> *adapter;
-  xEventLoop             caller_loop;
-  V                      result{};
+  Func                m_func;
+  Own<PromiseNode<T>> m_node;
+  std::atomic<bool>   m_resolved{false};
 
-  SpawnTask(Promise<T> p, AdapterPromiseNode<V> *a, xEventLoop loop)
-      : promise(std::move(p)), adapter(a), caller_loop(loop) {}
+  explicit SpawnTask(Func f) : m_func(std::move(f)) {}
 
-  void execute(WaitScope &scope) override {
-    result = wait_and_get(promise, scope);
-    state.store(Completed, std::memory_order_release);
-    xEventLoopPost(caller_loop, resolve_on_caller, this);
+  bool poll(Waker waker) override {
+    if (m_resolved.load(std::memory_order_acquire)) return true;
+    if (!m_node) {
+      auto promise = m_func();
+      m_node       = promise.release_node();
+    }
+    if (m_node->poll(waker)) {
+      m_resolved.store(true, std::memory_order_release);
+      return true;
+    }
+    return false;
   }
 
-  static void resolve_on_caller(void *arg) {
-    auto *self = static_cast<SpawnTask *>(arg);
-    resolve_adapter(self->adapter, std::move(self->result));
-    if (self->state.load(std::memory_order_acquire) == Detached) {
-      delete self;
+  void wake_join() override {
+    uint8_t expected = JoinEmpty;
+    if (m_join_state.compare_exchange_strong(expected, JoinWoken,
+                                             std::memory_order_acq_rel)) {
+      return;
     }
+    Waker jw     = m_join_waker;
+    m_join_waker = Waker();
+    jw.wake();
+  }
+
+  bool join_poll(Waker waker) override {
+    if (m_resolved.load(std::memory_order_acquire)) return true;
+    m_join_waker = waker;
+    uint8_t expected = JoinEmpty;
+    if (!m_join_state.compare_exchange_strong(expected, JoinStored,
+                                              std::memory_order_acq_rel)) {
+      return true;
+    }
+    return false;
+  }
+
+  void *take_raw() override {
+    XPP_ASSERT(m_resolved.load(std::memory_order_acquire), "SpawnTask::take before completion");
+    auto *val = new V(m_node->take());
+    m_node    = nullptr;
+    return val;
+  }
+};
+
+template <class Func> struct SpawnTask<void, Func> final : SpawnTaskBase {
+  Func                   m_func;
+  Own<PromiseNode<void>> m_node;
+  std::atomic<bool>      m_resolved{false};
+
+  explicit SpawnTask(Func f) : m_func(std::move(f)) {}
+
+  bool poll(Waker waker) override {
+    if (m_resolved.load(std::memory_order_acquire)) return true;
+    if (!m_node) {
+      auto promise = m_func();
+      m_node       = promise.release_node();
+    }
+    if (m_node->poll(waker)) {
+      m_node->take();
+      m_resolved.store(true, std::memory_order_release);
+      m_node = nullptr;
+      return true;
+    }
+    return false;
+  }
+
+  void wake_join() override {
+    uint8_t expected = JoinEmpty;
+    if (m_join_state.compare_exchange_strong(expected, JoinWoken,
+                                             std::memory_order_acq_rel)) {
+      return;
+    }
+    Waker jw     = m_join_waker;
+    m_join_waker = Waker();
+    jw.wake();
+  }
+
+  bool join_poll(Waker waker) override {
+    if (m_resolved.load(std::memory_order_acquire)) return true;
+    m_join_waker = waker;
+    uint8_t expected = JoinEmpty;
+    if (!m_join_state.compare_exchange_strong(expected, JoinStored,
+                                              std::memory_order_acq_rel)) {
+      return true;
+    }
+    return false;
+  }
+
+  void *take_raw() override {
+    XPP_ASSERT(m_resolved.load(std::memory_order_acquire), "SpawnTask::take before completion");
+    if (m_node) {
+      m_node->take();
+      m_node = nullptr;
+    }
+    return nullptr;
   }
 };
 
 /* ── Worker ──────────────────────────────────────────────────────── */
 
-struct Worker {
+class Worker;
+
+/* ── WorkerSchedule ──────────────────────────────────────────────── */
+
+struct WorkerSchedule : Schedule {
+  Worker *worker;
+
+  explicit WorkerSchedule(Worker *w) : worker(w) {}
+
+  void schedule(SpawnTaskBase *task) override;
+  void yield_now(SpawnTaskBase *task) override;
+};
+
+/* ── GlobalSchedule ──────────────────────────────────────────────── */
+
+class GlobalSchedule : public Schedule {
+public:
+  explicit GlobalSchedule(Runtime *rt) : m_rt(rt) {}
+
+  void schedule(SpawnTaskBase *task) override;
+
+private:
+  Runtime *m_rt;
+};
+
+/* ── Worker ──────────────────────────────────────────────────────── */
+
+class Worker {
+public:
   enum State : uint8_t {
+    Quit,
     Idle,
     Running
   };
 
-  size_t                             id;
-  Runtime                           *rt;
-  xEventLoop                         loop;
-  WorkStealingQueue<SpawnTaskBase *> local_queue;
-  std::atomic<bool>                  running;
-  std::atomic<uint8_t>               state; // Idle or Running
+  Worker(size_t id, Runtime *rt, Box<void, EventLoopDeleter> loop)
+      : m_id(id), m_rt(rt), m_loop(std::move(loop)), m_sched(this) {}
+
+  size_t id() const noexcept {
+    return m_id;
+  }
+  Runtime *rt() const noexcept {
+    return m_rt;
+  }
+  Box<void, EventLoopDeleter> &loop() noexcept {
+    return m_loop;
+  }
+  WorkStealingQueue<SpawnTaskBase *> &local_queue() noexcept {
+    return m_local_queue;
+  }
+  WorkerSchedule &sched() noexcept {
+    return m_sched;
+  }
+
+  State state(std::memory_order order = std::memory_order_relaxed) const noexcept {
+    return static_cast<State>(m_state.load(order));
+  }
+  void set_state(State s, std::memory_order order = std::memory_order_relaxed) noexcept {
+    m_state.store(static_cast<uint8_t>(s), order);
+  }
+
+  bool alive(std::memory_order order = std::memory_order_acquire) const noexcept {
+    return state(order) != Quit;
+  }
+  void shutdown(std::memory_order order = std::memory_order_release) noexcept {
+    set_state(Quit, order);
+  }
+
+  uint32_t tick() const noexcept {
+    return m_tick;
+  }
+  void inc_tick() noexcept {
+    ++m_tick;
+  }
+
+private:
+  size_t                             m_id;
+  Runtime                           *m_rt;
+  Box<void, EventLoopDeleter>        m_loop;
+  WorkStealingQueue<SpawnTaskBase *> m_local_queue;
+  WorkerSchedule                     m_sched;
+  std::atomic<uint8_t>               m_state{Idle};
+  uint32_t                           m_tick{0};
 };
 
-/** @brief Thread-local: current worker on this thread (nullptr if not a worker). */
-Worker *&current_worker();
+/* ── Thread-local Context ─────────────────────────────────────────── */
 
-/**
- * @brief Thread-local pointer to the active Runtime on this thread.
- *
- * Why thread-local (not a plain global)?
- * Tests create/destroy independent Runtimes per fixture. Multiple
- * Runtimes may coexist in the same process (for isolation). Each
- * thread — whether it's a worker or the main thread inside block_on
- * — belongs to exactly one Runtime at a time. Thread-local lets
- * xpp::spawn() find the right Runtime without passing it explicitly.
- *
- * Set by Runtime::enter() (called from block_on and worker_main).
- * Cleared by Runtime::leave().
- */
-Runtime *&current_runtime();
+struct Context {
+  Runtime   *runtime = nullptr;
+  Worker    *worker  = nullptr;
+  xEventLoop loop    = nullptr;
+};
+
+Context &current_context();
 
 } // namespace _
+
+/* ── EnterGuard ──────────────────────────────────────────────────── */
+
+/**
+ * @brief RAII guard that pushes a runtime context onto the current
+ *        thread and pops it on destruction.
+ *
+ * Sets the thread-local Context (runtime, worker, event loop) on
+ * construction and clears it on destruction.
+ *
+ * Usage in Runtime::block_on:
+ *   EnterGuard guard(this, nullptr, m_main_loop.get());
+ *   promise.wait(guard);
+ * Usage in worker_main:
+ *   EnterGuard guard(rt, w, w->loop().get());
+ */
+class EnterGuard {
+public:
+  EnterGuard(Runtime *rt, _::Worker *w, xEventLoop loop);
+  ~EnterGuard();
+
+  EnterGuard(const EnterGuard &)            = delete;
+  EnterGuard &operator=(const EnterGuard &) = delete;
+
+  xEventLoop loop() const { return m_loop; }
+
+private:
+  xEventLoop m_loop;
+};
+
+/* ── Runtime ─────────────────────────────────────────────────────── */
 
 /* ── Runtime ─────────────────────────────────────────────────────── */
 
@@ -290,7 +422,8 @@ public:
   Runtime(const Runtime &)            = delete;
   Runtime &operator=(const Runtime &) = delete;
 
-  template <class T> JoinHandle<T> spawn(Promise<T> promise);
+  template <class Func>
+  JoinHandle<typename ReducePromise<decltype(std::declval<Func>()())>::Type> spawn(Func &&func);
 
   /**
    * @brief Block until a callable's result promise completes.
@@ -301,7 +434,7 @@ public:
    * context must be active before the coroutine body starts).
    */
   template <class Func>
-  auto block_on(Func &&func) -> decltype(func().wait(std::declval<WaitScope &>()));
+  auto block_on(Func &&func) -> decltype(func().wait(std::declval<EnterGuard &>()));
 
   /**
    * @brief Block until an existing promise completes.
@@ -312,33 +445,16 @@ public:
    */
   template <class T> T block_on(Promise<T> promise);
 
-  /**
-   * @brief Register this runtime on the current thread.
-   *
-   * After enter(), xpp::spawn() can find this runtime via
-   * _::current_runtime(). Must be paired with leave().
-   */
-  void enter() {
-    XPP_ASSERT(_::current_runtime() == nullptr, "Runtime::enter: thread already inside a runtime");
-    _::current_runtime() = this;
-  }
-
-  /**
-   * @brief Unregister this runtime from the current thread.
-   */
-  void leave() {
-    XPP_ASSERT(_::current_runtime() == this,
-               "Runtime::leave: not the active runtime on this thread");
-    _::current_runtime() = nullptr;
-  }
-
   /** @brief Get the Runtime active on this thread (or nullptr). */
   static Runtime *current() {
-    return _::current_runtime();
+    return _::current_context().runtime;
   }
 
 private:
-  friend struct _::Worker;
+  friend class _::Worker;
+  friend struct _::SpawnTaskBase;
+  friend struct _::WorkerSchedule;
+  friend class _::GlobalSchedule;
 
   /** @brief Try to steal a task from any other worker. */
   _::SpawnTaskBase *try_steal(size_t thief_id);
@@ -349,21 +465,18 @@ private:
   /** @brief Push a task to the global queue (fallback when local is full). */
   void push_global(_::SpawnTaskBase *task);
 
-  /** @brief Wake an idle worker, or spawn a new one if under the cap. */
+  /** @brief Wake an idle worker. */
   void wake_idle_worker();
-
-  /** @brief Spawn a new worker thread (lazy initialization). */
-  void spawn_worker();
 
   /** @brief Worker main loop (runs as xTaskGroup task). */
   static void *worker_main(void *arg);
 
-  size_t                                     m_max_workers;    // cap (CPU core count)
-  std::atomic<size_t>                        m_active_workers; // currently alive
-  _::Worker                                 *m_workers;        // pre-allocated array[m_max_workers]
-  xTaskGroup                                 m_group;
-  xEventLoop                                 m_main_loop;
+  size_t                                     m_num_workers;
+  Vec<Box<_::Worker>>                        m_workers;
+  Box<void, EventLoopDeleter>                m_main_loop;
   sys::Mutex<std::deque<_::SpawnTaskBase *>> m_global_queue;
+  _::GlobalSchedule                          m_global_sched;
+  Box<void, TaskGroupDeleter>                m_group; // last: destroyed first → joins workers
 };
 
 /* ── JoinHandle<T> ───────────────────────────────────────────────── */
@@ -378,15 +491,14 @@ template <class T> class JoinHandle {
 public:
   JoinHandle() : m_task(nullptr) {}
 
-  JoinHandle(JoinHandle &&o) noexcept : m_task(o.m_task), m_promise(std::move(o.m_promise)) {
+  JoinHandle(JoinHandle &&o) noexcept : m_task(o.m_task) {
     o.m_task = nullptr;
   }
   JoinHandle &operator=(JoinHandle &&o) noexcept {
     if (this != &o) {
       release();
-      m_task    = o.m_task;
-      m_promise = std::move(o.m_promise);
-      o.m_task  = nullptr;
+      m_task   = o.m_task;
+      o.m_task = nullptr;
     }
     return *this;
   }
@@ -397,152 +509,81 @@ public:
   }
 
   void detach();
-  T    wait(WaitScope &scope);
 
 #if XPP_HAS_COROUTINES
   auto operator co_await() {
     struct Awaiter {
-      _::SpawnTask<T>  *&task_ref;
-      _::PromiseNode<T> *node;
-      _::CoroutineEvent  event{};
+      _::SpawnTaskBase *&task_ref;
 
       bool await_ready() const {
         return false;
       }
 
       bool await_suspend(std::coroutine_handle<> h) {
-        event = _::CoroutineEvent(h);
-        if (node->poll(_::Waker(event))) {
-          event.arm();
-        }
-        return true;
+        _::Schedule *sched = new _::CoroWakeSchedule(h, xpp::current_event_loop());
+        return !task_ref->join_poll(_::Waker(sched, nullptr));
       }
 
       auto await_resume() -> typename _::PromiseNode<T>::ValueType {
-        auto val = node->take();
+        void *raw = task_ref->take_raw();
         delete task_ref;
         task_ref = nullptr;
+        typename _::PromiseNode<T>::ValueType val;
+        if (raw) {
+          auto *box = static_cast<typename FixVoid<T>::Type *>(raw);
+          val       = std::move(*box);
+          delete box;
+        }
         return val;
       }
     };
     XPP_ASSERT(m_task != nullptr, "co_await on empty JoinHandle");
-    return Awaiter{m_task, m_promise.m_node.get()};
+    return Awaiter{m_task};
   }
 #endif
 
 private:
   friend class Runtime;
 
-  JoinHandle(_::SpawnTask<T> *task, Promise<T> promise)
-      : m_task(task), m_promise(std::move(promise)) {}
+  explicit JoinHandle(_::SpawnTaskBase *task) : m_task(task) {}
 
   void release();
 
-  _::SpawnTask<T> *m_task;
-  Promise<T>       m_promise;
+  _::SpawnTaskBase *m_task;
 };
 
 /* ── Runtime template implementations ────────────────────────────── */
 
-template <class T> JoinHandle<T> Runtime::spawn(Promise<T> promise) {
-  using V = typename FixVoid<T>::Type;
+template <class Func>
+JoinHandle<typename ReducePromise<decltype(std::declval<Func>()())>::Type>
+Runtime::spawn(Func &&func) {
+  using T    = typename ReducePromise<decltype(std::declval<Func>()())>::Type;
+  auto *task = new _::SpawnTask<T, typename std::decay<Func>::type>(std::forward<Func>(func));
 
-  xEventLoop caller_loop = WaitScope::current_loop();
-  if (!caller_loop) caller_loop = m_main_loop;
-
-  auto                  *adapter = new _::AdapterPromiseNode<V>();
-  Own<_::PromiseNode<T>> node{adapter};
-  Promise<T>             join_promise{std::move(node)};
-
-  auto *task = new _::SpawnTask<T>(std::move(promise), adapter, caller_loop);
-
-  // Scheduling strategy (Go-style):
-  //   1. If caller is on a worker thread, try pushing to its local queue.
-  //   2. If local queue is full (or caller is not a worker), push to global queue.
-  // Workers will: pop local → batch grab global → steal other workers.
-
-  _::Worker *w = _::current_worker();
-  if (w && w->local_queue.push(task)) {
-    // Fast path: pushed to current worker's local queue. No post needed
-    // because the worker will see it on its next pop().
+  _::Worker *w = _::current_context().worker;
+  if (w) {
+    task->m_sched = &w->sched();
+    if (w->local_queue().push(task)) {
+      // fast path: pushed to local queue
+    } else {
+      push_global(task);
+      wake_idle_worker();
+    }
   } else {
-    // Slow path: push to global queue. Wake an idle worker to pick it up.
+    task->m_sched = &m_global_sched;
     push_global(task);
     wake_idle_worker();
   }
 
-  return JoinHandle<T>{task, std::move(join_promise)};
+  return JoinHandle<T>{task};
 }
-
-namespace _ {
-
-template <class Promise>
-auto block_on_impl(Runtime *rt, xEventLoop loop, Promise &&p)
-  -> decltype(p.wait(std::declval<WaitScope &>())) {
-  WaitScope scope(loop);
-  auto      result = p.wait(scope);
-  rt->leave();
-  return result;
-}
-
-inline void block_on_impl(Runtime *rt, xEventLoop loop, Promise<void> &&p) {
-  WaitScope scope(loop);
-  p.wait(scope);
-  rt->leave();
-}
-
-} // namespace _
-
-template <class Func>
-auto Runtime::block_on(Func &&func) -> decltype(func().wait(std::declval<WaitScope &>())) {
-  enter();
-  auto promise = func();
-  return _::block_on_impl(this, m_main_loop, std::move(promise));
-}
-
-template <class T> T Runtime::block_on(Promise<T> promise) {
-  enter();
-  WaitScope scope(m_main_loop);
-  T         result = promise.wait(scope);
-  leave();
-  return result;
-}
-
-template <> inline void Runtime::block_on(Promise<void> promise) {
-  enter();
-  WaitScope scope(m_main_loop);
-  promise.wait(scope);
-  leave();
-}
-
-/* ── JoinHandle template implementations ─────────────────────────── */
 
 template <class T> void JoinHandle<T>::detach() {
   if (!m_task) return;
-
-  // If already completed, resolve_on_caller already ran — we can delete.
-  // Otherwise, mark as Detached so resolve_on_caller will self-delete.
   auto prev = m_task->state.exchange(_::SpawnTaskBase::Detached, std::memory_order_acq_rel);
   if (prev == _::SpawnTaskBase::Completed) {
     delete m_task;
   }
-
-  m_task    = nullptr;
-  m_promise = Promise<T>();
-}
-
-template <class T> T JoinHandle<T>::wait(WaitScope &scope) {
-  XPP_ASSERT(m_task != nullptr, "wait on empty JoinHandle");
-  T result = m_promise.wait(scope);
-  delete m_task;
-  m_task = nullptr;
-  return result;
-}
-
-template <> inline void JoinHandle<void>::wait(WaitScope &scope) {
-  XPP_ASSERT(m_task != nullptr, "wait on empty JoinHandle");
-  m_promise.wait(scope);
-  delete m_task;
   m_task = nullptr;
 }
 
@@ -553,23 +594,62 @@ template <class T> void JoinHandle<T>::release() {
   }
 }
 
-/* ── Free spawn function ─────────────────────────────────────────── */
+/* ── Promise<T>::wait ────────────────────────────────────────────── */
 
-/**
- * @brief Spawn a task onto the current thread's Runtime.
- *
- * Equivalent to Runtime::current()->spawn(promise). Panics if called
- * outside a runtime context (i.e., not inside block_on or a worker).
- *
- * @code
- *   auto h = xpp::spawn(compute());
- *   int val = co_await h;
- * @endcode
- */
-template <class T> JoinHandle<T> spawn(Promise<T> promise) {
-  Runtime *rt = Runtime::current();
+template <class T> T Promise<T>::wait(EnterGuard &guard) {
+  XPP_ASSERT(m_node != nullptr, "Promise::wait on empty promise");
+
+  bool                fired = false;
+  _::SyncWaitSchedule sync_sched(&fired, guard.loop());
+  while (!m_node->poll(_::Waker(&sync_sched, nullptr))) {
+    while (!fired)
+      xEventWait(guard.loop(), -1);
+    fired = false;
+  }
+
+  return m_node->take();
+}
+
+template <> inline void Promise<void>::wait(EnterGuard &guard) {
+  XPP_ASSERT(m_node != nullptr, "Promise::wait on empty promise");
+
+  bool                fired = false;
+  _::SyncWaitSchedule sync_sched(&fired, guard.loop());
+  while (!m_node->poll(_::Waker(&sync_sched, nullptr))) {
+    while (!fired)
+      xEventWait(guard.loop(), -1);
+    fired = false;
+  }
+
+  m_node->take();
+}
+
+/* ── Runtime::block_on ───────────────────────────────────────────── */
+
+template <class Func>
+auto Runtime::block_on(Func &&func) -> decltype(func().wait(std::declval<EnterGuard &>())) {
+  EnterGuard guard(this, nullptr, m_main_loop.get());
+  auto       promise = func();
+  return promise.wait(guard);
+}
+
+template <class T> T Runtime::block_on(Promise<T> promise) {
+  EnterGuard guard(this, nullptr, m_main_loop.get());
+  return promise.wait(guard);
+}
+
+template <> inline void Runtime::block_on(Promise<void> promise) {
+  EnterGuard guard(this, nullptr, m_main_loop.get());
+  promise.wait(guard);
+}
+
+xEventLoop current_event_loop();
+
+template <class Func>
+JoinHandle<typename ReducePromise<decltype(std::declval<Func>()())>::Type> spawn(Func &&func) {
+  auto *rt = Runtime::current();
   XPP_ASSERT(rt != nullptr, "xpp::spawn: no active runtime on this thread");
-  return rt->spawn(std::move(promise));
+  return rt->spawn(std::forward<Func>(func));
 }
 
 } // namespace xpp

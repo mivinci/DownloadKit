@@ -37,7 +37,7 @@ static xpp::Promise<int> yield_task() {
 static void BM_BlockOn(benchmark::State &state) {
   xpp::Runtime rt;
   for (auto _ : state) {
-    int v = rt.block_on(xpp::Promise<int>::resolve(42));
+    int v = rt.block_on([]() { return xpp::Promise<int>::resolve(42); });
     benchmark::DoNotOptimize(v);
   }
 }
@@ -48,11 +48,10 @@ BENCHMARK(BM_BlockOn);
 static void BM_SpawnOne(benchmark::State &state) {
   xpp::Runtime rt;
   for (auto _ : state) {
-    auto coro = [&]() -> xpp::Promise<int> {
-      auto h = rt.spawn(trivial_task());
+    int v = rt.block_on([&]() -> xpp::Promise<int> {
+      auto h = rt.spawn(trivial_task);
       co_return co_await h;
-    };
-    int v = rt.block_on(coro());
+    });
     benchmark::DoNotOptimize(v);
   }
 }
@@ -63,11 +62,10 @@ BENCHMARK(BM_SpawnOne);
 static void BM_SpawnYield(benchmark::State &state) {
   xpp::Runtime rt;
   for (auto _ : state) {
-    auto coro = [&]() -> xpp::Promise<int> {
-      auto h = rt.spawn(yield_task());
+    int v = rt.block_on([&]() -> xpp::Promise<int> {
+      auto h = rt.spawn(yield_task);
       co_return co_await h;
-    };
-    int v = rt.block_on(coro());
+    });
     benchmark::DoNotOptimize(v);
   }
 }
@@ -80,15 +78,14 @@ static void BM_SpawnMany(benchmark::State &state) {
   xpp::Runtime rt;
 
   for (auto _ : state) {
-    auto coro = [&]() -> xpp::Promise<int> {
+    int v = rt.block_on([&]() -> xpp::Promise<int> {
       int sum = 0;
       for (int i = 0; i < n; ++i) {
-        auto h = rt.spawn(trivial_task());
+        auto h = rt.spawn(trivial_task);
         sum += co_await h;
       }
       co_return sum;
-    };
-    int v = rt.block_on(coro());
+    });
     benchmark::DoNotOptimize(v);
   }
   state.SetItemsProcessed(state.iterations() * n);
@@ -102,11 +99,11 @@ static void BM_FanOut(benchmark::State &state) {
   xpp::Runtime rt;
 
   for (auto _ : state) {
-    auto coro = [&]() -> xpp::Promise<int> {
+    int v = rt.block_on([&]() -> xpp::Promise<int> {
       // Spawn all tasks first (fan-out).
       xpp::JoinHandle<int> *handles = new xpp::JoinHandle<int>[n];
       for (int i = 0; i < n; ++i) {
-        handles[i] = rt.spawn(trivial_task());
+        handles[i] = rt.spawn(trivial_task);
       }
       // Then await all (fan-in).
       int sum = 0;
@@ -115,8 +112,7 @@ static void BM_FanOut(benchmark::State &state) {
       }
       delete[] handles;
       co_return sum;
-    };
-    int v = rt.block_on(coro());
+    });
     benchmark::DoNotOptimize(v);
   }
   state.SetItemsProcessed(state.iterations() * n);
@@ -136,18 +132,17 @@ static void BM_Contention(benchmark::State &state) {
       counter.fetch_add(1, std::memory_order_relaxed);
     };
 
-    auto coro = [&]() -> xpp::Promise<int> {
+    int v = rt.block_on([&]() -> xpp::Promise<int> {
       xpp::JoinHandle<void> *handles = new xpp::JoinHandle<void>[n];
       for (int i = 0; i < n; ++i) {
-        handles[i] = rt.spawn(work());
+        handles[i] = rt.spawn(work);
       }
       for (int i = 0; i < n; ++i) {
         co_await handles[i];
       }
       delete[] handles;
       co_return counter.load();
-    };
-    int v = rt.block_on(coro());
+    });
     benchmark::DoNotOptimize(v);
   }
   state.SetItemsProcessed(state.iterations() * n);
@@ -169,10 +164,10 @@ static void BM_WorkStealing(benchmark::State &state) {
       co_return 1;
     };
 
-    auto coro = [&]() -> xpp::Promise<int> {
+    int v = rt.block_on([&]() -> xpp::Promise<int> {
       xpp::JoinHandle<int> *handles = new xpp::JoinHandle<int>[n];
       for (int i = 0; i < n; ++i) {
-        handles[i] = rt.spawn(heavy());
+        handles[i] = rt.spawn(heavy);
       }
       int sum = 0;
       for (int i = 0; i < n; ++i) {
@@ -180,8 +175,7 @@ static void BM_WorkStealing(benchmark::State &state) {
       }
       delete[] handles;
       co_return sum;
-    };
-    int v = rt.block_on(coro());
+    });
     benchmark::DoNotOptimize(v);
   }
   state.SetItemsProcessed(state.iterations() * n);

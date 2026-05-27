@@ -26,6 +26,10 @@
 
 #include <utility>
 
+extern "C" {
+#include <x/base/event.h>
+}
+
 #if XPP_HAS_COROUTINES
 #include <coroutine>
 #endif
@@ -34,9 +38,11 @@ namespace xpp {
 
 /* ── Forward declarations ────────────────────────────────────────── */
 
-class WaitScope;
+class EnterGuard;
 template <class T> class Resolver;
 template <class T> struct PromiseAndResolver;
+
+xEventLoop current_event_loop();
 
 /* ── PromiseForResult ────────────────────────────────────────────── */
 
@@ -112,7 +118,7 @@ public:
             class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
   auto then(Func &&func) -> Promise<typename ReducePromise<decltype(std::declval<Func>()())>::Type>;
 
-  T wait(WaitScope &scope);
+  T wait(EnterGuard &guard);
 
   Promise<void> discard();
 
@@ -120,16 +126,16 @@ public:
   auto operator co_await() {
     struct Awaiter {
       _::PromiseNode<T> *node;
-      _::CoroutineEvent  event{};
 
       bool await_ready() const {
         return false;
       }
 
       bool await_suspend(std::coroutine_handle<> h) {
-        event = _::CoroutineEvent(h);
-        if (node->poll(_::Waker(event))) {
-          event.arm();
+        _::Schedule *sched = new _::CoroWakeSchedule(h, xpp::current_event_loop());
+        _::Waker w(sched, nullptr);
+        if (node->poll(w)) {
+          w.wake();
         }
         return true;
       }
@@ -168,6 +174,10 @@ public:
 
   explicit operator bool() const {
     return m_node != nullptr;
+  }
+
+  Own<_::PromiseNode<T>> release_node() {
+    return std::move(m_node);
   }
 
 private:
@@ -258,26 +268,6 @@ template <class T> PromiseAndResolver<T> Promise<T>::make() {
   return PromiseAndResolver<T>{Promise(std::move(node)), Resolver<T>(adapter)};
 }
 
-/* ── WaitScope ───────────────────────────────────────────────────── */
-
-class WaitScope {
-public:
-  explicit WaitScope(xEventLoop loop);
-  ~WaitScope();
-
-  WaitScope(const WaitScope &)            = delete;
-  WaitScope &operator=(const WaitScope &) = delete;
-
-  xEventLoop loop() const {
-    return m_loop;
-  }
-
-  static xEventLoop current_loop();
-
-private:
-  xEventLoop m_loop;
-};
-
 /* ── Free helper functions ──────────────────────────────────────── */
 
 inline Promise<void> yield() {
@@ -290,47 +280,7 @@ template <class T> Promise<void> Promise<T>::discard() {
   return then([](ValueType) {});
 }
 
-/* ── Promise<T>::wait implementation ─────────────────────────────── */
-
-template <class T> T Promise<T>::wait(WaitScope &scope) {
-  XPP_ASSERT(m_node != nullptr, "Promise::wait on empty promise");
-
-  struct WaitEvent : _::Event {
-    void fire() override {
-      m_fired = true;
-    }
-    bool m_fired = false;
-  };
-
-  WaitEvent ev;
-  while (!m_node->poll(_::Waker(ev))) {
-    while (!ev.m_fired)
-      xEventWait(scope.loop(), -1);
-    ev.m_fired = false;
-  }
-
-  return m_node->take();
-}
-
-template <> inline void Promise<void>::wait(WaitScope &scope) {
-  XPP_ASSERT(m_node != nullptr, "Promise::wait on empty promise");
-
-  struct WaitEvent : _::Event {
-    void fire() override {
-      m_fired = true;
-    }
-    bool m_fired = false;
-  };
-
-  WaitEvent ev;
-  while (!m_node->poll(_::Waker(ev))) {
-    while (!ev.m_fired)
-      xEventWait(scope.loop(), -1);
-    ev.m_fired = false;
-  }
-
-  m_node->take();
-}
+/* ── Promise<T>::wait (declared only; defined in runtime.h) ─────── */
 
 /* ── C++20 Coroutine support for Promise<void> ──────────────────── */
 
@@ -378,17 +328,16 @@ inline Own<PromiseNode<T>> maybe_chain(Own<PromiseNode<Promise<T>>> node, Promis
 
 template <class T>
 ChainPromiseNode<T>::ChainPromiseNode(Own<PromiseNode<Promise<T>>> outer)
-    : m_state(Step1), m_outer(std::move(outer)) {
-  if (m_outer->poll(Waker(*this))) {
-    fire();
-  }
-}
+    : m_state(Step1), m_outer(std::move(outer)) {}
 
 template <class T> bool ChainPromiseNode<T>::poll(Waker waker) {
   switch (m_state) {
   case Step1:
-    m_outer_waker = waker;
-    return false;
+    if (!m_outer->poll(waker)) return false;
+    m_inner = std::move(m_outer->take().m_node);
+    m_outer = nullptr;
+    m_state = Step2;
+    return m_inner->poll(waker);
   case Step2:
     return m_inner->poll(waker);
   }
@@ -398,18 +347,6 @@ template <class T> bool ChainPromiseNode<T>::poll(Waker waker) {
 template <class T> typename PromiseNode<T>::ValueType ChainPromiseNode<T>::take() {
   XPP_ASSERT(m_state == Step2, "ChainPromiseNode::take in Step1");
   return m_inner->take();
-}
-
-template <class T> void ChainPromiseNode<T>::fire() {
-  XPP_ASSERT(m_state == Step1, "ChainPromiseNode::fire in wrong state");
-
-  Promise<T> p = m_outer->take();
-  m_inner      = std::move(p.m_node);
-  m_state      = Step2;
-
-  if (m_inner->poll(m_outer_waker)) {
-    m_outer_waker.wake();
-  }
 }
 
 /* ── chain helper: always returns Own<PromiseNode<ReducedT>> ── */

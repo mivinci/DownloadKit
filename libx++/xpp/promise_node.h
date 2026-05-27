@@ -34,6 +34,8 @@ extern "C" {
 
 namespace xpp {
 
+class Runtime;
+
 template <class T> class Promise;
 
 /* ── ReturnType helper ───────────────────────────────────────────── */
@@ -54,31 +56,17 @@ template <class U> struct ReducePromise<Promise<U>> {
 
 namespace _ {
 
-/* ── Event ───────────────────────────────────────────────────────── */
+class Worker;
 
-class Event {
-public:
-  Event() : m_fired(false) {}
-  virtual ~Event() = default;
+struct SpawnTaskBase;
 
-  void arm();
+/* ── Schedule ───────────────────────────────────────────────────── */
 
-  bool fired() const {
-    return m_fired;
-  }
-
-  virtual void fire() {
-    m_fired = true;
-  }
-
-protected:
-  bool m_fired;
-};
-
-class RootEvent final : public Event {
-public:
-  void fire() override {
-    m_fired = true;
+struct Schedule {
+  virtual ~Schedule()                        = default;
+  virtual void schedule(SpawnTaskBase *task) = 0;
+  virtual void yield_now(SpawnTaskBase *task) {
+    schedule(task);
   }
 };
 
@@ -86,16 +74,94 @@ public:
 
 class Waker {
 public:
-  Waker() : m_event(nullptr) {}
-  explicit Waker(Event &ev) : m_event(&ev) {}
+  Waker() : m_sched(nullptr), m_task(nullptr) {}
+  Waker(Schedule *sched, SpawnTaskBase *task) : m_sched(sched), m_task(task) {}
 
   void wake() const {
-    if (m_event) m_event->arm();
+    if (m_sched) m_sched->schedule(m_task);
+  }
+
+  Schedule *sched() const {
+    return m_sched;
+  }
+  SpawnTaskBase *task() const {
+    return m_task;
   }
 
 private:
-  Event *m_event;
+  Schedule      *m_sched;
+  SpawnTaskBase *m_task;
 };
+
+/* ── SpawnTaskBase ──────────────────────────────────────────────── */
+
+struct SpawnTaskBase {
+  enum State : uint8_t {
+    Pending,
+    Running,
+    Completed,
+    Detached
+  };
+
+  enum JoinState : uint8_t {
+    JoinEmpty,    // join_poll hasn't stored a waker yet
+    JoinStored,  // join_poll stored a waker
+    JoinWoken    // wake_join fired before join_poll stored
+  };
+
+  virtual ~SpawnTaskBase()                     = default;
+  virtual bool poll(Waker waker)               = 0;
+  virtual void wake_join()                     = 0;
+  virtual bool join_poll(Waker waker)          = 0;
+  virtual void *take_raw()                     = 0;
+
+  Schedule            *m_sched{nullptr};
+  std::atomic<uint8_t> state{Pending};
+  std::atomic<uint8_t> m_join_state{JoinEmpty};
+  Waker                m_join_waker;
+};
+
+/* ── Schedule implementations for sync wait and coroutine wake ─── */
+
+struct SyncWaitSchedule : Schedule {
+  bool      *flag;
+  xEventLoop loop;
+
+  SyncWaitSchedule(bool *f, xEventLoop l) : flag(f), loop(l) {}
+
+  void schedule(SpawnTaskBase *) override {
+    if (!loop) {
+      *flag = true;
+      return;
+    }
+    xEventLoopPost(loop, [](void *arg) { *static_cast<bool *>(arg) = true; }, flag);
+  }
+};
+
+#if XPP_HAS_COROUTINES
+struct CoroWakeSchedule : Schedule {
+  std::coroutine_handle<> handle;
+  xEventLoop              loop;
+
+  CoroWakeSchedule(std::coroutine_handle<> h, xEventLoop l) : handle(h), loop(l) {}
+
+  void schedule(SpawnTaskBase *) override {
+    if (!loop) {
+      handle.resume();
+      delete this;
+      return;
+    }
+    xEventLoopPost(
+      loop,
+      [](void *arg) {
+        auto *self = static_cast<CoroWakeSchedule *>(arg);
+        self->handle.resume();
+        delete self;
+      },
+      this);
+  }
+};
+#endif
 
 /* ── PromiseNode<T> ──────────────────────────────────────────────── */
 
@@ -139,7 +205,7 @@ private:
  *      - Otherwise poll() stores the Waker and returns false.
  *   2. When some external event happens (fd readable, timer expired, …),
  *      the code that owns the stored Waker calls waker.wake().
- *   3. wake() posts an Event::arm() to the event loop via xEventLoopPost.
+ *   3. wake() posts a callback to the event loop via xEventLoopPost.
  *   4. On the next iteration the executor re-polls the node.
  *   5. When poll() finally returns true, the executor calls take() to
  *      consume the result.  After this the node is dead — never poll again.
@@ -331,15 +397,12 @@ private:
 
 /* ── ChainPromiseNode ────────────────────────────────────────────── */
 
-template <class T> class ChainPromiseNode final : public PromiseNode<T>, public Event {
+template <class T> class ChainPromiseNode final : public PromiseNode<T> {
 public:
   explicit ChainPromiseNode(Own<PromiseNode<Promise<T>>> outer);
 
   bool                               poll(Waker waker) override;
   typename PromiseNode<T>::ValueType take() override;
-
-protected:
-  void fire() override;
 
 private:
   enum State {
@@ -349,7 +412,6 @@ private:
   State                        m_state;
   Own<PromiseNode<Promise<T>>> m_outer;
   Own<PromiseNode<T>>          m_inner;
-  Waker                        m_outer_waker;
 };
 
 /* ── AdapterPromiseNode ──────────────────────────────────────── */
@@ -417,32 +479,10 @@ public:
   bool poll(Waker) override {
     return true;
   }
-  Void take() override { return Void{}; }
-};
-
-/* ── CoroutineEvent (C++20 coroutines) ─────────────────────────── */
-
-#if XPP_HAS_COROUTINES
-
-class CoroutineEvent final : public Event {
-public:
-  CoroutineEvent() : m_handle(nullptr) {}
-  explicit CoroutineEvent(std::coroutine_handle<> handle) : m_handle(handle) {}
-
-  void fire() override {
-    m_fired  = true;
-    auto h   = m_handle;
-    m_handle = nullptr;
-    if (h) {
-      h.resume();
-    }
+  Void take() override {
+    return Void{};
   }
-
-private:
-  std::coroutine_handle<> m_handle;
 };
-
-#endif // XPP_HAS_COROUTINES
 
 } // namespace _
 

@@ -13,7 +13,7 @@
 #endif
 
 #include <gtest/gtest.h>
-#include <xpp/promise.h>
+#include <xpp/runtime.h>
 
 extern "C" {
 #include <x/base/event.h>
@@ -27,15 +27,15 @@ class PromiseCoroTest : public ::testing::Test {
 protected:
   void SetUp() override {
     m_loop  = xEventLoopCreate();
-    m_scope = new xpp::WaitScope(m_loop);
+    m_guard = new xpp::EnterGuard(nullptr, nullptr, m_loop);
   }
   void TearDown() override {
-    delete m_scope;
+    delete m_guard;
     xEventLoopDestroy(m_loop);
   }
 
-  xEventLoop      m_loop;
-  xpp::WaitScope *m_scope;
+  xEventLoop       m_loop;
+  xpp::EnterGuard *m_guard;
 };
 
 /* ── Awaitable protocol tests ─────────────────────────────────────── */
@@ -44,7 +44,7 @@ TEST_F(PromiseCoroTest, AwaitReadyAlwaysFalse) {
   // operator co_await returns an Awaiter; verify it exists and works
   // by doing a simple co_await on a resolved promise.
   auto coro = [&]() -> xpp::Promise<int> { co_return co_await xpp::Promise<int>::resolve(42); }();
-  EXPECT_EQ(coro.wait(*m_scope), 42);
+  EXPECT_EQ(coro.wait(*m_guard), 42);
 }
 
 /* ── co_await on resolved promises ────────────────────────────────── */
@@ -55,7 +55,7 @@ TEST_F(PromiseCoroTest, CoAwaitResolvedInt) {
     co_return val;
   }();
 
-  EXPECT_EQ(coro.wait(*m_scope), 42);
+  EXPECT_EQ(coro.wait(*m_guard), 42);
 }
 
 TEST_F(PromiseCoroTest, CoAwaitResolvedVoid) {
@@ -65,7 +65,7 @@ TEST_F(PromiseCoroTest, CoAwaitResolvedVoid) {
     reached = true;
   }();
 
-  coro.wait(*m_scope);
+  coro.wait(*m_guard);
   EXPECT_TRUE(reached);
 }
 
@@ -77,7 +77,7 @@ TEST_F(PromiseCoroTest, CoAwaitEval) {
     co_return val;
   }();
 
-  EXPECT_EQ(coro.wait(*m_scope), 99);
+  EXPECT_EQ(coro.wait(*m_guard), 99);
 }
 
 /* ── co_await with chained then ───────────────────────────────────── */
@@ -88,7 +88,7 @@ TEST_F(PromiseCoroTest, CoAwaitAfterThen) {
     co_return val;
   }();
 
-  EXPECT_EQ(coro.wait(*m_scope), 30);
+  EXPECT_EQ(coro.wait(*m_guard), 30);
 }
 
 /* ── Multiple co_await in one coroutine ───────────────────────────── */
@@ -100,7 +100,7 @@ TEST_F(PromiseCoroTest, MultipleCoAwait) {
     co_return a + b;
   }();
 
-  EXPECT_EQ(coro.wait(*m_scope), 30);
+  EXPECT_EQ(coro.wait(*m_guard), 30);
 }
 
 /* ── co_await on Resolver (async resolve) ─────────────────────────── */
@@ -113,7 +113,7 @@ TEST_F(PromiseCoroTest, CoAwaitResolver) {
   }();
 
   pr.resolver.resolve(77);
-  EXPECT_EQ(coro.wait(*m_scope), 77);
+  EXPECT_EQ(coro.wait(*m_guard), 77);
 }
 
 /* ── co_await flatten (then returns Promise) ──────────────────────── */
@@ -125,7 +125,7 @@ TEST_F(PromiseCoroTest, CoAwaitFlatten) {
     co_return val;
   }();
 
-  EXPECT_EQ(coro.wait(*m_scope), 20);
+  EXPECT_EQ(coro.wait(*m_guard), 20);
 }
 
 /* ── Nested coroutines ────────────────────────────────────────────── */
@@ -139,7 +139,7 @@ TEST_F(PromiseCoroTest, NestedCoroutine) {
     co_return a *b;
   }();
 
-  EXPECT_EQ(outer.wait(*m_scope), 49);
+  EXPECT_EQ(outer.wait(*m_guard), 49);
 }
 
 /* ── Coroutine returning void ─────────────────────────────────────── */
@@ -151,7 +151,7 @@ TEST_F(PromiseCoroTest, CoroutineReturnsVoid) {
     side_effect = val;
   }();
 
-  coro.wait(*m_scope);
+  coro.wait(*m_guard);
   EXPECT_EQ(side_effect, 42);
 }
 

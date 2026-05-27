@@ -274,8 +274,9 @@ public:
    * Option by value matches Rust's `self` semantics.
    */
   template <class Func> Option filter(Func &&pred) && {
-    if (m_has_value && pred(unwrap_unchecked())) {
-      return Option(std::move(unwrap_unchecked()));
+    if (m_has_value) {
+      T &val = unwrap_unchecked();
+      if (pred(val)) return Option(std::move(val));
     }
     return none;
   }

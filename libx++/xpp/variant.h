@@ -143,9 +143,12 @@ public:
 
   Variant &operator=(const Variant &o) {
     if (this != &o) {
+      // Copy-and-swap: copy first so that if copy_from throws,
+      // *this is left unchanged (strong exception-safety guarantee).
+      Variant tmp(o);
       destroy();
-      m_index = o.m_index;
-      copy_from(o);
+      m_index = tmp.m_index;
+      move_from(std::move(tmp));
     }
     return *this;
   }

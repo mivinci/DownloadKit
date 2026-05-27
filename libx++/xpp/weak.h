@@ -162,6 +162,8 @@ public:
    */
   Option<Rc<T>> upgrade() const noexcept {
     if (!m_inner) return Option<Rc<T>>();
+    // Single-thread only: the check-then-increment is not atomic.
+    // For cross-thread upgrade, use ArcWeak<T> (arc.h) which CAS-loops.
     if (m_inner->strong == 0) return Option<Rc<T>>();
     ++m_inner->strong;
     // Reach into the Option specialization's storage directly. The

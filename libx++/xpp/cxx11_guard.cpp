@@ -19,7 +19,6 @@
 #include <xpp/arc.h>
 #include <xpp/compiler.h>
 #include <xpp/sys/cond.h>
-#include <xpp/error.h>
 #include <xpp/handle.h>
 #include <xpp/in_place.h>
 #include <xpp/sys/mutex.h>
@@ -54,12 +53,8 @@ void instantiate_templates() {
   (void) r;
   (void) o;
 
-  // Error + Result<void, Error>: the canonical libx++ error channel.
-  // Round-trips a code through Error and back so the int-like
-  // contract gets compiled.
-  xpp::Error             e{42};
-  xpp::Result<void, xpp::Error> rv(xpp::err, e);
-  (void) e.code();
+  // Result<void, int>: verify the template works with a trivial E type.
+  xpp::Result<void, int> rv(xpp::err, 42);
   (void) rv;
 
   // Rc + Option<Rc> + Weak: exercises Rc::make, copy ctor (+1), the

@@ -12,13 +12,12 @@
  *
  * ## Waker storage
  *
- * We store the full Waker (Schedule* + SpawnTaskBase*) rather than
- * just the task pointer. This is necessary because:
- *   - CoroWakeSchedule passes task=nullptr (wakes via coroutine handle)
- *   - SyncWaitSchedule passes task=nullptr (wakes via event post)
- *   - WorkerSchedule passes the task (re-enqueues to local queue)
- * Storing only the task would lose the Schedule pointer, making the
- * first two cases inoperable.
+ * Read and write wakers are stored in a mutex-protected Waiters struct,
+ * following Tokio's ScheduledIo design. The readiness bitmask stays
+ * lock-free (atomic); the mutex only guards the waker slots. A
+ * double-check-under-lock pattern in poll_read/poll_write prevents
+ * lost wakes when an event arrives between the initial readiness
+ * check and the waker store.
  *
  * C++11-compatible.
  */
@@ -29,6 +28,7 @@
 #include <xpp/arc.h>
 #include <xpp/promise.h>
 #include <xpp/runtime.h>
+#include <xpp/sys/mutex.h>
 
 #include <atomic>
 #include <unistd.h>
@@ -89,17 +89,19 @@ public:
   /**
    * @brief Check if the FD is currently readable.
    *
-   * If not ready, stores the waker atomically. A double-check after
-   * the store prevents the lost-wake race (event arrived between
-   * the initial check and the waker store).
+   * Uses double-check-under-lock: read readiness first (lock-free),
+   * then take the mutex, store the waker, and re-read readiness.
+   * The driver's set_readiness + wake sequence also takes the mutex,
+   * so either we see the readiness or the waker sees our stored waker.
    */
   bool poll_read(_::Waker waker) {
     if (m_readiness.load(std::memory_order_acquire) & _::kReadable) {
       return true;
     }
-    set_waker(m_read_waker_sched, m_read_waker_task, waker);
+    auto g     = m_waiters.lock();
+    g->reader  = waker;
     if (m_readiness.load(std::memory_order_acquire) & _::kReadable) {
-      clear_waker(m_read_waker_sched, m_read_waker_task);
+      g->reader = _::Waker();
       return true;
     }
     return false;
@@ -112,9 +114,10 @@ public:
     if (m_readiness.load(std::memory_order_acquire) & _::kWritable) {
       return true;
     }
-    set_waker(m_write_waker_sched, m_write_waker_task, waker);
+    auto g     = m_waiters.lock();
+    g->writer  = waker;
     if (m_readiness.load(std::memory_order_acquire) & _::kWritable) {
-      clear_waker(m_write_waker_sched, m_write_waker_task);
+      g->writer = _::Waker();
       return true;
     }
     return false;
@@ -156,30 +159,22 @@ public:
   }
 
 private:
-  /* ── Waker slot helpers (atomic pair: Schedule* + SpawnTaskBase*) ── */
+  /* ── Waiters (mutex-protected waker slots) ──────────────────────── */
 
-  static void set_waker(std::atomic<_::Schedule *> &sched_slot,
-                         std::atomic<_::SpawnTaskBase *> &task_slot,
-                         _::Waker waker) {
-    task_slot.store(waker.task(), std::memory_order_relaxed);
-    sched_slot.store(waker.sched(), std::memory_order_release);
+  struct Waiters {
+    _::Waker reader;
+    _::Waker writer;
+  };
+
+  void wake_read() {
+    auto g = m_waiters.lock();
+    g->reader.wake();
   }
 
-  static void clear_waker(std::atomic<_::Schedule *> &sched_slot,
-                            std::atomic<_::SpawnTaskBase *> &task_slot) {
-    sched_slot.store(nullptr, std::memory_order_relaxed);
-    task_slot.store(nullptr, std::memory_order_relaxed);
+  void wake_write() {
+    auto g = m_waiters.lock();
+    g->writer.wake();
   }
-
-  static void fire_waker(std::atomic<_::Schedule *> &sched_slot,
-                           std::atomic<_::SpawnTaskBase *> &task_slot) {
-    _::Schedule *s = sched_slot.exchange(nullptr, std::memory_order_acq_rel);
-    _::SpawnTaskBase *t = task_slot.exchange(nullptr, std::memory_order_relaxed);
-    if (s) s->schedule(t);
-  }
-
-  void wake_read() { fire_waker(m_read_waker_sched, m_read_waker_task); }
-  void wake_write() { fire_waker(m_write_waker_sched, m_write_waker_task); }
 
   /* ── Event callback ─────────────────────────────────────────────── */
 
@@ -197,18 +192,11 @@ private:
 
   /* ── Fields ─────────────────────────────────────────────────────── */
 
-  xEventLoop                          m_loop;
-  int                                 m_fd;
-  xEventSource                        m_source{nullptr};
-  std::atomic<uint8_t>                m_readiness;
-
-  // Read waker slot (atomic pair)
-  std::atomic<_::Schedule *>          m_read_waker_sched{nullptr};
-  std::atomic<_::SpawnTaskBase *>     m_read_waker_task{nullptr};
-
-  // Write waker slot (atomic pair)
-  std::atomic<_::Schedule *>          m_write_waker_sched{nullptr};
-  std::atomic<_::SpawnTaskBase *>     m_write_waker_task{nullptr};
+  xEventLoop                m_loop;
+  int                       m_fd;
+  xEventSource              m_source{nullptr};
+  std::atomic<uint8_t>      m_readiness;
+  sys::Mutex<Waiters>       m_waiters;
 };
 
 /* ── Readiness PromiseNode ─────────────────────────────────────────── */

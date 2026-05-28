@@ -464,62 +464,72 @@ template <class T> class AdapterPromiseNode final : public PromiseNode<T> {
 public:
   using ValueType = typename PromiseNode<T>::ValueType;
 
-  AdapterPromiseNode() : m_resolved(false) {}
+  AdapterPromiseNode() {}
 
   bool poll(Waker waker) override {
-    if (m_resolved) return true;
+    if (m_resolved.load(std::memory_order_acquire)) return true;
     m_waker = waker;
+    // Double-check after storing waker: if resolve() raced between
+    // the first check and the waker store, wake immediately.
+    if (m_resolved.load(std::memory_order_acquire)) {
+      m_waker.wake();
+      return true;
+    }
     return false;
   }
 
   ValueType take() override {
-    XPP_ASSERT(m_resolved, "AdapterPromiseNode::take before resolve");
+    XPP_ASSERT(m_resolved.load(std::memory_order_relaxed),
+               "AdapterPromiseNode::take before resolve");
     return std::move(m_val);
   }
 
   void resolve(T &&value) {
-    XPP_ASSERT(!m_resolved, "AdapterPromiseNode resolved twice");
-    m_val      = std::move(value);
-    m_resolved = true;
-    // Seq-cst fence pairs with the acquire load in poll() to prevent
-    // store-load reordering: without it, a CPU may reorder the
-    // m_resolved store past the m_waker load, causing lost wakes on
-    // weakly-ordered architectures (ARM, POWER).
-    std::atomic_thread_fence(std::memory_order_seq_cst);
+    XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed),
+               "AdapterPromiseNode resolved twice");
+    m_val = std::move(value);
+    // Release store: guarantees m_val is visible to any thread that
+    // observes m_resolved == true via acquire load in poll().
+    m_resolved.store(true, std::memory_order_release);
     m_waker.wake();
   }
 
 private:
-  ValueType m_val;
-  Waker     m_waker;
-  bool      m_resolved;
+  ValueType          m_val;
+  Waker              m_waker;
+  std::atomic<bool>  m_resolved{false};
 };
 
 template <> class AdapterPromiseNode<Void> final : public PromiseNode<void> {
 public:
-  AdapterPromiseNode() : m_resolved(false) {}
+  AdapterPromiseNode() {}
 
   bool poll(Waker waker) override {
-    if (m_resolved) return true;
+    if (m_resolved.load(std::memory_order_acquire)) return true;
     m_waker = waker;
+    if (m_resolved.load(std::memory_order_acquire)) {
+      m_waker.wake();
+      return true;
+    }
     return false;
   }
 
   Void take() override {
-    XPP_ASSERT(m_resolved, "AdapterPromiseNode::take before resolve");
+    XPP_ASSERT(m_resolved.load(std::memory_order_relaxed),
+               "AdapterPromiseNode::take before resolve");
     return Void{};
   }
 
   void resolve() {
-    XPP_ASSERT(!m_resolved, "AdapterPromiseNode resolved twice");
-    m_resolved = true;
-    std::atomic_thread_fence(std::memory_order_seq_cst);
+    XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed),
+               "AdapterPromiseNode resolved twice");
+    m_resolved.store(true, std::memory_order_release);
     m_waker.wake();
   }
 
 private:
-  Waker m_waker;
-  bool  m_resolved;
+  Waker             m_waker;
+  std::atomic<bool> m_resolved{false};
 };
 
 /* ── YieldPromiseNode ────────────────────────────────────────────── */

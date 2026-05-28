@@ -458,8 +458,100 @@ private:
   Own<PromiseNode<T>>          m_inner;
 };
 
+/* ── AtomicWaker ──────────────────────────────────────────────── */
+
+/**
+ * @brief Lock-free waker cell using a 2-bit state machine.
+ *
+ * Coordinates concurrent register_waker() (poll side) and wake()
+ * (resolve side) without a mutex.  Modeled after Tokio's AtomicWaker.
+ *
+ * State transitions:
+ *
+ *   WAITING (00) ──CAS──→ REGISTERING (01)    register_waker acquires
+ *   WAITING (00) ──fetch_or──→ WAKING (10)    wake acquires
+ *   REGISTERING | WAKING (11)                 race: registerer self-wakes
+ *
+ * The waker cell is only accessed by whichever thread holds exclusive
+ * access (REGISTERING or WAKING bit).
+ */
+class AtomicWaker {
+public:
+  AtomicWaker() = default;
+
+  AtomicWaker(const AtomicWaker &)            = delete;
+  AtomicWaker &operator=(const AtomicWaker &) = delete;
+
+  /**
+   * @brief Store a waker for later notification.
+   *
+   * If a concurrent wake() is in flight, the waker is immediately
+   * fired to prevent lost wakes.
+   */
+  void register_waker(Waker waker) {
+    uint8_t expected = WAITING;
+    if (m_state.compare_exchange_strong(expected, REGISTERING,
+                                        std::memory_order_acquire,
+                                        std::memory_order_relaxed)) {
+      // Acquired the cell — store waker under exclusive access.
+      m_waker = std::move(waker);
+      // Release the cell.  If a concurrent wake() set the WAKING bit
+      // while we held REGISTERING, the combined state is
+      // REGISTERING | WAKING — we must self-wake on its behalf.
+      uint8_t prev = m_state.exchange(WAITING, std::memory_order_acq_rel);
+      if (prev == (REGISTERING | WAKING)) {
+        m_waker.wake();
+      }
+    } else if (expected == WAKING) {
+      // wake() is in flight — the waker we were about to store will
+      // never be fired.  Self-wake to prevent a lost notification.
+      waker.wake();
+    }
+    // else: another register_waker() holds the cell (caller bug).
+    //       Drop silently; the existing waker remains valid.
+  }
+
+  /**
+   * @brief Fire the stored waker.
+   *
+   * If register_waker() is concurrently storing a waker, the
+   * WAKING bit is set and register_waker() will self-wake on exit.
+   */
+  void wake() {
+    // Atomically set the WAKING bit and inspect the previous state.
+    uint8_t prev = m_state.fetch_or(WAKING, std::memory_order_acq_rel);
+    if (prev == WAITING) {
+      // We exclusively hold the cell — take the waker and fire it.
+      m_waker.wake();
+      m_state.store(WAITING, std::memory_order_release);
+    }
+    // Otherwise a register_waker() call holds the cell (REGISTERING).
+    // The WAKING bit is now set; register_waker() will see the
+    // combined state on exit and self-wake.  Nothing for us to do.
+  }
+
+private:
+  static constexpr uint8_t WAITING     = 0;
+  static constexpr uint8_t REGISTERING = 0b01;
+  static constexpr uint8_t WAKING      = 0b10;
+
+  std::atomic<uint8_t> m_state{WAITING};
+  Waker                m_waker; // Only accessed under m_state lock.
+};
+
 /* ── AdapterPromiseNode ──────────────────────────────────────── */
 
+/**
+ * @brief Bridges external (synchronous) resolution into the Promise system.
+ *
+ * The caller obtains a Promise backed by this node, then hands out the
+ * adapter pointer to code that will eventually call resolve().  The
+ * executor side polls the node via poll(); when resolve() fires, the
+ * stored waker is woken and the next poll() returns true.
+ *
+ * Used by Promise::create(), PromiseAndResolver, Mutex::lock(), etc.
+ * Void specialization below handles the void-value case.
+ */
 template <class T> class AdapterPromiseNode final : public PromiseNode<T> {
 public:
   using ValueType = typename PromiseNode<T>::ValueType;
@@ -468,9 +560,9 @@ public:
 
   bool poll(Waker waker) override {
     if (m_resolved.load(std::memory_order_acquire)) return true;
-    m_waker = waker;
-    // Double-check after storing waker: if resolve() raced between
-    // the first check and the waker store, wake immediately.
+    m_waker.register_waker(std::move(waker));
+    // Double-check: if resolve() raced between our first check and
+    // register_waker(), the waker may never be fired.  Catch it here.
     if (m_resolved.load(std::memory_order_acquire)) {
       m_waker.wake();
       return true;
@@ -488,25 +580,24 @@ public:
     XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed),
                "AdapterPromiseNode resolved twice");
     m_val = std::move(value);
-    // Release store: guarantees m_val is visible to any thread that
-    // observes m_resolved == true via acquire load in poll().
     m_resolved.store(true, std::memory_order_release);
     m_waker.wake();
   }
 
 private:
   ValueType          m_val;
-  Waker              m_waker;
+  AtomicWaker        m_waker;
   std::atomic<bool>  m_resolved{false};
 };
 
+/// AdapterPromiseNode<Void> — same protocol, no value storage.
 template <> class AdapterPromiseNode<Void> final : public PromiseNode<void> {
 public:
   AdapterPromiseNode() {}
 
   bool poll(Waker waker) override {
     if (m_resolved.load(std::memory_order_acquire)) return true;
-    m_waker = waker;
+    m_waker.register_waker(std::move(waker));
     if (m_resolved.load(std::memory_order_acquire)) {
       m_waker.wake();
       return true;
@@ -528,7 +619,7 @@ public:
   }
 
 private:
-  Waker             m_waker;
+  AtomicWaker       m_waker;
   std::atomic<bool> m_resolved{false};
 };
 

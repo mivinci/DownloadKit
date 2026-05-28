@@ -398,6 +398,11 @@ public:
   EnterGuard(Runtime *rt, _::Worker *w, xEventLoop loop);
   ~EnterGuard();
 
+  EnterGuard(EnterGuard &&o) noexcept : m_loop(o.m_loop) {
+    o.m_loop = nullptr;
+  }
+  EnterGuard &operator=(EnterGuard &&) = delete;
+
   EnterGuard(const EnterGuard &)            = delete;
   EnterGuard &operator=(const EnterGuard &) = delete;
 
@@ -441,6 +446,18 @@ public:
    * context is active before coroutine creation.
    */
   template <class T> T block_on(Promise<T> promise);
+
+  /**
+   * @brief Enter the runtime context on this thread.
+   *
+   * Returns an RAII guard that sets the thread-local event loop
+   * (and optional Runtime pointer) for the guard's lifetime.
+   * This is the preferred way to make xpp async primitives work
+   * outside of block_on — e.g. in tests.
+   */
+  EnterGuard enter() {
+    return EnterGuard(this, nullptr, m_main_loop.get());
+  }
 
   /** @brief Get the Runtime active on this thread (or nullptr). */
   static Runtime *current() {

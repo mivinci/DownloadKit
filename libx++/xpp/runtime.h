@@ -314,7 +314,7 @@ private:
   Box<void, EventLoopDeleter>        m_loop;
   WorkStealingQueue<SpawnTaskBase *> m_local_queue;
   WorkerSchedule                     m_sched;
-  std::atomic<uint8_t>               m_state{Idle};    // activity (worker-owned)
+  std::atomic<uint8_t>               m_state{Idle};     // activity (worker-owned)
   std::atomic<bool>                  m_shutdown{false}; // stop signal (destructor-owned)
   std::atomic<bool>                  m_exited{false};   // ack (worker-owned)
   uint32_t                           m_tick{0};
@@ -349,8 +349,7 @@ public:
   ~JoinPromiseNode() {
     if (!m_task) return;
     // Detach: task runs to completion and self-deletes.
-    auto prev = m_task->state.exchange(SpawnTaskBase::Detached,
-                                        std::memory_order_acq_rel);
+    auto prev = m_task->state.exchange(SpawnTaskBase::Detached, std::memory_order_acq_rel);
     if (prev == SpawnTaskBase::Completed) delete m_task;
   }
 
@@ -359,8 +358,8 @@ public:
   }
 
   ValueType take() override {
-    auto *node = static_cast<PromiseNode<T> *>(m_task->take_raw());
-    ValueType val = node->take();
+    auto     *node = static_cast<PromiseNode<T> *>(m_task->take_raw());
+    ValueType val  = node->take();
     delete m_task;
     m_task = nullptr;
     return val;
@@ -377,6 +376,56 @@ template <> inline Void JoinPromiseNode<void>::take() {
   m_task = nullptr;
   return Void{};
 }
+
+/**
+ * @brief Spawn task that adapts an external (blocking) resolution into
+ *        a Promise<R>.
+ *
+ * One heap object holds everything: the AdapterPromiseNode the joiner
+ * polls (resolved on the m_group thread), and the user callable F.
+ * Never scheduled on a worker — `poll()` exists only to satisfy
+ * SpawnTaskBase's pure virtual.
+ *
+ * Lifetime: deleted by JoinPromiseNode::take() on the success path, or
+ * by submit_blocking's done_fn on the detached path.
+ */
+template <class R, class F> struct BlockingSpawnTask final : SpawnTaskBase {
+  AdapterPromiseNode<R> node; // adapter the Promise<R> waits on
+  F                     func; // user callable, run by run_on_worker
+
+  explicit BlockingSpawnTask(F f) : func(std::move(f)) {}
+
+  /// Called on the m_group blocking thread.
+  void run_on_worker() {
+    node.resolve(func());
+  }
+
+  bool poll(Waker) override {
+    return false;
+  } // never invoked
+  void *take_raw() override {
+    return &node;
+  }
+};
+
+template <class F> struct BlockingSpawnTask<void, F> final : SpawnTaskBase {
+  AdapterPromiseNode<Void> node;
+  F                        func;
+
+  explicit BlockingSpawnTask(F f) : func(std::move(f)) {}
+
+  void run_on_worker() {
+    func();
+    node.resolve();
+  }
+
+  bool poll(Waker) override {
+    return false;
+  }
+  void *take_raw() override {
+    return &node;
+  }
+};
 
 } // namespace _
 
@@ -406,7 +455,9 @@ public:
   EnterGuard(const EnterGuard &)            = delete;
   EnterGuard &operator=(const EnterGuard &) = delete;
 
-  xEventLoop loop() const { return m_loop; }
+  xEventLoop loop() const {
+    return m_loop;
+  }
 
 private:
   xEventLoop m_loop;
@@ -464,6 +515,17 @@ public:
     return _::current_context().runtime;
   }
 
+  /**
+   * @brief Run a blocking function on the runtime's xTaskGroup thread.
+   *
+   * The callable is executed synchronously on an m_group worker thread.
+   * Its return value is delivered as a Promise<R> resolved on the calling
+   * async worker's event loop — safe to co_await or pass to spawn().
+   *
+   * Mirrors Tokio's tokio::task::spawn_blocking.
+   */
+  template <class F> auto spawn_blocking(F &&f) -> Promise<decltype(f())>;
+
 private:
   friend class _::Worker;
   friend struct _::SpawnTaskBase;
@@ -484,6 +546,19 @@ private:
 
   /** @brief Worker main loop (runs as xTaskGroup task). */
   static void *worker_main(void *arg);
+
+  /**
+   * @brief Blocking template helper: submit run_on_worker() to m_group.
+   *
+   * work_fn runs task->run_on_worker() on an m_group thread (resolves
+   * task->node).  done_fn runs on the calling worker's event loop:
+   * sets m_resolved on the SpawnTask and wakes the join waker so
+   * JoinPromiseNode::poll unblocks.
+   *
+   * @param task  Newly-created BlockingSpawnTask<R, F>* that owns both
+   *              the adapter node and the blocking callable.
+   */
+  template <class R, class F> void submit_blocking(_::BlockingSpawnTask<R, F> *task);
 
   size_t                                     m_num_workers;
   Vec<Box<_::Worker>>                        m_workers;
@@ -519,20 +594,58 @@ Runtime::spawn(Func &&func) {
   return Promise<T>(Own<_::PromiseNode<T>>(new _::JoinPromiseNode<T>(task)));
 }
 
+/* ── Runtime::spawn_blocking ──────────────────────────────────────── */
+
+template <class R, class F> void Runtime::submit_blocking(_::BlockingSpawnTask<R, F> *task) {
+  xEventLoop loop = _::current_context().loop;
+
+  xErrno rc = xEventLoopSubmit(
+    loop, m_group.get(),
+    /* work_fn: run blocking func on an m_group worker thread */
+    [](void *arg) -> void * {
+      auto *t = static_cast<_::BlockingSpawnTask<R, F> *>(arg);
+      t->run_on_worker(); // blocks until func() returns; resolves t->node
+      return nullptr;
+    },
+    /* done_fn: on loop thread — m_resolved and wake_join so joiners unblock */
+    [](void *arg, void * /*result*/) {
+      auto *t = static_cast<_::BlockingSpawnTask<R, F> *>(arg);
+      t->m_resolved.store(true, std::memory_order_release);
+      t->wake_join();
+      // If the joiner already detached the task, it's our job to delete it.
+      uint8_t prev = t->state.exchange(_::SpawnTaskBase::Completed, std::memory_order_acq_rel);
+      if (prev == _::SpawnTaskBase::Detached) delete t;
+    },
+    task, nullptr /* xEventWork* out */
+  );
+
+  if (rc != xErrno_Ok) {
+    // Submission failed — surface to the joiner instead of hanging.
+    // task->node was never resolved; mark resolved-with-no-value so
+    // join_poll returns true and the eventual take() asserts cleanly
+    // (better than a silent hang).  Caller should treat this as fatal.
+    task->m_resolved.store(true, std::memory_order_release);
+    task->wake_join();
+    XPP_ASSERT(false, "xEventLoopSubmit failed in spawn_blocking");
+  }
+}
+
+template <class F> auto Runtime::spawn_blocking(F &&f) -> Promise<decltype(f())> {
+  using R  = decltype(f());
+  using FD = typename std::decay<F>::type;
+
+  auto *task = new _::BlockingSpawnTask<R, FD>(std::forward<F>(f));
+
+  submit_blocking(task);
+
+  return Promise<R>(Own<_::PromiseNode<R>>(new _::JoinPromiseNode<R>(task)));
+}
+
 /* ── Promise<T>::wait ────────────────────────────────────────────── */
 
 namespace _ {
 
-/**
- * @brief Drive a PromiseNode to completion on the current event loop.
- *
- * Type-independent poll loop — the generated code is identical for all
- * T (only calls node->poll which is virtual). Marked noinline so the
- * linker's Identical Code Folding (ICF) merges all instantiations into
- * a single function body.
- */
-template <class T>
-XPP_NOINLINE void poll_until_ready(PromiseNode<T> *node, xEventLoop loop) {
+template <class T> XPP_NOINLINE void poll_until_ready(PromiseNode<T> *node, xEventLoop loop) {
   bool             fired = false;
   SyncWaitSchedule sync_sched(&fired, loop);
   while (!node->poll(Waker(&sync_sched, nullptr))) {
@@ -582,6 +695,21 @@ Promise<typename ReducePromise<decltype(std::declval<Func>()())>::Type> spawn(Fu
   auto *rt = Runtime::current();
   XPP_ASSERT(rt != nullptr, "xpp::spawn: no active runtime on this thread");
   return rt->spawn(std::forward<Func>(func));
+}
+
+/**
+ * @brief Run a blocking function on the runtime's task group thread.
+ *
+ * The function executes on an m_group worker thread (off the event loop).
+ * Its return value is delivered as a Promise<R> resolved on the calling
+ * async worker's event loop — safe to co_await or pass to spawn().
+ *
+ * Mirrors Tokio's tokio::task::spawn_blocking.
+ */
+template <class F> auto spawn_blocking(F &&f) -> Promise<decltype(f())> {
+  auto *rt = Runtime::current();
+  XPP_ASSERT(rt != nullptr, "xpp::spawn_blocking: no active runtime on this thread");
+  return rt->spawn_blocking(std::forward<F>(f));
 }
 
 } // namespace xpp

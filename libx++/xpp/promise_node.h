@@ -573,19 +573,22 @@ public:
   ValueType take() override {
     XPP_ASSERT(m_resolved.load(std::memory_order_relaxed),
                "AdapterPromiseNode::take before resolve");
-    return std::move(m_val);
+    return std::move(m_val).unwrap();
   }
 
   void resolve(T &&value) {
     XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed),
                "AdapterPromiseNode resolved twice");
-    m_val = std::move(value);
+    m_val = Option<ValueType>(std::move(value));
     m_resolved.store(true, std::memory_order_release);
     m_waker.wake();
   }
 
 private:
-  ValueType          m_val;
+  // Stored as Option to avoid requiring T to be default-constructible
+  // (e.g. Result<T,E>, which has no default ctor).  Populated by
+  // resolve(), drained by take().
+  Option<ValueType>  m_val;
   AtomicWaker        m_waker;
   std::atomic<bool>  m_resolved{false};
 };

@@ -36,7 +36,7 @@ list(REMOVE_ITEM XPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
 add_library(xpp ${XPP_SOURCES})
   # convenience alias for downstream consumers
 target_compile_features(xpp PUBLIC cxx_std_11)
-target_link_libraries(xpp PUBLIC xbase)
+target_link_libraries(xpp PUBLIC xbase xnet)
 target_include_directories(xpp PUBLIC
   ${CMAKE_SOURCE_DIR}/libx
   ${CMAKE_SOURCE_DIR}/libx++

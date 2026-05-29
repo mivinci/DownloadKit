@@ -18,29 +18,17 @@
 #ifndef XPP_NET_UDP_H
 #define XPP_NET_UDP_H
 
-#include <xpp/arc.h>
+#include <xpp/io/poll_evented.h>
 #include <xpp/net/addr.h>
+#include <xpp/net/socket.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
-#include <xpp/scheduled_io.h>
 #include <xpp/span.h>
 
-#include <cstdint>
 #include <sys/types.h>
 
 namespace xpp {
 namespace net {
-
-/* ── SocketError ───────────────────────────────────────────────────── */
-
-enum class SocketError : uint8_t {
-  CreateFailed,
-  BindFailed,
-  ConnectFailed,
-  AddrFamilyMismatch,
-};
-
-const char *socket_error_message(SocketError e) noexcept;
 
 /* ── RecvFromResult ────────────────────────────────────────────────── */
 
@@ -93,19 +81,22 @@ public:
   SocketAddr local_addr() const;
 
   /** @brief The underlying file descriptor. */
-  int fd() const { return m_fd; }
+  int fd() const {
+    return m_io ? m_io->fd() : -1;
+  }
 
   /** @brief True after close(). */
-  bool is_closed() const { return m_fd < 0; }
+  bool is_closed() const {
+    return m_io == nullptr;
+  }
 
   /** @brief Close the socket. Wakes any pending I/O. */
   void close();
 
 private:
-  UdpSocket(int fd, Arc<ScheduledIo> sio);
+  UdpSocket(PollEvented *io);
 
-  int                m_fd;
-  Arc<ScheduledIo> m_sio;
+  PollEvented *m_io; // owned, nullable (null after close)
 };
 
 } // namespace net

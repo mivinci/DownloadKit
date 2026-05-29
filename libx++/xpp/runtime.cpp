@@ -54,7 +54,7 @@ EnterGuard::EnterGuard(Runtime *rt, _::Worker *w, xEventLoop loop) : m_loop(loop
 }
 
 EnterGuard::~EnterGuard() {
-  _::tl_context = {nullptr, nullptr, nullptr};
+  if (m_loop) _::tl_context = {nullptr, nullptr, nullptr};
 }
 
 namespace _ {

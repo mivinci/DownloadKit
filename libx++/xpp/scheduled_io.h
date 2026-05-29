@@ -169,11 +169,13 @@ private:
   void wake_read() {
     auto g = m_waiters.lock();
     g->reader.wake();
+    g->reader = _::Waker(); // clear to avoid use-after-free on next wake
   }
 
   void wake_write() {
     auto g = m_waiters.lock();
     g->writer.wake();
+    g->writer = _::Waker(); // clear to avoid use-after-free on next wake
   }
 
   /* ── Event callback ─────────────────────────────────────────────── */

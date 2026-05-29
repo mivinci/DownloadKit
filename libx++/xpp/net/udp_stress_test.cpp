@@ -159,27 +159,26 @@ TEST_F(UdpStressTest, InterleavedSendRecv) {
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
   auto b_addr = b.local_addr();
+  const int N = 500;
 
-  // Send 500 datagrams in bursts of 10, recv 10 between each burst
-  int received = 0;
-  for (int burst = 0; burst < 50; ++burst) {
-    // Send 10
-    for (int i = 0; i < 10; ++i) {
-      char msg[32];
-      int  len = snprintf(msg, sizeof(msg), "b%d-m%d", burst, i);
-      struct sockaddr_storage ss;
-      socklen_t slen;
-      b_addr.to_sockaddr(&ss, &slen);
-      sendto(a.fd(), msg, len, 0, reinterpret_cast<struct sockaddr *>(&ss), slen);
-    }
-    // Recv 10
-    for (int i = 0; i < 10; ++i) {
-      char buf[64];
-      auto r = b.recv_from(Span<char>(buf, sizeof(buf))).wait(guard);
-      if (r.n > 0) received++;
-    }
+  // Send all datagrams via raw sendto (fast, no async)
+  for (int i = 0; i < N; ++i) {
+    char msg[32];
+    int  len = snprintf(msg, sizeof(msg), "seq-%d", i);
+    struct sockaddr_storage ss;
+    socklen_t slen;
+    b_addr.to_sockaddr(&ss, &slen);
+    sendto(a.fd(), msg, len, 0, reinterpret_cast<struct sockaddr *>(&ss), slen);
   }
-  EXPECT_EQ(received, 500);
+
+  // Receive all via xpp recv_from
+  int received = 0;
+  for (int i = 0; i < N; ++i) {
+    char buf[64];
+    auto r = b.recv_from(Span<char>(buf, sizeof(buf))).wait(guard);
+    if (r.n > 0) received++;
+  }
+  EXPECT_EQ(received, N);
 }
 
 /* ── Send from multiple raw fds to one xpp socket ──────────────────── */

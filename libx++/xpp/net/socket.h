@@ -29,6 +29,7 @@ enum class SocketError : uint8_t {
   AddrFamilyMismatch,
   ResolveFailed,    ///< DNS resolution failed
   NoAddress,        ///< Resolution returned zero usable addresses
+  Closed,           ///< Operation attempted on a closed socket
 };
 
 const char *socket_error_message(SocketError e) noexcept;

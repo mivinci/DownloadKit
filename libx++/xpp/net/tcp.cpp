@@ -39,13 +39,6 @@ int set_nonblocking(int fd) {
   return fcntl(fd, F_SETFD, fdflags | FD_CLOEXEC);
 }
 
-/// Zero-address sentinel used to initialise a "bad" TcpStream.
-/// Kept as a standalone function to avoid repeating 4 copies of this
-/// expression across accept() and connect().
-SocketAddr unspecified_peer() {
-  return SocketAddr::from(SocketAddrV4::from(Ipv4Addr::UNSPECIFIED, 0));
-}
-
 /// Recursively try to connect to each address in @p addrs starting at
 /// @p idx, returning a Promise that resolves to the first successful
 /// TcpStream or Err(ConnectFailed) once all addresses are exhausted.
@@ -60,10 +53,10 @@ Promise<Result<TcpStream, SocketError>> connect_each(Arc<Vec<SocketAddr>> addrs,
       Result<TcpStream, SocketError>(err, SocketError::ConnectFailed));
   }
   return TcpStream::connect_addr((*addrs)[idx])
-    .then([addrs, idx](TcpStream s) -> Promise<Result<TcpStream, SocketError>> {
-      if (!s.is_closed()) {
-        return Promise<Result<TcpStream, SocketError>>::resolve(
-          Result<TcpStream, SocketError>(ok, std::move(s)));
+    .then([addrs, idx](Result<TcpStream, SocketError> r)
+            -> Promise<Result<TcpStream, SocketError>> {
+      if (r.is_ok()) {
+        return Promise<Result<TcpStream, SocketError>>::resolve(std::move(r));
       }
       return connect_each(addrs, idx + 1);
     });
@@ -135,7 +128,12 @@ Promise<Result<TcpListener, SocketError>> TcpListener::bind(String addr, int bac
     });
 }
 
-Promise<TcpStream> TcpListener::accept() {
+Promise<Result<TcpStream, SocketError>> TcpListener::accept() {
+  if (m_fd < 0) {
+    return Promise<Result<TcpStream, SocketError>>::resolve(
+      Result<TcpStream, SocketError>(err, SocketError::Closed));
+  }
+
   int                     fd = m_fd;
   struct sockaddr_storage addr;
   socklen_t               len = sizeof(addr);
@@ -144,27 +142,34 @@ Promise<TcpStream> TcpListener::accept() {
   if (client_fd >= 0) {
     if (set_nonblocking(client_fd) < 0) {
       ::close(client_fd);
-      return Promise<TcpStream>::resolve(TcpStream::from_fd(-1, unspecified_peer()));
+      return Promise<Result<TcpStream, SocketError>>::resolve(
+        Result<TcpStream, SocketError>(err, SocketError::AcceptFailed));
     }
     auto peer = SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&addr), len);
-    return Promise<TcpStream>::resolve(
-      TcpStream::from_fd(client_fd, peer.unwrap_or(unspecified_peer())));
+    return Promise<Result<TcpStream, SocketError>>::resolve(
+      Result<TcpStream, SocketError>(
+        ok, TcpStream::from_fd(client_fd, peer.unwrap_or(SocketAddr::unspecified()))));
   }
-  if (errno != EAGAIN && errno != EWOULDBLOCK)
-    return Promise<TcpStream>::resolve(TcpStream::from_fd(-1, unspecified_peer()));
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    return Promise<Result<TcpStream, SocketError>>::resolve(
+      Result<TcpStream, SocketError>(err, SocketError::AcceptFailed));
+  }
 
   auto sio = m_sio;
-  return _::readable(m_sio).then([fd, sio]() -> TcpStream {
+  return _::readable(m_sio).then([fd, sio]() -> Result<TcpStream, SocketError> {
     struct sockaddr_storage addr2;
     socklen_t               len2 = sizeof(addr2);
     int client_fd                = ::accept(fd, reinterpret_cast<struct sockaddr *>(&addr2), &len2);
-    if (client_fd < 0) return TcpStream::from_fd(-1, unspecified_peer());
+    if (client_fd < 0) {
+      return Result<TcpStream, SocketError>(err, SocketError::AcceptFailed);
+    }
     if (set_nonblocking(client_fd) < 0) {
       ::close(client_fd);
-      return TcpStream::from_fd(-1, unspecified_peer());
+      return Result<TcpStream, SocketError>(err, SocketError::AcceptFailed);
     }
     auto peer = SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&addr2), len2);
-    return TcpStream::from_fd(client_fd, peer.unwrap_or(unspecified_peer()));
+    return Result<TcpStream, SocketError>(
+      ok, TcpStream::from_fd(client_fd, peer.unwrap_or(SocketAddr::unspecified())));
   });
 }
 
@@ -173,7 +178,7 @@ SocketAddr TcpListener::local_addr() const {
   socklen_t               len = sizeof(ss);
   ::getsockname(m_fd, reinterpret_cast<struct sockaddr *>(&ss), &len);
   return SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&ss), len)
-    .unwrap_or(SocketAddr::from(SocketAddrV4::from(Ipv4Addr::UNSPECIFIED, 0)));
+    .unwrap_or(SocketAddr::unspecified());
 }
 
 void TcpListener::close() {
@@ -211,19 +216,20 @@ TcpStream::~TcpStream() {
 }
 
 TcpStream TcpStream::from_fd(int fd, const SocketAddr &peer) {
-  xTransport   transport = {};
-  PollEvented *io        = nullptr;
-  if (fd >= 0) {
-    xTransportPlainInit(&transport, fd);
-    io = new PollEvented(fd);
-  }
-  return TcpStream(io, transport, peer);
+  // Caller guarantees fd is a valid open socket (success path of
+  // accept(), or our connect() success path).
+  xTransport transport = {};
+  xTransportPlainInit(&transport, fd);
+  return TcpStream(new PollEvented(fd), transport, peer);
 }
 
-Promise<TcpStream> TcpStream::connect_addr(const SocketAddr &addr) {
+Promise<Result<TcpStream, SocketError>> TcpStream::connect_addr(const SocketAddr &addr) {
   int family = addr.is_ipv4() ? AF_INET : AF_INET6;
   int fd     = create_socket(family, SOCK_STREAM);
-  if (fd < 0) return Promise<TcpStream>::resolve(from_fd(-1, unspecified_peer()));
+  if (fd < 0) {
+    return Promise<Result<TcpStream, SocketError>>::resolve(
+      Result<TcpStream, SocketError>(err, SocketError::CreateFailed));
+  }
 
   struct sockaddr_storage ss;
   socklen_t               len;
@@ -232,30 +238,32 @@ Promise<TcpStream> TcpStream::connect_addr(const SocketAddr &addr) {
   int rc = ::connect(fd, reinterpret_cast<struct sockaddr *>(&ss), len);
   if (rc == 0) {
     // Connected immediately
-    return Promise<TcpStream>::resolve(from_fd(fd, addr));
+    return Promise<Result<TcpStream, SocketError>>::resolve(
+      Result<TcpStream, SocketError>(ok, from_fd(fd, addr)));
   }
   if (errno != EINPROGRESS) {
     ::close(fd);
-    return Promise<TcpStream>::resolve(from_fd(-1, unspecified_peer()));
+    return Promise<Result<TcpStream, SocketError>>::resolve(
+      Result<TcpStream, SocketError>(err, SocketError::ConnectFailed));
   }
 
   // Wait for writable = connect complete.
   auto *io   = new PollEvented(fd);
   auto  peer = addr;
   auto  sio  = io->scheduled_io();
-  return _::writable(sio).then([io, peer]() -> TcpStream {
+  return _::writable(sio).then([io, peer]() -> Result<TcpStream, SocketError> {
     int       fd   = io->fd();
-    int       err  = 0;
-    socklen_t elen = sizeof(err);
-    getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen);
-    if (err != 0) {
+    int       sk_err = 0;
+    socklen_t elen = sizeof(sk_err);
+    getsockopt(fd, SOL_SOCKET, SO_ERROR, &sk_err, &elen);
+    if (sk_err != 0) {
       delete io;
-      return TcpStream::from_fd(-1, unspecified_peer());
+      return Result<TcpStream, SocketError>(err, SocketError::ConnectFailed);
     }
     // Transfer ownership of the PollEvented into the TcpStream
     xTransport transport = {};
     xTransportPlainInit(&transport, fd);
-    return TcpStream(io, transport, peer);
+    return Result<TcpStream, SocketError>(ok, TcpStream(io, transport, peer));
   });
 }
 
@@ -317,7 +325,7 @@ SocketAddr TcpStream::local_addr() const {
   socklen_t               len = sizeof(ss);
   ::getsockname(m_io->fd(), reinterpret_cast<struct sockaddr *>(&ss), &len);
   return SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&ss), len)
-    .unwrap_or(SocketAddr::from(SocketAddrV4::from(Ipv4Addr::UNSPECIFIED, 0)));
+    .unwrap_or(SocketAddr::unspecified());
 }
 
 SocketAddr TcpStream::peer_addr() const {
@@ -343,7 +351,7 @@ void TcpStream::close() {
 /* ── Socket options ────────────────────────────────────────────────── */
 
 Result<void, SocketError> TcpStream::set_nodelay(bool on) {
-  if (m_io == nullptr) return Result<void, SocketError>(err, SocketError::CreateFailed);
+  if (m_io == nullptr) return Result<void, SocketError>(err, SocketError::Closed);
   int flag = on ? 1 : 0;
   if (setsockopt(m_io->fd(), IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) < 0)
     return Result<void, SocketError>(err, SocketError::CreateFailed);
@@ -351,7 +359,7 @@ Result<void, SocketError> TcpStream::set_nodelay(bool on) {
 }
 
 Result<bool, SocketError> TcpStream::nodelay() const {
-  if (m_io == nullptr) return Result<bool, SocketError>(err, SocketError::CreateFailed);
+  if (m_io == nullptr) return Result<bool, SocketError>(err, SocketError::Closed);
   int       flag = 0;
   socklen_t len  = sizeof(flag);
   if (getsockopt(m_io->fd(), IPPROTO_TCP, TCP_NODELAY, &flag, &len) < 0)

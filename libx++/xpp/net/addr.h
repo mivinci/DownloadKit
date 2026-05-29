@@ -437,6 +437,12 @@ public:
     return SocketAddr(Variant<SocketAddrV4, SocketAddrV6>(addr));
   }
 
+  /// IPv4 wildcard address 0.0.0.0:0 — used as a sentinel and as a
+  /// generic "bind to anything" target.
+  static SocketAddr unspecified() noexcept {
+    return SocketAddr::from(SocketAddrV4::from(Ipv4Addr::UNSPECIFIED, 0));
+  }
+
   static Result<SocketAddr, AddrParseError> parse(Span<const char> s);
   static Result<SocketAddr, AddrParseError> parse(const char *s) {
     return parse(Span<const char>(s, strlen(s)));

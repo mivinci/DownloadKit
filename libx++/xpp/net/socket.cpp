@@ -32,6 +32,8 @@ const char *socket_error_message(SocketError e) noexcept {
     return "DNS resolution failed";
   case SocketError::NoAddress:
     return "host resolved to no usable address";
+  case SocketError::Closed:
+    return "operation attempted on a closed socket";
   default:
     return "unknown socket error";
   }

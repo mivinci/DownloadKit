@@ -80,7 +80,10 @@ Promise<Result<Vec<SocketAddr>, SocketError>> lookup_host(String addr) {
   // the blocking-pool thread to keep the worker thread off the hook
   // for even the tiny strncmp/memchr cost.
   return spawn_blocking([addr = std::move(addr)]() -> Result<Vec<SocketAddr>, SocketError> {
-    char host_buf[256];
+    // NI_MAXHOST (1025) covers any RFC-compliant DNS name (max 253) and
+    // common platform service-style hostnames.  Port string fits in 8
+    // chars (max 5 digits + NUL).
+    char host_buf[NI_MAXHOST];
     char port_buf[8];
     if (addr.len() >= sizeof(host_buf)) {
       return Result<Vec<SocketAddr>, SocketError>(err, SocketError::ResolveFailed);

@@ -24,6 +24,7 @@
 #include <xpp/promise.h>
 #include <xpp/result.h>
 #include <xpp/span.h>
+#include <xpp/string.h>
 
 #include <sys/types.h>
 
@@ -52,12 +53,41 @@ public:
   /**
    * @brief Create a UDP socket bound to @p addr.
    *
+   * @p addr is a "host:port" string in the same format Tokio's
+   * ToSocketAddrs accepts:
+   *   - "0.0.0.0:8080"   — IPv4 literal
+   *   - "[::]:8080"      — IPv6 literal (brackets required)
+   *   - "localhost:0"    — hostname (resolved via DNS)
    * Use port 0 to let the OS pick an ephemeral port.
+   *
+   * Resolves via lookup_host and tries each resolved address in order
+   * until one binds successfully.  Mirrors Tokio's UdpSocket::bind.
    */
-  static Result<UdpSocket, SocketError> bind(const SocketAddr &addr);
+  static Promise<Result<UdpSocket, SocketError>> bind(String addr);
+  static Promise<Result<UdpSocket, SocketError>> bind(const char *addr) {
+    return bind(String(addr));
+  }
 
-  /** @brief Associate with a single remote address for send/recv. */
-  Result<void, SocketError> connect(const SocketAddr &addr);
+  /**
+   * @brief Create a UDP socket bound to a pre-parsed @p addr.
+   *
+   * Synchronous fast path — no DNS, no async hop.  Use this when you
+   * already hold a SocketAddr.
+   */
+  static Result<UdpSocket, SocketError> bind_addr(const SocketAddr &addr);
+
+  /**
+   * @brief Associate with a single remote peer for send/recv.
+   *
+   * @p addr is a "host:port" string (see bind() above for format).
+   */
+  Promise<Result<void, SocketError>> connect(String addr);
+  Promise<Result<void, SocketError>> connect(const char *addr) {
+    return connect(String(addr));
+  }
+
+  /** @brief Associate with a pre-parsed peer address (synchronous). */
+  Result<void, SocketError> connect_addr(const SocketAddr &addr);
 
   /* ── One-to-many (unconnected) ─────────────────────────────────── */
 

@@ -78,13 +78,15 @@ public:
   /**
    * @brief Accept a new connection (async).
    *
-   * Returns the accepted stream. On failure, stream is empty
-   * (stream.is_closed() == true).
-   *
    * Mirrors Tokio's TcpListener::accept(), using readiness-driven
    * retry with EAGAIN handling.
+   *
+   * @return Promise resolving to:
+   *           - Ok(TcpStream) on success
+   *           - Err(SocketError::AcceptFailed)
+   *           - Err(SocketError::Closed) if the listener has been closed
    */
-  Promise<TcpStream> accept();
+  Promise<Result<TcpStream, SocketError>> accept();
 
   /** @brief The locally bound address. */
   SocketAddr local_addr() const;
@@ -139,10 +141,14 @@ public:
    * @brief Connect to a pre-parsed @p addr.
    *
    * Async TCP handshake but no DNS.  Use this when you already hold a
-   * SocketAddr.  On failure the returned stream is empty
-   * (is_closed() == true) — no Result wrapper for backward compat.
+   * SocketAddr.
+   *
+   * @return Promise resolving to:
+   *           - Ok(TcpStream) on success
+   *           - Err(SocketError::CreateFailed) if socket() failed
+   *           - Err(SocketError::ConnectFailed) if connect failed
    */
-  static Promise<TcpStream> connect_addr(const SocketAddr &addr);
+  static Promise<Result<TcpStream, SocketError>> connect_addr(const SocketAddr &addr);
 
   /**
    * @brief Async read. Returns bytes read, 0 on EOF, -1 on error.

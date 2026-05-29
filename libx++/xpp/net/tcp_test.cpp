@@ -94,3 +94,41 @@ TEST_F(TcpHostnameTest, ConnectClosedPort) {
   ASSERT_TRUE(r.is_err());
   EXPECT_EQ(std::move(r).unwrap_err(), SocketError::ConnectFailed);
 }
+
+/* ── accept() — Result error model ────────────────────────────────── */
+
+TEST_F(TcpHostnameTest, AcceptOneRoundTrip) {
+  // Bind a loopback listener, fire a client connect, await accept().
+  auto bind_r = m_rt->block_on([&] { return TcpListener::bind("127.0.0.1:0"); });
+  ASSERT_TRUE(bind_r.is_ok());
+  auto listener = std::move(bind_r).unwrap();
+  auto port     = listener.local_addr().port();
+
+  char addr[32];
+  std::snprintf(addr, sizeof(addr), "127.0.0.1:%u", static_cast<unsigned>(port));
+
+  // Drive client connect in parallel with accept on the same loop.
+  auto accepted = m_rt->block_on([&]() -> Promise<int> {
+    auto client_p = TcpStream::connect(addr);
+    auto srv_p    = listener.accept();
+    return std::move(client_p).then([srv_p = std::move(srv_p)](
+                                      Result<TcpStream, SocketError> cli) mutable -> Promise<int> {
+      if (cli.is_err()) return Promise<int>::resolve(0);
+      return std::move(srv_p).then(
+        [](Result<TcpStream, SocketError> s) -> int { return s.is_ok() ? 1 : 0; });
+    });
+  });
+  EXPECT_EQ(accepted, 1);
+}
+
+TEST_F(TcpHostnameTest, AcceptOnClosedListener) {
+  auto bind_r = m_rt->block_on([&] { return TcpListener::bind("127.0.0.1:0"); });
+  ASSERT_TRUE(bind_r.is_ok());
+  auto listener = std::move(bind_r).unwrap();
+  listener.close();
+
+  auto r = m_rt->block_on(
+    [&]() -> Promise<Result<TcpStream, SocketError>> { return listener.accept(); });
+  ASSERT_TRUE(r.is_err());
+  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::Closed);
+}

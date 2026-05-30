@@ -18,7 +18,8 @@
  * Move-only.  The Custom variant owns a heap allocation that the
  * destructor frees.
  *
- * C++11-compatible.
+ * C++11-compatible.  Requires a 64-bit target — see the static_assert
+ * at the bottom of this header.
  */
 
 #ifndef XPP_IO_ERROR_H
@@ -45,8 +46,8 @@ namespace io {
  * enforces the invariant.
  */
 enum class ErrorKind : uint8_t {
-  _Niche             = 0, // reserved — Option<Error>'s None pattern
-  NotFound           = 1,
+  _Niche   = 0, // reserved — Option<Error>'s None pattern
+  NotFound = 1,
   PermissionDenied,
   ConnectionRefused,
   ConnectionReset,
@@ -111,10 +112,10 @@ struct SimpleMessage {
  * Cross-`.so` callers may receive distinct addresses for the same
  * message; compare by kind(), never by pointer identity.
  */
-#define XPP_IO_DEFINE_MSG(NAME, KIND, MSG)                                                         \
-  inline const ::xpp::io::SimpleMessage *NAME() noexcept {                                         \
-    static const ::xpp::io::SimpleMessage v{::xpp::io::ErrorKind::KIND, MSG};                      \
-    return &v;                                                                                    \
+#define XPP_IO_DEFINE_MSG(NAME, KIND, MSG)                                    \
+  inline const ::xpp::io::SimpleMessage *NAME() noexcept {                    \
+    static const ::xpp::io::SimpleMessage v{::xpp::io::ErrorKind::KIND, MSG}; \
+    return &v;                                                                \
   }
 
 /* ── Repr details (private) ─────────────────────────────────────────── */
@@ -160,14 +161,14 @@ public:
   using Kind = ErrorKind;
 
   /** @brief Construct from a bare ErrorKind (Simple variant).  Implicit. */
-  Error(ErrorKind kind) noexcept : bits_(pack_simple(kind)) {
+  Error(ErrorKind kind) noexcept : m_bits(pack_simple(kind)) {
     XPP_ASSERT(kind != ErrorKind::_Niche, "io::Error: ErrorKind::_Niche is reserved");
   }
 
   /** @brief Capture errno as an Os variant.  No allocation. */
   static Error from_errno(int errno_value) noexcept {
     Error e(_PrivateTag{});
-    e.bits_ = pack_os(errno_value);
+    e.m_bits = pack_os(errno_value);
     return e;
   }
 
@@ -175,7 +176,7 @@ public:
   static Error from_static(const SimpleMessage *msg) noexcept {
     XPP_ASSERT(msg != nullptr, "io::Error::from_static: null SimpleMessage");
     Error e(_PrivateTag{});
-    e.bits_ = pack_simple_message(msg);
+    e.m_bits = pack_simple_message(msg);
     return e;
   }
 
@@ -184,7 +185,7 @@ public:
     XPP_ASSERT(kind != ErrorKind::_Niche, "io::Error: ErrorKind::_Niche is reserved");
     _::Custom *c = _::custom_alloc(kind, msg, len);
     Error      e(_PrivateTag{});
-    e.bits_ = pack_custom(c);
+    e.m_bits = pack_custom(c);
     return e;
   }
   static Error with_message(ErrorKind kind, const String &msg) {
@@ -193,21 +194,22 @@ public:
   static Error with_message(ErrorKind kind, const char *msg) {
     size_t len = 0;
     if (msg) {
-      while (msg[len] != '\0') ++len;
+      while (msg[len] != '\0')
+        ++len;
     }
     return with_message(kind, msg, len);
   }
 
   /* ── Move semantics ───────────────────────────────────────────────── */
 
-  Error(Error &&o) noexcept : bits_(o.bits_) {
-    o.bits_ = pack_simple(ErrorKind::Other); // moved-from = harmless Simple
+  Error(Error &&o) noexcept : m_bits(o.m_bits) {
+    o.m_bits = pack_simple(ErrorKind::Other); // moved-from = harmless Simple
   }
   Error &operator=(Error &&o) noexcept {
     if (this != &o) {
       drop();
-      bits_   = o.bits_;
-      o.bits_ = pack_simple(ErrorKind::Other);
+      m_bits   = o.m_bits;
+      o.m_bits = pack_simple(ErrorKind::Other);
     }
     return *this;
   }
@@ -222,22 +224,18 @@ public:
   /** @brief The error category. */
   ErrorKind kind() const noexcept {
     switch (tag()) {
-    case kTagSimpleMessage:
-      return as_simple_message()->kind;
-    case kTagCustom:
-      return as_custom()->kind;
-    case kTagOs:
-      return errno_to_kind(static_cast<int>(static_cast<int32_t>(bits_ >> 32)));
+    case kTagSimpleMessage: return as_simple_message()->kind;
+    case kTagCustom:        return as_custom()->kind;
+    case kTagOs:            return errno_to_kind(static_cast<int>(static_cast<int32_t>(m_bits >> 32)));
     case kTagSimple:
-    default:
-      return static_cast<ErrorKind>(static_cast<uint8_t>(bits_ >> 8));
+    default:                return static_cast<ErrorKind>(static_cast<uint8_t>(m_bits >> 8));
     }
   }
 
   /** @brief Underlying errno if this is an Os error, else None. */
   Option<int> raw_os_error() const noexcept {
     if (tag() != kTagOs) return Option<int>(none);
-    int v = static_cast<int>(static_cast<int32_t>(bits_ >> 32));
+    int v = static_cast<int>(static_cast<int32_t>(m_bits >> 32));
     return Option<int>(v);
   }
 
@@ -250,12 +248,9 @@ public:
    */
   const char *message() const noexcept {
     switch (tag()) {
-    case kTagSimpleMessage:
-      return as_simple_message()->msg;
-    case kTagCustom:
-      return as_custom()->data;
-    default:
-      return nullptr;
+    case kTagSimpleMessage: return as_simple_message()->msg;
+    case kTagCustom:        return as_custom()->data;
+    default:                return nullptr;
     }
   }
 
@@ -266,7 +261,7 @@ public:
 
   /// Internal — exposes the packed representation for the Option niche.
   uintptr_t bits_for_niche() const noexcept {
-    return bits_;
+    return m_bits;
   }
 
   /// Internal — bit pattern of a harmless Simple(Other) error.  Used
@@ -277,18 +272,18 @@ public:
   }
 
 private:
-  /* ── Tag scheme (low 2 bits of bits_) ──────────────────────────── */
-  static constexpr uintptr_t kTagMask         = 0x3u;
+  /* ── Tag scheme (low 2 bits of m_bits) ──────────────────────────── */
+  static constexpr uintptr_t kTagMask          = 0x3u;
   static constexpr uintptr_t kTagSimpleMessage = 0x0u;
   static constexpr uintptr_t kTagCustom        = 0x1u;
   static constexpr uintptr_t kTagOs            = 0x2u;
   static constexpr uintptr_t kTagSimple        = 0x3u;
 
   struct _PrivateTag {};
-  Error(_PrivateTag) noexcept : bits_(0) {}
+  Error(_PrivateTag) noexcept : m_bits(0) {}
 
   uintptr_t tag() const noexcept {
-    return bits_ & kTagMask;
+    return m_bits & kTagMask;
   }
 
   /* ── Pack/unpack helpers ──────────────────────────────────────── */
@@ -309,10 +304,10 @@ private:
   }
 
   const SimpleMessage *as_simple_message() const noexcept {
-    return reinterpret_cast<const SimpleMessage *>(bits_ & ~kTagMask);
+    return reinterpret_cast<const SimpleMessage *>(m_bits & ~kTagMask);
   }
   _::Custom *as_custom() const noexcept {
-    return reinterpret_cast<_::Custom *>(bits_ & ~kTagMask);
+    return reinterpret_cast<_::Custom *>(m_bits & ~kTagMask);
   }
 
   /* ── Drop ─────────────────────────────────────────────────────── */
@@ -326,7 +321,7 @@ private:
 
   /* ── Storage ──────────────────────────────────────────────────── */
 
-  uintptr_t bits_;
+  uintptr_t m_bits;
 
   // Allow the niche specialization to construct an instance directly.
   template <class T> friend class ::xpp::Option;
@@ -346,7 +341,7 @@ static_assert(static_cast<int>(ErrorKind::NotFound) != 0,
 /* ── Option<io::Error> niche specialization ─────────────────────────── */
 
 /**
- * @brief Option<io::Error> stays one pointer wide — bits_ == 0 is the
+ * @brief Option<io::Error> stays one pointer wide — m_bits == 0 is the
  *        None pattern, which no valid Error can produce (every tag
  *        either points to an aligned object or carries a non-zero
  *        payload + non-zero tag bits).
@@ -355,9 +350,9 @@ template <> class Option<io::Error> {
 public:
   using value_type = io::Error;
 
-  Option() noexcept : bits_(0) {}
-  Option(None) noexcept : bits_(0) {}
-  Option(io::Error &&e) noexcept : bits_(e.bits_for_niche()) {
+  Option() noexcept : m_bits(0) {}
+  Option(None) noexcept : m_bits(0) {}
+  Option(io::Error &&e) noexcept : m_bits(e.bits_for_niche()) {
     // Steal e's bits.  We must avoid running ~Error on the source —
     // that would free the Custom payload we just absorbed.  Instead
     // overwrite e's storage with a Simple(Other) bit pattern, which
@@ -369,14 +364,14 @@ public:
   Option(const Option &)            = delete;
   Option &operator=(const Option &) = delete;
 
-  Option(Option &&o) noexcept : bits_(o.bits_) {
-    o.bits_ = 0;
+  Option(Option &&o) noexcept : m_bits(o.m_bits) {
+    o.m_bits = 0;
   }
   Option &operator=(Option &&o) noexcept {
     if (this != &o) {
       clear();
-      bits_   = o.bits_;
-      o.bits_ = 0;
+      m_bits   = o.m_bits;
+      o.m_bits = 0;
     }
     return *this;
   }
@@ -390,10 +385,10 @@ public:
   }
 
   bool is_some() const noexcept {
-    return bits_ != 0;
+    return m_bits != 0;
   }
   bool is_none() const noexcept {
-    return bits_ == 0;
+    return m_bits == 0;
   }
   explicit operator bool() const noexcept {
     return is_some();
@@ -401,26 +396,26 @@ public:
 
   io::Error unwrap() && {
     XPP_ASSERT(is_some(), "Option<io::Error>::unwrap on None");
-    // Construct a fresh Error around our bits_ and clear ours.
+    // Construct a fresh Error around our m_bits and clear ours.
     io::Error out(io::ErrorKind::Other); // placeholder; bit pattern overwritten below
     // Direct bit overwrite is the only way without exposing more friends.
     // The placeholder Error has tag=Simple so no heap state is leaked.
-    *reinterpret_cast<uintptr_t *>(&out) = bits_;
-    bits_                                = 0;
+    *reinterpret_cast<uintptr_t *>(&out) = m_bits;
+    m_bits                               = 0;
     return out;
   }
 
   /// Inspect the kind without consuming.
   io::ErrorKind kind() const {
     XPP_ASSERT(is_some(), "Option<io::Error>::kind on None");
-    // Re-derive without forming a real Error: read tag from bits_.
+    // Re-derive without forming a real Error: read tag from m_bits.
     const uintptr_t kTagMask = 0x3u;
-    const uintptr_t t        = bits_ & kTagMask;
+    const uintptr_t t        = m_bits & kTagMask;
     if (t == 0x3u) { // Simple
-      return static_cast<io::ErrorKind>(static_cast<uint8_t>(bits_ >> 8));
+      return static_cast<io::ErrorKind>(static_cast<uint8_t>(m_bits >> 8));
     }
     // Re-use Error's kind() for the other variants.  This is safe
-    // because Error's storage is exactly bits_ and its kind() is a
+    // because Error's storage is exactly m_bits and its kind() is a
     // read-only operation.
     const io::Error *as_error = reinterpret_cast<const io::Error *>(this);
     return as_error->kind();
@@ -428,18 +423,17 @@ public:
 
 private:
   void clear() noexcept {
-    if (bits_ == 0) return;
+    if (m_bits == 0) return;
     // Destroy via Error's destructor — its bits layout matches ours.
     io::Error *as_error = reinterpret_cast<io::Error *>(this);
     as_error->~Error();
-    bits_ = 0;
+    m_bits = 0;
   }
 
-  uintptr_t bits_;
+  uintptr_t m_bits;
 };
 
-static_assert(sizeof(Option<io::Error>) == sizeof(void *),
-              "Option<io::Error> niche broken");
+static_assert(sizeof(Option<io::Error>) == sizeof(void *), "Option<io::Error> niche broken");
 
 } // namespace xpp
 

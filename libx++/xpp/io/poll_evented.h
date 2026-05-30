@@ -67,16 +67,15 @@ public:
   /** @brief Tombstone (moved-from) constructor.  fd == -1. */
   PollEvented(std::nullptr_t) noexcept : m_fd(-1), m_sio(Arc<ScheduledIo>::make(-1)) {}
 
-  PollEvented(PollEvented &&o) noexcept
-      : m_fd(o.m_fd), m_sio(std::move(o.m_sio)) {
+  PollEvented(PollEvented &&o) noexcept : m_fd(o.m_fd), m_sio(std::move(o.m_sio)) {
     o.m_fd = -1;
   }
 
   PollEvented &operator=(PollEvented &&o) noexcept {
     if (this != &o) {
       close();
-      m_fd  = o.m_fd;
-      m_sio = std::move(o.m_sio);
+      m_fd   = o.m_fd;
+      m_sio  = std::move(o.m_sio);
       o.m_fd = -1;
     }
     return *this;
@@ -85,18 +84,28 @@ public:
   PollEvented(const PollEvented &)            = delete;
   PollEvented &operator=(const PollEvented &) = delete;
 
-  ~PollEvented() { close(); }
+  ~PollEvented() {
+    close();
+  }
 
-  bool operator==(std::nullptr_t) const { return m_fd < 0; }
-  bool operator!=(std::nullptr_t) const { return m_fd >= 0; }
+  bool operator==(std::nullptr_t) const {
+    return m_fd < 0;
+  }
+  bool operator!=(std::nullptr_t) const {
+    return m_fd >= 0;
+  }
 
   /* ── Readiness waiters (passthrough to ScheduledIo) ─────────────── */
 
   /** @brief Wait until the FD is readable. */
-  Promise<void> readable() const { return _::readable(m_sio); }
+  Promise<void> readable() const {
+    return _::readable(m_sio);
+  }
 
   /** @brief Wait until the FD is writable. */
-  Promise<void> writable() const { return _::writable(m_sio); }
+  Promise<void> writable() const {
+    return _::writable(m_sio);
+  }
 
   /* ── Async syscall with EAGAIN retry ─────────────────────────────── */
 
@@ -117,17 +126,13 @@ public:
    *          value; the caller MUST keep pointed-to data alive until
    *          the returned promise resolves.
    */
-  template <class Op, class... Args>
-  Promise<ssize_t> async_read_op(Op op, Args... args) const {
+  template <class Op, class... Args> Promise<ssize_t> async_read_op(Op op, Args... args) const {
     ssize_t n = op(m_fd, args...);
-    if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK))
-      return Promise<ssize_t>::resolve(n);
+    if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) return Promise<ssize_t>::resolve(n);
 
     int  fd  = m_fd;
     auto sio = m_sio;
-    return _::readable(m_sio).then([fd, sio, op, args...]() -> ssize_t {
-      return op(fd, args...);
-    });
+    return _::readable(m_sio).then([fd, sio, op, args...]() -> ssize_t { return op(fd, args...); });
   }
 
   /**
@@ -135,17 +140,13 @@ public:
    *
    * Same contract as async_read_op but waits for writability.
    */
-  template <class Op, class... Args>
-  Promise<ssize_t> async_write_op(Op op, Args... args) const {
+  template <class Op, class... Args> Promise<ssize_t> async_write_op(Op op, Args... args) const {
     ssize_t n = op(m_fd, args...);
-    if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK))
-      return Promise<ssize_t>::resolve(n);
+    if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) return Promise<ssize_t>::resolve(n);
 
     int  fd  = m_fd;
     auto sio = m_sio;
-    return _::writable(m_sio).then([fd, sio, op, args...]() -> ssize_t {
-      return op(fd, args...);
-    });
+    return _::writable(m_sio).then([fd, sio, op, args...]() -> ssize_t { return op(fd, args...); });
   }
 
   /* ── FD lifecycle ────────────────────────────────────────────────── */
@@ -158,15 +159,21 @@ public:
     }
   }
 
-  int  fd()         const { return m_fd; }
-  bool is_closed()  const { return m_fd < 0; }
+  int fd() const {
+    return m_fd;
+  }
+  bool is_closed() const {
+    return m_fd < 0;
+  }
 
   /** @brief Access the underlying ScheduledIo (for advanced callers). */
-  Arc<ScheduledIo> scheduled_io() const { return m_sio; }
+  Arc<ScheduledIo> scheduled_io() const {
+    return m_sio;
+  }
 
 private:
-  int               m_fd;
-  Arc<ScheduledIo>  m_sio;
+  int              m_fd;
+  Arc<ScheduledIo> m_sio;
 };
 
 } // namespace net

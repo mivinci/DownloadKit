@@ -55,8 +55,8 @@ const char *kind_name(ErrorKind k) noexcept {
   case ErrorKind::ResolveFailed:      return "ResolveFailed";
   case ErrorKind::NoAddress:          return "NoAddress";
   case ErrorKind::Other:              return "Other";
+  default:                            return "Unknown";
   }
-  return "Other";
 }
 
 /* ── errno → ErrorKind ─────────────────────────────────────────────── */
@@ -79,17 +79,17 @@ ErrorKind errno_to_kind(int e) noexcept {
   case EEXIST:        return ErrorKind::AlreadyExists;
 #if defined(EAGAIN) && defined(EWOULDBLOCK) && EAGAIN != EWOULDBLOCK
   case EAGAIN:
-  case EWOULDBLOCK:   return ErrorKind::WouldBlock;
+  case EWOULDBLOCK: return ErrorKind::WouldBlock;
 #else
-  case EAGAIN:        return ErrorKind::WouldBlock;
+  case EAGAIN: return ErrorKind::WouldBlock;
 #endif
-  case EINVAL:        return ErrorKind::InvalidInput;
-  case ETIMEDOUT:     return ErrorKind::TimedOut;
-  case EINTR:         return ErrorKind::Interrupted;
-  case ENOTSUP:       return ErrorKind::Unsupported;
-  case ENOMEM:        return ErrorKind::OutOfMemory;
-  case EBUSY:         return ErrorKind::ResourceBusy;
-  default:            return ErrorKind::Other;
+  case EINVAL:    return ErrorKind::InvalidInput;
+  case ETIMEDOUT: return ErrorKind::TimedOut;
+  case EINTR:     return ErrorKind::Interrupted;
+  case ENOTSUP:   return ErrorKind::Unsupported;
+  case ENOMEM:    return ErrorKind::OutOfMemory;
+  case EBUSY:     return ErrorKind::ResourceBusy;
+  default:        return ErrorKind::Other;
   }
 }
 
@@ -98,28 +98,27 @@ ErrorKind errno_to_kind(int e) noexcept {
 /// Defined for future use by code that wants to bridge libx errors;
 /// not currently called from this TU.  Kept static so unused-function
 /// warnings can be suppressed cleanly if needed.
-__attribute__((unused))
-static ErrorKind xerrno_to_kind(xErrno e) noexcept {
+__attribute__((unused)) static ErrorKind xerrno_to_kind(xErrno e) noexcept {
   switch (e) {
-  case xErrno_Ok:           return ErrorKind::Other; // shouldn't happen
-  case xErrno_NotFound:     return ErrorKind::NotFound;
+  case xErrno_Ok:            return ErrorKind::Other; // shouldn't happen
+  case xErrno_NotFound:      return ErrorKind::NotFound;
   case xErrno_AlreadyExists: return ErrorKind::AlreadyExists;
-  case xErrno_InvalidArg:   return ErrorKind::InvalidInput;
-  case xErrno_NoMemory:     return ErrorKind::OutOfMemory;
-  case xErrno_InvalidState: return ErrorKind::Other;
-  case xErrno_Cancelled:    return ErrorKind::Interrupted;
-  case xErrno_NotSupported: return ErrorKind::Unsupported;
-  case xErrno_DnsNotFound:  return ErrorKind::ResolveFailed;
-  case xErrno_DnsTempFail:  return ErrorKind::ResolveFailed;
-  case xErrno_DnsError:     return ErrorKind::ResolveFailed;
-  case xErrno_Timeout:      return ErrorKind::TimedOut;
-  case xErrno_Again:        return ErrorKind::WouldBlock;
-  case xErrno_Busy:         return ErrorKind::ResourceBusy;
-  case xErrno_Pending:      return ErrorKind::WouldBlock;
+  case xErrno_InvalidArg:    return ErrorKind::InvalidInput;
+  case xErrno_NoMemory:      return ErrorKind::OutOfMemory;
+  case xErrno_InvalidState:  return ErrorKind::Other;
+  case xErrno_Cancelled:     return ErrorKind::Interrupted;
+  case xErrno_NotSupported:  return ErrorKind::Unsupported;
+  case xErrno_DnsNotFound:   return ErrorKind::ResolveFailed;
+  case xErrno_DnsTempFail:   return ErrorKind::ResolveFailed;
+  case xErrno_DnsError:      return ErrorKind::ResolveFailed;
+  case xErrno_Timeout:       return ErrorKind::TimedOut;
+  case xErrno_Again:         return ErrorKind::WouldBlock;
+  case xErrno_Busy:          return ErrorKind::ResourceBusy;
+  case xErrno_Pending:       return ErrorKind::WouldBlock;
   case xErrno_PromptTooLong: return ErrorKind::InvalidInput;
-  case xErrno_SysError:     return ErrorKind::Other;
+  case xErrno_SysError:      return ErrorKind::Other;
   case xErrno_Unknown:
-  default:                  return ErrorKind::Other;
+  default:                   return ErrorKind::Other;
   }
 }
 
@@ -130,9 +129,9 @@ namespace _ {
 Custom *custom_alloc(ErrorKind kind, const char *msg, size_t len) {
   // Layout: [Custom header (with 1-byte data[1])][len-1 more bytes][NUL]
   // Total = sizeof(Custom) - 1 + len + 1 = sizeof(Custom) + len.
-  void *raw = ::operator new(sizeof(Custom) + len);
-  Custom *c = static_cast<Custom *>(raw);
-  c->kind   = kind;
+  void   *raw = ::operator new(sizeof(Custom) + len);
+  Custom *c   = static_cast<Custom *>(raw);
+  c->kind     = kind;
   // Saturate len at uint32_t::max — error messages this long are
   // pathological; truncate rather than fail loudly.
   c->len = static_cast<uint32_t>(len > UINT32_MAX ? UINT32_MAX : len);
@@ -152,37 +151,24 @@ void custom_free(Custom *c) noexcept {
 /* ── to_string ─────────────────────────────────────────────────────── */
 
 String Error::to_string() const {
-  String   out;
+  String    out;
   ErrorKind k = kind();
   out.append(kind_name(k));
 
-  switch (tag()) {
-  case kTagOs: {
-    int  code = static_cast<int>(static_cast<int32_t>(bits_ >> 32));
+  // Drive the formatting from the public accessors so this works on
+  // both the 64-bit packed and the 32-bit tagged-union layouts.
+  if (auto os = raw_os_error()) {
     char buf[40];
-    int  n = std::snprintf(buf, sizeof(buf), " (os error %d)", code);
+    int  n = std::snprintf(buf, sizeof(buf), " (os error %d)",
+                          std::move(os).unwrap());
     if (n > 0) out.append(buf, static_cast<size_t>(n));
-    break;
+    return out;
   }
-  case kTagSimpleMessage: {
-    const char *m = as_simple_message()->msg;
-    if (m && *m) {
+  if (const char *m = message()) {
+    if (*m != '\0') {
       out.append(": ");
       out.append(m);
     }
-    break;
-  }
-  case kTagCustom: {
-    const _::Custom *c = as_custom();
-    if (c->len > 0) {
-      out.append(": ");
-      out.append(c->data, c->len);
-    }
-    break;
-  }
-  case kTagSimple:
-  default:
-    break;
   }
   return out;
 }

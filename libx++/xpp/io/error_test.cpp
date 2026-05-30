@@ -6,28 +6,24 @@
  * error_test.cpp - Unit tests for xpp::io::Error.
  */
 
-#include <xpp/io/error.h>
 #include <gtest/gtest.h>
+#include <xpp/io/error.h>
 
 #include <cerrno>
 #include <cstring>
 #include <type_traits>
 
+using xpp::io::errno_to_kind;
 using xpp::io::Error;
 using xpp::io::ErrorKind;
-using xpp::io::errno_to_kind;
 using xpp::io::kind_name;
 
 /* ── Compile-time invariants ─────────────────────────────────────── */
 
-static_assert(sizeof(Error) == sizeof(void *),
-              "Error must be one pointer wide");
-static_assert(sizeof(xpp::Option<Error>) == sizeof(void *),
-              "Option<Error> niche broken");
-static_assert(!std::is_copy_constructible<Error>::value,
-              "Error must be move-only");
-static_assert(!std::is_copy_assignable<Error>::value,
-              "Error must be move-only");
+static_assert(sizeof(Error) == sizeof(void *), "Error must be one pointer wide");
+static_assert(sizeof(xpp::Option<Error>) == sizeof(void *), "Option<Error> niche broken");
+static_assert(!std::is_copy_constructible<Error>::value, "Error must be move-only");
+static_assert(!std::is_copy_assignable<Error>::value, "Error must be move-only");
 static_assert(std::is_move_constructible<Error>::value, "Error must be movable");
 static_assert(std::is_nothrow_move_constructible<Error>::value,
               "Error move ctor should be noexcept");
@@ -54,8 +50,8 @@ TEST(IoErrorTest, SimpleConstruction) {
 TEST(IoErrorTest, ImplicitFromKind) {
   // Implicit conversion lets you write `return SomeKind;` from
   // a function returning Error.
-  auto make = []() -> Error { return ErrorKind::TimedOut; };
-  Error e = make();
+  auto  make = []() -> Error { return ErrorKind::TimedOut; };
+  Error e    = make();
   EXPECT_EQ(e.kind(), ErrorKind::TimedOut);
 }
 
@@ -86,23 +82,23 @@ TEST(IoErrorTest, OsNegative) {
 /* ── errno → ErrorKind mapping ───────────────────────────────────── */
 
 TEST(IoErrorTest, ErrnoMappingPosixCoverage) {
-  EXPECT_EQ(errno_to_kind(ENOENT),       ErrorKind::NotFound);
-  EXPECT_EQ(errno_to_kind(EACCES),       ErrorKind::PermissionDenied);
-  EXPECT_EQ(errno_to_kind(EPERM),        ErrorKind::PermissionDenied);
+  EXPECT_EQ(errno_to_kind(ENOENT), ErrorKind::NotFound);
+  EXPECT_EQ(errno_to_kind(EACCES), ErrorKind::PermissionDenied);
+  EXPECT_EQ(errno_to_kind(EPERM), ErrorKind::PermissionDenied);
   EXPECT_EQ(errno_to_kind(ECONNREFUSED), ErrorKind::ConnectionRefused);
-  EXPECT_EQ(errno_to_kind(ECONNRESET),   ErrorKind::ConnectionReset);
+  EXPECT_EQ(errno_to_kind(ECONNRESET), ErrorKind::ConnectionReset);
   EXPECT_EQ(errno_to_kind(ECONNABORTED), ErrorKind::ConnectionAborted);
-  EXPECT_EQ(errno_to_kind(ENOTCONN),     ErrorKind::NotConnected);
-  EXPECT_EQ(errno_to_kind(EADDRINUSE),   ErrorKind::AddrInUse);
+  EXPECT_EQ(errno_to_kind(ENOTCONN), ErrorKind::NotConnected);
+  EXPECT_EQ(errno_to_kind(EADDRINUSE), ErrorKind::AddrInUse);
   EXPECT_EQ(errno_to_kind(EADDRNOTAVAIL), ErrorKind::AddrNotAvailable);
   EXPECT_EQ(errno_to_kind(EHOSTUNREACH), ErrorKind::HostUnreachable);
-  EXPECT_EQ(errno_to_kind(EPIPE),        ErrorKind::BrokenPipe);
-  EXPECT_EQ(errno_to_kind(EAGAIN),       ErrorKind::WouldBlock);
-  EXPECT_EQ(errno_to_kind(EWOULDBLOCK),  ErrorKind::WouldBlock);
-  EXPECT_EQ(errno_to_kind(ETIMEDOUT),    ErrorKind::TimedOut);
-  EXPECT_EQ(errno_to_kind(EINTR),        ErrorKind::Interrupted);
-  EXPECT_EQ(errno_to_kind(ENOMEM),       ErrorKind::OutOfMemory);
-  EXPECT_EQ(errno_to_kind(99999),        ErrorKind::Other);
+  EXPECT_EQ(errno_to_kind(EPIPE), ErrorKind::BrokenPipe);
+  EXPECT_EQ(errno_to_kind(EAGAIN), ErrorKind::WouldBlock);
+  EXPECT_EQ(errno_to_kind(EWOULDBLOCK), ErrorKind::WouldBlock);
+  EXPECT_EQ(errno_to_kind(ETIMEDOUT), ErrorKind::TimedOut);
+  EXPECT_EQ(errno_to_kind(EINTR), ErrorKind::Interrupted);
+  EXPECT_EQ(errno_to_kind(ENOMEM), ErrorKind::OutOfMemory);
+  EXPECT_EQ(errno_to_kind(99999), ErrorKind::Other);
 }
 
 /* ── SimpleMessage variant ───────────────────────────────────────── */
@@ -150,7 +146,7 @@ TEST(IoErrorTest, CustomNullMessage) {
 TEST(IoErrorTest, CustomLongMessage) {
   // Stress allocator with a multi-KB message.
   std::string big(8000, 'x');
-  Error e = Error::with_message(ErrorKind::Other, big.c_str(), big.size());
+  Error       e = Error::with_message(ErrorKind::Other, big.c_str(), big.size());
   EXPECT_EQ(e.kind(), ErrorKind::Other);
   ASSERT_NE(e.message(), nullptr);
   EXPECT_EQ(std::strlen(e.message()), big.size());
@@ -172,7 +168,7 @@ TEST(IoErrorTest, MoveCustomTransfersOwnership) {
 TEST(IoErrorTest, MoveAssignDropsPriorCustom) {
   Error a = Error::with_message(ErrorKind::Other, "first");
   Error b = Error::with_message(ErrorKind::InvalidInput, "second");
-  a = std::move(b);
+  a       = std::move(b);
   EXPECT_EQ(a.kind(), ErrorKind::InvalidInput);
   EXPECT_STREQ(a.message(), "second");
 }
@@ -181,13 +177,13 @@ TEST(IoErrorTest, MoveAssignDropsPriorCustom) {
 
 TEST(IoErrorTest, ToStringSimple) {
   Error e(ErrorKind::WouldBlock);
-  auto s = e.to_string();
+  auto  s = e.to_string();
   EXPECT_STREQ(s.c_str(), "WouldBlock");
 }
 
 TEST(IoErrorTest, ToStringOs) {
   Error e = Error::from_errno(EAGAIN);
-  auto s = e.to_string();
+  auto  s = e.to_string();
   // Format: "WouldBlock (os error <N>)"
   EXPECT_NE(std::strstr(s.c_str(), "WouldBlock"), nullptr);
   EXPECT_NE(std::strstr(s.c_str(), "os error"), nullptr);
@@ -195,13 +191,13 @@ TEST(IoErrorTest, ToStringOs) {
 
 TEST(IoErrorTest, ToStringSimpleMessage) {
   Error e = Error::from_static(test_closed_msg());
-  auto s = e.to_string();
+  auto  s = e.to_string();
   EXPECT_STREQ(s.c_str(), "NotConnected: operation on closed socket");
 }
 
 TEST(IoErrorTest, ToStringCustom) {
   Error e = Error::with_message(ErrorKind::InvalidData, "bad header");
-  auto s = e.to_string();
+  auto  s = e.to_string();
   EXPECT_STREQ(s.c_str(), "InvalidData: bad header");
 }
 

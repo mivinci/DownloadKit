@@ -9,8 +9,8 @@
  * Each "pump()" call delivers at most one event per direction per fd.
  */
 
-#include <xpp/io/scheduled_io.h>
 #include <gtest/gtest.h>
+#include <xpp/io/scheduled_io.h>
 
 #include <atomic>
 #include <thread>
@@ -25,7 +25,9 @@ extern "C" {
 struct TestSchedule : xpp::_::Schedule {
   std::atomic<bool> &woke;
   explicit TestSchedule(std::atomic<bool> &f) : woke(f) {}
-  void schedule(xpp::_::SpawnTaskBase *) override { woke.store(true); }
+  void schedule(xpp::_::SpawnTaskBase *) override {
+    woke.store(true);
+  }
 };
 
 static xpp::_::Waker test_waker(TestSchedule &sched) {
@@ -48,7 +50,9 @@ protected:
     xEventLoopDestroy(m_loop);
   }
 
-  void pump() { xEventWait(m_loop, 0); }
+  void pump() {
+    xEventWait(m_loop, 0);
+  }
 
   xEventLoop       m_loop;
   xpp::EnterGuard *m_guard;

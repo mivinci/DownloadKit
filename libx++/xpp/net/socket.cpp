@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * socket.cpp - Shared socket type implementations.
+ * socket.cpp - Shared socket primitives.
  */
 
 #include <xpp/net/socket.h>
@@ -15,29 +15,6 @@
 
 namespace xpp {
 namespace net {
-
-const char *socket_error_message(SocketError e) noexcept {
-  switch (e) {
-  case SocketError::CreateFailed:
-    return "failed to create socket";
-  case SocketError::BindFailed:
-    return "failed to bind socket";
-  case SocketError::ConnectFailed:
-    return "failed to connect socket";
-  case SocketError::AcceptFailed:
-    return "failed to accept connection";
-  case SocketError::AddrFamilyMismatch:
-    return "address family mismatch";
-  case SocketError::ResolveFailed:
-    return "DNS resolution failed";
-  case SocketError::NoAddress:
-    return "host resolved to no usable address";
-  case SocketError::Closed:
-    return "operation attempted on a closed socket";
-  default:
-    return "unknown socket error";
-  }
-}
 
 int create_socket(int family, int type) {
   int fd;

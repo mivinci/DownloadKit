@@ -75,21 +75,21 @@ bool split_host_port(const char *s, size_t n, char *host_buf, char *port_buf) {
 
 } // anonymous namespace
 
-Promise<Result<Vec<SocketAddr>, SocketError>> lookup_host(String addr) {
+Promise<Result<Vec<SocketAddr>, io::Error>> lookup_host(String addr) {
   // The blocking lambda captures `addr` by move.  Parsing happens on
   // the blocking-pool thread to keep the worker thread off the hook
   // for even the tiny strncmp/memchr cost.
-  return spawn_blocking([addr = std::move(addr)]() -> Result<Vec<SocketAddr>, SocketError> {
+  return spawn_blocking([addr = std::move(addr)]() -> Result<Vec<SocketAddr>, io::Error> {
     // NI_MAXHOST (1025) covers any RFC-compliant DNS name (max 253) and
     // common platform service-style hostnames.  Port string fits in 8
     // chars (max 5 digits + NUL).
     char host_buf[NI_MAXHOST];
     char port_buf[8];
     if (addr.len() >= sizeof(host_buf)) {
-      return Result<Vec<SocketAddr>, SocketError>(err, SocketError::ResolveFailed);
+      return Result<Vec<SocketAddr>, io::Error>(err, io::ErrorKind::ResolveFailed);
     }
     if (!split_host_port(addr.c_str(), addr.len(), host_buf, port_buf)) {
-      return Result<Vec<SocketAddr>, SocketError>(err, SocketError::ResolveFailed);
+      return Result<Vec<SocketAddr>, io::Error>(err, io::ErrorKind::ResolveFailed);
     }
 
     struct addrinfo hints;
@@ -101,7 +101,7 @@ Promise<Result<Vec<SocketAddr>, SocketError>> lookup_host(String addr) {
     int              rc  = ::getaddrinfo(host_buf, port_buf, &hints, &res);
     if (rc != 0) {
       if (res) ::freeaddrinfo(res);
-      return Result<Vec<SocketAddr>, SocketError>(err, SocketError::ResolveFailed);
+      return Result<Vec<SocketAddr>, io::Error>(err, io::ErrorKind::ResolveFailed);
     }
 
     auto out = Vec<SocketAddr>::with_capacity(4);
@@ -111,8 +111,8 @@ Promise<Result<Vec<SocketAddr>, SocketError>> lookup_host(String addr) {
     }
     ::freeaddrinfo(res);
 
-    if (out.is_empty()) return Result<Vec<SocketAddr>, SocketError>(err, SocketError::NoAddress);
-    return Result<Vec<SocketAddr>, SocketError>(ok, std::move(out));
+    if (out.is_empty()) return Result<Vec<SocketAddr>, io::Error>(err, io::ErrorKind::NoAddress);
+    return Result<Vec<SocketAddr>, io::Error>(ok, std::move(out));
   });
 }
 

@@ -65,11 +65,9 @@ enum ReadyBits : uint8_t {
  */
 class ScheduledIo final {
 public:
-  explicit ScheduledIo(int fd)
-      : m_loop(current_event_loop()), m_fd(fd), m_readiness(0) {
-    m_source = xEventAdd(m_loop, fd,
-                         static_cast<xEventMask>(xEvent_Read | xEvent_Write),
-                         on_event, this);
+  explicit ScheduledIo(int fd) : m_loop(current_event_loop()), m_fd(fd), m_readiness(0) {
+    m_source =
+      xEventAdd(m_loop, fd, static_cast<xEventMask>(xEvent_Read | xEvent_Write), on_event, this);
   }
 
   ~ScheduledIo() {
@@ -81,8 +79,12 @@ public:
     }
   }
 
-  int fd() const { return m_fd; }
-  xEventLoop loop() const { return m_loop; }
+  int fd() const {
+    return m_fd;
+  }
+  xEventLoop loop() const {
+    return m_loop;
+  }
 
   /* ── Poll readiness (non-blocking) ──────────────────────────── */
 
@@ -98,8 +100,8 @@ public:
     if (m_readiness.load(std::memory_order_acquire) & _::kReadable) {
       return true;
     }
-    auto g     = m_waiters.lock();
-    g->reader  = waker;
+    auto g    = m_waiters.lock();
+    g->reader = waker;
     if (m_readiness.load(std::memory_order_acquire) & _::kReadable) {
       g->reader = _::Waker();
       return true;
@@ -114,8 +116,8 @@ public:
     if (m_readiness.load(std::memory_order_acquire) & _::kWritable) {
       return true;
     }
-    auto g     = m_waiters.lock();
-    g->writer  = waker;
+    auto g    = m_waiters.lock();
+    g->writer = waker;
     if (m_readiness.load(std::memory_order_acquire) & _::kWritable) {
       g->writer = _::Waker();
       return true;
@@ -138,8 +140,8 @@ public:
    * Wakes both directions so pending reads/writes observe EOF.
    */
   void close_fd() {
-    uint8_t prev = m_readiness.fetch_or(_::kClosed | _::kReadable | _::kWritable,
-                                         std::memory_order_acq_rel);
+    uint8_t prev =
+      m_readiness.fetch_or(_::kClosed | _::kReadable | _::kWritable, std::memory_order_acq_rel);
     if (!(prev & _::kClosed)) {
       if (m_source) {
         xEventDel(m_loop, m_source);
@@ -194,11 +196,11 @@ private:
 
   /* ── Fields ─────────────────────────────────────────────────────── */
 
-  xEventLoop                m_loop;
-  int                       m_fd;
-  xEventSource              m_source{nullptr};
-  std::atomic<uint8_t>      m_readiness;
-  sys::Mutex<Waiters>       m_waiters;
+  xEventLoop           m_loop;
+  int                  m_fd;
+  xEventSource         m_source{nullptr};
+  std::atomic<uint8_t> m_readiness;
+  sys::Mutex<Waiters>  m_waiters;
 };
 
 /* ── Readiness PromiseNode ─────────────────────────────────────────── */
@@ -215,14 +217,15 @@ class ReadinessPromiseNode final : public PromiseNode<void> {
 public:
   using PollFn = bool (ScheduledIo::*)(Waker);
 
-  ReadinessPromiseNode(Arc<ScheduledIo> sio, PollFn fn)
-      : m_sio(std::move(sio)), m_poll_fn(fn) {}
+  ReadinessPromiseNode(Arc<ScheduledIo> sio, PollFn fn) : m_sio(std::move(sio)), m_poll_fn(fn) {}
 
   bool poll(Waker waker) override {
     return (m_sio.get()->*m_poll_fn)(waker);
   }
 
-  Void take() override { return Void{}; }
+  Void take() override {
+    return Void{};
+  }
 
 private:
   Arc<ScheduledIo> m_sio;
@@ -230,13 +233,13 @@ private:
 };
 
 inline Promise<void> readable(Arc<ScheduledIo> sio) {
-  return Promise<void>(Own<PromiseNode<void>>(
-    new ReadinessPromiseNode(std::move(sio), &ScheduledIo::poll_read)));
+  return Promise<void>(
+    Own<PromiseNode<void>>(new ReadinessPromiseNode(std::move(sio), &ScheduledIo::poll_read)));
 }
 
 inline Promise<void> writable(Arc<ScheduledIo> sio) {
-  return Promise<void>(Own<PromiseNode<void>>(
-    new ReadinessPromiseNode(std::move(sio), &ScheduledIo::poll_write)));
+  return Promise<void>(
+    Own<PromiseNode<void>>(new ReadinessPromiseNode(std::move(sio), &ScheduledIo::poll_write)));
 }
 
 } // namespace _

@@ -17,8 +17,8 @@
 #ifndef XPP_NET_DNS_H
 #define XPP_NET_DNS_H
 
+#include <xpp/io/error.h>
 #include <xpp/net/addr.h>
-#include <xpp/net/socket.h>
 #include <xpp/promise.h>
 #include <xpp/result.h>
 #include <xpp/string.h>
@@ -43,17 +43,17 @@ namespace net {
  * (typically RFC 6724 ordering on glibc).
  *
  * @return Promise resolving to:
- *           - Ok(Vec<SocketAddr>)  on success (always non-empty)
- *           - Err(SocketError::ResolveFailed)  if the input is
- *             malformed OR getaddrinfo failed
- *           - Err(SocketError::NoAddress)      if zero usable addrs
+ *           - Ok(Vec<SocketAddr>) on success (always non-empty)
+ *           - Err(io::Error) with kind ResolveFailed if input is malformed
+ *             or getaddrinfo failed
+ *           - Err(io::Error) with kind NoAddress if zero usable addrs
  *
  * @note Caller must be inside a runtime context (block_on / worker / spawn).
  */
-Promise<Result<Vec<SocketAddr>, SocketError>> lookup_host(String addr);
+Promise<Result<Vec<SocketAddr>, io::Error>> lookup_host(String addr);
 
 /// Convenience overload — accepts a const char*.
-inline Promise<Result<Vec<SocketAddr>, SocketError>>
+inline Promise<Result<Vec<SocketAddr>, io::Error>>
 lookup_host(const char *addr) {
   return lookup_host(String(addr));
 }

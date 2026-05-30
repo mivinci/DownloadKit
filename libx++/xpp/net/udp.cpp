@@ -40,65 +40,70 @@ UdpSocket::~UdpSocket() {
   close();
 }
 
-Result<UdpSocket, SocketError> UdpSocket::bind_addr(const SocketAddr &addr) {
+Result<UdpSocket, io::Error> UdpSocket::bind_addr(const SocketAddr &addr) {
   int family = addr.is_ipv4() ? AF_INET : AF_INET6;
   int fd     = create_socket(family, SOCK_DGRAM);
-  if (fd < 0) return Result<UdpSocket, SocketError>(err, SocketError::CreateFailed);
+  if (fd < 0) return Result<UdpSocket, io::Error>(err, io::Error::from_errno(errno));
 
   struct sockaddr_storage ss;
   socklen_t               len;
   addr.to_sockaddr(&ss, &len);
 
   if (::bind(fd, reinterpret_cast<struct sockaddr *>(&ss), len) < 0) {
+    int saved = errno;
     ::close(fd);
-    return Result<UdpSocket, SocketError>(err, SocketError::BindFailed);
+    return Result<UdpSocket, io::Error>(err, io::Error::from_errno(saved));
   }
 
-  return Result<UdpSocket, SocketError>(ok, UdpSocket(new PollEvented(fd)));
+  return Result<UdpSocket, io::Error>(ok, UdpSocket(new PollEvented(fd)));
 }
 
-Promise<Result<UdpSocket, SocketError>> UdpSocket::bind(String addr) {
+Promise<Result<UdpSocket, io::Error>> UdpSocket::bind(String addr) {
   return lookup_host(std::move(addr))
-    .then([](Result<Vec<SocketAddr>, SocketError> r) -> Result<UdpSocket, SocketError> {
+    .then([](Result<Vec<SocketAddr>, io::Error> r) -> Result<UdpSocket, io::Error> {
       if (r.is_err()) {
-        return Result<UdpSocket, SocketError>(err, std::move(r).unwrap_err());
+        return Result<UdpSocket, io::Error>(err, std::move(r).unwrap_err());
       }
       Vec<SocketAddr> addrs = std::move(r).unwrap();
+      io::Error       last(io::ErrorKind::AddrInUse);
       for (size_t i = 0; i < addrs.len(); ++i) {
         auto out = UdpSocket::bind_addr(addrs[i]);
         if (out.is_ok()) return out;
+        last = std::move(out).unwrap_err();
       }
-      return Result<UdpSocket, SocketError>(err, SocketError::BindFailed);
+      return Result<UdpSocket, io::Error>(err, std::move(last));
     });
 }
 
-Result<void, SocketError> UdpSocket::connect_addr(const SocketAddr &addr) {
-  if (m_io == nullptr) return Result<void, SocketError>(err, SocketError::Closed);
+Result<void, io::Error> UdpSocket::connect_addr(const SocketAddr &addr) {
+  if (m_io == nullptr) return Result<void, io::Error>(err, io::ErrorKind::NotConnected);
   struct sockaddr_storage ss;
   socklen_t               len;
   addr.to_sockaddr(&ss, &len);
 
   if (::connect(m_io->fd(), reinterpret_cast<struct sockaddr *>(&ss), len) < 0)
-    return Result<void, SocketError>(err, SocketError::ConnectFailed);
-  return Result<void, SocketError>(ok);
+    return Result<void, io::Error>(err, io::Error::from_errno(errno));
+  return Result<void, io::Error>(ok);
 }
 
-Promise<Result<void, SocketError>> UdpSocket::connect(String addr) {
+Promise<Result<void, io::Error>> UdpSocket::connect(String addr) {
   // We need access to `this` (to call connect_addr) inside the .then
   // continuation.  The caller must keep the UdpSocket alive across
   // the await — same lifetime contract as send/recv.
   UdpSocket *self = this;
   return lookup_host(std::move(addr))
-    .then([self](Result<Vec<SocketAddr>, SocketError> r) -> Result<void, SocketError> {
+    .then([self](Result<Vec<SocketAddr>, io::Error> r) -> Result<void, io::Error> {
       if (r.is_err()) {
-        return Result<void, SocketError>(err, std::move(r).unwrap_err());
+        return Result<void, io::Error>(err, std::move(r).unwrap_err());
       }
       Vec<SocketAddr> addrs = std::move(r).unwrap();
+      io::Error       last(io::ErrorKind::ConnectionRefused);
       for (size_t i = 0; i < addrs.len(); ++i) {
         auto out = self->connect_addr(addrs[i]);
         if (out.is_ok()) return out;
+        last = std::move(out).unwrap_err();
       }
-      return Result<void, SocketError>(err, SocketError::ConnectFailed);
+      return Result<void, io::Error>(err, std::move(last));
     });
 }
 

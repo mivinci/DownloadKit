@@ -26,8 +26,16 @@ size_t resolve_max_workers(size_t n) {
   return n ? n : 4;
 }
 
+/// Extra thread headroom for spawn_blocking on top of the N async workers.
+/// Mirrors Tokio's default thread_cap=512 for the blocking pool.  Async
+/// workers occupy N permanent threads in m_group; this headroom gives
+/// xTaskGroup room to spawn additional threads on demand for blocking work
+/// without starving (which would otherwise dead-lock since worker_main
+/// never returns).
+static constexpr size_t kBlockingCap = 512;
+
 xTaskGroup create_task_group(size_t n) {
-  xTaskGroupConf conf = {n, 0};
+  xTaskGroupConf conf = {n + kBlockingCap, 0};
   return xTaskGroupCreate(&conf);
 }
 
@@ -48,8 +56,7 @@ Context &current_context() {
 /* ── EnterGuard ──────────────────────────────────────────────────── */
 
 EnterGuard::EnterGuard(Runtime *rt, _::Worker *w, xEventLoop loop) : m_loop(loop) {
-  XPP_ASSERT(_::tl_context.runtime == nullptr,
-             "EnterGuard: thread already inside a runtime");
+  XPP_ASSERT(_::tl_context.runtime == nullptr, "EnterGuard: thread already inside a runtime");
   _::tl_context = {rt, w, loop};
 }
 
@@ -83,8 +90,7 @@ void _::GlobalSchedule::schedule(SpawnTaskBase *task) {
 Runtime::Runtime(size_t num_workers)
     : m_num_workers(resolve_max_workers(num_workers)),
       m_workers(Vec<Box<_::Worker>>::with_capacity(m_num_workers)),
-      m_main_loop(Box<void, EventLoopDeleter>::from_raw(xEventLoopCreate())),
-      m_global_sched(this),
+      m_main_loop(Box<void, EventLoopDeleter>::from_raw(xEventLoopCreate())), m_global_sched(this),
       m_group(Box<void, xpp::TaskGroupDeleter>::from_raw(create_task_group(m_num_workers))) {
   XPP_ASSERT(m_main_loop.get() != nullptr, "Runtime: failed to create main loop");
   XPP_ASSERT(m_group.get() != nullptr, "Runtime: failed to create task group");
@@ -152,13 +158,13 @@ void *Runtime::worker_main(void *arg) {
       {
         _::Waker waker(&w->sched(), task);
         if (task->poll(waker)) {
-          uint8_t prev = task->state.exchange(_::SpawnTaskBase::Completed,
-                                              std::memory_order_acq_rel);
+          uint8_t prev =
+            task->state.exchange(_::SpawnTaskBase::Completed, std::memory_order_acq_rel);
           task->wake_join();
           if (prev == _::SpawnTaskBase::Detached) {
-            xEventLoopPost(w->loop().get(),
-                           [](void *arg) { delete static_cast<_::SpawnTaskBase *>(arg); },
-                           task);
+            xEventLoopPost(
+              w->loop().get(), [](void *arg) { delete static_cast<_::SpawnTaskBase *>(arg); },
+              task);
           }
         } else {
           task->state.store(_::SpawnTaskBase::Pending, std::memory_order_release);

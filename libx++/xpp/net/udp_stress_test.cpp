@@ -32,9 +32,9 @@ protected:
 
 TEST_F(UdpStressTest, ThousandDatagrams) {
   auto guard = m_rt->enter();
-  auto a = UdpSocket::bind(SocketAddr::from(
+  auto a = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
-  auto b = UdpSocket::bind(SocketAddr::from(
+  auto b = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
   const int N = 1000;
@@ -64,9 +64,9 @@ TEST_F(UdpStressTest, ThousandDatagrams) {
 
 TEST_F(UdpStressTest, LargeDatagrams) {
   auto guard = m_rt->enter();
-  auto a = UdpSocket::bind(SocketAddr::from(
+  auto a = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
-  auto b = UdpSocket::bind(SocketAddr::from(
+  auto b = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
   // Send 100 datagrams of ~1400 bytes (near UDP MTU)
@@ -106,9 +106,9 @@ TEST_F(UdpStressTest, MultipleSocketPairs) {
   };
   // Can't use array because UdpSocket is move-only. Use one pair at a time.
   for (int p = 0; p < PAIRS; ++p) {
-    auto a = UdpSocket::bind(SocketAddr::from(
+    auto a = UdpSocket::bind_addr(SocketAddr::from(
         SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
-    auto b = UdpSocket::bind(SocketAddr::from(
+    auto b = UdpSocket::bind_addr(SocketAddr::from(
         SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
     // Each pair sends 100 datagrams
@@ -138,7 +138,7 @@ TEST_F(UdpStressTest, RapidBindClose) {
   auto guard = m_rt->enter();
 
   for (int i = 0; i < 200; ++i) {
-    auto r = UdpSocket::bind(SocketAddr::from(
+    auto r = UdpSocket::bind_addr(SocketAddr::from(
         SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0)));
     ASSERT_TRUE(r.is_ok()) << "iteration " << i;
     auto sock = std::move(r.unwrap());
@@ -153,9 +153,9 @@ TEST_F(UdpStressTest, RapidBindClose) {
 
 TEST_F(UdpStressTest, InterleavedSendRecv) {
   auto guard = m_rt->enter();
-  auto a = UdpSocket::bind(SocketAddr::from(
+  auto a = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
-  auto b = UdpSocket::bind(SocketAddr::from(
+  auto b = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
   auto b_addr = b.local_addr();
@@ -185,7 +185,7 @@ TEST_F(UdpStressTest, InterleavedSendRecv) {
 
 TEST_F(UdpStressTest, MultipleSendersOneReceiver) {
   auto guard = m_rt->enter();
-  auto b = UdpSocket::bind(SocketAddr::from(
+  auto b = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
   const int SENDERS = 5;
@@ -221,9 +221,9 @@ TEST_F(UdpStressTest, MultipleSendersOneReceiver) {
 
 TEST_F(UdpStressTest, EchoUnderLoad) {
   auto guard = m_rt->enter();
-  auto a = UdpSocket::bind(SocketAddr::from(
+  auto a = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
-  auto b = UdpSocket::bind(SocketAddr::from(
+  auto b = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
   const int N = 200;

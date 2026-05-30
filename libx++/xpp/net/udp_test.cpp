@@ -29,7 +29,7 @@ protected:
 
 TEST_F(UdpSocketTest, BindLoopback) {
   auto guard = m_rt->enter();
-  auto r = UdpSocket::bind(SocketAddr::from(
+  auto r = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0)));
   ASSERT_TRUE(r.is_ok());
   auto sock = std::move(r.unwrap());
@@ -43,7 +43,7 @@ TEST_F(UdpSocketTest, BindLoopback) {
 
 TEST_F(UdpSocketTest, BindV6Any) {
   auto guard = m_rt->enter();
-  auto r = UdpSocket::bind(SocketAddr::from(
+  auto r = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV6::from(Ipv6Addr::UNSPECIFIED, 0, 0, 0)));
   ASSERT_TRUE(r.is_ok());
   auto sock = std::move(r.unwrap());
@@ -54,7 +54,7 @@ TEST_F(UdpSocketTest, BindV6Any) {
 
 TEST_F(UdpSocketTest, Close) {
   auto guard = m_rt->enter();
-  auto r = UdpSocket::bind(SocketAddr::from(
+  auto r = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0)));
   ASSERT_TRUE(r.is_ok());
   auto sock = std::move(r.unwrap());
@@ -69,9 +69,9 @@ TEST_F(UdpSocketTest, Close) {
 
 TEST_F(UdpSocketTest, SendToRecvFrom) {
   auto guard = m_rt->enter();
-  auto a = UdpSocket::bind(SocketAddr::from(
+  auto a = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
-  auto b = UdpSocket::bind(SocketAddr::from(
+  auto b = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
   const char *msg = "hello";
@@ -88,9 +88,9 @@ TEST_F(UdpSocketTest, SendToRecvFrom) {
 
 TEST_F(UdpSocketTest, SendToRecvFromLargeDatagram) {
   auto guard = m_rt->enter();
-  auto a = UdpSocket::bind(SocketAddr::from(
+  auto a = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
-  auto b = UdpSocket::bind(SocketAddr::from(
+  auto b = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
   char send_buf[1024];
@@ -108,12 +108,12 @@ TEST_F(UdpSocketTest, SendToRecvFromLargeDatagram) {
 
 TEST_F(UdpSocketTest, ConnectSendRecv) {
   auto guard = m_rt->enter();
-  auto a = UdpSocket::bind(SocketAddr::from(
+  auto a = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
-  auto b = UdpSocket::bind(SocketAddr::from(
+  auto b = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
-  EXPECT_TRUE(a.connect(b.local_addr()).is_ok());
+  EXPECT_TRUE(a.connect_addr(b.local_addr()).is_ok());
 
   const char *msg = "ping";
   char        recv_buf[64];
@@ -129,9 +129,9 @@ TEST_F(UdpSocketTest, ConnectSendRecv) {
 
 TEST_F(UdpSocketTest, EchoRoundTrip) {
   auto guard = m_rt->enter();
-  auto a = UdpSocket::bind(SocketAddr::from(
+  auto a = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
-  auto b = UdpSocket::bind(SocketAddr::from(
+  auto b = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
   const char *msg = "echo-test";
@@ -156,9 +156,9 @@ TEST_F(UdpSocketTest, EchoRoundTrip) {
 
 TEST_F(UdpSocketTest, MultipleDatagrams) {
   auto guard = m_rt->enter();
-  auto a = UdpSocket::bind(SocketAddr::from(
+  auto a = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
-  auto b = UdpSocket::bind(SocketAddr::from(
+  auto b = UdpSocket::bind_addr(SocketAddr::from(
       SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0))).unwrap();
 
   for (int i = 0; i < 5; ++i) {
@@ -175,4 +175,45 @@ TEST_F(UdpSocketTest, MultipleDatagrams) {
     EXPECT_EQ(result.n, expected_len);
     EXPECT_EQ(memcmp(recv_buf, expected, expected_len), 0);
   }
+}
+
+/* ── bind("host:port") hostname overload ─────────────────────────── */
+
+TEST_F(UdpSocketTest, BindHostPortLoopback) {
+  auto r = m_rt->block_on([&] { return UdpSocket::bind("127.0.0.1:0"); });
+  ASSERT_TRUE(r.is_ok());
+  auto sock = std::move(r).unwrap();
+  EXPECT_FALSE(sock.is_closed());
+  EXPECT_NE(sock.local_addr().port(), 0);
+}
+
+TEST_F(UdpSocketTest, BindHostPortLocalhost) {
+  auto r = m_rt->block_on([&] { return UdpSocket::bind("localhost:0"); });
+  ASSERT_TRUE(r.is_ok());
+}
+
+TEST_F(UdpSocketTest, BindHostPortBogus) {
+  auto r = m_rt->block_on([&] { return UdpSocket::bind("nonexistent.invalid:0"); });
+  ASSERT_TRUE(r.is_err());
+  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::ResolveFailed);
+}
+
+TEST_F(UdpSocketTest, ConnectHostPort) {
+  // Bind an echo target on an ephemeral port (synchronous bind_addr is
+  // OK without a runtime context).
+  auto target = UdpSocket::bind_addr(
+                  SocketAddr::from(SocketAddrV4::from(Ipv4Addr::LOCALHOST, 0)))
+                  .unwrap();
+  auto port = target.local_addr().port();
+
+  // Bind a sender and connect by hostname:port.
+  auto sender_r = m_rt->block_on([&] { return UdpSocket::bind("127.0.0.1:0"); });
+  ASSERT_TRUE(sender_r.is_ok());
+  auto sender = std::move(sender_r).unwrap();
+
+  char addr[32];
+  std::snprintf(addr, sizeof(addr), "127.0.0.1:%u", static_cast<unsigned>(port));
+  auto cr = m_rt->block_on(
+    [&]() -> Promise<Result<void, SocketError>> { return sender.connect(addr); });
+  EXPECT_TRUE(cr.is_ok());
 }

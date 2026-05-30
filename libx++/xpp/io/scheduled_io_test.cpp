@@ -9,7 +9,7 @@
  * Each "pump()" call delivers at most one event per direction per fd.
  */
 
-#include <xpp/scheduled_io.h>
+#include <xpp/io/scheduled_io.h>
 #include <gtest/gtest.h>
 
 #include <atomic>

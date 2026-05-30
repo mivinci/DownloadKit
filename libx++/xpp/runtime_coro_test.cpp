@@ -10,18 +10,20 @@
 
 #if XPP_HAS_COROUTINES
 
-#include <xpp/runtime.h>
 #include <gtest/gtest.h>
+#include <xpp/runtime.h>
 
 #include <atomic>
+#include <string>
 #include <thread>
+#include <vector>
 
 /* ── Test fixture ─────────────────────────────────────────────────── */
 
 class RuntimeTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_rt = new xpp::Runtime(2);  // 2 workers
+    m_rt = new xpp::Runtime(2); // 2 workers
   }
   void TearDown() override {
     delete m_rt;
@@ -41,9 +43,7 @@ TEST_F(RuntimeTest, BlockOnVoid) {
 }
 
 TEST_F(RuntimeTest, BlockOnCoroutine) {
-  auto coro = []() -> xpp::Promise<int> {
-    co_return 99;
-  };
+  auto coro = []() -> xpp::Promise<int> { co_return 99; };
   EXPECT_EQ(m_rt->block_on(coro()), 99);
 }
 
@@ -51,10 +51,8 @@ TEST_F(RuntimeTest, BlockOnCoroutine) {
 
 TEST_F(RuntimeTest, SpawnAndAwait) {
   auto orchestrate = [&]() -> xpp::Promise<int> {
-    auto p = m_rt->spawn([]() -> xpp::Promise<int> {
-      co_return 7;
-    });
-    int result = co_await p;
+    auto p      = m_rt->spawn([]() -> xpp::Promise<int> { co_return 7; });
+    int  result = co_await p;
     co_return result;
   };
 
@@ -82,8 +80,8 @@ TEST_F(RuntimeTest, SpawnMultiple) {
   auto orchestrate = [&]() -> xpp::Promise<int> {
     auto h1 = m_rt->spawn([]() -> xpp::Promise<int> { co_return 9; });
     auto h2 = m_rt->spawn([]() -> xpp::Promise<int> { co_return 16; });
-    int a = co_await h1;
-    int b = co_await h2;
+    int  a  = co_await h1;
+    int  b  = co_await h2;
     co_return a + b;
   };
 
@@ -118,13 +116,107 @@ TEST_F(RuntimeTest, SpawnRunsOnWorker) {
   auto main_tid = std::this_thread::get_id();
 
   auto orchestrate = [&]() -> xpp::Promise<bool> {
-    auto p = m_rt->spawn([&]() -> xpp::Promise<bool> {
-      co_return std::this_thread::get_id() != main_tid;
-    });
+    auto p = m_rt->spawn(
+      [&]() -> xpp::Promise<bool> { co_return std::this_thread::get_id() != main_tid; });
     co_return co_await p;
   };
 
   EXPECT_TRUE(m_rt->block_on(orchestrate()));
+}
+
+/* ── spawn_blocking + co_await ────────────────────────────────────── */
+
+TEST_F(RuntimeTest, SpawnBlockingAwaitInt) {
+  auto orchestrate = [&]() -> xpp::Promise<int> {
+    int v = co_await xpp::spawn_blocking([] { return 21; });
+    co_return v * 2;
+  };
+  EXPECT_EQ(m_rt->block_on(orchestrate), 42);
+}
+
+TEST_F(RuntimeTest, SpawnBlockingAwaitVoid) {
+  std::atomic<bool> ran{false};
+  auto              orchestrate = [&]() -> xpp::Promise<void> {
+    co_await xpp::spawn_blocking([&] { ran.store(true); });
+    co_return;
+  };
+  m_rt->block_on(orchestrate);
+  EXPECT_TRUE(ran.load());
+}
+
+TEST_F(RuntimeTest, SpawnBlockingAwaitString) {
+  auto orchestrate = [&]() -> xpp::Promise<std::string> {
+    auto s = co_await xpp::spawn_blocking([] { return std::string("hello"); });
+    co_return s + ",coro";
+  };
+  EXPECT_EQ(m_rt->block_on(orchestrate), "hello,coro");
+}
+
+TEST_F(RuntimeTest, SpawnBlockingRunsOffWorkerThread) {
+  // Coroutine resumes on a worker; the blocking lambda must run on a
+  // different (m_group blocking-pool) thread.
+  std::thread::id orchestrate_tid{};
+  std::thread::id blocking_tid{};
+
+  auto orchestrate = [&]() -> xpp::Promise<void> {
+    orchestrate_tid = std::this_thread::get_id();
+    co_await xpp::spawn_blocking([&] { blocking_tid = std::this_thread::get_id(); });
+    co_return;
+  };
+
+  m_rt->block_on(orchestrate);
+  EXPECT_NE(blocking_tid, std::thread::id{});
+  EXPECT_NE(blocking_tid, orchestrate_tid);
+}
+
+TEST_F(RuntimeTest, SpawnBlockingMixedWithSpawn) {
+  // Combine spawn() (async coroutine) and spawn_blocking() (off-loop work)
+  // and join them via co_await.
+  auto orchestrate = [&]() -> xpp::Promise<int> {
+    auto async_part    = m_rt->spawn([]() -> xpp::Promise<int> { co_return 4; });
+    auto blocking_part = xpp::spawn_blocking([] { return 38; });
+    int  a             = co_await async_part;
+    int  b             = co_await blocking_part;
+    co_return a + b;
+  };
+  EXPECT_EQ(m_rt->block_on(orchestrate), 42);
+}
+
+TEST_F(RuntimeTest, SpawnBlockingChainedAwaits) {
+  // Two spawn_blocking calls in sequence, awaited in a single coroutine.
+  // Verifies the blocking pool can serve consecutive requests cleanly.
+  auto orchestrate = [&]() -> xpp::Promise<int> {
+    int a = co_await xpp::spawn_blocking([] { return 10; });
+    int b = co_await xpp::spawn_blocking([a] { return a + 5; });
+    co_return b;
+  };
+  EXPECT_EQ(m_rt->block_on(orchestrate), 15);
+}
+
+TEST_F(RuntimeTest, SpawnBlockingDoesNotStarveWorkers) {
+  // 1-worker runtime + many concurrent spawn_blocking tasks.  Without the
+  // blocking-pool headroom, the single worker_main would occupy m_group's
+  // only slot and the blocking submissions would dead-lock.
+  xpp::Runtime     tiny(1);
+  constexpr int    kN = 8;
+  std::atomic<int> counter{0};
+  auto             orchestrate = [&]() -> xpp::Promise<int> {
+    std::vector<xpp::Promise<int>> ps;
+    ps.reserve(kN);
+    for (int i = 0; i < kN; ++i) {
+      ps.push_back(xpp::spawn_blocking([&counter, i] {
+        counter.fetch_add(1, std::memory_order_relaxed);
+        return i;
+      }));
+    }
+    int sum = 0;
+    for (auto &p : ps)
+      sum += co_await p;
+    co_return sum;
+  };
+  int sum = tiny.block_on(orchestrate);
+  EXPECT_EQ(counter.load(), kN);
+  EXPECT_EQ(sum, kN * (kN - 1) / 2);
 }
 
 #else

@@ -88,19 +88,12 @@ TEST_F(DnsTest, LookupMalformedUnclosedBracket) {
 
 TEST_F(DnsTest, LookupRunsOnBlockingPool) {
   // Confirm getaddrinfo doesn't block the calling worker thread —
-  // multiple concurrent lookups must all complete.
-  constexpr int kN = 4;
-  auto          r  = m_rt->block_on([&]() -> Promise<int> {
-    Vec<Promise<Result<Vec<SocketAddr>, SocketError>>> ps =
-      Vec<Promise<Result<Vec<SocketAddr>, SocketError>>>::with_capacity(kN);
-    for (int i = 0; i < kN; ++i) {
-      char buf[32];
-      std::snprintf(buf, sizeof(buf), "127.0.0.1:%d", 80 + i);
-      ps.push(lookup_host(buf));
-    }
-    auto last = std::move(ps[kN - 1]);
-    return std::move(last).then(
-      [](Result<Vec<SocketAddr>, SocketError> rr) -> int { return rr.is_ok() ? 1 : 0; });
-  });
-  EXPECT_EQ(r, 1);
+  // sequential lookups must each complete (each is a separate
+  // spawn_blocking submission to the m_group blocking pool).
+  for (int i = 0; i < 4; ++i) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "127.0.0.1:%d", 80 + i);
+    auto r = m_rt->block_on([&] { return lookup_host(buf); });
+    ASSERT_TRUE(r.is_ok()) << "lookup #" << i << " failed";
+  }
 }

@@ -40,12 +40,13 @@ const char *socket_error_message(SocketError e) noexcept {
 }
 
 int create_socket(int family, int type) {
+  int fd;
 #ifdef __linux__
-  int fd = ::socket(family, type | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+  fd = ::socket(family, type | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
   if (fd >= 0) return fd;
   // Kernel might not support SOCK_CLOEXEC (very old); fall through.
 #endif
-  int fd = ::socket(family, type, 0);
+  fd = ::socket(family, type, 0);
   if (fd < 0) return -1;
 
   int flags = fcntl(fd, F_GETFL, 0);

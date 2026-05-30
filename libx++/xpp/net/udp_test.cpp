@@ -195,7 +195,7 @@ TEST_F(UdpSocketTest, BindHostPortLocalhost) {
 TEST_F(UdpSocketTest, BindHostPortBogus) {
   auto r = m_rt->block_on([&] { return UdpSocket::bind("nonexistent.invalid:0"); });
   ASSERT_TRUE(r.is_err());
-  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::ResolveFailed);
+  EXPECT_EQ(std::move(r).unwrap_err().kind(), io::ErrorKind::ResolveFailed);
 }
 
 TEST_F(UdpSocketTest, ConnectHostPort) {
@@ -214,6 +214,6 @@ TEST_F(UdpSocketTest, ConnectHostPort) {
   char addr[32];
   std::snprintf(addr, sizeof(addr), "127.0.0.1:%u", static_cast<unsigned>(port));
   auto cr = m_rt->block_on(
-    [&]() -> Promise<Result<void, SocketError>> { return sender.connect(addr); });
+    [&]() -> Promise<Result<void, io::Error>> { return sender.connect(addr); });
   EXPECT_TRUE(cr.is_ok());
 }

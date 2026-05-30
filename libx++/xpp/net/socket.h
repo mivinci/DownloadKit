@@ -3,10 +3,11 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * socket.h - Shared socket types for net subsystem.
+ * socket.h - Shared socket primitives for net subsystem.
  *
  * Extracted from udp.h so both TCP and UDP can share these definitions
- * without a circular include dependency.
+ * without a circular include dependency.  Errors are reported via
+ * <xpp/io/error.h>'s xpp::io::Error.
  *
  * C++11-compatible.
  */
@@ -18,21 +19,6 @@
 
 namespace xpp {
 namespace net {
-
-/* ── SocketError ───────────────────────────────────────────────────── */
-
-enum class SocketError : uint8_t {
-  CreateFailed,
-  BindFailed,
-  ConnectFailed,
-  AcceptFailed,
-  AddrFamilyMismatch,
-  ResolveFailed,    ///< DNS resolution failed
-  NoAddress,        ///< Resolution returned zero usable addresses
-  Closed,           ///< Operation attempted on a closed socket
-};
-
-const char *socket_error_message(SocketError e) noexcept;
 
 /// Create a non-blocking, CLOEXEC socket.  On Linux, uses SOCK_CLOEXEC
 /// to avoid the fork-race window inherent in fcntl(FD_CLOEXEC).

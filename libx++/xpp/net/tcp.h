@@ -7,7 +7,7 @@
  *
  * Uses raw fd + ScheduledIo for readiness, xTransport for I/O
  * (plain TCP today, TLS later via upgrade).  Mirrors Tokio's
- * TcpListener / TcpStream API shape.
+ * TcpListener / TcpStream API shape; errors via xpp::io::Error.
  *
  * C++11-compatible.
  */
@@ -16,6 +16,7 @@
 #define XPP_NET_TCP_H
 
 #include <xpp/arc.h>
+#include <xpp/io/error.h>
 #include <xpp/io/poll_evented.h>
 #include <xpp/net/addr.h>
 #include <xpp/net/socket.h>
@@ -62,8 +63,8 @@ public:
    * in order until one binds successfully.  Mirrors Tokio's
    * TcpListener::bind.
    */
-  static Promise<Result<TcpListener, SocketError>> bind(String addr, int backlog = 128);
-  static Promise<Result<TcpListener, SocketError>> bind(const char *addr, int backlog = 128) {
+  static Promise<Result<TcpListener, io::Error>> bind(String addr, int backlog = 128);
+  static Promise<Result<TcpListener, io::Error>> bind(const char *addr, int backlog = 128) {
     return bind(String(addr), backlog);
   }
 
@@ -71,9 +72,9 @@ public:
    * @brief Bind a listening socket on a pre-parsed @p addr.
    *
    * Synchronous fast path — no DNS, no async hop.  Use this when you
-   * already hold a SocketAddr (e.g. from accept()).
+   * already hold a SocketAddr.
    */
-  static Result<TcpListener, SocketError> bind_addr(const SocketAddr &addr, int backlog = 128);
+  static Result<TcpListener, io::Error> bind_addr(const SocketAddr &addr, int backlog = 128);
 
   /**
    * @brief Accept a new connection (async).
@@ -83,10 +84,10 @@ public:
    *
    * @return Promise resolving to:
    *           - Ok(TcpStream) on success
-   *           - Err(SocketError::AcceptFailed)
-   *           - Err(SocketError::Closed) if the listener has been closed
+   *           - Err(io::Error) with kind derived from errno on accept failure
+   *           - Err(io::Error) with kind NotConnected if listener is closed
    */
-  Promise<Result<TcpStream, SocketError>> accept();
+  Promise<Result<TcpStream, io::Error>> accept();
 
   /** @brief The locally bound address. */
   SocketAddr local_addr() const;
@@ -128,12 +129,12 @@ public:
    *
    * @return Promise resolving to:
    *           - Ok(TcpStream) on success
-   *           - Err(SocketError::ResolveFailed) if DNS failed
-   *           - Err(SocketError::NoAddress)     if zero usable addrs
-   *           - Err(SocketError::ConnectFailed) if all addrs failed
+   *           - Err(io::Error) with kind ResolveFailed if DNS failed
+   *           - Err(io::Error) with kind NoAddress if zero usable addrs
+   *           - Err(io::Error) with kind derived from errno if all addrs failed
    */
-  static Promise<Result<TcpStream, SocketError>> connect(String addr);
-  static Promise<Result<TcpStream, SocketError>> connect(const char *addr) {
+  static Promise<Result<TcpStream, io::Error>> connect(String addr);
+  static Promise<Result<TcpStream, io::Error>> connect(const char *addr) {
     return connect(String(addr));
   }
 
@@ -145,10 +146,9 @@ public:
    *
    * @return Promise resolving to:
    *           - Ok(TcpStream) on success
-   *           - Err(SocketError::CreateFailed) if socket() failed
-   *           - Err(SocketError::ConnectFailed) if connect failed
+   *           - Err(io::Error) carrying the failing errno
    */
-  static Promise<Result<TcpStream, SocketError>> connect_addr(const SocketAddr &addr);
+  static Promise<Result<TcpStream, io::Error>> connect_addr(const SocketAddr &addr);
 
   /**
    * @brief Async read. Returns bytes read, 0 on EOF, -1 on error.
@@ -197,8 +197,8 @@ public:
   /* ── Socket options ──────────────────────────────────────────────── */
 
   /** @brief Disable/enable Nagle's algorithm.  Defaults to OS default (off). */
-  Result<void, SocketError> set_nodelay(bool on);
-  Result<bool, SocketError> nodelay() const;
+  Result<void, io::Error> set_nodelay(bool on);
+  Result<bool, io::Error> nodelay() const;
 
 private:
   /** @brief Construct a TcpStream from a raw fd (internal factory). */

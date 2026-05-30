@@ -53,7 +53,7 @@ TEST_F(TcpHostnameTest, BindIpv6) {
 TEST_F(TcpHostnameTest, BindBogusHostname) {
   auto r = m_rt->block_on([&] { return TcpListener::bind("nonexistent.invalid:0"); });
   ASSERT_TRUE(r.is_err());
-  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::ResolveFailed);
+  EXPECT_EQ(std::move(r).unwrap_err().kind(), io::ErrorKind::ResolveFailed);
 }
 
 /* ── TcpStream::connect("host:port") ──────────────────────────────── */
@@ -68,31 +68,27 @@ TEST_F(TcpHostnameTest, ConnectByHostPort) {
   char addr[32];
   std::snprintf(addr, sizeof(addr), "127.0.0.1:%u", static_cast<unsigned>(port));
 
-  auto connect_r =
-    m_rt->block_on([&]() -> Promise<Result<TcpStream, SocketError>> {
-      return TcpStream::connect(addr);
-    });
+  auto connect_r = m_rt->block_on(
+    [&]() -> Promise<Result<TcpStream, io::Error>> { return TcpStream::connect(addr); });
   ASSERT_TRUE(connect_r.is_ok());
   EXPECT_FALSE(std::move(connect_r).unwrap().is_closed());
 }
 
 TEST_F(TcpHostnameTest, ConnectBogusHostname) {
-  auto r =
-    m_rt->block_on([&]() -> Promise<Result<TcpStream, SocketError>> {
-      return TcpStream::connect("nonexistent.invalid:80");
-    });
+  auto r = m_rt->block_on([&]() -> Promise<Result<TcpStream, io::Error>> {
+    return TcpStream::connect("nonexistent.invalid:80");
+  });
   ASSERT_TRUE(r.is_err());
-  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::ResolveFailed);
+  EXPECT_EQ(std::move(r).unwrap_err().kind(), io::ErrorKind::ResolveFailed);
 }
 
 TEST_F(TcpHostnameTest, ConnectClosedPort) {
-  // Port 1 (tcpmux) almost never has a listener.
-  auto r =
-    m_rt->block_on([&]() -> Promise<Result<TcpStream, SocketError>> {
-      return TcpStream::connect("127.0.0.1:1");
-    });
+  // Port 1 (tcpmux) almost never has a listener.  The kind the loopback
+  // refusal maps to is ConnectionRefused.
+  auto r = m_rt->block_on(
+    [&]() -> Promise<Result<TcpStream, io::Error>> { return TcpStream::connect("127.0.0.1:1"); });
   ASSERT_TRUE(r.is_err());
-  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::ConnectFailed);
+  EXPECT_EQ(std::move(r).unwrap_err().kind(), io::ErrorKind::ConnectionRefused);
 }
 
 /* ── accept() — Result error model ────────────────────────────────── */
@@ -111,12 +107,12 @@ TEST_F(TcpHostnameTest, AcceptOneRoundTrip) {
   auto accepted = m_rt->block_on([&]() -> Promise<int> {
     auto client_p = TcpStream::connect(addr);
     auto srv_p    = listener.accept();
-    return std::move(client_p).then([srv_p = std::move(srv_p)](
-                                      Result<TcpStream, SocketError> cli) mutable -> Promise<int> {
-      if (cli.is_err()) return Promise<int>::resolve(0);
-      return std::move(srv_p).then(
-        [](Result<TcpStream, SocketError> s) -> int { return s.is_ok() ? 1 : 0; });
-    });
+    return std::move(client_p).then(
+      [srv_p = std::move(srv_p)](Result<TcpStream, io::Error> cli) mutable -> Promise<int> {
+        if (cli.is_err()) return Promise<int>::resolve(0);
+        return std::move(srv_p).then(
+          [](Result<TcpStream, io::Error> s) -> int { return s.is_ok() ? 1 : 0; });
+      });
   });
   EXPECT_EQ(accepted, 1);
 }
@@ -128,7 +124,7 @@ TEST_F(TcpHostnameTest, AcceptOnClosedListener) {
   listener.close();
 
   auto r = m_rt->block_on(
-    [&]() -> Promise<Result<TcpStream, SocketError>> { return listener.accept(); });
+    [&]() -> Promise<Result<TcpStream, io::Error>> { return listener.accept(); });
   ASSERT_TRUE(r.is_err());
-  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::Closed);
+  EXPECT_EQ(std::move(r).unwrap_err().kind(), io::ErrorKind::NotConnected);
 }

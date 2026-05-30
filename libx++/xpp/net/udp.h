@@ -18,6 +18,7 @@
 #ifndef XPP_NET_UDP_H
 #define XPP_NET_UDP_H
 
+#include <xpp/io/error.h>
 #include <xpp/io/poll_evented.h>
 #include <xpp/net/addr.h>
 #include <xpp/net/socket.h>
@@ -63,8 +64,8 @@ public:
    * Resolves via lookup_host and tries each resolved address in order
    * until one binds successfully.  Mirrors Tokio's UdpSocket::bind.
    */
-  static Promise<Result<UdpSocket, SocketError>> bind(String addr);
-  static Promise<Result<UdpSocket, SocketError>> bind(const char *addr) {
+  static Promise<Result<UdpSocket, io::Error>> bind(String addr);
+  static Promise<Result<UdpSocket, io::Error>> bind(const char *addr) {
     return bind(String(addr));
   }
 
@@ -74,20 +75,20 @@ public:
    * Synchronous fast path — no DNS, no async hop.  Use this when you
    * already hold a SocketAddr.
    */
-  static Result<UdpSocket, SocketError> bind_addr(const SocketAddr &addr);
+  static Result<UdpSocket, io::Error> bind_addr(const SocketAddr &addr);
 
   /**
    * @brief Associate with a single remote peer for send/recv.
    *
    * @p addr is a "host:port" string (see bind() above for format).
    */
-  Promise<Result<void, SocketError>> connect(String addr);
-  Promise<Result<void, SocketError>> connect(const char *addr) {
+  Promise<Result<void, io::Error>> connect(String addr);
+  Promise<Result<void, io::Error>> connect(const char *addr) {
     return connect(String(addr));
   }
 
   /** @brief Associate with a pre-parsed peer address (synchronous). */
-  Result<void, SocketError> connect_addr(const SocketAddr &addr);
+  Result<void, io::Error> connect_addr(const SocketAddr &addr);
 
   /* ── One-to-many (unconnected) ─────────────────────────────────── */
 

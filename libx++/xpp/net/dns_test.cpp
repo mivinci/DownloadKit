@@ -63,25 +63,25 @@ TEST_F(DnsTest, LookupBogusName) {
   // .invalid is reserved by RFC 2606 — guaranteed not to resolve.
   auto r = m_rt->block_on([&] { return lookup_host("nonexistent.invalid:80"); });
   ASSERT_TRUE(r.is_err());
-  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::ResolveFailed);
+  EXPECT_EQ(std::move(r).unwrap_err().kind(), io::ErrorKind::ResolveFailed);
 }
 
 TEST_F(DnsTest, LookupMalformedNoPort) {
   auto r = m_rt->block_on([&] { return lookup_host("127.0.0.1"); });
   ASSERT_TRUE(r.is_err());
-  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::ResolveFailed);
+  EXPECT_EQ(std::move(r).unwrap_err().kind(), io::ErrorKind::ResolveFailed);
 }
 
 TEST_F(DnsTest, LookupMalformedEmptyHost) {
   auto r = m_rt->block_on([&] { return lookup_host(":80"); });
   ASSERT_TRUE(r.is_err());
-  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::ResolveFailed);
+  EXPECT_EQ(std::move(r).unwrap_err().kind(), io::ErrorKind::ResolveFailed);
 }
 
 TEST_F(DnsTest, LookupMalformedUnclosedBracket) {
   auto r = m_rt->block_on([&] { return lookup_host("[::1:80"); });
   ASSERT_TRUE(r.is_err());
-  EXPECT_EQ(std::move(r).unwrap_err(), SocketError::ResolveFailed);
+  EXPECT_EQ(std::move(r).unwrap_err().kind(), io::ErrorKind::ResolveFailed);
 }
 
 /* ── lookup_host: runs off the worker thread ─────────────────────── */

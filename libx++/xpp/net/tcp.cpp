@@ -49,8 +49,7 @@ int set_nonblocking(int fd) {
 /// in the Rust-style refcount family.
 Promise<Result<TcpStream, io::Error>> connect_each(Arc<Vec<SocketAddr>> addrs, size_t idx) {
   if (idx >= addrs->len()) {
-    return Promise<Result<TcpStream, io::Error>>::resolve(
-      Result<TcpStream, io::Error>(err, io::ErrorKind::ConnectionRefused));
+    return Promise<Result<TcpStream, io::Error>>::err(io::ErrorKind::ConnectionRefused);
   }
   return TcpStream::connect_addr((*addrs)[idx])
     .then([addrs, idx](Result<TcpStream, io::Error> r)
@@ -137,8 +136,7 @@ Promise<Result<TcpListener, io::Error>> TcpListener::bind(String addr, int backl
 
 Promise<Result<TcpStream, io::Error>> TcpListener::accept() {
   if (m_fd < 0) {
-    return Promise<Result<TcpStream, io::Error>>::resolve(
-      Result<TcpStream, io::Error>(err, io::ErrorKind::NotConnected));
+    return Promise<Result<TcpStream, io::Error>>::err(io::ErrorKind::NotConnected);
   }
 
   int                     fd = m_fd;
@@ -150,17 +148,14 @@ Promise<Result<TcpStream, io::Error>> TcpListener::accept() {
     if (set_nonblocking(client_fd) < 0) {
       int saved = errno;
       ::close(client_fd);
-      return Promise<Result<TcpStream, io::Error>>::resolve(
-        Result<TcpStream, io::Error>(err, io::Error::from_errno(saved)));
+      return Promise<Result<TcpStream, io::Error>>::err(io::Error::from_errno(saved));
     }
     auto peer = SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&addr), len);
-    return Promise<Result<TcpStream, io::Error>>::resolve(
-      Result<TcpStream, io::Error>(
-        ok, TcpStream::from_fd(client_fd, peer.unwrap_or(SocketAddr::unspecified()))));
+    return Promise<Result<TcpStream, io::Error>>::ok(
+      TcpStream::from_fd(client_fd, peer.unwrap_or(SocketAddr::unspecified())));
   }
   if (errno != EAGAIN && errno != EWOULDBLOCK) {
-    return Promise<Result<TcpStream, io::Error>>::resolve(
-      Result<TcpStream, io::Error>(err, io::Error::from_errno(errno)));
+    return Promise<Result<TcpStream, io::Error>>::err(io::Error::from_errno(errno));
   }
 
   auto sio = m_sio;
@@ -236,8 +231,7 @@ Promise<Result<TcpStream, io::Error>> TcpStream::connect_addr(const SocketAddr &
   int family = addr.is_ipv4() ? AF_INET : AF_INET6;
   int fd     = create_socket(family, SOCK_STREAM);
   if (fd < 0) {
-    return Promise<Result<TcpStream, io::Error>>::resolve(
-      Result<TcpStream, io::Error>(err, io::Error::from_errno(errno)));
+    return Promise<Result<TcpStream, io::Error>>::err(io::Error::from_errno(errno));
   }
 
   struct sockaddr_storage ss;
@@ -247,14 +241,12 @@ Promise<Result<TcpStream, io::Error>> TcpStream::connect_addr(const SocketAddr &
   int rc = ::connect(fd, reinterpret_cast<struct sockaddr *>(&ss), len);
   if (rc == 0) {
     // Connected immediately
-    return Promise<Result<TcpStream, io::Error>>::resolve(
-      Result<TcpStream, io::Error>(ok, from_fd(fd, addr)));
+    return Promise<Result<TcpStream, io::Error>>::ok(from_fd(fd, addr));
   }
   if (errno != EINPROGRESS) {
     int saved = errno;
     ::close(fd);
-    return Promise<Result<TcpStream, io::Error>>::resolve(
-      Result<TcpStream, io::Error>(err, io::Error::from_errno(saved)));
+    return Promise<Result<TcpStream, io::Error>>::err(io::Error::from_errno(saved));
   }
 
   // Wait for writable = connect complete.
@@ -281,8 +273,7 @@ Promise<Result<TcpStream, io::Error>> TcpStream::connect(String addr) {
   return lookup_host(std::move(addr))
     .then([](Result<Vec<SocketAddr>, io::Error> r) -> Promise<Result<TcpStream, io::Error>> {
       if (r.is_err()) {
-        return Promise<Result<TcpStream, io::Error>>::resolve(
-          Result<TcpStream, io::Error>(err, std::move(r).unwrap_err()));
+        return Promise<Result<TcpStream, io::Error>>::err(std::move(r).unwrap_err());
       }
       auto addrs = Arc<Vec<SocketAddr>>::make(std::move(r).unwrap());
       return connect_each(std::move(addrs), 0);

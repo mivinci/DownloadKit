@@ -23,6 +23,7 @@
 
 #include <xpp/compiler.h>
 #include <xpp/promise_node.h>
+#include <xpp/result.h>
 
 #include <utility>
 
@@ -41,6 +42,24 @@ namespace xpp {
 class EnterGuard;
 template <class T> class Resolver;
 template <class T> struct PromiseAndResolver;
+template <class T, typename E> class Result;
+struct Ok;
+struct Err;
+
+namespace _ {
+
+/** Trait: is_result<T>::value is true iff T is Result<U,E> for some U,E. */
+template <class T> struct is_result : std::false_type {};
+template <class U, class E> struct is_result<Result<U, E>> : std::true_type {};
+
+/** Extract Ok / Err types from a Result<U,E>. Undefined for non-Result. */
+template <class T> struct result_traits;
+template <class U, class E> struct result_traits<Result<U, E>> {
+  using Ok  = U;
+  using Err = E;
+};
+
+} // namespace _
 
 xEventLoop current_event_loop();
 
@@ -150,6 +169,36 @@ public:
 #endif
 
   /* ── Static factories ───────────────────────────────────────────── */
+
+  /**
+   * @brief Convenience: resolve a Promise<Result<U,E>> from an Ok value.
+   *
+   * Syntactic sugar for `Promise::resolve(Result<U,E>(ok, val))`.
+   * Only enabled when T is Result<U,E> (SFINAE).
+   *
+   * @param value  The success value to wrap.
+   * @return A resolved Promise holding Result<U,E>(ok, value).
+   */
+  template <class V = T, class U = typename _::result_traits<V>::Ok,
+            class = typename std::enable_if<_::is_result<V>::value>::type>
+  static Promise ok(U value) {
+    return Promise::resolve(V(Ok{}, std::move(value)));
+  }
+
+  /**
+   * @brief Convenience: resolve a Promise<Result<U,E>> from an Err value.
+   *
+   * Syntactic sugar for `Promise::resolve(Result<U,E>(err, error))`.
+   * Only enabled when T is Result<U,E> (SFINAE).
+   *
+   * @param error  The error value to wrap.
+   * @return A resolved Promise holding Result<U,E>(err, error).
+   */
+  template <class V = T, class E = typename _::result_traits<V>::Err,
+            class = typename std::enable_if<_::is_result<V>::value>::type>
+  static Promise err(E error) {
+    return Promise::resolve(V(Err{}, std::move(error)));
+  }
 
   static Promise resolve(ValueType value) {
     Own<_::PromiseNode<T>> node(new _::ImmediatePromiseNode<T>(std::move(value)));

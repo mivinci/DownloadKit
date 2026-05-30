@@ -50,4 +50,4 @@
 - Conventional Commits: `<type>(<scope>): <subject>`. Lowercase subject, no period.
 - Scopes: `xbase`, `xbuf`, `xnet`, `xhttp`, `xlog`, `xcrypto`, `xp2p`, `xfer`, `xagent`, `cli` (or omit for cross-module).
 - Branch naming: `<author>/<short-description>`, all lowercase with hyphens (e.g. `mivinci/add-sse-support`).
-- CI enforces branch name prefix on PRs: must match `moo/`, `qclaw/`, `codebuddy/`, `workbuddy/`, `claude/`, `opencode/`, or `renovate/`.
+- CI enforces branch name prefix on PRs: must match `moo/`, `qclaw/`, `codebuddy/`, `workbuddy/`, `claude/`, `opencode/`, `renovate/`, or `copilot/`.

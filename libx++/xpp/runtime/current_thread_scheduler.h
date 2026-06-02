@@ -68,8 +68,7 @@ struct CurrentThreadSchedule : Schedule {
  */
 class CurrentThreadHandle {
 public:
-  explicit CurrentThreadHandle(Arc<BlockingPool> pool)
-      : m_blocking_pool(std::move(pool)), m_schedule(this) {}
+  explicit CurrentThreadHandle(Arc<BlockingPool> pool);
 
   CurrentThreadHandle(const CurrentThreadHandle &)            = delete;
   CurrentThreadHandle &operator=(const CurrentThreadHandle &) = delete;
@@ -92,19 +91,9 @@ public:
 
   /* ── Run queue (drained by the block_on drive loop) ────────────── */
 
-  void push_task(SpawnTaskBase *task) {
-    m_run_queue.lock()->push_back(task);
-  }
-  SpawnTaskBase *pop_task() {
-    auto guard = m_run_queue.lock();
-    if (guard->empty()) return nullptr;
-    SpawnTaskBase *task = guard->front();
-    guard->pop_front();
-    return task;
-  }
-  bool has_tasks() {
-    return !m_run_queue.lock()->empty();
-  }
+  void           push_task(SpawnTaskBase *task);
+  SpawnTaskBase *pop_task();
+  bool           has_tasks();
 
   CurrentThreadSchedule &schedule() noexcept {
     return m_schedule;
@@ -113,17 +102,10 @@ public:
   /* ── Park / unpark plumbing ────────────────────────────────────── */
 
   /** @brief Bind the block_on loop for the duration of a drive. */
-  void set_loop(xEventLoop loop) noexcept {
-    m_loop.store(loop, std::memory_order_release);
-  }
-  void clear_loop() noexcept {
-    m_loop.store(nullptr, std::memory_order_release);
-  }
+  void set_loop(xEventLoop loop) noexcept;
+  void clear_loop() noexcept;
   /** @brief Nudge the block_on loop, if one is parked. */
-  void wake() noexcept {
-    xEventLoop loop = m_loop.load(std::memory_order_acquire);
-    if (loop) xEventWake(loop);
-  }
+  void wake() noexcept;
 
 private:
   Arc<BlockingPool>                       m_blocking_pool;
@@ -131,11 +113,6 @@ private:
   sys::Mutex<std::deque<SpawnTaskBase *>> m_run_queue;
   std::atomic<xEventLoop>                 m_loop{nullptr};
 };
-
-inline void CurrentThreadSchedule::schedule(SpawnTaskBase *task) {
-  handle->push_task(task);
-  handle->wake();
-}
 
 } // namespace _
 

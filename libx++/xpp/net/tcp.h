@@ -101,10 +101,10 @@ public:
   }
 
 private:
-  TcpListener(int fd, Arc<ScheduledIo> sio);
+  TcpListener(int fd, Arc<runtime::ScheduledIo> sio);
 
-  int              m_fd;
-  Arc<ScheduledIo> m_sio;
+  int                       m_fd;
+  Arc<runtime::ScheduledIo> m_sio;
 };
 
 /* ── TcpStream ─────────────────────────────────────────────────────── */

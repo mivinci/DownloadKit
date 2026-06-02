@@ -53,8 +53,7 @@ Promise<Result<TcpStream, io::Error>> connect_each(Arc<Vec<SocketAddr>> addrs, s
       Result<TcpStream, io::Error>(err, io::ErrorKind::ConnectionRefused));
   }
   return TcpStream::connect_addr((*addrs)[idx])
-    .then([addrs, idx](Result<TcpStream, io::Error> r)
-            -> Promise<Result<TcpStream, io::Error>> {
+    .then([addrs, idx](Result<TcpStream, io::Error> r) -> Promise<Result<TcpStream, io::Error>> {
       if (r.is_ok()) {
         return Promise<Result<TcpStream, io::Error>>::resolve(std::move(r));
       }
@@ -66,7 +65,7 @@ Promise<Result<TcpStream, io::Error>> connect_each(Arc<Vec<SocketAddr>> addrs, s
 
 /* ── TcpListener ───────────────────────────────────────────────────── */
 
-TcpListener::TcpListener(int fd, Arc<ScheduledIo> sio) : m_fd(fd), m_sio(std::move(sio)) {}
+TcpListener::TcpListener(int fd, Arc<runtime::ScheduledIo> sio) : m_fd(fd), m_sio(std::move(sio)) {}
 
 TcpListener::TcpListener(TcpListener &&o) noexcept : m_fd(o.m_fd), m_sio(std::move(o.m_sio)) {
   o.m_fd = -1;
@@ -110,7 +109,7 @@ Result<TcpListener, io::Error> TcpListener::bind_addr(const SocketAddr &addr, in
     return Result<TcpListener, io::Error>(err, io::Error::from_errno(saved));
   }
 
-  auto sio = Arc<ScheduledIo>::make(fd);
+  auto sio = Arc<runtime::ScheduledIo>::make(fd);
   return Result<TcpListener, io::Error>(ok, TcpListener(fd, sio));
 }
 
@@ -163,7 +162,7 @@ Promise<Result<TcpStream, io::Error>> TcpListener::accept() {
   }
 
   auto sio = m_sio;
-  return _::readable(m_sio).then([fd, sio]() -> Result<TcpStream, io::Error> {
+  return runtime::_::readable(m_sio).then([fd, sio]() -> Result<TcpStream, io::Error> {
     struct sockaddr_storage addr2;
     socklen_t               len2 = sizeof(addr2);
     int client_fd                = ::accept(fd, reinterpret_cast<struct sockaddr *>(&addr2), &len2);
@@ -260,7 +259,7 @@ Promise<Result<TcpStream, io::Error>> TcpStream::connect_addr(const SocketAddr &
   auto *io   = new PollEvented(fd);
   auto  peer = addr;
   auto  sio  = io->scheduled_io();
-  return _::writable(sio).then([io, peer]() -> Result<TcpStream, io::Error> {
+  return runtime::_::writable(sio).then([io, peer]() -> Result<TcpStream, io::Error> {
     int       fd     = io->fd();
     int       sk_err = 0;
     socklen_t elen   = sizeof(sk_err);

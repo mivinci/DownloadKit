@@ -20,8 +20,8 @@
 #define XPP_IO_POLL_EVENTED_H
 
 #include <xpp/arc.h>
-#include <xpp/io/scheduled_io.h>
 #include <xpp/promise.h>
+#include <xpp/runtime/scheduled_io.h>
 #include <xpp/span.h>
 
 #include <cerrno>
@@ -30,6 +30,15 @@
 
 namespace xpp {
 namespace net {
+
+// ScheduledIo and its readiness combinators now live in xpp::runtime
+// (they are part of the runtime's I/O readiness driver). Re-expose them
+// here so the net layer keeps using the short names.
+using runtime::ScheduledIo;
+namespace _ {
+using runtime::_::readable;
+using runtime::_::writable;
+} // namespace _
 
 /* ── PollEvented ───────────────────────────────────────────────────── */
 

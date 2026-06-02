@@ -22,8 +22,8 @@
  * C++11-compatible.
  */
 
-#ifndef XPP_SCHEDULED_IO_H
-#define XPP_SCHEDULED_IO_H
+#ifndef XPP_RUNTIME_SCHEDULED_IO_H
+#define XPP_RUNTIME_SCHEDULED_IO_H
 
 #include <xpp/arc.h>
 #include <xpp/promise.h>
@@ -38,10 +38,12 @@ extern "C" {
 }
 
 namespace xpp {
+namespace runtime {
 
 /* ── Readiness bitmask ──────────────────────────────────────────── */
 
 namespace _ {
+using namespace ::xpp::_;
 
 enum ReadyBits : uint8_t {
   kReadable = 1 << 0,
@@ -206,6 +208,7 @@ private:
 /* ── Readiness PromiseNode ─────────────────────────────────────────── */
 
 namespace _ {
+using namespace ::xpp::_;
 
 /**
  * @brief PromiseNode that resolves when a direction becomes ready.
@@ -244,6 +247,7 @@ inline Promise<void> writable(Arc<ScheduledIo> sio) {
 
 } // namespace _
 
+} // namespace runtime
 } // namespace xpp
 
-#endif // XPP_SCHEDULED_IO_H
+#endif // XPP_RUNTIME_SCHEDULED_IO_H

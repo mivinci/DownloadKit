@@ -14,7 +14,7 @@
  *     used when no I/O driver is present.
  *
  * moo collapses both into libx's xEventLoop, which is simultaneously:
- *   - the I/O readiness driver (paired with xpp::io::ScheduledIo),
+ *   - the I/O readiness driver (paired with xpp::runtime::ScheduledIo),
  *   - the timer source (xEventLoop embeds a timer min-heap; xEventWait
  *     clamps its timeout to the earliest deadline),
  *   - the park / unpark primitive (xEventWait blocks the owning thread;

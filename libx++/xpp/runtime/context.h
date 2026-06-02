@@ -88,7 +88,7 @@ public:
 
   /** @brief The Runtime active on this thread, or nullptr. */
   Runtime *runtime() const noexcept {
-    return m_runtime;
+    return m_runtime ? &m_runtime.unwrap_unchecked() : nullptr;
   }
 
   template <class Func>
@@ -102,7 +102,7 @@ private:
 
   Option<_::SchedulerHandle &> m_schedule_handle;
   _::SchedulerContext          m_scheduler;
-  Runtime                     *m_runtime{nullptr};
+  Option<Runtime &>            m_runtime;
 };
 
 /**
@@ -131,7 +131,7 @@ public:
 private:
   Option<_::SchedulerHandle &> m_prev_sched;
   _::SchedulerContext          m_prev_scheduler;
-  Runtime                     *m_prev_runtime;
+  Option<Runtime &>            m_prev_runtime;
   bool                         m_armed{true};
 };
 

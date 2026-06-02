@@ -35,7 +35,7 @@ SetContextGuard::SetContextGuard(_::SchedulerHandle *sched, _::Worker *worker, x
     sched ? Option<_::SchedulerHandle &>(*sched) : Option<_::SchedulerHandle &>(none);
   c.m_scheduler.worker = worker;
   c.m_scheduler.loop   = loop;
-  c.m_runtime          = rt;
+  c.m_runtime          = rt ? Option<Runtime &>(*rt) : Option<Runtime &>(none);
 }
 
 SetContextGuard::~SetContextGuard() {

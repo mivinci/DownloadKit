@@ -39,7 +39,7 @@ static xpp::_::Waker test_waker(TestSchedule &sched) {
 class ScheduledIoTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_rt    = new xpp::runtime::Runtime(1);
+    m_rt    = xpp::runtime::Runtime::new_multi_thread(1).into_raw();
     m_loop  = m_rt->main_loop();
     m_guard = new xpp::runtime::EnterGuard(m_rt->enter());
     ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, m_fds), 0);

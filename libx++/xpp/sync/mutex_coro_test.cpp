@@ -19,7 +19,7 @@
 class AsyncMutexTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_rt = new xpp::runtime::Runtime(4);
+    m_rt = xpp::runtime::Runtime::new_multi_thread(4).into_raw();
   }
   void TearDown() override {
     delete m_rt;

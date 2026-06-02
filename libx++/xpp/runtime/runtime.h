@@ -22,7 +22,6 @@
 #include <xpp/promise.h>
 
 #include <xpp/runtime/blocking_pool.h>
-#include <xpp/runtime/builder.h>
 #include <xpp/runtime/context.h>
 #include <xpp/runtime/driver.h>
 #include <xpp/runtime/handle.h>
@@ -37,33 +36,27 @@ extern "C" {
 namespace xpp {
 namespace runtime {
 
-// RuntimeFlavor + Builder live in <xpp/runtime/builder.h>; the event
-// loop driver (Driver / EventLoopDeleter) lives in <xpp/runtime/driver.h>.
+// The event loop driver (Driver / EventLoopDeleter) lives in
+// <xpp/runtime/driver.h>.
 
 /* ── Runtime ─────────────────────────────────────────────────────── */
 
 class Runtime {
 public:
   /**
-   * @brief Build a multi-thread runtime (shortcut for
-   *        Builder::new_multi_thread().worker_threads(nthreads)).
-   * @param nthreads  Worker thread count; 0 = hardware concurrency.
+   * @brief Build a multi-thread, work-stealing runtime (heap-owned;
+   *        Runtime is pinned, hence returned in a Box).
+   * @param worker_threads       Worker count; 0 = hardware concurrency.
+   * @param max_blocking_threads Thread cap for spawn_blocking work.
    */
-  explicit Runtime(size_t nthreads = 0)
-      : Runtime(Builder::new_multi_thread().worker_threads(nthreads)) {}
+  static Box<Runtime> new_multi_thread(size_t worker_threads = 0, size_t max_blocking_threads = 512);
 
   /**
-   * @brief Build a runtime of the given flavor (shortcut over Builder).
-   * @param nthreads  Worker count for MultiThread (0 = hardware
-   *                  concurrency); ignored for CurrentThread.
+   * @brief Build a single-threaded runtime (tasks run on the block_on
+   *        thread; heap-owned).
+   * @param max_blocking_threads Thread cap for spawn_blocking work.
    */
-  explicit Runtime(RuntimeFlavor flavor, size_t nthreads = 0)
-      : Runtime(flavor == RuntimeFlavor::CurrentThread
-                  ? Builder::new_current_thread()
-                  : Builder::new_multi_thread().worker_threads(nthreads)) {}
-
-  /** @brief Construct from a fully-configured Builder. */
-  explicit Runtime(const Builder &builder);
+  static Box<Runtime> new_current_thread(size_t max_blocking_threads = 512);
 
   ~Runtime();
 
@@ -117,22 +110,22 @@ public:
     return Context::current().runtime();
   }
 
-  /** @brief This runtime's flavor (CurrentThread or MultiThread). */
-  RuntimeFlavor flavor() const noexcept {
-    return m_flavor;
-  }
-
   /** @brief The main thread's event loop (driver + park) handle. */
   xEventLoop main_loop() const noexcept {
     return m_driver.handle();
   }
 
 private:
+  // Internal flavor selector for the shared real constructor. Runtime
+  // has no public constructors: callers build one via the static
+  // new_multi_thread / new_current_thread factories.
+  enum class Kind { CurrentThread, MultiThread };
+  Runtime(Kind kind, size_t worker_threads, size_t max_blocking_threads);
+
   Driver            m_driver;
   Arc<BlockingPool> m_blocking_pool;
   Scheduler         m_scheduler;
   Handle            m_handle;
-  RuntimeFlavor     m_flavor;
 };
 
 /* ── block_on implementations ────────────────────────────────────── */

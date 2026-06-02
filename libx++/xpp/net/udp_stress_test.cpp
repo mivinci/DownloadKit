@@ -23,7 +23,7 @@ using namespace xpp::net;
 
 class UdpStressTest : public ::testing::Test {
 protected:
-  void SetUp() override { m_rt = new runtime::Runtime(4); }
+  void SetUp() override { m_rt = runtime::Runtime::new_multi_thread(4).into_raw(); }
   void TearDown() override { delete m_rt; }
   runtime::Runtime *m_rt;
 };

@@ -14,8 +14,8 @@
  * This file provides the boilerplate:
  *
  *   int main(int argc, char *argv[]) {
- *     xpp::runtime::Runtime rt;
- *     return rt.block_on([&] { return xpp::main(argc, argv); });
+ *     auto rt = xpp::runtime::Runtime::new_multi_thread();
+ *     return rt->block_on([&] { return xpp::main(argc, argv); });
  *   }
  *
  * The Runtime is created with default settings (worker count = CPU
@@ -40,8 +40,8 @@ extern Promise<int> main(int argc, char *argv[]);
 } // namespace xpp
 
 int main(int argc, char *argv[]) {
-  xpp::runtime::Runtime rt;
-  return rt.block_on([&]() -> xpp::Promise<int> {
+  auto rt = xpp::runtime::Runtime::new_multi_thread();
+  return rt->block_on([&]() -> xpp::Promise<int> {
     return xpp::main(argc, argv);
   });
 }

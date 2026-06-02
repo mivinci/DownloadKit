@@ -16,7 +16,7 @@ using namespace xpp::net;
 class DnsTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_rt = new runtime::Runtime(2);
+    m_rt = runtime::Runtime::new_multi_thread(2).into_raw();
   }
   void TearDown() override {
     delete m_rt;

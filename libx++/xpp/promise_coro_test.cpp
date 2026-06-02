@@ -13,7 +13,7 @@
 #endif
 
 #include <gtest/gtest.h>
-#include <xpp/runtime.h>
+#include <xpp/runtime/runtime.h>
 
 extern "C" {
 #include <x/base/event.h>
@@ -26,16 +26,19 @@ extern "C" {
 class PromiseCoroTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_loop  = xEventLoopCreate();
-    m_guard = new xpp::EnterGuard(nullptr, nullptr, m_loop);
+    m_rt = xpp::runtime::Runtime::new_multi_thread(1).into_raw();
   }
   void TearDown() override {
-    delete m_guard;
-    xEventLoopDestroy(m_loop);
+    delete m_rt;
   }
 
-  xEventLoop       m_loop;
-  xpp::EnterGuard *m_guard;
+  // Drive a coroutine promise to completion (blocking drive now lives in
+  // Runtime::block_on; Promise::wait() was removed).
+  template <class T> T wait(xpp::Promise<T> p) {
+    return m_rt->block_on(std::move(p));
+  }
+
+  xpp::runtime::Runtime *m_rt;
 };
 
 /* ── Awaitable protocol tests ─────────────────────────────────────── */
@@ -44,7 +47,7 @@ TEST_F(PromiseCoroTest, AwaitReadyAlwaysFalse) {
   // operator co_await returns an Awaiter; verify it exists and works
   // by doing a simple co_await on a resolved promise.
   auto coro = [&]() -> xpp::Promise<int> { co_return co_await xpp::Promise<int>::resolve(42); }();
-  EXPECT_EQ(coro.wait(*m_guard), 42);
+  EXPECT_EQ(wait(std::move(coro)), 42);
 }
 
 /* ── co_await on resolved promises ────────────────────────────────── */
@@ -55,7 +58,7 @@ TEST_F(PromiseCoroTest, CoAwaitResolvedInt) {
     co_return val;
   }();
 
-  EXPECT_EQ(coro.wait(*m_guard), 42);
+  EXPECT_EQ(wait(std::move(coro)), 42);
 }
 
 TEST_F(PromiseCoroTest, CoAwaitResolvedVoid) {
@@ -65,7 +68,7 @@ TEST_F(PromiseCoroTest, CoAwaitResolvedVoid) {
     reached = true;
   }();
 
-  coro.wait(*m_guard);
+  wait(std::move(coro));
   EXPECT_TRUE(reached);
 }
 
@@ -77,7 +80,7 @@ TEST_F(PromiseCoroTest, CoAwaitEval) {
     co_return val;
   }();
 
-  EXPECT_EQ(coro.wait(*m_guard), 99);
+  EXPECT_EQ(wait(std::move(coro)), 99);
 }
 
 /* ── co_await with chained then ───────────────────────────────────── */
@@ -88,7 +91,7 @@ TEST_F(PromiseCoroTest, CoAwaitAfterThen) {
     co_return val;
   }();
 
-  EXPECT_EQ(coro.wait(*m_guard), 30);
+  EXPECT_EQ(wait(std::move(coro)), 30);
 }
 
 /* ── Multiple co_await in one coroutine ───────────────────────────── */
@@ -100,7 +103,7 @@ TEST_F(PromiseCoroTest, MultipleCoAwait) {
     co_return a + b;
   }();
 
-  EXPECT_EQ(coro.wait(*m_guard), 30);
+  EXPECT_EQ(wait(std::move(coro)), 30);
 }
 
 /* ── co_await on Resolver (async resolve) ─────────────────────────── */
@@ -113,7 +116,7 @@ TEST_F(PromiseCoroTest, CoAwaitResolver) {
   }();
 
   pr.resolver.resolve(77);
-  EXPECT_EQ(coro.wait(*m_guard), 77);
+  EXPECT_EQ(wait(std::move(coro)), 77);
 }
 
 /* ── co_await flatten (then returns Promise) ──────────────────────── */
@@ -125,7 +128,7 @@ TEST_F(PromiseCoroTest, CoAwaitFlatten) {
     co_return val;
   }();
 
-  EXPECT_EQ(coro.wait(*m_guard), 20);
+  EXPECT_EQ(wait(std::move(coro)), 20);
 }
 
 /* ── Nested coroutines ────────────────────────────────────────────── */
@@ -139,7 +142,7 @@ TEST_F(PromiseCoroTest, NestedCoroutine) {
     co_return a *b;
   }();
 
-  EXPECT_EQ(outer.wait(*m_guard), 49);
+  EXPECT_EQ(wait(std::move(outer)), 49);
 }
 
 /* ── Coroutine returning void ─────────────────────────────────────── */
@@ -151,7 +154,7 @@ TEST_F(PromiseCoroTest, CoroutineReturnsVoid) {
     side_effect = val;
   }();
 
-  coro.wait(*m_guard);
+  wait(std::move(coro));
   EXPECT_EQ(side_effect, 42);
 }
 

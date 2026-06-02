@@ -9,7 +9,8 @@
  *   ./build/libx++/examples/runtime/xpp_runtime_example
  */
 
-#include <xpp/runtime.h>
+#include <xpp/runtime/runtime.h>
+#include <xpp/task.h>
 #include <cstdio>
 
 // A simple async task that "computes" a value.

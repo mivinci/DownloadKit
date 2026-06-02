@@ -3,14 +3,14 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * scheduled_io_test.cpp - Unit tests for xpp::ScheduledIo.
+ * scheduled_io_test.cpp - Unit tests for xpp::runtime::ScheduledIo.
  *
  * Tests use socketpairs with kqueue edge-triggered events (EV_CLEAR).
  * Each "pump()" call delivers at most one event per direction per fd.
  */
 
 #include <gtest/gtest.h>
-#include <xpp/io/scheduled_io.h>
+#include <xpp/runtime/scheduled_io.h>
 
 #include <atomic>
 #include <thread>
@@ -39,36 +39,38 @@ static xpp::_::Waker test_waker(TestSchedule &sched) {
 class ScheduledIoTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_loop  = xEventLoopCreate();
-    m_guard = new xpp::EnterGuard(nullptr, nullptr, m_loop);
+    m_rt    = xpp::runtime::Runtime::new_multi_thread(1).into_raw();
+    m_loop  = m_rt->main_loop();
+    m_guard = new xpp::runtime::EnterGuard(m_rt->enter());
     ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, m_fds), 0);
   }
 
   void TearDown() override {
     if (m_fds[1] >= 0) ::close(m_fds[1]);
     delete m_guard;
-    xEventLoopDestroy(m_loop);
+    delete m_rt;
   }
 
   void pump() {
     xEventWait(m_loop, 0);
   }
 
-  xEventLoop       m_loop;
-  xpp::EnterGuard *m_guard;
-  int              m_fds[2]{-1, -1};
+  xpp::runtime::Runtime        *m_rt;
+  xEventLoop                    m_loop;
+  xpp::runtime::EnterGuard     *m_guard;
+  int                           m_fds[2]{-1, -1};
 };
 
 /* ── Accessors ─────────────────────────────────────────────────────── */
 
 TEST_F(ScheduledIoTest, FdAccessor) {
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   EXPECT_EQ(sio.fd(), m_fds[0]);
   m_fds[0] = -1;
 }
 
 TEST_F(ScheduledIoTest, LoopAccessor) {
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   EXPECT_EQ(sio.loop(), m_loop);
   m_fds[0] = -1;
 }
@@ -76,7 +78,7 @@ TEST_F(ScheduledIoTest, LoopAccessor) {
 /* ── poll_read ──────────────────────────────────────────────────────── */
 
 TEST_F(ScheduledIoTest, PollReadNotReady) {
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   std::atomic<bool> woke{false};
@@ -89,7 +91,7 @@ TEST_F(ScheduledIoTest, PollReadNotReady) {
 
 TEST_F(ScheduledIoTest, PollReadReadyAfterEvent) {
   // Write data → pump delivers readable event → poll_read returns true.
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   ASSERT_GE(write(m_fds[1], "x", 1), 0);
@@ -106,7 +108,7 @@ TEST_F(ScheduledIoTest, PollReadClearThenNotReady) {
   // After clear_readable, the readiness bit is gone.  poll_read returns
   // false (the kqueue edge has already fired, no new event until more
   // data arrives).
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   ASSERT_GE(write(m_fds[1], "x", 1), 0);
@@ -123,7 +125,7 @@ TEST_F(ScheduledIoTest, PollReadClearThenNotReady) {
 
 TEST_F(ScheduledIoTest, PollReadClearThenNewDataReady) {
   // After clear_readable, writing more data triggers a new edge event.
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   ASSERT_GE(write(m_fds[1], "x", 1), 0);
@@ -146,7 +148,7 @@ TEST_F(ScheduledIoTest, PollReadClearThenNewDataReady) {
 TEST_F(ScheduledIoTest, PollReadWakesPendingPoller) {
   // poll_read stores waker (not ready).  Writing data triggers event
   // callback which wakes the stored waker.
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   std::atomic<bool> woke{false};
@@ -167,7 +169,7 @@ TEST_F(ScheduledIoTest, PollReadWakesPendingPoller) {
 TEST_F(ScheduledIoTest, PollWriteReadyAfterEvent) {
   // kqueue delivers an initial write-readiness event for a fresh socket.
   // After pump, the writable bit is set.
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   pump(); // deliver initial write-readiness event
@@ -180,7 +182,7 @@ TEST_F(ScheduledIoTest, PollWriteReadyAfterEvent) {
 }
 
 TEST_F(ScheduledIoTest, PollWriteClearThenNotReady) {
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   pump();
@@ -196,7 +198,7 @@ TEST_F(ScheduledIoTest, PollWriteClearThenNotReady) {
 
 TEST_F(ScheduledIoTest, PollWriteNotReady) {
   // After clear_writable and no new write events, poll_write is false.
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   sio.clear_writable();
@@ -211,7 +213,7 @@ TEST_F(ScheduledIoTest, PollWriteNotReady) {
 /* ── close_fd ───────────────────────────────────────────────────────── */
 
 TEST_F(ScheduledIoTest, CloseFdSetsClosed) {
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   EXPECT_FALSE(sio.is_closed());
@@ -220,7 +222,7 @@ TEST_F(ScheduledIoTest, CloseFdSetsClosed) {
 }
 
 TEST_F(ScheduledIoTest, CloseFdIdempotent) {
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   sio.close_fd();
@@ -229,7 +231,7 @@ TEST_F(ScheduledIoTest, CloseFdIdempotent) {
 }
 
 TEST_F(ScheduledIoTest, CloseFdWakesPollRead) {
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   std::atomic<bool> woke{false};
@@ -244,7 +246,7 @@ TEST_F(ScheduledIoTest, CloseFdWakesPollRead) {
 }
 
 TEST_F(ScheduledIoTest, CloseFdWakesPollWrite) {
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   sio.clear_writable();
@@ -265,7 +267,7 @@ TEST_F(ScheduledIoTest, CloseFdWakesPollWrite) {
 TEST_F(ScheduledIoTest, ConcurrentPollAndEvent) {
   // Thread A polls, thread B writes + pumps.  The poller should see
   // readiness via the first check or the double-check under lock.
-  xpp::ScheduledIo sio(m_fds[0]);
+  xpp::runtime::ScheduledIo sio(m_fds[0]);
   m_fds[0] = -1;
 
   std::atomic<bool> poll_result{false};

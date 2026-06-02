@@ -10,7 +10,7 @@
  */
 
 #include <xpp/net/udp.h>
-#include <xpp/runtime.h>
+#include <xpp/runtime/runtime.h>
 #include <gtest/gtest.h>
 
 #include <cstring>
@@ -23,9 +23,9 @@ using namespace xpp::net;
 
 class UdpStressTest : public ::testing::Test {
 protected:
-  void SetUp() override { m_rt = new Runtime(4); }
+  void SetUp() override { m_rt = runtime::Runtime::new_multi_thread(4).into_raw(); }
   void TearDown() override { delete m_rt; }
-  Runtime *m_rt;
+  runtime::Runtime *m_rt;
 };
 
 /* ── High-volume sequential datagrams ──────────────────────────────── */
@@ -54,7 +54,7 @@ TEST_F(UdpStressTest, ThousandDatagrams) {
   int received = 0;
   for (int i = 0; i < N; ++i) {
     char buf[64];
-    auto r = b.recv_from(Span<char>(buf, sizeof(buf))).wait(guard);
+    auto r = m_rt->block_on(b.recv_from(Span<char>(buf, sizeof(buf))));
     if (r.n > 0) received++;
   }
   EXPECT_EQ(received, N);
@@ -86,7 +86,7 @@ TEST_F(UdpStressTest, LargeDatagrams) {
   int received = 0;
   for (int i = 0; i < N; ++i) {
     char buf[SIZE + 64];
-    auto r = b.recv_from(Span<char>(buf, sizeof(buf))).wait(guard);
+    auto r = m_rt->block_on(b.recv_from(Span<char>(buf, sizeof(buf))));
     if (r.n == SIZE) {
       EXPECT_EQ(buf[0], 'A' + (received % 26));
       received++;
@@ -125,7 +125,7 @@ TEST_F(UdpStressTest, MultipleSocketPairs) {
     int received = 0;
     for (int i = 0; i < 100; ++i) {
       char buf[64];
-      auto r = b.recv_from(Span<char>(buf, sizeof(buf))).wait(guard);
+      auto r = m_rt->block_on(b.recv_from(Span<char>(buf, sizeof(buf))));
       if (r.n > 0) received++;
     }
     EXPECT_EQ(received, 100) << "pair " << p;
@@ -175,7 +175,7 @@ TEST_F(UdpStressTest, InterleavedSendRecv) {
   int received = 0;
   for (int i = 0; i < N; ++i) {
     char buf[64];
-    auto r = b.recv_from(Span<char>(buf, sizeof(buf))).wait(guard);
+    auto r = m_rt->block_on(b.recv_from(Span<char>(buf, sizeof(buf))));
     if (r.n > 0) received++;
   }
   EXPECT_EQ(received, N);
@@ -211,7 +211,7 @@ TEST_F(UdpStressTest, MultipleSendersOneReceiver) {
   int received = 0;
   for (int i = 0; i < SENDERS * MSGS; ++i) {
     char buf[64];
-    auto r = b.recv_from(Span<char>(buf, sizeof(buf))).wait(guard);
+    auto r = m_rt->block_on(b.recv_from(Span<char>(buf, sizeof(buf))));
     if (r.n > 0) received++;
   }
   EXPECT_EQ(received, SENDERS * MSGS);
@@ -242,7 +242,7 @@ TEST_F(UdpStressTest, EchoUnderLoad) {
   // Phase 2: B receives all, echoes each back to A
   for (int i = 0; i < N; ++i) {
     char buf[64];
-    auto r = b.recv_from(Span<char>(buf, sizeof(buf))).wait(guard);
+    auto r = m_rt->block_on(b.recv_from(Span<char>(buf, sizeof(buf))));
     EXPECT_GT(r.n, 0);
     // Echo back to A
     struct sockaddr_storage ss;
@@ -255,7 +255,7 @@ TEST_F(UdpStressTest, EchoUnderLoad) {
   int echoed = 0;
   for (int i = 0; i < N; ++i) {
     char buf[64];
-    auto r = a.recv_from(Span<char>(buf, sizeof(buf))).wait(guard);
+    auto r = m_rt->block_on(a.recv_from(Span<char>(buf, sizeof(buf))));
     if (r.n > 0) echoed++;
   }
   EXPECT_EQ(echoed, N);

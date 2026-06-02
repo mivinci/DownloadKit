@@ -34,6 +34,7 @@
 #include <atomic>
 
 namespace xpp {
+namespace sync {
 
 template <class T> class MutexGuard;
 
@@ -210,6 +211,7 @@ template <class T> void Mutex<T>::unlock() {
   }
 }
 
+} // namespace sync
 } // namespace xpp
 
 #endif // XPP_MUTEX_H

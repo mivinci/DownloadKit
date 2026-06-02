@@ -9,7 +9,5 @@
 #include <xpp/promise.h>
 
 namespace xpp {
-namespace _ {
-
-} // namespace _
+namespace _ {} // namespace _
 } // namespace xpp

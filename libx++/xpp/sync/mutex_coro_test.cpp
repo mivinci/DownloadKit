@@ -3,34 +3,38 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * mutex_test.cpp - Tests for async xpp::Mutex<T>.
+ * mutex_test.cpp - Tests for async xpp::sync::Mutex<T>.
  */
 
 #include <xpp/compiler.h>
 
 #if XPP_HAS_COROUTINES
 
-#include <xpp/mutex.h>
-#include <xpp/runtime.h>
 #include <gtest/gtest.h>
+#include <xpp/runtime/runtime.h>
+#include <xpp/sync/mutex.h>
 
 #include <atomic>
 
 class AsyncMutexTest : public ::testing::Test {
 protected:
-  void SetUp() override { m_rt = new xpp::Runtime(4); }
-  void TearDown() override { delete m_rt; }
-  xpp::Runtime *m_rt;
+  void SetUp() override {
+    m_rt = xpp::runtime::Runtime::new_multi_thread(4).into_raw();
+  }
+  void TearDown() override {
+    delete m_rt;
+  }
+  xpp::runtime::Runtime *m_rt;
 };
 
 /* ── Basic lock/unlock ────────────────────────────────────────────── */
 
 TEST_F(AsyncMutexTest, LockUnlock) {
-  xpp::Mutex<int> m(0);
+  xpp::sync::Mutex<int> m(0);
 
   auto coro = [&]() -> xpp::Promise<int> {
     auto guard = co_await m.lock();
-    *guard = 42;
+    *guard     = 42;
     co_return *guard;
   };
 
@@ -40,15 +44,15 @@ TEST_F(AsyncMutexTest, LockUnlock) {
 /* ── try_lock ─────────────────────────────────────────────────────── */
 
 TEST_F(AsyncMutexTest, TryLockSuccess) {
-  xpp::Mutex<int> m(10);
-  auto result = m.try_lock();
+  xpp::sync::Mutex<int> m(10);
+  auto            result = m.try_lock();
   EXPECT_TRUE(result.is_some());
   EXPECT_EQ(*result.unwrap(), 10);
 }
 
 TEST_F(AsyncMutexTest, TryLockContended) {
-  xpp::Mutex<int> m(0);
-  auto guard = m.try_lock();
+  xpp::sync::Mutex<int> m(0);
+  auto            guard = m.try_lock();
   EXPECT_TRUE(guard.is_some());
 
   // While held, try_lock should fail.
@@ -59,13 +63,13 @@ TEST_F(AsyncMutexTest, TryLockContended) {
 /* ── Mutual exclusion under concurrency ───────────────────────────── */
 
 TEST_F(AsyncMutexTest, MutualExclusion) {
-  xpp::Mutex<int> m(0);
-  const int N = 100;
+  xpp::sync::Mutex<int> m(0);
+  const int       N = 100;
 
   auto increment = [&]() -> xpp::Promise<void> {
     auto guard = co_await m.lock();
-    int val = *guard;
-    co_await xpp::yield();  // simulate some work / yield point
+    int  val   = *guard;
+    co_await xpp::yield(); // simulate some work / yield point
     *guard = val + 1;
   };
 
@@ -89,17 +93,17 @@ TEST_F(AsyncMutexTest, MutualExclusion) {
 /* ── Guard drop releases lock ─────────────────────────────────────── */
 
 TEST_F(AsyncMutexTest, GuardDropReleasesLock) {
-  xpp::Mutex<int> m(0);
+  xpp::sync::Mutex<int> m(0);
 
   auto coro = [&]() -> xpp::Promise<void> {
     {
       auto guard = co_await m.lock();
-      *guard = 1;
+      *guard     = 1;
     } // guard dropped — lock released
 
     {
       auto guard = co_await m.lock();
-      *guard = 2;
+      *guard     = 2;
     }
   };
 
@@ -113,12 +117,12 @@ TEST_F(AsyncMutexTest, GuardDropReleasesLock) {
 /* ── FIFO ordering ────────────────────────────────────────────────── */
 
 TEST_F(AsyncMutexTest, FIFOOrdering) {
-  xpp::Mutex<int> m(0);
+  xpp::sync::Mutex<int>  m(0);
   std::atomic<int> order{0};
 
   auto writer = [&](int id) -> xpp::Promise<void> {
     auto guard = co_await m.lock();
-    *guard = id;
+    *guard     = id;
     // Record order of acquisition.
     order.fetch_add(1, std::memory_order_relaxed);
   };
@@ -132,7 +136,7 @@ TEST_F(AsyncMutexTest, FIFOOrdering) {
     auto h3 = m_rt->spawn([&]() -> xpp::Promise<void> { return writer(3); });
 
     // Release lock — waiters should be served.
-    guard = xpp::MutexGuard<int>{};
+    guard = xpp::sync::MutexGuard<int>{};
 
     co_await h1;
     co_await h2;

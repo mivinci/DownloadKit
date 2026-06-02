@@ -3,14 +3,15 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * runtime_test.cpp - C++11-compatible unit tests for xpp::Runtime.
+ * runtime_test.cpp - C++11-compatible unit tests for xpp::runtime::Runtime.
  *
  * These tests use only then()/resolve()/eval() — no coroutines.
  * Coroutine-based tests (spawn, co_await) live in runtime_coro_test.cpp.
  */
 
 #include <gtest/gtest.h>
-#include <xpp/runtime.h>
+#include <xpp/runtime/runtime.h>
+#include <xpp/task.h>
 
 #include <atomic>
 #include <thread>
@@ -20,12 +21,12 @@
 class RuntimeTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_rt = new xpp::Runtime(2);
+    m_rt = xpp::runtime::Runtime::new_multi_thread(2).into_raw();
   }
   void TearDown() override {
     delete m_rt;
   }
-  xpp::Runtime *m_rt;
+  xpp::runtime::Runtime *m_rt;
 };
 
 /* ── block_on with resolved values ────────────────────────────────── */
@@ -97,7 +98,7 @@ TEST_F(RuntimeTest, BlockOnThenReturnsPromise) {
 
 TEST_F(RuntimeTest, CurrentOutsideRuntime) {
   // Outside block_on, no runtime is active on this thread.
-  EXPECT_EQ(xpp::Runtime::current(), nullptr);
+  EXPECT_EQ(xpp::runtime::Runtime::current(), nullptr);
 }
 
 /* ── spawn_blocking ───────────────────────────────────────────────── */

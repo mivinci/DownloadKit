@@ -18,81 +18,89 @@ if(GTest_FOUND)
   return()
 endif()
 
-# ---- Method 1: Try CMake Config mode ----
-find_package(GTest CONFIG QUIET)
-if(GTest_FOUND)
-  message(STATUS "FindGTest: Found GTest via CMake Config mode")
-  return()
-endif()
+# Under AddressSanitizer a prebuilt system GTest (e.g. Homebrew's
+# libgtest) is *not* instrumented. Linking it into instrumented test
+# binaries makes libc++'s std::vector ASan container annotations
+# inconsistent, producing false-positive container-overflow reports
+# during gtest's static test registration (before main()). Skip the
+# system search and build gtest from source so it is instrumented
+# together with the tests. (Mirrors what CI does on hosts without a
+# system gtest.)
+if(NOT MOO_ENABLE_ASAN)
+  # ---- Method 1: Try CMake Config mode ----
+  find_package(GTest CONFIG QUIET)
+  if(GTest_FOUND)
+    message(STATUS "FindGTest: Found GTest via CMake Config mode")
+    return()
+  endif()
 
-# ---- Method 2: Try pkg-config ----
-find_package(PkgConfig QUIET)
-if(PkgConfig_FOUND)
-  pkg_check_modules(_GTEST QUIET gtest)
-  if(_GTEST_FOUND)
-    set(GTest_INCLUDE_DIRS ${_GTEST_INCLUDE_DIRS})
-    set(GTest_LIBRARIES    ${_GTEST_LIBRARIES})
+  # ---- Method 2: Try pkg-config ----
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(_GTEST QUIET gtest)
+    if(_GTEST_FOUND)
+      set(GTest_INCLUDE_DIRS ${_GTEST_INCLUDE_DIRS})
+      set(GTest_LIBRARIES    ${_GTEST_LIBRARIES})
 
-    pkg_check_modules(_GTEST_MAIN QUIET gtest_main)
-    if(_GTEST_MAIN_FOUND)
-      set(GTest_MAIN_LIBRARIES ${_GTEST_MAIN_LIBRARIES})
+      pkg_check_modules(_GTEST_MAIN QUIET gtest_main)
+      if(_GTEST_MAIN_FOUND)
+        set(GTest_MAIN_LIBRARIES ${_GTEST_MAIN_LIBRARIES})
+      endif()
     endif()
   endif()
-endif()
 
-# ---- Method 3: Manual search in common paths ----
-if(NOT GTest_INCLUDE_DIRS)
-  find_path(GTest_INCLUDE_DIRS
-    NAMES gtest/gtest.h
-    PATHS
-      /usr/local/include
-      /usr/include
-      /opt/homebrew/include
-      $ENV{GTEST_ROOT}/include
-    NO_DEFAULT_PATH
-  )
+  # ---- Method 3: Manual search in common paths ----
   if(NOT GTest_INCLUDE_DIRS)
-    find_path(GTest_INCLUDE_DIRS NAMES gtest/gtest.h)
+    find_path(GTest_INCLUDE_DIRS
+      NAMES gtest/gtest.h
+      PATHS
+        /usr/local/include
+        /usr/include
+        /opt/homebrew/include
+        $ENV{GTEST_ROOT}/include
+      NO_DEFAULT_PATH
+    )
+    if(NOT GTest_INCLUDE_DIRS)
+      find_path(GTest_INCLUDE_DIRS NAMES gtest/gtest.h)
+    endif()
   endif()
-endif()
 
-if(NOT GTest_LIBRARIES)
-  find_library(GTest_LIBRARIES
-    NAMES gtest
-    PATHS
-      /usr/local/lib
-      /usr/lib
-      /opt/homebrew/lib
-      $ENV{GTEST_ROOT}/lib
-    NO_DEFAULT_PATH
-  )
   if(NOT GTest_LIBRARIES)
-    find_library(GTest_LIBRARIES NAMES gtest)
+    find_library(GTest_LIBRARIES
+      NAMES gtest
+      PATHS
+        /usr/local/lib
+        /usr/lib
+        /opt/homebrew/lib
+        $ENV{GTEST_ROOT}/lib
+      NO_DEFAULT_PATH
+    )
+    if(NOT GTest_LIBRARIES)
+      find_library(GTest_LIBRARIES NAMES gtest)
+    endif()
   endif()
-endif()
 
-if(NOT GTest_MAIN_LIBRARIES)
-  find_library(GTest_MAIN_LIBRARIES
-    NAMES gtest_main
-    PATHS
-      /usr/local/lib
-      /usr/lib
-      /opt/homebrew/lib
-      $ENV{GTEST_ROOT}/lib
-    NO_DEFAULT_PATH
-  )
   if(NOT GTest_MAIN_LIBRARIES)
-    find_library(GTest_MAIN_LIBRARIES NAMES gtest_main)
+    find_library(GTest_MAIN_LIBRARIES
+      NAMES gtest_main
+      PATHS
+        /usr/local/lib
+        /usr/lib
+        /opt/homebrew/lib
+        $ENV{GTEST_ROOT}/lib
+      NO_DEFAULT_PATH
+    )
+    if(NOT GTest_MAIN_LIBRARIES)
+      find_library(GTest_MAIN_LIBRARIES NAMES gtest_main)
+    endif()
   endif()
-endif()
 
-# ---- Validate results ----
-include(FindPackageHandleStandardArgs)
-
-if(GTest_INCLUDE_DIRS AND GTest_LIBRARIES)
-  find_package_handle_standard_args(GTest
-    REQUIRED_VARS GTest_INCLUDE_DIRS GTest_LIBRARIES
-  )
+  # ---- Validate results ----
+  if(GTest_INCLUDE_DIRS AND GTest_LIBRARIES)
+    find_package_handle_standard_args(GTest
+      REQUIRED_VARS GTest_INCLUDE_DIRS GTest_LIBRARIES
+    )
+  endif()
 endif()
 
 # ---- Create IMPORTED targets if found on system ----

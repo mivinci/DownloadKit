@@ -42,6 +42,21 @@ class Runtime;
 namespace _ {
 class SchedulerHandle; // level-2 flavor-dispatch handle (scheduler.h)
 class Worker;          // multi-thread worker (multi_thread_scheduler.h)
+
+/**
+ * @brief Thread-local state owned by the scheduler while it drives this
+ *        thread: the running Worker (if any) and the event loop that
+ *        serves as its I/O driver + park.
+ *
+ * Mirrors Tokio's scheduler::Context, which runtime::context::Context
+ * holds as a scoped slot. Grouping these here keeps the scheduler's
+ * per-thread fields together and distinct from the runtime-level ones
+ * (the active Runtime and SchedulerHandle).
+ */
+struct SchedulerContext {
+  Worker    *worker{nullptr};
+  xEventLoop loop{nullptr};
+};
 } // namespace _
 
 enum class TryCurrentError {
@@ -58,12 +73,17 @@ public:
 
   /** @brief Running worker, or nullptr when not on a worker thread. */
   _::Worker *worker() const noexcept {
-    return m_worker;
+    return m_scheduler.worker;
   }
 
   /** @brief Event loop (driver + park) bound to this thread. */
   xEventLoop loop() const noexcept {
-    return m_loop;
+    return m_scheduler.loop;
+  }
+
+  /** @brief The scheduler's per-thread context (worker + loop). */
+  const _::SchedulerContext &scheduler() const noexcept {
+    return m_scheduler;
   }
 
   /** @brief The Runtime active on this thread, or nullptr. */
@@ -81,8 +101,7 @@ private:
   friend class SetContextGuard;
 
   Option<_::SchedulerHandle &> m_schedule_handle;
-  _::Worker                   *m_worker{nullptr};
-  xEventLoop                   m_loop{nullptr};
+  _::SchedulerContext          m_scheduler;
   Runtime                     *m_runtime{nullptr};
 };
 
@@ -100,7 +119,7 @@ public:
 
   /** @brief Movable: the source is disarmed so only one guard restores. */
   SetContextGuard(SetContextGuard &&o) noexcept
-      : m_prev_sched(o.m_prev_sched), m_prev_worker(o.m_prev_worker), m_prev_loop(o.m_prev_loop),
+      : m_prev_sched(o.m_prev_sched), m_prev_scheduler(o.m_prev_scheduler),
         m_prev_runtime(o.m_prev_runtime), m_armed(o.m_armed) {
     o.m_armed = false;
   }
@@ -111,8 +130,7 @@ public:
 
 private:
   Option<_::SchedulerHandle &> m_prev_sched;
-  _::Worker                   *m_prev_worker;
-  xEventLoop                   m_prev_loop;
+  _::SchedulerContext          m_prev_scheduler;
   Runtime                     *m_prev_runtime;
   bool                         m_armed{true};
 };

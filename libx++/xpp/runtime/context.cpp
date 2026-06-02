@@ -27,24 +27,22 @@ Context &Context::current() { return tl_context; }
 
 SetContextGuard::SetContextGuard(_::SchedulerHandle *sched, _::Worker *worker, xEventLoop loop,
                                  Runtime *rt) {
-  Context &c      = tl_context;
-  m_prev_sched    = c.m_schedule_handle;
-  m_prev_worker   = c.m_worker;
-  m_prev_loop     = c.m_loop;
-  m_prev_runtime  = c.m_runtime;
+  Context &c       = tl_context;
+  m_prev_sched     = c.m_schedule_handle;
+  m_prev_scheduler = c.m_scheduler;
+  m_prev_runtime   = c.m_runtime;
   c.m_schedule_handle =
     sched ? Option<_::SchedulerHandle &>(*sched) : Option<_::SchedulerHandle &>(none);
-  c.m_worker  = worker;
-  c.m_loop    = loop;
-  c.m_runtime = rt;
+  c.m_scheduler.worker = worker;
+  c.m_scheduler.loop   = loop;
+  c.m_runtime          = rt;
 }
 
 SetContextGuard::~SetContextGuard() {
   if (!m_armed) return; // moved-from: the moved-to guard owns the restore
   Context &c          = tl_context;
   c.m_schedule_handle = m_prev_sched;
-  c.m_worker          = m_prev_worker;
-  c.m_loop            = m_prev_loop;
+  c.m_scheduler       = m_prev_scheduler;
   c.m_runtime         = m_prev_runtime;
 }
 

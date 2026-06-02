@@ -17,6 +17,7 @@
 #include <xpp/panic.h>
 #include <xpp/variant.h>
 
+#include <type_traits>
 #include <utility>
 
 namespace xpp {
@@ -25,6 +26,19 @@ namespace _ {
 /** Trait: is_option<T>::value is true iff T is Option<U> for some U. */
 template <class T> struct is_option : std::false_type {};
 template <class U> struct is_option<Option<U>> : std::true_type {};
+
+/**
+ * @brief Carriers produced by ok(value) / err(e). They convert
+ *        implicitly to Result<T, E>, deducing the other side from the
+ *        target type (mirroring Rust's Ok(x) / Err(e), spelled lower
+ *        case because Ok/Err are tag types here).
+ */
+template <class T> struct OkResult {
+  T value;
+};
+template <class E> struct ErrResult {
+  E error;
+};
 
 } // namespace _
 
@@ -36,6 +50,11 @@ template <class U> struct is_option<Option<U>> : std::true_type {};
  */
 struct Ok {
   explicit Ok() = default;
+
+  /** @brief ok(value) builds a carrier that converts to Result<T, E>. */
+  template <class T> _::OkResult<typename std::decay<T>::type> operator()(T &&value) const {
+    return _::OkResult<typename std::decay<T>::type>{std::forward<T>(value)};
+  }
 };
 
 /**
@@ -46,6 +65,11 @@ struct Ok {
  */
 struct Err {
   explicit Err() = default;
+
+  /** @brief err(e) builds a carrier that converts to Result<T, E>. */
+  template <class E> _::ErrResult<typename std::decay<E>::type> operator()(E &&error) const {
+    return _::ErrResult<typename std::decay<E>::type>{std::forward<E>(error)};
+  }
 };
 
 constexpr Ok  ok{};
@@ -68,6 +92,10 @@ public:
   /** Construct with Err value. */
   Result(Err, const E &e) : m_data(InPlaceIndex<1>{}, e) {}
   Result(Err, E &&e) : m_data(InPlaceIndex<1>{}, std::move(e)) {}
+
+  /** Implicit construction from an ok(value) / err(e) carrier. */
+  template <class U> Result(_::OkResult<U> c) : m_data(InPlaceIndex<0>{}, std::move(c.value)) {}
+  template <class F> Result(_::ErrResult<F> c) : m_data(InPlaceIndex<1>{}, std::move(c.error)) {}
 
   /** True if this holds an Ok value. */
   bool is_ok() const noexcept {
@@ -419,6 +447,9 @@ public:
   /** Construct with Err value. */
   Result(Err, const E &e) : m_data(e) {}
   Result(Err, E &&e) : m_data(std::move(e)) {}
+
+  /** Implicit construction from an err(e) carrier. */
+  template <class F> Result(_::ErrResult<F> c) : m_data(std::move(c.error)) {}
 
   bool is_ok() const noexcept {
     return m_data.template is<OkSentinel>();

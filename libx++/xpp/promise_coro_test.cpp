@@ -26,7 +26,7 @@ extern "C" {
 class PromiseCoroTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_rt = new xpp::runtime::Runtime(1);
+    m_rt = xpp::runtime::Runtime::new_multi_thread(1).into_raw();
   }
   void TearDown() override {
     delete m_rt;

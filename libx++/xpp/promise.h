@@ -23,6 +23,7 @@
 
 #include <xpp/compiler.h>
 #include <xpp/promise_node.h>
+#include <xpp/result.h>
 
 #include <utility>
 
@@ -38,11 +39,11 @@ namespace xpp {
 
 /* ── Forward declarations ────────────────────────────────────────── */
 
-class EnterGuard;
 template <class T> class Resolver;
 template <class T> struct PromiseAndResolver;
-
-xEventLoop current_event_loop();
+template <class T, typename E> class Result;
+struct Ok;
+struct Err;
 
 /* ── PromiseForResult ────────────────────────────────────────────── */
 
@@ -118,8 +119,6 @@ public:
             class = typename std::enable_if<std::is_same<V, Void>::value>::type, class = void>
   auto then(Func &&func) -> Promise<typename ReducePromise<decltype(std::declval<Func>()())>::Type>;
 
-  T wait(EnterGuard &guard);
-
   Promise<void> discard();
 
 #if XPP_HAS_COROUTINES
@@ -132,8 +131,8 @@ public:
       }
 
       bool await_suspend(std::coroutine_handle<> h) {
-        _::Schedule *sched = new _::CoroWakeSchedule(h, xpp::current_event_loop());
-        _::Waker w(sched, nullptr);
+        _::Schedule *sched = new _::CoroWakeSchedule(h, current_event_loop());
+        _::Waker     w(sched, nullptr);
         if (node->poll(w)) {
           w.wake();
         }
@@ -148,8 +147,6 @@ public:
     return Awaiter{m_node.get()};
   }
 #endif
-
-  /* ── Static factories ───────────────────────────────────────────── */
 
   static Promise resolve(ValueType value) {
     Own<_::PromiseNode<T>> node(new _::ImmediatePromiseNode<T>(std::move(value)));
@@ -279,7 +276,7 @@ template <class T> Promise<void> Promise<T>::discard() {
   return then([](ValueType) {});
 }
 
-/* ── Promise<T>::wait (declared only; defined in runtime.h) ─────── */
+/* ── Blocking drive lives in xpp::runtime::Runtime::block_on ─────── */
 
 /* ── C++20 Coroutine support for Promise<void> ──────────────────── */
 
@@ -337,8 +334,7 @@ template <class T> bool ChainPromiseNode<T>::poll(Waker waker) {
     m_outer = nullptr;
     m_state = Step2;
     return m_inner->poll(waker);
-  case Step2:
-    return m_inner->poll(waker);
+  case Step2: return m_inner->poll(waker);
   }
   XPP_UNREACHABLE();
 }

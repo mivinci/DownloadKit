@@ -8,7 +8,7 @@
  */
 
 #include <xpp/net/tcp.h>
-#include <xpp/runtime.h>
+#include <xpp/runtime/runtime.h>
 #include <gtest/gtest.h>
 
 #include <cstdio>
@@ -19,12 +19,12 @@ using namespace xpp::net;
 class TcpHostnameTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_rt = new Runtime(2);
+    m_rt = new runtime::Runtime(2);
   }
   void TearDown() override {
     delete m_rt;
   }
-  Runtime *m_rt;
+  runtime::Runtime *m_rt;
 };
 
 /* ── TcpListener::bind("host:port") ───────────────────────────────── */

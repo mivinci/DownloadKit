@@ -7,7 +7,7 @@
  */
 
 #include <xpp/net/udp.h>
-#include <xpp/runtime.h>
+#include <xpp/runtime/runtime.h>
 #include <gtest/gtest.h>
 
 #include <cstring>
@@ -20,9 +20,9 @@ using namespace xpp::net;
 
 class UdpSocketTest : public ::testing::Test {
 protected:
-  void SetUp() override { m_rt = new Runtime(2); }
+  void SetUp() override { m_rt = new runtime::Runtime(2); }
   void TearDown() override { delete m_rt; }
-  Runtime *m_rt;
+  runtime::Runtime *m_rt;
 };
 
 /* ── bind + local_addr ─────────────────────────────────────────────── */
@@ -77,10 +77,10 @@ TEST_F(UdpSocketTest, SendToRecvFrom) {
   const char *msg = "hello";
   char        recv_buf[64];
 
-  auto sent = a.send_to(Span<const char>(msg, 5), b.local_addr()).wait(guard);
+  auto sent = m_rt->block_on(a.send_to(Span<const char>(msg, 5), b.local_addr()));
   EXPECT_EQ(sent, 5);
 
-  auto result = b.recv_from(Span<char>(recv_buf, sizeof(recv_buf))).wait(guard);
+  auto result = m_rt->block_on(b.recv_from(Span<char>(recv_buf, sizeof(recv_buf))));
   EXPECT_EQ(result.n, 5);
   EXPECT_EQ(memcmp(recv_buf, "hello", 5), 0);
   EXPECT_EQ(result.addr.port(), a.local_addr().port());
@@ -96,10 +96,10 @@ TEST_F(UdpSocketTest, SendToRecvFromLargeDatagram) {
   char send_buf[1024];
   memset(send_buf, 'A', sizeof(send_buf));
 
-  a.send_to(Span<const char>(send_buf, sizeof(send_buf)), b.local_addr()).wait(guard);
+  m_rt->block_on(a.send_to(Span<const char>(send_buf, sizeof(send_buf)), b.local_addr()));
 
   char recv_buf[2048];
-  auto result = b.recv_from(Span<char>(recv_buf, sizeof(recv_buf))).wait(guard);
+  auto result = m_rt->block_on(b.recv_from(Span<char>(recv_buf, sizeof(recv_buf))));
   EXPECT_EQ(result.n, 1024);
   EXPECT_EQ(memcmp(recv_buf, send_buf, 1024), 0);
 }
@@ -118,9 +118,9 @@ TEST_F(UdpSocketTest, ConnectSendRecv) {
   const char *msg = "ping";
   char        recv_buf[64];
 
-  a.send(Span<const char>(msg, 4)).wait(guard);
+  m_rt->block_on(a.send(Span<const char>(msg, 4)));
 
-  auto result = b.recv_from(Span<char>(recv_buf, sizeof(recv_buf))).wait(guard);
+  auto result = m_rt->block_on(b.recv_from(Span<char>(recv_buf, sizeof(recv_buf))));
   EXPECT_EQ(result.n, 4);
   EXPECT_EQ(memcmp(recv_buf, "ping", 4), 0);
 }
@@ -139,14 +139,14 @@ TEST_F(UdpSocketTest, EchoRoundTrip) {
   char        recv_buf[64];
 
   // A → B
-  a.send_to(Span<const char>(msg, msg_len), b.local_addr()).wait(guard);
-  auto r1 = b.recv_from(Span<char>(recv_buf, sizeof(recv_buf))).wait(guard);
+  m_rt->block_on(a.send_to(Span<const char>(msg, msg_len), b.local_addr()));
+  auto r1 = m_rt->block_on(b.recv_from(Span<char>(recv_buf, sizeof(recv_buf))));
   EXPECT_EQ(r1.n, static_cast<ssize_t>(msg_len));
   EXPECT_EQ(memcmp(recv_buf, msg, msg_len), 0);
 
   // B → A (echo)
-  b.send_to(Span<const char>(recv_buf, r1.n), r1.addr).wait(guard);
-  auto r2 = a.recv_from(Span<char>(recv_buf, sizeof(recv_buf))).wait(guard);
+  m_rt->block_on(b.send_to(Span<const char>(recv_buf, r1.n), r1.addr));
+  auto r2 = m_rt->block_on(a.recv_from(Span<char>(recv_buf, sizeof(recv_buf))));
   EXPECT_EQ(r2.n, static_cast<ssize_t>(msg_len));
   EXPECT_EQ(memcmp(recv_buf, msg, msg_len), 0);
   EXPECT_EQ(r2.addr.port(), b.local_addr().port());
@@ -164,12 +164,12 @@ TEST_F(UdpSocketTest, MultipleDatagrams) {
   for (int i = 0; i < 5; ++i) {
     char msg[16];
     int  len = snprintf(msg, sizeof(msg), "msg-%d", i);
-    a.send_to(Span<const char>(msg, len), b.local_addr()).wait(guard);
+    m_rt->block_on(a.send_to(Span<const char>(msg, len), b.local_addr()));
   }
 
   for (int i = 0; i < 5; ++i) {
     char recv_buf[64];
-    auto result = b.recv_from(Span<char>(recv_buf, sizeof(recv_buf))).wait(guard);
+    auto result = m_rt->block_on(b.recv_from(Span<char>(recv_buf, sizeof(recv_buf))));
     char expected[16];
     int  expected_len = snprintf(expected, sizeof(expected), "msg-%d", i);
     EXPECT_EQ(result.n, expected_len);

@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * runtime_test.cpp - Unit tests for xpp::Runtime
+ * runtime_test.cpp - Unit tests for xpp::runtime::Runtime
  */
 
 #include <xpp/compiler.h>
@@ -11,7 +11,8 @@
 #if XPP_HAS_COROUTINES
 
 #include <gtest/gtest.h>
-#include <xpp/runtime.h>
+#include <xpp/runtime/runtime.h>
+#include <xpp/task.h>
 
 #include <atomic>
 #include <string>
@@ -23,12 +24,12 @@
 class RuntimeTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_rt = new xpp::Runtime(2); // 2 workers
+    m_rt = new xpp::runtime::Runtime(2); // 2 workers
   }
   void TearDown() override {
     delete m_rt;
   }
-  xpp::Runtime *m_rt;
+  xpp::runtime::Runtime *m_rt;
 };
 
 /* ── block_on ─────────────────────────────────────────────────────── */
@@ -197,7 +198,7 @@ TEST_F(RuntimeTest, SpawnBlockingDoesNotStarveWorkers) {
   // 1-worker runtime + many concurrent spawn_blocking tasks.  Without the
   // blocking-pool headroom, the single worker_main would occupy m_group's
   // only slot and the blocking submissions would dead-lock.
-  xpp::Runtime     tiny(1);
+  xpp::runtime::Runtime     tiny(1);
   constexpr int    kN = 8;
   std::atomic<int> counter{0};
   auto             orchestrate = [&]() -> xpp::Promise<int> {
@@ -217,6 +218,169 @@ TEST_F(RuntimeTest, SpawnBlockingDoesNotStarveWorkers) {
   int sum = tiny.block_on(orchestrate);
   EXPECT_EQ(counter.load(), kN);
   EXPECT_EQ(sum, kN * (kN - 1) / 2);
+}
+
+/* ── Current-thread runtime ───────────────────────────────────────── */
+
+class CurrentThreadRuntimeTest : public ::testing::Test {
+protected:
+  void SetUp() override {
+    m_rt = new xpp::runtime::Runtime(xpp::runtime::RuntimeFlavor::CurrentThread);
+  }
+  void TearDown() override {
+    delete m_rt;
+  }
+  xpp::runtime::Runtime *m_rt;
+};
+
+TEST_F(CurrentThreadRuntimeTest, Flavor) {
+  EXPECT_EQ(m_rt->flavor(), xpp::runtime::RuntimeFlavor::CurrentThread);
+}
+
+TEST_F(CurrentThreadRuntimeTest, BlockOnResolved) {
+  EXPECT_EQ(m_rt->block_on(xpp::Promise<int>::resolve(42)), 42);
+}
+
+TEST_F(CurrentThreadRuntimeTest, BlockOnVoid) {
+  m_rt->block_on(xpp::Promise<void>::resolve());
+}
+
+TEST_F(CurrentThreadRuntimeTest, BlockOnCoroutine) {
+  auto coro = []() -> xpp::Promise<int> { co_return 99; };
+  EXPECT_EQ(m_rt->block_on(coro()), 99);
+}
+
+TEST_F(CurrentThreadRuntimeTest, SpawnAndAwait) {
+  auto orchestrate = [&]() -> xpp::Promise<int> {
+    auto p      = m_rt->spawn([]() -> xpp::Promise<int> { co_return 7; });
+    int  result = co_await p;
+    co_return result;
+  };
+  EXPECT_EQ(m_rt->block_on(orchestrate()), 7);
+}
+
+TEST_F(CurrentThreadRuntimeTest, SpawnMultiple) {
+  auto orchestrate = [&]() -> xpp::Promise<int> {
+    auto h1 = m_rt->spawn([]() -> xpp::Promise<int> { co_return 9; });
+    auto h2 = m_rt->spawn([]() -> xpp::Promise<int> { co_return 16; });
+    int  a  = co_await h1;
+    int  b  = co_await h2;
+    co_return a + b;
+  };
+  EXPECT_EQ(m_rt->block_on(orchestrate()), 25);
+}
+
+TEST_F(CurrentThreadRuntimeTest, SpawnRunsOnCallingThread) {
+  // Unlike multi-thread, current-thread tasks run on the block_on thread.
+  auto main_tid = std::this_thread::get_id();
+  auto orchestrate = [&]() -> xpp::Promise<bool> {
+    auto p = m_rt->spawn(
+      [&]() -> xpp::Promise<bool> { co_return std::this_thread::get_id() == main_tid; });
+    co_return co_await p;
+  };
+  EXPECT_TRUE(m_rt->block_on(orchestrate()));
+}
+
+TEST_F(CurrentThreadRuntimeTest, SpawnVoidDetach) {
+  std::atomic<int> counter{0};
+  auto             orchestrate = [&]() -> xpp::Promise<void> {
+    // Drop the handle: task is detached but still runs to completion
+    // (it is drained by the current-thread loop before block_on returns).
+    m_rt->spawn([&]() -> xpp::Promise<void> {
+      counter.fetch_add(1);
+      co_return;
+    });
+    co_return;
+  };
+  m_rt->block_on(orchestrate());
+  // Give the detached task a drive turn.
+  m_rt->block_on([]() -> xpp::Promise<void> { co_return; });
+  EXPECT_EQ(counter.load(), 1);
+}
+
+TEST_F(CurrentThreadRuntimeTest, SpawnBlockingAwait) {
+  auto orchestrate = [&]() -> xpp::Promise<int> {
+    int v = co_await xpp::spawn_blocking([] { return 21; });
+    co_return v * 2;
+  };
+  EXPECT_EQ(m_rt->block_on(orchestrate), 42);
+}
+
+TEST_F(CurrentThreadRuntimeTest, SpawnBlockingRunsOffThread) {
+  auto main_tid = std::this_thread::get_id();
+  std::thread::id blocking_tid{};
+  auto            orchestrate = [&]() -> xpp::Promise<void> {
+    co_await xpp::spawn_blocking([&] { blocking_tid = std::this_thread::get_id(); });
+    co_return;
+  };
+  m_rt->block_on(orchestrate);
+  EXPECT_NE(blocking_tid, std::thread::id{});
+  EXPECT_NE(blocking_tid, main_tid);
+}
+
+/* ── Builder ──────────────────────────────────────────────────────── */
+
+TEST(RuntimeBuilderTest, MultiThreadBuildAndSpawn) {
+  auto rt = xpp::runtime::Builder::new_multi_thread()
+              .worker_threads(2)
+              .max_blocking_threads(64)
+              .enable_all()
+              .build();
+  EXPECT_EQ(rt->flavor(), xpp::runtime::RuntimeFlavor::MultiThread);
+
+  auto orchestrate = [&]() -> xpp::Promise<int> {
+    auto p = rt->spawn([]() -> xpp::Promise<int> { co_return 19; });
+    co_return co_await p;
+  };
+  EXPECT_EQ(rt->block_on(orchestrate()), 19);
+}
+
+TEST(RuntimeBuilderTest, CurrentThreadBuildAndSpawn) {
+  auto rt = xpp::runtime::Builder::new_current_thread().thread_name("ct").build();
+  EXPECT_EQ(rt->flavor(), xpp::runtime::RuntimeFlavor::CurrentThread);
+
+  auto orchestrate = [&]() -> xpp::Promise<int> {
+    int v = co_await xpp::spawn_blocking([] { return 11; });
+    auto p = rt->spawn([]() -> xpp::Promise<int> { co_return 31; });
+    co_return v + co_await p;
+  };
+  EXPECT_EQ(rt->block_on(orchestrate), 42);
+}
+
+TEST(RuntimeBuilderTest, DefaultWorkerThreads) {
+  // 0 worker_threads => hardware concurrency; just verify it runs.
+  auto rt = xpp::runtime::Builder::new_multi_thread().build();
+  EXPECT_EQ(rt->block_on(xpp::Promise<int>::resolve(5)), 5);
+}
+
+/* ── enter() ──────────────────────────────────────────────────────── */
+
+TEST(RuntimeEnterTest, SpawnWithinEnterScope) {
+  xpp::runtime::Runtime rt(2);
+  std::atomic<int>      n{0};
+  {
+    auto guard = rt.enter(); // guard returned by value
+    EXPECT_EQ(xpp::runtime::Runtime::current(), &rt);
+    // Free xpp::spawn relies on the entered context; the detached task
+    // runs on a worker even though nobody is driving block_on here.
+    xpp::spawn([&]() -> xpp::Promise<void> {
+      n.fetch_add(1);
+      co_return;
+    });
+  }
+  // Context restored on guard drop.
+  EXPECT_EQ(xpp::runtime::Runtime::current(), nullptr);
+  for (int i = 0; i < 2000 && n.load() == 0; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  EXPECT_EQ(n.load(), 1);
+}
+
+TEST(RuntimeEnterTest, GuardIsMovable) {
+  xpp::runtime::Runtime rt(1);
+  auto                  g  = rt.enter();
+  auto                  g2 = std::move(g); // move must not double-restore / dangle
+  EXPECT_EQ(xpp::runtime::Runtime::current(), &rt);
+  (void)g2;
 }
 
 #else

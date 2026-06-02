@@ -39,8 +39,7 @@ template <size_t I, class T> struct TypeIndex<I, T> {
 // `PointerCast` carries the constness from Storage through to T so
 // reinterpret_cast<T*>(&storage) doesn't silently strip const when
 // the dispatcher is called from a const context (e.g. copy_from).
-template <class T, class Storage>
-struct PointerCast {
+template <class T, class Storage> struct PointerCast {
   using Type = typename std::conditional<std::is_const<Storage>::value, const T *, T *>::type;
 };
 
@@ -288,12 +287,12 @@ private:
 
   void copy_from(const Variant &o) {
     _::VisitByIndex<Tuple, k_count>::run(o.m_index, o.m_storage,
-                                        _::CopyConstructVisitor<Storage>{&m_storage});
+                                         _::CopyConstructVisitor<Storage>{&m_storage});
   }
 
   void move_from(Variant &&o) {
     _::VisitByIndex<Tuple, k_count>::run(o.m_index, o.m_storage,
-                                        _::MoveConstructVisitor<Storage>{&m_storage});
+                                         _::MoveConstructVisitor<Storage>{&m_storage});
   }
 
   using Storage = typename std::aligned_union<0, Types...>::type;

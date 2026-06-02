@@ -3,12 +3,13 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * dns.cpp - Async DNS resolution via spawn_blocking.
+ * dns.cpp - Async DNS resolution via xpp::spawn_blocking.
  */
 
 #include <xpp/net/dns.h>
 
-#include <xpp/runtime.h>
+#include <xpp/runtime/runtime.h>
+#include <xpp/task.h>
 
 #include <cstring>
 #include <netdb.h>
@@ -79,7 +80,7 @@ Promise<Result<Vec<SocketAddr>, io::Error>> lookup_host(String addr) {
   // The blocking lambda captures `addr` by move.  Parsing happens on
   // the blocking-pool thread to keep the worker thread off the hook
   // for even the tiny strncmp/memchr cost.
-  return spawn_blocking([addr = std::move(addr)]() -> Result<Vec<SocketAddr>, io::Error> {
+  return xpp::spawn_blocking([addr = std::move(addr)]() -> Result<Vec<SocketAddr>, io::Error> {
     // NI_MAXHOST (1025) covers any RFC-compliant DNS name (max 253) and
     // common platform service-style hostnames.  Port string fits in 8
     // chars (max 5 digits + NUL).

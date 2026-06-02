@@ -3,7 +3,7 @@
  * Use of this source code is governed by a MIT license that can be
  * found in the LICENSE file.
  *
- * runtime_bench.cpp - Benchmarks for xpp::Runtime.
+ * runtime_bench.cpp - Benchmarks for xpp::runtime::Runtime.
  *
  * Measures:
  *   - spawn + await overhead (single task round-trip)
@@ -16,7 +16,7 @@
 
 #if XPP_HAS_COROUTINES
 
-#include <xpp/runtime.h>
+#include <xpp/runtime/runtime.h>
 #include <benchmark/benchmark.h>
 
 #include <atomic>
@@ -35,7 +35,7 @@ static xpp::Promise<int> yield_task() {
 /* ── BM_BlockOn: baseline block_on overhead ───────────────────────── */
 
 static void BM_BlockOn(benchmark::State &state) {
-  xpp::Runtime rt;
+  xpp::runtime::Runtime rt;
   for (auto _ : state) {
     int v = rt.block_on([]() { return xpp::Promise<int>::resolve(42); });
     benchmark::DoNotOptimize(v);
@@ -46,7 +46,7 @@ BENCHMARK(BM_BlockOn);
 /* ── BM_SpawnOne: single spawn + co_await round-trip ──────────────── */
 
 static void BM_SpawnOne(benchmark::State &state) {
-  xpp::Runtime rt;
+  xpp::runtime::Runtime rt;
   for (auto _ : state) {
     int v = rt.block_on([&]() -> xpp::Promise<int> {
       auto h = rt.spawn(trivial_task);
@@ -60,7 +60,7 @@ BENCHMARK(BM_SpawnOne);
 /* ── BM_SpawnYield: spawn a task that yields (forces event loop turn) */
 
 static void BM_SpawnYield(benchmark::State &state) {
-  xpp::Runtime rt;
+  xpp::runtime::Runtime rt;
   for (auto _ : state) {
     int v = rt.block_on([&]() -> xpp::Promise<int> {
       auto h = rt.spawn(yield_task);
@@ -75,7 +75,7 @@ BENCHMARK(BM_SpawnYield);
 
 static void BM_SpawnMany(benchmark::State &state) {
   const int n = static_cast<int>(state.range(0));
-  xpp::Runtime rt;
+  xpp::runtime::Runtime rt;
 
   for (auto _ : state) {
     int v = rt.block_on([&]() -> xpp::Promise<int> {
@@ -96,7 +96,7 @@ BENCHMARK(BM_SpawnMany)->Arg(10)->Arg(100)->Arg(1000);
 
 static void BM_FanOut(benchmark::State &state) {
   const int n = static_cast<int>(state.range(0));
-  xpp::Runtime rt;
+  xpp::runtime::Runtime rt;
 
   for (auto _ : state) {
     int v = rt.block_on([&]() -> xpp::Promise<int> {
@@ -123,7 +123,7 @@ BENCHMARK(BM_FanOut)->Arg(10)->Arg(100)->Arg(1000);
 
 static void BM_Contention(benchmark::State &state) {
   const int n = static_cast<int>(state.range(0));
-  xpp::Runtime rt;
+  xpp::runtime::Runtime rt;
 
   for (auto _ : state) {
     std::atomic<int> counter{0};
@@ -153,7 +153,7 @@ BENCHMARK(BM_Contention)->Arg(100)->Arg(1000);
 
 static void BM_WorkStealing(benchmark::State &state) {
   const int n = static_cast<int>(state.range(0));
-  xpp::Runtime rt;
+  xpp::runtime::Runtime rt;
 
   for (auto _ : state) {
     auto heavy = []() -> xpp::Promise<int> {

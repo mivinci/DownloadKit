@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 #include <xpp/net/dns.h>
-#include <xpp/runtime.h>
+#include <xpp/runtime/runtime.h>
 
 using namespace xpp;
 using namespace xpp::net;
@@ -16,12 +16,12 @@ using namespace xpp::net;
 class DnsTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_rt = new Runtime(2);
+    m_rt = new runtime::Runtime(2);
   }
   void TearDown() override {
     delete m_rt;
   }
-  Runtime *m_rt;
+  runtime::Runtime *m_rt;
 };
 
 /* ── lookup_host: numeric IPs ─────────────────────────────────────── */
@@ -89,7 +89,7 @@ TEST_F(DnsTest, LookupMalformedUnclosedBracket) {
 TEST_F(DnsTest, LookupRunsOnBlockingPool) {
   // Confirm getaddrinfo doesn't block the calling worker thread —
   // sequential lookups must each complete (each is a separate
-  // spawn_blocking submission to the m_group blocking pool).
+  // runtime::spawn_blocking submission to the m_group blocking pool).
   for (int i = 0; i < 4; ++i) {
     char buf[32];
     std::snprintf(buf, sizeof(buf), "127.0.0.1:%d", 80 + i);

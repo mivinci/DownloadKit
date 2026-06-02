@@ -35,9 +35,16 @@ extern "C" {
 
 namespace xpp {
 
-class Runtime;
-
 template <class T> class Promise;
+
+/**
+ * @brief The event loop bound to the current thread's runtime context.
+ *
+ * Declared here so the contract layer (Promise / co_await) can post
+ * wakeups without depending on any xpp::runtime header. Defined in the
+ * runtime layer (context.cpp), which owns the thread-local Context.
+ */
+xEventLoop current_event_loop();
 
 /* ── ReturnType helper ───────────────────────────────────────────── */
 
@@ -56,8 +63,6 @@ template <class U> struct ReducePromise<Promise<U>> {
 };
 
 namespace _ {
-
-class Worker;
 
 struct SpawnTaskBase;
 
@@ -112,14 +117,14 @@ struct SpawnTaskBase {
   };
 
   enum JoinState : uint8_t {
-    JoinEmpty,    // join_poll hasn't stored a waker yet
-    JoinStored,  // join_poll stored a waker
-    JoinWoken    // wake_join fired before join_poll stored
+    JoinEmpty,  // join_poll hasn't stored a waker yet
+    JoinStored, // join_poll stored a waker
+    JoinWoken   // wake_join fired before join_poll stored
   };
 
-  virtual ~SpawnTaskBase()       = default;
-  virtual bool poll(Waker waker) = 0;
-  virtual void *take_raw()       = 0;
+  virtual ~SpawnTaskBase()        = default;
+  virtual bool  poll(Waker waker) = 0;
+  virtual void *take_raw()        = 0;
 
   /**
    * @brief Called by JoinPromiseNode::poll to check/register for completion.
@@ -129,10 +134,9 @@ struct SpawnTaskBase {
    */
   bool join_poll(Waker waker) {
     if (m_resolved.load(std::memory_order_acquire)) return true;
-    m_join_waker = waker;
+    m_join_waker     = waker;
     uint8_t expected = JoinEmpty;
-    if (!m_join_state.compare_exchange_strong(expected, JoinStored,
-                                              std::memory_order_acq_rel)) {
+    if (!m_join_state.compare_exchange_strong(expected, JoinStored, std::memory_order_acq_rel)) {
       // wake_join() already transitioned to JoinWoken — task is done.
       return true;
     }
@@ -148,8 +152,7 @@ struct SpawnTaskBase {
    */
   void wake_join() {
     uint8_t expected = JoinEmpty;
-    if (m_join_state.compare_exchange_strong(expected, JoinWoken,
-                                             std::memory_order_acq_rel)) {
+    if (m_join_state.compare_exchange_strong(expected, JoinWoken, std::memory_order_acq_rel)) {
       return;
     }
     // expected == JoinStored: waker is ready to fire.
@@ -490,8 +493,7 @@ public:
    */
   void register_waker(Waker waker) {
     uint8_t expected = WAITING;
-    if (m_state.compare_exchange_strong(expected, REGISTERING,
-                                        std::memory_order_acquire,
+    if (m_state.compare_exchange_strong(expected, REGISTERING, std::memory_order_acquire,
                                         std::memory_order_relaxed)) {
       // Acquired the cell — store waker under exclusive access.
       m_waker = std::move(waker);
@@ -577,8 +579,7 @@ public:
   }
 
   void resolve(T &&value) {
-    XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed),
-               "AdapterPromiseNode resolved twice");
+    XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed), "AdapterPromiseNode resolved twice");
     m_val = Option<ValueType>(std::move(value));
     m_resolved.store(true, std::memory_order_release);
     m_waker.wake();
@@ -588,9 +589,9 @@ private:
   // Stored as Option to avoid requiring T to be default-constructible
   // (e.g. Result<T,E>, which has no default ctor).  Populated by
   // resolve(), drained by take().
-  Option<ValueType>  m_val;
-  AtomicWaker        m_waker;
-  std::atomic<bool>  m_resolved{false};
+  Option<ValueType> m_val;
+  AtomicWaker       m_waker;
+  std::atomic<bool> m_resolved{false};
 };
 
 /// AdapterPromiseNode<Void> — same protocol, no value storage.
@@ -615,8 +616,7 @@ public:
   }
 
   void resolve() {
-    XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed),
-               "AdapterPromiseNode resolved twice");
+    XPP_ASSERT(!m_resolved.load(std::memory_order_relaxed), "AdapterPromiseNode resolved twice");
     m_resolved.store(true, std::memory_order_release);
     m_waker.wake();
   }
@@ -639,7 +639,6 @@ public:
 };
 
 } // namespace _
-
 } // namespace xpp
 
 #endif // XPP_PROMISE_NODE_H

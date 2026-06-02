@@ -39,24 +39,26 @@ static xpp::_::Waker test_waker(TestSchedule &sched) {
 class ScheduledIoTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_loop  = xEventLoopCreate();
-    m_guard = new xpp::EnterGuard(nullptr, nullptr, m_loop);
+    m_rt    = new xpp::runtime::Runtime(1);
+    m_loop  = m_rt->main_loop();
+    m_guard = new xpp::runtime::EnterGuard(m_rt->enter());
     ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, m_fds), 0);
   }
 
   void TearDown() override {
     if (m_fds[1] >= 0) ::close(m_fds[1]);
     delete m_guard;
-    xEventLoopDestroy(m_loop);
+    delete m_rt;
   }
 
   void pump() {
     xEventWait(m_loop, 0);
   }
 
-  xEventLoop       m_loop;
-  xpp::EnterGuard *m_guard;
-  int              m_fds[2]{-1, -1};
+  xpp::runtime::Runtime        *m_rt;
+  xEventLoop                    m_loop;
+  xpp::runtime::EnterGuard     *m_guard;
+  int                           m_fds[2]{-1, -1};
 };
 
 /* ── Accessors ─────────────────────────────────────────────────────── */

@@ -154,9 +154,8 @@ Promise<Result<TcpStream, io::Error>> TcpListener::accept() {
         Result<TcpStream, io::Error>(err, io::Error::from_errno(saved)));
     }
     auto peer = SocketAddr::from_sockaddr(reinterpret_cast<struct sockaddr *>(&addr), len);
-    return Promise<Result<TcpStream, io::Error>>::resolve(
-      Result<TcpStream, io::Error>(
-        ok, TcpStream::from_fd(client_fd, peer.unwrap_or(SocketAddr::unspecified()))));
+    return Promise<Result<TcpStream, io::Error>>::resolve(Result<TcpStream, io::Error>(
+      ok, TcpStream::from_fd(client_fd, peer.unwrap_or(SocketAddr::unspecified()))));
   }
   if (errno != EAGAIN && errno != EWOULDBLOCK) {
     return Promise<Result<TcpStream, io::Error>>::resolve(

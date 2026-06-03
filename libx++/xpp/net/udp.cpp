@@ -133,7 +133,7 @@ Promise<ssize_t> UdpSocket::send_to(Span<const char> buf, const SocketAddr &addr
 
   auto sio = m_io->scheduled_io();
   auto fd  = m_io->fd();
-  return _::writable(sio).then([fd, buf, ss, len]() -> ssize_t {
+  return runtime::_::writable(sio).then([fd, buf, ss, len]() -> ssize_t {
     return ::sendto(fd, buf.data(), buf.size(), 0, reinterpret_cast<const struct sockaddr *>(&ss),
                     len);
   });
@@ -155,7 +155,7 @@ Promise<RecvFromResult> UdpSocket::recv_from(Span<char> buf) {
 
   auto fd  = m_io->fd();
   auto sio = m_io->scheduled_io();
-  return _::readable(sio).then([fd, buf]() -> RecvFromResult {
+  return runtime::_::readable(sio).then([fd, buf]() -> RecvFromResult {
     struct sockaddr_storage from2;
     socklen_t               len2 = sizeof(from2);
     ssize_t                 n2 =

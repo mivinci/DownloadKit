@@ -31,15 +31,6 @@
 namespace xpp {
 namespace net {
 
-// ScheduledIo and its readiness combinators now live in xpp::runtime
-// (they are part of the runtime's I/O readiness driver). Re-expose them
-// here so the net layer keeps using the short names.
-using runtime::ScheduledIo;
-namespace _ {
-using runtime::_::readable;
-using runtime::_::writable;
-} // namespace _
-
 /* ── PollEvented ───────────────────────────────────────────────────── */
 
 /**
@@ -71,10 +62,10 @@ public:
    * @pre fd must be non-blocking + CLOEXEC (use create_socket).
    * @pre fd must be >= 0.
    */
-  explicit PollEvented(int fd) : m_fd(fd), m_sio(Arc<ScheduledIo>::make(fd)) {}
+  explicit PollEvented(int fd) : m_fd(fd), m_sio(Arc<runtime::ScheduledIo>::make(fd)) {}
 
   /** @brief Tombstone (moved-from) constructor.  fd == -1. */
-  PollEvented(std::nullptr_t) noexcept : m_fd(-1), m_sio(Arc<ScheduledIo>::make(-1)) {}
+  PollEvented(std::nullptr_t) noexcept : m_fd(-1), m_sio(Arc<runtime::ScheduledIo>::make(-1)) {}
 
   PollEvented(PollEvented &&o) noexcept : m_fd(o.m_fd), m_sio(std::move(o.m_sio)) {
     o.m_fd = -1;
@@ -108,12 +99,12 @@ public:
 
   /** @brief Wait until the FD is readable. */
   Promise<void> readable() const {
-    return _::readable(m_sio);
+    return runtime::_::readable(m_sio);
   }
 
   /** @brief Wait until the FD is writable. */
   Promise<void> writable() const {
-    return _::writable(m_sio);
+    return runtime::_::writable(m_sio);
   }
 
   /* ── Async syscall with EAGAIN retry ─────────────────────────────── */
@@ -141,7 +132,8 @@ public:
 
     int  fd  = m_fd;
     auto sio = m_sio;
-    return _::readable(m_sio).then([fd, sio, op, args...]() -> ssize_t { return op(fd, args...); });
+    return runtime::_::readable(m_sio).then(
+      [fd, sio, op, args...]() -> ssize_t { return op(fd, args...); });
   }
 
   /**
@@ -155,7 +147,8 @@ public:
 
     int  fd  = m_fd;
     auto sio = m_sio;
-    return _::writable(m_sio).then([fd, sio, op, args...]() -> ssize_t { return op(fd, args...); });
+    return runtime::_::writable(m_sio).then(
+      [fd, sio, op, args...]() -> ssize_t { return op(fd, args...); });
   }
 
   /* ── FD lifecycle ────────────────────────────────────────────────── */
@@ -176,13 +169,13 @@ public:
   }
 
   /** @brief Access the underlying ScheduledIo (for advanced callers). */
-  Arc<ScheduledIo> scheduled_io() const {
+  Arc<runtime::ScheduledIo> scheduled_io() const {
     return m_sio;
   }
 
 private:
-  int              m_fd;
-  Arc<ScheduledIo> m_sio;
+  int                       m_fd;
+  Arc<runtime::ScheduledIo> m_sio;
 };
 
 } // namespace net

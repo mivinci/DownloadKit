@@ -1079,6 +1079,30 @@ xErrno xHttpResponseSend(xHttpResponseWriter writer, const char *body, size_t bo
 
   struct xHttpStream_ *stream = w->stream;
   struct xHttpConn_   *conn   = stream->conn;
+  struct xHttpServer_ *s      = conn->server;
+
+  /* Inject Alt-Svc header for H3 discovery on TLS connections (RFC 9114 section 3.1.1).
+   * Only on H1TLS / H2 connections (not plain H1, not H3/QUIC itself). */
+  if (s->h3_enabled && conn->handshake_done && !conn->is_quic) {
+    struct xHttpHeader_ *h = (struct xHttpHeader_ *)calloc(1, sizeof(struct xHttpHeader_));
+    if (h) {
+      h->key   = strdup("Alt-Svc");
+      h->value = strdup(s->alt_svc[0] ? s->alt_svc : "h3=\":443\"; ma=3600");
+      if (h->key && h->value) {
+        /* Prepend to header list */
+        if (w->headers_tail) {
+          w->headers_tail->next = h;
+        } else {
+          w->headers = h;
+        }
+        w->headers_tail = h;
+      } else {
+        free(h->key);
+        free(h->value);
+        free(h);
+      }
+    }
+  }
 
   /* Delegate to protocol-specific response serialization */
   conn->proto.send_response(stream, w->status_code, w->headers, body, body_len);

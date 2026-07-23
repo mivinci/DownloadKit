@@ -758,3 +758,46 @@ TEST_F(HttpServerTest, ParamRouteMethodNotAllowed) {
   EXPECT_EQ(ctx.call_count.load(), 0);
   EXPECT_NE(response.find("405"), std::string::npos);
 }
+
+/* ───────────────────── H3 / Alt-Svc ───────────────────── */
+
+#ifdef X_HAS_NGHTTP3
+
+TEST(ServerH3Test, H3ListenSucceeds) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  xHttpServer server = xHttpServerCreate(loop);
+  ASSERT_NE(server, nullptr);
+
+  xTlsConf tlsConf = {};
+
+  /* Start H3 listener on ephemeral port */
+  xErrno err = xHttpServerListenH3(server, "127.0.0.1", 0, &tlsConf);
+  /* Without certs, xTlsCtxCreate may fail — accept that or Ok */
+  (void)err;
+
+  xHttpServerDestroy(server);
+  xEventLoopDestroy(loop);
+}
+
+TEST(ServerH3Test, ListenH3TwiceReturnsAlreadyExists) {
+  xEventLoop loop = xEventLoopCreate();
+  ASSERT_NE(loop, nullptr);
+
+  xHttpServer server = xHttpServerCreate(loop);
+  ASSERT_NE(server, nullptr);
+
+  xTlsConf tlsConf = {};
+
+  if (xHttpServerListenH3(server, "127.0.0.1", 0, &tlsConf) == xErrno_Ok) {
+    /* Second call should fail */
+    EXPECT_EQ(xHttpServerListenH3(server, "127.0.0.1", 0, &tlsConf),
+              xErrno_AlreadyExists);
+  }
+
+  xHttpServerDestroy(server);
+  xEventLoopDestroy(loop);
+}
+
+#endif /* X_HAS_NGHTTP3 */

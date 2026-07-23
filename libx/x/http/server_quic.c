@@ -592,6 +592,9 @@ xErrno xHttpServerListenH3(xHttpServer server, const char *host,
 
   s->h3_enabled = 1;
 
+  /* Build Alt-Svc header value for H1TLS/H2 responses (RFC 9114 section 3.1.1) */
+  snprintf(s->alt_svc, sizeof(s->alt_svc), "h3=\":%u\"; ma=3600", port);
+
   /* Initialize ngtcp2_crypto_ossl */
   ngtcp2_crypto_ossl_init();
 

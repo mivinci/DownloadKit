@@ -200,6 +200,7 @@ XDEF_STRUCT(xHttpServer_) {
   xTlsCtx h3_tls_ctx;      /**< TLS 1.3 context for QUIC          */
   void   *h3_quic_conns;   /**< xMap*: CID bytes → xHttpConn_     */
   int     h3_enabled;      /**< Whether H3 is active (for Alt-Svc) */
+  char    alt_svc[128];     /**< Alt-Svc header value (e.g. h3=":443"; ma=3600) */
 
   /* Routes */
   struct xHttpRoute_ *routes;      /**< Head of route linked list         */

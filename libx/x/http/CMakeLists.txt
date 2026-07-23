@@ -144,7 +144,7 @@ if(XHTTP_BUILD_TESTS)
     endif()
     # Link H3 libraries for integration tests
     if(XHTTP_ENABLE_H3)
-      target_compile_definitions(xhttp_test PRIVATE XHTTP_ENABLE_H3)
+      target_compile_definitions(xhttp_test PRIVATE X_HAS_NGHTTP3 X_HAS_NGTCP2)
       target_link_libraries(xhttp_test PRIVATE Ngtcp2::Ngtcp2 Nghttp3::Nghttp3)
     endif()
     add_test(NAME xhttp_test COMMAND xhttp_test)

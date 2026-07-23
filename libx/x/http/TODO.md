@@ -352,11 +352,11 @@ similar to nghttp2 — same author, same design patterns.
 
 ##### Step 9: Alt-Svc advertisement (0.5 day)
 
-- [ ] 9.1 In `server.c` response path: if `s->h3_enabled`, inject
+- [x] 9.1 In `server.c` response path: if `s->h3_enabled`, inject
   `Alt-Svc: h3=":<port>"` header into every H1TLS and H2 response.
-- [ ] 9.2 Only on TLS connections (plaintext H1 does not advertise H3,
+- [x] 9.2 Only on TLS connections (plaintext H1 does not advertise H3,
   per RFC 9114 section 3.1.1).
-- [ ] 9.3 Support optional explicit `alt_svc` string in server config
+- [x] 9.3 Support optional explicit `alt_svc` string in server config
   (e.g. `h3=":443"; ma=3600`).
 
 **Files**: `server.c` (modify), `server.h` (modify — optional config).

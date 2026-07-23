@@ -278,4 +278,32 @@ typedef xTlsConf xHttpTlsServerConf;
 XCAPI(xErrno) xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port,
                                    const xTlsConf *config);
 
+/* ── HTTP/3 (QUIC) ──────────────────────────────────────────────────────── */
+
+/**
+ * @brief Start listening for HTTP/3 (QUIC) connections over UDP.
+ *
+ * Creates a UDP socket and initializes the QUIC server stack (ngtcp2).
+ * QUIC mandates TLS 1.3 — the @p config must provide a valid certificate
+ * and private key.
+ *
+ * Can be called alongside xHttpServerListenTls() on the same port
+ * (TCP and UDP ports are independent namespaces). When both are active,
+ * the server automatically advertises H3 availability via Alt-Svc on
+ * H1TLS and H2 responses.
+ *
+ * Requires xhttp to be compiled with XHTTP_ENABLE_H3=ON and a
+ * working ngtcp2 + nghttp3 + OpenSSL installation.
+ * Returns xErrno_NotSupported if H3 support was not compiled in.
+ *
+ * @param server  The HTTP server (must not be NULL).
+ * @param host    Bind address (e.g. "0.0.0.0"), or NULL for INADDR_ANY.
+ * @param port    UDP port number to listen on.
+ * @param config  TLS configuration (must not be NULL). Cert and key
+ *                are required for QUIC's TLS 1.3 handshake.
+ * @return        xErrno_Ok on success, or an error code.
+ */
+XCAPI(xErrno) xHttpServerListenH3(xHttpServer server, const char *host, uint16_t port,
+                                   const xTlsConf *config);
+
 #endif /* XHTTP_SERVER_H */

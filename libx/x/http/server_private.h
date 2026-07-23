@@ -163,6 +163,18 @@ XDEF_STRUCT(xHttpConn_) {
   int proto_detected; /**< Whether protocol has been detected */
   int hijacked;       /**< Whether connection was hijacked (WS) */
 
+  /* H3 / QUIC state (used only for QUIC connections) */
+  int   is_quic;          /**< Flag: this is a QUIC connection      */
+  void *quic_conn;        /**< ngtcp2_conn* opaque handle           */
+  void *quic_state;       /**< h3_quic_conn_state_t* (SSL+crypto)   */
+  uint8_t conn_id[20];    /**< Source Connection ID bytes           */
+  size_t  conn_id_len;    /**< Source CID length                     */
+  uint8_t remote_cid[20]; /**< Remote Connection ID bytes           */
+  size_t  remote_cid_len; /**< Remote CID length                     */
+  struct sockaddr_storage remote_addr; /**< Peer UDP address        */
+  xEventTimer quic_timer;    /**< QUIC expiry / loss timer          */
+  int         quic_closing;  /**< QUIC connection closing flag      */
+
   /* Linked list of active connections */
   struct xHttpConn_ *prev;
   struct xHttpConn_ *next;
@@ -179,6 +191,14 @@ XDEF_STRUCT(xHttpServer_) {
   xSocket tls_listen_sock; /**< TLS listening socket              */
   int     tls_listen_fd;   /**< TLS listening socket fd (raw)     */
   xTlsCtx tls_ctx;         /**< TLS context from xTlsCtxCreate()  */
+
+  /* H3 / QUIC listening (separate UDP socket) */
+  xSocket h3_listen_sock;  /**< H3 UDP listening socket           */
+  int     h3_listen_fd;    /**< H3 UDP listening fd (raw)         */
+  int     h3_port;         /**< H3 UDP listen port                */
+  xTlsCtx h3_tls_ctx;      /**< TLS 1.3 context for QUIC          */
+  void   *h3_quic_conns;   /**< xMap*: CID bytes → xHttpConn_     */
+  int     h3_enabled;      /**< Whether H3 is active (for Alt-Svc) */
 
   /* Routes */
   struct xHttpRoute_ *routes;      /**< Head of route linked list         */
@@ -225,5 +245,14 @@ void xHttpConnHijack(struct xHttpConn_ *conn);
 
 /* Internal flush helper (returns 1 if connection was closed) */
 int xHttpConnFlushWriteInternal(struct xHttpConn_ *conn);
+
+/* H3 / QUIC helpers (server_quic.c) */
+#ifdef X_HAS_NGHTTP3
+void xHttpServerQuicCleanup(struct xHttpServer_ *s);
+void xHttpQuicConnDestroy(struct xHttpConn_ *conn);
+void xHttpQuicConnScheduleTimer(struct xHttpConn_ *conn);
+void xHttpQuicConnCancelTimer(struct xHttpConn_ *conn);
+int  xHttpQuicConnSend(struct xHttpConn_ *conn);
+#endif
 
 #endif /* XHTTP_SERVER_PRIVATE_H */

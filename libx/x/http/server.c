@@ -108,6 +108,12 @@ xHttpServer xHttpServerCreate(xEventLoop loop) {
   s->tls_listen_sock = NULL;
   s->tls_listen_fd   = -1;
   s->tls_ctx         = NULL;
+  s->h3_listen_sock  = NULL;
+  s->h3_listen_fd    = -1;
+  s->h3_port         = 0;
+  s->h3_tls_ctx      = NULL;
+  s->h3_quic_conns   = NULL;
+  s->h3_enabled      = 0;
   s->routes          = NULL;
   s->routes_tail     = NULL;
   s->conns           = NULL;
@@ -209,6 +215,11 @@ void xHttpServerDestroy(xHttpServer server) {
     xTlsCtxDestroy(s->tls_ctx);
     s->tls_ctx = NULL;
   }
+
+  /* Clean up H3 / QUIC resources */
+#ifdef X_HAS_NGHTTP3
+  xHttpServerQuicCleanup(s);
+#endif
 
   /* Free routes */
   struct xHttpRoute_ *r = s->routes;
@@ -483,6 +494,24 @@ void xHttpConnClose(struct xHttpConn_ *conn) {
   if (conn->stream) {
     xHttpStreamDestroy(conn->stream);
     conn->stream = NULL;
+  }
+
+  /* Clean up QUIC connection state */
+  if (conn->is_quic) {
+#ifdef X_HAS_NGHTTP3
+    /* Remove CID from lookup map */
+    if (conn->conn_id_len > 0 && s->h3_quic_conns) {
+      char cid_hex[41];
+      static const char hex[] = "0123456789abcdef";
+      for (size_t i = 0; i < conn->conn_id_len; i++) {
+        cid_hex[i * 2]     = hex[(conn->conn_id[i] >> 4) & 0xf];
+        cid_hex[i * 2 + 1] = hex[conn->conn_id[i] & 0xf];
+      }
+      cid_hex[conn->conn_id_len * 2] = '\0';
+      xMapDel(s->h3_quic_conns, cid_hex);
+    }
+    xHttpQuicConnDestroy(conn);
+#endif
   }
 
   free(conn);

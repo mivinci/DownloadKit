@@ -11,6 +11,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/socket.h>
 
 #include <x/base/base.h>
 #include <x/base/event.h>

@@ -40,7 +40,7 @@ find_library(Ngtcp2_LIBRARY
 
 # Also need the crypto helper (ngtcp2_crypto_openssl)
 find_library(Ngtcp2_Crypto_LIBRARY
-  NAMES ngtcp2_crypto_openssl
+  NAMES ngtcp2_crypto_ossl ngtcp2_crypto_openssl
   PATHS
     /usr/lib
     /usr/local/lib

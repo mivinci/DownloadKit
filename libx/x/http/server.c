@@ -23,6 +23,7 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <x/base/log.h>
+#include <x/base/map.h>
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Forward declarations

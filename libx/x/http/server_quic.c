@@ -28,6 +28,8 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <time.h>
 #include <x/base/log.h>
 #include <x/base/map.h>
 
@@ -60,7 +62,7 @@ typedef struct {
  */
 
 static void h3_on_listen_event(xSocket sock, xEventMask mask, void *arg);
-static void h3_on_quic_timer(xEventTimer timer, void *arg);
+static void h3_on_quic_timer(void *arg);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Helpers
@@ -68,8 +70,9 @@ static void h3_on_quic_timer(xEventTimer timer, void *arg);
  */
 
 static ngtcp2_tstamp h3_timestamp(void) {
-  /* ngtcp2 expects timestamps in nanoseconds */
-  return (ngtcp2_tstamp)xClockMonotonicNs();
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (ngtcp2_tstamp)ts.tv_sec * 1000000000ULL + (ngtcp2_tstamp)ts.tv_nsec;
 }
 
 static void h3_rand_cb(uint8_t *dest, size_t destlen,
@@ -113,6 +116,7 @@ static int h3_recv_stream_data_cb(ngtcp2_conn *quic_conn,
   struct xHttpConn_ *conn = (struct xHttpConn_ *)user_data;
   (void)quic_conn;
   (void)flags;
+  (void)stream_id;
   (void)offset;
   (void)stream_user_data;
 
@@ -122,11 +126,13 @@ static int h3_recv_stream_data_cb(ngtcp2_conn *quic_conn,
 
 static int h3_acked_stream_data_cb(ngtcp2_conn *quic_conn,
                                     int64_t stream_id,
-                                    uint64_t datalen, void *user_data,
+                                    uint64_t datalen, uint64_t app_datalen,
+                                    void *user_data,
                                     void *stream_user_data) {
   (void)quic_conn;
   (void)stream_id;
   (void)datalen;
+  (void)app_datalen;
   (void)user_data;
   (void)stream_user_data;
   /* nghttp3 handles stream-level flow control internally */
@@ -135,6 +141,7 @@ static int h3_acked_stream_data_cb(ngtcp2_conn *quic_conn,
 
 static int h3_handshake_completed_cb(ngtcp2_conn *quic_conn, void *user_data) {
   struct xHttpConn_ *conn = (struct xHttpConn_ *)user_data;
+  (void)quic_conn;
   xLog(false, "xhttp h3: handshake completed (conn=%p)", (void *)conn);
   return 0;
 }
@@ -232,7 +239,6 @@ static int h3_quic_conn_init(struct xHttpConn_ *conn, const ngtcp2_cid *dcid,
   ngtcp2_settings_default_versioned(
     NGTCP2_SETTINGS_VERSION, &settings);
   settings.initial_ts  = h3_timestamp();
-  settings.max_idle_timeout_ms = H3_QUIC_IDLE_TIMEOUT_MS;
   settings.max_tx_udp_payload_size = H3_MAX_PKT_SIZE;
 
   /* Transport params */
@@ -243,7 +249,7 @@ static int h3_quic_conn_init(struct xHttpConn_ *conn, const ngtcp2_cid *dcid,
   params.initial_max_stream_data_bidi_local  = 1048576;
   params.initial_max_stream_data_bidi_remote = 1048576;
   params.initial_max_data                    = 4194304;
-  params.max_idle_timeout_ms                 = H3_QUIC_MAX_IDLE_TIMEOUT_MS;
+  params.max_idle_timeout                    = H3_QUIC_MAX_IDLE_TIMEOUT_MS;
 
   /* Create ngtcp2 server connection */
   ngtcp2_cid scid_copy = *scid;
@@ -327,9 +333,8 @@ void xHttpQuicConnCancelTimer(struct xHttpConn_ *conn) {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-static void h3_on_quic_timer(xEventTimer timer, void *arg) {
+static void h3_on_quic_timer(void *arg) {
   struct xHttpConn_ *conn = (struct xHttpConn_ *)arg;
-  (void)timer;
 
   ngtcp2_conn *quic_conn = (ngtcp2_conn *)conn->quic_conn;
   if (!quic_conn) return;
@@ -366,11 +371,10 @@ int xHttpQuicConnSend(struct xHttpConn_ *conn) {
 
     nwrite = ngtcp2_conn_write_pkt_versioned(
       quic, &path, NGTCP2_PKT_INFO_VERSION, &pkt_info,
-      buf, sizeof(buf), h3_timestamp(),
-      NGTCP2_WRITE_PKT_FLAG_NONE);
+      buf, sizeof(buf), h3_timestamp());
 
     if (nwrite < 0) {
-      if (nwrite == NGTCP2_ERR_WOULDBLOCK) break;
+      if (nwrite == NGTCP2_ERR_WRITE_MORE) continue;
       xLog(false, "xhttp h3: write_pkt error: %s",
            ngtcp2_strerror((int)nwrite));
       return -1;
@@ -527,7 +531,7 @@ xErrno xHttpServerListenH3(xHttpServer server, const char *host,
 #else
   if (s->h3_listen_fd >= 0) {
     /* Already listening */
-    return xErrno_Already;
+    return xErrno_AlreadyExists;
   }
 
   /* Build address */
@@ -541,7 +545,7 @@ xErrno xHttpServerListenH3(xHttpServer server, const char *host,
   int fd = socket(AF_INET, SOCK_DGRAM, 0);
   if (fd < 0) {
     xLog(false, "xhttp h3: socket() failed: %s", strerror(errno));
-    return xErrno_System;
+    return xErrno_InvalidArg;
   }
 
   int on = 1;
@@ -550,7 +554,7 @@ xErrno xHttpServerListenH3(xHttpServer server, const char *host,
   if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
     xLog(false, "xhttp h3: bind() failed: %s", strerror(errno));
     close(fd);
-    return xErrno_System;
+    return xErrno_InvalidArg;
   }
 
   /* Wrap in xSocket for event loop integration */
@@ -567,7 +571,7 @@ xErrno xHttpServerListenH3(xHttpServer server, const char *host,
   /* Create TLS context for QUIC */
   s->h3_tls_ctx = xTlsCtxCreate(config);
   if (!s->h3_tls_ctx) {
-    xSocketDestroy(s->h3_listen_sock);
+    xSocketDestroy(s->loop, s->h3_listen_sock);
     s->h3_listen_sock = NULL;
     s->h3_listen_fd   = -1;
     close(fd);
@@ -575,11 +579,11 @@ xErrno xHttpServerListenH3(xHttpServer server, const char *host,
   }
 
   /* Create CID → connection lookup map */
-  s->h3_quic_conns = xMapCreate(xMapType_Default, 32, xMapStrHash, xMapStrEq);
+  s->h3_quic_conns = xMapCreate(xMapType_Hash, 32, xMapStrHash, xMapStrEq);
   if (!s->h3_quic_conns) {
     xTlsCtxDestroy(s->h3_tls_ctx);
     s->h3_tls_ctx = NULL;
-    xSocketDestroy(s->h3_listen_sock);
+    xSocketDestroy(s->loop, s->h3_listen_sock);
     s->h3_listen_sock = NULL;
     s->h3_listen_fd   = -1;
     close(fd);
@@ -611,7 +615,7 @@ void xHttpServerQuicCleanup(struct xHttpServer_ *s) {
 
   if (s->h3_listen_fd >= 0) {
     if (s->h3_listen_sock) {
-      xSocketDestroy(s->h3_listen_sock);
+      xSocketDestroy(s->loop, s->h3_listen_sock);
       s->h3_listen_sock = NULL;
     }
     s->h3_listen_fd = -1;

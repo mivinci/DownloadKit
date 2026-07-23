@@ -1,0 +1,23 @@
+# xhttp — public API export allowlist
+#
+# Every XCAPI function declared in libx/x/http/server.h must appear
+# in this list.  The CI pipeline diffs the current branch against
+# origin/main and fails if a newly-added XCAPI is not present here.
+#
+# Format: one function name per line.  Comments start with '#'.
+
+xHttpServerCreate
+xHttpServerDestroy
+xHttpServerListen
+xHttpServerListenTls
+xHttpServerListenH3
+xHttpServerRoute
+xHttpRequestParam
+xHttpResponseSetStatus
+xHttpResponseSetHeader
+xHttpResponseSend
+xHttpResponseWrite
+xHttpResponseEnd
+xHttpServerSetIdleTimeout
+xHttpServerSetMaxHeaderSize
+xHttpServerSetMaxBodySize

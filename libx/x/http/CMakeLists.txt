@@ -134,6 +134,8 @@ if(XHTTP_BUILD_TESTS)
   file(GLOB_RECURSE XHTTP_TEST_SOURCES "*_test.cpp")
   if(XHTTP_TEST_SOURCES)
     add_executable(xhttp_test ${XHTTP_TEST_SOURCES})
+    target_compile_definitions(xhttp_test PRIVATE
+      XHTTP_TEST_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(xhttp_test PRIVATE xhttp Nghttp2::Nghttp2 GTest::gtest_main)
     # Link TLS library for integration tests (client-side TLS)
     if(TARGET OpenSSL::SSL)

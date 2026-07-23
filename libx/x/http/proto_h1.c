@@ -140,7 +140,9 @@ static int on_message_complete(llhttp_t *parser) {
  *           0 = need more data
  *          -1 = parse error
  */
-static int h1_on_data(struct xHttpConn_ *conn, const char *buf, size_t len) {
+static int h1_on_data(struct xHttpConn_ *conn, const char *buf, size_t len,
+                       int64_t stream_id) {
+  (void)stream_id;
   xHttpProtoH1 *h1 = (xHttpProtoH1 *)conn->proto.state;
 
   enum llhttp_errno err = llhttp_execute(&h1->parser, buf, len);

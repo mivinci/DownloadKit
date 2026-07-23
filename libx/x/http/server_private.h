@@ -97,7 +97,7 @@ XDEF_STRUCT(xHttpResponseWriter_) {
  */
 XDEF_STRUCT(xHttpProto) {
   /* Data ingestion */
-  int (*on_data)(struct xHttpConn_ *conn, const char *buf, size_t len);
+  int (*on_data)(struct xHttpConn_ *conn, const char *buf, size_t len, int64_t stream_id);
   /* Connection lifecycle */
   void (*reset)(struct xHttpConn_ *conn);
   void (*destroy)(struct xHttpConn_ *conn);

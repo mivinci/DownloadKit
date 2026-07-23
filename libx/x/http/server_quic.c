@@ -116,12 +116,11 @@ static int h3_recv_stream_data_cb(ngtcp2_conn *quic_conn,
   struct xHttpConn_ *conn = (struct xHttpConn_ *)user_data;
   (void)quic_conn;
   (void)flags;
-  (void)stream_id;
   (void)offset;
   (void)stream_user_data;
 
-  /* Feed stream data to the HTTP/3 protocol handler */
-  return conn->proto.on_data(conn, (const char *)data, datalen);
+  /* Feed stream data to the HTTP/3 protocol handler with stream routing */
+  return conn->proto.on_data(conn, (const char *)data, datalen, stream_id);
 }
 
 static int h3_acked_stream_data_cb(ngtcp2_conn *quic_conn,

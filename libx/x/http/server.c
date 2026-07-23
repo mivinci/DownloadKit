@@ -689,7 +689,7 @@ static void on_conn_event(xSocket sock, xEventMask mask, void *arg) {
       xIOBufferCopyTo(&conn->read_buf, linear);
       xIOBufferConsume(&conn->read_buf, buf_len);
 
-      int rc = conn->proto.on_data(conn, linear, buf_len);
+      int rc = conn->proto.on_data(conn, linear, buf_len, 0 /* H1/H2 */);
       free(linear);
 
       if (rc < 0) {

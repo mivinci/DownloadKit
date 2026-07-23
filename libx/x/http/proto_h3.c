@@ -56,6 +56,10 @@ XDEF_STRUCT(xHttpProtoH3) {
 XDEF_STRUCT(xH3StreamData) {
   struct xHttpStream_ *stream;
   char                *method;
+  /* For h3_body_read callback — set before flushing responses */
+  const uint8_t       *body_data;
+  size_t               body_len;
+  size_t               body_pos;
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -325,17 +329,17 @@ static int h3_stream_close_cb(nghttp3_conn *h3_conn, int64_t stream_id,
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-static int h3_on_data(struct xHttpConn_ *conn, const char *buf, size_t len) {
+static int h3_on_data(struct xHttpConn_ *conn, const char *buf, size_t len,
+                       int64_t stream_id) {
   xHttpProtoH3 *h3 = (xHttpProtoH3 *)conn->proto.state;
   if (!h3 || !h3->h3_conn) return -1;
 
   h3->pending_count = 0;
 
-  /* Feed data to nghttp3. stream_id should come from QUIC context
-   * (h3_recv_stream_data_cb in server_quic.c passes it). For now
-   * we pass 0 and use the callback-based per-stream routing. */
+  /* Feed data to nghttp3 with the QUIC stream_id */
+  int finish = 0;
   nghttp3_ssize consumed = nghttp3_conn_read_stream(
-    h3->h3_conn, 0, (const uint8_t *)buf, len, 0);
+    h3->h3_conn, stream_id, (const uint8_t *)buf, len, finish);
 
   if (consumed < 0) {
     xLog(false, "xhttp h3: read_stream error: %s",
@@ -396,32 +400,27 @@ static int h3_should_keep_alive(struct xHttpConn_ *conn) {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-/* Body reader for inline response body.
- * Uses a malloc'd buffer stored in xH3StreamData. */
-typedef struct { uint8_t *data; size_t len; size_t pos; } h3_body_src;
-
 static nghttp3_ssize h3_body_read(nghttp3_conn *conn, int64_t stream_id,
                                    nghttp3_vec *vec, size_t veccnt,
                                    uint32_t *pflags, void *user_data,
                                    void *stream_user_data) {
-  (void)conn; (void)stream_id; (void)vec; (void)veccnt; (void)user_data;
-  /* Body data is stored in the per-stream xH3StreamData context.
-   * For inline responses, we use a temporary source that gets freed
-   * after h3_flush_responses returns. */
-  xH3StreamData *sd = (xH3StreamData *)stream_user_data;
-  h3_body_src   *src = NULL;
+  (void)conn; (void)stream_id; (void)user_data;
 
-  if (sd && sd->stream && sd->stream->body) {
-    /* Read from stream body (for POST echo / test scenarios) */
-    /* This is a simplified path; actual body delivery uses a
-     * separately stored h3_body_src. For MVP, we just read the
-     * body buffer directly. */
+  xH3StreamData *sd = (xH3StreamData *)stream_user_data;
+  if (!sd || !sd->body_data || sd->body_pos >= sd->body_len) {
+    *pflags |= NGHTTP3_DATA_FLAG_EOF;
     return 0;
   }
 
-  (void)src;
-  *pflags |= NGHTTP3_DATA_FLAG_EOF;
-  return 0;
+  size_t remaining = sd->body_len - sd->body_pos;
+  vec[0].base = (uint8_t *)(sd->body_data + sd->body_pos);
+  vec[0].len  = remaining;
+  sd->body_pos = sd->body_len;
+
+  if (veccnt > 0) {
+    *pflags |= NGHTTP3_DATA_FLAG_EOF;
+  }
+  return 1;
 }
 
 static int h3_send_response(struct xHttpStream_ *stream, int status,
@@ -462,36 +461,38 @@ static int h3_send_response(struct xHttpStream_ *stream, int status,
   }
 
   int rv;
-  nghttp3_data_reader dr = {0};
-  h3_body_src *body_buf = NULL;
+
+  /* Store body in per-stream data for h3_body_read to access */
+  xH3StreamData *sd = (xH3StreamData *)nghttp3_conn_get_stream_user_data(
+    h3->h3_conn, stream->stream_id);
 
   if (body && body_len > 0) {
-    body_buf = (h3_body_src *)malloc(sizeof(h3_body_src));
-    if (!body_buf) { free(nva); return -1; }
-    body_buf->data = (uint8_t *)malloc(body_len);
-    if (!body_buf->data) { free(body_buf); free(nva); return -1; }
-    memcpy(body_buf->data, body, body_len);
-    body_buf->len = body_len;
-    body_buf->pos = 0;
-    dr.read_data = h3_body_read;
+    nghttp3_data_reader dr = {h3_body_read};
+    /* Body data must outlive the flush — store in stream user data */
+    if (sd) {
+      sd->body_data = (const uint8_t *)body;
+      sd->body_len  = body_len;
+      sd->body_pos  = 0;
+    }
+    rv = nghttp3_conn_submit_response(
+      h3->h3_conn, stream->stream_id, nva, (size_t)nheader, &dr);
+  } else {
+    rv = nghttp3_conn_submit_response(
+      h3->h3_conn, stream->stream_id, nva, (size_t)nheader, NULL);
   }
-
-  rv = nghttp3_conn_submit_response(
-    h3->h3_conn, stream->stream_id, nva, (size_t)nheader,
-    body_buf ? &dr : NULL);
   free(nva);
 
   if (rv != 0) {
-    if (body_buf) { free(body_buf->data); free(body_buf); }
     xLog(false, "xhttp h3: submit_response error: %s",
          nghttp3_strerror(rv));
     return -1;
   }
 
-  /* Flush now — the data_reader will be called during writev_stream */
+  /* Flush now — the data_reader callback will fire during writev_stream */
   rv = h3_flush_responses(conn);
 
-  if (body_buf) { free(body_buf->data); free(body_buf); }
+  /* Clear body data after flush */
+  if (sd) { sd->body_data = NULL; sd->body_len = 0; sd->body_pos = 0; }
   return rv;
 }
 
@@ -501,7 +502,7 @@ static int h3_write_data(struct xHttpStream_ *stream,
   xHttpProtoH3      *h3   = (xHttpProtoH3 *)conn->proto.state;
 
   if (!stream->writer.streaming) {
-    /* First call: submit headers (inline, no body) */
+    /* First call: submit headers with a data reader */
     stream->writer.streaming = 1;
 
     int                  nheader = 1;
@@ -519,23 +520,42 @@ static int h3_write_data(struct xHttpStream_ *stream,
     nva[0].valuelen = (size_t)status_len;
     nva[0].flags    = NGHTTP3_NV_FLAG_NO_COPY_NAME;
 
-    /* For streaming, we need a data_reader that reads lazily.
-     * For now: submit response without body, then submit_data chunks. */
-    nghttp3_data_reader dr;
-    dr.read_data = h3_body_read;
-    h3_body_src *src = (h3_body_src *)calloc(1, sizeof(h3_body_src));
-    /* The reader will read from src; we'll update src on each write */
+    int i = 1;
+    h = stream->writer.headers;
+    while (h) {
+      for (char *p = h->key; *p; p++)
+        *p = (char)tolower((unsigned char)*p);
+      nva[i].name     = (uint8_t *)h->key;
+      nva[i].namelen  = strlen(h->key);
+      nva[i].value    = (uint8_t *)h->value;
+      nva[i].valuelen = strlen(h->value);
+      nva[i].flags    = NGHTTP3_NV_FLAG_NO_COPY_NAME | NGHTTP3_NV_FLAG_NO_COPY_VALUE;
+      i++;
+      h = h->next;
+    }
+
+    nghttp3_data_reader dr = {h3_body_read};
     int rv = nghttp3_conn_submit_response(
       h3->h3_conn, stream->stream_id, nva, (size_t)nheader, &dr);
     free(nva);
-    if (rv != 0) { free(src); return -1; }
-    /* FIXME: store src in stream context for deferred reads */
-    free(src);
+    if (rv != 0) return -1;
   }
 
-  (void)data;
-  (void)len;
-  /* FIXME: streaming via nghttp3_conn_resume_stream + data reader update */
+  /* Store body chunk in per-stream data, then flush */
+  xH3StreamData *sd = (xH3StreamData *)nghttp3_conn_get_stream_user_data(
+    h3->h3_conn, stream->stream_id);
+  if (!sd || !data) return -1;
+
+  sd->body_data = (const uint8_t *)data;
+  sd->body_len  = len;
+  sd->body_pos  = 0;
+
+  nghttp3_conn_resume_stream(h3->h3_conn, stream->stream_id);
+  h3_flush_responses(conn);
+
+  sd->body_data = NULL;
+  sd->body_len  = 0;
+  sd->body_pos  = 0;
   return 0;
 }
 

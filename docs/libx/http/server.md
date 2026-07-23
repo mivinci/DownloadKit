@@ -262,6 +262,7 @@ All pointers are valid only for the duration of the handler callback.
 | `xHttpServerCreate` | `xHttpServer xHttpServerCreate(xEventLoop loop)` | Create a server bound to an event loop. |
 | `xHttpServerListen` | `xErrno xHttpServerListen(xHttpServer server, const char *host, uint16_t port)` | Start listening on the given address and port. |
 | `xHttpServerListenTls` | `xErrno xHttpServerListenTls(xHttpServer server, const char *host, uint16_t port, const xTlsConf *config)` | Start listening for HTTPS connections with TLS. ALPN selects H1/H2. Can coexist with `Listen` on a different port. Returns `xErrno_NotSupported` if no TLS backend was compiled. |
+| `xHttpServerListenH3` | `xErrno xHttpServerListenH3(xHttpServer server, const char *host, uint16_t port, const xTlsConf *config)` | Start listening for HTTP/3 (QUIC) over UDP. Requires `XHTTP_ENABLE_H3=ON` and `ngtcp2`+`nghttp3`+OpenSSL. Can coexist with `ListenTls` on the same port (TCP/UDP independent). When H3 is active, Alt-Svc is automatically advertised on H1TLS/H2 responses. Returns `xErrno_NotSupported` if H3 was not compiled in. |
 | `xHttpServerDestroy` | `void xHttpServerDestroy(xHttpServer server)` | Destroy server, close all connections, free all routes. |
 
 ### Route Registration
@@ -294,7 +295,7 @@ All pointers are valid only for the duration of the handler callback.
 | `xHttpServerSetMaxHeaderSize` | `xErrno xHttpServerSetMaxHeaderSize(xHttpServer server, size_t max_size)` | Set max header size. Exceeding → 431. | 8192 bytes |
 | `xHttpServerSetMaxBodySize` | `xErrno xHttpServerSetMaxBodySize(xHttpServer server, size_t max_size)` | Set max body size. Exceeding → 413. | 1048576 bytes |
 
-All configuration functions must be called **before** `xHttpServerListen()` / `xHttpServerListenTls()`.
+All configuration functions must be called **before** `xHttpServerListen()` / `xHttpServerListenTls()` / `xHttpServerListenH3()`.
 
 ### TLS Configuration
 

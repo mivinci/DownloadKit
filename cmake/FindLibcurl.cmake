@@ -72,6 +72,18 @@ else()
   # Our FindNghttp2.cmake will fetch it from source if not installed.
   find_package(Nghttp2 REQUIRED)
 
+  # Try to find ngtcp2 + nghttp3 for HTTP/3 support (optional).
+  # If both are found, enable HTTP/3 in the curl build.
+  set(_curl_h3_enabled OFF)
+  find_package(Ngtcp2 QUIET)
+  find_package(Nghttp3 QUIET)
+  if(Ngtcp2_FOUND AND Nghttp3_FOUND)
+    set(_curl_h3_enabled ON)
+    message(STATUS "FindLibcurl: HTTP/3 support enabled (ngtcp2 + nghttp3)")
+  else()
+    message(STATUS "FindLibcurl: HTTP/3 support disabled (ngtcp2/nghttp3 not found)")
+  endif()
+
   # If nghttp2 was built from source via FetchContent, curl's internal
   # find_package(NGHTTP2) won't find it. We set the hint variables and
   # create the target that curl expects.
@@ -116,6 +128,12 @@ else()
 
   # ── HTTP/2: use nghttp2 ──
   set(USE_NGHTTP2       ON  CACHE BOOL "" FORCE)
+
+  # ── HTTP/3: use ngtcp2 + nghttp3 (optional) ──
+  if(_curl_h3_enabled)
+    set(CURL_USE_NGTCP2  ON  CACHE BOOL "" FORCE)
+    set(CURL_USE_NGHTTP3 ON  CACHE BOOL "" FORCE)
+  endif()
 
   # ── Disable unused protocols / features to speed up build ──
   set(CURL_DISABLE_LDAP    ON CACHE BOOL "" FORCE)

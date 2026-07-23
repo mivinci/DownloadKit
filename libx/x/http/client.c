@@ -35,6 +35,9 @@ static void apply_http_version(CURL *easy, xHttpVersion ver) {
   case xHttpVersion_H2C:
     curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
     break;
+  case xHttpVersion_H3:
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_3);
+    break;
   default:
     break; /* xHttpVersion_Default — use libcurl default */
   }

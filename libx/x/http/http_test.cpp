@@ -687,6 +687,112 @@ TEST_F(IntegrationTest, H1EmptyBodyResponse) {
   EXPECT_TRUE(ctx.body.empty());
 }
 
+/* ───────────────────── H3 config path (fallback to H1/H2 on local server) ───────────────────── */
+
+TEST_F(IntegrationTest, H3ConfigGet) {
+  xHttpServerRoute(server, "GET /hello", hello_handler, nullptr);
+  listen_and_pump();
+
+  RespCtx     ctx;
+  std::string url = make_url("/hello");
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url          = url.c_str();
+  config.method       = xHttpMethod_GET;
+  config.http_version = xHttpVersion_H3;
+
+  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "H3 request timed out";
+  /* H3 will fallback to H1/H2 if server does not support it */
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_EQ(ctx.body, "hello");
+}
+
+TEST_F(IntegrationTest, H3ConfigPost) {
+  xHttpServerRoute(server, "POST /echo", echo_body_handler, nullptr);
+  listen_and_pump();
+
+  RespCtx     ctx;
+  std::string url  = make_url("/echo");
+  const char *body = "h3-post-test";
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url          = url.c_str();
+  config.method       = xHttpMethod_POST;
+  config.body         = body;
+  config.body_len     = strlen(body);
+  config.http_version = xHttpVersion_H3;
+
+  xErrno err = xHttpClientDo(client, &config, on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "H3 POST request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_EQ(ctx.body, body);
+}
+
+TEST_F(IntegrationTest, H3ClientDefault) {
+  xHttpServerRoute(server, "GET /hello", hello_handler, nullptr);
+  listen_and_pump();
+
+  /* Recreate client with H3 as default version */
+  xHttpClientDestroy(client);
+  xHttpClientConf conf = {};
+  conf.http_version    = xHttpVersion_H3;
+  client               = xHttpClientCreate(loop, &conf);
+  ASSERT_NE(client, nullptr);
+
+  RespCtx     ctx;
+  std::string url = make_url("/hello");
+
+  /* Convenience API — should inherit client default H3 */
+  xErrno err = xHttpClientGet(client, url.c_str(), on_resp, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "H3 default client request timed out";
+  EXPECT_EQ(ctx.curl_code, 0);
+  EXPECT_EQ(ctx.status_code, 200);
+  EXPECT_EQ(ctx.body, "hello");
+}
+
+TEST_F(IntegrationTest, H3ConfigSse) {
+  xHttpServerRoute(server, "GET /events", sse_handler, nullptr);
+  listen_and_pump();
+
+  SseTestCtx  ctx;
+  std::string url = make_url("/events");
+
+  xHttpRequestConf config;
+  memset(&config, 0, sizeof(config));
+  config.url          = url.c_str();
+  config.method       = xHttpMethod_GET;
+  config.http_version = xHttpVersion_H3;
+
+  xErrno err = xHttpClientDoSse(client, &config, on_sse_ev, on_sse_end, &ctx);
+  ASSERT_EQ(err, xErrno_Ok);
+
+  pump_until_bool(loop, ctx.done, 5000);
+
+  ASSERT_TRUE(ctx.done.load()) << "H3 SSE stream did not finish";
+  EXPECT_EQ(ctx.done_curl_code, 0);
+  ASSERT_EQ(ctx.event_count.load(), 3);
+  EXPECT_EQ(ctx.data[0], "alpha");
+  EXPECT_EQ(ctx.data[1], "beta");
+  EXPECT_EQ(ctx.data[2], "gamma");
+}
+
 /* ───────────────────── Concurrent H1 + H2C requests ───────────────────── */
 
 TEST_F(IntegrationTest, ConcurrentH1AndH2c) {

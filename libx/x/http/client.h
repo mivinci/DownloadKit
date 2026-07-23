@@ -68,6 +68,7 @@ XDEF_ENUM(xHttpVersion){
   xHttpVersion_H2      = 2, /**< HTTP/2 with TLS (ALPN), fallback to H1      */
   xHttpVersion_H2TLS   = 3, /**< HTTP/2 over TLS only, no fallback           */
   xHttpVersion_H2C     = 4, /**< HTTP/2 cleartext (Prior Knowledge)           */
+  xHttpVersion_H3      = 5, /**< HTTP/3 over QUIC (requires ngtcp2+nghttp3)  */
 };
 
 /**
